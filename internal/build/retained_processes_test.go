@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -196,5 +197,54 @@ func TestSharedRetainedProcessStoreStaysBoundedAcrossALongSession(t *testing.T) 
 	pruneRetainedProcessState(workspace)
 	if _, err := os.Lstat(adopted); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the next collection kept an archive no recipe references: %v", err)
+	}
+}
+
+func TestRecordingAdmissionIsMachineWideAndYieldsToForegroundLinks(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	root, err := sharedBinaryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		defer cancel()
+		release, err := acquireRetainedRecordingSlotEvery(ctx, time.Millisecond)
+		if err == nil {
+			release()
+			return false
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal(err)
+		}
+		return true
+	}
+	release, err := acquireRetainedRecordingSlotEvery(context.Background(), time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The lease is a lock file shared by every supervisor on the machine, so a
+	// second recording waits whichever process asks.
+	if !blocked() {
+		t.Fatal("a second recording was admitted beside a running one")
+	}
+	release()
+	if blocked() {
+		t.Fatal("a released recording lease was not reusable")
+	}
+	// A foreground link of any worktree, queued or running, goes first.
+	_, releaseTicket, err := createSharedBinaryLease(filepath.Join(root, "queue"), "00000000000000000001-0000000001-00000000000000000001.ticket")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !blocked() {
+		t.Fatal("a recording started while a foreground link was queued")
+	}
+	releaseTicket()
+	if blocked() {
+		t.Fatal("a recording stayed blocked after the foreground link finished")
+	}
+	if parallelism := retainedRecordingParallelism(); parallelism < 2 || parallelism > max(2, runtime.NumCPU()) {
+		t.Fatalf("recording parallelism = %d", parallelism)
 	}
 }

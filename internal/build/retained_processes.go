@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -53,10 +55,54 @@ var (
 	// build found incompatible, so the committed pointer to it does not count
 	// as a usable recipe and a replacement is captured.
 	retainedProcessRejected sync.Map
-	// One capture rebuilds a complete closure with every core it can use, so a
-	// workspace records one recipe at a time however many entrypoints wait.
-	retainedProcessCaptureSlot = make(chan struct{}, 1)
 )
+
+// retainedRecordingPoll is how often a waiting recording checks whether the
+// machine can admit it.
+const retainedRecordingPoll = 250 * time.Millisecond
+
+// acquireRetainedRecordingSlot admits one recipe recording on the whole
+// machine. A recording rebuilds a complete closure, so the admission is shared
+// by every supervisor and worktree through the same host-wide state as the
+// foreground link queue, and a recording starts only while no foreground link
+// is queued or running: interactive builds of any worktree go first.
+func acquireRetainedRecordingSlot(ctx context.Context) (func(), error) {
+	return acquireRetainedRecordingSlotEvery(ctx, retainedRecordingPoll)
+}
+
+func acquireRetainedRecordingSlotEvery(ctx context.Context, poll time.Duration) (func(), error) {
+	root, err := sharedBinaryRoot()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		tickets, err := sharedBinaryActiveTickets(filepath.Join(root, "queue"))
+		if err != nil {
+			return nil, err
+		}
+		if len(tickets) == 0 {
+			release, acquired, err := trySharedBinaryLock(filepath.Join(root, "slots", "recording.lock"))
+			if err != nil {
+				return nil, err
+			}
+			if acquired {
+				return release, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(poll):
+		}
+	}
+}
+
+// retainedRecordingParallelism bounds the tool actions of one recording to a
+// quarter of the cores, so its compiler processes and their memory stay a
+// fraction of what a foreground build of the same closure may use.
+func retainedRecordingParallelism() int {
+	return max(2, runtime.NumCPU()/4)
+}
 
 func retainedProcessRoots(workspace string) (root, shared string, err error) {
 	base, err := retainedNativeRoot(workspace)
@@ -237,6 +283,7 @@ func runRetainedProcessRecipe(ctx context.Context, result *Result, target retain
 		CaptureMode: "retained",
 	})
 	releaseSlot()
+	recordRetainedNativeSteps(ctx, started, buildResult, buildErr)
 	if buildErr != nil || buildResult.Status != "supported_and_rebuilt" {
 		return buildResult, nil, buildErr
 	}
@@ -247,7 +294,7 @@ func runRetainedProcessRecipe(ctx context.Context, result *Result, target retain
 	if err := writeRetainedNativeRecipe(loaded.recipePath, next); err != nil {
 		return buildResult, nil, fmt.Errorf("publish retained compiler state of %s: %w", target.name, err)
 	}
-	if err := publishRetainedNativeBinary(candidate, target.output); err != nil {
+	if err := publishRetainedProcessBinary(candidate, target.output); err != nil {
 		return buildResult, nil, fmt.Errorf("publish retained development process %s: %w", target.name, err)
 	}
 	RecordStep(ctx, Step{
@@ -256,6 +303,19 @@ func runRetainedProcessRecipe(ctx context.Context, result *Result, target retain
 		PackagesRebuilt: buildResult.RebuiltPackages, PackagesRebuiltAvailable: true, ExecutableBytes: buildResult.ExecutableBytes,
 	})
 	return buildResult, next, nil
+}
+
+// publishRetainedProcessBinary moves a linked entrypoint to its content-keyed
+// path, as the stock build of an entrypoint does; a candidate on another
+// filesystem is copied instead.
+func publishRetainedProcessBinary(candidate, output string) error {
+	if err := os.Chmod(candidate, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(candidate, output); err == nil {
+		return nil
+	}
+	return publishRetainedNativeBinary(candidate, output)
 }
 
 // captureRetainedProcessRecipes records a recipe for an entrypoint the session
@@ -293,14 +353,13 @@ func captureRetainedProcessRecipes(ctx context.Context, result *Result, targets 
 			defer release()
 			ctx, cancel := context.WithTimeout(ctx, retainedProcessBootstrap)
 			defer cancel()
-			select {
-			case retainedProcessCaptureSlot <- struct{}{}:
-				defer func() { <-retainedProcessCaptureSlot }()
-			case <-ctx.Done():
+			releaseSlot, err := acquireRetainedRecordingSlot(ctx)
+			if err != nil {
 				return
 			}
+			defer releaseSlot()
 			started := time.Now()
-			err := captureRetainedProcessRecipe(ctx, workspace, environment, configuration, targetRoot, shared, recorder, target)
+			err = captureRetainedProcessRecipe(ctx, workspace, environment, configuration, targetRoot, shared, recorder, target)
 			RecordStep(ctx, Step{
 				Name: "build.recipe_capture", StartedAt: started, Duration: time.Since(started), Cache: "miss",
 				Reason: captureReason(target.name, err), OK: err == nil,
@@ -363,7 +422,7 @@ func captureRetainedProcessRecipe(ctx context.Context, workspace string, environ
 	}
 	candidate := filepath.Join(recipeRoot, "candidate")
 	args := developmentProcessGoBuildArgs(retainedProcessTarget{pattern: target.pattern, output: candidate, flags: target.flags})
-	args = append([]string{"build", "-a", "-work", "-toolexec=" + retainedNativeToolExecCommand(recorder, recordRoot)}, args[1:]...)
+	args = append([]string{"build", "-a", "-work", "-p=" + strconv.Itoa(retainedRecordingParallelism()), "-toolexec=" + retainedNativeToolExecCommand(recorder, recordRoot)}, args[1:]...)
 	command := exec.CommandContext(ctx, goTool, args...)
 	command.Dir = workspace
 	command.Env = retainedNativeEnvironment(environment, map[string]string{"GOCACHE": filepath.Join(recordRoot, "cache"), "TMPDIR": filepath.Join(recordRoot, "tmp")})

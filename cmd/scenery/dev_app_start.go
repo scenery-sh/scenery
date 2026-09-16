@@ -58,29 +58,39 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			s.setAppIdentity(previousConfig)
 		}
 	}()
-	if cfg, err := s.reloadConfig(captured); err != nil {
+	configStarted := time.Now()
+	cfg, err := s.reloadConfig(captured)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.config_reload", StartedAt: configStarted, Duration: time.Since(configStarted), Cache: "not_applicable", Reason: "captured_snapshot_config", OK: err == nil})
+	if err != nil {
 		return s.handleCompileError(ctx, nil, nil, err)
-	} else {
-		s.cfg = cfg
-		s.setAppIdentity(cfg)
 	}
+	s.cfg = cfg
+	s.setAppIdentity(cfg)
 	s.setCompiling(true, "")
-	if err := s.persistStatus(ctx); err != nil {
+	statusStarted := time.Now()
+	err = s.persistStatus(ctx)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.status_persist", StartedAt: statusStarted, Duration: time.Since(statusStarted), Cache: "not_applicable", Reason: "compile_start", OK: err == nil})
+	if err != nil {
 		return err
 	}
+	notifyStarted := time.Now()
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "running"}, "info", "build started", map[string]any{
 		"initial": initial,
 	})
+	// The status is observed once; the process event carries its compact form.
+	status := s.appStatus()
 	s.dashboard.notify(&devdash.Notification{
 		Method: "process/compile-start",
-		Params: s.appStatus(),
+		Params: status,
 	})
-	s.writeProcessEvent(ctx, "compile-start", s.compactAppStatus())
+	status.Meta, status.APIEncoding = nil, nil
+	s.writeProcessEvent(ctx, "compile-start", status)
 	if s.console != nil {
 		s.console.Event("process.compile-start", map[string]any{
 			"initial": initial,
 		})
 	}
+	build.RecordStep(ctx, build.Step{Name: "supervisor.compile_start_notify", StartedAt: notifyStarted, Duration: time.Since(notifyStarted), Cache: "not_applicable", Reason: "dashboard_and_events", OK: true})
 
 	var earlyAssistants *assistantStageAttempt
 	if initial && s.assistants != nil && captured.contract.Valid() {

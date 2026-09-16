@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,28 +21,53 @@ type ProcessInfo struct {
 }
 
 func Inspect(pid int) (ProcessInfo, bool) {
-	cmd := exec.Command("ps", "-o", "pid=,ppid=,stat=,command=", "-p", strconv.Itoa(pid))
-	output, err := cmd.Output()
-	if err != nil {
-		return ProcessInfo{}, false
+	info, ok := InspectAll([]int{pid})[pid]
+	return info, ok
+}
+
+// InspectAll observes every named process with one process-table read. A
+// session names dozens of processes, and a separate read for each dominated
+// every status report. Processes that are gone are absent from the result.
+func InspectAll(pids []int) map[int]ProcessInfo {
+	selected := make([]string, 0, len(pids))
+	for _, pid := range pids {
+		if pid > 0 {
+			selected = append(selected, strconv.Itoa(pid))
+		}
 	}
-	line := strings.TrimSpace(string(output))
-	if line == "" {
-		return ProcessInfo{}, false
+	if len(selected) == 0 {
+		return map[int]ProcessInfo{}
 	}
-	parts := strings.Fields(line)
-	if len(parts) < 4 {
-		return ProcessInfo{}, false
+	// ps exits non-zero when any selected process is gone but still lists the
+	// others.
+	output, _ := exec.Command("ps", "-o", "pid=,ppid=,stat=,command=", "-p", strings.Join(selected, ",")).Output()
+	rows := parseProcessRows(string(output))
+	for pid := range rows {
+		if !slices.Contains(selected, strconv.Itoa(pid)) {
+			delete(rows, pid)
+		}
 	}
-	gotPID, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return ProcessInfo{}, false
+	return rows
+}
+
+func parseProcessRows(output string) map[int]ProcessInfo {
+	rows := map[int]ProcessInfo{}
+	for line := range strings.Lines(output) {
+		parts := strings.Fields(line)
+		if len(parts) < 4 {
+			continue
+		}
+		pid, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+		ppid, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+		rows[pid] = ProcessInfo{PID: pid, PPID: ppid, State: parts[2], Command: strings.Join(parts[3:], " ")}
 	}
-	ppid, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return ProcessInfo{}, false
-	}
-	return ProcessInfo{PID: gotPID, PPID: ppid, State: parts[2], Command: strings.Join(parts[3:], " ")}, true
+	return rows
 }
 
 func WaitForExit(ctx context.Context, pid int, timeout time.Duration) bool {

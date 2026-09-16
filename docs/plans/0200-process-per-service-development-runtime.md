@@ -285,9 +285,9 @@ compile the application graph as it needs.
 - [x] (2026-09-16) Identifying every process entrypoint now memoizes package
   closure digests over the import graph instead of unioning the inputs of each
   entrypoint's closure, and package inputs are stamped concurrently. Go package
-  tests and lint pass; the ONLV measurement of both (about 120 ms and 90 ms of
-  a one-service edit before the change) is pending on the blocked ONLV lane
-  below.
+  tests and lint pass. On ONLV afterwards (2026-09-16) `process.identity` took
+  103-118 ms and `go.input_fingerprint` 82-105 ms of a one-service edit, so
+  neither change measurably moved the earlier 120 ms and 90 ms.
 - [x] (2026-09-16) A service process that stops on its own restarts from its own
   verified executable and is published as the next generation, bounded by three
   restarts per minute per service; beyond that the service stays degraded until
@@ -332,22 +332,29 @@ compile the application graph as it needs.
   mistake as an internal failure with an opaque token, so an unusable
   `--older-than` is now an invalid request that names the flag and an example.
   Repeating the ONLV measurements needs a new disposable worktree.
-- [ ] Milestone 4 acceptance on ONLV is blocked in this environment. A fresh
-  disposable worktree of ONLV `fd5bd25b` (which no longer declares libraries)
-  prepares and serves in the single application model, and in the process model
-  it builds and publishes 47 services and its host, but the supervisor then
-  stays in "Starting prepared assistant runtimes" (one helper process idle for
-  20 minutes), so its initial build request never completes and the watcher
-  never starts: edits produce no rebuild. A review on 2026-09-16 found a lock
-  cycle on exactly this path (see Surprises & Discoveries), now removed; ONLV
-  startup has not been rerun since. The `assistant-init` and
-  `assistant-runtime` probes pass, so this is not a general assistant
-  regression. Two other environment facts: a cold workspace's first
-  process-model build exceeds the two-minute readiness window of
-  `scenery up --detach --wait ready` (use `--wait registered`), and the
-  measurements recorded above therefore remain the last ONLV data points. The
-  rebaseline, resources, conformance and edit-to-response measurement need that
-  helper to reach readiness.
+- [x] (2026-09-16) ONLV process-model startup is unblocked. A disposable
+  worktree of ONLV `fd5bd25b` prepared in the single application model and
+  restarted with `SCENERY_DEV_PROCESS_MODEL=service` and `--wait registered`
+  reached `run.ready` 18-21 s after start on every one of six restarts:
+  compilation 10.6-10.8 s, "Starting prepared assistant runtimes" 419-454 ms.
+  Edits of `solar/ahjs/detail.go` rebuilt and published only `ahjs_ahjs`. A
+  contract edit failed on stale TypeScript clients while generation 1 kept
+  serving, and after `scenery generate` published a complete generation whose
+  helpers started in 454 ms. Remaining Milestone 4 acceptance (resources,
+  conformance smoke, the 300 ms p50 goal) is still open.
+- [x] (2026-09-16) ONLV edit baseline for a warm one-service handler edit (edit
+  to verified response, polled every 20-50 ms): 2,200-3,041 ms with the
+  retained entrypoint (backend 787-857 ms) and 2,010-2,481 ms with stock builds
+  (528-705 ms, a recording running beside some of them). The retained backend
+  spent 162-233 ms discovering and hashing its whole input domain before a
+  110 ms compile and a 280 ms link. Two changes then removed measured cost:
+  retained input capture hashes and resolves workspace membership concurrently
+  (discovery 46-78 ms, backend 532-583 ms), and a compile-start status report no
+  longer runs `ps` once per registered process twice per edit (650-735 ms to
+  20-24 ms). Edits now take 1,961-2,172 ms; a 1.83-2.0 s build request is about
+  0.45 s of preparation, 0.09 s input fingerprint, 0.11 s identity, 0.55 s
+  entrypoint build, 0.35 s candidate preflight beside the 0.21 s snapshot
+  rescan, and 0.05 s activation.
 
 - [x] Service entrypoints can link through the retained compiler. Each
   entrypoint keeps its own recorded recipe, and the recipes of one workspace
@@ -385,9 +392,18 @@ compile the application graph as it needs.
   and merges only recorded actions whose captured inputs match. A rejected
   recipe is replaced; an existing store entry is hashed before adoption; the
   shared store is collected every 16 publications outside capture leases.
-  Covered by in-process tests only; the ONLV startup, a pause-during-recording
-  run and the long-edit endurance run through the real product path remain to
-  be measured.
+  The multiservice fixture and ONLV (see the ONLV entries above) exercised an
+  edit discarding a recording, a replacement recording, and a session close
+  cancelling one; a long-edit endurance run through the product path remains
+  to be measured.
+- [x] (2026-09-16) Recipe recording is admitted machine-wide: one recording at a
+  time across every supervisor, only while no foreground link of any worktree
+  is queued or running, with tool parallelism bounded to a quarter of the
+  cores. On ONLV a bounded recording took 13.7-14.6 s instead of 24.8 s.
+- [x] (2026-09-16) Prepared assistant helpers start after the process model is
+  released, on a complete replacement and on a restore, so no helper start or
+  its callbacks run under `model.mu`. Reconciling an unconfirmed activation
+  still holds it per attempt, deliberately, to exclude a concurrent drain.
 
 ## Surprises & Discoveries
 
@@ -754,6 +770,19 @@ compile the application graph as it needs.
   compile nearly the same packages; separate stores retained each closure again.
   A snapshot is copied rather than moved, because a capture may name the
   developer's own workspace file. Date: 2026-09-16. Author: Claude.
+- Decision: keep the retained entrypoint path and make it cheaper rather than
+  remove it. Rationale (human choice after the ONLV measurement): its compile
+  and link are below the stock build and its overhead was measurable validation
+  work. After concurrent input capture it is roughly at parity (532-583 ms
+  against 528-705 ms stock), so it must not be treated as a latency win until a
+  closure where stock package loading dominates shows one. Date: 2026-09-16.
+  Author: human and Claude.
+- Decision: a recording's machine-wide admission reuses the host-wide link
+  queue and a lock file beside its slots instead of a memory reservation.
+  Rationale: the queue already orders every worktree's foreground links, and a
+  reservation would need platform memory accounting the Go standard library
+  does not provide; the bounded `-p` limits what one recording can hold. Date:
+  2026-09-16. Author: Claude.
 - Decision: a background recording binds to the input revision it captures
   before running tools and validates it afterwards, instead of holding the
   workspace lock or materializing a separate build view. Rationale: holding the

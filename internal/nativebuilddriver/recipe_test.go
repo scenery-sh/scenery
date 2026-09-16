@@ -931,3 +931,36 @@ func TestRecordedActionsMustMatchTheCapturedInputs(t *testing.T) {
 		t.Fatal("merging a recording taken before an edit into a later capture succeeded")
 	}
 }
+
+func TestWorkspaceMembersMatchCanonicalMembership(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	outside := filepath.Join(root, "outside")
+	for _, directory := range []string{filepath.Join(workspace, "pkg"), outside} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A link into the workspace and a link out of it resolve by directory.
+	if err := os.Symlink(filepath.Join(workspace, "pkg"), filepath.Join(root, "into")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "out")); err != nil {
+		t.Fatal(err)
+	}
+	members := newWorkspaceMembers(workspace)
+	for _, path := range []string{
+		filepath.Join(workspace, "pkg", "a.go"),
+		filepath.Join(root, "into", "a.go"),
+		filepath.Join(workspace, "out", "a.go"),
+		filepath.Join(outside, "a.go"),
+		filepath.Join(workspace, "go.mod"),
+	} {
+		if err := os.WriteFile(path, nil, 0o600); err != nil && !errors.Is(err, os.ErrExist) {
+			t.Fatal(err)
+		}
+		if got, want := members.regularFile(path), withinWorkspace(workspace, path); got != want {
+			t.Errorf("membership of %s = %t, want %t", path, got, want)
+		}
+	}
+}

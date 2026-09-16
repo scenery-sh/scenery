@@ -481,18 +481,33 @@ func createSharedBinaryLease(directory, name string) (string, func(), error) {
 }
 
 func sharedBinaryTicketPosition(directory, ticket string) (int, error) {
-	entries, err := os.ReadDir(directory)
-	if errors.Is(err, os.ErrNotExist) {
-		return -1, nil
-	}
+	active, err := sharedBinaryActiveTickets(directory)
 	if err != nil {
 		return -1, err
+	}
+	for index, name := range active {
+		if name == ticket {
+			return index, nil
+		}
+	}
+	return -1, nil
+}
+
+// sharedBinaryActiveTickets lists, in queue order, the tickets whose owner still
+// holds them, removing abandoned registrations and released tickets.
+func sharedBinaryActiveTickets(directory string) ([]string, error) {
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	active := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".register-") {
 			if err := cleanupAbandonedSharedBinaryRegistration(directory, entry, time.Now()); err != nil {
-				return -1, err
+				return nil, err
 			}
 			continue
 		}
@@ -502,7 +517,7 @@ func sharedBinaryTicketPosition(directory, ticket string) (int, error) {
 		path := filepath.Join(directory, entry.Name())
 		release, acquired, exists, lockErr := trySharedBinaryExistingLock(path)
 		if lockErr != nil {
-			return -1, lockErr
+			return nil, lockErr
 		}
 		if !exists {
 			continue
@@ -515,12 +530,7 @@ func sharedBinaryTicketPosition(directory, ticket string) (int, error) {
 		active = append(active, entry.Name())
 	}
 	sort.Strings(active)
-	for index, name := range active {
-		if name == ticket {
-			return index, nil
-		}
-	}
-	return -1, nil
+	return active, nil
 }
 
 func cleanupAbandonedSharedBinaryRegistration(directory string, entry os.DirEntry, now time.Time) error {

@@ -224,7 +224,12 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 		}
 	}
 	model.mu.Lock()
-	defer model.unlock()
+	locked := true
+	defer func() {
+		if locked {
+			model.unlock()
+		}
+	}()
 	s.mu.RLock()
 	host := s.current
 	s.mu.RUnlock()
@@ -255,7 +260,17 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 			return nil, true, stageErr
 		}
 	}
-	current, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage, plan.Prepared)
+	current, startAssistants, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage, plan.Prepared)
+	// Prepared helpers start once the model is released: a helper that starts
+	// reports its process, which registers the session, and a helper start is
+	// external work no reader of the model should wait for. The assistant
+	// stages stay held until the helpers have started.
+	locked = false
+	model.unlock()
+	if startAssistants {
+		_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
+		s.refreshAssistantRuntimeConfig()
+	}
 	return current, host != nil, err
 }
 
@@ -305,18 +320,20 @@ func (replacement devProcessReplacement) run(ctx context.Context) (bool, error) 
 }
 
 // startDevProcessGeneration starts a complete generation with a new host
-// incarnation, restoring the previous generation when the new host fails.
-func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage, prepared *devProcessPreparation) (*runningApp, error) {
+// incarnation, restoring the previous generation when the new host fails. It
+// reports whether a host now serves whose prepared assistant helpers the
+// caller must start after releasing model.mu.
+func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage, prepared *devProcessPreparation) (*runningApp, bool, error) {
 	link, err := model.newLink()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	base := s.appChildEnvironment(result, environment)
 	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
 	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
 	var started []*devProcessInstance
 	var previousHost *runningApp
-	previousStopped := false
+	previousStopped, startAssistants := false, false
 	replacement := devProcessReplacement{
 		startServices: func(ctx context.Context) error {
 			var err error
@@ -392,6 +409,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			if err != nil {
 				return false, err
 			}
+			startAssistants = s.assistants != nil
 			s.writeProcessEvent(ctx, "process/rollback", map[string]any{"pid": restored.pid})
 			return true, nil
 		},
@@ -414,23 +432,18 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				<-hostInstance.app.process.Done
 				s.handleExit(context.Background(), hostInstance.app)
 			}()
-			// Helpers that start next register the session, which reads the
-			// published status while this activation still holds model.mu.
-			model.publishStatus()
-			if s.assistants != nil {
-				_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
-				s.refreshAssistantRuntimeConfig()
-			}
+			startAssistants = s.assistants != nil
 		},
 	}
 	if _, err := replacement.run(ctx); err != nil {
-		return nil, err
+		return nil, startAssistants, err
 	}
-	return hostInstance.app, nil
+	return hostInstance.app, startAssistants, nil
 }
 
 // restoreDevProcessHost restarts the previous host from its retained executable
-// and environment and republishes the previous services as its generation.
+// and environment and republishes the previous services as its generation; the
+// caller starts the prepared assistant helpers after releasing model.mu.
 func (s *devSupervisor) restoreDevProcessHost(ctx context.Context, model *devProcessModel, previous *runningApp, stage *assistantStage) (*runningApp, error) {
 	if s.assistants != nil {
 		if err := s.assistants.activateStage(ctx, stage); err != nil {
@@ -467,11 +480,6 @@ func (s *devSupervisor) restoreDevProcessHost(ctx context.Context, model *devPro
 		<-process.Done
 		s.handleExit(context.Background(), app)
 	}()
-	model.publishStatus()
-	if s.assistants != nil {
-		_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
-		s.refreshAssistantRuntimeConfig()
-	}
 	return app, nil
 }
 

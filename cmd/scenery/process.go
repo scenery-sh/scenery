@@ -14,6 +14,16 @@ func inspectProcess(pid int) (procInfo, bool) {
 	return procInfo{pid: info.PID, ppid: info.PPID, stat: info.State, cmd: info.Command}, ok
 }
 
+// inspectProcesses observes many processes with one process-table read.
+func inspectProcesses(pids []int) map[int]procInfo {
+	rows := devprocess.InspectAll(pids)
+	result := make(map[int]procInfo, len(rows))
+	for pid, info := range rows {
+		result[pid] = procInfo{pid: info.PID, ppid: info.PPID, stat: info.State, cmd: info.Command}
+	}
+	return result
+}
+
 var commandTreeContext = devprocess.CommandContext
 var configureDetachedChildProcess = devprocess.ConfigureDetachedChild
 

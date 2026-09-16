@@ -437,16 +437,26 @@ func classifySessionStatus(session localagent.Session) (string, string) {
 	if status, reason := classifySessionOwnerStatus(session); status != "" {
 		return status, reason
 	}
+	// One process-table read observes the application and every registered
+	// process of the session.
+	pids := make([]int, 0, len(session.Processes)+1)
+	if pid := atoiPID(session.AppPID); pid > 0 {
+		pids = append(pids, pid)
+	}
+	for _, process := range session.Processes {
+		pids = append(pids, process.PID)
+	}
+	live := inspectProcesses(pids)
 	if session.AppPID != "" {
 		pid := atoiPID(session.AppPID)
 		if pid <= 0 {
 			return "degraded", "app pid is invalid"
 		}
-		if _, ok := inspectProcess(pid); !ok {
+		if _, ok := live[pid]; !ok {
 			return "degraded", fmt.Sprintf("app process %d is not running", pid)
 		}
 	}
-	if status, reason := classifySessionRegisteredProcessStatus(session); status != "" {
+	if status, reason := classifySessionRegisteredProcessStatus(session, live); status != "" {
 		return status, reason
 	}
 	if status, reason := classifyConfiguredEdgeRoutesStatus(session); status != "" {
@@ -455,7 +465,7 @@ func classifySessionStatus(session localagent.Session) (string, string) {
 	return "", ""
 }
 
-func classifySessionRegisteredProcessStatus(session localagent.Session) (string, string) {
+func classifySessionRegisteredProcessStatus(session localagent.Session, live map[int]procInfo) (string, string) {
 	if len(session.Processes) == 0 {
 		return "", ""
 	}
@@ -469,7 +479,7 @@ func classifySessionRegisteredProcessStatus(session localagent.Session) (string,
 		if process.PID <= 0 {
 			return "degraded", fmt.Sprintf("registered process %s pid is invalid", name)
 		}
-		if _, ok := inspectProcess(process.PID); !ok {
+		if _, ok := live[process.PID]; !ok {
 			return "degraded", fmt.Sprintf("registered process %s pid %d is not running", name, process.PID)
 		}
 		if process.Owner.PID > 0 {

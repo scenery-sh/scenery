@@ -39,3 +39,13 @@ func TestStripANSIDoesNotAliasInput(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessRowsParseEveryListedProcess(t *testing.T) {
+	rows := parseProcessRows("  301     1 Ss   /tmp/host --listen\n  302   301 S+   /tmp/echo\nmalformed\n  x 1 S cmd\n")
+	if len(rows) != 2 || rows[301].Command != "/tmp/host --listen" || rows[302].PPID != 301 || rows[302].State != "S+" {
+		t.Fatalf("rows = %#v", rows)
+	}
+	if rows := InspectAll([]int{0, -1}); len(rows) != 0 {
+		t.Fatalf("invalid pids observed %#v", rows)
+	}
+}
