@@ -64,7 +64,7 @@ func runSceneryTestOutput(ctx context.Context, args []string, stdout io.Writer) 
 	goArgs = append(goArgs, opts.GoArgs...)
 	output, err := runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
 	if err != nil && goTestNeedsWorkspaceTidy(output) {
-		if tidyOutput, tidyErr := runGeneratedWorkspaceGoModTidy(ctx, result.Dir); tidyErr != nil {
+		if tidyOutput, tidyErr := tidyGeneratedWorkspace(ctx, result.Dir); tidyErr != nil {
 			_, _ = stdout.Write(tidyOutput)
 			return tidyErr
 		}
@@ -125,6 +125,19 @@ func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []strin
 	cmd.Stderr = &output
 	err := cmd.Run()
 	return output.Bytes(), err
+}
+
+// tidyGeneratedWorkspace mutates the shared private workspace after Go rejects
+// its module files, so it runs under the same exclusive workspace lock that
+// build preparation and compilation hold.
+func tidyGeneratedWorkspace(ctx context.Context, dir string) ([]byte, error) {
+	var output []byte
+	err := build.WithWorkspaceLock(dir, func() error {
+		var tidyErr error
+		output, tidyErr = runGeneratedWorkspaceGoModTidy(ctx, dir)
+		return tidyErr
+	})
+	return output, err
 }
 
 func runGeneratedWorkspaceGoModTidy(ctx context.Context, dir string) ([]byte, error) {

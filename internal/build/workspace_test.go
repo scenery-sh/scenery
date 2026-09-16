@@ -217,3 +217,38 @@ func Ping(context.Context) (*Response, error) {
 	}
 
 }
+
+// `scenery test` tidies a prepared workspace outside this package after Go
+// rejects its module files. That mutation must serialize against the
+// preparation and compilation of other processes, and must not outlive fn.
+func TestWithWorkspaceLockHoldsTheWorkspaceLockForTheCallback(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, ".scenery-workspace.lock")
+	var acquiredDuring, existedDuring bool
+	if err := WithWorkspaceLock(dir, func() error {
+		release, acquired, existing, err := trySharedBinaryExistingLock(lockPath)
+		if err != nil {
+			return err
+		}
+		if acquired {
+			release()
+		}
+		acquiredDuring, existedDuring = acquired, existing
+		return nil
+	}); err != nil {
+		t.Fatalf("WithWorkspaceLock() error = %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		return // No workspace lock, therefore no serialized private workspace.
+	}
+	if acquiredDuring || !existedDuring {
+		t.Fatalf("callback ran without the workspace lock: acquired=%t existing=%t", acquiredDuring, existedDuring)
+	}
+	release, acquired, _, err := trySharedBinaryExistingLock(lockPath)
+	if err != nil || !acquired {
+		t.Fatalf("WithWorkspaceLock retained the workspace lock: acquired=%t err=%v", acquired, err)
+	}
+	release()
+}

@@ -1,10 +1,12 @@
 package build
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -469,4 +471,73 @@ func TestSyncGeneratedFilesKeepsPathsThatAreNowRegularSourceFiles(t *testing.T) 
 	if string(data) != "package house\n\nfunc oldGenerated() {}\n" {
 		t.Fatalf("unexpected file contents after syncGeneratedFiles: %q", data)
 	}
+}
+
+// Regression: the refreshed workspace is the same private resource another
+// process materializes and compiles under the exclusive workspace lock. An
+// unlocked mutation phase can delete that process's in-flight build output or
+// change the bytes its post-compile verification checks.
+func TestPrepareCachedWorkspaceMutatesUnderWorkspaceLock(t *testing.T) {
+	t.Parallel()
+
+	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
+	const edited = `package svc
+
+import "context"
+
+func Hello(ctx context.Context) error { return nil }
+
+func editedDuringAnotherBuild() {}
+`
+	writeBuildTestFile(t, appDir, "svc/api.go", edited)
+
+	lockPath := filepath.Join(result.Dir, ".scenery-workspace.lock")
+	mutationSteps := map[string]bool{"source.local_modules": true, "workspace.materialize": true}
+	observed := map[string]bool{}
+	var unlocked []string
+	ctx := WithTrace(context.Background(), func(step Step) {
+		if !mutationSteps[step.Name] {
+			return
+		}
+		observed[step.Name] = true
+		release, acquired, existing, err := trySharedBinaryExistingLock(lockPath)
+		if err != nil {
+			t.Errorf("probe workspace lock during %s: %v", step.Name, err)
+			return
+		}
+		if acquired {
+			release()
+		}
+		if acquired || !existing {
+			unlocked = append(unlocked, step.Name)
+		}
+	})
+
+	prepared, err := RefreshCachedWorkspaceWithSnapshotContext(ctx, appDir, result, nil)
+	if err != nil {
+		t.Fatalf("RefreshCachedWorkspaceWithSnapshotContext() error = %v", err)
+	}
+	if !prepared {
+		t.Fatal("changed source should retain the declaration-equivalent prepared workspace")
+	}
+	data, err := os.ReadFile(filepath.Join(result.Dir, "svc", "api.go"))
+	if err != nil || string(data) != edited {
+		t.Fatalf("workspace copy = %q err=%v, want the refreshed implementation", data, err)
+	}
+	if len(observed) != len(mutationSteps) {
+		t.Fatalf("observed mutation steps %v, want %v", observed, mutationSteps)
+	}
+	if runtime.GOOS == "windows" {
+		return // No workspace lock, therefore no serialized private workspace.
+	}
+	if len(unlocked) > 0 {
+		t.Fatalf("cached workspace refresh mutated %v without the workspace lock", unlocked)
+	}
+	// The caller reacquires the same lock in CompileContext or
+	// PrimeWorkspaceContext, so the refresh must not retain it.
+	release, acquired, _, err := trySharedBinaryExistingLock(lockPath)
+	if err != nil || !acquired {
+		t.Fatalf("refresh retained the workspace lock: acquired=%t err=%v", acquired, err)
+	}
+	release()
 }

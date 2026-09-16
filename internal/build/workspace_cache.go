@@ -365,6 +365,17 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	if err != nil {
 		return false, err
 	}
+	// A refreshed workspace is the same private resource full preparation and
+	// compilation materialize under the exclusive workspace lock. Hold it for
+	// the mutation and the identity it establishes, so another process cannot
+	// observe a half-synced workspace or lose its in-flight build outputs to
+	// this removal pass. The lock is released before the caller reaches
+	// CompileContext or PrimeWorkspaceContext, which acquire it themselves.
+	unlock, err := lockWorkspace(result.Dir)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	var mutation workspaceMutation
 	materializeStarted := time.Now()
 	materializeErr := func() error {
