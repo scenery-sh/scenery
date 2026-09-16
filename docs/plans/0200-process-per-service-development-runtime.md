@@ -352,6 +352,21 @@ compile the application graph as it needs.
   path is therefore not yet a latency win at this closure size; its value has to
   be measured on ONLV, which stays blocked below.
 
+- [x] Link concurrency of an entrypoint build is measured instead of assumed.
+  Relinking all 48 ONLV entrypoints from a warm cache takes 3.2 s of wall time
+  and 30.6 s of CPU on 24 cores, and the concurrent compiler/linker processes
+  reach 5.2 GB of resident memory together; one entrypoint links in 0.83 s at
+  363 MB. The Go command already bounds those actions by `-p`, so the budget
+  that was actually missing is Scenery's own: one background recipe recording
+  at a time, at a lowered priority, beside the host-wide fair link slot. A
+  machine whose available memory is below its core count times 450 MB would
+  need an explicit lower bound; this one is not close.
+- [x] The implementation check needs no incremental form. In a one-service
+  rebuild it starts at 95 ms and ends at 338 ms while the entrypoint build runs
+  from 156 ms to 775 ms, so it is fully overlapped. The remaining critical path
+  of a 1261 ms edit is the entrypoint build (619 ms) and activation (410 ms, of
+  which candidate preflight is 359 ms).
+
 ## Surprises & Discoveries
 
 - The implementation check runs beside the entrypoint build, so a faster build
