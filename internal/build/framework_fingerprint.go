@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/mod/modfile"
 
@@ -195,14 +197,16 @@ func frameworkFingerprintFiles(repoRoot string, cachedGoFiles map[string]framewo
 		stamp := sourceStampFromInfo(info)
 		entry, ok := cachedGoFiles[rel]
 		if !ok || entry.Stamp != stamp {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
+			patterns, retained := retainedFrameworkEmbedPatterns(path, info)
+			if !retained {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				patterns = parseGeneratorGoEmbedPatterns(string(data))
+				retainFrameworkEmbedPatterns(path, info, patterns)
 			}
-			entry = frameworkGoFileCache{
-				Stamp:         stamp,
-				EmbedPatterns: parseGeneratorGoEmbedPatterns(string(data)),
-			}
+			entry = frameworkGoFileCache{Stamp: stamp, EmbedPatterns: patterns}
 		}
 		nextGoFiles[rel] = entry
 		pkgDir := filepath.Dir(rel)
@@ -273,4 +277,55 @@ func computeFrameworkFingerprint(repoRoot string, files []string) (string, error
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// frameworkEmbedPatterns retains the embed patterns of framework Go files by
+// build input stamp. The stamp includes the status-change time, so restoring a
+// file's modification time cannot hide an edited directive, and a file whose
+// filesystem reports no status-change time is read every time.
+var frameworkEmbedPatterns struct {
+	sync.Mutex
+	entries map[string]frameworkEmbedPatternEntry
+}
+
+type frameworkEmbedPatternEntry struct {
+	stamp    buildInputFileStamp
+	patterns []string
+}
+
+// frameworkEmbedPatternLimit bounds the retained entries; exceeding it
+// discards them all.
+const frameworkEmbedPatternLimit = 16_384
+
+func retainedFrameworkEmbedPatterns(path string, info os.FileInfo) ([]string, bool) {
+	stamp := buildInputStamp(info)
+	if stamp.ChangeTimeNano == 0 {
+		return nil, false
+	}
+	frameworkEmbedPatterns.Lock()
+	defer frameworkEmbedPatterns.Unlock()
+	entry, ok := frameworkEmbedPatterns.entries[filepath.Clean(path)]
+	if !ok || entry.stamp != stamp {
+		return nil, false
+	}
+	return slices.Clone(entry.patterns), true
+}
+
+// retainFrameworkEmbedPatterns retains patterns read from path when the file's
+// stamp after the read equals the stamp observed before it.
+func retainFrameworkEmbedPatterns(path string, before os.FileInfo, patterns []string) {
+	after, err := os.Lstat(path)
+	if err != nil {
+		return
+	}
+	stamp := buildInputStamp(after)
+	if stamp.ChangeTimeNano == 0 || stamp != buildInputStamp(before) {
+		return
+	}
+	frameworkEmbedPatterns.Lock()
+	defer frameworkEmbedPatterns.Unlock()
+	if frameworkEmbedPatterns.entries == nil || len(frameworkEmbedPatterns.entries) >= frameworkEmbedPatternLimit {
+		frameworkEmbedPatterns.entries = map[string]frameworkEmbedPatternEntry{}
+	}
+	frameworkEmbedPatterns.entries[filepath.Clean(path)] = frameworkEmbedPatternEntry{stamp: stamp, patterns: slices.Clone(patterns)}
 }

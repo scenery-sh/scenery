@@ -448,7 +448,7 @@ func snapshotSourceFiles(snapshot *SourceSnapshot) []string {
 }
 
 func snapshotSourceFilesForRoot(appRoot string, snapshot *SourceSnapshot) ([]string, error) {
-	generated, err := compiler.GeneratedPaths(appRoot)
+	generated, err := snapshot.generatedPaths(appRoot)
 	if err != nil {
 		return nil, err
 	}

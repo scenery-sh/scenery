@@ -142,6 +142,7 @@ func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
 		ContractCompilerAbsent: cloneBoolMap(snapshot.contractCompilerAbsent),
 		CompilerCaptureValid:   snapshot.compilerValid,
 		Contract:               snapshot.contract,
+		Generated:              generatedPathSet(snapshot.generated),
 	}
 }
 
@@ -151,4 +152,17 @@ func cloneBoolMap(source map[string]bool) map[string]bool {
 		result[key] = value
 	}
 	return result
+}
+
+// generatedPathSet is the set of managed generated paths a scan excluded, in
+// the form compiler.GeneratedPaths returns it.
+func generatedPathSet(generated map[string]bool) map[string]bool {
+	if generated == nil {
+		return nil
+	}
+	set := make(map[string]bool, len(generated))
+	for rel := range generated {
+		set[rel] = true
+	}
+	return set
 }

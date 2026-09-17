@@ -18,8 +18,11 @@ func observeWorkspaceVerification(ctx context.Context, result *Result, reason st
 }
 
 // Reacquiring the workspace lock must not silently adopt another preparation's
-// files. Check membership and bytes, not saved timestamps, before the fork and
-// again before success publication. Tidy's optional go.sum is a known input.
+// files. Check membership and content, not saved timestamps, before the fork
+// and again before success publication: content observed earlier in this
+// process is reused only while a file's stamp, including its status-change
+// time, which any write changes, is unchanged. Tidy's optional go.sum is a
+// known input.
 func verifyPreparedWorkspace(result *Result) error {
 	allowed := map[string]bool{"go.mod": true, "go.sum": true}
 	for _, group := range [][]string{result.SourceFiles, result.GeneratedFiles} {

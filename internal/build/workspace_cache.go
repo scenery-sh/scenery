@@ -115,11 +115,7 @@ func dependencyFingerprintFromInventory(inventory *workspaceInventory) (string, 
 	}
 	sort.Strings(goFiles)
 	for _, rel := range goFiles {
-		data, err := inventory.read(rel)
-		if err != nil {
-			return "", err
-		}
-		imports, err := goImports(data)
+		imports, err := inventory.goImports(rel)
 		if err != nil {
 			return "", err
 		}
@@ -313,7 +309,7 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	var current bool
 	if cfg.Name != "" {
 		projectionStarted := time.Now()
-		current, err = cachedProjectionCurrent(appRoot, result)
+		current, err = cachedProjectionCurrent(appRoot, result, snapshot)
 		cache, projectionReason := "miss", "artifact_missing_or_changed"
 		if current {
 			cache, projectionReason = "hit", "preparation_key_and_artifacts_match"
@@ -433,11 +429,11 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	return true, nil
 }
 
-func cachedProjectionCurrent(appRoot string, result *Result) (bool, error) {
+func cachedProjectionCurrent(appRoot string, result *Result, snapshot *SourceSnapshot) (bool, error) {
 	if result == nil || result.Contract == nil || !result.Contract.Valid() || len(result.GeneratedFiles) == 0 || len(result.GeneratedStamps) == 0 {
 		return false, nil
 	}
-	managed, err := compiler.GeneratedPaths(appRoot)
+	managed, err := snapshot.generatedPaths(appRoot)
 	if err != nil {
 		return false, err
 	}
@@ -556,17 +552,18 @@ func workspaceBuildFingerprintFromInventory(inventory *workspaceInventory, goBui
 		_, _ = h.Write([]byte(flag))
 		_, _ = h.Write([]byte{0})
 	}
+	// Each input contributes its content digest.
 	for _, rel := range paths {
-		data, err := inventory.read(rel)
+		digest, exists, err := inventory.digest(rel)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
 			return "", err
+		}
+		if !exists {
+			continue
 		}
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(data)
+		_, _ = h.Write([]byte(digest))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

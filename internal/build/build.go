@@ -88,6 +88,20 @@ type SourceSnapshot struct {
 	// Contract is an optional already-compiled startup snapshot. Consumers
 	// verify captured graph inputs before reusing its pure graph.
 	Contract *compiler.Result
+	// Generated is the set of managed generated paths the capture excluded
+	// from Files (compiler.GeneratedPaths at capture time), or nil when the
+	// capture did not record it and consumers discover it from disk.
+	Generated map[string]bool
+}
+
+// generatedPaths returns the managed generated paths of appRoot for a
+// preparation that consumes snapshot: the captured set, or the set discovered
+// from disk when the snapshot has none.
+func (snapshot *SourceSnapshot) generatedPaths(appRoot string) (map[string]bool, error) {
+	if snapshot != nil && snapshot.Generated != nil {
+		return snapshot.Generated, nil
+	}
+	return compiler.GeneratedPaths(appRoot)
 }
 
 type SourceSnapshotFile struct {

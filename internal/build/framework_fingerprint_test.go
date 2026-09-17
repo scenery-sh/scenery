@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -92,4 +94,52 @@ func repoRootForBenchmark(b *testing.B) string {
 		b.Fatal(err)
 	}
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
+}
+
+// A retained embed directive is read again when its file changed, even when
+// the edit keeps the size and restores the modification time.
+func TestFrameworkEmbedPatternsFollowEditsBehindRestoredModificationTimes(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "pkg", "assets.go")
+	for path, data := range map[string]string{
+		"go.mod": "module scenery.sh\n", "pkg/assets.go": "package pkg\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar value string\n",
+		"pkg/a.txt": "a", "pkg/b.txt": "b",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, path), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	embedded := func() []string {
+		t.Helper()
+		files, _, err := frameworkFingerprintFiles(root, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, file := range files {
+			if strings.HasSuffix(file, ".txt") {
+				names = append(names, file)
+			}
+		}
+		return names
+	}
+	if got := embedded(); !slices.Equal(got, []string{"pkg/a.txt"}) {
+		t.Fatalf("embedded files = %v", got)
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("package pkg\n\nimport _ \"embed\"\n\n//go:embed b.txt\nvar value string\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(source, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := embedded(); !slices.Equal(got, []string{"pkg/b.txt"}) {
+		t.Fatalf("embedded files after a restored-time edit = %v", got)
+	}
 }

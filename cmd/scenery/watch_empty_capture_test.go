@@ -36,3 +36,24 @@ func TestWatchCapturePreservesEmptyFilesOnRescan(t *testing.T) {
 		previous = current
 	}
 }
+
+// The build snapshot names every managed generated path the scan excluded, so
+// preparation does not discover them from disk again.
+func TestWatchCaptureRecordsExcludedGeneratedPaths(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeWatchFile(t, root, "svc/service.go", "package svc\n")
+	writeWatchFile(t, root, "gen/client.go", "package gen\n")
+	writeWatchFile(t, root, "gen/scenery.generated.json", `{"kind":"scenery.generated","files":["client.go"]}`)
+	current, err := scanWatchedFilesReusing(root, fileSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured := buildSourceSnapshot(current)
+	if !captured.Generated["gen/client.go"] || !captured.Generated["gen/scenery.generated.json"] {
+		t.Fatalf("captured generated paths = %v", captured.Generated)
+	}
+	if _, ok := captured.Files["gen/client.go"]; ok {
+		t.Fatal("a generated file was captured as a source file")
+	}
+}

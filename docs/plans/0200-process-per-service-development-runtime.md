@@ -659,6 +659,23 @@ compile the application graph as it needs.
   2,361/2,406 ms, failing edit to reported failure 1,808 to 1,736 ms. Assistant
   helpers stayed ready with matching expected and actual capability revisions
   and `scenery doctor` reported them matching.
+- [x] (2026-09-17) Remaining preparation reduced. `framework.verify` read every
+  framework Go file again for its embed directives (18 of 36 ms per call on
+  the ONLV snapshot of 12,153 files); directives are now retained by a stamp
+  that includes the status-change time. The private workspace was read and
+  hashed in full three times per build (the cached-workspace fingerprint and
+  both `workspace.verify` checks) and every Go file reparsed for imports; its
+  fingerprint now hashes retained content digests and imports under the same
+  stamp rule. Preparation of a captured snapshot rediscovered the managed
+  generated paths from disk up to three times; the capture now records them.
+  Tests prove a same-size edit behind a restored modification time still
+  changes the embed set, the dependency fingerprint and the workspace
+  fingerprint. On ONLV (p50 ms): `framework.verify` 50 to 17,
+  `workspace.cache` 83 to 50, `workspace.verify` 43 to 12 before and 38 to 20
+  after compilation, preparation before `go build` 309 to 219; body edits
+  1,548 to 1,480, churn 1,542 to 1,472, failing edit to reported failure 1,736
+  to 1,659. The workspace framework fingerprint keeps its persisted metadata
+  cache (about 12 ms) because one-shot commands rely on it across processes.
 
 ## Surprises & Discoveries
 
