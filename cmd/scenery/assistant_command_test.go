@@ -165,17 +165,18 @@ func TestAssistantLiveStatusEmptyFailureStaysEmpty(t *testing.T) {
 		Manifest: &graph.Manifest{
 			ContractRevision: "capability-1",
 			Resources: []graph.Resource{{
-				Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support",
+				Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support", Module: "app",
 				Spec: map[string]any{
+					"mcp_server":     "mcp_server.support",
 					"surface":        map[string]any{"authentication": map[string]any{"$ref": "std.authentication.none"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}},
 					"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
 				},
-			}},
+			}, assistantTestMCPServer},
 		},
 	}
 	if err := writeAssistantLiveStatusSnapshot(root, result, []AssistantStatusRecord{{
 		Address: "app/assistant/support", State: "ready", Ready: true,
-		ActualRuntimeRevision: "runtime-1", ActualCapabilityRevision: "capability-1", LogSource: "assistant:support",
+		ActualRuntimeRevision: "runtime-1", ActualCapabilityRevision: assistantTestCapabilityRevision(t, result), LogSource: "assistant:support",
 	}}); err != nil {
 		t.Fatal(err)
 	}

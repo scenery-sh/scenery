@@ -19,6 +19,7 @@ func renderProviderCRUDAdapterSource(contractRevision, packageIdentity, packageA
 	fmt.Fprintf(&b, "\tcontract %q\n", contractImport)
 	b.WriteString(")\n\n")
 	fmt.Fprintf(&b, "const ContractRevision = %q\nconst PackageIdentity = %q\nconst PackageContractABIRevision = %q\n\n", contractRevision, packageIdentity, packageABI)
+	fmt.Fprintf(&b, "// ContractRevisions names the contract revision of each registration.\nvar ContractRevisions = map[string]string{%q: ContractRevision}\n\n", service.Address+"/adapter")
 	b.WriteString("type serviceImplementation interface {\n")
 	for _, operation := range providerOperations {
 		method := operationHandlerMethod(operation)
@@ -64,7 +65,7 @@ func renderProviderCRUDAdapterSource(contractRevision, packageIdentity, packageA
 	if err := renderDurableExecutionRegistrations(&b, service, providerOperations, resources); err != nil {
 		return nil, err
 	}
-	if err := renderMCPToolRegistrations(&b, contractRevision, service, mcpBindings, resources); err != nil {
+	if err := renderMCPToolRegistrations(&b, service, mcpBindings, resources); err != nil {
 		return nil, err
 	}
 	if err := renderProviderCRUDInternalBindings(&b, providerOperations, resources); err != nil {

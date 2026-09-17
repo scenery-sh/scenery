@@ -38,7 +38,7 @@ func cachedApplicationAdapters(input projectionInput, generatedImport string, re
 	}
 	size := 0
 	for _, adapter := range adapters {
-		size += len(adapter.Source) + len(adapter.Address) + len(adapter.ImportPath) + len(adapter.PackageName) + len(adapter.RelativeDir) + len(adapter.PackageABI) + len(adapter.Implementation) + len(adapter.Contract)
+		size += len(adapter.Source) + len(adapter.Address) + len(adapter.ContractRevision) + len(adapter.ImportPath) + len(adapter.PackageName) + len(adapter.RelativeDir) + len(adapter.PackageABI) + len(adapter.Implementation) + len(adapter.Contract)
 		for _, address := range adapter.Covered {
 			size += len(address)
 		}

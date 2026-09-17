@@ -18,7 +18,7 @@ func TestMCPToolDispatcherEstablishesAuthInvocationAndMetadata(t *testing.T) {
 	defer restore()
 	if err := RegisterMCPTool(MCPToolRegistration{
 		ID: "house/binding/process_scene_mcp", Name: "process_scene", AssistantAddress: "app/assistant/support",
-		CapabilityRevision: "sha256:contract", Limits: MCPToolLimits{MaxInputBytes: 256, MaxResultBytes: 256},
+		Limits: MCPToolLimits{MaxInputBytes: 256, MaxResultBytes: 256},
 		DecodeInput: func(data []byte) (any, error) {
 			var value map[string]any
 			err := json.Unmarshal(data, &value)

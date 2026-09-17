@@ -16,7 +16,7 @@ func TestAssistantStartPreparedBoundsStartsAndSerializesCallbacks(t *testing.T) 
 	s, original, _ := assistantStageFixture(t)
 	result := nextAssistantStageResult(original)
 	resource := result.Manifest.Resources[0]
-	result.Manifest.Resources = nil
+	result.Manifest.Resources = result.Manifest.Resources[1:2]
 	for _, name := range []string{"one", "two", "three"} {
 		next := resource
 		next.Address, next.Name = "app/assistant/"+name, name

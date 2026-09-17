@@ -43,7 +43,7 @@ func TestContractRegistryAcceptsBuiltinProviderABIsAndRejectsMismatch(t *testing
 		CoveredAddresses: []string{address}, Apply: func() error { return nil },
 	}
 	registry, err := NewContractRegistry(ContractRegistryOptions{
-		ContractRevision: "sha256:contract", RequiredAddresses: []string{address}, ProviderABIs: ContractProviderABIs(),
+		ContractRevisions: map[string]string{"agents/service/agents/adapter": "sha256:contract"}, RequiredAddresses: []string{address}, ProviderABIs: ContractProviderABIs(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestContractRegistryAcceptsBuiltinProviderABIsAndRejectsMismatch(t *testing
 
 	registration.ProviderABIs["registry.scenery.dev/core/storage"] = "scenery.object/" + "v2"
 	mismatch, err := NewContractRegistry(ContractRegistryOptions{
-		ContractRevision: "sha256:contract", RequiredAddresses: []string{address}, ProviderABIs: ContractProviderABIs(),
+		ContractRevisions: map[string]string{"agents/service/agents/adapter": "sha256:contract"}, RequiredAddresses: []string{address}, ProviderABIs: ContractProviderABIs(),
 	})
 	if err != nil {
 		t.Fatal(err)

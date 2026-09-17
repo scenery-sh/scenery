@@ -27,14 +27,18 @@ type ContractRegistration struct {
 }
 
 type ContractRegistryOptions struct {
-	ContractRevision  string
+	// ContractRevisions names, for each registration address, the contract
+	// revision the registration must record: a service adapter's service
+	// contract revision, or the application's for application-level
+	// registrations.
+	ContractRevisions map[string]string
 	RequiredAddresses []string
 	ProviderABIs      map[string]string
 }
 
 type ContractRegistry struct {
 	mu            sync.Mutex
-	contract      string
+	contracts     map[string]string
 	required      map[string]bool
 	owners        map[string]string
 	registrations map[string]ContractRegistration
@@ -45,8 +49,13 @@ type ContractRegistry struct {
 var _ runtimeapi.Registry = (*ContractRegistry)(nil)
 
 func NewContractRegistry(options ContractRegistryOptions) (*ContractRegistry, error) {
-	if strings.TrimSpace(options.ContractRevision) == "" {
-		return nil, fmt.Errorf("runtime: contract registry requires contract_revision")
+	if len(options.ContractRevisions) == 0 {
+		return nil, fmt.Errorf("runtime: contract registry requires contract revisions")
+	}
+	for address, revision := range options.ContractRevisions {
+		if strings.TrimSpace(address) == "" || strings.TrimSpace(revision) == "" {
+			return nil, fmt.Errorf("runtime: contract registry has an empty registration address or contract revision")
+		}
 	}
 	required := map[string]bool{}
 	for _, address := range options.RequiredAddresses {
@@ -60,7 +69,7 @@ func NewContractRegistry(options ContractRegistryOptions) (*ContractRegistry, er
 		required[address] = true
 	}
 	return &ContractRegistry{
-		contract: options.ContractRevision, required: required,
+		contracts: cloneContractStringMap(options.ContractRevisions), required: required,
 		owners: map[string]string{}, registrations: map[string]ContractRegistration{}, providerABIs: cloneContractStringMap(options.ProviderABIs),
 	}, nil
 }
@@ -86,7 +95,7 @@ func (registry *ContractRegistry) Register(address string, implementation any) e
 		}
 		registration = *pointer
 	}
-	if registration.ContractRevision != registry.contract {
+	if expected, ok := registry.contracts[address]; !ok || registration.ContractRevision != expected {
 		return fmt.Errorf("runtime: adapter %s contract_revision mismatch", address)
 	}
 	if strings.TrimSpace(registration.PackageContractABIRevision) == "" {

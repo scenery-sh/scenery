@@ -205,7 +205,8 @@ compiler layers, not this package.
 `internal/scn` owns safe `.scn` discovery, parsing, lossless CSTs, positions, and
 formatting. `internal/spec` owns the singular current schema and diagnostic
 catalog with digest revisions. `internal/graph` owns canonical resources, graph
-views, provenance, and general revision projections, including the
+views, provenance, and general revision projections (application and service
+contract revisions among them), including the
 `mcp_connection`, `mcp_server`, and `assistant` resource families.
 `internal/machine` owns the strict `scenery.cli` and `scenery.cli.event`
 envelopes. Compiler, evolution, generation, deployment, and Go verification
@@ -294,7 +295,8 @@ compiler, parse, TypeScript verification, and generate itself.
 
 These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines
 the manifest, tool policy, assertions, and limits; `internal/mcpprojection`
-projects the expanded graph and does not import the compiler; `internal/mcpgateway`
+projects the expanded graph, including each assistant's capability revision,
+and does not import the compiler; `internal/mcpgateway`
 dispatches local generated bindings and federated tools; and
 `internal/mcpfederation` owns Scenery's external Streamable HTTP clients,
 namespaces, filters, auth, readiness, and refresh lifecycle. They do not expose

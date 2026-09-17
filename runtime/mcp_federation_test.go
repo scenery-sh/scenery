@@ -180,7 +180,7 @@ func TestMCPFederationLifecycleAndSealRollback(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer func() { _ = ShutdownServices(context.Background()); restore() }()
 	registration := MCPFederationRegistration{Address: "app/mcp_server/support", AssistantAddresses: []string{"app/assistant/support"}, CapabilityRevision: "sha256:contract"}
-	contract, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"app/mcp_server/support", "app/failing"}})
+	contract, err := NewContractRegistry(ContractRegistryOptions{ContractRevisions: map[string]string{"federation": "sha256:contract", "failing": "sha256:contract"}, RequiredAddresses: []string{"app/mcp_server/support", "app/failing"}})
 	if err != nil {
 		t.Fatal(err)
 	}

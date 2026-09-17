@@ -623,7 +623,14 @@ NOT import an adapter SDK.
 The assistant implementation always runs in a supervised child process. The Go
 runtime and child exchange the unversioned `scenery.assistant.control`
 protocol, authenticate every private loopback connection, and complete exact
-runtime/capability revision handshakes before dispatch. The child may receive
+runtime/capability revision handshakes before dispatch. An assistant's
+capability revision is the canonical projection of the assistant's contract
+and its MCP server's projected capabilities and connections, with the
+application identity and specification revision; the server's generated
+capability manifest records it as its `contract_revision`, and the MCP gateway
+admits a tool call only with it. A contract change outside those leaves the
+capability revision, and the prepared helper runtime, unchanged. A generated
+MCP tool registration records no revision of its own. The child may receive
 an internal MCP loopback endpoint, but it MUST NOT publish a public MCP
 listener. Scenery owns application-local dispatch, remote MCP federation,
 credential termination, authorization, approval, cancellation, and the
@@ -677,7 +684,7 @@ Each built runtime bundle records its target-specific `implementation_revision`,
 
 Descriptors are detached. Artifact digests sort normalized paths and hash exact bytes while excluding the descriptor itself. A descriptor participates in `workspace_revision` and may be signed separately.
 
-Generated contracts are keyed by package ABI revision. Application adapters record application contract and package ABI revisions. Clients and schemas also record their artifact-specific projection revisions, allowing unrelated internal changes to avoid invalidating public artifacts.
+Generated contracts are keyed by package ABI revision. A service's application adapter records its package ABI revision and its `service_contract_revision`: the canonical contract projection of the service's module instance, that instance's resources and every other resource the adapter covers, with the application identity, compile dependencies and specification revision. The application composition records the application `contract_revision` and, for every registration it performs, the contract revision that registration must record; a registration with any other revision is rejected. A contract change outside a service's projection therefore leaves its adapter bytes unchanged. Clients and schemas also record their artifact-specific projection revisions, allowing unrelated internal changes to avoid invalidating public artifacts.
 
 ## 17. Revision behavior
 
@@ -693,6 +700,8 @@ Each `implementation_revision[target]` includes:
 - runtime/provider ABI identities.
 
 Changing a Go body, build tag, CGO policy, architecture feature, native input, generated adapter, runtime ABI, or provider ABI changes every affected target revision. It need not change an unaffected target. Changing only an unconsumed generated client projection does not change a Go target revision.
+
+A development runtime that runs each native service in its own process identifies a service process by its service's `service_contract_revision` and a service-process implementation revision. Its projection contains the digest of the target's projection without the application `contract_revision`, implementation-domain fields and generated adapter digest (specification revision, resolved target, module, toolchain and runtime ABI); the `service_contract_revision`; the implementation-domain fields of the service's projected resources and of the application's providers; and the build-input manifest digest of the process entrypoint's Go import closure. A contract or implementation-binding change of another service changes neither. The process that hosts the application's own endpoints keeps the application `contract_revision` and the target projection.
 
 ## 18. ABI compatibility
 

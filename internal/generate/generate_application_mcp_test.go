@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/mcpprojection"
 )
 
 func TestGeneratedApplicationAdapterRegistersMCPToolThroughRuntime(t *testing.T) {
@@ -61,7 +62,7 @@ func TestGeneratedDurableMCPTypeErrorUsesValidFormattingDirective(t *testing.T) 
 		Durable: true, DurableService: "house", DurableTask: execution.Address,
 	}
 	var source strings.Builder
-	if err := renderMCPToolRegistrations(&source, "sha256:contract", service, []mcpToolTarget{target}, []Resource{binding, operation, execution}); err != nil {
+	if err := renderMCPToolRegistrations(&source, service, []mcpToolTarget{target}, []Resource{binding, operation, execution}); err != nil {
 		t.Fatal(err)
 	}
 	generated := source.String()
@@ -95,7 +96,7 @@ func TestGeneratedMCPCompatibilityBindingBuffersHTTPStreamExplicitly(t *testing.
 	target := mcpToolTarget{Binding: mcpBinding, Operation: operation, AssistantAddress: "app/assistant/support", Name: "download", MaxResultBytes: 1024}
 	var source strings.Builder
 	resources := []Resource{resultRecord, operation, streamBinding, mcpBinding}
-	if err := renderMCPToolRegistrations(&source, "sha256:contract", Resource{Name: "house"}, []mcpToolTarget{target}, resources); err != nil {
+	if err := renderMCPToolRegistrations(&source, Resource{Name: "house"}, []mcpToolTarget{target}, resources); err != nil {
 		t.Fatal(err)
 	}
 	generated := source.String()
@@ -135,6 +136,10 @@ func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) 
 	if composition == "" {
 		t.Fatal("generated composition was not rendered")
 	}
+	capabilityRevision, err := mcpprojection.CapabilityRevision(result.Manifest, "app/assistant/support", "app/mcp_server/support")
+	if err != nil || capabilityRevision == result.Manifest.ContractRevision {
+		t.Fatalf("assistant capability revision = %q, %v", capabilityRevision, err)
+	}
 	want := []string{
 		`sceneryruntime "scenery.sh/runtime"`,
 		`registry.Register("scenery/assistants"`,
@@ -152,7 +157,8 @@ func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) 
 		`PipelineSteps: []string{}`,
 		`AssistantAddress: "app/assistant/support"`,
 		`RuntimeRevision: "runtime-1"`,
-		`CapabilityRevision: "` + result.Manifest.ContractRevision + `"`,
+		// The assistant's capability revision, not the application's.
+		`CapabilityRevision: "` + capabilityRevision + `"`,
 		`RegisterAssistantMCPManifestChecked`,
 		`"app/mcp_server/support"`,
 		`scenery.mcp-capability-manifest`,

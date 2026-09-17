@@ -47,24 +47,25 @@ type MCPToolEffect struct {
 
 // MCPToolRegistration is emitted by generated composition. Invoke must call
 // the generated service adapter (or its durable dispatch path), never a native
-// implementation directly.
+// implementation directly. A tool call reaches it only through an assistant's
+// MCP gateway, which admits a call only with the assistant's current capability
+// revision, so a registration records no application revision.
 type MCPToolRegistration struct {
-	ID                 string
-	Name               string
-	AssistantAddress   string
-	CapabilityRevision string
-	OperationAddress   string
-	ExecutionAddress   string
-	Policy             *ContractHTTPPolicy
-	Limits             MCPToolLimits
-	Effect             MCPToolEffect
-	Approval           string
-	Durable            bool
-	DurableService     string
-	DurableTask        string
-	DecodeInput        func([]byte) (any, error)
-	EncodeOutput       func(any) ([]byte, error)
-	Invoke             func(context.Context, MCPToolCallContext, any) (any, error)
+	ID               string
+	Name             string
+	AssistantAddress string
+	OperationAddress string
+	ExecutionAddress string
+	Policy           *ContractHTTPPolicy
+	Limits           MCPToolLimits
+	Effect           MCPToolEffect
+	Approval         string
+	Durable          bool
+	DurableService   string
+	DurableTask      string
+	DecodeInput      func([]byte) (any, error)
+	EncodeOutput     func(any) ([]byte, error)
+	Invoke           func(context.Context, MCPToolCallContext, any) (any, error)
 }
 
 // MCPToolOutcome is the public runtime name for the provider-neutral tool
@@ -140,9 +141,6 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 	registration, err := lookupMCPTool(call.AssistantAddress, name)
 	if err != nil {
 		return MCPToolOutcome{}, err
-	}
-	if registration.CapabilityRevision != "" && strings.TrimSpace(call.CapabilityRevision) != registration.CapabilityRevision {
-		return MCPToolOutcome{}, errors.New("revision_conflict: MCP capability revision is stale")
 	}
 	maxInput, maxResult := normalizeMCPToolLimits(registration.Limits)
 	if int64(len(input)) > maxInput {
@@ -400,7 +398,6 @@ func RegisterMCPTool(registration MCPToolRegistration) error {
 	registration.ID = strings.TrimSpace(registration.ID)
 	registration.Name = strings.TrimSpace(registration.Name)
 	registration.AssistantAddress = strings.TrimSpace(registration.AssistantAddress)
-	registration.CapabilityRevision = strings.TrimSpace(registration.CapabilityRevision)
 	if registration.ID == "" || registration.Name == "" || registration.AssistantAddress == "" {
 		return errors.New("runtime: MCP tool registration requires id, name, and assistant address")
 	}

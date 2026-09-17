@@ -340,3 +340,47 @@ func containsString(value any, want string) bool {
 	}
 	return false
 }
+
+// An assistant's capability revision follows its own contract and its server's
+// capabilities, not the rest of the application contract.
+func TestCapabilityRevisionFollowsOnlyTheAssistantCapabilities(t *testing.T) {
+	fixture, _ := readNativeGraphFixture(t)
+	withAssistant := func(edit func(*graph.Manifest)) *graph.Manifest {
+		manifest := cloneManifest(fixture)
+		manifest.Resources = append(manifest.Resources, graph.Resource{Address: "app/assistant/support", Kind: assistantKind, Name: "support", Module: "app",
+			Spec: map[string]any{"mcp_server": map[string]any{"$ref": "app/mcp_server/support"}}})
+		if edit != nil {
+			edit(manifest)
+		}
+		return manifest
+	}
+	revision := func(manifest *graph.Manifest) string {
+		t.Helper()
+		value, err := CapabilityRevision(manifest, "app/assistant/support", "app/mcp_server/support")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	base := revision(withAssistant(nil))
+	if !graph.IsCanonicalSHA256Digest(base) {
+		t.Fatalf("capability revision = %q", base)
+	}
+	unrelated := withAssistant(func(manifest *graph.Manifest) {
+		manifest.ContractRevision = "sha256:" + strings.Repeat("9", 64)
+		manifest.Resources = append(manifest.Resources, graph.Resource{Address: "garden/record/plant", Kind: recordKind, Name: "plant", Module: "garden", Spec: map[string]any{"unknown_fields": "reject"}})
+	})
+	if revision(unrelated) != base {
+		t.Fatal("a contract change outside the assistant's capabilities changed its capability revision")
+	}
+	described := withAssistant(func(manifest *graph.Manifest) {
+		mcp := resourceByAddress(manifest, "house/binding/process_scene_mcp").Spec["mcp"].(map[string]any)
+		mcp["description"] = "Process one scene differently."
+	})
+	if revision(described) == base {
+		t.Fatal("a changed tool description left the capability revision unchanged")
+	}
+	if _, err := CapabilityRevision(withAssistant(nil), "app/assistant/missing", "app/mcp_server/support"); err == nil {
+		t.Fatal("an undeclared assistant had a capability revision")
+	}
+}

@@ -528,3 +528,41 @@ func TestDevProcessEnvironmentIdentityFollowsTheEffectiveEnvironment(t *testing.
 		t.Fatal("a value the framework overrides changed the identity")
 	}
 }
+
+// A passed preflight covers a restart of the same retained executable with the
+// same identity and environment on another listener and link, and nothing else.
+func TestDevProcessProofsCoverOnlyTheSameExecutableIdentityAndEnvironment(t *testing.T) {
+	process := build.DevelopmentProcess{Name: "echo", ArtifactDigest: "sha256:artifact", Identity: build.DevelopmentProcessIdentity{
+		ContractRevision: "sha256:service-contract", ImplementationRevision: "sha256:implementation", BuildInputDigest: "sha256:inputs", GoTarget: "development",
+	}}
+	env := func(socket, link, database string) []string {
+		return []string{"DATABASE_URL=" + database, "SCENERY_LISTEN_NETWORK=unix", "SCENERY_LISTEN_ADDR=" + socket, "SCENERY_PROCESS_LINK=" + link}
+	}
+	var proofs devProcessProofs
+	proven := devProcessProofKey(process, "/run/app/scenery-app-artifact", env("s1.sock", "link-1.json", "postgres://one"))
+	proofs.remember(proven)
+	if !proofs.proven(devProcessProofKey(process, "/run/app/scenery-app-artifact", env("s7.sock", "link-2.json", "postgres://one"))) {
+		t.Fatal("a restart on another listener and link was not covered")
+	}
+	changedIdentity := process
+	changedIdentity.Identity.ImplementationRevision = "sha256:other"
+	unverified := process
+	unverified.ArtifactDigest = ""
+	for name, key := range map[string]string{
+		"environment": devProcessProofKey(process, "/run/app/scenery-app-artifact", env("s1.sock", "link-1.json", "postgres://two")),
+		"executable":  devProcessProofKey(process, "/run/app/scenery-app-other", env("s1.sock", "link-1.json", "postgres://one")),
+		"identity":    devProcessProofKey(changedIdentity, "/run/app/scenery-app-artifact", env("s1.sock", "link-1.json", "postgres://one")),
+		"unverified":  devProcessProofKey(unverified, "/run/app/scenery-app-artifact", env("s1.sock", "link-1.json", "postgres://one")),
+	} {
+		if proofs.proven(key) {
+			t.Errorf("a changed %s was covered by an earlier preflight", name)
+		}
+	}
+	for index := range devProcessProofLimit + 1 {
+		proofs.remember(proven + "-" + strings.Repeat("x", index))
+	}
+	if proofs.Lock(); len(proofs.keys) > devProcessProofLimit {
+		t.Fatalf("remembered %d proofs, limit %d", len(proofs.keys), devProcessProofLimit)
+	}
+	proofs.Unlock()
+}

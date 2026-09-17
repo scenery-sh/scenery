@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 
+	graphmodel "scenery.sh/internal/graph"
 	"scenery.sh/internal/spec"
 )
 
@@ -79,6 +81,62 @@ func ImplementationRevisionsForInputs(result *Result, targetName string, inputDi
 	return revisions, diagnostics
 }
 
+// ServiceProcess identifies one service process of a Go target for its
+// implementation revision.
+type ServiceProcess struct {
+	Service          Resource
+	Covered          []string
+	ContractRevision string
+	InputDigest      string
+}
+
+// ServiceProcessImplementationRevisions computes the implementation revision of
+// each service process of a Go target, keyed by service address. A process's
+// projection is the target's, bound to its service contract revision instead
+// of the application's and to the implementation bindings of its service's
+// resources and the application's providers instead of every resource, with
+// the process's build input digest. A contract or implementation binding change
+// of another service leaves it unchanged.
+func ServiceProcessImplementationRevisions(result *Result, targetName string, processes []ServiceProcess) (map[string]string, []Diagnostic) {
+	revisions := map[string]string{}
+	if result == nil || result.Manifest == nil || len(processes) == 0 {
+		return revisions, nil
+	}
+	targets := goTargetsByName(result.Manifest.Resources)
+	target := targets[targetName]
+	if target.Address == "" {
+		return revisions, []Diagnostic{{Code: "SCN6122", Severity: "error", Message: "build input manifest names unknown Go target " + targetName}}
+	}
+	base, diagnostics := implementationRevisionTargetProjection(result, resourcesByAddress(result.Manifest), targets, target)
+	if base == nil {
+		return revisions, diagnostics
+	}
+	// Every process shares the target's projection, which is hashed once.
+	targetProjection := revisionHash("scenery.service-process-target-projection\x00", base)
+	var providers []Resource
+	for _, resource := range result.Manifest.Resources {
+		if resource.Kind == "scenery.provider" {
+			providers = append(providers, resource)
+		}
+	}
+	for _, process := range processes {
+		if !isCanonicalSHA256Digest(process.InputDigest) || !isCanonicalSHA256Digest(process.ContractRevision) {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6122", Severity: "error", Message: "service process revisions require canonical sha256 digests", Address: process.Service.Address})
+			continue
+		}
+		resources := append(graphmodel.ServiceResources(result.Manifest.Resources, process.Service, process.Covered), providers...)
+		sort.Slice(resources, func(i, j int) bool { return resources[i].Address < resources[j].Address })
+		resources = slices.CompactFunc(resources, func(a, b Resource) bool { return a.Address == b.Address })
+		revisions[process.Service.Address] = revisionHash("scenery.service-process-implementation-revision\x00", map[string]any{
+			"target_projection":           targetProjection,
+			"service_contract_revision":   process.ContractRevision,
+			"implementation_bindings":     implementationBindings(resources),
+			"build_input_manifest_digest": process.InputDigest,
+		})
+	}
+	return revisions, diagnostics
+}
+
 // implementationRevisionForDigest returns the implementation revision of a
 // projection for a canonical build input manifest digest. A canonical digest
 // encodes as an unescaped string of fixed length, so the projection is encoded
@@ -133,6 +191,20 @@ func goTargetsByName(resources []Resource) map[string]Resource {
 // without its build input digest, or nil for a contract-role target or an
 // unresolvable one.
 func implementationRevisionProjection(result *Result, byAddress map[string]Resource, targets map[string]Resource, target Resource, adapterDigest string) (map[string]any, []Diagnostic) {
+	projection, diagnostics := implementationRevisionTargetProjection(result, byAddress, targets, target)
+	if projection == nil {
+		return nil, diagnostics
+	}
+	projection["contract_revision"] = result.Manifest.ContractRevision
+	projection["implementation_bindings"] = implementationBindings(result.Manifest.Resources)
+	projection["generated_adapter_digest"] = adapterDigest
+	return projection, diagnostics
+}
+
+// implementationRevisionTargetProjection returns the part of a target's
+// revision projection that does not depend on the application contract: the
+// specification revision, resolved target, module, toolchain and runtime ABI.
+func implementationRevisionTargetProjection(result *Result, byAddress map[string]Resource, targets map[string]Resource, target Resource) (map[string]any, []Diagnostic) {
 	effective, err := effectiveGoTarget(target, targets, nil)
 	if err != nil {
 		return nil, []Diagnostic{{Code: "SCN6150", Severity: "error", Message: err.Error(), Address: target.Address}}
@@ -153,15 +225,46 @@ func implementationRevisionProjection(result *Result, byAddress map[string]Resou
 	}
 	effective = resolvedGoTargetContext(effective, toolchain, &resolvedTarget.Context)
 	return map[string]any{
-		"spec_revision":            result.Manifest.SpecRevision,
-		"contract_revision":        result.Manifest.ContractRevision,
-		"implementation_bindings":  implementationBindings(result.Manifest.Resources),
-		"generated_adapter_digest": adapterDigest,
-		"target":                   effective,
-		"module":                   module.Spec,
-		"toolchain":                toolchain.Spec,
-		"runtime_abi":              "scenery.go-runtime/v1",
+		"spec_revision": result.Manifest.SpecRevision,
+		"target":        effective,
+		"module":        module.Spec,
+		"toolchain":     toolchain.Spec,
+		"runtime_abi":   "scenery.go-runtime/v1",
 	}, nil
+}
+
+// serviceContractRevisions retains service contract revisions by application
+// contract revision, service and covered addresses. The application contract
+// revision hashes the canonical projection of every resource a service
+// contract revision projects, so together they determine it.
+var serviceContractRevisions struct {
+	sync.Mutex
+	values map[string]string
+}
+
+const serviceContractRevisionLimit = 4096
+
+// ServiceContractRevision identifies the contract a native service's adapter
+// implements (graph.ServiceContractRevision).
+func ServiceContractRevision(manifest *Manifest, service Resource, covered []string) string {
+	if manifest == nil || manifest.ContractRevision == "" {
+		return graphmodel.ServiceContractRevision(manifest, service, covered)
+	}
+	key := manifest.ContractRevision + "\x00" + service.Address + "\x00" + service.Module + "\x00" + strings.Join(covered, "\x00")
+	serviceContractRevisions.Lock()
+	revision, ok := serviceContractRevisions.values[key]
+	serviceContractRevisions.Unlock()
+	if ok {
+		return revision
+	}
+	revision = graphmodel.ServiceContractRevision(manifest, service, covered)
+	serviceContractRevisions.Lock()
+	defer serviceContractRevisions.Unlock()
+	if serviceContractRevisions.values == nil || len(serviceContractRevisions.values) >= serviceContractRevisionLimit {
+		serviceContractRevisions.values = map[string]string{}
+	}
+	serviceContractRevisions.values[key] = revision
+	return revision
 }
 
 // adapterDigests retains the generated adapter digests of the most recent

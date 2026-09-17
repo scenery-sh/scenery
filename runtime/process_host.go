@@ -462,7 +462,9 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	generation := &processHostGeneration{number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings)}
 	for name, spec := range manifest.Processes {
 		identity := spec.Identity
-		if !validProcessLinkTarget(processLinkTarget{Network: spec.Network, Address: spec.Address}) || spec.PID <= 0 || identity.ContractRevision != manifest.ContractRevision ||
+		// A service instance records its service contract revision, which a
+		// contract change elsewhere in the application leaves unchanged.
+		if !validProcessLinkTarget(processLinkTarget{Network: spec.Network, Address: spec.Address}) || spec.PID <= 0 || identity.ContractRevision == "" ||
 			identity.ImplementationRevision == "" || identity.BuildInputDigest == "" || identity.GoTarget == "" {
 			return fmt.Errorf("generation %d instance of %s is invalid", manifest.Generation, name)
 		}

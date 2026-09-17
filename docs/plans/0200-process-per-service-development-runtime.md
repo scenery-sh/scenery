@@ -637,6 +637,28 @@ compile the application graph as it needs.
   read before each build by contract), `workspace.cache` (86 ms spread over
   inventory, dependency, projection and generated-path checks) and the
   synchronous status and compile-start notifications (34 ms).
+- [x] (2026-09-17) Contract edits relink only what their contract reaches. A
+  service adapter records a service contract revision (its module instance,
+  that instance's resources and every other resource it covers) instead of the
+  application's, the composition records the revision each registration must
+  carry, a service process's linked identity is its service contract revision
+  with a service-process implementation revision, and the host keeps the
+  application's. Service-side MCP tool registrations no longer record the
+  application revision: the assistant gateway already admits a call only with
+  the assistant's capability revision, which is now the projection of the
+  assistant's contract and its server's capabilities. Retained executables of
+  an unchanged digest are verified instead of copied again, and a runtime
+  preflight an unchanged retained executable passed with the same identity
+  and environment is not repeated when a complete generation restarts it. On
+  ONLV (same protocol; contract edits change one execution timeout and run
+  `scenery generate`): contract edit to response 25,144 to 5,690 ms p50, build
+  request 24,785 to 3,960 ms, relinked entrypoints 48 to 2 (host and the edited
+  service), `go build` 8.8 to 0.6 s, runtime activation 12.5 to 1.2 s, assistant
+  stages from two 5.8 s preparations to hits; body edits 1,736/2,092 to
+  1,548/1,675 ms, churn 1,749/1,810 to 1,542/1,626 ms, shared 2,620/2,639 to
+  2,361/2,406 ms, failing edit to reported failure 1,808 to 1,736 ms. Assistant
+  helpers stayed ready with matching expected and actual capability revisions
+  and `scenery doctor` reported them matching.
 
 ## Surprises & Discoveries
 
@@ -817,6 +839,20 @@ compile the application graph as it needs.
   time equal, so a listing keyed by them reused the old membership. The
   status-change time moves with any such restore and cannot be set by a
   caller, which is why it is part of the stamp.
+
+- After service identities stopped relinking unaffected services, a contract
+  edit still took 11.7 s: every retained executable was copied and fsynced
+  again (8.5 s) because a retained target was checked only after the copy, 49
+  preflights ran concurrently at about 375 ms each, and both assistants
+  reinstalled dependencies and rebuilt their helpers (5.8 s) because an
+  assistant's definition identity carried the application contract revision.
+- Twelve ONLV service adapters embedded the application contract revision a
+  second time, as the capability revision of their MCP tool registrations, so
+  a naive service contract revision would have made every assistant tool call
+  fail as stale; the service-side check it fed duplicated the gateway's.
+- `testdata/assistant` tracks generated Go projections from an earlier
+  specification revision; regenerating it rewrites its contract revision and
+  removes those files, so it was left unchanged.
 
 ## Decision Log
 
@@ -1127,6 +1163,27 @@ compile the application graph as it needs.
   conversation is never pinned between requests; per-tool identity reporting
   would need a public protocol change for the same guarantee. Date:
   2026-09-17. Author: Claude.
+- Decision: a service contract revision projects the service's module
+  instance, that instance's resources and the other resources its adapter
+  covers. Rationale: those are the contract resources the adapter registers;
+  generated inputs outside them (another module's client, a shared type) change
+  the process's build-input digest and so its identity, and the registration
+  check stays exact because the composition generated in the same artifact set
+  records each adapter's expected revision. Date: 2026-09-17. Author: Claude.
+- Decision: an assistant's capability revision is the projection of its own
+  contract and its MCP server's capabilities and connections, and generated
+  tool registrations carry no revision. Rationale: the gateway is the single
+  admission point for tool calls and already requires the assistant's
+  capability revision; tying helpers to the whole application contract rebuilt
+  both ONLV helpers on every unrelated contract edit. Date: 2026-09-17.
+  Author: Claude.
+- Decision: keep restarting every service process when a contract change
+  replaces the host, and make the restart cheap instead (verified retained
+  executables, reused preflight proofs). Rationale: an instance's link, socket
+  and background-work admission belong to one host incarnation; moving live
+  instances to a new host is a lifecycle change with its own rollback cases,
+  while the remaining activation takes about 1.2 s on ONLV. Date: 2026-09-17.
+  Author: Claude.
 
 ## Outcomes & Retrospective
 

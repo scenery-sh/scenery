@@ -169,8 +169,6 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 			}
 		}
 	}
-	// The target's revision and every process's revision share one contract
-	// projection, so they are computed together.
 	identityStarted := time.Now()
 	mains := make([]string, len(names))
 	digests := make([]string, len(names))
@@ -181,8 +179,21 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 		}
 		mains[index], digests[index] = main, digest
 	}
-	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, append([]string{manifest.Digest}, digests...))
-	for _, diagnostic := range diagnostics {
+	// The target and the host implement the application contract and share
+	// one projection. A service process implements its service contract, so a
+	// contract change elsewhere leaves its identity, and with unchanged build
+	// inputs its executable, as they were.
+	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, []string{manifest.Digest, digests[0]})
+	resources := make(map[string]compiler.Resource, len(result.Contract.Manifest.Resources))
+	for _, resource := range result.Contract.Manifest.Resources {
+		resources[resource.Address] = resource
+	}
+	serviceProcesses := make([]compiler.ServiceProcess, len(services))
+	for index, service := range services {
+		serviceProcesses[index] = compiler.ServiceProcess{Service: resources[service.Address], Covered: service.RequiredAddresses, ContractRevision: service.ContractRevision, InputDigest: digests[index+1]}
+	}
+	serviceRevisions, serviceDiagnostics := compiler.ServiceProcessImplementationRevisions(result.Contract, result.Target.Name, serviceProcesses)
+	for _, diagnostic := range append(diagnostics, serviceDiagnostics...) {
 		if diagnostic.Severity == "error" {
 			return nil, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
 		}
@@ -196,6 +207,11 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 		ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: targetRevision,
 		BuildInputDigest: manifest.Digest, GoTarget: result.Target.Name,
 	}}
+	identities := make([]DevelopmentProcessIdentity, len(names))
+	identities[0] = DevelopmentProcessIdentity{ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: revisions[digests[0]]}
+	for index, service := range services {
+		identities[index+1] = DevelopmentProcessIdentity{ContractRevision: service.ContractRevision, ImplementationRevision: serviceRevisions[service.Address]}
+	}
 	RecordStep(ctx, Step{Name: "process.identity", StartedAt: identityStarted, Duration: time.Since(identityStarted), Cache: "not_applicable", Reason: "entrypoint_import_closures", OK: true, Actions: len(names)})
 	binaryRoot := filepath.Join(result.Dir, developmentProcessBinaryDir)
 	if err := os.MkdirAll(binaryRoot, 0o755); err != nil {
@@ -206,7 +222,7 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 	processes := make([]*DevelopmentProcess, 0, len(names))
 	for index, name := range names {
 		process := &DevelopmentProcess{Name: name, Package: mains[index], Identity: DevelopmentProcessIdentity{
-			ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: revisions[digests[index]],
+			ContractRevision: identities[index].ContractRevision, ImplementationRevision: identities[index].ImplementationRevision,
 			BuildInputDigest: digests[index], GoTarget: result.Target.Name,
 		}}
 		if process.Identity.ImplementationRevision == "" {

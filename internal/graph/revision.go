@@ -38,6 +38,59 @@ func ContractRevision(resources []Resource, appName string) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+// ServiceContractRevision identifies the contract a native service's generated
+// adapter implements: the canonical contract projection of its module
+// instance, that instance's resources and every other resource the adapter
+// covers, with the application identity, compile dependencies and
+// specification revision. A contract change outside those resources leaves it
+// unchanged.
+func ServiceContractRevision(manifest *Manifest, service Resource, covered []string) string {
+	if manifest == nil {
+		return ""
+	}
+	projected := make([]Resource, 0)
+	for _, resource := range ServiceResources(manifest.Resources, service, covered) {
+		if value, ok := ContractResourceProjection(resource); ok {
+			projected = append(projected, value)
+		}
+	}
+	sort.Slice(projected, func(i, j int) bool { return projected[i].Address < projected[j].Address })
+	return RevisionHash("scenery.service-contract-revision\x00", struct {
+		SpecRevision string           `json:"spec_revision"`
+		Application  string           `json:"application"`
+		Service      string           `json:"service"`
+		Dependencies []map[string]any `json:"compile_dependencies"`
+		Resources    []Resource       `json:"resources"`
+	}{string(spec.CurrentRevision()), manifest.Application.Name, service.Address, dependencyContractIdentities(manifest.Resources), projected})
+}
+
+// ServiceResources returns, in manifest order, a native service's module
+// instance resource, the resources of that instance and the other resources
+// its adapter covers.
+func ServiceResources(resources []Resource, service Resource, covered []string) []Resource {
+	include := make(map[string]bool, len(covered))
+	for _, address := range covered {
+		include[address] = true
+	}
+	var selected []Resource
+	for _, resource := range resources {
+		instance := resource.Kind == "scenery.module" && moduleInstance(resource) == service.Module
+		if resource.Module == service.Module || instance || include[resource.Address] {
+			selected = append(selected, resource)
+		}
+	}
+	return selected
+}
+
+// moduleInstance is the instance path a module resource declares for the
+// resources inside it.
+func moduleInstance(module Resource) string {
+	if module.Module == "app" || module.Module == "" {
+		return module.Name
+	}
+	return module.Module + "/" + module.Name
+}
+
 // ContractProjectionHash identifies the canonical contract projection without
 // folding in the current specification revision. It is used only to prove a
 // revision-scheme rebind; executable artifacts remain bound to ContractRevision.

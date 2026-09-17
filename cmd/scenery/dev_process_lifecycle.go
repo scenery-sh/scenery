@@ -573,3 +573,49 @@ func (link *devProcessLink) current(ctx context.Context) uint64 {
 	}
 	return status.Current
 }
+
+// devProcessProofs remembers the runtime preflights the session's retained
+// executables passed. A preflight is a read-only handshake of an executable's
+// linked identity with its start environment, so the same retained bytes with
+// the same identity and environment, apart from the instance's own listener
+// and link, prove the same handshake: an unchanged executable restarted for a
+// new host incarnation is not preflighted again.
+type devProcessProofs struct {
+	sync.Mutex
+	keys map[string]bool
+}
+
+// devProcessProofLimit bounds the proofs one session remembers.
+const devProcessProofLimit = 1024
+
+// devProcessProofKey identifies a preflight of a retained executable, or is
+// empty when the executable has no verified digest.
+func devProcessProofKey(process build.DevelopmentProcess, command string, env []string) string {
+	if process.ArtifactDigest == "" || command == "" {
+		return ""
+	}
+	identity := process.Identity
+	return strings.Join([]string{process.ArtifactDigest, command, identity.ContractRevision, identity.ImplementationRevision, identity.BuildInputDigest, identity.GoTarget,
+		devProcessEnvironmentIdentity(envWithoutKeys(env, "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR", "SCENERY_PROCESS_LINK"))}, "\x00")
+}
+
+func (proofs *devProcessProofs) proven(key string) bool {
+	if key == "" {
+		return false
+	}
+	proofs.Lock()
+	defer proofs.Unlock()
+	return proofs.keys[key]
+}
+
+func (proofs *devProcessProofs) remember(key string) {
+	if key == "" {
+		return
+	}
+	proofs.Lock()
+	defer proofs.Unlock()
+	if proofs.keys == nil || len(proofs.keys) >= devProcessProofLimit {
+		proofs.keys = map[string]bool{}
+	}
+	proofs.keys[key] = true
+}

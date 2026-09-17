@@ -166,14 +166,20 @@ func TestDoctorAssistantTokenUsesCurrentWorktreeSession(t *testing.T) {
 }
 
 func TestDoctorAssistantRevisionCheckUsesProviderNeutralStatus(t *testing.T) {
-	result := &compiler.Result{Manifest: &compiler.Manifest{ContractRevision: "sha256:" + strings.Repeat("a", 64)}}
-	status := doctorAssistantStatus{Present: true, Ready: true, ExpectedRuntime: "runtime-1", ExpectedCapability: result.Manifest.ContractRevision, ActualRuntime: "runtime-stale", ActualCapability: result.Manifest.ContractRevision}
-	check := doctorAssistantRevisionCheck("support", result, status, nil)
+	assistant := compiler.Resource{Address: "app/assistant/support", Name: "support", Kind: "scenery.assistant", Module: "app", Spec: map[string]any{"mcp_server": "mcp_server.support"}}
+	result := &compiler.Result{Manifest: &compiler.Manifest{ContractRevision: "sha256:" + strings.Repeat("a", 64), Resources: []compiler.Resource{assistant, assistantTestMCPServer}}}
+	capability := assistantTestCapabilityRevision(t, result)
+	status := doctorAssistantStatus{Present: true, Ready: true, ExpectedRuntime: "runtime-1", ExpectedCapability: capability, ActualRuntime: "runtime-stale", ActualCapability: capability}
+	check := doctorAssistantRevisionCheck("support", assistant.Address, result, status, nil)
 	if check.Status != doctor.StatusError || !strings.Contains(check.Message, "runtime revision") {
 		t.Fatalf("stale runtime revision check = %#v", check)
 	}
-	status.ActualRuntime = "runtime-1"
-	check = doctorAssistantRevisionCheck("support", result, status, nil)
+	status.ActualRuntime, status.ActualCapability = "runtime-1", result.Manifest.ContractRevision
+	if check = doctorAssistantRevisionCheck("support", assistant.Address, result, status, nil); check.Status != doctor.StatusError || !strings.Contains(check.Message, "capability revision") {
+		t.Fatalf("application contract revision as the capability revision = %#v", check)
+	}
+	status.ActualCapability = capability
+	check = doctorAssistantRevisionCheck("support", assistant.Address, result, status, nil)
 	if check.Status != doctor.StatusOK {
 		t.Fatalf("matching revisions check = %#v", check)
 	}
@@ -193,9 +199,11 @@ func TestDoctorAssistantAssetDescriptorSelfDigest(t *testing.T) {
 		sum := sha256.Sum256([]byte(value))
 		return "sha256:" + hex.EncodeToString(sum[:])
 	}
+	assistant := compiler.Resource{Address: "app/assistant/support", Name: "support", Kind: "scenery.assistant", Module: "app", Spec: map[string]any{"mcp_server": "mcp_server.support"}}
+	result := &compiler.Result{Manifest: &compiler.Manifest{ContractRevision: "sha256:" + strings.Repeat("a", 64), Resources: []compiler.Resource{assistant, assistantTestMCPServer}}}
 	value := map[string]any{
 		"kind": runtimeassets.AssistantAssetKind, "schema_revision": runtimeassets.AssistantAssetSchemaRevision,
-		"assistant_address": "app/assistant/support", "target": "development", "runtime_revision": "runtime-1", "capability_revision": "sha256:" + strings.Repeat("a", 64),
+		"assistant_address": "app/assistant/support", "target": "development", "runtime_revision": "runtime-1", "capability_revision": assistantTestCapabilityRevision(t, result),
 		"node_archive_digest": digest("node"), "node_tree_digest": digest("node-tree"), "capsule_archive_digest": digest("capsule"), "capsule_tree_digest": digest("capsule-tree"), "capsule_entry": ".scenery/bootstrap.mjs", "package_lock_digest": digest("package-lock"),
 	}
 	encoded, err := json.Marshal(value)
@@ -211,18 +219,23 @@ func TestDoctorAssistantAssetDescriptorSelfDigest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(assetDir, "runtime-descriptor.json"), encoded, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result := &compiler.Result{Manifest: &compiler.Manifest{ContractRevision: value["capability_revision"].(string)}}
-	assistant := compiler.Resource{Address: "app/assistant/support", Name: "support", Kind: "scenery.assistant"}
 	check := doctorAssistantAssetCheck(root, assistant, result)
 	if check.Status != doctor.StatusOK {
 		t.Fatalf("valid asset descriptor check = %#v", check)
 	}
+	// A contract change outside the assistant's capabilities keeps its assets.
 	result.Manifest.ContractRevision = "sha256:" + strings.Repeat("b", 64)
-	check = doctorAssistantAssetCheck(root, assistant, result)
-	if check.Status != doctor.StatusSkipped {
-		t.Fatalf("retained descriptor from a previous contract = %#v", check)
+	if check = doctorAssistantAssetCheck(root, assistant, result); check.Status != doctor.StatusOK {
+		t.Fatalf("retained descriptor after an unrelated contract change = %#v", check)
 	}
-	result.Manifest.ContractRevision = value["capability_revision"].(string)
+	changed := assistant
+	changed.Spec = map[string]any{"mcp_server": "mcp_server.support", "surface": map[string]any{"path": "/assistants/changed"}}
+	result.Manifest.Resources = []compiler.Resource{changed, assistantTestMCPServer}
+	check = doctorAssistantAssetCheck(root, changed, result)
+	if check.Status != doctor.StatusSkipped {
+		t.Fatalf("retained descriptor from previous capabilities = %#v", check)
+	}
+	result.Manifest.Resources = []compiler.Resource{assistant, assistantTestMCPServer}
 	if err := os.WriteFile(filepath.Join(assetDir, "runtime-descriptor.json"), []byte(strings.Replace(string(encoded), "descriptor_digest", "descriptor_digest_bad", 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}

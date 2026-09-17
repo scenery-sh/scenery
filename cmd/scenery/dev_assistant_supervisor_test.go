@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/assistantruntime"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
+	"scenery.sh/internal/mcpprojection"
 )
 
 func TestAssistantWatchLanesRemainIndependentFromGoBuild(t *testing.T) {
@@ -63,13 +64,13 @@ func TestAssistantDefinitionsUseCanonicalGraphRevisions(t *testing.T) {
 		Resources: []graph.Resource{{Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support", Spec: map[string]any{
 			"mcp_server":     map[string]any{"$ref": "mcp_server.support"},
 			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
-		}}},
+		}}, assistantTestMCPServer},
 	}}
 	defs := assistantDefinitionsFromResult(result, root)
 	if len(defs) != 1 {
 		t.Fatalf("definitions = %+v", defs)
 	}
-	if defs[0].MCPServer != "app/mcp_server/support" || defs[0].RuntimeRevision != "runtime-2" || defs[0].CapabilityRevision != "capability-2" {
+	if defs[0].MCPServer != "app/mcp_server/support" || defs[0].RuntimeRevision != "runtime-2" || defs[0].CapabilityRevision != assistantTestCapabilityRevision(t, result) {
 		t.Fatalf("definition = %+v", defs[0])
 	}
 	if defs[0].SourceRoot != filepath.Join(root, "assistants", "support") {
@@ -87,7 +88,7 @@ func TestAssistantUnavailableDoesNotAbortReconcile(t *testing.T) {
 			"mcp_server":     "mcp_server.support",
 			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
 		},
-	}}}}
+	}, assistantTestMCPServer}}}
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: root, StateRoot: filepath.Join(root, "state")})
 	if err := supervisor.Reconcile(context.Background(), result); err != nil {
 		t.Fatalf("Reconcile returned helper outage: %v", err)
@@ -305,7 +306,7 @@ func TestAssistantPreparedRuntimeSlotsStayStableAcrossReconcile(t *testing.T) {
 			"mcp_server":     "mcp_server.support",
 			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
 		},
-	}}}}
+	}, assistantTestMCPServer}}}
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: root, StateRoot: filepath.Join(root, "state")})
 	if err := supervisor.Prepare(context.Background(), result); err != nil {
 		t.Fatalf("first Prepare() = %v", err)
@@ -343,7 +344,7 @@ func TestAssistantPrepareRemovesOrphanedOverlayOnRevisionChange(t *testing.T) {
 			"mcp_server":     "mcp_server.support",
 			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
 		},
-	}}}}
+	}, assistantTestMCPServer}}}
 	if err := supervisor.Prepare(context.Background(), result); err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +387,7 @@ func TestAssistantPreparePublishesDescriptorBeforeHelperStart(t *testing.T) {
 			"mcp_server":     "mcp_server.support",
 			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
 		},
-	}}}}
+	}, assistantTestMCPServer}}}
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: root, StateRoot: filepath.Join(root, "state"), ProcessFactory: func(context.Context, devProcessStartRequest) (*devManagedProcess, error) {
 		started = true
 		return nil, errors.New("test process should not start during Prepare")
@@ -423,7 +424,7 @@ func TestAssistantPrepareBuildsOverlayBeforeHelperStart(t *testing.T) {
 				"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json",
 			},
 		},
-	}}}}
+	}, assistantTestMCPServer}}}
 	installed, built := false, false
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{
 		Root: root, StateRoot: filepath.Join(root, "state"), UseAppGateway: true,
@@ -464,7 +465,7 @@ func TestAssistantPrepareKeepsDescriptorWhenOverlayPreparationFails(t *testing.T
 			"mcp_server":     "mcp_server.support",
 			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
 		},
-	}}}}
+	}, assistantTestMCPServer}}}
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{
 		Root: root, StateRoot: filepath.Join(root, "state"), UseAppGateway: true,
 		NodeResolver: func(context.Context) (string, string, string, error) {
@@ -483,4 +484,18 @@ func TestAssistantPrepareKeepsDescriptorWhenOverlayPreparationFails(t *testing.T
 		t.Fatalf("status = %#v", status)
 	}
 	_ = supervisor.Close()
+}
+
+// assistantTestMCPServer is the MCP server synthetic assistant graphs declare.
+var assistantTestMCPServer = graph.Resource{Address: "app/mcp_server/support", Kind: "scenery.mcp-server", Name: "support", Module: "app", Spec: map[string]any{"max_input_bytes": 1024, "max_result_bytes": 1024}}
+
+// assistantTestCapabilityRevision is the capability revision of the synthetic
+// support assistant in result.
+func assistantTestCapabilityRevision(t *testing.T, result *compiler.Result) string {
+	t.Helper()
+	revision, err := mcpprojection.CapabilityRevision(result.Manifest, "app/assistant/support", "app/mcp_server/support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return revision
 }

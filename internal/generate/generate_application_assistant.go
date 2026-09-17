@@ -121,11 +121,16 @@ func renderAssistantRegistration(result *Result, resources map[string]Resource, 
 	if err != nil {
 		return "", fmt.Errorf("assistant %s MCP manifest: %w", assistant.Address, err)
 	}
+	capabilityRevision, err := mcpprojection.CapabilityRevision(result.Manifest, assistant.Address, serverAddress)
+	if err != nil {
+		return "", fmt.Errorf("assistant %s capability revision: %w", assistant.Address, err)
+	}
+	manifest.ContractRevision = capabilityRevision
 	manifestJSON, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		return "", fmt.Errorf("assistant %s MCP manifest encoding: %w", assistant.Address, err)
 	}
-	registration := fmt.Sprintf("if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: %q, Name: %q, Path: %q, Access: %s, Policy: %s, AssistantAddress: %q, RuntimeRevision: %q, CapabilityRevision: %q, Required: true}); err != nil { return err }\n", assistant.Address, name, path, access, policy, assistant.Address, assistantRuntimeRevision(result), result.Manifest.ContractRevision)
+	registration := fmt.Sprintf("if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: %q, Name: %q, Path: %q, Access: %s, Policy: %s, AssistantAddress: %q, RuntimeRevision: %q, CapabilityRevision: %q, Required: true}); err != nil { return err }\n", assistant.Address, name, path, access, policy, assistant.Address, assistantRuntimeRevision(result), capabilityRevision)
 	registration += fmt.Sprintf("if err := sceneryruntime.RegisterAssistantMCPManifestChecked(%q, %q, []byte(%q)); err != nil { return err }\n", assistant.Address, serverAddress, string(manifestJSON))
 	return registration, nil
 }

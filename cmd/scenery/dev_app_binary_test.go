@@ -65,4 +65,18 @@ func TestSessionAppBinaryUsesValidatedProducerDigest(t *testing.T) {
 	if _, err := prepareSessionAppBinary(&localagent.Session{StateRoot: filepath.Join(root, "other")}, source, "not-a-digest"); err == nil {
 		t.Fatal("invalid producer digest accepted")
 	}
+	// Retained bytes of the digest are verified and used without another copy.
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
+	again, err := prepareSessionAppBinary(&localagent.Session{StateRoot: filepath.Join(root, "session")}, source, hex.EncodeToString(sum[:]))
+	if err != nil || again != path {
+		t.Fatalf("retained executable of the same digest = %q, %v; want %q", again, err, path)
+	}
+	if err := os.WriteFile(path, []byte("tampered executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareSessionAppBinary(&localagent.Session{StateRoot: filepath.Join(root, "session")}, source, hex.EncodeToString(sum[:])); err == nil {
+		t.Fatal("changed retained bytes were used")
+	}
 }

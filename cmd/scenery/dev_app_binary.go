@@ -24,6 +24,21 @@ func prepareSessionAppBinary(session *localagent.Session, binary, expectedDigest
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
+	// Retained bytes of the expected digest need no second copy; they are
+	// verified instead, as retained bytes found after a copy are.
+	if digest := strings.TrimPrefix(expectedDigest, "sha256:"); digest != "" {
+		if decoded, decodeErr := hex.DecodeString(digest); decodeErr == nil && len(decoded) == sha256.Size {
+			target := filepath.Join(dir, "scenery-app-"+digest)
+			if _, err := os.Lstat(target); err == nil {
+				if err := verifyRetainedAppBinary(target, digest); err != nil {
+					return "", err
+				}
+				return target, nil
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return "", err
+			}
+		}
+	}
 	in, err := os.Open(binary)
 	if err != nil {
 		return "", err

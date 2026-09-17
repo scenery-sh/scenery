@@ -9,7 +9,7 @@ import (
 )
 
 func TestContractRegistryValidatesCompleteOwnershipBeforeApplying(t *testing.T) {
-	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"house/service/house", "house/operation/process"}})
+	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevisions: map[string]string{"adapter/house": "sha256:contract"}, RequiredAddresses: []string{"house/service/house", "house/operation/process"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestContractRegistryValidatesCompleteOwnershipBeforeApplying(t *testing.T) 
 }
 
 func TestContractRegistryRejectsMismatchDuplicateAndIncompleteSet(t *testing.T) {
-	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"house/service/house", "house/operation/process"}})
+	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevisions: map[string]string{"adapter/house": "sha256:contract", "adapter/other": "sha256:contract"}, RequiredAddresses: []string{"house/service/house", "house/operation/process"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +48,9 @@ func TestContractRegistryRejectsMismatchDuplicateAndIncompleteSet(t *testing.T) 
 	if err := registry.Register("adapter/house", registration); err != nil {
 		t.Fatal(err)
 	}
+	if err := registry.Register("adapter/unexpected", registration); err == nil {
+		t.Fatal("a registration without an expected contract revision succeeded")
+	}
 	if err := registry.Register("adapter/other", registration); err == nil {
 		t.Fatal("duplicate ownership succeeded")
 	}
@@ -57,7 +60,7 @@ func TestContractRegistryRejectsMismatchDuplicateAndIncompleteSet(t *testing.T) 
 }
 
 func TestContractRegistryPropagatesAdapterFailureWithoutSealing(t *testing.T) {
-	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"house/service/house"}})
+	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevisions: map[string]string{"adapter/house": "sha256:contract"}, RequiredAddresses: []string{"house/service/house"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +74,7 @@ func TestContractRegistryPropagatesAdapterFailureWithoutSealing(t *testing.T) {
 }
 
 func TestContractRegistryRejectsProviderABIMismatch(t *testing.T) {
-	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"house/service/house"}, ProviderABIs: map[string]string{"registry.scenery.dev/core/postgres": "scenery.data-runtime/v1"}})
+	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevisions: map[string]string{"adapter/house": "sha256:contract"}, RequiredAddresses: []string{"house/service/house"}, ProviderABIs: map[string]string{"registry.scenery.dev/core/postgres": "scenery.data-runtime/v1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +88,7 @@ func TestContractRegistryRejectsProviderABIMismatch(t *testing.T) {
 }
 
 func TestContractRegistrySealRollsBackRuntimeRegistrations(t *testing.T) {
-	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"house/service/one", "house/service/two"}})
+	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevisions: map[string]string{"adapter/one": "sha256:contract", "adapter/two": "sha256:contract"}, RequiredAddresses: []string{"house/service/one", "house/service/two"}})
 	if err != nil {
 		t.Fatal(err)
 	}

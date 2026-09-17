@@ -26,8 +26,11 @@ type RuntimeIntegrationPlan struct {
 // registers, the exact contract resources that process must cover, and the HTTP
 // endpoints its adapter registers.
 type ServiceProcessPlan struct {
-	Address           string
-	Name              string
+	Address string
+	Name    string
+	// ContractRevision is the service contract revision the adapter
+	// implements (compiler.ServiceContractRevision).
+	ContractRevision  string
 	AdapterImport     string
 	RequiredAddresses []string
 	Routes            []ServiceProcessRoute

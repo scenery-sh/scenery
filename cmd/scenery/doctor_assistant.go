@@ -105,7 +105,7 @@ func doctorAssistantChecks(ctx context.Context, root string, cfg appcfg.Config, 
 		checks = append(checks, doctorAssistantNodeCheck(ctx, root, name, runtimeInfo))
 		checks = append(checks, doctorAssistantProductionTokenCheck(root, cfg, name))
 		checks = append(checks, doctorAssistantAssetCheck(root, assistant, result))
-		checks = append(checks, doctorAssistantRevisionCheck(name, result, statuses[assistant.Address], statusErr))
+		checks = append(checks, doctorAssistantRevisionCheck(name, assistant.Address, result, statuses[assistant.Address], statusErr))
 	}
 	return checks
 }
@@ -459,17 +459,14 @@ func validAssistantTokenKeyFile(path string) bool {
 	return err == nil && len(data) <= 4096 && validAssistantTokenKeyValue(string(data))
 }
 
-func doctorAssistantRevisionCheck(name string, result *compiler.Result, status doctorAssistantStatus, statusErr error) doctor.Check {
+func doctorAssistantRevisionCheck(name, address string, result *compiler.Result, status doctorAssistantStatus, statusErr error) doctor.Check {
 	id := assistantCheckID(doctorAssistantRevisionID, name)
 	checkName := "Assistant runtime revisions (" + name + ")"
 	if statusErr != nil || !status.Present {
 		return checkSkipped(id, checkName, "provider-neutral assistant runtime status is not available yet")
 	}
 	expectedRuntime := assistantExpectedRuntimeRevision(result)
-	expectedCapability := ""
-	if result != nil && result.Manifest != nil {
-		expectedCapability = strings.TrimSpace(result.Manifest.ContractRevision)
-	}
+	expectedCapability := assistantCapabilityRevision(result, address)
 	if status.ExpectedRuntime != "" && expectedRuntime != "" && status.ExpectedRuntime != expectedRuntime {
 		return checkError(id, checkName, "assistant runtime revision is stale", "Restart the assistant helper from the current compiled application.")
 	}
@@ -643,7 +640,7 @@ func assistantAssetMatchesResult(descriptor doctorAssistantAssetDescriptor, resu
 	if result == nil || result.Manifest == nil {
 		return true
 	}
-	if descriptor.CapabilityRevision != "" && descriptor.CapabilityRevision != result.Manifest.ContractRevision {
+	if descriptor.CapabilityRevision != "" && descriptor.CapabilityRevision != assistantCapabilityRevision(result, descriptor.AssistantAddress) {
 		return false
 	}
 	expected := assistantExpectedRuntimeRevision(result)

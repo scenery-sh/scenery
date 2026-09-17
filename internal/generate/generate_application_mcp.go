@@ -107,7 +107,7 @@ func mcpBindingResources(targets []mcpToolTarget) []Resource {
 	return resources
 }
 
-func renderMCPToolRegistrations(b *strings.Builder, contractRevision string, service Resource, targets []mcpToolTarget, resources []Resource) error {
+func renderMCPToolRegistrations(b *strings.Builder, service Resource, targets []mcpToolTarget, resources []Resource) error {
 	if len(targets) == 0 {
 		return nil
 	}
@@ -120,7 +120,7 @@ func renderMCPToolRegistrations(b *strings.Builder, contractRevision string, ser
 		}
 		policy := renderContractInvocationPolicy(resourceMap, target.Binding, target.Binding.Address, target.Binding.Spec["authorization"], target.Binding.Spec["pipeline"])
 		registrationID := target.AssistantAddress + "#" + target.Binding.Address
-		fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: %q, Name: %q, AssistantAddress: %q, CapabilityRevision: %q, OperationAddress: %q, ExecutionAddress: %q, Policy: %s, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: %d, MaxResultBytes: %d}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: %t, Destructive: %t, Idempotent: %t, OpenWorld: %t}, Approval: %q, Durable: %t, DurableService: %q, DurableTask: %q, ", registrationID, target.Name, target.AssistantAddress, contractRevision, target.Operation.Address, target.Execution.Address, policy, target.MaxInputBytes, target.MaxResultBytes, target.ReadOnly, target.Destructive, target.Idempotent, target.OpenWorld, target.Approval, target.Durable, target.DurableService, target.DurableTask)
+		fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: %q, Name: %q, AssistantAddress: %q, OperationAddress: %q, ExecutionAddress: %q, Policy: %s, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: %d, MaxResultBytes: %d}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: %t, Destructive: %t, Idempotent: %t, OpenWorld: %t}, Approval: %q, Durable: %t, DurableService: %q, DurableTask: %q, ", registrationID, target.Name, target.AssistantAddress, target.Operation.Address, target.Execution.Address, policy, target.MaxInputBytes, target.MaxResultBytes, target.ReadOnly, target.Destructive, target.Idempotent, target.OpenWorld, target.Approval, target.Durable, target.DurableService, target.DurableTask)
 		fmt.Fprintf(b, "DecodeInput: func(data []byte) (any, error) { return contract.Unmarshal%sInput(data) }, ", operationName)
 		if target.Durable {
 			b.WriteString("EncodeOutput: func(value any) ([]byte, error) { receipt, ok := value.(scenery.ExecutionReceipt); if !ok { return nil, fmt.Errorf(\"MCP durable tool returned %T, want scenery.ExecutionReceipt\", value) }; return scenery.MarshalContractValue(receipt, \"std.type.execution_receipt\") }, ")

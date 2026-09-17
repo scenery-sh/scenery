@@ -419,7 +419,7 @@ func TestAssistantMCPGatewayDispatchesRegisteredLocalToolWithSignedAssertion(t *
 		t.Fatal(err)
 	}
 	if err := RegisterMCPTool(MCPToolRegistration{
-		ID: "app/assistant/support#echo", Name: "echo", AssistantAddress: "app/assistant/support", CapabilityRevision: "capability-1",
+		ID: "app/assistant/support#echo", Name: "echo", AssistantAddress: "app/assistant/support",
 		DecodeInput: func(data []byte) (any, error) {
 			var value map[string]any
 			err := json.Unmarshal(data, &value)

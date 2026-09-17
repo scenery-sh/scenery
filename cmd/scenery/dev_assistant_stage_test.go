@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -17,7 +19,7 @@ func TestAssistantStageBoundsIndependentPreparation(t *testing.T) {
 	s, result, _ := assistantStageFixture(t)
 	candidate := nextAssistantStageResult(result)
 	resource := candidate.Manifest.Resources[0]
-	candidate.Manifest.Resources = nil
+	candidate.Manifest.Resources = candidate.Manifest.Resources[1:2]
 	for _, name := range []string{"one", "two", "three"} {
 		next := resource
 		next.Address, next.Name = "app/assistant/"+name, name
@@ -93,11 +95,11 @@ func assistantStageFixture(t *testing.T) (*assistantSupervisor, *compiler.Result
 		}
 	}
 	result := &compiler.Result{Manifest: &graph.Manifest{ContractRevision: "original", Resources: []graph.Resource{{
-		Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support", Spec: map[string]any{
+		Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support", Module: "app", Spec: map[string]any{
 			"mcp_server":     "mcp_server.support",
 			"implementation": map[string]any{"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json"},
 		},
-	}}}}
+	}, {Address: "app/mcp_server/support", Kind: "scenery.mcp-server", Name: "support", Module: "app", Spec: map[string]any{"max_input_bytes": 1024, "max_result_bytes": 1024}}}}}
 	s := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{
 		Root: root, StateRoot: filepath.Join(root, "state"), UseAppGateway: true,
 		NodeResolver: func(context.Context) (string, string, string, error) { return "/node", "/npm", "/home", nil },
@@ -111,10 +113,18 @@ func assistantStageFixture(t *testing.T) (*assistantSupervisor, *compiler.Result
 	return s, result, source
 }
 
+// nextAssistantStageResult changes the assistant's own contract, and with it
+// its capability revision; a contract change elsewhere leaves an assistant's
+// prepared runtime current.
 func nextAssistantStageResult(original *compiler.Result) *compiler.Result {
 	result := *original
 	manifest := *original.Manifest
 	manifest.ContractRevision = "candidate"
+	manifest.Resources = slices.Clone(original.Manifest.Resources)
+	assistant := manifest.Resources[0]
+	assistant.Spec = maps.Clone(assistant.Spec)
+	assistant.Spec["surface"] = map[string]any{"path": "/assistants/candidate"}
+	manifest.Resources[0] = assistant
 	result.Manifest = &manifest
 	return &result
 }
@@ -208,5 +218,29 @@ func TestAssistantOldRestartCannotResurrectRetiredDefinition(t *testing.T) {
 	}
 	if !reflect.DeepEqual(before, s.RuntimeConfig()) || s.contract == result {
 		t.Fatal("delayed restart restored the old definition")
+	}
+}
+
+// A contract change outside an assistant's capabilities keeps its prepared
+// private runtime: nothing is installed or built again.
+func TestAssistantStageKeepsPreparedRuntimeAcrossUnrelatedContractChanges(t *testing.T) {
+	s, result, _ := assistantStageFixture(t)
+	before := s.captureStage()
+	s.config.InstallDeps = func(context.Context, string, string, string) error {
+		t.Error("an unrelated contract change installed assistant dependencies")
+		return nil
+	}
+	candidate := *result
+	manifest := *result.Manifest
+	manifest.ContractRevision = "unrelated"
+	manifest.Resources = append(slices.Clone(result.Manifest.Resources), graph.Resource{Address: "garden/record/plant", Kind: "scenery.record", Name: "plant", Module: "garden", Spec: map[string]any{"unknown_fields": "reject"}})
+	candidate.Manifest = &manifest
+	stage, err := s.stage(context.Background(), &candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.releaseStage(stage)
+	if stage.prepared["app/assistant/support"].overlay.Root != before.prepared["app/assistant/support"].overlay.Root {
+		t.Fatal("an unrelated contract change prepared a new assistant runtime")
 	}
 }

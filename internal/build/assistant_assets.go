@@ -318,9 +318,13 @@ func buildAssistantAsset(ctx context.Context, result *Result, assistant compiler
 	if err != nil {
 		return generateapi.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: %w", assistant.Address, err)
 	}
+	capabilityRevision, err := mcpprojection.CapabilityRevision(expanded, assistant.Address, referenceValueForBuild(assistant.Spec["mcp_server"]))
+	if err != nil {
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s capability revision: %w", assistant.Address, err)
+	}
 	overlay, err := eve.MaterializeOverlay(eve.OverlayRequest{
 		SourceRoot: sourceRoot, OverlayRoot: overlayRoot, AssistantAddress: assistant.Address,
-		RuntimeRevision: assistantRuntimeRevisionForBuild(result), CapabilityRevision: result.Contract.Manifest.ContractRevision,
+		RuntimeRevision: assistantRuntimeRevisionForBuild(result), CapabilityRevision: capabilityRevision,
 		ApprovalNeverTools: eve.ApprovalNeverTools(manifest),
 		ControlURL:         "http://127.0.0.1:1", MCPURL: "http://127.0.0.1:1",
 	})
@@ -380,7 +384,7 @@ func buildAssistantAsset(ctx context.Context, result *Result, assistant compiler
 	descriptor := generateapi.AssistantAssetDescriptor{
 		Kind: generateapi.AssistantAssetDescriptorKind, SchemaRevision: runtimeassets.AssistantAssetSchemaRevision,
 		AssistantAddress: assistant.Address, Target: platform.String(), RuntimeRevision: runtimeRevision,
-		CapabilityRevision: result.Contract.Manifest.ContractRevision,
+		CapabilityRevision: capabilityRevision,
 		NodeArchiveDigest:  nodeArchive.ArchiveDigest, NodeTreeDigest: nodeArchive.Descriptor.Digest,
 		CapsuleArchiveDigest: capsuleArchive.ArchiveDigest, CapsuleTreeDigest: capsuleArchive.Descriptor.Digest,
 		CapsuleEntry: generateapi.AssistantAssetCapsuleEntry, PackageLockDigest: lockDigest,

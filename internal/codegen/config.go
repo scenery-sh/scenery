@@ -63,7 +63,7 @@ func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.Runtim
 		renderAuthRegistration(&buf, cfg)
 	}
 	if application {
-		buf.WriteString("\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: contractRevision, RequiredAddresses: applicationRequiredAddresses, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n")
+		buf.WriteString("\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevisions: applicationContractRevisions, RequiredAddresses: applicationRequiredAddresses, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n")
 		buf.WriteString("\tif err == nil { err = registerApplication(contractRegistry) }\n")
 		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
 		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
@@ -149,7 +149,7 @@ func renderEntrypoint(appName string, cfg appcfg.Config, registration entrypoint
 	renderAuthRegistration(&buf, cfg)
 	if registration.Import != "" {
 		buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
-		fmt.Fprintf(&buf, "\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: scenerycomposition.ContractRevision, RequiredAddresses: %s, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n", registration.RequiredAddresses)
+		fmt.Fprintf(&buf, "\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevisions: scenerycomposition.ContractRevisions, RequiredAddresses: %s, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n", registration.RequiredAddresses)
 		buf.WriteString("\tif err == nil { err = scenerycomposition.Register(contractRegistry) }\n")
 		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
 		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")

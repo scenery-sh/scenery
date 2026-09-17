@@ -32,7 +32,6 @@ func assistantDefinitionsFromResult(result *compiler.Result, root string) []assi
 	if result == nil || result.Manifest == nil {
 		return nil
 	}
-	capabilityRevision := strings.TrimSpace(result.Manifest.ContractRevision)
 	definitions := make([]assistantDefinition, 0)
 	for _, resource := range result.Manifest.Resources {
 		if resource.Kind != "scenery.assistant" || strings.TrimSpace(resource.Address) == "" {
@@ -51,6 +50,7 @@ func assistantDefinitionsFromResult(result *compiler.Result, root string) []assi
 			name = assistantNameFromAddress(resource.Address)
 		}
 		runtimeRevision := assistantRuntimeRevisionFor(result, resource.Address)
+		capabilityRevision := assistantCapabilityRevision(result, resource.Address)
 		required := true
 		if value, ok := implementation["required"].(bool); ok {
 			required = value
@@ -327,4 +327,24 @@ func buildAssistantOverlay(ctx context.Context, overlay, nodePath, nodeHome, mcp
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
 	return command.Run()
+}
+
+// assistantCapabilityRevision is the capability revision of the assistant at
+// address in result (mcpprojection.CapabilityRevision), or empty when result
+// declares no such assistant with a projectable MCP server; a helper handshake
+// requires one.
+func assistantCapabilityRevision(result *compiler.Result, address string) string {
+	if result == nil || result.Manifest == nil {
+		return ""
+	}
+	for _, resource := range result.Manifest.Resources {
+		if resource.Kind == "scenery.assistant" && resource.Address == address {
+			revision, err := mcpprojection.CapabilityRevision(result.Manifest, address, assistantRef(resource.Spec["mcp_server"]))
+			if err != nil {
+				return ""
+			}
+			return revision
+		}
+	}
+	return ""
 }

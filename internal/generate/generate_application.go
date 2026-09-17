@@ -16,15 +16,17 @@ import (
 )
 
 type applicationAdapter struct {
-	Address        string
-	ImportPath     string
-	PackageName    string
-	RelativeDir    string
-	Covered        []string
-	PackageABI     string
-	Implementation string
-	Contract       string
-	Source         []byte
+	Address string
+	// ContractRevision is the service contract revision the adapter records.
+	ContractRevision string
+	ImportPath       string
+	PackageName      string
+	RelativeDir      string
+	Covered          []string
+	PackageABI       string
+	Implementation   string
+	Contract         string
+	Source           []byte
 }
 
 type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
@@ -54,7 +56,8 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 	for _, adapter := range adapters {
 		service := generateapi.ServiceProcessPlan{
 			Address: adapter.Address, Name: strings.TrimSuffix(adapter.RelativeDir, "_adapter"),
-			AdapterImport: adapter.ImportPath, RequiredAddresses: append([]string(nil), adapter.Covered...),
+			ContractRevision: compiler.ServiceContractRevision(result.Manifest, resources[adapter.Address], adapter.Covered),
+			AdapterImport:    adapter.ImportPath, RequiredAddresses: append([]string(nil), adapter.Covered...),
 		}
 		for _, tool := range adapter.MCPBindings {
 			service.MCPTools = append(service.MCPTools, generateapi.ServiceProcessMCPTool{AssistantAddress: tool.AssistantAddress, Name: tool.Name})
@@ -310,14 +313,15 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 		return applicationAdapter{}, err
 	}
 	adapter := applicationAdapter{
-		Address: plan.Address, ImportPath: plan.ImportPath, PackageName: plan.PackageName, RelativeDir: plan.RelativeDir,
+		Address: plan.Address, ContractRevision: compiler.ServiceContractRevision(result.Manifest, service, plan.Covered),
+		ImportPath: plan.ImportPath, PackageName: plan.PackageName, RelativeDir: plan.RelativeDir,
 		Covered: plan.Covered, PackageABI: packageABI, Implementation: plan.ImplementationImport, Contract: plan.ContractImport,
 	}
 	if plan.CRUD {
 		adapter.Implementation = "scenery.sh/datasource"
-		adapter.Source, err = renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, plan.PackageIdentity, packageABI, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
+		adapter.Source, err = renderProviderCRUDAdapterSource(adapter.ContractRevision, plan.PackageIdentity, packageABI, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
 	} else {
-		adapter.Source, err = renderApplicationAdapterSource(result.Manifest.ContractRevision, plan.PackageIdentity, packageABI, plan.ImplementationImport, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, idx, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
+		adapter.Source, err = renderApplicationAdapterSource(adapter.ContractRevision, plan.PackageIdentity, packageABI, plan.ImplementationImport, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, idx, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
 	}
 	if err != nil {
 		return applicationAdapter{}, err
@@ -383,6 +387,7 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	fmt.Fprintf(&b, "\tcontract %q\n", contractImport)
 	b.WriteString(")\n\n")
 	fmt.Fprintf(&b, "const ContractRevision = %q\nconst PackageIdentity = %q\nconst PackageContractABIRevision = %q\n\n", contractRevision, packageIdentity, packageABI)
+	fmt.Fprintf(&b, "// ContractRevisions names the contract revision of each registration.\nvar ContractRevisions = map[string]string{%q: ContractRevision}\n\n", service.Address+"/adapter")
 	b.WriteString("type serviceImplementation interface {\n")
 	for _, operation := range operations {
 		handler, _ := operation.Spec["handler"].(map[string]any)
@@ -475,7 +480,7 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	if err := renderDurableExecutionRegistrations(&b, service, operations, resources); err != nil {
 		return nil, err
 	}
-	if err := renderMCPToolRegistrations(&b, contractRevision, service, mcpBindings, resources); err != nil {
+	if err := renderMCPToolRegistrations(&b, service, mcpBindings, resources); err != nil {
 		return nil, err
 	}
 	if err := renderScheduleAndEventRegistrations(&b, operations, resources); err != nil {
@@ -573,6 +578,16 @@ func renderApplicationComposition(result *Result, providerABIs map[string]string
 	}
 	b.WriteString(")\n\n")
 	fmt.Fprintf(&b, "const ContractRevision = %q\n\n", result.Manifest.ContractRevision)
+	// Each adapter records its service contract revision; the application
+	// registrations record the application's.
+	revisions := map[string]string{}
+	for _, adapter := range adapters {
+		revisions[adapter.Address+"/adapter"] = adapter.ContractRevision
+	}
+	for _, address := range applicationRegistrationAddresses(assistants, federations) {
+		revisions[address] = result.Manifest.ContractRevision
+	}
+	fmt.Fprintf(&b, "var ContractRevisions = %s\n\n", goStringStringMap(revisions))
 	fmt.Fprintf(&b, "var RequiredAddresses = %#v\n\n", sortedBoolKeys(covered))
 	fmt.Fprintf(&b, "var RequiredProviderABIs = %s\n\n", goStringStringMap(providerABIs))
 	b.WriteString("func Register(registry scenery.Registry) error {\n")
@@ -797,6 +812,11 @@ func renderProcessHostApplication(result *Result) ([]byte, error) {
 	}
 	b.WriteString(")\n\n// ContractRevision is the revision the application registrations cover.\nconst ContractRevision = contractRevision\n\n")
 	fmt.Fprintf(&b, "var applicationRequiredAddresses = %#v\n\n", sortedBoolKeys(covered))
+	b.WriteString("var applicationContractRevisions = map[string]string{")
+	for _, address := range applicationRegistrationAddresses(assistants, federations) {
+		fmt.Fprintf(&b, "%q: ContractRevision, ", address)
+	}
+	b.WriteString("}\n\n")
 	b.WriteString("func registerApplication(registry scenery.Registry) error {\n")
 	if err := renderAssistantRegistrations(result, &b, assistants); err != nil {
 		return nil, err
@@ -810,4 +830,17 @@ func renderProcessHostApplication(result *Result) ([]byte, error) {
 		return nil, fmt.Errorf("format process host application registrations: %w\n%s", err, b.String())
 	}
 	return formatted, nil
+}
+
+// applicationRegistrationAddresses returns the registry addresses of the
+// application-level registrations: assistants and MCP federation.
+func applicationRegistrationAddresses(assistants []Resource, federations []mcpFederationTarget) []string {
+	var addresses []string
+	if len(assistants) > 0 {
+		addresses = append(addresses, "scenery/assistants")
+	}
+	if len(federations) > 0 {
+		addresses = append(addresses, "scenery/mcp-federation")
+	}
+	return addresses
 }

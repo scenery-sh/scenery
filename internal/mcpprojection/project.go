@@ -42,6 +42,34 @@ const (
 	maxResultBytes = int64(16 << 20)
 )
 
+// CapabilityRevision identifies what an assistant can do through its MCP
+// server: the assistant's contract projection and the server's projected
+// capabilities and connections, with the application identity and
+// specification revision. It excludes the application's contract and source
+// revisions, so a contract change elsewhere in the application leaves it, and
+// the assistant's prepared helper runtime, unchanged. The server's capability
+// manifest records it as its contract revision.
+func CapabilityRevision(manifest *graph.Manifest, assistant, server string) (string, error) {
+	projected, err := ProjectManifest(manifest, "", server)
+	if err != nil {
+		return "", err
+	}
+	resource, ok := resourcesByAddress(manifest)[assistant]
+	if !ok || resource.Kind != assistantKind {
+		return "", projectionError("failed_precondition", fmt.Sprintf("assistant %s is not declared", assistant))
+	}
+	contract, _ := graph.ContractResourceProjection(resource)
+	return graph.RevisionHash("scenery.assistant-capability-revision\x00", struct {
+		SpecRevision    string                   `json:"spec_revision"`
+		Application     string                   `json:"application"`
+		Assistant       graph.Resource           `json:"assistant"`
+		Server          string                   `json:"server"`
+		ProtocolVersion string                   `json:"protocol_version"`
+		Capabilities    []mcpcontract.Capability `json:"capabilities"`
+		Connections     []mcpcontract.Connection `json:"connections"`
+	}{manifest.SpecRevision, manifest.Application.Name, contract, server, projected.ProtocolVersion, projected.Capabilities, projected.Connections}), nil
+}
+
 // ProjectManifest projects an expanded graph and uses sourceRevision as the
 // source/workspace identity in the generated capability manifest.
 func ProjectManifest(manifest *graph.Manifest, sourceRevision, server string) (mcpcontract.Manifest, error) {

@@ -83,6 +83,8 @@ type devProcessModel struct {
 	// statusMu guards status, which readers use instead of mu.
 	statusMu sync.Mutex
 	status   devProcessStatus
+	// proofs are the runtime preflights retained executables passed.
+	proofs devProcessProofs
 }
 
 // devProcessLink is the wiring of one host incarnation.
@@ -600,12 +602,23 @@ func (s *devSupervisor) prepareDevProcessInstance(ctx context.Context, instance 
 	}
 	request := s.appProcessStartRequest(ctx, name, "scenery-"+strings.SplitN(name, ":", 2)[0], command, env)
 	identity := instance.process.Identity
+	model, err := s.ensureDevProcessModel()
+	if err != nil {
+		return err
+	}
+	proof := devProcessProofKey(instance.process, request.Command, request.Env)
 	started = time.Now()
+	if model.proofs.proven(proof) {
+		build.RecordStep(ctx, build.Step{Name: "process.preflight", StartedAt: started, Duration: time.Since(started), Cache: "hit", Reason: "retained_proof_" + instance.process.Name, OK: true})
+		instance.request = &request
+		return nil
+	}
 	err = preflightProcessStart(ctx, request, func(data []byte) error { return validateDevProcessPreflight(data, instance.process.Name, identity) })
 	step("process.preflight", "linked_identity", started, err)
 	if err != nil {
 		return err
 	}
+	model.proofs.remember(proof)
 	instance.request = &request
 	return nil
 }

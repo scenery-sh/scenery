@@ -109,6 +109,15 @@ func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
 	if recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/echo", nil); recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("ingress before publication = %d", recorder.Code)
 	}
+	// A service instance records its own service contract revision.
+	greeter.instance.Identity.ContractRevision = "sha256:greeter-service-contract"
+	unnamed := greeter.instance
+	unnamed.Identity.ContractRevision = ""
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1), Processes: map[string]processGenerationInstance{
+		"echo_echo": echo.instance, "greeter_greeter": unnamed,
+	}}); err == nil {
+		t.Fatal("an instance without a contract revision was published")
+	}
 	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1), Processes: map[string]processGenerationInstance{
 		"echo_echo": echo.instance, "greeter_greeter": greeter.instance,
 	}}); err != nil {

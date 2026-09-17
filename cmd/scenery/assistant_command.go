@@ -195,10 +195,7 @@ func assistantInspectionFromResource(resource graph.Resource, compiled *compiler
 		access = "public"
 	}
 	expectedRuntime := assistantExpectedRuntimeRevision(compiled)
-	expectedCapability := ""
-	if compiled.Manifest != nil {
-		expectedCapability = compiled.Manifest.ContractRevision
-	}
+	expectedCapability := assistantCapabilityRevision(compiled, resource.Address)
 	if status.Address == "" {
 		status = assistantStatusRecord{
 			Address: resource.Address, Name: resource.Name, Path: path, Access: access, SessionAccess: sessionAccess,
