@@ -89,8 +89,9 @@ func renderApplicationAdapters(result *Result, idx *resourceIndex, generatedImpo
 // so build preparation can list service processes on every rebuild cheaply.
 func planApplicationAdapters(result *Result, generatedImport string) ([]applicationAdapterPlan, error) {
 	var plans []applicationAdapterPlan
+	byAddress := resourcesByAddress(result.Manifest)
 	err := forEachNativeServiceModule(result, func(module, service Resource) error {
-		plan, err := planApplicationAdapter(result, module, service, generatedImport)
+		plan, err := planApplicationAdapter(result, byAddress, module, service, generatedImport)
 		if err == nil {
 			plans = append(plans, plan)
 		}

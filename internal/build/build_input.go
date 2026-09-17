@@ -204,7 +204,7 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	var manifest *BuildInputManifest
 	stats := buildInputDigestStats{}
 	fingerprintStarted := time.Now()
-	manifest, err = buildInputManifestFromGoListObserved(result, output, &stats)
+	manifest, err = buildInputManifestFromGoListObserved(ctx, result, output, &stats)
 	RecordStep(ctx, Step{
 		Name: "go.input_fingerprint", StartedAt: fingerprintStarted, Duration: time.Since(fingerprintStarted), Cache: "content_stamp",
 		Reason: "exact_consumed_bytes", OK: err == nil, Actions: stats.hits + stats.misses, CacheHits: stats.hits, CacheMisses: stats.misses,
@@ -343,10 +343,10 @@ func resetRetainedBuildInputGraphsForTesting() {
 }
 
 func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
-	return buildInputManifestFromGoListObserved(result, output, nil)
+	return buildInputManifestFromGoListObserved(context.Background(), result, output, nil)
 }
 
-func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *buildInputDigestStats) (*BuildInputManifest, error) {
+func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, output []byte, stats *buildInputDigestStats) (*BuildInputManifest, error) {
 	if result == nil || result.Target == nil {
 		return nil, fmt.Errorf("build target is unavailable")
 	}
@@ -480,9 +480,14 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		}
 	}
 	if frameworkRoot != "" {
-		source, err := FrameworkSourceManifest(frameworkRoot)
-		if err != nil {
-			return nil, err
+		// A build whose request verified this framework source binds that
+		// observation; any other build reads the source here.
+		source, verified := verifiedFrameworkSource(ctx, frameworkRoot)
+		if !verified {
+			source, err = FrameworkSourceManifest(frameworkRoot)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if linkedFrameworkDigest != "" && source.Digest != linkedFrameworkDigest {
 			return nil, fmt.Errorf("actual Go build framework does not match the selected Scenery producer; prepare a coherent framework selection")

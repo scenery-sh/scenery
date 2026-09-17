@@ -159,33 +159,18 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 	if err != nil {
 		return nil, err
 	}
-	targetRevisions, diagnostics := compiler.ComputeImplementationRevisions(result.Contract, map[string]string{result.Target.Name: manifest.Digest})
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Severity == "error" {
-			return nil, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
-		}
-	}
-	if targetRevisions[result.Target.Name] == "" {
-		return nil, fmt.Errorf("implementation_revision is unavailable for Go target %s", result.Target.Name)
-	}
-	result.BuildInput, result.ImplementationRevisions = manifest, targetRevisions
 	names := []string{DevelopmentProcessHost}
-	set := &DevelopmentProcessSet{BindingOwners: map[string]string{}, Identity: DevelopmentProcessIdentity{
-		ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: targetRevisions[result.Target.Name],
-		BuildInputDigest: manifest.Digest, GoTarget: result.Target.Name,
-	}}
+	bindingOwners := map[string]string{}
 	for _, service := range services {
 		names = append(names, service.Name)
 		for _, address := range service.RequiredAddresses {
 			if strings.Contains(address, "/binding/") {
-				set.BindingOwners[address] = service.Name
+				bindingOwners[address] = service.Name
 			}
 		}
 	}
-	binaryRoot := filepath.Join(result.Dir, developmentProcessBinaryDir)
-	if err := os.MkdirAll(binaryRoot, 0o755); err != nil {
-		return nil, err
-	}
+	// The target's revision and every process's revision share one contract
+	// projection, so they are computed together.
 	identityStarted := time.Now()
 	mains := make([]string, len(names))
 	digests := make([]string, len(names))
@@ -196,13 +181,26 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 		}
 		mains[index], digests[index] = main, digest
 	}
-	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, digests)
+	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, append([]string{manifest.Digest}, digests...))
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Severity == "error" {
 			return nil, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
 		}
 	}
+	targetRevision := revisions[manifest.Digest]
+	if targetRevision == "" {
+		return nil, fmt.Errorf("implementation_revision is unavailable for Go target %s", result.Target.Name)
+	}
+	result.BuildInput, result.ImplementationRevisions = manifest, map[string]string{result.Target.Name: targetRevision}
+	set := &DevelopmentProcessSet{BindingOwners: bindingOwners, Identity: DevelopmentProcessIdentity{
+		ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: targetRevision,
+		BuildInputDigest: manifest.Digest, GoTarget: result.Target.Name,
+	}}
 	RecordStep(ctx, Step{Name: "process.identity", StartedAt: identityStarted, Duration: time.Since(identityStarted), Cache: "not_applicable", Reason: "entrypoint_import_closures", OK: true, Actions: len(names)})
+	binaryRoot := filepath.Join(result.Dir, developmentProcessBinaryDir)
+	if err := os.MkdirAll(binaryRoot, 0o755); err != nil {
+		return nil, err
+	}
 	reuseStarted := time.Now()
 	var pending []*DevelopmentProcess
 	processes := make([]*DevelopmentProcess, 0, len(names))

@@ -1,9 +1,15 @@
 package compiler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
+	"sync"
+
+	"scenery.sh/internal/spec"
 )
 
 func ComputeImplementationRevisions(result *Result, buildInputManifestDigests map[string]string) (map[string]string, []Diagnostic) {
@@ -46,8 +52,8 @@ func ComputeImplementationRevisions(result *Result, buildInputManifestDigests ma
 // ImplementationRevisionsForInputs computes one Go target's implementation
 // revision for each of several build input manifest digests, such as the
 // entrypoints of development processes. The contract projection that every
-// revision shares is computed once; each result equals ComputeImplementationRevisions
-// for that digest alone.
+// revision shares is computed and encoded once; each result equals
+// ComputeImplementationRevisions for that digest alone.
 func ImplementationRevisionsForInputs(result *Result, targetName string, inputDigests []string) (map[string]string, []Diagnostic) {
 	revisions := map[string]string{}
 	if result == nil || result.Manifest == nil || len(inputDigests) == 0 {
@@ -62,15 +68,55 @@ func ImplementationRevisionsForInputs(result *Result, targetName string, inputDi
 	if projection == nil {
 		return revisions, diagnostics
 	}
+	revision := implementationRevisionForDigest(projection)
 	for _, inputDigest := range inputDigests {
 		if !isCanonicalSHA256Digest(inputDigest) {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6122", Severity: "error", Message: "build input manifest digest must be canonical sha256", Address: target.Address})
 			continue
 		}
-		projection["build_input_manifest_digest"] = inputDigest
-		revisions[inputDigest] = revisionHash("scenery.implementation-revision\x00", projection)
+		revisions[inputDigest] = revision(inputDigest)
 	}
 	return revisions, diagnostics
+}
+
+// implementationRevisionForDigest returns the implementation revision of a
+// projection for a canonical build input manifest digest. A canonical digest
+// encodes as an unescaped string of fixed length, so the projection is encoded
+// once and each revision hashes that encoding with the digest in place of a
+// placeholder. The placeholder's position is where two encodings with
+// different placeholders differ, which cannot match any other value.
+func implementationRevisionForDigest(projection map[string]any) func(string) string {
+	const prefix = "scenery.implementation-revision\x00"
+	zeros, ones := "sha256:"+strings.Repeat("0", 64), "sha256:"+strings.Repeat("1", 64)
+	projection["build_input_manifest_digest"] = zeros
+	first, firstErr := spec.MarshalCanonical(projection)
+	projection["build_input_manifest_digest"] = ones
+	second, secondErr := spec.MarshalCanonical(projection)
+	start, end := 0, len(first)
+	if len(first) == len(second) {
+		for start < end && first[start] == second[start] {
+			start++
+		}
+		for end > start && first[end-1] == second[end-1] {
+			end--
+		}
+	}
+	start -= len("sha256:")
+	if firstErr != nil || secondErr != nil || len(first) != len(second) || start < 0 || end-start != len(zeros) ||
+		string(first[start:end]) != zeros || string(second[start:end]) != ones {
+		return func(inputDigest string) string {
+			projection["build_input_manifest_digest"] = inputDigest
+			return revisionHash(prefix, projection)
+		}
+	}
+	return func(inputDigest string) string {
+		hash := sha256.New()
+		_, _ = hash.Write([]byte(prefix))
+		_, _ = hash.Write(first[:start])
+		_, _ = hash.Write([]byte(inputDigest))
+		_, _ = hash.Write(first[end:])
+		return "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	}
 }
 
 func goTargetsByName(resources []Resource) map[string]Resource {
@@ -118,7 +164,46 @@ func implementationRevisionProjection(result *Result, byAddress map[string]Resou
 	}, nil
 }
 
+// adapterDigests retains the generated adapter digests of the most recent
+// contract revisions. A contract revision hashes the same canonical projection
+// of an immutable result's resources, so it determines the digest.
+var adapterDigests struct {
+	sync.Mutex
+	values map[string]string
+	order  []string
+}
+
+const adapterDigestLimit = 8
+
 func generatedApplicationAdapterDigest(result *Result) string {
+	revision := result.Manifest.ContractRevision
+	if revision == "" {
+		return computeGeneratedApplicationAdapterDigest(result)
+	}
+	adapterDigests.Lock()
+	digest, ok := adapterDigests.values[revision]
+	adapterDigests.Unlock()
+	if ok {
+		return digest
+	}
+	digest = computeGeneratedApplicationAdapterDigest(result)
+	adapterDigests.Lock()
+	defer adapterDigests.Unlock()
+	if _, ok := adapterDigests.values[revision]; !ok {
+		if adapterDigests.values == nil {
+			adapterDigests.values = map[string]string{}
+		}
+		if len(adapterDigests.order) >= adapterDigestLimit {
+			delete(adapterDigests.values, adapterDigests.order[0])
+			adapterDigests.order = adapterDigests.order[1:]
+		}
+		adapterDigests.values[revision] = digest
+		adapterDigests.order = append(adapterDigests.order, revision)
+	}
+	return digest
+}
+
+func computeGeneratedApplicationAdapterDigest(result *Result) string {
 	projected := make([]Resource, 0, len(result.Manifest.Resources))
 	for _, resource := range result.Manifest.Resources {
 		if projection, include := contractResourceProjection(resource); include {

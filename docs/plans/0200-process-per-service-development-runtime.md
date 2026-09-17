@@ -617,6 +617,26 @@ compile the application graph as it needs.
   23.5, 23.2 and 25.1 s; the difference is `runtime.activation` (10.1-10.7 s
   against 11.3-12.5 s for 48 process starts), which does not scan, while every
   scan step was lowest in the fixed variant.
+- [x] (2026-09-17) Preparation before `go build` reduced on ONLV. A CPU profile
+  of the supervisor over 21 body edits showed the implementation revision
+  projection canonically encoded once per process (48 times) plus once more
+  for the target, the generated adapter digest computed twice per build, the
+  framework source read in full by `framework.verify` and again by
+  `go.input_fingerprint`, and the runtime integration plan indexing every
+  resource three times per service. A batch now encodes the projection once
+  and hashes each digest in place of a placeholder (proven equal to the
+  independent computation), the target and process revisions are one batch,
+  the adapter digest is retained by contract revision, the build input
+  manifest binds the framework source its build request just verified, and
+  the plan indexes resources once. Same protocol against the fixed listing
+  reuse (p50/p95 ms): body edit to response 1,736/2,092 to 1,598/1,720; churn
+  1,749/1,810 to 1,568/1,700; shared 2,620/2,639 to 2,416/2,490; preparation
+  before `go build` 497 to 295; `process.identity` 101 plus a 36 ms untraced
+  target revision to 8; `go.input_fingerprint` 70 to 22; `process.plan` 66 to
+  26. The remaining preparation is `framework.verify` (48 ms, a fresh content
+  read before each build by contract), `workspace.cache` (86 ms spread over
+  inventory, dependency, projection and generated-path checks) and the
+  synchronous status and compile-start notifications (34 ms).
 
 ## Surprises & Discoveries
 

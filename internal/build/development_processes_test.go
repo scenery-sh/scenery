@@ -2,6 +2,7 @@ package build
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func TestDevelopmentProcessManifestsFollowEachEntrypointImportClosure(t *testing
 	result := &Result{AppRoot: root, Dir: root, Target: &compiler.GoBuildTarget{Name: "development"}}
 	discover := func() *BuildInputManifest {
 		t.Helper()
-		manifest, err := buildInputManifestFromGoListObserved(result, listed.Bytes(), &buildInputDigestStats{})
+		manifest, err := buildInputManifestFromGoListObserved(context.Background(), result, listed.Bytes(), &buildInputDigestStats{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +301,7 @@ func TestDevelopmentProcessEntrypointsAreFoundThroughALinkedWorkspace(t *testing
 		}
 	}
 	result := &Result{AppRoot: linked, Dir: linked, Target: &compiler.GoBuildTarget{Name: "development"}}
-	manifest, err := buildInputManifestFromGoListObserved(result, listed.Bytes(), &buildInputDigestStats{})
+	manifest, err := buildInputManifestFromGoListObserved(context.Background(), result, listed.Bytes(), &buildInputDigestStats{})
 	if err != nil {
 		t.Fatal(err)
 	}

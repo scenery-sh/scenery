@@ -6,9 +6,8 @@ import (
 	"strings"
 )
 
-func pagesForOperations(resources, operations []Resource) []Resource {
+func pagesForOperations(resources []Resource, byAddress map[string]Resource, operations []Resource) []Resource {
 	owned := operationAddressSet(operations)
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var pages []Resource
 	for _, page := range resources {
 		if page.Kind != "scenery.page" {
@@ -24,8 +23,8 @@ func pagesForOperations(resources, operations []Resource) []Resource {
 	return pages
 }
 
-func pageOwnedResourceAddresses(resources, operations []Resource) []string {
-	pages := pagesForOperations(resources, operations)
+func pageOwnedResourceAddresses(resources []Resource, byAddress map[string]Resource, operations []Resource) []string {
+	pages := pagesForOperations(resources, byAddress, operations)
 	owned := map[string]bool{}
 	for _, page := range pages {
 		owned[page.Address] = true
@@ -48,7 +47,7 @@ func renderersForPage(resources []Resource, page Resource) []Resource {
 }
 
 func renderPageRegistrations(b *strings.Builder, resources, operations []Resource) error {
-	for _, page := range pagesForOperations(resources, operations) {
+	for _, page := range pagesForOperations(resources, resourcesByAddress(&Manifest{Resources: resources}), operations) {
 		load := resolveResourceRef(page, refString(page.Spec["load"]), "binding")
 		actions := map[string]string{}
 		for _, action := range namedChildren(page.Spec, "action") {

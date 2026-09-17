@@ -245,7 +245,9 @@ type applicationAdapterPlan struct {
 	MCPBindings          []mcpToolTarget
 }
 
-func planApplicationAdapter(result *Result, module, service Resource, generatedImport string) (applicationAdapterPlan, error) {
+// planApplicationAdapter plans one service's adapter; byAddress indexes the
+// result's resources.
+func planApplicationAdapter(result *Result, byAddress map[string]Resource, module, service Resource, generatedImport string) (applicationAdapterPlan, error) {
 	moduleSource, _ := module.Spec["workspace_package_root"].(string)
 	if moduleSource == "" {
 		moduleSource, _ = module.Spec["source"].(string)
@@ -270,7 +272,7 @@ func planApplicationAdapter(result *Result, module, service Resource, generatedI
 	operations := compiler.ServiceOperations(resources, service)
 	bindings := serviceHTTPBindings(resources, operations)
 	internalBindings := internalBindingsForOperations(resources, operations)
-	mcpBindings := mcpBindingsForService(resources, service, operations)
+	mcpBindings := mcpBindingsForService(resources, byAddress, service, operations)
 	mcpResources := mcpBindingResources(mcpBindings)
 	covered := []string{service.Address}
 	covered = append(covered, resourceAddresses(operations)...)
@@ -286,8 +288,8 @@ func planApplicationAdapter(result *Result, module, service Resource, generatedI
 		covered = append(covered, resourceAddresses(eventEmissionsForOperations(resources, operations))...)
 		allBindings = append(allBindings, eventBindings...)
 	}
-	covered = append(covered, pageOwnedResourceAddresses(resources, operations)...)
-	covered = append(covered, referencedExecutions(resources, allBindings)...)
+	covered = append(covered, pageOwnedResourceAddresses(resources, byAddress, operations)...)
+	covered = append(covered, referencedExecutions(byAddress, allBindings)...)
 	dirName := semanticPathName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 	return applicationAdapterPlan{
 		Address: service.Address, ImportPath: generatedImport + "/" + dirName,
@@ -298,7 +300,7 @@ func planApplicationAdapter(result *Result, module, service Resource, generatedI
 }
 
 func renderApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapter, error) {
-	plan, err := planApplicationAdapter(result, module, service, generatedImport)
+	plan, err := planApplicationAdapter(result, idx.byAddress, module, service, generatedImport)
 	if err != nil {
 		return applicationAdapter{}, err
 	}
@@ -629,8 +631,7 @@ func renderInternalBindingJSONCodecs(operation Resource, delivery string) string
 	return decode + fmt.Sprintf(" EncodeOutput: func(value any) ([]byte, error) { typed, ok := value.(contract.%sOutcome); if !ok { return nil, fmt.Errorf(\"internal binding output has type %%T\", value) }; return contract.Marshal%sOutcome(typed) },", name, name)
 }
 
-func referencedExecutions(resources, bindings []Resource) []string {
-	known := resourcesByAddress(&Manifest{Resources: resources})
+func referencedExecutions(known map[string]Resource, bindings []Resource) []string {
 	set := map[string]bool{}
 	for _, binding := range bindings {
 		address := resolveResourceRef(binding, refString(binding.Spec["execution"]), "execution")

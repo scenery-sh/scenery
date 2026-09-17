@@ -252,6 +252,14 @@ go_target "development" {
 	if hasErrors(diagnostics) || batch["sha256:"+strings.Repeat("2", 64)] != second["development"] || batch["sha256:"+strings.Repeat("3", 64)] != third["development"] {
 		t.Fatalf("batched revisions = %#v, want %s and %s (diagnostics %#v)", batch, second["development"], third["development"], diagnostics)
 	}
+	// A batch encodes the projection once; every digest, including the ones it
+	// encodes in place of the digest, hashes as it would alone.
+	for _, digest := range []string{"sha256:" + strings.Repeat("0", 64), "sha256:" + strings.Repeat("1", 64), "sha256:" + strings.Repeat("ab", 32)} {
+		alone, _ := ComputeImplementationRevisions(after, map[string]string{"development": digest})
+		if batched, _ := ImplementationRevisionsForInputs(after, "development", []string{digest}); batched[digest] != alone["development"] || alone["development"] == "" {
+			t.Fatalf("batched revision for %s = %s, alone %s", digest, batched[digest], alone["development"])
+		}
+	}
 	if _, diagnostics := ImplementationRevisionsForInputs(after, "missing", []string{"sha256:" + strings.Repeat("2", 64)}); !hasErrors(diagnostics) {
 		t.Fatal("batched revisions accepted an unknown Go target")
 	}

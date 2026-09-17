@@ -29,12 +29,11 @@ type mcpToolTarget struct {
 	DurableTask      string
 }
 
-func mcpBindingsForService(resources []Resource, service Resource, operations []Resource) []mcpToolTarget {
+func mcpBindingsForService(resources []Resource, byAddress map[string]Resource, service Resource, operations []Resource) []mcpToolTarget {
 	ownedOperations := map[string]Resource{}
 	for _, operation := range operations {
 		ownedOperations[operation.Address] = operation
 	}
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var targets []mcpToolTarget
 	for _, binding := range resources {
 		if binding.Kind != "scenery.binding" || stringValue(binding.Spec["protocol"]) != "mcp" {

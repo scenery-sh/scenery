@@ -19,36 +19,72 @@ import (
 // can replace a healthy backend. Local replacement paths may differ only when
 // they contain the exact source compiled into the selected CLI.
 func VerifyFrameworkSession(ctx context.Context, appRoot string) error {
+	_, err := verifyFrameworkSession(ctx, appRoot)
+	return err
+}
+
+// VerifyFrameworkSessionForBuild verifies the framework session like
+// VerifyFrameworkSession and returns a context for one build that carries the
+// application framework source it read, so the build's input manifest binds
+// that verified source instead of reading the same tree again.
+func VerifyFrameworkSessionForBuild(ctx context.Context, appRoot string) (context.Context, error) {
+	selected, err := verifyFrameworkSession(ctx, appRoot)
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, verifiedFrameworkSourceKey{}, selected), nil
+}
+
+type verifiedFrameworkSourceKey struct{}
+
+// verifiedFrameworkSource returns the framework source a build's context
+// verified at root, if any.
+func verifiedFrameworkSource(ctx context.Context, root string) (FrameworkSource, bool) {
+	if ctx == nil {
+		return FrameworkSource{}, false
+	}
+	source, ok := ctx.Value(verifiedFrameworkSourceKey{}).(FrameworkSource)
+	if !ok {
+		return FrameworkSource{}, false
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if err == nil {
+		canonical, err = filepath.Abs(canonical)
+	}
+	return source, err == nil && canonical == source.Root
+}
+
+func verifyFrameworkSession(ctx context.Context, appRoot string) (FrameworkSource, error) {
 	producer, err := VerifyFrameworkProducer()
 	if err != nil {
-		return err
+		return FrameworkSource{}, err
 	}
 	selectedRoot, _, err := ResolveFrameworkModule(ctx, appRoot, false)
 	if err != nil {
-		return err
+		return FrameworkSource{}, err
 	}
 	canonical, err := filepath.EvalSymlinks(selectedRoot)
 	if err != nil {
-		return err
+		return FrameworkSource{}, err
 	}
 	canonical, err = filepath.Abs(canonical)
 	if err != nil {
-		return err
+		return FrameworkSource{}, err
 	}
 	// Producer verification just read this complete tree. One canonical source
 	// selected for both roles needs one fresh content read, not a second hash.
 	// Different roots still require independent current-byte verification.
 	if canonical == producer.Root {
-		return nil
+		return producer, nil
 	}
 	selected, err := FrameworkSourceManifest(canonical)
 	if err != nil {
-		return err
+		return FrameworkSource{}, err
 	}
 	if selected.Digest != producer.Digest {
-		return fmt.Errorf("application framework %s does not match this Scenery CLI's source %s; keep the current runtime, run scenery framework use, then restart with its reported executable", selected.Digest, producer.Digest)
+		return FrameworkSource{}, fmt.Errorf("application framework %s does not match this Scenery CLI's source %s; keep the current runtime, run scenery framework use, then restart with its reported executable", selected.Digest, producer.Digest)
 	}
-	return nil
+	return selected, nil
 }
 
 // VerifyFrameworkSelection proves cached preparation against current bytes

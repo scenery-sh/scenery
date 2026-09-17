@@ -272,3 +272,50 @@ func TestBuildInputManifestUsesPublishedModuleSourceDirectory(t *testing.T) {
 		t.Fatal("accepted a framework graph without its source directory")
 	}
 }
+
+// A build whose request verified the framework source binds that observation
+// without reading the tree again; a verification of another root does not.
+func TestBuildInputsBindTheFrameworkSourceTheirBuildVerified(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "framework")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, contents := range map[string]string{"go.mod": "module scenery.sh\n\ngo 1.27\n", "value.go": "package scenery\nconst Value = 1\n"} {
+		if err := os.WriteFile(filepath.Join(source, name), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := json.Marshal(goListPackage{Dir: source, ImportPath: "scenery.sh", GoFiles: []string{"value.go"}, Module: &goListModule{Path: "scenery.sh", Dir: source, GoMod: filepath.Join(source, "go.mod")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := FrameworkSourceManifest(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := FrameworkSource{Root: actual.Root, Digest: "sha256:" + strings.Repeat("a", 64)}
+	for _, check := range []struct {
+		name   string
+		source FrameworkSource
+		want   string
+	}{
+		{name: "verified root", source: verified, want: verified.Digest},
+		{name: "other root", source: FrameworkSource{Root: filepath.Join(root, "other"), Digest: verified.Digest}, want: actual.Digest},
+	} {
+		ctx := context.WithValue(context.Background(), verifiedFrameworkSourceKey{}, check.source)
+		result := &Result{AppRoot: root, Dir: root, Target: &compiler.GoBuildTarget{Name: "development"}}
+		manifest, err := buildInputManifestFromGoListObserved(ctx, result, data, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries := map[string]string{}
+		for _, entry := range manifest.Entries {
+			entries[entry.Identity] = entry.Digest
+		}
+		if entries["framework/scenery.sh/source"] != check.want || result.FrameworkSourceDigest != check.want {
+			t.Errorf("%s: framework source input %q (result %q), want %q", check.name, entries["framework/scenery.sh/source"], result.FrameworkSourceDigest, check.want)
+		}
+	}
+}

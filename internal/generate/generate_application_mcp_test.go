@@ -298,7 +298,7 @@ func TestMCPOnlyBindingOwnershipIncludesExecution(t *testing.T) {
 	}
 	resources := append([]Resource(nil), bindings...)
 	resources = append(resources, Resource{Address: "house/execution/process_scene_direct", Kind: "scenery.execution"})
-	got := referencedExecutions(resources, bindings)
+	got := referencedExecutions(resourcesByAddress(&Manifest{Resources: resources}), bindings)
 	if len(got) != 1 || got[0] != "house/execution/process_scene_direct" {
 		t.Fatalf("MCP execution ownership = %#v, want execution address", got)
 	}

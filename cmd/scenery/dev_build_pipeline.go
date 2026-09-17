@@ -133,7 +133,12 @@ func devBuildError(metadata, apiEncoding json.RawMessage, err error) error {
 
 func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (plan *devRuntimePlan, returnErr error) {
 	frameworkStarted := time.Now()
-	frameworkErr := s.console.Phase("Verifying framework source and producer", func() error { return build.VerifyFrameworkSession(ctx, s.root) })
+	// The build binds the framework source this verification reads.
+	frameworkErr := s.console.Phase("Verifying framework source and producer", func() error {
+		verified, err := build.VerifyFrameworkSessionForBuild(ctx, s.root)
+		ctx = verified
+		return err
+	})
 	build.RecordStep(ctx, build.Step{Name: "framework.verify", StartedAt: frameworkStarted, Duration: time.Since(frameworkStarted), Cache: "not_applicable", Reason: "current_source_and_producer", OK: frameworkErr == nil})
 	if frameworkErr != nil {
 		return nil, frameworkErr
