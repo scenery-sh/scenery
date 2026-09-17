@@ -15,17 +15,23 @@ const eventSchemaRevision = "sha256:0a6e5fc603f3bb2ea15292b5910af273887003be5a7a
 const descriptorSchemaRevision = "sha256:886be15df5243d0c0e321c738e4807339262f47c09b15df50364ef405b54492e";
 const runtimeDescriptorKind = "scenery.assistant.runtime-descriptor";
 const mcpProtocol = "2025-11-25";
-const knownRunIDs = new Map();
 const knownCapabilities = new Map();
 const conversationDigests = new Map();
 const knownContinuationTokens = new Map();
-const knownProviderCursors = new Map();
-const knownEventHistory = new Map();
 const creatingConversationDigest = new AsyncLocalStorage();
-const startingRunID = new AsyncLocalStorage();
+// Runs whose create request is in progress, by conversation digest, until the
+// new session's state adopts them.
+const creatingRuns = new Map();
+// A new helper process starts without this state, so turns and approvals of
+// earlier runs are unbound and refused rather than guessed.
+const sessionStates = new Map();
+const shared = { attachSession: null };
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const ndjsonHeaders = { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" };
+const runBindingAttempts = 20;
+const runBindingDelayMS = 100;
+const streamPollMS = 100;
 
 export function lookupConversationDigest(sessionID) {
   // A capability can run inside from(address).send before the provider has
@@ -34,11 +40,270 @@ export function lookupConversationDigest(sessionID) {
   return conversationDigests.get(sessionID) || creatingConversationDigest.getStore();
 }
 
-export function lookupRunID(sessionID) {
-  // A capability can run inside send before it returns; the starting request
-  // names its run. Afterwards the session's latest started run is the one
-  // executing, because an Eve session runs its turns one at a time.
-  return startingRunID.getStore() || knownRunIDs.get(sessionID);
+// One helper session state owns the session's provider cursor, the Scenery
+// run of every Eve turn, and the normalized private history every event stream
+// reads.
+//
+// Runs of a session execute one at a time. A run is open from the moment its
+// message is sent to Eve until none of its turns runs and none of its approvals
+// is pending; a later run waits in the helper until then, so a tool call Eve
+// executes always belongs to the one open run, and an approval resumes its own
+// run rather than the turn of a later one (Eve folds a resumed tool call into
+// whichever turn is active). The run closes at the session boundary that
+// follows its last turn once no approval of it is pending, and its terminal
+// event is published then, not when a turn parks for approval.
+//
+// A Scenery run is bound to an Eve turn only by evidence in the provider
+// stream: the turn's received message equals the sent run's message, or the
+// turn is the continuation Eve starts, without a received message, after an
+// approval of the open run was resolved (Eve resolves the approval and runs the
+// approved tool call in the original turn). A turn without such evidence is
+// unbound: its tool calls are never attributed to a run and its events are
+// never published.
+function sessionState(sessionID) {
+  let state = sessionStates.get(sessionID);
+  if (!state) {
+    state = { waiting: [], pending: [], runs: new Map(), open: null, turns: new Map(), unbound: new Set(), buffered: new Map(), approvals: new Map(), resuming: null, history: [], cursor: 0, reading: Promise.resolve(), idle: false, pumping: false };
+    sessionStates.set(sessionID, state);
+  }
+  const digest = conversationDigests.get(sessionID) || creatingConversationDigest.getStore();
+  const creating = digest ? creatingRuns.get(digest) : undefined;
+  if (creating && creating.length) {
+    for (const run of creating.splice(0)) {
+      state.pending.push(run);
+      state.runs.set(run.runID, runLifecycle());
+      state.open = run.runID;
+    }
+  }
+  return state;
+}
+
+function runLifecycle() {
+  return { turns: new Set(), approvals: new Set(), sawTurn: false, answered: false, outcome: "completed" };
+}
+
+// settled reports whether the session has no work in progress: no run is
+// open or about to open, or the open run waits for an unanswered approval, which
+// also holds every queued run.
+function settled(state) {
+  if (state.open === null) return !state.waiting.length;
+  const run = state.runs.get(state.open);
+  return !run || (run.sawTurn && !run.turns.size && !run.answered && run.approvals.size > 0);
+}
+
+function withdraw(pending, run) {
+  const index = pending.indexOf(run);
+  if (index >= 0) pending.splice(index, 1);
+}
+
+// submit opens a run now when no run of the session is open, and otherwise
+// queues it behind the open run. It reports whether Eve refused an immediate
+// send.
+async function submit(state, sessionID, run) {
+  state.runs.set(run.runID, runLifecycle());
+  if (state.open !== null || state.waiting.length) {
+    state.waiting.push(run);
+    pump(state, sessionID);
+    return { accepted: true };
+  }
+  return dispatch(state, sessionID, run, false);
+}
+
+// dispatch sends a run's message to Eve as the session's open run. A queued run
+// that Eve refuses fails with a published terminal event.
+async function dispatch(state, sessionID, run, queued) {
+  state.open = run.runID;
+  state.pending.push(run);
+  let sent;
+  try {
+    sent = await shared.attachSession(sessionID).send(run.message, { auth: authFor(run.principal), turnPolicy: "queue" });
+  } catch (error) {
+    sent = { status: "failed", error };
+  }
+  if (sent.status === "accepted") return { accepted: true };
+  withdraw(state.pending, run);
+  if (queued) {
+    close(state, sessionID, run.runID, "failed");
+  } else {
+    state.runs.delete(run.runID);
+    state.open = null;
+    next(state, sessionID);
+  }
+  if (sent.error && !queued) throw sent.error;
+  return { accepted: false };
+}
+
+function next(state, sessionID) {
+  if (state.open === null && state.waiting.length) {
+    const run = state.waiting.shift();
+    queueMicrotask(() => { dispatch(state, sessionID, run, true); });
+  }
+}
+
+// pump reads the provider stream while queued runs wait for the open run to
+// close, independent of any event stream a client holds open.
+function pump(state, sessionID) {
+  if (state.pumping) return;
+  state.pumping = true;
+  const loop = async () => {
+    while (state.waiting.length || (state.open !== null && state.runs.size)) {
+      try {
+        await catchUp(state, sessionID);
+      } catch {}
+      if (!state.waiting.length) break;
+      await new Promise((resolve) => setTimeout(resolve, streamPollMS));
+    }
+    state.pumping = false;
+  };
+  loop();
+}
+
+// close publishes the terminal event of a run and lets the next queued run open.
+function close(state, sessionID, runID, outcome) {
+  const run = state.runs.get(runID);
+  if (!run) return;
+  state.runs.delete(runID);
+  const type = outcome === "cancelled" ? "turn.cancelled" : outcome === "failed" ? "turn.failed" : "turn.completed";
+  publish(state, sessionID, { type, data: { message: "assistant run failed" }, meta: { at: new Date().toISOString() } }, runID);
+  if (state.open === runID) state.open = null;
+  next(state, sessionID);
+}
+
+// catchUp reads the session's provider events up to the stream's current tail;
+// it never waits for future events, so a tool call's attribution can read the
+// stream while its turn is still running.
+function catchUp(state, sessionID) {
+  const read = async () => {
+    if (!shared.attachSession) throw new Error("assistant session is not attached");
+    const session = shared.attachSession(sessionID);
+    const tail = await session.getStreamTailIndex();
+    if (tail < state.cursor) return;
+    const stream = await session.getEventStream({ startIndex: state.cursor });
+    for await (const providerEvent of providerEvents(stream)) {
+      state.cursor += 1;
+      apply(state, sessionID, providerEvent);
+      if (state.cursor > tail) break;
+    }
+  };
+  state.reading = state.reading.then(read, read);
+  return state.reading;
+}
+
+const turnEnds = { "turn.completed": "completed", "turn.cancelled": "cancelled", "turn.failed": "failed" };
+
+function apply(state, sessionID, providerEvent) {
+  const type = providerEvent?.type;
+  const data = providerEvent?.data ?? {};
+  const turnID = typeof data.turnId === "string" ? data.turnId : "";
+  // The session is idle after a boundary (waiting, completed or failed) until
+  // its next provider event.
+  state.idle = type === "session.waiting" || type === "session.completed" || type === "session.failed";
+  if (!turnID) {
+    if (state.open !== null) {
+      const open = state.runs.get(state.open);
+      // A boundary without a continuation turn ends the approval's resumption.
+      if (state.idle) state.resuming = null;
+      if (type === "session.failed") close(state, sessionID, state.open, "failed");
+      else if (state.idle && open && open.sawTurn && !open.turns.size && !open.approvals.size) close(state, sessionID, state.open, open.outcome);
+    }
+    return;
+  }
+  if (state.unbound.has(turnID)) return;
+  if (!state.turns.has(turnID)) {
+    const runID = bindingFor(state, type, data);
+    if (runID === undefined) {
+      const buffered = state.buffered.get(turnID) || [];
+      buffered.push(providerEvent);
+      state.buffered.set(turnID, buffered);
+      if (type === "message.received" || turnEnds[type]) {
+        state.buffered.delete(turnID);
+        state.unbound.add(turnID);
+      }
+      return;
+    }
+    state.turns.set(turnID, runID);
+    const run = state.runs.get(runID);
+    if (run) {
+      run.turns.add(turnID);
+      run.sawTurn = true;
+    }
+    const buffered = state.buffered.get(turnID) || [];
+    state.buffered.delete(turnID);
+    for (const event of buffered) observe(state, sessionID, event, runID, turnID);
+  }
+  observe(state, sessionID, providerEvent, state.turns.get(turnID), turnID);
+}
+
+// observe tracks a bound turn's event in its run's lifecycle and publishes it.
+function observe(state, sessionID, providerEvent, runID, turnID) {
+  const run = state.runs.get(runID);
+  const type = providerEvent?.type;
+  const data = providerEvent?.data ?? {};
+  if (type === "input.requested") {
+    for (const request of data.requests || []) {
+      if (!request?.requestId) continue;
+      state.approvals.set(request.requestId, runID);
+      run?.approvals.add(request.requestId);
+    }
+  }
+  if (type === "input.resolved") {
+    if (run) run.answered = false;
+    for (const resolution of data.resolutions || []) run?.approvals.delete(resolution?.requestId);
+    // Eve continues the run in a new turn after the approved call.
+    if (run) state.resuming = runID;
+  }
+  if (turnEnds[type]) {
+    if (!run) return;
+    run.turns.delete(turnID);
+    if (turnEnds[type] !== "completed") run.outcome = turnEnds[type];
+    return;
+  }
+  publish(state, sessionID, providerEvent, runID);
+}
+
+// bindingFor returns the run a new turn's event proves, or undefined. A turn
+// is the continuation of a resolved approval when its first event after
+// turn.started is not a received message.
+function bindingFor(state, type, data) {
+  if (type === "message.received") {
+    const next = state.pending[0];
+    if (next && next.message === (data.message ?? "")) {
+      state.pending.shift();
+      return next.runID;
+    }
+    return undefined;
+  }
+  if (type !== "turn.started" && state.resuming && state.resuming === state.open && state.runs.has(state.resuming)) {
+    const runID = state.resuming;
+    state.resuming = null;
+    return runID;
+  }
+  return undefined;
+}
+
+function publish(state, sessionID, providerEvent, runID) {
+  const normalized = normalizeEvents(providerEvent, sessionID, continuationFor(sessionID), 0, state.history.length + 1, runID);
+  for (const event of normalized) {
+    event.sequence = state.history.length + 1;
+    state.history.push(event);
+  }
+}
+
+// runForTurn attributes a tool call to the run of the Eve turn executing it,
+// reading the provider stream until the turn is bound. It fails when the turn
+// has no proven run.
+export async function runForTurn(sessionID, turnID) {
+  if (!sessionID || !turnID) throw new Error("Scenery turn identity is unavailable");
+  const state = sessionState(sessionID);
+  for (let attempt = 0; attempt < runBindingAttempts; attempt++) {
+    const runID = state.turns.get(turnID);
+    if (runID) return runID;
+    if (state.unbound.has(turnID)) break;
+    await catchUp(state, sessionID);
+    if (state.turns.has(turnID) || state.unbound.has(turnID)) continue;
+    await new Promise((resolve) => setTimeout(resolve, runBindingDelayMS));
+  }
+  throw new Error("Scenery run binding is unavailable for this turn");
 }
 
 function response(body, status = 200) {
@@ -113,6 +378,7 @@ function envelope(type, requestID, fields = {}) {
 
 async function control(request, { from, attachSession, requestIp }) {
   if (!authorized(request, requestIp)) return response({ error: "not found" }, 404);
+  shared.attachSession = attachSession;
   let body;
   try {
     body = await request.json();
@@ -132,57 +398,77 @@ async function control(request, { from, attachSession, requestIp }) {
   try {
     switch (body.type) {
       case "conversation.create": {
+        if (!body.run_id) throw new Error("run identity is required");
         const continuationToken = tokenFor(body.conversation_digest);
-        const session = await startingRunID.run(body.run_id, () => creatingConversationDigest.run(body.conversation_digest, () => from(continuationToken).send(body.message ?? "", {
-          auth: authFor(body.principal),
-        })));
+        const run = { runID: body.run_id, message: body.message ?? "", principal: body.principal };
+        const creating = creatingRuns.get(body.conversation_digest) || [];
+        creating.push(run);
+        creatingRuns.set(body.conversation_digest, creating);
+        let session;
+        try {
+          session = await creatingConversationDigest.run(body.conversation_digest, () => from(continuationToken).send(body.message ?? "", {
+            auth: authFor(body.principal),
+            turnPolicy: "queue",
+          }));
+        } catch (error) {
+          withdraw(creating, run);
+          throw error;
+        }
         conversationDigests.set(session.id, body.conversation_digest);
-        const runID = body.run_id || session.id;
-        knownRunIDs.set(session.id, runID);
+        // The session state adopts the created run as its open run.
+        sessionState(session.id);
+        if (!creating.length) creatingRuns.delete(body.conversation_digest);
         const effectiveContinuationToken = bindContinuation(session.id, continuationToken);
         return response(envelope("conversation.created", body.request_id, {
           private_session_id: session.id,
           continuation_token: effectiveContinuationToken,
-          run_id: runID,
+          run_id: body.run_id,
         }));
       }
       case "conversation.turn": {
-        // attachSession().send returns {status, sessionId}, not a Session.
-        // Reading .id dropped private_session_id and Go rejected the accepted turn.
-        // The turn's run is the session's latest started run from the moment it
-        // is submitted; a refused turn restores the previous one.
-        const previousRunID = knownRunIDs.get(body.private_session_id);
-        if (body.run_id) knownRunIDs.set(body.private_session_id, body.run_id);
-        let result;
-        try {
-          result = await startingRunID.run(body.run_id, () => attachSession(body.private_session_id).send(body.message ?? "", {
-            auth: authFor(body.principal),
-          }));
-        } catch (error) {
-          if (previousRunID) knownRunIDs.set(body.private_session_id, previousRunID);
-          throw error;
-        }
-        if (result.status !== "accepted") {
-          if (previousRunID) knownRunIDs.set(body.private_session_id, previousRunID);
+        if (!body.run_id) throw new Error("run identity is required");
+        const sessionID = body.private_session_id;
+        const state = sessionState(sessionID);
+        const result = await submit(state, sessionID, { runID: body.run_id, message: body.message ?? "", principal: body.principal });
+        if (!result.accepted) {
           return response(envelope("error", body.request_id, {
             error: { code: "helper_request_failed", message: "assistant session is not active" },
           }), 500);
         }
-        const sessionID = body.private_session_id;
-        const runID = body.run_id || result.sessionId || sessionID;
-        knownRunIDs.set(sessionID, runID);
         const effectiveContinuationToken = bindContinuation(sessionID, body.continuation_token);
         return response(envelope("conversation.turn.accepted", body.request_id, {
           private_session_id: sessionID,
           continuation_token: effectiveContinuationToken,
-          run_id: runID,
+          run_id: body.run_id,
         }));
       }
       case "approval.resolve": {
         const optionId = body.decision === "allow" ? "approve" : "cancel";
-        await from(body.continuation_token).respond([{ requestId: body.approval_id, optionId }], {
-          auth: authFor(body.principal),
-        });
+        const state = sessionState(body.private_session_id);
+        await catchUp(state, body.private_session_id);
+        if (state.approvals.get(body.approval_id) !== body.run_id || !state.runs.get(body.run_id)?.approvals.has(body.approval_id)) {
+          return response(envelope("error", body.request_id, {
+            error: { code: "approval_not_found", message: "assistant approval not found" },
+          }), 404);
+        }
+        // Eve accepts an answer only once the requesting turn has parked.
+        const answeredRun = state.runs.get(body.run_id);
+        for (let attempt = 0; answeredRun.turns.size && attempt < runBindingAttempts * 5; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, runBindingDelayMS));
+          await catchUp(state, body.private_session_id);
+        }
+        // The run follows its answer: streams keep following it until Eve
+        // resolves the approval, which may happen before respond returns.
+        answeredRun.answered = true;
+        try {
+          await from(body.continuation_token).respond([{ requestId: body.approval_id, optionId }], {
+            auth: authFor(body.principal),
+          });
+        } catch (error) {
+          answeredRun.answered = false;
+          throw error;
+        }
+        pump(state, body.private_session_id);
         const effectiveContinuationToken = bindContinuation(body.private_session_id, body.continuation_token);
         return response(envelope("approval.resolved", body.request_id, {
           private_session_id: body.private_session_id,
@@ -193,13 +479,30 @@ async function control(request, { from, attachSession, requestIp }) {
         }));
       }
       case "run.cancel": {
-        const knownRunID = knownRunIDs.get(body.private_session_id);
-        if (!knownRunID || knownRunID !== body.run_id) {
+        const state = sessionState(body.private_session_id);
+        await catchUp(state, body.private_session_id);
+        const run = state.runs.get(body.run_id);
+        if (!run) {
           return response(envelope("error", body.request_id, {
             error: { code: "run_not_found", message: "assistant run not found" },
           }), 404);
         }
-        const result = await attachSession(body.private_session_id).cancel();
+        let result = { status: "accepted" };
+        const queued = state.waiting.find((candidate) => candidate.runID === body.run_id);
+        if (queued) {
+          withdraw(state.waiting, queued);
+          close(state, body.private_session_id, body.run_id, "cancelled");
+        } else if (run.turns.size) {
+          result = await attachSession(body.private_session_id).cancel({ turnId: [...run.turns][0] });
+        } else if (run.approvals.size) {
+          // A run parked on approval has no active turn: deny its approvals,
+          // which resumes and ends it.
+          run.outcome = "cancelled";
+          await from(body.continuation_token).respond([...run.approvals].map((requestId) => ({ requestId, optionId: "cancel" })), {
+            auth: authFor(body.principal),
+          });
+          pump(state, body.private_session_id);
+        }
         return response(envelope("run.cancelled", body.request_id, {
           private_session_id: body.private_session_id,
           continuation_token: continuationFor(body.private_session_id, body.continuation_token),
@@ -247,7 +550,7 @@ function normalizeEvent(providerEvent, sessionID, continuationToken, after, fall
     capability_revision: capabilityRevision,
     private_session_id: sessionID,
     continuation_token: continuationToken,
-    run_id: runID || knownRunIDs.get(sessionID) || sessionID,
+    run_id: runID,
     sequence: Math.max(after + 1, sequence),
     occurred_at: providerEvent?.meta?.at || new Date().toISOString(),
     data: {},
@@ -300,7 +603,6 @@ function normalizeEvent(providerEvent, sessionID, continuationToken, after, fall
     case "turn.cancelled":
       return { ...base, type: "run.cancelled", data: { state: "cancelled" } };
     case "turn.failed":
-    case "step.failed":
     case "session.failed":
       return { ...base, type: "run.failed", data: { code: "assistant_failed", message: failureMessage(data) } };
     default:
@@ -357,54 +659,47 @@ async function* providerEvents(stream) {
 
 async function eventStream(request, { attachSession, params, requestIp }) {
   if (!authorized(request, requestIp)) return response({ error: "not found" }, 404);
+  shared.attachSession = attachSession;
   const sessionID = params.sessionId;
   const url = new URL(request.url);
   const after = Number(url.searchParams.get("after") || "0");
   if (!Number.isSafeInteger(after) || after < 0) return response({ error: "invalid cursor" }, 400);
-  const session = attachSession(sessionID);
-  // Rewind to zero: Eve's startIndex is a provider event count, while the
-  // Scenery cursor counts only neutral events. Filtering after provider
-  // normalization keeps reconnects deterministic even when Eve emits events
-  // (reasoning, metadata, and lifecycle boundaries) that Scenery omits.
-  // Resume from the last provider boundary; the private history handles
-  // replay for callers that reconnect with an older neutral cursor.
-  const history = knownEventHistory.get(sessionID) || [];
-  knownEventHistory.set(sessionID, history);
-  const providerStartIndex = knownProviderCursors.get(sessionID) || 0;
-  let stream;
+  const state = sessionState(sessionID);
   try {
-    stream = await session.getEventStream({ startIndex: providerStartIndex });
+    await catchUp(state, sessionID);
   } catch {
     return response({ error: "not found" }, 404);
   }
+  // Every stream reads the session state's one normalized history; only the
+  // state reads the provider stream. A stream of a settled session (idle, with
+  // no run in progress beyond an unanswered approval) ends after the history;
+  // any other stream follows the session until it settles.
   const body = new ReadableStream({
     async start(controller) {
-      let nextSequence = history.length + 1;
-      let providerCursor = providerStartIndex;
-      try {
-        for (const cached of history) {
-          if (cached.sequence > after) controller.enqueue(new TextEncoder().encode(`${JSON.stringify(cached)}\n`));
-        }
-        for await (const providerEvent of providerEvents(stream)) {
-          providerCursor += 1;
-          const continuationToken = continuationFor(sessionID);
-          const normalizedEvents = normalizeEvents(providerEvent, sessionID, continuationToken, after, nextSequence, knownRunIDs.get(sessionID));
-          for (const normalized of normalizedEvents) {
-            history.push(normalized);
-            if (nextSequence > after) controller.enqueue(new TextEncoder().encode(`${JSON.stringify(normalized)}\n`));
-            nextSequence += 1;
+      let written = after;
+      const flush = () => {
+        for (const event of state.history) {
+          if (event.sequence > written) {
+            controller.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
+            written = event.sequence;
           }
-          if (providerEvent?.type === "session.waiting" || providerEvent?.type === "session.completed" || providerEvent?.type === "session.failed") break;
         }
-        knownProviderCursors.set(sessionID, providerCursor);
+      };
+      try {
+        while (true) {
+          flush();
+          if (state.idle && settled(state)) break;
+          await new Promise((resolve) => setTimeout(resolve, streamPollMS));
+          await catchUp(state, sessionID);
+        }
+        flush();
         controller.close();
       } catch {
-        knownProviderCursors.set(sessionID, providerCursor);
         controller.error(new Error("assistant event stream failed"));
       }
     },
   });
- return new Response(body, { headers: ndjsonHeaders });
+  return new Response(body, { headers: ndjsonHeaders });
 }
 
 export default defineChannel({

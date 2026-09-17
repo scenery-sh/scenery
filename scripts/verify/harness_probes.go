@@ -66,6 +66,8 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("agent-restart", runHarnessAgentRestartProbeStep),
 		harnessSingleProbe("assistant-init", runHarnessAssistantInitProbeStep),
 		harnessSingleProbe("assistant-runtime", runHarnessAssistantProductionProbeStep),
+		harnessSingleProbe("assistant-helper", runHarnessAssistantHelperProbeStep),
+		harnessSingleProbe("assistant-journey", runHarnessAssistantJourneyProbeStep),
 		harnessSingleProbe("build-info", runHarnessBuildInfoProbeStep),
 		harnessSingleProbe("cli-process", runHarnessCLIProcessProbeStep),
 		harnessSingleProbe("dev-follower", runHarnessDevFollowProbeStep),

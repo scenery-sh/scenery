@@ -34,6 +34,10 @@ readonly PUBLIC_ROOT="$ACCEPTANCE_ROOT/public"
 readonly PRIVATE_ROOT="$ACCEPTANCE_ROOT/private"
 readonly WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/scenery-assistant-acceptance.XXXXXX")"
 readonly PRIVATE_TMP="$WORK_ROOT/private"
+# Every product command runs in a disposable fixture copy under its own agent
+# home, so no existing checkout, session, registry or database is read, claimed
+# or changed; `scenery down` releases what that home started.
+export SCENERY_AGENT_HOME="$WORK_ROOT/agent"
 mkdir -p "$ACCEPTANCE_ROOT"
 # Evidence is a complete-set transaction: stale public/private files from an
 # interrupted run must not make a later gate appear green.  These two roots
@@ -55,15 +59,12 @@ JQ="$(command -v jq 2>/dev/null || printf '%s' /usr/bin/jq)"
 PGREP="$(command -v pgrep 2>/dev/null || printf '%s' /usr/bin/pgrep)"
 
 UP_PID=""
+DOWN_BINARY=""
 MODEL_PID=""
 MCP_PID=""
 PRODUCTION_PID=""
 PRODUCTION_BUILD_PID=""
 FAKE_BIN=""
-ENV_PATH="$APP_ROOT/.env"
-ENV_CREATED=0
-ENV_BACKUP="$PRIVATE_TMP/env.before"
-ENV_MODE=""
 APP_PORT=49157
 BASE_URL="http://127.0.0.1:$APP_PORT"
 APP_READY=0
@@ -94,15 +95,6 @@ stop_process() {
   kill -9 "$pid" 2>/dev/null || true
 }
 
-restore_env() {
-  if [ "$ENV_CREATED" -eq 1 ]; then
-    rm -f "$ENV_PATH"
-  elif [ -f "$ENV_BACKUP" ]; then
-    cp "$ENV_BACKUP" "$ENV_PATH"
-    [ -z "$ENV_MODE" ] || chmod "$ENV_MODE" "$ENV_PATH" 2>/dev/null || true
-  fi
-}
-
 capture_runtime_diagnostics() {
   local path
   local rel
@@ -125,6 +117,9 @@ cleanup_dev_runtime_before_production() {
   # isolated runtime app's generated state so cold artifact extraction has
   # deterministic disk headroom. The authored app root is never removed.
   capture_runtime_diagnostics
+  if [ "$RUNTIME_APP_ROOT" != "$APP_ROOT" ]; then
+    "$SCENERY" down --app-root "$RUNTIME_APP_ROOT" -o json > "$PRIVATE_ROOT/dev-down.json" 2> "$PRIVATE_ROOT/dev-down.stderr" || true
+  fi
   stop_process "$UP_PID"
   UP_PID=""
   if [ "$RUNTIME_APP_ROOT" != "$APP_ROOT" ] && [ -d "$RUNTIME_APP_ROOT/.scenery" ]; then
@@ -140,7 +135,9 @@ cleanup() {
   stop_process "$PRODUCTION_BUILD_PID"
   stop_process "$PRODUCTION_PID"
   capture_runtime_diagnostics
-  restore_env
+  if [ -x "$DOWN_BINARY" ] && [ "$RUNTIME_APP_ROOT" != "$APP_ROOT" ]; then
+    "$DOWN_BINARY" down --app-root "$RUNTIME_APP_ROOT" -o json > "$PRIVATE_ROOT/down.json" 2> "$PRIVATE_ROOT/down.stderr" || true
+  fi
   rm -rf "$WORK_ROOT"
 }
 trap cleanup EXIT HUP INT TERM
@@ -186,7 +183,7 @@ capture_cli_public() {
   local output="$2"
   shift 2
   local rc
-  if (cd "$APP_ROOT" && "$SCENERY" "$@") > "$PUBLIC_ROOT/$output" 2> "$PRIVATE_ROOT/$evidence.stderr"; then
+  if (cd "$RUNTIME_APP_ROOT" && "$SCENERY" "$@") > "$PUBLIC_ROOT/$output" 2> "$PRIVATE_ROOT/$evidence.stderr"; then
     printf 'PASS\t%s\n' "$output" >> "$PRIVATE_ROOT/cli-results.tsv"
     return 0
   fi
@@ -661,7 +658,7 @@ prepare_runtime_app() {
   # macOS tar supports --exclude; the fallback copies the small authored
   # fixture explicitly when tar is unavailable.
   if command -v tar >/dev/null 2>&1; then
-    (cd "$APP_ROOT" && tar -cf - --exclude .scenery --exclude .env .) | (cd "$runtime_root" && tar -xf -)
+    (cd "$APP_ROOT" && tar -cf - --exclude .scenery --exclude .env --exclude node_modules .) | (cd "$runtime_root" && tar -xf -)
   else
     cp "$APP_ROOT/.scenery.json" "$runtime_root/.scenery.json"
     cp "$APP_ROOT/app.scn" "$runtime_root/app.scn"
@@ -788,13 +785,17 @@ start_app() {
   return 1
 }
 
-# Build a worktree-local binary.  The repository contract forbids go install
-# during validation because worktrees share the installed path.
-if ! (cd "$ROOT" && go build -o "$PRIVATE_ROOT/scenery" ./cmd/scenery) > "$PRIVATE_ROOT/scenery-build.log" 2>&1; then
-  printf '%s: cannot build local scenery binary; see %s\n' "$SCRIPT_NAME" "$PRIVATE_ROOT/scenery-build.log" >&2
+# Use the verifier's worktree-local, producer-aware binary. A plain `go build`
+# has no content-bound framework producer, and the repository contract forbids
+# go install during validation because worktrees share the installed path.
+if ! (cd "$ROOT" && go run ./scripts/verify --quick --summary && cp .scenery/harness/bin/scenery "$PRIVATE_ROOT/scenery") > "$PRIVATE_ROOT/scenery-build.log" 2>&1; then
+  printf '%s: cannot prepare the verifier binary; see %s\n' "$SCRIPT_NAME" "$PRIVATE_ROOT/scenery-build.log" >&2
   exit 1
 fi
 SCENERY="$PRIVATE_ROOT/scenery"
+# The production step unlinks $SCENERY; cleanup keeps its own copy for down.
+DOWN_BINARY="$WORK_ROOT/scenery-down"
+cp "$SCENERY" "$DOWN_BINARY"
 # Avoid colliding with a concurrently running local app while retaining a
 # deterministic, bounded port choice for this process.
 APP_PORT=$((49157 + ($$ % 1000)))
@@ -802,22 +803,6 @@ BASE_URL="http://127.0.0.1:$APP_PORT"
 
 # Authored package manifests are immutable acceptance inputs.  Keep exact
 # checksums before any sync/up/build path and compare them after every path.
-PACKAGE_PATH="$APP_ROOT/assistants/support/package.json"
-LOCK_PATH="$APP_ROOT/assistants/support/package-lock.json"
-PACKAGE_SHA_BEFORE="$(digest_file "$PACKAGE_PATH")"
-LOCK_SHA_BEFORE="$(digest_file "$LOCK_PATH")"
-printf 'package_before=%s\nlock_before=%s\n' "$PACKAGE_SHA_BEFORE" "$LOCK_SHA_BEFORE" > "$PRIVATE_ROOT/authored-manifests.before"
-
-# scenery up requires a local dotenv file even when the fixture has no
-# credentials.  Empty is intentional and is restored byte-for-byte on exit.
-if [ -e "$ENV_PATH" ]; then
-  cp "$ENV_PATH" "$ENV_BACKUP"
-  ENV_MODE="$(stat -f '%Lp' "$ENV_PATH" 2>/dev/null || stat -c '%a' "$ENV_PATH" 2>/dev/null || printf '600')"
-else
-  : > "$ENV_PATH"
-  chmod 600 "$ENV_PATH"
-  ENV_CREATED=1
-fi
 
 if ! start_fake_servers; then
   record_case "fake deterministic model and external MCP servers" BLOCKED "fake-server-build.log" "fake server startup failed"
@@ -828,12 +813,24 @@ else
     record_case "fake deterministic model and external MCP servers" PASS "fake-servers.txt" "both local servers answered health and loopback MCP URL was wired into temporary app"
   fi
 fi
+if [ "$RUNTIME_APP_ROOT" = "$APP_ROOT" ]; then
+  printf '%s: no isolated fixture copy exists; refusing to run product commands in %s\n' "$SCRIPT_NAME" "$APP_ROOT" >&2
+  exit 1
+fi
+printf 'agent_home=%s\nruntime_app_root=%s\n' "$SCENERY_AGENT_HOME" "$RUNTIME_APP_ROOT" > "$PRIVATE_ROOT/isolation.txt"
+
+# Package manifests of the fixture copy are immutable inputs of the run.
+PACKAGE_PATH="$RUNTIME_APP_ROOT/assistants/support/package.json"
+LOCK_PATH="$RUNTIME_APP_ROOT/assistants/support/package-lock.json"
+PACKAGE_SHA_BEFORE="$(digest_file "$PACKAGE_PATH")"
+LOCK_SHA_BEFORE="$(digest_file "$LOCK_PATH")"
+printf 'package_before=%s\nlock_before=%s\n' "$PACKAGE_SHA_BEFORE" "$LOCK_SHA_BEFORE" > "$PRIVATE_ROOT/authored-manifests.before"
 
 # Public generated clients, schemas, and default inspection are copied into
 # the allowlisted public evidence root.  Provider-only authored source is not
 # copied and is never scanned by check-assistant-public-surface.sh.
 mkdir -p "$PUBLIC_ROOT/generated/typescript" "$PUBLIC_ROOT/schemas" "$PUBLIC_ROOT/routes" "$PUBLIC_ROOT/docs"
-for file in "$APP_ROOT"/clients/generated/public_api/*; do
+for file in "$RUNTIME_APP_ROOT"/clients/generated/public_api/*; do
   [ -f "$file" ] || continue
   cp "$file" "$PUBLIC_ROOT/generated/typescript/$(basename "$file")"
 done
@@ -854,7 +851,7 @@ else
 fi
 # Generation is an atomic managed-root transaction; capture its final output,
 # not the preflight copy, for the independent public-surface scan.
-for file in "$APP_ROOT"/clients/generated/public_api/*; do
+for file in "$RUNTIME_APP_ROOT"/clients/generated/public_api/*; do
   [ -f "$file" ] || continue
   cp "$file" "$PUBLIC_ROOT/generated/typescript/$(basename "$file")"
 done
@@ -1153,10 +1150,10 @@ INIT_ONE="$PRIVATE_ROOT/assistant-init-1.json"
 INIT_TWO="$PRIVATE_ROOT/assistant-init-2.json"
 INIT_ONE_RC=0
 INIT_TWO_RC=0
-(cd "$APP_ROOT" && "$SCENERY" assistant init support --mcp-server support --client public_api --dry-run -o json) > "$INIT_ONE" 2> "$PRIVATE_ROOT/assistant-init-1.stderr" || INIT_ONE_RC=$?
-(cd "$APP_ROOT" && "$SCENERY" assistant init support --mcp-server support --client public_api --dry-run -o json) > "$INIT_TWO" 2> "$PRIVATE_ROOT/assistant-init-2.stderr" || INIT_TWO_RC=$?
-INSTRUCTIONS_SHA_ONE="$(digest_file "$APP_ROOT/assistants/support/agent/instructions.md")"
-INSTRUCTIONS_SHA_TWO="$(digest_file "$APP_ROOT/assistants/support/agent/instructions.md")"
+(cd "$RUNTIME_APP_ROOT" && "$SCENERY" assistant init support --mcp-server support --client public_api --dry-run -o json) > "$INIT_ONE" 2> "$PRIVATE_ROOT/assistant-init-1.stderr" || INIT_ONE_RC=$?
+(cd "$RUNTIME_APP_ROOT" && "$SCENERY" assistant init support --mcp-server support --client public_api --dry-run -o json) > "$INIT_TWO" 2> "$PRIVATE_ROOT/assistant-init-2.stderr" || INIT_TWO_RC=$?
+INSTRUCTIONS_SHA_ONE="$(digest_file "$RUNTIME_APP_ROOT/assistants/support/agent/instructions.md")"
+INSTRUCTIONS_SHA_TWO="$(digest_file "$RUNTIME_APP_ROOT/assistants/support/agent/instructions.md")"
 if [ "$INIT_ONE_RC" -eq 0 ] && [ "$INIT_TWO_RC" -eq 0 ] && [ "$INSTRUCTIONS_SHA_ONE" = "$INSTRUCTIONS_SHA_TWO" ]; then
   record_case "assistant init idempotent and preserves edited file" PASS "assistant-init-1.json,assistant-init-2.json" "two dry-runs preserved authored instructions"
 else
@@ -1176,7 +1173,7 @@ PRODUCTION_BUILD_LOG="$PRIVATE_ROOT/production-build.log"
 PRODUCTION_BUILD_RC=0
 PRODUCTION_BUILD_CLEANED=0
 (
-  cd "$APP_ROOT"
+  cd "$RUNTIME_APP_ROOT"
   exec "$SCENERY" build --target artifact --output "$PRODUCTION_BINARY"
 ) > "$PRODUCTION_BUILD_LOG" 2>&1 &
 PRODUCTION_BUILD_PID=$!
@@ -1197,9 +1194,8 @@ while [ "$production_exec_wait" -lt 40 ] && kill -0 "$PRODUCTION_BUILD_PID" 2>/d
   production_exec_wait=$((production_exec_wait + 1))
 done
 if [ "$production_exec_ready" -eq 1 ] || kill -0 "$PRODUCTION_BUILD_PID" 2>/dev/null; then
-  if [ -f "$SCENERY" ]; then
-    rm -f "$SCENERY"
-  fi
+  # The verifier's binary reads its own executable to attest its producer, so it
+  # stays in place while it builds.
   if [ -n "$FAKE_BIN" ] && [ -f "$FAKE_BIN" ]; then
     rm -f "$FAKE_BIN"
   fi
@@ -1218,8 +1214,8 @@ while kill -0 "$PRODUCTION_BUILD_PID" 2>/dev/null; do
       || "$GREP" -Fq 'go build -ldflags=' "$PRODUCTION_BUILD_LOG" 2>/dev/null \
       || [ -f "$PRODUCTION_BINARY" ]; }; then
     for generated_path in \
-      "$APP_ROOT/.scenery/toolchain" \
-      "$APP_ROOT/.scenery/assistant-cache"; do
+      "$RUNTIME_APP_ROOT/.scenery/toolchain" \
+      "$RUNTIME_APP_ROOT/.scenery/assistant-cache"; do
       if [ -d "$generated_path" ] && [ ! -L "$generated_path" ]; then
         rm -rf "$generated_path"
       fi
@@ -1227,8 +1223,8 @@ while kill -0 "$PRODUCTION_BUILD_PID" 2>/dev/null; do
     printf 'trigger=%s\n' \
       "$([ -f "$PRODUCTION_BINARY" ] && printf artifact-output-visible-while-build-running || printf go-build-process-visible-while-build-running)" >> "$PRIVATE_ROOT/production-build-cleanup.txt"
     printf 'removed=%s\nremoved=%s\n' \
-      "$APP_ROOT/.scenery/toolchain" \
-      "$APP_ROOT/.scenery/assistant-cache" >> "$PRIVATE_ROOT/production-build-cleanup.txt"
+      "$RUNTIME_APP_ROOT/.scenery/toolchain" \
+      "$RUNTIME_APP_ROOT/.scenery/assistant-cache" >> "$PRIVATE_ROOT/production-build-cleanup.txt"
     PRODUCTION_BUILD_CLEANED=1
   fi
   sleep 0.25
@@ -1246,15 +1242,15 @@ printf 'target=artifact\nreason=production acceptance requires the artifact role
 if [ "$PRODUCTION_BUILD_RC" -eq 0 ]; then
   if [ "$PRODUCTION_BUILD_CLEANED" -eq 0 ]; then
     for generated_path in \
-      "$APP_ROOT/.scenery/toolchain" \
-      "$APP_ROOT/.scenery/assistant-cache"; do
+      "$RUNTIME_APP_ROOT/.scenery/toolchain" \
+      "$RUNTIME_APP_ROOT/.scenery/assistant-cache"; do
       if [ -d "$generated_path" ] && [ ! -L "$generated_path" ]; then
         rm -rf "$generated_path"
       fi
     done
     printf 'trigger=build-completed-before-output-observation\nremoved=%s\nremoved=%s\n' \
-      "$APP_ROOT/.scenery/toolchain" \
-      "$APP_ROOT/.scenery/assistant-cache" >> "$PRIVATE_ROOT/production-build-cleanup.txt"
+      "$RUNTIME_APP_ROOT/.scenery/toolchain" \
+      "$RUNTIME_APP_ROOT/.scenery/assistant-cache" >> "$PRIVATE_ROOT/production-build-cleanup.txt"
   fi
 fi
 PRODUCTION_RUN_RC=0
@@ -1270,7 +1266,7 @@ if [ -f "$PRODUCTION_BUNDLE" ] && "$GREP" -q '"assistant_assets"' "$PRODUCTION_B
 fi
 if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$MANAGED_DATABASE_READY" -eq 1 ]; then
   mkdir -p "$PRIVATE_TMP/no-node"
-  export SCENERY_APP_ROOT="$APP_ROOT"
+  export SCENERY_APP_ROOT="$RUNTIME_APP_ROOT"
   export SCENERY_LISTEN_ADDR="127.0.0.1:$PRODUCTION_PORT"
   export SCENERY_ROLE="api"
   export SCENERY_ASSISTANT_TOKEN_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -1318,7 +1314,7 @@ if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$MANAGED_DATABASE_READY" -eq 1 ]; then
   printf 'wait_bound_seconds=%s\nwait_elapsed_seconds=%s\nhelper_wait_bound_seconds=60\nhelper_wait_elapsed_seconds=%s\nlistener=%s\nhelper=%s\n' \
     "$PRODUCTION_WAIT_SECONDS" "$PRODUCTION_WAIT_ELAPSED" "$production_helper_wait" "$PRODUCTION_LISTENING" "$PRODUCTION_HELPER_READY" > "$PRIVATE_ROOT/production-startup.txt"
   ps -axo pid,ppid,command > "$PRIVATE_ROOT/production-processes.txt" 2>/dev/null || true
-  find "$APP_ROOT/.scenery/assistant-runtime" -maxdepth 4 -type f -print > "$PRIVATE_ROOT/production-extraction-files.txt" 2>/dev/null || true
+  find "$RUNTIME_APP_ROOT/.scenery/assistant-runtime" -maxdepth 4 -type f -print > "$PRIVATE_ROOT/production-extraction-files.txt" 2>/dev/null || true
   if ! kill -0 "$PRODUCTION_PID" 2>/dev/null; then
     wait "$PRODUCTION_PID" 2>/dev/null || PRODUCTION_RUN_RC=$?
   fi

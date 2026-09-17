@@ -25,8 +25,11 @@ import (
 //   - active: the helper accepted the run.
 //   - unknown: the start request's outcome is unknown (the helper may have
 //     started the run and lost its answer); its tool calls execute until the
-//     host observes the run's events or, having observed none within
-//     assistantRunUnknownTimeout, ends it.
+//     host observes the run's events.
+//   - revoked: an unknown run whose events the host did not observe within
+//     assistantRunUnknownTimeout. Its tool calls are refused from then on, and
+//     whether it started or had effects stays unknown; the host neither treats
+//     it as rejected nor repeats its start. A revoked run is journaled.
 //   - ended: the helper rejected the run, or the host observed its terminal
 //     event. The host forgets an ended run.
 //
@@ -41,7 +44,9 @@ import (
 // process_host_journal.go) before the host acts on them, and a replacement host
 // replays the runs that had not ended as revoked. The run limit bounds live
 // runs: an ended or revoked run is forgotten to make room, and a start beyond
-// the limit is refused, never admitted by forgetting a live run.
+// the limit is refused, never admitted by forgetting a live run. Forgetting a
+// run never makes a call of it acceptable again: a call of a run the host does
+// not know is refused, and a run ID is never reserved twice.
 //
 // The host observes each run's end from the helper's private event stream (see
 // observeAssistantRun), not from client streams. An event stream a client
@@ -100,10 +105,14 @@ type processHostRun struct {
 	generation *processHostGeneration
 	state      assistantRunState
 	sequence   uint64
-	// ended is closed when the host forgets the run; wake asks its observer to
-	// read the run's events now.
-	ended chan struct{}
-	wake  chan struct{}
+	// revoked marks a run whose start outcome stayed unknown.
+	revoked bool
+	// ended is closed when the run stops holding its generation (it is
+	// revoked or forgotten); wake asks its observer to read the run's events
+	// now.
+	ended  chan struct{}
+	closed bool
+	wake   chan struct{}
 }
 
 type processHostConversationStream struct {
@@ -116,6 +125,7 @@ type processHostRunRecord struct {
 	RunID        string `json:"run_id"`
 	Generation   uint64 `json:"generation,omitempty"`
 	Ended        bool   `json:"ended,omitempty"`
+	Revoked      bool   `json:"revoked,omitempty"`
 }
 
 func processHostConversationKey(assistantAddress, principal, conversationDigest string) string {
@@ -143,12 +153,18 @@ func (conversations *processHostConversations) open(path string) error {
 		if err := json.Unmarshal(line, &record); err != nil {
 			return err
 		}
-		if record.Conversation == "" || record.RunID == "" || !record.Ended && record.Generation == 0 {
+		if record.Conversation == "" || record.RunID == "" || !record.Ended && !record.Revoked && record.Generation == 0 {
 			return errors.New("run record is incomplete")
 		}
 		key := processHostRunKey(record.Conversation, record.RunID)
 		if record.Ended {
 			conversations.forget(key)
+			return nil
+		}
+		if record.Revoked {
+			if run := conversations.runs[key]; run != nil {
+				run.revoked = true
+			}
 			return nil
 		}
 		if conversations.runs[key] == nil {
@@ -191,11 +207,20 @@ func (conversations *processHostConversations) forget(key string) {
 	if conversations.latest[run.conversation] == run {
 		delete(conversations.latest, run.conversation)
 	}
+	run.release()
+}
+
+// release stops the run holding its generation and ends its observer; the
+// caller holds the lock.
+func (run *processHostRun) release() {
 	if run.generation != nil {
 		run.generation.inFlight.Add(-1)
 		run.generation = nil
 	}
-	close(run.ended)
+	if !run.closed {
+		run.closed = true
+		close(run.ended)
+	}
 }
 
 // end commits and forgets a run. A run whose end cannot be committed is still
@@ -234,6 +259,9 @@ func (conversations *processHostConversations) compact() {
 	for _, key := range conversations.order {
 		run := conversations.runs[key]
 		records = append(records, processHostRunRecord{Conversation: run.conversation, RunID: run.runID, Generation: run.number})
+		if run.revoked {
+			records = append(records, processHostRunRecord{Conversation: run.conversation, RunID: run.runID, Revoked: true})
+		}
 	}
 	_ = conversations.journal.rewrite(records)
 }
@@ -342,6 +370,10 @@ func (reservation *assistantRunReservation) observed(terminal bool) {
 	if conversations.runs[processHostRunKey(run.conversation, run.runID)] != run {
 		return
 	}
+	if run.revoked {
+		// A revoked run stays revoked: its outcome was not known in time.
+		return
+	}
 	if terminal {
 		conversations.end(run)
 		return
@@ -357,9 +389,18 @@ func (reservation *assistantRunReservation) expire() {
 	conversations := &reservation.host.conversations
 	conversations.Lock()
 	defer conversations.Unlock()
-	if run := reservation.run; run.state == assistantRunUnknown && conversations.runs[processHostRunKey(run.conversation, run.runID)] == run {
-		conversations.end(run)
+	run := reservation.run
+	if run.state != assistantRunUnknown || run.revoked || conversations.runs[processHostRunKey(run.conversation, run.runID)] != run {
+		return
 	}
+	// A revocation that cannot be committed still revokes the run: the
+	// poisoned journal then authorizes no run.
+	_ = conversations.journal.append(processHostRunRecord{Conversation: run.conversation, RunID: run.runID, Revoked: true})
+	run.revoked = true
+	if conversations.latest[run.conversation] == run {
+		delete(conversations.latest, run.conversation)
+	}
+	run.release()
 }
 
 // wakeAssistantRun asks the observer of a run to read its events now, after a
@@ -398,6 +439,8 @@ func (h *processHost) runGeneration(call MCPToolCallContext) (uint64, error) {
 		return 0, &errs.Error{Code: errs.InvalidArgument, Message: "the assistant tool call names no run", Meta: errs.Metadata{"delivery": "not_sent"}}
 	case run == nil:
 		return 0, &errs.Error{Code: errs.Unavailable, Message: "the assistant run is not running", Meta: errs.Metadata{"delivery": "not_sent"}}
+	case run.revoked:
+		return 0, &errs.Error{Code: errs.Unavailable, Message: "the assistant run was revoked because its start outcome stayed unknown; whether it had effects is unknown", Meta: errs.Metadata{"delivery": "not_sent"}}
 	case !run.dispatchable():
 		return 0, &errs.Error{Code: errs.Unavailable, Message: fmt.Sprintf("the assistant run executes in application generation %d, which is no longer dispatchable", run.number), Meta: errs.Metadata{"delivery": "not_sent"}}
 	}

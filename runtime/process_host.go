@@ -99,6 +99,8 @@ type processInstanceIdentity struct {
 type processGenerationStatus struct {
 	Current     uint64                         `json:"current"`
 	Generations []processGenerationStatusEntry `json:"generations"`
+	// HostState is "unavailable" once an authority journal is poisoned.
+	HostState string `json:"host_state,omitempty"`
 }
 
 type processGenerationStatusEntry struct {
@@ -535,6 +537,9 @@ func (h *processHost) status() processGenerationStatus {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	status := processGenerationStatus{Generations: []processGenerationStatusEntry{}}
+	if !h.stateAvailable() {
+		status.HostState = "unavailable"
+	}
 	if h.current != nil {
 		status.Current = h.current.number
 	}

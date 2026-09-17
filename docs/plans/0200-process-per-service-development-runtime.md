@@ -725,9 +725,40 @@ compile the application graph as it needs.
   known services under a new number and only then retires the unconfirmed
   generation; the `process-model` probe injects the lost answers through new
   generation-control faults and passed.
+- [x] (2026-09-17) Run identity is proven through the real Eve helper, after a
+  third external review. The helper no longer attributes a call to the
+  session's latest run: Eve's header context names the executing turn, and the
+  helper binds turns to runs only by stream evidence (the run's message, or the
+  continuation of its resolved approval), runs a conversation's runs one at a
+  time, publishes a run's terminal event when it closes rather than when its
+  turn parks for approval, and owns one provider cursor and normalized history
+  per session. An unknown start that stays unobserved is revoked with a
+  journaled tombstone. The supervisor starts a new host state epoch whenever the
+  previous host's authority is uncertain, which keeps a poisoned host whose
+  marker and removal both failed from restoring authority. New probes:
+  `assistant-helper` (generated helper under Node against simulated Eve) and
+  `assistant-journey` (testdata/assistant with real Eve and its mock model in a
+  disposable copy with its own agent home); the assistant acceptance script now
+  runs only in such a copy with the verifier's binary.
 
 ## Surprises & Discoveries
 
+- Observed with the real Eve 0.39.1 helper and mock model: a turn that requests
+  approval emits `turn.completed` and `session.waiting` immediately; the
+  approval's `input.resolved` carries the original turn ID and the approved call
+  runs there; the model's continuation starts a new turn without
+  `message.received`; and an approval answered while a later turn is active is
+  executed inside that later turn. The earlier helper published `run.completed`
+  at the park, which would have ended the run on the host before its approval.
+- The assistant acceptance script ran product commands in the authored fixture,
+  used the machine's real agent home, and deleted generated caches of the
+  authored root during its production step; its `go build` binary also lacks a
+  content-bound framework producer. Run in a disposable copy with its own agent
+  home, it no longer reaches the retained-database claim and every development
+  case passes. Its production artifact case still fails: the artifact build
+  reports `prepared workspace membership changed` for an Eve cache file its own
+  assistant asset build writes under `.scenery/assistant-assets`; this was not
+  investigated or compared with the previous commit.
 - `scripts/accept-assistant-runtime.sh`, the real Eve journey (mock model,
   approvals, durable receipt/status/cancel through `scenery up`), is blocked
   independently of this work: its own `go build` binary has no content-bound
@@ -928,6 +959,20 @@ compile the application graph as it needs.
 
 ## Decision Log
 
+- Decision: the generated helper runs one run of a conversation at a time and
+  binds provider turns to runs only by stream evidence (superseding the
+  latest-started-run attribution). Rationale: with the real Eve 0.39 runtime a
+  turn that requests approval ends at once, the approved call runs in the
+  original turn, the continuation arrives as a new turn without a received
+  message, and an approval answered while another turn is active is folded into
+  that turn; only serialized runs let every call and event keep the run that
+  caused it. Eve's header context names the executing turn, so no per-call
+  inference is needed. Date: 2026-09-17. Author: Claude.
+- Decision: uncertain host authority rotates the session's host state epoch
+  instead of trusting a poison marker. Rationale: the marker and the journal's
+  removal are further writes to the storage that just failed; an empty epoch is
+  fail-closed because a missing record never authorizes anything. Date:
+  2026-09-17. Author: Claude.
 - Decision: an assistant run, not its conversation, selects a tool call's
   generation, and the helper names the run in its MCP assertion. Rationale: a
   conversation-wide slot let an unaccepted or rejected turn redirect a running

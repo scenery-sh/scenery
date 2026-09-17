@@ -773,3 +773,69 @@ func TestDevProcessUnknownPublicationKeepsCandidatesUntilReconciled(t *testing.T
 		t.Fatalf("host journey = %v (current %d), want %v", journey, current, want)
 	}
 }
+
+// A new host incarnation reuses the session's host state only when the previous
+// incarnation still runs and reports its authority intact; otherwise it starts
+// over a new, empty epoch that authorizes nothing the earlier one journaled.
+func TestDevProcessHostStateEpochAdvancesWhenAuthorityIsUncertain(t *testing.T) {
+	for _, scenario := range []struct {
+		name, answer string
+		running      bool
+		marker       bool
+		rotated      bool
+	}{
+		{name: "available", answer: `{"current":1}`, running: true},
+		{name: "reported unavailable", answer: `{"current":1,"host_state":"unavailable"}`, running: true, rotated: true},
+		{name: "unanswered", running: true, rotated: true},
+		{name: "exited", answer: `{"current":1}`, rotated: true},
+		{name: "poison marker", answer: `{"current":1}`, running: true, marker: true, rotated: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			directory, err := os.MkdirTemp("", "scp")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(directory) })
+			host := &devProcessInstance{app: &runningApp{pid: "101"}}
+			model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory, host: host}
+			if err := os.Mkdir(model.hostStateDir(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if scenario.marker {
+				if err := os.WriteFile(filepath.Join(model.hostStateDir(), "durable-receipts.jsonl.poisoned"), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			link, err := model.newLink()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(link.close)
+			if scenario.answer != "" {
+				listener, err := net.Listen("unix", link.dispatch)
+				if err != nil {
+					t.Fatal(err)
+				}
+				server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(scenario.answer)) })}
+				go func() { _ = server.Serve(listener) }()
+				t.Cleanup(func() { _ = server.Close() })
+			}
+			model.link = link
+			supervisor := &devSupervisor{processes: model}
+			if scenario.running {
+				supervisor.current = host.app
+			}
+			previous := model.hostStateDir()
+			if err := supervisor.settleDevProcessHostState(context.Background(), model); err != nil {
+				t.Fatal(err)
+			}
+			_, previousErr := os.Stat(previous)
+			if rotated := model.hostStateEpoch == 1; rotated != scenario.rotated || rotated == (previousErr == nil) {
+				t.Fatalf("epoch %d, previous directory present %v", model.hostStateEpoch, previousErr == nil)
+			}
+			if next, err := model.newLink(); err != nil || next.hostState != model.hostStateDir() {
+				t.Fatalf("next link host state %q, want %q (%v)", next.hostState, model.hostStateDir(), err)
+			}
+		})
+	}
+}

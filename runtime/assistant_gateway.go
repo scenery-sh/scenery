@@ -525,7 +525,9 @@ func assistantErrorFor(err error) (assistantapi.Error, int) {
 	if err == nil {
 		return assistantapi.NewError(assistantapi.ErrorInternal, "assistant request failed"), http.StatusInternalServerError
 	}
-	if errors.Is(err, assistanttoken.ErrNotFound) || errors.Is(err, assistantruntime.ErrConversation) || errors.Is(err, assistantruntime.ErrRun) || errors.Is(err, assistantruntime.ErrApproval) {
+	var refused *assistantruntime.ControlError
+	if errors.Is(err, assistanttoken.ErrNotFound) || errors.Is(err, assistantruntime.ErrConversation) || errors.Is(err, assistantruntime.ErrRun) || errors.Is(err, assistantruntime.ErrApproval) ||
+		errors.As(err, &refused) && strings.HasSuffix(refused.Code, "_not_found") {
 		return assistantapi.NewError(assistantapi.ErrorNotFound, "assistant resource not found"), http.StatusNotFound
 	}
 	if errors.Is(err, assistanttoken.ErrKeyUnavailable) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -82,7 +83,7 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 		if err := d.host.owners.store(strings.TrimSpace(call.Principal), receipt.ExecutionID, processHostDurableOwner{
 			process: process, service: strings.TrimSpace(response.Durable.Service), taskName: strings.TrimSpace(response.Durable.TaskName),
 		}); err != nil {
-			logTrace(ctx, fmt.Sprintf("durable receipt %s was accepted but its authorization was not committed: %v", receipt.ExecutionID, err))
+			slog.Warn("durable execution was accepted but its status and cancellation are unavailable: its authorization was not committed", "execution_id", receipt.ExecutionID, "error", err.Error())
 		}
 	}
 	return *response.Outcome, nil

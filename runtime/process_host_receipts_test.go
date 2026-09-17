@@ -214,3 +214,47 @@ func TestDurableReceiptJournalFailureNeverRestoresAnAuthorization(t *testing.T) 
 		t.Fatalf("a poisoned journal remains replayable: %v", err)
 	}
 }
+
+// When the append, the poison marker and the journal's removal all fail, the
+// host still reports its host state unavailable, which is what makes the
+// supervisor start the next host incarnation over a new, empty epoch instead of
+// the surviving prefix.
+func TestHostReportsUnavailableStateWhenPoisoningCannotBeRecorded(t *testing.T) {
+	directory := t.TempDir()
+	host, err := newProcessHost(ProcessHostConfig{Name: "house"}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.openState(directory); err != nil {
+		t.Fatal(err)
+	}
+	owner := processHostDurableOwner{process: "house_house", service: "house", taskName: "process_scene"}
+	if err := host.owners.store("principal-1", "execution-1", owner); err != nil {
+		t.Fatal(err)
+	}
+	if status := host.status(); status.HostState != "" {
+		t.Fatalf("host state before a failure = %q", status.HostState)
+	}
+	journal := filepath.Join(directory, processHostReceiptsJournal)
+	if err := os.Chmod(journal, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(directory, 0o700) })
+	conflicting := owner
+	conflicting.process = "maps_maps"
+	if err := host.owners.store("principal-1", "execution-1", conflicting); !errors.Is(err, errProcessHostStateUnavailable) {
+		t.Fatalf("uncommitted ambiguity = %v", err)
+	}
+	if _, err := os.Stat(journal); err != nil {
+		t.Fatalf("the journal was removed although its directory is read-only: %v", err)
+	}
+	if _, err := os.Stat(journal + processHostPoisonedSuffix); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a marker was written into a read-only directory: %v", err)
+	}
+	if status := host.status(); status.HostState != "unavailable" {
+		t.Fatalf("host state after unrecordable poisoning = %q", status.HostState)
+	}
+}

@@ -329,8 +329,14 @@ func TestAssistantToolCallsExecuteTheGenerationOfTheirOwnRun(t *testing.T) {
 	run.state = assistantRunUnknown
 	fixture.host.conversations.Unlock()
 	(&assistantRunReservation{host: fixture.host, run: run}).expire()
-	if got := fixture.describe(unknown); !strings.Contains(got, "is not running") {
-		t.Fatalf("tool call of an expired run = %s", got)
+	(&assistantRunReservation{host: fixture.host, run: run}).observed(true)
+	if got := fixture.describe(unknown); !strings.Contains(got, "was revoked because its start outcome stayed unknown") {
+		t.Fatalf("tool call of a revoked run = %s", got)
+	}
+	fixture.startHost()
+	fixture.publish(6)
+	if got := fixture.describe(unknown); !strings.Contains(got, "was revoked because its start outcome stayed unknown") {
+		t.Fatalf("tool call of a revoked run on a replacement host = %s", got)
 	}
 }
 

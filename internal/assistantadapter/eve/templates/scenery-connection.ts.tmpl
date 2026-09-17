@@ -5,7 +5,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { defineMcpClientConnection } from "eve/connections";
 import { isIP } from "node:net";
-import { lookupConversationDigest, lookupRunID } from "../channels/scenery.js";
+import { lookupConversationDigest, runForTurn } from "../channels/scenery.js";
 
 const assistantAddress = {{json .AssistantAddress}};
 const capabilityRevision = {{json .CapabilityRevision}};
@@ -26,7 +26,7 @@ const mcpURL = mcpURLObject.origin;
 
 const base64url = (value) => Buffer.from(value).toString("base64url");
 
-function assertion(ctx) {
+async function assertion(ctx) {
   const secret = process.env.SCENERY_MCP_BRIDGE_SECRET;
   if (!secret) throw new Error("SCENERY_MCP_BRIDGE_SECRET is required");
   const principal = ctx.session.auth.current?.principalId?.trim();
@@ -40,11 +40,9 @@ function assertion(ctx) {
   // a request ID at the MCP boundary instead.
   const conversationDigest = lookupConversationDigest(sessionID);
   if (!conversationDigest) throw new Error("Scenery conversation binding is unavailable");
-  // The run is attributed from the request that started it while that request
-  // is in progress, and otherwise from the session's latest started run: an
-  // Eve session runs its turns one at a time.
-  const runID = lookupRunID(sessionID);
-  if (!runID) throw new Error("Scenery run binding is unavailable");
+  // The call belongs to the Scenery run bound to the Eve turn executing it; a
+  // turn without a proven run gets no assertion, so its call is refused.
+  const runID = await runForTurn(sessionID, ctx.session.turn?.id);
   const payload = {
     audience: "scenery",
     assistant_address: assistantAddress,
@@ -67,6 +65,6 @@ export default defineMcpClientConnection({
     ? "not-applicable"
     : "user-approval",
   headers: async (ctx) => ({
-    "Scenery-Assistant-Assertion": assertion(ctx),
+    "Scenery-Assistant-Assertion": await assertion(ctx),
   }),
 });

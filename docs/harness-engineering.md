@@ -208,6 +208,8 @@ release certification. Failed steps identify their focused rerun command.
 | `agent-restart` | Local-agent restart |
 | `assistant-init` | Assistant initialization |
 | `assistant-runtime` | Assistant production runtime |
+| `assistant-helper` | Generated Eve channel and connection under Node against a simulated Eve 0.39 runtime that reproduces the observed provider behavior: a later run waits while a run is open and a late call of the open run keeps its run, an approval resolved in its original turn continues its run in a continuation turn while a later run waits and resolves only for that run, cancelling a queued run never sends it and cancelling a parked run denies its approvals, a turn without evidence is refused and unpublished, a refused send leaves no pending run, and overlapping streams and tool calls share one history with contiguous sequences |
+| `assistant-journey` | `testdata/assistant` with its generated Eve helper and mock model through `scenery up` in a disposable copy with its own agent home: a run parked on approval keeps a later run queued and resumes as itself, overlapping streams read one contiguous history, a durable receipt's status and cancellation reach the durable store after a host replacement that keeps the service, and after the receipt journal of the serving host can be neither written, marked nor removed the host reports its state unavailable, the next host starts a new host state epoch and refuses the earlier receipt |
 | `build-info` | Build identity freshness |
 | `cli-process` | CLI exit and telemetry |
 | `dev-follower` | Development follower process |

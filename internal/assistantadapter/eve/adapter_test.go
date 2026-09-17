@@ -128,13 +128,15 @@ func TestMaterializeOverlayCopiesAuthoredFilesAndReservesGeneratedPaths(t *testi
 		"creatingConversationDigest.run(body.conversation_digest",
 		"conversationDigests.get(sessionID) || creatingConversationDigest.getStore()",
 		"from(continuationToken).send",
-		"attachSession(body.private_session_id).send",
-		`result.status !== "accepted"`,
-		"result.sessionId",
+		"shared.attachSession(sessionID).send(run.message",
+		`sent.status === "accepted"`,
+		`turnPolicy: "queue"`,
 		"from(body.continuation_token).respond",
 		`const optionId = body.decision === "allow" ? "approve" : "cancel"`,
-		"attachSession(body.private_session_id).cancel()",
-		"attachSession(sessionID)",
+		"attachSession(body.private_session_id).cancel({ turnId: [...run.turns][0] })",
+		"next.message === (data.message ?? \"\")",
+		"state.resuming === state.open",
+		"export async function runForTurn(sessionID, turnID)",
 		"body.assistant_address !== assistantAddress",
 		"body.runtime_revision !== runtimeRevision",
 		"body.capability_revision !== capabilityRevision",
@@ -147,7 +149,7 @@ func TestMaterializeOverlayCopiesAuthoredFilesAndReservesGeneratedPaths(t *testi
 			t.Fatalf("generated private channel is missing revision guard %q: %s", fragment, channel)
 		}
 	}
-	for _, forbidden := range []string{"args.send", "args.cancel", "args.getSession", "continuationToken:"} {
+	for _, forbidden := range []string{"args.send", "args.cancel", "args.getSession", "continuationToken:", "knownRunIDs", "knownProviderCursors"} {
 		if strings.Contains(channel, forbidden) {
 			t.Fatalf("generated private channel still uses retired Eve channel API %q: %s", forbidden, channel)
 		}

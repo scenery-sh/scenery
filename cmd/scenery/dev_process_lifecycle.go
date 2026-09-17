@@ -225,11 +225,13 @@ func (link *devProcessLink) confirm(ctx context.Context, generation uint64, caus
 			case <-time.After(interval):
 			}
 		}
-		if current, ok := link.current(ctx); ok {
-			if current == generation {
+		// A generation number is proposed once per session, so the host serving
+		// that number serves exactly the proposed manifest.
+		if status, ok := link.status(ctx); ok {
+			if status.Current == generation {
 				return nil, false
 			}
-			return fmt.Errorf("host serves generation %d instead: %w", current, cause), false
+			return fmt.Errorf("host serves generation %d instead: %w", status.Current, cause), false
 		}
 	}
 	return cause, true
@@ -710,26 +712,31 @@ func (link *devProcessLink) request(ctx context.Context, method, path string, bo
 	return response.StatusCode, nil
 }
 
-// current reads the host's current generation and reports whether the host
+// devProcessHostStatus is the part of a host's generation status the
+// supervisor reads.
+type devProcessHostStatus struct {
+	Current   uint64 `json:"current"`
+	HostState string `json:"host_state"`
+}
+
+// status reads the host's generation status and reports whether the host
 // answered.
-func (link *devProcessLink) current(ctx context.Context) (uint64, bool) {
+func (link *devProcessLink) status(ctx context.Context) (devProcessHostStatus, bool) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://scenery-host/__scenery/process/v1/generations", nil)
 	if err != nil {
-		return 0, false
+		return devProcessHostStatus{}, false
 	}
 	request.Header.Set("Authorization", "Bearer "+link.token)
 	response, err := link.control.Do(request)
 	if err != nil {
-		return 0, false
+		return devProcessHostStatus{}, false
 	}
 	defer func() { _ = response.Body.Close() }()
-	var status struct {
-		Current uint64 `json:"current"`
-	}
+	var status devProcessHostStatus
 	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&status) != nil {
-		return 0, false
+		return devProcessHostStatus{}, false
 	}
-	return status.Current, true
+	return status, true
 }
 
 // devProcessProofs remembers the runtime preflights the session's retained

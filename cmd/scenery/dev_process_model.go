@@ -71,7 +71,10 @@ type devProcessModel struct {
 	// reconciliation that expired.
 	unconfirmed []uint64
 	publication string
-	contract    string
+	// hostStateEpoch numbers the session's host state directory; it advances
+	// when the authority an earlier host incarnation journaled is uncertain.
+	hostStateEpoch uint64
+	contract       string
 	// identity is the build identity every published generation attests: the
 	// build whose process identities the services have.
 	identity build.DevelopmentProcessIdentity
@@ -158,18 +161,16 @@ func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
 	}
 	// Host state belongs to one session: an earlier session's receipts and runs
 	// authorize and attest nothing.
-	hostState := filepath.Join(socketDir, devProcessHostStateDir)
-	if err := os.RemoveAll(hostState); err != nil {
-		return nil, err
-	}
-	if err := os.Mkdir(hostState, 0o700); err != nil {
-		return nil, err
-	}
-	s.processes = &devProcessModel{
+	removeDevProcessHostStates(socketDir)
+	model := &devProcessModel{
 		token: token + second, socketDir: socketDir,
 		services: map[string]*devProcessInstance{}, retained: map[uint64]map[string]*devProcessInstance{},
 		restarts: map[string][]time.Time{}, degraded: map[string]string{},
 	}
+	if err := os.Mkdir(model.hostStateDir(), 0o700); err != nil {
+		return nil, err
+	}
+	s.processes = model
 	return s.processes, nil
 }
 
@@ -184,7 +185,7 @@ func (model *devProcessModel) newLink() (*devProcessLink, error) {
 		token:     model.token,
 		path:      filepath.Join(model.socketDir, devProcessLinkFile),
 		dispatch:  filepath.Join(model.socketDir, devProcessDispatchSocket),
-		hostState: filepath.Join(model.socketDir, devProcessHostStateDir),
+		hostState: model.hostStateDir(),
 	}
 	data, err := json.Marshal(map[string]any{"token": model.token, "dispatch": map[string]string{"network": "unix", "address": link.dispatch}, "host_state": link.hostState})
 	if err != nil {
@@ -210,6 +211,57 @@ const (
 	devProcessHostStateDir   = "host-state"
 )
 
+// hostStateDir is the host state directory of the session's current epoch.
+func (model *devProcessModel) hostStateDir() string {
+	return filepath.Join(model.socketDir, devProcessHostStateDir+"-"+strconv.FormatUint(model.hostStateEpoch, 10))
+}
+
+// removeDevProcessHostStates deletes every host state epoch in socketDir.
+func removeDevProcessHostStates(socketDir string) {
+	epochs, _ := filepath.Glob(filepath.Join(socketDir, devProcessHostStateDir+"-*"))
+	for _, epoch := range epochs {
+		_ = os.RemoveAll(epoch)
+	}
+}
+
+// settleDevProcessHostState starts a new host state epoch before a new host
+// incarnation when the authority the previous incarnation journaled is
+// uncertain: it reported its host state unavailable, left a poison marker, did
+// not answer, or exited without the supervisor stopping it. A missing record
+// never authorizes anything, so the new, empty epoch is fail-closed: receipts
+// and runs of the earlier epoch are refused. The caller holds model.mu.
+func (s *devSupervisor) settleDevProcessHostState(ctx context.Context, model *devProcessModel) error {
+	if model.link == nil {
+		return nil
+	}
+	s.mu.RLock()
+	running := model.host != nil && model.host.app != nil && s.current == model.host.app
+	s.mu.RUnlock()
+	reason := ""
+	if !running {
+		reason = "the previous process host exited without reporting its host state"
+	} else if state, ok := model.link.status(ctx); !ok {
+		reason = "the previous process host did not report its host state"
+	} else if state.HostState != "" {
+		reason = "the previous process host reported its host state " + state.HostState
+	} else if markers, _ := filepath.Glob(filepath.Join(model.hostStateDir(), "*.poisoned")); len(markers) > 0 {
+		reason = "the previous process host poisoned its host state"
+	}
+	if reason == "" {
+		return nil
+	}
+	previous := model.hostStateDir()
+	model.hostStateEpoch++
+	if err := os.Mkdir(model.hostStateDir(), 0o700); err != nil {
+		return fmt.Errorf("start a new process host state epoch: %w", err)
+	}
+	_ = os.RemoveAll(previous)
+	if s.console != nil {
+		s.console.Event("process.host_state_epoch", map[string]any{"epoch": model.hostStateEpoch, "reason": reason})
+	}
+	return nil
+}
+
 // close ends the supervisor's control connections to a host incarnation.
 func (link *devProcessLink) close() {
 	if link != nil {
@@ -226,7 +278,7 @@ func (link *devProcessLink) remove() {
 	link.close()
 	_ = os.Remove(link.path)
 	_ = os.Remove(link.dispatch)
-	_ = os.RemoveAll(link.hostState)
+	removeDevProcessHostStates(filepath.Dir(link.path))
 }
 
 func writePrivateProcessLink(path string, data []byte) error {
@@ -395,6 +447,9 @@ func (replacement devProcessReplacement) run(ctx context.Context) (bool, error) 
 // now serves whose prepared assistant helpers the caller must start after
 // releasing model.mu.
 func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage, prepared *devProcessPreparation, keepServices bool) (*runningApp, bool, error) {
+	if err := s.settleDevProcessHostState(ctx, model); err != nil {
+		return nil, false, err
+	}
 	link, err := model.newLink()
 	if err != nil {
 		return nil, false, err

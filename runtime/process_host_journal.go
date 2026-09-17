@@ -2,12 +2,12 @@ package runtime
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -22,14 +22,20 @@ import (
 // it. A host replays the journals when it starts and replaces a journal with
 // its bounded records when it grows.
 //
-// A journal that can no longer prove its records is poisoned for the rest of
-// the session: a failed append or rewrite, a record that does not decode in
-// the middle of the journal, or an oversized journal. A poisoned journal
-// authorizes nothing, and the host leaves a marker beside it and removes the
-// journal, so a later incarnation neither replays an older prefix that could
-// restore a revoked or ambiguous authorization nor treats missing records as
-// permission. Only a torn final record, which an interrupted append leaves, is
-// discarded as never committed. Recovery is a new development session.
+// A journal that can no longer prove its records is poisoned: a failed append
+// or rewrite, a record that does not decode before the journal's last newline,
+// or an oversized journal. A poisoned journal authorizes nothing. The host
+// leaves a marker beside it and removes it, reports the host state as
+// unavailable in its generation status, and logs a warning. The supervisor
+// starts every later host incarnation of the session over a new, empty host
+// state directory (see devProcessModel.hostStateEpoch); because a missing
+// record never authorizes anything, that epoch is fail-closed even when the
+// marker and the removal both failed.
+//
+// Bytes after the journal's last newline are a torn record and are discarded:
+// an append writes a record and its newline in one write, and an append whose
+// write fails poisons the journal, so a record without its newline was never
+// committed and no authority was acted on for it.
 
 const (
 	processHostReceiptsJournal = "durable-receipts.jsonl"
@@ -43,6 +49,18 @@ const (
 // errProcessHostStateUnavailable is the failure of an operation that needs
 // host state a poisoned journal can no longer prove.
 var errProcessHostStateUnavailable = errors.New("process host state is unavailable")
+
+// stateAvailable reports whether the host's authority journals can still prove
+// their records.
+func (h *processHost) stateAvailable() bool {
+	h.owners.RLock()
+	receipts := h.owners.journal.poisoned == nil
+	h.owners.RUnlock()
+	h.conversations.Lock()
+	runs := h.conversations.journal.poisoned == nil
+	h.conversations.Unlock()
+	return receipts && runs
+}
 
 // openState replays the host state a previous incarnation of the session left
 // in directory and journals later changes there.
@@ -168,7 +186,7 @@ func (journal *processHostJournal) rewrite(records []any) error {
 // poison records that the journal can no longer prove its records.
 func (journal *processHostJournal) poison(cause error) {
 	journal.poisoned = cause
-	logTrace(context.Background(), fmt.Sprintf("process host journal %s is poisoned: %v", filepath.Base(journal.path), cause))
+	slog.Warn("process host state is unavailable: its journal can no longer prove its records", "journal", filepath.Base(journal.path), "error", cause.Error())
 	if journal.path == "" {
 		return
 	}
