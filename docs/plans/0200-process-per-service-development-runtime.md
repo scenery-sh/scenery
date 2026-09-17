@@ -708,9 +708,32 @@ compile the application graph as it needs.
   oldest open gateway request; streams attest that generation, end cleanly when
   superseded, and a replacement host replays run scopes so a run started on an
   earlier host fails its tool calls rather than switching generation.
+- [x] (2026-09-17) Authority of kept work is committed and scoped per run, after
+  a second external review. (1) Assistant tool calls name their run: the signed
+  MCP assertion carries `run_id`, which the generated Eve helper attributes
+  from the starting request while it is in progress and otherwise from the
+  session's latest started run; the host reserves a run before the helper sees
+  its start, keeps pending/active/unknown/ended states per run, and a missing,
+  ended or revoked run fails instead of executing the current generation. (2)
+  Receipt and run journals are the commit point: a change is appended before
+  the host acts on it, a failed append, rewrite or corrupt record poisons the
+  journal for the session (marker plus removal), and only a torn final record is
+  discarded. (3) Run ends are journaled, the host observes terminal events from
+  the helper's private stream itself (woken by approval and cancellation), and
+  the run limit only forgets runs that can no longer execute. (4) A same-host
+  publication whose outcome is unknown keeps its candidates, republishes the
+  known services under a new number and only then retires the unconfirmed
+  generation; the `process-model` probe injects the lost answers through new
+  generation-control faults and passed.
 
 ## Surprises & Discoveries
 
+- `scripts/accept-assistant-runtime.sh`, the real Eve journey (mock model,
+  approvals, durable receipt/status/cancel through `scenery up`), is blocked
+  independently of this work: its own `go build` binary has no content-bound
+  framework producer, and with the verifier's binary the retained PostgreSQL of
+  `testdata/assistant` refuses startup because the checkout's execution state
+  may refer to pre-cutover data. The data was not adopted or reset.
 - A contract edit in ONLV replaces every one of its 48 processes as a complete
   generation (about 22 s including `scenery generate`: 8.5 s of stock links
   and 48 concurrent preflights), because the contract revision is part of every
@@ -905,6 +928,21 @@ compile the application graph as it needs.
 
 ## Decision Log
 
+- Decision: an assistant run, not its conversation, selects a tool call's
+  generation, and the helper names the run in its MCP assertion. Rationale: a
+  conversation-wide slot let an unaccepted or rejected turn redirect a running
+  run's calls. Eve exposes no per-action run identity, so the helper attributes
+  a call to the run whose start request is in progress, else to the session's
+  latest started run; this relies on an Eve session running its turns one at a
+  time. Date: 2026-09-17. Author: Claude.
+- Decision: a journal that cannot commit or prove a record poisons host state
+  for the session rather than replaying a valid prefix, and an unknown
+  publication outcome is resolved by republishing the known services rather
+  than adopting the candidates. Rationale: a lost ambiguity or run record must
+  never restore an authorization or unscoped execution; adopting candidates
+  would need the post-publication drain and activation under uncertainty,
+  while republishing reaches a known host state and the next edit retries.
+  Date: 2026-09-17. Author: Claude.
 - Decision: the process unit is a Scenery package that declares a Go service.
   Packages without a service are libraries linked into every process whose Go
   closure imports them. Rationale: the package contract, adapter registration

@@ -364,17 +364,30 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 		writeProcessLinkResponse(w, http.StatusUnauthorized, processLinkResponse{Error: &processLinkError{Kind: "error", Message: "permission_denied: process link token rejected"}})
 		return
 	}
+	if strings.HasPrefix(req.URL.Path, processGenerationsPath) && h.applyControlFault(w, req, h.serveGenerationControl) {
+		return
+	}
 	switch {
 	case req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
 		h.dispatch(w, req)
 	case req.URL.Path == processAdmissionsPath && req.Method == http.MethodPost:
 		h.serveAdmission(w, req)
+	case req.URL.Path == processFaultsPath && (req.Method == http.MethodPut || req.Method == http.MethodGet):
+		h.serveFaults(w, req)
+	case strings.HasPrefix(req.URL.Path, processGenerationsPath):
+		h.serveGenerationControl(w, req)
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+// serveGenerationControl publishes, lists and retires generations.
+func (h *processHost) serveGenerationControl(w http.ResponseWriter, req *http.Request) {
+	switch {
 	case req.URL.Path == processGenerationsPath && req.Method == http.MethodPut:
 		h.servePublish(w, req)
 	case req.URL.Path == processGenerationsPath && req.Method == http.MethodGet:
 		writeProcessHostJSON(w, http.StatusOK, h.status())
-	case req.URL.Path == processFaultsPath && (req.Method == http.MethodPut || req.Method == http.MethodGet):
-		h.serveFaults(w, req)
 	case strings.HasPrefix(req.URL.Path, processGenerationsPath+"/") && req.Method == http.MethodDelete:
 		number, err := strconv.ParseUint(strings.TrimPrefix(req.URL.Path, processGenerationsPath+"/"), 10, 64)
 		force := req.URL.Query().Get("force")

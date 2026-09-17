@@ -5,7 +5,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { defineMcpClientConnection } from "eve/connections";
 import { isIP } from "node:net";
-import { lookupConversationDigest } from "../channels/scenery.js";
+import { lookupConversationDigest, lookupRunID } from "../channels/scenery.js";
 
 const assistantAddress = {{json .AssistantAddress}};
 const capabilityRevision = {{json .CapabilityRevision}};
@@ -40,11 +40,17 @@ function assertion(ctx) {
   // a request ID at the MCP boundary instead.
   const conversationDigest = lookupConversationDigest(sessionID);
   if (!conversationDigest) throw new Error("Scenery conversation binding is unavailable");
+  // The run is attributed from the request that started it while that request
+  // is in progress, and otherwise from the session's latest started run: an
+  // Eve session runs its turns one at a time.
+  const runID = lookupRunID(sessionID);
+  if (!runID) throw new Error("Scenery run binding is unavailable");
   const payload = {
     audience: "scenery",
     assistant_address: assistantAddress,
     principal,
     conversation_digest: conversationDigest,
+    run_id: runID,
     capability_revision: capabilityRevision,
     expires_at: Math.floor(Date.now() / 1000) + 30,
     nonce: randomBytes(16).toString("base64url"),

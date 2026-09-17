@@ -2,14 +2,18 @@ package runtime
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 )
 
 // A durable receipt outlives the host incarnation that accepted it: a contract
 // change replaces the host while the process running the execution stays. Its
-// authorization records therefore live in the session's receipt journal (see
-// process_host_journal.go), which every host incarnation replays.
+// authorization is committed to the session's receipt journal (see
+// process_host_journal.go) before the host authorizes it, which every host
+// incarnation replays. An ambiguity, which revokes an authorization, is
+// committed the same way; a host that cannot commit it poisons the journal and
+// authorizes no receipt, so recovery cannot restore the revoked authorization.
 
 // processHostDurableOwnerLimit bounds the receipts a session authorizes; the
 // oldest receipt is forgotten first and then reads as not found.
@@ -44,11 +48,17 @@ type processHostDurableRecord struct {
 func (owners *processHostDurableOwners) open(path string) error {
 	owners.Lock()
 	defer owners.Unlock()
-	err := owners.journal.replay(path, func(line []byte) {
+	owners.values, owners.order = nil, nil
+	err := owners.journal.replay(path, func(line []byte) error {
 		var record processHostDurableRecord
-		if json.Unmarshal(line, &record) == nil && record.Principal != "" && record.ExecutionID != "" {
-			owners.apply(record)
+		if err := json.Unmarshal(line, &record); err != nil {
+			return err
 		}
+		if record.Principal == "" || record.ExecutionID == "" {
+			return errors.New("receipt record names no principal or execution")
+		}
+		owners.apply(record)
+		return nil
 	})
 	if err == nil && owners.journal.lines > processHostDurableOwnerLimit {
 		owners.compact()
@@ -56,64 +66,83 @@ func (owners *processHostDurableOwners) open(path string) error {
 	return err
 }
 
-func (owners *processHostDurableOwners) store(principal, executionID string, owner processHostDurableOwner) {
+// store commits and authorizes the owner of an accepted receipt. Its failure
+// means the receipt is not authorized; the durable execution was accepted
+// regardless.
+func (owners *processHostDurableOwners) store(principal, executionID string, owner processHostDurableOwner) error {
 	owners.Lock()
 	defer owners.Unlock()
 	record := processHostDurableRecord{Principal: principal, ExecutionID: executionID, Process: owner.process, Service: owner.service, TaskName: owner.taskName}
-	if !owners.apply(record) {
-		return
+	next, changed := owners.next(record)
+	if !changed {
+		return nil
 	}
-	owners.journal.append(owners.record(principal + "\x00" + executionID))
+	if err := owners.journal.append(next); err != nil {
+		return err
+	}
+	owners.apply(next)
 	if owners.journal.lines >= 2*processHostDurableOwnerLimit {
 		owners.compact()
 	}
+	return nil
 }
 
-// apply adds one record and reports whether it changed the authorized
-// receipts; the caller holds the lock.
-func (owners *processHostDurableOwners) apply(record processHostDurableRecord) bool {
+// next is the record a new owner commits: the owner itself, or the ambiguity it
+// creates; changed reports whether it changes the authorized receipts. The
+// caller holds the lock.
+func (owners *processHostDurableOwners) next(record processHostDurableRecord) (processHostDurableRecord, bool) {
+	existing, exists := owners.values[record.Principal+"\x00"+record.ExecutionID]
+	switch {
+	case !exists:
+		return record, true
+	case existing.ambiguous || existing.process == record.Process && existing.service == record.Service && existing.taskName == record.TaskName:
+		return record, false
+	}
+	record.Process, record.Service, record.TaskName, record.Ambiguous = existing.process, existing.service, existing.taskName, true
+	return record, true
+}
+
+// apply adds one committed record; the caller holds the lock.
+func (owners *processHostDurableOwners) apply(record processHostDurableRecord) {
 	key := record.Principal + "\x00" + record.ExecutionID
-	owner := processHostDurableOwner{process: record.Process, service: record.Service, taskName: record.TaskName, ambiguous: record.Ambiguous}
 	if owners.values == nil {
 		owners.values = map[string]processHostDurableOwner{}
 	}
 	if existing, exists := owners.values[key]; exists {
-		if existing.ambiguous || !owner.ambiguous && existing.process == owner.process && existing.service == owner.service && existing.taskName == owner.taskName {
-			return false
+		if record.Ambiguous || existing.process != record.Process || existing.service != record.Service || existing.taskName != record.TaskName {
+			existing.ambiguous = true
+			owners.values[key] = existing
 		}
-		existing.ambiguous = true
-		owners.values[key] = existing
-		return true
+		return
 	}
 	if len(owners.order) >= processHostDurableOwnerLimit {
 		delete(owners.values, owners.order[0])
 		owners.order = owners.order[1:]
 	}
-	owners.values[key] = owner
+	owners.values[key] = processHostDurableOwner{process: record.Process, service: record.Service, taskName: record.TaskName, ambiguous: record.Ambiguous}
 	owners.order = append(owners.order, key)
-	return true
-}
-
-// record is the journal record of an authorized key; the caller holds the lock.
-func (owners *processHostDurableOwners) record(key string) processHostDurableRecord {
-	principal, executionID, _ := strings.Cut(key, "\x00")
-	owner := owners.values[key]
-	return processHostDurableRecord{Principal: principal, ExecutionID: executionID, Process: owner.process, Service: owner.service, TaskName: owner.taskName, Ambiguous: owner.ambiguous}
 }
 
 // compact replaces the journal with the authorized receipts; the caller holds
-// the lock.
+// the lock. A failed compaction poisons the journal.
 func (owners *processHostDurableOwners) compact() {
 	records := make([]any, 0, len(owners.order))
 	for _, key := range owners.order {
-		records = append(records, owners.record(key))
+		principal, executionID, _ := strings.Cut(key, "\x00")
+		owner := owners.values[key]
+		records = append(records, processHostDurableRecord{Principal: principal, ExecutionID: executionID, Process: owner.process, Service: owner.service, TaskName: owner.taskName, Ambiguous: owner.ambiguous})
 	}
-	owners.journal.rewrite(records)
+	_ = owners.journal.rewrite(records)
 }
 
-func (owners *processHostDurableOwners) load(principal, executionID string) (processHostDurableOwner, bool) {
+// load returns the authorized owner of a receipt. A receipt that is unknown or
+// ambiguous is not found; a poisoned journal authorizes nothing.
+func (owners *processHostDurableOwners) load(principal, executionID string) (processHostDurableOwner, bool, error) {
 	owners.RLock()
 	defer owners.RUnlock()
+	if owners.journal.poisoned != nil {
+		return processHostDurableOwner{}, false, owners.journal.unavailable()
+	}
 	owner, ok := owners.values[principal+"\x00"+executionID]
-	return owner, ok && !owner.ambiguous
+	return owner, ok && !owner.ambiguous, nil
 }

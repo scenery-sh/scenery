@@ -72,14 +72,11 @@ func (g *assistantGateway) handleEvents(w http.ResponseWriter, req *http.Request
 		g.writeError(w, assistantruntime.ErrMalformedEvent)
 		return
 	}
-	runEnded := func(runID string) {
-		endAssistantRun(g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest, runID)
-	}
 	// Headers must go out before catch-up filtering. A reconnect whose
 	// cursor is already current can stay quiet through a long tool call;
 	// path-mode Caddy then hits its 30s response-header timeout and the
 	// browser sees HTTP 200 with no Content-Type.
-	_ = g.streamPrivateEvents(streamCtx, w, stream, conversationID, claims, after, runEnded)
+	_ = g.streamPrivateEvents(streamCtx, w, stream, conversationID, claims, after)
 }
 
 func beginNDJSON(w http.ResponseWriter) {
@@ -118,19 +115,17 @@ type assistantEventStreamState struct {
 	lastRun      string
 	written      int
 	started      bool
-	// runEnded observes the terminal event of a run, or is nil.
-	runEnded func(runID string)
 }
 
 // streamPrivateEvents relays one private event stream. A stream whose context
 // ends with errAssistantStreamSuperseded ends after the events it relayed, so
 // its client resumes from its cursor instead of observing a failed run.
-func (g *assistantGateway) streamPrivateEvents(ctx context.Context, w http.ResponseWriter, stream io.ReadCloser, conversationID string, claims assistanttoken.ConversationClaims, after assistantapi.Cursor, runEnded func(string)) error {
+func (g *assistantGateway) streamPrivateEvents(ctx context.Context, w http.ResponseWriter, stream io.ReadCloser, conversationID string, claims assistanttoken.ConversationClaims, after assistantapi.Cursor) error {
 	if stream == nil {
 		return assistantruntime.ErrMalformedEvent
 	}
 	defer func() { _ = stream.Close() }()
-	state := &assistantEventStreamState{gateway: g, w: w, after: after, conversation: conversationID, claims: claims, redactor: assistantapi.NewRedactor(), started: true, runEnded: runEnded}
+	state := &assistantEventStreamState{gateway: g, w: w, after: after, conversation: conversationID, claims: claims, redactor: assistantapi.NewRedactor(), started: true}
 	beginNDJSON(w)
 	superseded := func() bool { return errors.Is(context.Cause(ctx), errAssistantStreamSuperseded) }
 	scanner := bufio.NewScanner(stream)
@@ -213,12 +208,6 @@ func (state *assistantEventStreamState) accept(private assistantcontrol.Event) e
 		}
 	}
 	state.lastRun = event.RunID
-	if state.runEnded != nil {
-		switch private.Type {
-		case assistantcontrol.EventRunCompleted, assistantcontrol.EventRunFailed, assistantcontrol.EventRunCancelled:
-			state.runEnded(private.RunID)
-		}
-	}
 	return nil
 }
 

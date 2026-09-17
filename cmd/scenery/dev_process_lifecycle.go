@@ -128,6 +128,7 @@ type devProcessState struct {
 	host        *devProcessInstance
 	services    map[string]*devProcessInstance
 	retained    map[uint64]map[string]*devProcessInstance
+	unconfirmed []uint64
 }
 
 // publishDevProcessGeneration publishes the model's services as a new
@@ -165,18 +166,147 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 		return err
 	}
 	started := time.Now()
-	_, err = model.link.request(ctx, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent)
-	if err != nil && model.link.current(ctx) == manifest.Generation {
-		// The host applied the manifest although its answer was lost.
-		err = nil
+	status, err := model.link.request(ctx, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent)
+	unknown := false
+	if err != nil && status == 0 {
+		// The host may have applied the manifest and lost its answer; only its
+		// current generation decides.
+		err, unknown = model.link.confirm(ctx, manifest.Generation, err, model.confirmInterval())
 	}
 	build.RecordStep(ctx, build.Step{Name: "process.publish", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "host_generation_manifest", OK: err == nil, Actions: len(manifest.Processes)})
+	if unknown {
+		return &devProcessPublicationUnknownError{generation: manifest.Generation, err: err}
+	}
 	if err != nil {
 		return fmt.Errorf("publish process generation %d: %w", manifest.Generation, err)
 	}
 	model.generation = manifest.Generation
 	model.retained[manifest.Generation] = maps.Clone(model.services)
+	// Generations whose publication outcome was unknown are no longer current
+	// once a later publication is; they retire, and so do their instances.
+	for _, number := range model.unconfirmed {
+		go s.retireDevProcessGeneration(model, model.link, number)
+	}
+	model.unconfirmed, model.publication = nil, ""
 	return nil
+}
+
+// devProcessPublicationUnknownError is the failure of a publication the host
+// may have applied: neither its answer nor a confirmation of the host's
+// current generation arrived.
+type devProcessPublicationUnknownError struct {
+	generation uint64
+	err        error
+}
+
+func (err *devProcessPublicationUnknownError) Error() string {
+	return fmt.Sprintf("the outcome of publishing process generation %d is unknown: %v", err.generation, err.err)
+}
+
+func (err *devProcessPublicationUnknownError) Unwrap() error { return err.err }
+
+const (
+	// devProcessConfirmAttempts bounds the status reads that confirm a
+	// publication whose answer was lost.
+	devProcessConfirmAttempts = 3
+	devProcessConfirmInterval = 100 * time.Millisecond
+)
+
+// confirm reads the host's current generation after a publication whose answer
+// was lost. It reports no failure when the host applied the publication, the
+// host's refusal when it serves another generation, and unknown when the host
+// does not answer.
+func (link *devProcessLink) confirm(ctx context.Context, generation uint64, cause error, interval time.Duration) (error, bool) {
+	for attempt := range devProcessConfirmAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return cause, true
+			case <-time.After(interval):
+			}
+		}
+		if current, ok := link.current(ctx); ok {
+			if current == generation {
+				return nil, false
+			}
+			return fmt.Errorf("host serves generation %d instead: %w", current, cause), false
+		}
+	}
+	return cause, true
+}
+
+// settleFailedDevProcessPublication disposes of the candidate instances of a
+// failed publication on the current host; the caller holds model.mu and has
+// restored the model's services. Candidates of a refused publication stop. A
+// publication whose outcome is unknown may have made the host route to its
+// candidates, so they stay owned and running, retained under the unconfirmed
+// generation, and a reconciler republishes the known services under a new
+// number; only then does the unconfirmed generation retire and its instances
+// stop.
+func (s *devSupervisor) settleFailedDevProcessPublication(model *devProcessModel, candidates []*devProcessInstance, err error) error {
+	unknown, ok := errors.AsType[*devProcessPublicationUnknownError](err)
+	if !ok {
+		markDevProcessesStopped(candidates)
+		_ = s.stopInstances(candidates, model.runningCommands())
+		return err
+	}
+	named := map[string]*devProcessInstance{}
+	for _, instance := range candidates {
+		named[instance.process.Name] = instance
+	}
+	model.retained[unknown.generation] = named
+	model.unconfirmed = append(model.unconfirmed, unknown.generation)
+	if s.console != nil {
+		s.console.Event("process.publication_unknown", map[string]any{"generation": unknown.generation, "error": unknown.err.Error()})
+	}
+	go s.reconcileDevProcessPublication(model, model.link)
+	return err
+}
+
+// reconcileDevProcessPublication republishes the model's services until a
+// publication succeeds, which retires every unconfirmed generation, or until
+// devProcessRetireTimeout passes, after which the services report the
+// unconfirmed publication as degraded until the next successful publication.
+func (s *devSupervisor) reconcileDevProcessPublication(model *devProcessModel, link *devProcessLink) {
+	deadline := time.Now().Add(devProcessRetireTimeout)
+	model.mu.Lock()
+	delay := model.confirmInterval()
+	model.mu.Unlock()
+	for {
+		model.mu.Lock()
+		if model.link != link || len(model.unconfirmed) == 0 {
+			model.unlock()
+			return
+		}
+		err := s.publishDevProcessGeneration(s.ctx, model)
+		if unknown, ok := errors.AsType[*devProcessPublicationUnknownError](err); ok {
+			model.unconfirmed = append(model.unconfirmed, unknown.generation)
+		}
+		if err == nil {
+			if s.console != nil {
+				s.console.Event("process.publication_reconciled", map[string]any{"generation": model.generation})
+			}
+			model.unlock()
+			return
+		}
+		expired := time.Now().After(deadline)
+		if expired {
+			model.publication = err.Error()
+		}
+		model.unlock()
+		if expired {
+			if s.console != nil {
+				s.console.Event("process.publication_degraded", map[string]any{"error": err.Error()})
+			}
+			return
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+		delay = min(2*delay, devProcessBackgroundTimeout)
+	}
 }
 
 // devProcessStatus is the service-process view of the model's last committed
@@ -206,6 +336,8 @@ func (model *devProcessModel) publishStatus() {
 		switch {
 		case model.degraded[name] != "":
 			service.State, service.Reason = "degraded", model.degraded[name]
+		case model.unconfirmedNames(name):
+			service.State, service.Reason = "degraded", "publication outcome unknown: "+model.publication
 		case instance.stopped || instance.app == nil:
 			service.State = "degraded"
 		case instance.unavailable != "":
@@ -222,6 +354,29 @@ func (model *devProcessModel) publishStatus() {
 	model.statusMu.Lock()
 	model.status = status
 	model.statusMu.Unlock()
+}
+
+// confirmInterval is the delay between confirmations of a publication whose
+// outcome is unknown; the caller holds model.mu.
+func (model *devProcessModel) confirmInterval() time.Duration {
+	if model.activationBackoff > 0 {
+		return model.activationBackoff
+	}
+	return devProcessConfirmInterval
+}
+
+// unconfirmedNames reports whether an unconfirmed generation names a candidate
+// of service name whose reconciliation expired; the caller holds model.mu.
+func (model *devProcessModel) unconfirmedNames(name string) bool {
+	if model.publication == "" {
+		return false
+	}
+	for _, number := range model.unconfirmed {
+		if model.retained[number][name] != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // unlock publishes the state a critical section committed and releases mu.
@@ -555,25 +710,26 @@ func (link *devProcessLink) request(ctx context.Context, method, path string, bo
 	return response.StatusCode, nil
 }
 
-// current reads the host's current generation, or zero when it cannot.
-func (link *devProcessLink) current(ctx context.Context) uint64 {
+// current reads the host's current generation and reports whether the host
+// answered.
+func (link *devProcessLink) current(ctx context.Context) (uint64, bool) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://scenery-host/__scenery/process/v1/generations", nil)
 	if err != nil {
-		return 0
+		return 0, false
 	}
 	request.Header.Set("Authorization", "Bearer "+link.token)
 	response, err := link.control.Do(request)
 	if err != nil {
-		return 0
+		return 0, false
 	}
 	defer func() { _ = response.Body.Close() }()
 	var status struct {
 		Current uint64 `json:"current"`
 	}
 	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&status) != nil {
-		return 0
+		return 0, false
 	}
-	return status.Current
+	return status.Current, true
 }
 
 // devProcessProofs remembers the runtime preflights the session's retained

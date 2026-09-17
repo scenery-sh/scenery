@@ -1,32 +1,48 @@
 package runtime
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"scenery.sh/errs"
 )
 
-// A process host keeps the state that must outlive its own incarnation, such as
-// durable receipt authorizations and assistant run scopes, in bounded JSON-lines
-// journals inside the session's private host state directory. A host replays a
-// journal when it starts, appends each record it adds, and replaces the journal
-// with its bounded records when it grows. A torn or malformed record, such as
-// the last line of an interrupted append, is skipped by its reader. A journal
-// the host cannot write loses only the records it could not append, which then
-// fail closed after the next host replacement.
+// A process host keeps the authority that must outlive its own incarnation,
+// durable receipt authorizations and assistant run scopes, in bounded
+// JSON-lines journals inside the session's private host state directory. The
+// journal is the commit point of that authority: a change is appended before
+// the host acts on it, and a host that cannot append a change does not make
+// it. A host replays the journals when it starts and replaces a journal with
+// its bounded records when it grows.
+//
+// A journal that can no longer prove its records is poisoned for the rest of
+// the session: a failed append or rewrite, a record that does not decode in
+// the middle of the journal, or an oversized journal. A poisoned journal
+// authorizes nothing, and the host leaves a marker beside it and removes the
+// journal, so a later incarnation neither replays an older prefix that could
+// restore a revoked or ambiguous authorization nor treats missing records as
+// permission. Only a torn final record, which an interrupted append leaves, is
+// discarded as never committed. Recovery is a new development session.
 
 const (
 	processHostReceiptsJournal = "durable-receipts.jsonl"
 	processHostRunsJournal     = "assistant-runs.jsonl"
-	// processHostJournalMaxLine bounds one replayed record.
-	processHostJournalMaxLine = 1 << 20
+	processHostPoisonedSuffix  = ".poisoned"
+	// processHostJournalMaxBytes bounds a replayed journal; compaction keeps
+	// every journal far below it.
+	processHostJournalMaxBytes = 64 << 20
 )
+
+// errProcessHostStateUnavailable is the failure of an operation that needs
+// host state a poisoned journal can no longer prove.
+var errProcessHostStateUnavailable = errors.New("process host state is unavailable")
 
 // openState replays the host state a previous incarnation of the session left
 // in directory and journals later changes there.
@@ -39,14 +55,27 @@ func (h *processHost) openState(directory string) error {
 
 type processHostJournal struct {
 	path string
-	// lines counts the records the journal holds.
+	// lines counts the committed records of the journal.
 	lines int
+	// poisoned is the reason the journal can no longer prove its records.
+	poisoned error
 }
 
-// replay calls apply for every record of the journal at path, which may not
-// exist yet.
-func (journal *processHostJournal) replay(path string, apply func([]byte)) error {
-	journal.path, journal.lines = path, 0
+// unavailable is the failure of an operation on a poisoned journal.
+func (journal *processHostJournal) unavailable() error {
+	return &errs.Error{Code: errs.Unavailable, Message: errProcessHostStateUnavailable.Error(), Meta: errs.Metadata{"delivery": "not_sent"}, Cause: errors.Join(errProcessHostStateUnavailable, journal.poisoned)}
+}
+
+// replay calls apply for every committed record of the journal at path, which
+// may not exist yet. A record apply rejects poisons the journal.
+func (journal *processHostJournal) replay(path string, apply func([]byte) error) error {
+	journal.path, journal.lines, journal.poisoned = path, 0, nil
+	if _, err := os.Lstat(path + processHostPoisonedSuffix); err == nil {
+		journal.poisoned = errors.New("an earlier host incarnation poisoned the journal")
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("runtime: inspect process host journal: %w", err)
+	}
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -54,69 +83,115 @@ func (journal *processHostJournal) replay(path string, apply func([]byte)) error
 	if err != nil {
 		return fmt.Errorf("runtime: open process host journal: %w", err)
 	}
-	defer func() { _ = file.Close() }()
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 4096), processHostJournalMaxLine)
-	for scanner.Scan() {
-		journal.lines++
-		apply(scanner.Bytes())
-	}
-	if err := scanner.Err(); err != nil {
+	data, err := io.ReadAll(io.LimitReader(file, processHostJournalMaxBytes+1))
+	_ = file.Close()
+	if err != nil {
 		return fmt.Errorf("runtime: read process host journal: %w", err)
+	}
+	if len(data) > processHostJournalMaxBytes {
+		journal.poison(errors.New("journal exceeds its bound"))
+		return nil
+	}
+	complete := data
+	torn := false
+	if end := bytes.LastIndexByte(data, '\n'); end+1 < len(data) {
+		complete, torn = data[:end+1], true
+	}
+	for line := range bytes.Lines(complete) {
+		if err := apply(bytes.TrimSuffix(line, []byte{'\n'})); err != nil {
+			journal.poison(fmt.Errorf("record %d: %w", journal.lines+1, err))
+			return nil
+		}
+		journal.lines++
+	}
+	if torn {
+		// A later append must not extend the torn record.
+		if err := writeProcessHostJournal(path, complete); err != nil {
+			journal.poison(err)
+		}
 	}
 	return nil
 }
 
-// append adds one record; a host without a journal records nothing.
-func (journal *processHostJournal) append(record any) {
+// append commits one record.
+func (journal *processHostJournal) append(record any) error {
+	if journal.poisoned != nil {
+		return journal.unavailable()
+	}
 	if journal.path == "" {
-		return
+		return nil
 	}
 	line, err := json.Marshal(record)
-	if err != nil {
-		return
-	}
-	file, err := os.OpenFile(journal.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
 	if err == nil {
-		_, err = file.Write(append(line, '\n'))
-		if closeErr := file.Close(); err == nil {
-			err = closeErr
+		var file *os.File
+		file, err = os.OpenFile(journal.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+		if err == nil {
+			_, err = file.Write(append(line, '\n'))
+			if closeErr := file.Close(); err == nil {
+				err = closeErr
+			}
 		}
 	}
 	if err != nil {
-		logTrace(context.Background(), fmt.Sprintf("process host journal %s append failed: %v", filepath.Base(journal.path), err))
-		return
+		journal.poison(fmt.Errorf("append: %w", err))
+		return journal.unavailable()
 	}
 	journal.lines++
+	return nil
 }
 
 // rewrite atomically replaces the journal with records.
-func (journal *processHostJournal) rewrite(records []any) {
+func (journal *processHostJournal) rewrite(records []any) error {
+	if journal.poisoned != nil {
+		return journal.unavailable()
+	}
 	if journal.path == "" {
-		return
+		return nil
 	}
 	var body bytes.Buffer
 	for _, record := range records {
 		line, err := json.Marshal(record)
 		if err != nil {
-			return
+			journal.poison(fmt.Errorf("compaction: %w", err))
+			return journal.unavailable()
 		}
 		body.Write(append(line, '\n'))
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(journal.path), ".journal-*")
-	if err == nil {
-		defer func() { _ = os.Remove(temporary.Name()) }()
-		_, err = temporary.Write(body.Bytes())
-		if closeErr := temporary.Close(); err == nil {
-			err = closeErr
-		}
-		if err == nil {
-			err = os.Rename(temporary.Name(), journal.path)
-		}
-	}
-	if err != nil {
-		logTrace(context.Background(), fmt.Sprintf("process host journal %s compaction failed: %v", filepath.Base(journal.path), err))
-		return
+	if err := writeProcessHostJournal(journal.path, body.Bytes()); err != nil {
+		journal.poison(fmt.Errorf("compaction: %w", err))
+		return journal.unavailable()
 	}
 	journal.lines = len(records)
+	return nil
+}
+
+// poison records that the journal can no longer prove its records.
+func (journal *processHostJournal) poison(cause error) {
+	journal.poisoned = cause
+	logTrace(context.Background(), fmt.Sprintf("process host journal %s is poisoned: %v", filepath.Base(journal.path), cause))
+	if journal.path == "" {
+		return
+	}
+	// Either the marker or the removal keeps a later incarnation from
+	// replaying a prefix; a missing record never authorizes anything.
+	if marker, err := os.OpenFile(journal.path+processHostPoisonedSuffix, os.O_WRONLY|os.O_CREATE, 0o600); err == nil {
+		_ = marker.Close()
+	}
+	_ = os.Remove(journal.path)
+}
+
+func writeProcessHostJournal(path string, data []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".journal-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(temporary.Name()) }()
+	_, err = temporary.Write(data)
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(temporary.Name(), path)
 }

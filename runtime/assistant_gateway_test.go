@@ -721,7 +721,7 @@ func TestAssistantGatewayStreamsBeforeHelperEOFAndNeutralizesLateMalformedEvent(
 	writer := newAssistantStreamingWriter()
 	done := make(chan error, 1)
 	go func() {
-		done <- gateway.streamPrivateEvents(context.Background(), writer, reader, "conv1_01", claims, 0, nil)
+		done <- gateway.streamPrivateEvents(context.Background(), writer, reader, "conv1_01", claims, 0)
 	}()
 	if _, err := helper.Write(append(encoded, '\n')); err != nil {
 		t.Fatalf("write first private event: %v", err)

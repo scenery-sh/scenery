@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -438,33 +439,111 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if err := syscall.Kill(echoFour.PID, 0); err != nil {
 		return nil, fmt.Errorf("the taken-over echo process %d stopped: %w", echoFour.PID, err)
 	}
+	// A service replacement whose publication the host applies while its answer
+	// and every confirmation are lost keeps serving without another edit: the
+	// supervisor republishes the known services and retires the unconfirmed
+	// generation.
+	unknownOffset := logOffset()
+	if err := harnessProcessModelFaults(ctx, home, appRoot, `{"faults":[{"path":"/__scenery/process/v1/generations","mode":"abort","count":4}]}`); err != nil {
+		return nil, err
+	}
+	if err := harnessReplaceInFile(echoSource, `text.Label("echo-two", input.Message)`, `text.Label("echo-lost", input.Message)`); err != nil {
+		return nil, err
+	}
+	if err := harnessWaitBuildRequest(ctx, started.LogPath, unknownOffset, false); err != nil {
+		return nil, fmt.Errorf("a service replacement with an unknown publication outcome: %w", err)
+	}
+	if err := harnessProcessModelWaitLog(ctx, started.LogPath, unknownOffset, "process.publication_reconciled"); err != nil {
+		return nil, err
+	}
+	echoSix, err := call(ctx, "/echo", `{"message":"hi"}`)
+	if err != nil || echoSix.Message != "echo-two|hi" || echoSix.PID != echoFive.PID || echoSix.Generation <= echoFive.Generation+1 {
+		return nil, fmt.Errorf("after the unknown publication was reconciled echo = %#v, %v; want process %d in a generation after %d", echoSix, err, echoFive.PID, echoFive.Generation+1)
+	}
 	stockLinks, err := harnessProcessModelStockOnly(started.LogPath)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
-		"stock_entrypoint_links":                  stockLinks,
-		"host_pids":                               []int{host, replacedHost, takeoverHost},
-		"echo_pids":                               []int{echoOne.PID, echoTwo.PID, echoThree.PID, echoFour.PID, echoFive.PID},
-		"greeter_pids":                            []int{greeterOne.PID, greeterTwo.PID, greeterThree.PID, greeterFour.PID, greeterFive.PID},
-		"committed_contract_started":              committedStarted,
-		"greeter_contract_relinked":               takeoverRebuilt,
-		"greeter_contract_revision":               takeoverContract,
-		"echo_taken_over_by_new_host":             echoFive.PID,
-		"pinned_across_three_generations":         inFlight.response.Message,
-		"pinned_generation":                       inFlight.response.Generation,
-		"current_generation_after_two_edits":      echoTwo.Generation,
-		"crash_restart_to_response_ms":            restartLatency.Milliseconds(),
-		"echo_edit_to_response_ms":                replacementLatency.Milliseconds(),
-		"shared_edit_to_response_ms":              sharedLatency.Milliseconds(),
-		"background_transfer":                     background,
-		"failed_build_kept_generation":            true,
-		"identical_source_kept_echo":              true,
-		"shared_edit_rebuilt":                     rebuilt,
-		"failed_contract_generation_kept_serving": true,
-		"committed_contract_revision":             changedContract,
-		"proof":                                   "public_scenery_up_process_model_replaced_only_changed_services_with_retained_generations_background_activation_host_replacement_takeover_and_identity_attribution",
+		"unknown_publication_reconciled_generation": echoSix.Generation,
+		"stock_entrypoint_links":                    stockLinks,
+		"host_pids":                                 []int{host, replacedHost, takeoverHost},
+		"echo_pids":                                 []int{echoOne.PID, echoTwo.PID, echoThree.PID, echoFour.PID, echoFive.PID},
+		"greeter_pids":                              []int{greeterOne.PID, greeterTwo.PID, greeterThree.PID, greeterFour.PID, greeterFive.PID},
+		"committed_contract_started":                committedStarted,
+		"greeter_contract_relinked":                 takeoverRebuilt,
+		"greeter_contract_revision":                 takeoverContract,
+		"echo_taken_over_by_new_host":               echoFive.PID,
+		"pinned_across_three_generations":           inFlight.response.Message,
+		"pinned_generation":                         inFlight.response.Generation,
+		"current_generation_after_two_edits":        echoTwo.Generation,
+		"crash_restart_to_response_ms":              restartLatency.Milliseconds(),
+		"echo_edit_to_response_ms":                  replacementLatency.Milliseconds(),
+		"shared_edit_to_response_ms":                sharedLatency.Milliseconds(),
+		"background_transfer":                       background,
+		"failed_build_kept_generation":              true,
+		"identical_source_kept_echo":                true,
+		"shared_edit_rebuilt":                       rebuilt,
+		"failed_contract_generation_kept_serving":   true,
+		"committed_contract_revision":               changedContract,
+		"proof":                                     "public_scenery_up_process_model_replaced_only_changed_services_with_retained_generations_background_activation_host_replacement_takeover_and_identity_attribution",
 	}, nil
+}
+
+// harnessProcessModelFaults replaces the fault rules of the session's process
+// host through its private control listener.
+func harnessProcessModelFaults(ctx context.Context, home, appRoot, rules string) error {
+	paths, err := localagent.PathsForWorktree(home, appRoot)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(paths.Socket), "process-link.json"))
+	if err != nil {
+		return err
+	}
+	var link struct {
+		Token    string `json:"token"`
+		Dispatch struct {
+			Address string `json:"address"`
+		} `json:"dispatch"`
+	}
+	if err := json.Unmarshal(data, &link); err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", link.Dispatch.Address)
+	}}}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, "http://scenery-host/__scenery/process/v1/faults", strings.NewReader(rules))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+link.Token)
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("process host refused fault rules: HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
+// harnessProcessModelWaitLog waits for a supervisor event after offset.
+func harnessProcessModelWaitLog(ctx context.Context, log string, offset int64, event string) error {
+	for begin := time.Now(); time.Since(begin) < 90*time.Second; {
+		data, err := os.ReadFile(log)
+		if err != nil {
+			return err
+		}
+		if offset <= int64(len(data)) && bytes.Contains(data[offset:], []byte(`"`+event+`"`)) {
+			return nil
+		}
+		if err := harnessWaitContext(ctx, 20*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("the session never reported %s", event)
 }
 
 // harnessProcessModelStockOnly requires every service entrypoint of the session

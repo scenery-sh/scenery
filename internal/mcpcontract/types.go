@@ -94,9 +94,12 @@ const (
 // ToolCallContext is derived from a short-lived private assertion. Principal
 // is a Scenery identity, never an application bearer token or external secret.
 type ToolCallContext struct {
-	Principal          string            `json:"principal"`
-	AssistantAddress   string            `json:"assistant_address"`
-	ConversationDigest string            `json:"conversation_digest"`
+	Principal          string `json:"principal"`
+	AssistantAddress   string `json:"assistant_address"`
+	ConversationDigest string `json:"conversation_digest"`
+	// RunID names the assistant run making the call, as the helper attributes
+	// it; a process host selects the call's generation by it.
+	RunID              string            `json:"run_id,omitempty"`
 	CapabilityRevision string            `json:"capability_revision"`
 	RequestID          string            `json:"request_id"`
 	TraceContext       map[string]string `json:"trace_context,omitempty"`

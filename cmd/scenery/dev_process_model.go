@@ -65,7 +65,13 @@ type devProcessModel struct {
 	// restores generation: a publication whose outcome is unknown may have been
 	// applied and admitted work, so its number is never proposed again.
 	published uint64
-	contract  string
+	// unconfirmed lists the generations of the current host incarnation whose
+	// publication outcome is unknown; their candidates stay retained until a
+	// later publication succeeds. publication is the failure of a
+	// reconciliation that expired.
+	unconfirmed []uint64
+	publication string
+	contract    string
 	// identity is the build identity every published generation attests: the
 	// build whose process identities the services have.
 	identity build.DevelopmentProcessIdentity
@@ -83,7 +89,8 @@ type devProcessModel struct {
 	// degraded names the services whose budget is exhausted.
 	restarts map[string][]time.Time
 	degraded map[string]string
-	// activationBackoff overrides devProcessActivationBackoff when positive.
+	// activationBackoff overrides devProcessActivationBackoff and
+	// devProcessConfirmInterval when positive.
 	activationBackoff time.Duration
 	// statusMu guards status, which readers use instead of mu.
 	statusMu sync.Mutex
@@ -393,7 +400,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 		return nil, false, err
 	}
 	base := s.appChildEnvironment(result, environment)
-	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, identity: model.identity, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
+	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, identity: model.identity, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained, unconfirmed: model.unconfirmed}
 	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
 	kept, starting := map[string]*devProcessInstance{}, set.Services
 	if keepServices && previous.link != nil && previous.link.path == link.path {
@@ -447,6 +454,8 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			model.link, model.contract, model.bindings = link, result.Contract.Manifest.ContractRevision, maps.Clone(set.BindingOwners)
 			model.identity, model.environment = set.Identity, devProcessEnvironmentIdentity(base)
 			model.host, model.services, model.retained = hostInstance, services, map[uint64]map[string]*devProcessInstance{}
+			// Unconfirmed generations of the previous host ended with it.
+			model.unconfirmed, model.publication = nil, ""
 			return s.publishDevProcessGeneration(ctx, model)
 		},
 		abandon: func() error {
@@ -456,11 +465,11 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			}
 			model.link, model.generation, model.contract, model.bindings = previous.link, previous.generation, previous.contract, previous.bindings
 			model.identity, model.environment = previous.identity, previous.environment
-			model.host, model.services, model.retained = previous.host, previous.services, previous.retained
+			model.host, model.services, model.retained, model.unconfirmed = previous.host, previous.services, previous.retained, previous.unconfirmed
 			if previousStopped {
 				// The previous host's retained generations ended with it; its
 				// current services wait to be republished.
-				model.retained = map[uint64]map[string]*devProcessInstance{}
+				model.retained, model.unconfirmed = map[uint64]map[string]*devProcessInstance{}, nil
 				for _, instance := range previous.instances() {
 					if previous.services[instance.process.Name] != instance {
 						candidates = append(candidates, instance)
@@ -598,9 +607,7 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 	model.services, model.identity = next, set.Identity
 	if err := s.publishDevProcessGeneration(ctx, model); err != nil {
 		model.services, model.identity = previous, previousIdentity
-		markDevProcessesStopped(started)
-		_ = s.stopInstances(started, model.runningCommands())
-		return err
+		return s.settleFailedDevProcessPublication(model, started, err)
 	}
 	var replaced []*devProcessInstance
 	for _, instance := range started {
@@ -802,9 +809,7 @@ func (s *devSupervisor) recoverDevServiceInstance(model *devProcessModel, crashe
 	model.services = next
 	if err := s.publishDevProcessGeneration(s.ctx, model); err != nil {
 		model.services = previous
-		markDevProcessesStopped([]*devProcessInstance{replacement})
-		_ = s.stopInstances([]*devProcessInstance{replacement}, model.runningCommands())
-		model.degraded[name] = err.Error()
+		model.degraded[name] = s.settleFailedDevProcessPublication(model, []*devProcessInstance{replacement}, err).Error()
 		return
 	}
 	s.activateDevProcessInstances(s.ctx, model, []*devProcessInstance{replacement})

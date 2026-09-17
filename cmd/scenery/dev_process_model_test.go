@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -608,7 +609,7 @@ func TestDevProcessGenerationNumbersAreNeverReusedAfterAnUnknownPublication(t *t
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
-	model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory, generation: 10, services: map[string]*devProcessInstance{}, retained: map[uint64]map[string]*devProcessInstance{}}
+	model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory, generation: 10, services: map[string]*devProcessInstance{}, retained: map[uint64]map[string]*devProcessInstance{}, activationBackoff: time.Millisecond}
 	link, err := model.newLink()
 	if err != nil {
 		t.Fatal(err)
@@ -661,5 +662,114 @@ func TestDevProcessGenerationNumbersAreNeverReusedAfterAnUnknownPublication(t *t
 	defer mu.Unlock()
 	if !reflect.DeepEqual(proposed, []uint64{11, 12}) || model.generation != 12 {
 		t.Fatalf("proposed generations = %v, committed %d", proposed, model.generation)
+	}
+}
+
+// A service replacement whose publication the host applied while both its
+// answer and every confirmation were lost neither stops the candidates the host
+// may route to nor needs another edit: the supervisor republishes the known
+// services under a new number, and only then retires the unconfirmed
+// generation and stops its candidates.
+func TestDevProcessUnknownPublicationKeepsCandidatesUntilReconciled(t *testing.T) {
+	directory, err := os.MkdirTemp("", "scp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	exited := func(pid string) *runningApp {
+		done := make(chan error, 1)
+		done <- nil
+		return &runningApp{pid: pid, done: done}
+	}
+	known := &devProcessInstance{process: build.DevelopmentProcess{Name: "echo_echo"}, socket: filepath.Join(directory, "s1.sock"), app: exited("101")}
+	candidate := &devProcessInstance{process: build.DevelopmentProcess{Name: "echo_echo"}, socket: filepath.Join(directory, "s2.sock"), app: exited("102")}
+	model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory, generation: 10, services: map[string]*devProcessInstance{"echo_echo": known}, retained: map[uint64]map[string]*devProcessInstance{10: {"echo_echo": known}}, activationBackoff: time.Millisecond}
+	link, err := model.newLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(link.close)
+	listener, err := net.Listen("unix", link.dispatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	current, unreachable := uint64(10), 4
+	var journey []string
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		lose := func() {
+			if connection, _, err := http.NewResponseController(w).Hijack(); err == nil {
+				_ = connection.Close()
+			}
+		}
+		switch r.Method {
+		case http.MethodPut:
+			var manifest struct {
+				Generation uint64 `json:"generation"`
+				Processes  map[string]struct {
+					Address string `json:"address"`
+				} `json:"processes"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&manifest)
+			current = manifest.Generation
+			journey = append(journey, "publish "+strconv.FormatUint(manifest.Generation, 10)+" "+filepath.Base(manifest.Processes["echo_echo"].Address))
+			if manifest.Generation == 11 {
+				lose()
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodGet:
+			if unreachable > 0 {
+				unreachable--
+				lose()
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]uint64{"current": current})
+		case http.MethodDelete:
+			journey = append(journey, "retire "+strings.TrimPrefix(r.URL.Path, "/__scenery/process/v1/generations/"))
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	model.link = link
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	supervisor := &devSupervisor{ctx: ctx, processes: model}
+
+	model.mu.Lock()
+	model.services = map[string]*devProcessInstance{"echo_echo": candidate}
+	err = supervisor.publishDevProcessGeneration(ctx, model)
+	model.services = map[string]*devProcessInstance{"echo_echo": known}
+	err = supervisor.settleFailedDevProcessPublication(model, []*devProcessInstance{candidate}, err)
+	if _, unknown := errors.AsType[*devProcessPublicationUnknownError](err); !unknown || candidate.stopped || model.retained[11]["echo_echo"] != candidate {
+		model.mu.Unlock()
+		t.Fatalf("unknown publication = %v, candidate stopped %v", err, candidate.stopped)
+	}
+	model.unlock()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		model.mu.Lock()
+		reconciled := candidate.stopped && model.retained[11] == nil
+		generation := model.generation
+		model.mu.Unlock()
+		if reconciled {
+			if generation != 12 {
+				t.Fatalf("reconciled generation = %d", generation)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the unknown publication was not reconciled")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{"publish 11 s2.sock", "publish 12 s1.sock", "retire 11"}; !reflect.DeepEqual(journey, want) || current != 12 {
+		t.Fatalf("host journey = %v (current %d), want %v", journey, current, want)
 	}
 }

@@ -20,6 +20,7 @@ type AssertionClaims struct {
 	AssistantAddress   string    `json:"assistant_address"`
 	Principal          string    `json:"principal"`
 	ConversationDigest string    `json:"conversation_digest"`
+	RunID              string    `json:"run_id,omitempty"`
 	CapabilityRevision string    `json:"capability_revision"`
 	ExpiresAt          time.Time `json:"-"`
 	Nonce              string    `json:"nonce"`
@@ -30,6 +31,7 @@ type wireAssertionClaims struct {
 	AssistantAddress   string `json:"assistant_address"`
 	Principal          string `json:"principal"`
 	ConversationDigest string `json:"conversation_digest"`
+	RunID              string `json:"run_id,omitempty"`
 	CapabilityRevision string `json:"capability_revision"`
 	ExpiresAt          int64  `json:"expires_at"`
 	Nonce              string `json:"nonce"`
@@ -73,6 +75,7 @@ func NewAssertion(secret []byte, claims AssertionClaims, now time.Time, ttl time
 		AssistantAddress:   claims.AssistantAddress,
 		Principal:          claims.Principal,
 		ConversationDigest: claims.ConversationDigest,
+		RunID:              claims.RunID,
 		CapabilityRevision: claims.CapabilityRevision,
 		ExpiresAt:          claims.ExpiresAt.Unix(),
 		Nonce:              claims.Nonce,
@@ -130,6 +133,7 @@ func VerifyAssertion(secret []byte, assertion string, now time.Time) (AssertionC
 		AssistantAddress:   wire.AssistantAddress,
 		Principal:          wire.Principal,
 		ConversationDigest: wire.ConversationDigest,
+		RunID:              wire.RunID,
 		CapabilityRevision: wire.CapabilityRevision,
 		ExpiresAt:          time.Unix(wire.ExpiresAt, 0).UTC(),
 		Nonce:              wire.Nonce,

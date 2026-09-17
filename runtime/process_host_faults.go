@@ -70,14 +70,29 @@ func (faults *processHostFaults) list() []processHostFault {
 	return append([]processHostFault(nil), faults.rules...)
 }
 
+// takeControl consumes the first rule that names a prefix of a generation
+// control path and no service process or binding.
+func (faults *processHostFaults) takeControl(path string) processHostFault {
+	faults.Lock()
+	defer faults.Unlock()
+	for index := range faults.rules {
+		rule := faults.rules[index]
+		if rule.Count > 0 && rule.Process == "" && rule.Binding == "" && strings.HasPrefix(rule.Path, processGenerationsPath) && strings.HasPrefix(path, rule.Path) {
+			faults.rules[index].Count--
+			return rule
+		}
+	}
+	return processHostFault{}
+}
+
 // take consumes the first rule that matches one piece of work; the empty mode
-// means no rule applied.
+// means no rule applied. A rule for generation control never applies to work.
 func (faults *processHostFaults) take(process, binding, path string) processHostFault {
 	faults.Lock()
 	defer faults.Unlock()
 	for index := range faults.rules {
 		rule := faults.rules[index]
-		if rule.Count <= 0 || rule.Process != "" && rule.Process != process ||
+		if rule.Count <= 0 || strings.HasPrefix(rule.Path, processGenerationsPath) || rule.Process != "" && rule.Process != process ||
 			rule.Binding != "" && rule.Binding != binding ||
 			rule.Path != "" && !strings.HasPrefix(path, rule.Path) {
 			continue
@@ -128,6 +143,34 @@ func (h *processHost) applyProcessFault(w http.ResponseWriter, req *http.Request
 	}
 	return false
 }
+
+// applyControlFault fails one generation control request of the supervisor on
+// purpose: refuse answers without acting, delay answers late, and abort acts
+// and then loses the answer. It reports whether the request was answered.
+func (h *processHost) applyControlFault(w http.ResponseWriter, req *http.Request, serve func(http.ResponseWriter, *http.Request)) bool {
+	rule := h.faults.takeControl(req.URL.Path)
+	switch rule.Mode {
+	case processFaultRefuse:
+		http.Error(w, processFaultMessage(rule, "process host refused the control request"), http.StatusServiceUnavailable)
+		return true
+	case processFaultDelay:
+		_ = sleepProcessFault(req, rule)
+	case processFaultAbort:
+		serve(&processHostDiscardingWriter{header: http.Header{}}, req)
+		if connection, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			_ = connection.Close()
+		}
+		return true
+	}
+	return false
+}
+
+// processHostDiscardingWriter lets a control request act without answering.
+type processHostDiscardingWriter struct{ header http.Header }
+
+func (w *processHostDiscardingWriter) Header() http.Header            { return w.header }
+func (w *processHostDiscardingWriter) Write(data []byte) (int, error) { return len(data), nil }
+func (w *processHostDiscardingWriter) WriteHeader(int)                {}
 
 // applyIngressFault fails one forwarded request on purpose.
 func (h *processHost) applyIngressFault(w http.ResponseWriter, req *http.Request, process string) bool {

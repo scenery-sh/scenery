@@ -22,6 +22,7 @@ type AssertionClaims struct {
 	AssistantAddress   string            `json:"assistant_address"`
 	Principal          string            `json:"principal"`
 	ConversationDigest string            `json:"conversation_digest"`
+	RunID              string            `json:"run_id,omitempty"`
 	CapabilityRevision string            `json:"capability_revision"`
 	RequestID          string            `json:"request_id,omitempty"`
 	TraceContext       map[string]string `json:"trace_context,omitempty"`
@@ -118,6 +119,7 @@ func (v HMACAssertionVerifier) Verify(ctx context.Context, req *http.Request) (m
 		Principal:          claims.Principal,
 		AssistantAddress:   claims.AssistantAddress,
 		ConversationDigest: claims.ConversationDigest,
+		RunID:              claims.RunID,
 		CapabilityRevision: claims.CapabilityRevision,
 		RequestID:          claims.RequestID,
 		TraceContext:       claims.TraceContext,

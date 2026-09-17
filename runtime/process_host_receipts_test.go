@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -85,20 +86,33 @@ func TestDurableReceiptsStayAuthorizedAcrossHostReplacement(t *testing.T) {
 	}
 }
 
-// The journal replays ambiguity, ignores a torn record, and stays bounded.
+// The journal replays ambiguity, discards only a torn final record, and stays
+// bounded.
 func TestDurableReceiptJournalReplaysAmbiguityAndStaysBounded(t *testing.T) {
 	journal := filepath.Join(t.TempDir(), "durable-receipts.jsonl")
 	owner := processHostDurableOwner{process: "house_house", service: "house", taskName: "process_scene"}
+	authorized := func(owners *processHostDurableOwners, id string) bool {
+		t.Helper()
+		got, ok, err := owners.load("principal-1", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok && got == owner
+	}
 	var first processHostDurableOwners
 	if err := first.open(journal); err != nil {
 		t.Fatal(err)
 	}
-	first.store("principal-1", "kept", owner)
-	first.store("principal-1", "conflict", owner)
 	conflicting := owner
 	conflicting.process = "maps_maps"
-	first.store("principal-1", "conflict", conflicting)
-	first.store("principal-1", "kept", owner)
+	for _, store := range []struct {
+		id    string
+		owner processHostDurableOwner
+	}{{"kept", owner}, {"conflict", owner}, {"conflict", conflicting}, {"kept", owner}} {
+		if err := first.store("principal-1", store.id, store.owner); err != nil {
+			t.Fatal(err)
+		}
+	}
 	file, err := os.OpenFile(journal, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -109,16 +123,16 @@ func TestDurableReceiptJournalReplaysAmbiguityAndStaysBounded(t *testing.T) {
 	if err := replayed.open(journal); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := replayed.load("principal-1", "kept"); !ok || got != owner {
-		t.Fatalf("replayed receipt = %#v, %v", got, ok)
+	if !authorized(&replayed, "kept") || authorized(&replayed, "conflict") || authorized(&replayed, "torn") || replayed.journal.lines != 3 {
+		t.Fatalf("replayed receipts: kept %v, conflict %v, torn %v, records %d", authorized(&replayed, "kept"), authorized(&replayed, "conflict"), authorized(&replayed, "torn"), replayed.journal.lines)
 	}
-	for _, id := range []string{"conflict", "torn"} {
-		if _, ok := replayed.load("principal-1", id); ok {
-			t.Fatalf("receipt %s is authorized after replay", id)
-		}
+	// The torn record is removed, so a later append does not extend it.
+	if err := replayed.store("principal-1", "after-torn", owner); err != nil {
+		t.Fatal(err)
 	}
-	if replayed.journal.lines != 4 {
-		t.Fatalf("journal records = %d", replayed.journal.lines)
+	var again processHostDurableOwners
+	if err := again.open(journal); err != nil || again.journal.poisoned != nil || !authorized(&again, "after-torn") {
+		t.Fatalf("receipt appended after a torn record: %v, poisoned %v", err, again.journal.poisoned)
 	}
 
 	var oversized bytes.Buffer
@@ -137,22 +151,66 @@ func TestDurableReceiptJournalReplaysAmbiguityAndStaysBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lines := bytes.Count(data, []byte{'\n'}); lines != processHostDurableOwnerLimit || bounded.journal.lines != lines {
+	if lines := bytes.Count(data, []byte{'\n'}); lines != processHostDurableOwnerLimit || bounded.journal.lines != lines || authorized(&bounded, "0") {
 		t.Fatalf("compacted journal has %d records, host counts %d", lines, bounded.journal.lines)
 	}
-	if _, ok := bounded.load("principal-1", "0"); ok {
-		t.Fatal("the oldest receipt beyond the limit stayed authorized")
-	}
 	bounded.journal.lines = 2*processHostDurableOwnerLimit - 1
-	bounded.store("principal-1", "next", owner)
-	if bounded.journal.lines != processHostDurableOwnerLimit {
-		t.Fatalf("journal records after an append at the bound = %d", bounded.journal.lines)
+	if err := bounded.store("principal-1", "next", owner); err != nil || bounded.journal.lines != processHostDurableOwnerLimit {
+		t.Fatalf("journal records after an append at the bound = %d, %v", bounded.journal.lines, err)
 	}
 	var reopened processHostDurableOwners
-	if err := reopened.open(journal); err != nil {
+	if err := reopened.open(journal); err != nil || !authorized(&reopened, "next") {
+		t.Fatalf("the receipt stored at the bound was not journaled: %v", err)
+	}
+}
+
+// A receipt authorization that cannot be committed is never made, and no later
+// host incarnation restores an authorization the failed commit revoked: a
+// failed append or a corrupt record poisons the journal, which then authorizes
+// nothing.
+func TestDurableReceiptJournalFailureNeverRestoresAnAuthorization(t *testing.T) {
+	owner := processHostDurableOwner{process: "house_house", service: "house", taskName: "process_scene"}
+	conflicting := owner
+	conflicting.process = "maps_maps"
+	unavailable := func(owners *processHostDurableOwners, id string) bool {
+		_, ok, err := owners.load("principal-1", id)
+		return !ok && errors.Is(err, errProcessHostStateUnavailable)
+	}
+
+	// The ambiguity that revokes execution-1 cannot be committed.
+	journal := filepath.Join(t.TempDir(), "durable-receipts.jsonl")
+	var first processHostDurableOwners
+	if err := first.open(journal); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := reopened.load("principal-1", "next"); !ok {
-		t.Fatal("the receipt stored at the bound was not journaled")
+	if err := first.store("principal-1", "execution-1", owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(journal, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.store("principal-1", "execution-1", conflicting); !errors.Is(err, errProcessHostStateUnavailable) || !unavailable(&first, "execution-1") {
+		t.Fatalf("uncommitted ambiguity = %v", err)
+	}
+	var replaced processHostDurableOwners
+	if err := replaced.open(journal); err != nil || !unavailable(&replaced, "execution-1") {
+		t.Fatalf("replacement host after an uncommitted ambiguity: %v", err)
+	}
+	if err := replaced.store("principal-1", "execution-2", owner); !errors.Is(err, errProcessHostStateUnavailable) {
+		t.Fatalf("receipt stored by a host of a poisoned journal = %v", err)
+	}
+
+	// A record that does not decode before the last one poisons the journal.
+	corrupt := filepath.Join(t.TempDir(), "durable-receipts.jsonl")
+	line, _ := json.Marshal(processHostDurableRecord{Principal: "principal-1", ExecutionID: "execution-1", Process: owner.process, Service: owner.service, TaskName: owner.taskName})
+	if err := os.WriteFile(corrupt, append(append(line, '\n'), []byte("{not json}\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var damaged processHostDurableOwners
+	if err := damaged.open(corrupt); err != nil || !unavailable(&damaged, "execution-1") {
+		t.Fatalf("host of a corrupt journal: %v", err)
+	}
+	if _, err := os.Stat(corrupt); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a poisoned journal remains replayable: %v", err)
 	}
 }

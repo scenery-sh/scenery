@@ -632,18 +632,18 @@ func TestProcessDurableReceiptOwnersAreBoundedAndFailClosed(t *testing.T) {
 	var owners processHostDurableOwners
 	owner := processHostDurableOwner{process: "house_house", service: "house", taskName: "process_scene"}
 	for index := range processHostDurableOwnerLimit + 1 {
-		owners.store("principal-1", strconv.Itoa(index), owner)
+		_ = owners.store("principal-1", strconv.Itoa(index), owner)
 	}
-	if _, ok := owners.load("principal-1", "0"); ok {
+	if _, ok, _ := owners.load("principal-1", "0"); ok {
 		t.Fatal("the oldest receipt beyond the limit stayed authorized")
 	}
-	if got, ok := owners.load("principal-1", strconv.Itoa(processHostDurableOwnerLimit)); !ok || got != owner {
+	if got, ok, _ := owners.load("principal-1", strconv.Itoa(processHostDurableOwnerLimit)); !ok || got != owner {
 		t.Fatalf("newest receipt = %#v, %v", got, ok)
 	}
 	conflicting := owner
 	conflicting.process = "maps_maps"
-	owners.store("principal-1", "1", conflicting)
-	if _, ok := owners.load("principal-1", "1"); ok {
+	_ = owners.store("principal-1", "1", conflicting)
+	if _, ok, _ := owners.load("principal-1", "1"); ok {
 		t.Fatal("an execution ID accepted by two owners stayed authorized")
 	}
 	var local mcpDurableOwnerStore
@@ -917,5 +917,43 @@ func TestProcessHostWithoutServicesServesItself(t *testing.T) {
 	assertProcessHostAttestation(t, recorder.Header(), processHostTestBuild(1))
 	if _, err := newProcessHost(ProcessHostConfig{Routes: []ProcessHostRoute{{Process: "echo_echo", Methods: []string{"GET"}, Path: "/x"}}}, processLinkTestToken, processHostTestContract); err == nil {
 		t.Fatal("a host with service routes and no fallback process was accepted")
+	}
+}
+
+// A generation control fault acts and loses its answer, applies only to the
+// supervisor's generation control, and a rule for work never reaches it.
+func TestProcessHostControlFaultActsAndLosesTheAnswer(t *testing.T) {
+	useLinkedProcessIdentityForTest(t)
+	echo := startProcessHostTestBackend(t, "echo_echo", 611, "sha256:echo-1")
+	host, err := newProcessHost(ProcessHostConfig{Name: "multiservice", Fallback: "echo_echo"}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control := serveProcessLinkForTest(t, http.HandlerFunc(host.serveControl))
+	send := func(method, path, body string) (int, error) {
+		request, _ := http.NewRequest(method, "http://host"+path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
+		response, err := processLinkClient(control).Do(request)
+		if err != nil {
+			return 0, err
+		}
+		_ = response.Body.Close()
+		return response.StatusCode, nil
+	}
+	if status, err := send(http.MethodPut, processFaultsPath, `{"faults":[{"mode":"abort"},{"path":"`+processGenerationsPath+`","mode":"abort","count":2}]}`); err != nil || status != http.StatusNoContent {
+		t.Fatalf("fault rules = %d, %v", status, err)
+	}
+	manifest, _ := json.Marshal(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1), Processes: map[string]processGenerationInstance{"echo_echo": echo.instance}})
+	if _, err := send(http.MethodPut, processGenerationsPath, string(manifest)); err == nil {
+		t.Fatal("an aborted publication answered")
+	}
+	if _, err := send(http.MethodGet, processGenerationsPath, ""); err == nil {
+		t.Fatal("an aborted status read answered")
+	}
+	if status, err := send(http.MethodGet, processGenerationsPath, ""); err != nil || status != http.StatusOK || host.status().Current != 1 {
+		t.Fatalf("status after the lost answers = %d, %v, current %d", status, err, host.status().Current)
+	}
+	if rules := host.faults.list(); rules[0].Count != 1 || rules[1].Count != 0 {
+		t.Fatalf("remaining rules = %#v", rules)
 	}
 }

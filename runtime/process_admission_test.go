@@ -274,7 +274,9 @@ func TestBackgroundAttemptIsInterruptedWhenItsAdmissionEnds(t *testing.T) {
 			t.Fatalf("%s: internal call after the admission ended = %v", scenario, got.second)
 		}
 		err := <-delivered
-		if typed, ok := errs.As(err); !ok || typed.Code != errs.Unavailable || !errors.Is(err, errProcessAdmissionLost) {
+		// The attempt noticed the interruption only after acting and then
+		// reported success; its effects are unknown, never a completed attempt.
+		if typed, ok := errs.As(err); !ok || typed.Code != errs.Unavailable || typed.Meta["delivery"] != "unknown" || !errors.Is(err, errProcessAdmissionLost) {
 			t.Fatalf("%s: delivery outcome = %v", scenario, err)
 		}
 	}

@@ -19,8 +19,9 @@ import (
 
 // In a process-model session the host runs assistant gateways, and their MCP
 // tools are registered by service processes. The host dispatcher forwards each
-// tool call to the owning process of the current generation, pinning the call
-// and its internal calls to that generation. The host authorizes durable
+// tool call to the owning process of the generation its assistant run executes
+// (see process_host_conversations.go), pinning the call and its internal calls
+// to that generation. The host authorizes durable
 // receipts: it records the principal, owning process, durable service and task
 // of each accepted receipt in the session's receipt journal (see
 // process_host_receipts.go), and sends authorized status and cancellation to
@@ -63,7 +64,7 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 	if err != nil {
 		return mcpcontract.ToolOutcome{}, ContractSystemError(err)
 	}
-	generation, err := d.host.conversationGeneration(processHostConversationKey(call.AssistantAddress, call.Principal, call.ConversationDigest))
+	generation, err := d.host.runGeneration(call)
 	if err != nil {
 		return mcpcontract.ToolOutcome{}, err
 	}
@@ -75,9 +76,14 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 		return mcpcontract.ToolOutcome{}, ContractSystemError(fmt.Errorf("service process %s returned no MCP outcome", process))
 	}
 	if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" && response.Durable != nil {
-		d.host.owners.store(strings.TrimSpace(call.Principal), receipt.ExecutionID, processHostDurableOwner{
+		// The execution was accepted whether or not its authorization commits;
+		// an uncommitted receipt is reported as accepted and reads as
+		// unavailable, and the call is never repeated.
+		if err := d.host.owners.store(strings.TrimSpace(call.Principal), receipt.ExecutionID, processHostDurableOwner{
 			process: process, service: strings.TrimSpace(response.Durable.Service), taskName: strings.TrimSpace(response.Durable.TaskName),
-		})
+		}); err != nil {
+			logTrace(ctx, fmt.Sprintf("durable receipt %s was accepted but its authorization was not committed: %v", receipt.ExecutionID, err))
+		}
 	}
 	return *response.Outcome, nil
 }
@@ -92,7 +98,10 @@ func (d processHostMCPDispatcher) Cancel(ctx context.Context, call mcpcontract.T
 
 func (d processHostMCPDispatcher) durable(ctx context.Context, operation string, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
 	executionID = strings.TrimSpace(executionID)
-	owner, ok := d.host.owners.load(strings.TrimSpace(call.Principal), executionID)
+	owner, ok, err := d.host.owners.load(strings.TrimSpace(call.Principal), executionID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok || owner.service == "" || owner.taskName == "" {
 		return nil, errors.New("not_found: durable execution not found")
 	}
