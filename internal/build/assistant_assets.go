@@ -29,6 +29,10 @@ import (
 // Eve places a fresh build identifier in generated server modules on every
 // invocation.  The identifier is build metadata, not runtime state, so it is
 // canonicalized before the capsule is archived.
+// assistantAssetScratchSuffix names the build's own assistant scratch tree,
+// beside the prepared Go workspace it belongs to.
+const assistantAssetScratchSuffix = "-assistant-assets"
+
 var eveBuildPathPattern = regexp.MustCompile(`\.eve/builds/[A-Za-z0-9_-]+/`)
 
 // prepareAssistantRuntimeAssets builds the immutable production inputs for
@@ -65,13 +69,16 @@ func prepareAssistantRuntimeAssets(ctx context.Context, result *Result) error {
 		return fmt.Errorf("archive managed Node home for %s: %w", platform.String(), err)
 	}
 
-	workspaceAssetRoot := filepath.Join(result.Dir, ".scenery", "assistant-assets")
-	if err := os.MkdirAll(workspaceAssetRoot, 0o700); err != nil {
+	// The overlays and capsules are mutable build scratch, not inputs of the Go
+	// workspace: they are staged beside it, so workspace verification keeps
+	// rejecting every file that is not a recorded source or generated input.
+	assetRoot := result.Dir + assistantAssetScratchSuffix
+	if err := os.MkdirAll(assetRoot, 0o700); err != nil {
 		return err
 	}
 	inputs := make([]generateapi.AssistantAssetInput, 0, len(assistants))
 	for _, assistant := range assistants {
-		input, err := buildAssistantAsset(ctx, result, assistant, platform, nodeArchive, workspaceAssetRoot)
+		input, err := buildAssistantAsset(ctx, result, assistant, platform, nodeArchive, assetRoot)
 		if err != nil {
 			return err
 		}

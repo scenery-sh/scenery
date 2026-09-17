@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -256,5 +258,37 @@ func TestHostReportsUnavailableStateWhenPoisoningCannotBeRecorded(t *testing.T) 
 	}
 	if status := host.status(); status.HostState != "unavailable" {
 		t.Fatalf("host state after unrecordable poisoning = %q", status.HostState)
+	}
+}
+
+// A host the supervisor is replacing stops recording authority when it
+// quiesces, so the state it reports then is final.
+func TestQuiescedHostRecordsNoFurtherAuthority(t *testing.T) {
+	useLinkedProcessIdentityForTest(t)
+	directory := t.TempDir()
+	host, err := newProcessHost(ProcessHostConfig{Name: "house"}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.openState(directory); err != nil {
+		t.Fatal(err)
+	}
+	setActiveProcessHost(host)
+	t.Cleanup(func() { setActiveProcessHost(nil) })
+	control := serveProcessLinkForTest(t, http.HandlerFunc(host.serveControl))
+	request, _ := http.NewRequest(http.MethodPut, "http://host"+processQuiescePath, nil)
+	request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
+	response, err := processLinkClient(control).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status processGenerationStatus
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil || response.StatusCode != http.StatusOK || status.HostState != "" {
+		t.Fatalf("quiesce = %d %#v, %v", response.StatusCode, status, err)
+	}
+	_ = response.Body.Close()
+	ingress := httptest.NewRequest(http.MethodGet, "/", nil)
+	if _, err := reserveAssistantRun(ingress.WithContext(context.WithValue(ingress.Context(), processHostGenerationKey{}, &processHostGeneration{number: 1, retired: make(chan struct{})})), "support", "principal-1", "sha256:conversation", "run_1"); !errors.Is(err, errProcessHostQuiescing) {
+		t.Fatalf("run reserved by a quiescing host = %v", err)
 	}
 }

@@ -719,6 +719,27 @@ type devProcessHostStatus struct {
 	HostState string `json:"host_state"`
 }
 
+// quiesce asks the host to stop recording authority and report its final
+// state, so the supervisor can decide whether its host state may be reused by
+// the next incarnation.
+func (link *devProcessLink) quiesce(ctx context.Context) (devProcessHostStatus, bool) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, "http://scenery-host/__scenery/process/v1/quiesce", nil)
+	if err != nil {
+		return devProcessHostStatus{}, false
+	}
+	request.Header.Set("Authorization", "Bearer "+link.token)
+	response, err := link.control.Do(request)
+	if err != nil {
+		return devProcessHostStatus{}, false
+	}
+	defer func() { _ = response.Body.Close() }()
+	var status devProcessHostStatus
+	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&status) != nil {
+		return devProcessHostStatus{}, false
+	}
+	return status, true
+}
+
 // status reads the host's generation status and reports whether the host
 // answered.
 func (link *devProcessLink) status(ctx context.Context) (devProcessHostStatus, bool) {

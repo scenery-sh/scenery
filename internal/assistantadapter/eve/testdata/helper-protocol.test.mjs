@@ -34,6 +34,8 @@ class FakeEve {
     this.sessions = new Map();
     this.byToken = new Map();
     this.responses = [];
+    this.cancelled = [];
+    this.reads = 0;
   }
   session(id) {
     return this.sessions.get(id);
@@ -117,12 +119,14 @@ class FakeEve {
         return { status: "accepted", sessionId: sessionID };
       },
       async cancel(options) {
+        eve.cancelled.push(options?.turnId);
         return { status: "accepted", turnId: options?.turnId };
       },
       async getStreamTailIndex() {
         return session.events.length - 1;
       },
       async getEventStream({ startIndex = 0 } = {}) {
+        eve.reads += 1;
         let index = startIndex;
         let wake = null;
         let cancelled = false;
@@ -358,4 +362,52 @@ test("concurrent streams and tool calls read one history with unique sequences a
   assert.deepEqual(terminals(left), ["run.completed:run_1", "run.completed:run_2"]);
   const all = await stream(eve, sessionID);
   assert.deepEqual(all, left, "a later stream of the settled session replays the same history");
+});
+
+test("cancelling a run Eve accepted but has not started yet cancels its turn and never lets it act", async () => {
+  const eve = new FakeEve();
+  const conversation = await created(eve, "first", "run_1", "sha256:conversation-g");
+  const sessionID = conversation.private_session_id;
+  eve.complete(sessionID, eve.startTurn(sessionID));
+  await turn(eve, conversation, "run_2", "second");
+  await until(() => eve.session(sessionID).queue.length === 1, "the second run is sent");
+  const cancelled = await control(eve, "run.cancel", { private_session_id: sessionID, continuation_token: conversation.continuation_token, run_id: "run_2" });
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+  // Eve starts the accepted turn anyway; it is cancelled and executes nothing.
+  const second = eve.startTurn(sessionID);
+  await until(() => eve.cancelled.includes(second), "the started turn of the cancelled run is cancelled");
+  assert.match(await toolCall(sessionID, second), /^refused: /);
+  const opened = stream(eve, sessionID);
+  eve.end(eve.session(sessionID), second, "turn.cancelled");
+  assert.deepEqual(terminals(await opened), ["run.completed:run_1", "run.cancelled:run_2"]);
+});
+
+test("a run Eve never starts ends at the session's next boundary after its cancellation", async () => {
+  const eve = new FakeEve();
+  const conversation = await created(eve, "first", "run_1", "sha256:conversation-h");
+  const sessionID = conversation.private_session_id;
+  const first = eve.startTurn(sessionID);
+  await turn(eve, conversation, "run_2", "second");
+  const cancelled = await control(eve, "run.cancel", { private_session_id: sessionID, continuation_token: conversation.continuation_token, run_id: "run_2" });
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+  const opened = stream(eve, sessionID);
+  eve.complete(sessionID, first);
+  assert.deepEqual([...terminals(await opened)].sort(), ["run.cancelled:run_2", "run.completed:run_1"]);
+});
+
+test("a subscriber that leaves stops following the session", async () => {
+  const eve = new FakeEve();
+  const conversation = await created(eve, "first", "run_1", "sha256:conversation-i");
+  const sessionID = conversation.private_session_id;
+  eve.startTurn(sessionID);
+  const request = new Request(`http://127.0.0.1/scenery/v1/control/sessions/${sessionID}/events?after=0`, {
+    headers: { "x-scenery-assistant-control-token": token },
+  });
+  const response = await route("GET", "/scenery/v1/control/sessions/:sessionId/events")(request, { ...eve.operations(), params: { sessionId: sessionID } });
+  const reader = response.body.getReader();
+  await reader.read();
+  await reader.cancel();
+  const reads = eve.reads;
+  await sleep(300);
+  assert.equal(eve.reads, reads, "the session is not read for a subscriber that left");
 });

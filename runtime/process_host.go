@@ -37,6 +37,7 @@ import (
 
 const (
 	processGenerationsPath       = "/__scenery/process/v1/generations"
+	processQuiescePath           = "/__scenery/process/v1/quiesce"
 	processHostMaxHeaderBytes    = 64 << 20
 	processHostManifestMaxBytes  = 4 << 20
 	processHostShutdownGrace     = 5 * time.Second
@@ -132,8 +133,11 @@ type processHost struct {
 	current     *processHostGeneration
 	generations map[uint64]*processHostGeneration
 
-	// closing ends held admissions when the host stops.
-	closing chan struct{}
+	// closing ends held admissions when the host stops. quiescing refuses the
+	// authority changes of a host the supervisor is replacing, so the state it
+	// reports when it quiesces is final.
+	closing   chan struct{}
+	quiescing atomic.Bool
 }
 
 type processHostGeneration struct {
@@ -376,6 +380,10 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 		h.serveAdmission(w, req)
 	case req.URL.Path == processFaultsPath && (req.Method == http.MethodPut || req.Method == http.MethodGet):
 		h.serveFaults(w, req)
+	case req.URL.Path == processQuiescePath && req.Method == http.MethodPut:
+		// The host stops changing its authority and reports its final state.
+		h.quiescing.Store(true)
+		writeProcessHostJSON(w, http.StatusOK, h.status())
 	case strings.HasPrefix(req.URL.Path, processGenerationsPath):
 		h.serveGenerationControl(w, req)
 	default:

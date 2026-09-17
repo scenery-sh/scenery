@@ -50,6 +50,10 @@ const (
 // host state a poisoned journal can no longer prove.
 var errProcessHostStateUnavailable = errors.New("process host state is unavailable")
 
+// errProcessHostQuiescing is the failure of an authority change a host being
+// replaced no longer makes, so the state it reported is final.
+var errProcessHostQuiescing = &errs.Error{Code: errs.Unavailable, Message: "the process host is being replaced and no longer records authority", Meta: errs.Metadata{"delivery": "not_sent"}}
+
 // stateAvailable reports whether the host's authority journals can still prove
 // their records.
 func (h *processHost) stateAvailable() bool {

@@ -740,6 +740,19 @@ compile the application graph as it needs.
   `assistant-journey` (testdata/assistant with real Eve and its mock model in a
   disposable copy with its own agent home); the assistant acceptance script now
   runs only in such a copy with the verifier's binary.
+- [x] (2026-09-17) Accepted cancellations, revocations and host handoffs have an
+  observable transition, after a fourth external review. A run the provider
+  accepted but has not started is cancelled when its turn appears and refuses
+  tool calls from the accepted cancellation on, and a run the provider never
+  starts ends at the next session boundary. The unknown-start bound now governs
+  the event read in progress and the observer records a run's events as they
+  arrive. A client stream that is cancelled stops the reads made for it. A host
+  the supervisor replaces quiesces before it stops, so the host state it reports
+  is final; its epoch is reused only on that report, and a replaced epoch is
+  removed only after the replacement commits. The assistant asset overlays and
+  capsules are staged beside the prepared Go workspace instead of inside it,
+  which lets the production artifact build finish and keeps workspace membership
+  verification strict.
 
 ## Surprises & Discoveries
 
@@ -755,10 +768,12 @@ compile the application graph as it needs.
   authored root during its production step; its `go build` binary also lacks a
   content-bound framework producer. Run in a disposable copy with its own agent
   home, it no longer reaches the retained-database claim and every development
-  case passes. Its production artifact case still fails: the artifact build
-  reports `prepared workspace membership changed` for an Eve cache file its own
-  assistant asset build writes under `.scenery/assistant-assets`; this was not
-  investigated or compared with the previous commit.
+  case passes. Its production artifact case now builds, extracts its embedded
+  Node and capsule and serves HTTP without ambient Node (the packaging fix
+  above), but the embedded helper never reports ready: the extracted Node
+  process runs while `conversation.create` answers `unavailable` for the full
+  180-second bound. That is a production assistant runtime blocker, recorded
+  rather than fixed here.
 - `scripts/accept-assistant-runtime.sh`, the real Eve journey (mock model,
   approvals, durable receipt/status/cancel through `scenery up`), is blocked
   independently of this work: its own `go build` binary has no content-bound
@@ -959,6 +974,17 @@ compile the application graph as it needs.
 
 ## Decision Log
 
+- Decision: a host hands its authority over by quiescing (refusing further
+  authority changes and reporting a final host state) before it stops, rather
+  than by a status sample taken before the replacement begins. Rationale: the
+  earlier sample could go stale while the old host kept serving, and the epoch
+  decision must rest on a state that can no longer change. Date: 2026-09-17.
+  Author: Claude.
+- Decision: assistant asset overlays and capsules are build scratch beside the
+  prepared workspace, not files inside it. Rationale: the production artifact
+  build wrote an Eve cache file into the verified input tree, which the
+  membership check correctly rejected; relaxing that check would weaken the
+  input guarantee for every build. Date: 2026-09-17. Author: Claude.
 - Decision: the generated helper runs one run of a conversation at a time and
   binds provider turns to runs only by stream evidence (superseding the
   latest-started-run attribution). Rationale: with the real Eve 0.39 runtime a

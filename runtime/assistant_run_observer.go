@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/assistantcontrol"
@@ -60,14 +61,24 @@ func (g *assistantGateway) reserveRun(req *http.Request, principal, conversation
 
 // observeAssistantRun follows a reserved run's private events until the host
 // observes its terminal event, the run ends otherwise, or the host stops. A run
-// whose start outcome is unknown and whose events the host never observes ends
-// after assistantRunUnknownTimeout. request names the run's private session;
-// without one only that bound applies.
+// whose start outcome is unknown and whose events the host never observes is
+// revoked after assistantRunUnknownTimeout, which also ends the read in
+// progress. request names the run's private session; without one only that
+// bound applies.
 func (g *assistantGateway) observeAssistantRun(reservation *assistantRunReservation, client assistantruntime.Client, request assistantruntime.StreamRequest) {
 	if reservation == nil {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	var seen atomic.Bool
+	// The bound governs the read in progress: an open stream that never sends
+	// an event must not outlast it.
+	unknown := time.AfterFunc(assistantRunUnknownTimeout, func() {
+		if !seen.Load() {
+			reservation.expire()
+			cancel()
+		}
+	})
 	go func() {
 		select {
 		case <-reservation.run.ended:
@@ -77,20 +88,21 @@ func (g *assistantGateway) observeAssistantRun(reservation *assistantRunReservat
 	}()
 	go func() {
 		defer cancel()
-		deadline := time.NewTimer(assistantRunUnknownTimeout)
-		defer deadline.Stop()
+		defer unknown.Stop()
 		poll := time.NewTicker(assistantRunObservePoll)
 		defer poll.Stop()
-		seen := false
+		// observe records the run's events as they arrive, not when the read
+		// ends, so an unknown start becomes known as soon as it is observed.
+		observe := func(terminal bool) {
+			if terminal || seen.CompareAndSwap(false, true) {
+				reservation.observed(terminal)
+			}
+		}
 		for {
 			if client != nil && request.PrivateSessionID != "" {
 				request.RequestID = assistantRunObserverRequestID()
-				observed, terminal, after := readAssistantRunEvents(ctx, client, request, reservation.run.runID)
+				terminal, after := readAssistantRunEvents(ctx, client, request, reservation.run.runID, observe)
 				request.After = after
-				if observed && !seen || terminal {
-					seen = true
-					reservation.observed(terminal)
-				}
 				if terminal {
 					return
 				}
@@ -98,10 +110,6 @@ func (g *assistantGateway) observeAssistantRun(reservation *assistantRunReservat
 			select {
 			case <-ctx.Done():
 				return
-			case <-deadline.C:
-				if !seen {
-					reservation.expire()
-				}
 			case <-poll.C:
 			case <-reservation.run.wake:
 			}
@@ -117,14 +125,14 @@ func assistantRunObserverRequestID() string {
 	return assistantRunObserverRequestPrefix + "_" + hex.EncodeToString(value)
 }
 
-// readAssistantRunEvents reads the private events after request.After and
-// reports whether one belongs to runID, whether it is the run's terminal event,
-// and the cursor to resume after.
-func readAssistantRunEvents(ctx context.Context, client assistantruntime.Client, request assistantruntime.StreamRequest, runID string) (observed, terminal bool, after uint64) {
+// readAssistantRunEvents reads the private events after request.After, calls
+// observe for every event of runID, and returns whether the run's terminal
+// event arrived and the cursor to resume after.
+func readAssistantRunEvents(ctx context.Context, client assistantruntime.Client, request assistantruntime.StreamRequest, runID string, observe func(terminal bool)) (terminal bool, after uint64) {
 	after = request.After
 	stream, err := client.StreamEvents(ctx, request)
 	if err != nil {
-		return false, false, after
+		return false, after
 	}
 	defer func() { _ = stream.Close() }()
 	scanner := bufio.NewScanner(stream)
@@ -135,17 +143,18 @@ func readAssistantRunEvents(ctx context.Context, client assistantruntime.Client,
 		}
 		event, err := assistantcontrol.ParseEvent(scanner.Bytes())
 		if err != nil || event.Sequence <= after {
-			return observed, false, after
+			return false, after
 		}
 		after = event.Sequence
 		if event.RunID != runID {
 			continue
 		}
-		observed = true
 		switch event.Type {
 		case assistantcontrol.EventRunCompleted, assistantcontrol.EventRunFailed, assistantcontrol.EventRunCancelled:
-			return true, true, after
+			observe(true)
+			return true, after
 		}
+		observe(false)
 	}
-	return observed, false, after
+	return false, after
 }

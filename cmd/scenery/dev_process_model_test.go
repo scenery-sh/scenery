@@ -774,21 +774,22 @@ func TestDevProcessUnknownPublicationKeepsCandidatesUntilReconciled(t *testing.T
 	}
 }
 
-// A new host incarnation reuses the session's host state only when the previous
-// incarnation still runs and reports its authority intact; otherwise it starts
-// over a new, empty epoch that authorizes nothing the earlier one journaled.
+// A new host incarnation reuses the session's host state only when the host it
+// replaces reported its authority intact as it quiesced; otherwise it starts
+// over a new, empty epoch, and the replaced epoch survives until the
+// replacement commits, because a rollback restores the previous host.
 func TestDevProcessHostStateEpochAdvancesWhenAuthorityIsUncertain(t *testing.T) {
 	for _, scenario := range []struct {
-		name, answer string
-		running      bool
-		marker       bool
-		rotated      bool
+		name     string
+		state    string
+		reported bool
+		marker   bool
+		rotated  bool
 	}{
-		{name: "available", answer: `{"current":1}`, running: true},
-		{name: "reported unavailable", answer: `{"current":1,"host_state":"unavailable"}`, running: true, rotated: true},
-		{name: "unanswered", running: true, rotated: true},
-		{name: "exited", answer: `{"current":1}`, rotated: true},
-		{name: "poison marker", answer: `{"current":1}`, running: true, marker: true, rotated: true},
+		{name: "available", reported: true},
+		{name: "reported unavailable", state: "unavailable", reported: true, rotated: true},
+		{name: "unreported", rotated: true},
+		{name: "poison marker", reported: true, marker: true, rotated: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			directory, err := os.MkdirTemp("", "scp")
@@ -796,8 +797,7 @@ func TestDevProcessHostStateEpochAdvancesWhenAuthorityIsUncertain(t *testing.T) 
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = os.RemoveAll(directory) })
-			host := &devProcessInstance{app: &runningApp{pid: "101"}}
-			model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory, host: host}
+			model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory}
 			if err := os.Mkdir(model.hostStateDir(), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -811,30 +811,29 @@ func TestDevProcessHostStateEpochAdvancesWhenAuthorityIsUncertain(t *testing.T) 
 				t.Fatal(err)
 			}
 			t.Cleanup(link.close)
-			if scenario.answer != "" {
-				listener, err := net.Listen("unix", link.dispatch)
-				if err != nil {
-					t.Fatal(err)
-				}
-				server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(scenario.answer)) })}
-				go func() { _ = server.Serve(listener) }()
-				t.Cleanup(func() { _ = server.Close() })
-			}
 			model.link = link
-			supervisor := &devSupervisor{processes: model}
-			if scenario.running {
-				supervisor.current = host.app
-			}
 			previous := model.hostStateDir()
-			if err := supervisor.settleDevProcessHostState(context.Background(), model); err != nil {
+			supervisor := &devSupervisor{processes: model}
+			if err := supervisor.settleDevProcessHostState(model, devProcessHostStatus{Current: 1, HostState: scenario.state}, scenario.reported); err != nil {
 				t.Fatal(err)
 			}
-			_, previousErr := os.Stat(previous)
-			if rotated := model.hostStateEpoch == 1; rotated != scenario.rotated || rotated == (previousErr == nil) {
-				t.Fatalf("epoch %d, previous directory present %v", model.hostStateEpoch, previousErr == nil)
+			if rotated := model.hostStateEpoch == 1; rotated != scenario.rotated {
+				t.Fatalf("epoch = %d, want rotated %v", model.hostStateEpoch, scenario.rotated)
 			}
-			if next, err := model.newLink(); err != nil || next.hostState != model.hostStateDir() {
-				t.Fatalf("next link host state %q, want %q (%v)", next.hostState, model.hostStateDir(), err)
+			if _, err := os.Stat(previous); err != nil {
+				t.Fatalf("the replaced epoch was removed before the replacement committed: %v", err)
+			}
+			if err := link.rebindHostState(model.hostStateDir()); err != nil {
+				t.Fatal(err)
+			}
+			written, err := os.ReadFile(link.path)
+			if err != nil || !strings.Contains(string(written), model.hostStateDir()) {
+				t.Fatalf("link file names %s, want %s (%v)", written, model.hostStateDir(), err)
+			}
+			model.removeStaleDevProcessHostStates()
+			_, previousErr := os.Stat(previous)
+			if scenario.rotated == (previousErr == nil) {
+				t.Fatalf("after the replacement committed the replaced epoch present = %v", previousErr == nil)
 			}
 		})
 	}

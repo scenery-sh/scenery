@@ -25,7 +25,7 @@ const creatingRuns = new Map();
 // A new helper process starts without this state, so turns and approvals of
 // earlier runs are unbound and refused rather than guessed.
 const sessionStates = new Map();
-const shared = { attachSession: null };
+const shared = { attachSession: null, from: null };
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const ndjsonHeaders = { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" };
@@ -79,7 +79,34 @@ function sessionState(sessionID) {
 }
 
 function runLifecycle() {
-  return { turns: new Set(), approvals: new Set(), sawTurn: false, answered: false, outcome: "completed" };
+  return { turns: new Set(), approvals: new Set(), sawTurn: false, answered: false, cancelling: false, outcome: "completed" };
+}
+
+// cancelRun records that a run must not execute. A run Eve has not started yet
+// is cancelled when its turn appears; until then its tool calls are refused, so
+// an accepted cancellation never leaves the run able to act.
+function cancelRun(state, sessionID, runID, continuationToken, principal) {
+  const run = state.runs.get(runID);
+  run.cancelling = true;
+  run.outcome = "cancelled";
+  const queued = state.waiting.find((candidate) => candidate.runID === runID);
+  if (queued) {
+    withdraw(state.waiting, queued);
+    close(state, sessionID, runID, "cancelled");
+    return Promise.resolve({ status: "accepted" });
+  }
+  if (run.turns.size) return shared.attachSession(sessionID).cancel({ turnId: [...run.turns][0] });
+  if (run.approvals.size) {
+    // A run parked on approval has no active turn: deny its approvals, which
+    // resumes and ends it.
+    const answer = shared.from(continuationToken).respond([...run.approvals].map((requestId) => ({ requestId, optionId: "cancel" })), { auth: authFor(principal) });
+    pump(state, sessionID);
+    return answer.then(() => ({ status: "accepted" }));
+  }
+  // Submitted, with no turn observed yet: its turn is cancelled when it binds,
+  // and a session that never starts it ends the run at its next boundary.
+  pump(state, sessionID);
+  return Promise.resolve({ status: "accepted" });
 }
 
 // settled reports whether the session has no work in progress: no run is
@@ -140,17 +167,22 @@ function next(state, sessionID) {
   }
 }
 
-// pump reads the provider stream while queued runs wait for the open run to
-// close, independent of any event stream a client holds open.
+// pump reads the provider stream while the helper owes the session work no
+// client stream covers: a queued run waiting for the open run to close, or a
+// cancelled run whose turn Eve has not started yet.
+function pumping(state) {
+  return state.waiting.length > 0 || [...state.runs.values()].some((run) => run.cancelling && !run.turns.size);
+}
+
 function pump(state, sessionID) {
   if (state.pumping) return;
   state.pumping = true;
   const loop = async () => {
-    while (state.waiting.length || (state.open !== null && state.runs.size)) {
+    while (pumping(state)) {
       try {
         await catchUp(state, sessionID);
       } catch {}
-      if (!state.waiting.length) break;
+      if (!pumping(state)) break;
       await new Promise((resolve) => setTimeout(resolve, streamPollMS));
     }
     state.pumping = false;
@@ -204,7 +236,7 @@ function apply(state, sessionID, providerEvent) {
       // A boundary without a continuation turn ends the approval's resumption.
       if (state.idle) state.resuming = null;
       if (type === "session.failed") close(state, sessionID, state.open, "failed");
-      else if (state.idle && open && open.sawTurn && !open.turns.size && !open.approvals.size) close(state, sessionID, state.open, open.outcome);
+      else if (state.idle && open && (open.sawTurn || open.cancelling) && !open.turns.size && !open.approvals.size) close(state, sessionID, state.open, open.outcome);
     }
     return;
   }
@@ -226,6 +258,9 @@ function apply(state, sessionID, providerEvent) {
     if (run) {
       run.turns.add(turnID);
       run.sawTurn = true;
+      if (run.cancelling) {
+        shared.attachSession(sessionID).cancel({ turnId: turnID }).catch(() => {});
+      }
     }
     const buffered = state.buffered.get(turnID) || [];
     state.buffered.delete(turnID);
@@ -297,7 +332,10 @@ export async function runForTurn(sessionID, turnID) {
   const state = sessionState(sessionID);
   for (let attempt = 0; attempt < runBindingAttempts; attempt++) {
     const runID = state.turns.get(turnID);
-    if (runID) return runID;
+    if (runID) {
+      if (state.runs.get(runID)?.cancelling) throw new Error("Scenery run is cancelled");
+      return runID;
+    }
     if (state.unbound.has(turnID)) break;
     await catchUp(state, sessionID);
     if (state.turns.has(turnID) || state.unbound.has(turnID)) continue;
@@ -379,6 +417,7 @@ function envelope(type, requestID, fields = {}) {
 async function control(request, { from, attachSession, requestIp }) {
   if (!authorized(request, requestIp)) return response({ error: "not found" }, 404);
   shared.attachSession = attachSession;
+  shared.from = from;
   let body;
   try {
     body = await request.json();
@@ -487,22 +526,7 @@ async function control(request, { from, attachSession, requestIp }) {
             error: { code: "run_not_found", message: "assistant run not found" },
           }), 404);
         }
-        let result = { status: "accepted" };
-        const queued = state.waiting.find((candidate) => candidate.runID === body.run_id);
-        if (queued) {
-          withdraw(state.waiting, queued);
-          close(state, body.private_session_id, body.run_id, "cancelled");
-        } else if (run.turns.size) {
-          result = await attachSession(body.private_session_id).cancel({ turnId: [...run.turns][0] });
-        } else if (run.approvals.size) {
-          // A run parked on approval has no active turn: deny its approvals,
-          // which resumes and ends it.
-          run.outcome = "cancelled";
-          await from(body.continuation_token).respond([...run.approvals].map((requestId) => ({ requestId, optionId: "cancel" })), {
-            auth: authFor(body.principal),
-          });
-          pump(state, body.private_session_id);
-        }
+        const result = await cancelRun(state, body.private_session_id, body.run_id, body.continuation_token, body.principal);
         return response(envelope("run.cancelled", body.request_id, {
           private_session_id: body.private_session_id,
           continuation_token: continuationFor(body.private_session_id, body.continuation_token),
@@ -674,7 +698,13 @@ async function eventStream(request, { attachSession, params, requestIp }) {
   // state reads the provider stream. A stream of a settled session (idle, with
   // no run in progress beyond an unanswered approval) ends after the history;
   // any other stream follows the session until it settles.
+  let stopped = false;
   const body = new ReadableStream({
+    cancel() {
+      // The subscriber left: stop following the session for it. The session
+      // state, its runs and other streams are unaffected.
+      stopped = true;
+    },
     async start(controller) {
       let written = after;
       const flush = () => {
@@ -686,11 +716,14 @@ async function eventStream(request, { attachSession, params, requestIp }) {
         }
       };
       try {
-        while (true) {
+        while (!stopped && !request.signal?.aborted) {
           flush();
           if (state.idle && settled(state)) break;
           await new Promise((resolve) => setTimeout(resolve, streamPollMS));
           await catchUp(state, sessionID);
+        }
+        if (stopped || request.signal?.aborted) {
+          return;
         }
         flush();
         controller.close();

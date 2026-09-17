@@ -117,11 +117,20 @@ cleanup_dev_runtime_before_production() {
   # isolated runtime app's generated state so cold artifact extraction has
   # deterministic disk headroom. The authored app root is never removed.
   capture_runtime_diagnostics
-  if [ "$RUNTIME_APP_ROOT" != "$APP_ROOT" ]; then
-    "$SCENERY" down --app-root "$RUNTIME_APP_ROOT" -o json > "$PRIVATE_ROOT/dev-down.json" 2> "$PRIVATE_ROOT/dev-down.stderr" || true
-  fi
+  # Only the development supervisor stops here; `down` releases the whole
+  # session in the exit cleanup. The session's managed database stops with its
+  # supervisor, so the production artifact's server is started again explicitly.
   stop_process "$UP_PID"
   UP_PID=""
+  if "$SCENERY" db server start --app-root "$RUNTIME_APP_ROOT" -o json > "$PRIVATE_ROOT/db-server-start.json" 2> "$PRIVATE_ROOT/db-server-start.stderr"; then
+    # The restarted server binds its own port, so the artifact's URL is
+    # resolved again from the session's record.
+    if resolve_managed_database_url; then
+      MANAGED_DATABASE_READY=1
+    else
+      MANAGED_DATABASE_READY=0
+    fi
+  fi
   if [ "$RUNTIME_APP_ROOT" != "$APP_ROOT" ] && [ -d "$RUNTIME_APP_ROOT/.scenery" ]; then
     rm -rf "$RUNTIME_APP_ROOT/.scenery"
   fi
@@ -606,17 +615,12 @@ EOF
 }
 
 resolve_managed_database_url() {
-  local agent_home
   local state_path
   local db_json
   local db_name
   local user
   local password
   local port
-  agent_home="$(printenv SCENERY_AGENT_HOME 2>/dev/null || true)"
-  if [ -z "$agent_home" ]; then
-    agent_home="$(printenv HOME 2>/dev/null || true)/.scenery"
-  fi
   # Resolve the app-scoped managed database after `scenery up` has ensured its
   # service.  Never fall back to the shared admin `postgres` database: the
   # production artifact must use the exact name returned by the strict CLI
@@ -634,13 +638,19 @@ resolve_managed_database_url() {
       if (line != "") { print line; exit }
     }
   ' "$db_json" | "$SED" -n '1p')"
-  state_path="$agent_home/agent/postgres/server.json"
-  if [ ! -f "$state_path" ]; then
+  # The strict CLI names the session's own server record; its credentials are
+  # the ones the artifact must use.  The record is never modified here.
+  local server_json="$PRIVATE_ROOT/db-server-status.json"
+  if ! "$SCENERY" db server status --app-root "$RUNTIME_APP_ROOT" -o json > "$server_json" 2> "$PRIVATE_ROOT/db-server-status.stderr"; then
+    return 1
+  fi
+  state_path="$("$SED" -n 's/.*"state_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$server_json" 2>/dev/null | "$SED" -n '1p')"
+  port="$("$SED" -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$server_json" 2>/dev/null | "$SED" -n '1p')"
+  if [ -z "$state_path" ] || [ ! -f "$state_path" ]; then
     return 1
   fi
   user="$("$SED" -n 's/.*"user"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$state_path" 2>/dev/null | "$SED" -n '1p')"
   password="$("$SED" -n 's/.*"password"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$state_path" 2>/dev/null | "$SED" -n '1p')"
-  port="$("$SED" -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$state_path" 2>/dev/null | "$SED" -n '1p')"
   if [ -z "$db_name" ] || [ -z "$user" ] || [ -z "$password" ] || [ -z "$port" ]; then
     return 1
   fi
@@ -1295,7 +1305,9 @@ if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$MANAGED_DATABASE_READY" -eq 1 ]; then
   production_helper_wait=0
   if [ "$PRODUCTION_LISTENING" -eq 1 ]; then
     production_create_status=000
-    while [ "$production_helper_wait" -lt 60 ] && kill -0 "$PRODUCTION_PID" 2>/dev/null; do
+    # The embedded helper extracts and starts its own runtime; give it the same
+    # bound as the listener, because a cold capsule start is not faster there.
+    while [ "$production_helper_wait" -lt "$PRODUCTION_WAIT_SECONDS" ] && kill -0 "$PRODUCTION_PID" 2>/dev/null; do
       production_create_status="$($CURL -sS --max-time 8 -X POST \
         "http://127.0.0.1:$PRODUCTION_PORT/assistants/support/v1/conversations" \
         -H 'content-type: application/json' -H 'accept: application/json' \
@@ -1311,8 +1323,8 @@ if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$MANAGED_DATABASE_READY" -eq 1 ]; then
     done
     printf '%s\n' "$production_create_status" > "$PRIVATE_ROOT/production-create.status"
   fi
-  printf 'wait_bound_seconds=%s\nwait_elapsed_seconds=%s\nhelper_wait_bound_seconds=60\nhelper_wait_elapsed_seconds=%s\nlistener=%s\nhelper=%s\n' \
-    "$PRODUCTION_WAIT_SECONDS" "$PRODUCTION_WAIT_ELAPSED" "$production_helper_wait" "$PRODUCTION_LISTENING" "$PRODUCTION_HELPER_READY" > "$PRIVATE_ROOT/production-startup.txt"
+  printf 'wait_bound_seconds=%s\nwait_elapsed_seconds=%s\nhelper_wait_bound_seconds=%s\nhelper_wait_elapsed_seconds=%s\nlistener=%s\nhelper=%s\n' \
+    "$PRODUCTION_WAIT_SECONDS" "$PRODUCTION_WAIT_ELAPSED" "$PRODUCTION_WAIT_SECONDS" "$production_helper_wait" "$PRODUCTION_LISTENING" "$PRODUCTION_HELPER_READY" > "$PRIVATE_ROOT/production-startup.txt"
   ps -axo pid,ppid,command > "$PRIVATE_ROOT/production-processes.txt" 2>/dev/null || true
   find "$RUNTIME_APP_ROOT/.scenery/assistant-runtime" -maxdepth 4 -type f -print > "$PRIVATE_ROOT/production-extraction-files.txt" 2>/dev/null || true
   if ! kill -0 "$PRODUCTION_PID" 2>/dev/null; then

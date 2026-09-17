@@ -60,10 +60,12 @@ import (
 const (
 	// processHostRunLimit bounds the runs a session retains.
 	processHostRunLimit = 4096
-	// assistantRunUnknownTimeout bounds how long a run whose start outcome is
-	// unknown executes without the host observing any of its events.
-	assistantRunUnknownTimeout = 30 * time.Second
 )
+
+// assistantRunUnknownTimeout bounds how long a run whose start outcome is
+// unknown executes without the host observing any of its events. Tests replace
+// it to observe the bound without waiting for it.
+var assistantRunUnknownTimeout = 30 * time.Second
 
 type assistantRunState int
 
@@ -299,6 +301,9 @@ func reserveAssistantRun(req *http.Request, assistantAddress, principal, convers
 	}
 	conversation := processHostConversationKey(assistantAddress, principal, conversationDigest)
 	key := processHostRunKey(conversation, runID)
+	if host.quiescing.Load() {
+		return nil, errProcessHostQuiescing
+	}
 	conversations := &host.conversations
 	conversations.Lock()
 	defer conversations.Unlock()

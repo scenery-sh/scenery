@@ -74,7 +74,10 @@ type devProcessModel struct {
 	// hostStateEpoch numbers the session's host state directory; it advances
 	// when the authority an earlier host incarnation journaled is uncertain.
 	hostStateEpoch uint64
-	contract       string
+	// staleHostStates are the epochs a replacement no longer reuses; they are
+	// removed once it commits, because a rollback restores the previous host.
+	staleHostStates []string
+	contract        string
 	// identity is the build identity every published generation attests: the
 	// build whose process identities the services have.
 	identity build.DevelopmentProcessIdentity
@@ -224,42 +227,62 @@ func removeDevProcessHostStates(socketDir string) {
 	}
 }
 
-// settleDevProcessHostState starts a new host state epoch before a new host
-// incarnation when the authority the previous incarnation journaled is
-// uncertain: it reported its host state unavailable, left a poison marker, did
-// not answer, or exited without the supervisor stopping it. A missing record
-// never authorizes anything, so the new, empty epoch is fail-closed: receipts
-// and runs of the earlier epoch are refused. The caller holds model.mu.
-func (s *devSupervisor) settleDevProcessHostState(ctx context.Context, model *devProcessModel) error {
-	if model.link == nil {
-		return nil
-	}
-	s.mu.RLock()
-	running := model.host != nil && model.host.app != nil && s.current == model.host.app
-	s.mu.RUnlock()
+// settleDevProcessHostState decides whether the next host incarnation may reuse
+// the session's host state. The previous incarnation has quiesced and stopped,
+// so the state it reported is final: the epoch is reused only when that report
+// says the authority is intact and no poison marker is left. Otherwise the
+// session starts a new, empty epoch, which authorizes nothing the uncertain one
+// held. The replaced epoch is retained until the replacement commits, because
+// the previous host is restored on a rollback. The caller holds model.mu.
+func (s *devSupervisor) settleDevProcessHostState(model *devProcessModel, final devProcessHostStatus, reported bool) error {
 	reason := ""
-	if !running {
-		reason = "the previous process host exited without reporting its host state"
-	} else if state, ok := model.link.status(ctx); !ok {
-		reason = "the previous process host did not report its host state"
-	} else if state.HostState != "" {
-		reason = "the previous process host reported its host state " + state.HostState
-	} else if markers, _ := filepath.Glob(filepath.Join(model.hostStateDir(), "*.poisoned")); len(markers) > 0 {
-		reason = "the previous process host poisoned its host state"
+	switch {
+	case !reported:
+		reason = "the previous process host did not report a final host state"
+	case final.HostState != "":
+		reason = "the previous process host reported its host state " + final.HostState
+	default:
+		if markers, _ := filepath.Glob(filepath.Join(model.hostStateDir(), "*.poisoned")); len(markers) > 0 {
+			reason = "the previous process host poisoned its host state"
+		}
 	}
 	if reason == "" {
 		return nil
 	}
-	previous := model.hostStateDir()
+	model.staleHostStates = append(model.staleHostStates, model.hostStateDir())
 	model.hostStateEpoch++
 	if err := os.Mkdir(model.hostStateDir(), 0o700); err != nil {
 		return fmt.Errorf("start a new process host state epoch: %w", err)
 	}
-	_ = os.RemoveAll(previous)
 	if s.console != nil {
 		s.console.Event("process.host_state_epoch", map[string]any{"epoch": model.hostStateEpoch, "reason": reason})
 	}
 	return nil
+}
+
+// removeStaleDevProcessHostStates deletes the host state epochs no incarnation
+// of the session serves any longer; the caller holds model.mu.
+func (model *devProcessModel) removeStaleDevProcessHostStates() {
+	for _, epoch := range model.staleHostStates {
+		if epoch != model.hostStateDir() {
+			_ = os.RemoveAll(epoch)
+		}
+	}
+	model.staleHostStates = nil
+}
+
+// rebindHostState rewrites the link file with the host state directory the
+// next host incarnation must use, which a settled handoff may have replaced.
+func (link *devProcessLink) rebindHostState(hostState string) error {
+	if link.hostState == hostState {
+		return nil
+	}
+	link.hostState = hostState
+	data, err := json.Marshal(map[string]any{"token": link.token, "dispatch": map[string]string{"network": "unix", "address": link.dispatch}, "host_state": link.hostState})
+	if err != nil {
+		return err
+	}
+	return writePrivateProcessLink(link.path, data)
 }
 
 // close ends the supervisor's control connections to a host incarnation.
@@ -447,9 +470,6 @@ func (replacement devProcessReplacement) run(ctx context.Context) (bool, error) 
 // now serves whose prepared assistant helpers the caller must start after
 // releasing model.mu.
 func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage, prepared *devProcessPreparation, keepServices bool) (*runningApp, bool, error) {
-	if err := s.settleDevProcessHostState(ctx, model); err != nil {
-		return nil, false, err
-	}
 	link, err := model.newLink()
 	if err != nil {
 		return nil, false, err
@@ -476,6 +496,12 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				previousStopped = true
 				return nil
 			}
+			// The previous host stops recording authority and reports its final
+			// host state before it exits, so the report cannot become stale.
+			final, reported := devProcessHostStatus{}, false
+			if previous.link != nil && previous.host != nil && previous.host.app == previousHost {
+				final, reported = previous.link.quiesce(ctx)
+			}
 			if err := previousHost.stop(); err != nil {
 				s.mu.Lock()
 				s.current = previousHost
@@ -483,7 +509,10 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				return err
 			}
 			previousStopped = true
-			return nil
+			if err := s.settleDevProcessHostState(model, final, reported); err != nil {
+				return err
+			}
+			return link.rebindHostState(model.hostStateDir())
 		},
 		startHost: func(ctx context.Context) error {
 			if s.assistants != nil {
@@ -559,6 +588,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			s.current = hostInstance.app
 			s.mu.Unlock()
 			_ = s.stopInstances(stale, model.runningCommands())
+			model.removeStaleDevProcessHostStates()
 			s.activateDevProcessInstances(ctx, model, started)
 			if previousHost != nil {
 				s.releaseUnusedAppBinary(previousHost.launch)

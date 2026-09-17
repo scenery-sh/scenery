@@ -444,3 +444,58 @@ func TestAssistantRunLimitNeverForgetsARunThatCanExecute(t *testing.T) {
 		t.Fatal("the forgotten run is not ended")
 	}
 }
+
+// assistantSilentStreamHelper answers every event read with a stream that sends
+// nothing until its request ends, as a helper does while a run is silent.
+type assistantSilentStreamHelper struct {
+	*assistantruntime.FakeHelper
+	reads chan struct{}
+}
+
+func (helper assistantSilentStreamHelper) StreamEvents(ctx context.Context, _ assistantruntime.StreamRequest) (io.ReadCloser, error) {
+	select {
+	case helper.reads <- struct{}{}:
+	default:
+	}
+	return assistantSilentStream{ctx: ctx}, nil
+}
+
+type assistantSilentStream struct{ ctx context.Context }
+
+func (stream assistantSilentStream) Read([]byte) (int, error) {
+	<-stream.ctx.Done()
+	return 0, stream.ctx.Err()
+}
+
+func (stream assistantSilentStream) Close() error { return nil }
+
+// A run whose start outcome stays unknown is revoked at its bound although the
+// event stream the host is reading never sends anything, and the read ends.
+func TestUnknownAssistantRunIsRevokedWhileItsEventStreamIsSilent(t *testing.T) {
+	previous := assistantRunUnknownTimeout
+	assistantRunUnknownTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { assistantRunUnknownTimeout = previous })
+	generation := &processHostGeneration{number: 1, retired: make(chan struct{})}
+	host := &processHost{closing: make(chan struct{})}
+	t.Cleanup(func() { close(host.closing) })
+	run := &processHostRun{conversation: "conversation", runID: "run_1", number: 1, generation: generation, state: assistantRunUnknown, ended: make(chan struct{})}
+	host.conversations.install(processHostRunKey("conversation", "run_1"), run)
+	reservation := &assistantRunReservation{host: host, run: run}
+	helper := assistantSilentStreamHelper{FakeHelper: assistantruntime.NewFakeHelper(), reads: make(chan struct{}, 1)}
+	(&assistantGateway{}).observeAssistantRun(reservation, helper, assistantruntime.StreamRequest{PrivateSessionID: "session-1"})
+	select {
+	case <-helper.reads:
+	case <-time.After(time.Second):
+		t.Fatal("the observer never read the run's events")
+	}
+	select {
+	case <-run.ended:
+	case <-time.After(time.Second):
+		t.Fatal("the unknown run was not revoked while its stream stayed silent")
+	}
+	host.conversations.Lock()
+	defer host.conversations.Unlock()
+	if !run.revoked || run.generation != nil {
+		t.Fatalf("revoked = %v, generation held = %v", run.revoked, run.generation != nil)
+	}
+}

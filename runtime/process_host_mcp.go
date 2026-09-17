@@ -76,7 +76,9 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 	if response.Outcome == nil {
 		return mcpcontract.ToolOutcome{}, ContractSystemError(fmt.Errorf("service process %s returned no MCP outcome", process))
 	}
-	if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" && response.Durable != nil {
+	if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" && response.Durable != nil && d.host.quiescing.Load() {
+		slog.Warn("durable execution was accepted while its host is being replaced; its status and cancellation are unavailable", "execution_id", receipt.ExecutionID)
+	} else if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" && response.Durable != nil {
 		// The execution was accepted whether or not its authorization commits;
 		// an uncommitted receipt is reported as accepted and reads as
 		// unavailable, and the call is never repeated.
