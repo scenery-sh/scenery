@@ -14,21 +14,48 @@ import (
 // missing-output detection. It never authorizes mutation: generation separately
 // verifies ownership and content digests before replacing or retiring files.
 // Unknown files in a managed directory remain ordinary authored inputs.
+//
+// Directory listings of unchanged directories are reused between discoveries
+// in one tree (internal/dirlisting); descriptors are read on every discovery.
 func GeneratedPaths(root string) (map[string]bool, error) {
+	return generatedPaths(root, false)
+}
+
+// ReconcileGeneratedPaths is GeneratedPaths reading every directory, as an
+// observation independent of reused listings; it reconciles the listings it
+// reads.
+func ReconcileGeneratedPaths(root string) (map[string]bool, error) {
+	return generatedPaths(root, true)
+}
+
+func generatedPaths(root string, fresh bool) (map[string]bool, error) {
 	paths := map[string]bool{}
 	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
 		return paths, nil
 	} else if err != nil {
 		return paths, err
 	}
-	return paths, collectGeneratedPaths(root, root, paths)
+	walk := generatedPathListings(root).Begin(fresh)
+	if err := collectGeneratedPaths(root, root, walk, paths); err != nil {
+		return paths, err
+	}
+	walk.Finish()
+	return paths, nil
 }
 
-// collectGeneratedPaths walks dir without following symbolic links. Directory
-// listings are reused while their directories are unchanged (internal/dirlisting),
-// so repeated discovery in one tree lists only changed directories.
-func collectGeneratedPaths(root, dir string, paths map[string]bool) error {
-	entries, err := dirlisting.ReadDir(dir)
+func generatedPathListings(root string) *dirlisting.Tree {
+	return dirlisting.TreeFor("generated\x00" + filepath.Clean(root))
+}
+
+// InvalidateGeneratedPathListings makes the next GeneratedPaths of root read
+// every directory, for callers whose observation of root became uncertain.
+func InvalidateGeneratedPathListings(root string) {
+	generatedPathListings(root).Invalidate()
+}
+
+// collectGeneratedPaths walks dir without following symbolic links.
+func collectGeneratedPaths(root, dir string, walk *dirlisting.Walk, paths map[string]bool) error {
+	entries, _, err := walk.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -41,7 +68,7 @@ func collectGeneratedPaths(root, dir string, paths map[string]bool) error {
 			if strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
 				continue
 			}
-			if err := collectGeneratedPaths(root, path, paths); err != nil {
+			if err := collectGeneratedPaths(root, path, walk, paths); err != nil {
 				return err
 			}
 			continue

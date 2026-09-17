@@ -186,8 +186,11 @@ func (s *devSupervisor) publishActivatedApp(ctx context.Context, initial bool, s
 	return nil
 }
 
+// requireCurrentBuildSnapshot compares the captured snapshot with a fresh scan
+// that reads every directory, so an activation never rests on the same reused
+// directory listings its capture observed.
 func (s *devSupervisor) requireCurrentBuildSnapshot(snapshot fileSnapshot) error {
-	current, err := scanWatchedFilesReusing(s.root, snapshot)
+	current, err := scanWatchedFilesFresh(s.root, snapshot)
 	if err != nil {
 		return fmt.Errorf("verify current build inputs: %w", err)
 	}

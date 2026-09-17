@@ -591,6 +591,32 @@ compile the application graph as it needs.
   495 ms, of which process identity 103 ms and input fingerprint 74 ms), the
   service preflight (about 350 ms, first execution) and the save-to-capture
   settle.
+- [x] (2026-09-17) Listing reuse made sound and host-local attestation made
+  exact (review of `87c58551`). A listing keyed by modification time missed a
+  rename whose directory time was restored, and a reused entry answered `Info`
+  from the first read. A listing now keeps entry names and types only, is
+  reused only while device, inode, size, modification time and status-change
+  time equal those observed before and after its read, entry metadata is always
+  read from the entry, each walker owns a bounded tree whose complete walks
+  evict unvisited directories, a watcher error discards it, and the
+  pre-activation snapshot verification reads every directory again. Tests
+  compare reused scans with independent `os.ReadDir` and `filepath.WalkDir`
+  results after restored times (rename, new `package.scn`, generated
+  descriptor, removed and replaced entries). A host-local answer now holds the
+  generation it attests, and a tool call of its conversation made meanwhile
+  runs in that generation. Three variants in the disposable ONLV worktree
+  (same protocol, 24 body edits, 20 churn, 4 shared, 3 contract, 3 failing;
+  p50/p95 ms): old matching with fresh reads, new matching with fresh reads,
+  new matching with the fixed listing reuse. Body edit to response
+  1,928/2,032, 1,878/1,963, 1,736/2,092; churn 1,926/1,982, 1,871/2,051,
+  1,749/1,810; shared 2,904/2,950, 2,724/3,605, 2,620/2,639; `watch.scan`
+  216, 140, 90; `supervisor.snapshot_verify` 216, 134, 134 (it reads every
+  directory in the fixed variant, 47 ms more than the reuse it replaced);
+  `workspace.cache` 156, 149, 84; preparation before `go build` 562, 571, 497;
+  failing edit to reported failure 2,207, 2,057, 1,808. Contract edits took
+  23.5, 23.2 and 25.1 s; the difference is `runtime.activation` (10.1-10.7 s
+  against 11.3-12.5 s for 48 process starts), which does not scan, while every
+  scan step was lowest in the fixed variant.
 
 ## Surprises & Discoveries
 
@@ -765,6 +791,12 @@ compile the application graph as it needs.
   soon as the stale `current.json` existed. Shared-store collection ran once
   per process, so every advanced recipe's superseded archives stayed for the
   whole session.
+
+- Restoring a directory's modification time after a rename (as `touch -m -d`,
+  `rsync -t` and some editors' atomic saves do) leaves size and modification
+  time equal, so a listing keyed by them reused the old membership. The
+  status-change time moves with any such restore and cannot be set by a
+  caller, which is why it is part of the stamp.
 
 ## Decision Log
 
@@ -1060,6 +1092,21 @@ compile the application graph as it needs.
   identity from that build, so the claim is exact, and existing consumers such
   as ONLV acceptance need no change. The instance stays observable in separate
   headers. Date: 2026-09-16. Author: Claude.
+- Decision: verify the snapshot before activation with a walk that reads every
+  directory, and keep listing reuse for the watcher's capture scans.
+  Rationale: the verification is the independent observation that a published
+  generation's sources are the captured ones, so it must not share the
+  capture's retained state; it costs about 45 ms per build on ONLV while the
+  capture keeps its reduction. Date: 2026-09-17. Author: Claude.
+- Decision: a host-local request holds its generation for its lifetime, and an
+  assistant tool call runs in the generation of the oldest in-flight gateway
+  request (create, turn, approval or run event stream) of its conversation,
+  else in the current generation. Rationale: the answer then attests the
+  build its tool calls executed, the hold is bounded by one request (an event
+  stream ends when its run waits or ends) and by forced retirement, and a
+  conversation is never pinned between requests; per-tool identity reporting
+  would need a public protocol change for the same guarantee. Date:
+  2026-09-17. Author: Claude.
 
 ## Outcomes & Retrospective
 

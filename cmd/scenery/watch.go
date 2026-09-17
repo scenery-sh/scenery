@@ -792,6 +792,11 @@ func (fw *fileChangeWatcher) run() {
 			if !ok {
 				return
 			}
+			// A watcher error, such as an event queue overflow, leaves the
+			// directory membership the watcher reported uncertain, so the next
+			// scans read every directory again.
+			watchListings(fw.root).Invalidate()
+			compiler.InvalidateGeneratedPathListings(fw.root)
 			fw.signal()
 		}
 	}

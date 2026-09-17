@@ -742,6 +742,7 @@ func (g *assistantGateway) handleCreate(w http.ResponseWriter, req *http.Request
 		return
 	}
 	conversationDigest := assistanttoken.ConversationDigest(runID)
+	defer pinAssistantConversation(req, g.registration.AssistantAddress, identity.Principal, conversationDigest)()
 	startRequest := assistantruntime.StartRequest{
 		RequestMetadata: g.requestMetadata(req, identity, conversationDigest),
 		RunID:           runID,
@@ -823,6 +824,7 @@ func (g *assistantGateway) handleTurn(w http.ResponseWriter, req *http.Request) 
 		g.writeError(w, err)
 		return
 	}
+	defer pinAssistantConversation(req, g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest)()
 	turnRequest := assistantruntime.TurnRequest{
 		RequestMetadata:   g.requestMetadata(req, identity, claims.ConversationDigest),
 		PrivateSessionID:  claims.PrivateSessionID,
@@ -898,6 +900,7 @@ func (g *assistantGateway) handleApproval(w http.ResponseWriter, req *http.Reque
 	if request.Decision == "approve" {
 		decision = assistantcontrol.DecisionAllow
 	}
+	defer pinAssistantConversation(req, g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest)()
 	approvalRequest := assistantruntime.ApprovalRequest{
 		RequestMetadata:   g.requestMetadata(req, identity, claims.ConversationDigest),
 		PrivateSessionID:  claims.PrivateSessionID,

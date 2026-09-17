@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -101,6 +102,76 @@ type processHostMCPDispatcher struct {
 	host *processHost
 }
 
+// A host-local request of an assistant conversation, such as its event stream,
+// attests the generation it holds. A tool call of that conversation made while
+// such a request is in flight runs in the generation of the oldest of them, so
+// that answer attests the behavior the call executed; a tool call of a
+// conversation without one runs in the current generation, and no answer
+// attests it.
+type processHostConversations struct {
+	sync.Mutex
+	pins map[string][]*processHostConversationPin
+}
+
+type processHostConversationPin struct {
+	generation *processHostGeneration
+}
+
+func processHostConversationKey(assistantAddress, principal, conversationDigest string) string {
+	return strings.TrimSpace(assistantAddress) + "\x00" + strings.TrimSpace(principal) + "\x00" + strings.TrimSpace(conversationDigest)
+}
+
+func (h *processHost) pinConversation(key string, generation *processHostGeneration) func() {
+	pin := &processHostConversationPin{generation: generation}
+	h.conversations.Lock()
+	if h.conversations.pins == nil {
+		h.conversations.pins = map[string][]*processHostConversationPin{}
+	}
+	h.conversations.pins[key] = append(h.conversations.pins[key], pin)
+	h.conversations.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			h.conversations.Lock()
+			defer h.conversations.Unlock()
+			pins := slices.DeleteFunc(h.conversations.pins[key], func(candidate *processHostConversationPin) bool { return candidate == pin })
+			if len(pins) == 0 {
+				delete(h.conversations.pins, key)
+			} else {
+				h.conversations.pins[key] = pins
+			}
+		})
+	}
+}
+
+// conversationGeneration returns the generation a tool call of the conversation
+// runs in: the oldest in-flight host-local request's, or 0 for the current one.
+func (h *processHost) conversationGeneration(key string) uint64 {
+	h.conversations.Lock()
+	defer h.conversations.Unlock()
+	if pins := h.conversations.pins[key]; len(pins) > 0 {
+		return pins[0].generation.number
+	}
+	return 0
+}
+
+// pinAssistantConversation holds a conversation's tool calls in the generation
+// the host-local request req holds, until the returned release. Outside a
+// process host, or before a generation is published, it does nothing.
+func pinAssistantConversation(req *http.Request, assistantAddress, principal, conversationDigest string) func() {
+	activeProcessHost.RLock()
+	host := activeProcessHost.host
+	activeProcessHost.RUnlock()
+	if host == nil || req == nil {
+		return func() {}
+	}
+	generation, _ := req.Context().Value(processHostGenerationKey{}).(*processHostGeneration)
+	if generation == nil {
+		return func() {}
+	}
+	return host.pinConversation(processHostConversationKey(assistantAddress, principal, conversationDigest), generation)
+}
+
 func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract.ToolCallContext, name string, input json.RawMessage) (mcpcontract.ToolOutcome, error) {
 	process, err := d.host.mcpToolOwner(strings.TrimSpace(call.AssistantAddress), strings.TrimSpace(name))
 	if err != nil {
@@ -110,7 +181,8 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 	if err != nil {
 		return mcpcontract.ToolOutcome{}, ContractSystemError(err)
 	}
-	response, err := d.host.callProcess(ctx, process, processMCPCallPath, body)
+	generation := d.host.conversationGeneration(processHostConversationKey(call.AssistantAddress, call.Principal, call.ConversationDigest))
+	response, err := d.host.callProcessIn(ctx, generation, process, processMCPCallPath, body)
 	if err != nil {
 		return mcpcontract.ToolOutcome{}, err
 	}
@@ -173,9 +245,19 @@ func (h *processHost) mcpToolOwner(assistantAddress, name string) (string, error
 // current generation, pinned to that generation, and verifies the answering
 // identity.
 func (h *processHost) callProcess(ctx context.Context, process, path string, body []byte) (processMCPResponse, error) {
-	generation := h.acquire(0)
+	return h.callProcessIn(ctx, 0, process, path, body)
+}
+
+// callProcessIn is callProcess in the generation number, or the current one
+// when number is 0.
+func (h *processHost) callProcessIn(ctx context.Context, number uint64, process, path string, body []byte) (processMCPResponse, error) {
+	generation := h.acquire(number)
 	if generation == nil {
-		return processMCPResponse{}, &errs.Error{Code: errs.Unavailable, Message: "application generation is not published", Meta: errs.Metadata{"delivery": "not_sent"}}
+		message := "application generation is not published"
+		if number != 0 {
+			message = fmt.Sprintf("application generation %d is not dispatchable", number)
+		}
+		return processMCPResponse{}, &errs.Error{Code: errs.Unavailable, Message: message, Meta: errs.Metadata{"delivery": "not_sent"}}
 	}
 	defer generation.inFlight.Add(-1)
 	instance := generation.instances[process]

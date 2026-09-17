@@ -122,8 +122,9 @@ type processHost struct {
 	local       http.Handler
 	localRoutes *routeTable
 
-	owners processHostDurableOwners
-	faults processHostFaults
+	owners        processHostDurableOwners
+	faults        processHostFaults
+	conversations processHostConversations
 
 	mu          sync.RWMutex
 	current     *processHostGeneration
@@ -287,9 +288,14 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 			method = requested
 		}
 		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil {
-			current := h.published()
+			// The host's own endpoints serve before a generation is published;
+			// once one is, a request holds the generation its answer attests
+			// for its whole lifetime (see pinAssistantConversation).
+			current := h.acquire(0)
 			if current != nil {
+				defer current.inFlight.Add(-1)
 				w.Header().Set(processGenerationHeader, strconv.FormatUint(current.number, 10))
+				req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, current))
 			}
 			h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: current}, req)
 			return
@@ -401,13 +407,6 @@ func (h *processHost) dispatch(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	instance.dispatch.ServeHTTP(w, req)
-}
-
-// published returns the current generation without pinning work to it.
-func (h *processHost) published() *processHostGeneration {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.current
 }
 
 func (h *processHost) acquire(number uint64) *processHostGeneration {

@@ -2,12 +2,15 @@ package main
 
 import (
 	"errors"
+
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/dirlisting"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/watchignore"
@@ -20,8 +23,25 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 // scanWatchedFilesReusing rescans the tree while reusing content hashes from
 // the previous snapshot for files whose size, permissions, and mtime are
 // unchanged, so steady-state watch ticks stat files instead of re-reading and
-// re-hashing the whole workspace.
+// re-hashing the whole workspace. Directory listings of unchanged directories
+// are reused (internal/dirlisting).
 func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, error) {
+	return scanWatchedFilesWith(root, previous, false)
+}
+
+// scanWatchedFilesFresh rescans the tree reading every directory, as an
+// observation independent of reused listings; it reconciles the listings it
+// reads.
+func scanWatchedFilesFresh(root string, previous fileSnapshot) (fileSnapshot, error) {
+	return scanWatchedFilesWith(root, previous, true)
+}
+
+// watchListings is the directory listing tree of the watcher's scans of root.
+func watchListings(root string) *dirlisting.Tree {
+	return dirlisting.TreeFor("watch\x00" + filepath.Clean(root))
+}
+
+func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileSnapshot, error) {
 	scanStartedAt := time.Now()
 	snapshot := fileSnapshot{
 		scanStartedAt: scanStartedAt,
@@ -29,10 +49,15 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 		contractCompilerAbsent: previous.contractCompilerAbsent, membership: previous.membership,
 		files: make(map[string]fileStamp, len(previous.files)), compilerValid: true,
 	}
-	generated, err := compiler.GeneratedPaths(root)
+	discoverGenerated := compiler.GeneratedPaths
+	if fresh {
+		discoverGenerated = compiler.ReconcileGeneratedPaths
+	}
+	generated, err := discoverGenerated(root)
 	if err != nil {
 		return fileSnapshot{}, err
 	}
+	walk := watchListings(root).Begin(fresh)
 	snapshot.generated = make(map[string]bool, len(generated))
 	snapshot.generatedContent = make(map[string]fileStamp, len(generated))
 	snapshot.retryGenerated = previous.retryGenerated
@@ -52,7 +77,7 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 	}
 	var dirs []string
 	ignore := watchignore.New(root)
-	err = walkWatchTree(root, ignore, &snapshot.scanStats, func(path string, d fs.DirEntry, err error) error {
+	err = walkWatchTree(root, ignore, walk, &snapshot.scanStats, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Tolerate entries vanishing or turning unreadable mid-scan; a
 			// transient walk error must not abort the watch loop.
@@ -139,6 +164,7 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 	if err != nil {
 		return fileSnapshot{}, err
 	}
+	walk.Finish()
 	// WalkDir visits each directory exactly once, so the list is already
 	// unique; DFS pre-order is not string-sorted, so sort stays.
 	sort.Strings(dirs)

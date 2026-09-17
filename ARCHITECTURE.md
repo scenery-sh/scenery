@@ -364,12 +364,17 @@ through `internal/build`.
 
 ### `internal/dirlisting`
 
-`internal/dirlisting` is the stdlib leaf that reuses directory listings between
-walks of one tree. The development watcher's snapshot scans and generated-path
-discovery read a directory again only when its identity, modification time or
-size changed, or when it was modified within the timestamp granularity of
-common filesystems before its last listing; unchanged directories cost one
-`lstat`. Files are still checked by their own metadata by each caller.
+`internal/dirlisting` is the stdlib leaf that reuses directory membership
+between walks of one tree. The development watcher's snapshot scans and
+generated-path discovery read a directory again when its identity, size,
+modification time or status-change time differ from those around its last
+read, or when it was modified within the timestamp granularity of common
+filesystems before that read; unchanged directories cost one `lstat`. A listing
+holds names and types only, entry metadata is always read from the entry, and
+files are still checked by their own metadata by each caller. Each walker owns
+a bounded `Tree`: a complete walk evicts directories it did not visit, and a
+fresh walk (pre-activation snapshot verification) reads every directory and
+reconciles the retained listings.
 
 ### `internal/build`
 

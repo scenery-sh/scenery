@@ -44,6 +44,7 @@ func (g *assistantGateway) handleEvents(w http.ResponseWriter, req *http.Request
 		g.writeError(w, err)
 		return
 	}
+	defer pinAssistantConversation(req, g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest)()
 	streamRequest := assistantruntime.StreamRequest{
 		RequestMetadata:   g.requestMetadata(req, identity, claims.ConversationDigest),
 		PrivateSessionID:  claims.PrivateSessionID,
