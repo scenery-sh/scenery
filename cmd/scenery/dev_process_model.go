@@ -149,14 +149,17 @@ func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
 	return s.processes, nil
 }
 
-// newLink writes the private link file of the next host incarnation.
+// newLink writes the private link file of the next host incarnation. Every
+// incarnation of a session uses the same link file and dispatch socket, and a
+// host starts only after its predecessor has exited, so a service instance
+// kept across a host replacement reaches the new host without being told.
 func (model *devProcessModel) newLink() (*devProcessLink, error) {
 	epoch := model.epoch + 1
 	link := &devProcessLink{
 		epoch:    epoch,
 		token:    model.token,
-		path:     filepath.Join(model.socketDir, "process-link-"+strconv.FormatUint(epoch, 10)+".json"),
-		dispatch: filepath.Join(model.socketDir, "d"+strconv.FormatUint(epoch, 10)+".sock"),
+		path:     filepath.Join(model.socketDir, devProcessLinkFile),
+		dispatch: filepath.Join(model.socketDir, devProcessDispatchSocket),
 	}
 	data, err := json.Marshal(map[string]any{"token": model.token, "dispatch": map[string]string{"network": "unix", "address": link.dispatch}})
 	if err != nil {
@@ -176,11 +179,25 @@ func (model *devProcessModel) newLink() (*devProcessLink, error) {
 	return link, nil
 }
 
+const (
+	devProcessLinkFile       = "process-link.json"
+	devProcessDispatchSocket = "d.sock"
+)
+
+// close ends the supervisor's control connections to a host incarnation.
+func (link *devProcessLink) close() {
+	if link != nil {
+		link.control.CloseIdleConnections()
+	}
+}
+
+// remove deletes the session's link file and dispatch socket when the session
+// closes.
 func (link *devProcessLink) remove() {
 	if link == nil {
 		return
 	}
-	link.control.CloseIdleConnections()
+	link.close()
 	_ = os.Remove(link.path)
 	_ = os.Remove(link.dispatch)
 }
@@ -236,7 +253,11 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 	s.mu.RUnlock()
 	contract := result.Contract.Manifest.ContractRevision
 	base := s.appChildEnvironment(result, environment)
-	if host != nil && model.host != nil && model.host.app == host && model.contract == contract && model.host.process.Identity == set.Host.Identity && model.environment == devProcessEnvironmentIdentity(base) {
+	// The host serving the current generation with the processes' current
+	// environment keeps every service instance whose identity is unchanged,
+	// even when a changed contract or host replaces the host.
+	keepServices := host != nil && model.host != nil && model.host.app == host && model.environment == devProcessEnvironmentIdentity(base)
+	if keepServices && model.contract == contract && model.host.process.Identity == set.Host.Identity {
 		return host, true, s.replaceDevServiceProcesses(ctx, model, set, base, plan.Prepared)
 	}
 	var stage, previousStage *assistantStage
@@ -262,7 +283,7 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 			return nil, true, stageErr
 		}
 	}
-	current, startAssistants, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage, plan.Prepared)
+	current, startAssistants, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage, plan.Prepared, keepServices)
 	// Prepared helpers start once the model is released: a helper that starts
 	// reports its process, which registers the session, and a helper start is
 	// external work no reader of the model should wait for. The assistant
@@ -341,10 +362,12 @@ func (replacement devProcessReplacement) run(ctx context.Context) (bool, error) 
 }
 
 // startDevProcessGeneration starts a complete generation with a new host
-// incarnation, restoring the previous generation when the new host fails. It
-// reports whether a host now serves whose prepared assistant helpers the
-// caller must start after releasing model.mu.
-func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage, prepared *devProcessPreparation) (*runningApp, bool, error) {
+// incarnation, restoring the previous generation when the new host fails. With
+// keepServices the new host takes over every service instance whose identity
+// is unchanged, and only the other services start. It reports whether a host
+// now serves whose prepared assistant helpers the caller must start after
+// releasing model.mu.
+func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage, prepared *devProcessPreparation, keepServices bool) (*runningApp, bool, error) {
 	link, err := model.newLink()
 	if err != nil {
 		return nil, false, err
@@ -352,15 +375,17 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 	base := s.appChildEnvironment(result, environment)
 	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, identity: model.identity, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
 	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
+	kept, starting := map[string]*devProcessInstance{}, set.Services
+	if keepServices && previous.link != nil && previous.link.path == link.path {
+		kept, starting = devProcessTakeover(previous.services, set.Services)
+	}
 	var started []*devProcessInstance
 	var previousHost *runningApp
 	previousStopped, startAssistants := false, false
 	replacement := devProcessReplacement{
 		startServices: func(ctx context.Context) error {
 			var err error
-			if started, err = s.startDevServiceInstances(ctx, model, set.Services, base, link, prepared); err != nil {
-				link.remove()
-			}
+			started, err = s.startDevServiceInstances(ctx, model, starting, base, link, prepared)
 			return err
 		},
 		stopPrevious: func() error {
@@ -392,11 +417,14 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			if err := s.startDevProcessInstance(ctx, hostInstance, "host", hostEnv, s.backend); err != nil {
 				return err
 			}
-			services := make(map[string]*devProcessInstance, len(started))
+			services := maps.Clone(kept)
 			for _, instance := range started {
 				services[instance.process.Name] = instance
 			}
-			model.link, model.generation, model.contract, model.bindings = link, 0, result.Contract.Manifest.ContractRevision, maps.Clone(set.BindingOwners)
+			// Generation numbers continue across host incarnations, so a request
+			// or retirement addressed to a generation of the previous host never
+			// names one of this host.
+			model.link, model.contract, model.bindings = link, result.Contract.Manifest.ContractRevision, maps.Clone(set.BindingOwners)
 			model.identity, model.environment = set.Identity, devProcessEnvironmentIdentity(base)
 			model.host, model.services, model.retained = hostInstance, services, map[uint64]map[string]*devProcessInstance{}
 			return s.publishDevProcessGeneration(ctx, model)
@@ -412,7 +440,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			if previousStopped {
 				// The previous host's retained generations ended with it; its
 				// current services wait to be republished.
-				model.generation, model.retained = 0, map[uint64]map[string]*devProcessInstance{}
+				model.retained = map[uint64]map[string]*devProcessInstance{}
 				for _, instance := range previous.instances() {
 					if previous.services[instance.process.Name] != instance {
 						candidates = append(candidates, instance)
@@ -421,7 +449,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			}
 			markDevProcessesStopped(candidates)
 			err := s.stopInstances(candidates, model.runningCommands())
-			link.remove()
+			link.close()
 			return err
 		},
 		restore: func(ctx context.Context) (bool, error) {
@@ -437,10 +465,11 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			return true, nil
 		},
 		commit: func(ctx context.Context) {
-			// The previous instances stop before the new generation acquires
-			// background work; the previous host, which alone reached them, has
-			// already stopped.
-			stale := previous.instances()
+			// The previous instances the new host did not take over stop before
+			// the new generation acquires background work; the previous host,
+			// which alone reached them, has already stopped. A kept instance
+			// keeps its background work, whose attempts the new host admits.
+			stale := slices.DeleteFunc(previous.instances(), func(instance *devProcessInstance) bool { return kept[instance.process.Name] == instance })
 			markDevProcessesStopped(stale)
 			s.mu.Lock()
 			s.current = hostInstance.app
@@ -450,7 +479,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			if previousHost != nil {
 				s.releaseUnusedAppBinary(previousHost.launch)
 			}
-			previous.link.remove()
+			previous.link.close()
 			go func() {
 				<-hostInstance.app.process.Done
 				s.handleExit(context.Background(), hostInstance.app)
@@ -462,6 +491,22 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 		return nil, startAssistants, err
 	}
 	return hostInstance.app, startAssistants, nil
+}
+
+// devProcessTakeover splits the services of a complete generation into the
+// running instances a new host takes over, whose identity is unchanged, and
+// the processes that start.
+func devProcessTakeover(previous map[string]*devProcessInstance, services []build.DevelopmentProcess) (map[string]*devProcessInstance, []build.DevelopmentProcess) {
+	kept := map[string]*devProcessInstance{}
+	var starting []build.DevelopmentProcess
+	for _, process := range services {
+		if current := previous[process.Name]; current != nil && !current.stopped && current.process.Identity == process.Identity {
+			kept[process.Name] = current
+			continue
+		}
+		starting = append(starting, process)
+	}
+	return kept, starting
 }
 
 // restoreDevProcessHost restarts the previous host from its retained executable

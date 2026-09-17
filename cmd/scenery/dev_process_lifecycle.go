@@ -84,7 +84,7 @@ func (s *devSupervisor) beginDevProcessPreparation(ctx context.Context, result *
 // instance reports the prepared instance of a process of this link, once its
 // preparation has finished.
 func (preparation *devProcessPreparation) instance(link *devProcessLink, process build.DevelopmentProcess) (*devProcessInstance, error) {
-	if preparation == nil || preparation.link != link {
+	if preparation == nil || preparation.link == nil || link == nil || preparation.link.path != link.path {
 		return nil, nil
 	}
 	<-preparation.done

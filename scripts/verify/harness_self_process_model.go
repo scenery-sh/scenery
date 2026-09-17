@@ -356,14 +356,87 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		}
 	}
 	seen = append(seen, replacedHost)
+	// The new host takes over every service instance whose identity the
+	// contract change left unchanged; a service with a changed identity starts
+	// again, whether this build or an earlier failed one linked it.
 	greeterFour, err := call(ctx, "/greet", `{"name":"probe"}`)
-	if err != nil || greeterFour.Message != "greeter-two|echo-two|hello probe" || greeterFour.PID == greeterThree.PID {
+	if err != nil || greeterFour.Message != "greeter-two|echo-two|hello probe" {
 		return nil, fmt.Errorf("after the committed contract-changing generation greet = %#v, %v", greeterFour, err)
 	}
-	for _, pid := range []int{host, greeterThree.PID, echoThree.PID} {
-		if !harnessWaitProcessExit(pid, 15*time.Second) {
-			return nil, fmt.Errorf("process %d of the replaced generation outlived the complete replacement", pid)
+	echoFour, err := call(ctx, "/echo", `{"message":"hi"}`)
+	if err != nil || echoFour.Message != "echo-two|hi" {
+		return nil, fmt.Errorf("after the committed contract-changing generation echo = %#v, %v", echoFour, err)
+	}
+	if !harnessWaitProcessExit(host, 15*time.Second) {
+		return nil, fmt.Errorf("host %d outlived the complete replacement", host)
+	}
+	var committedStarted []string
+	for _, service := range []struct {
+		name            string
+		before, current harnessProcessModelResponse
+	}{{"greeter_greeter", greeterThree, greeterFour}, {"echo_echo", echoThree, echoFour}} {
+		if service.current.Implementation == service.before.Implementation {
+			if service.current.PID != service.before.PID {
+				return nil, fmt.Errorf("unchanged %s moved from process %d to %d when the host was replaced", service.name, service.before.PID, service.current.PID)
+			}
+			continue
 		}
+		committedStarted = append(committedStarted, service.name)
+		if service.current.PID == service.before.PID || !harnessWaitProcessExit(service.before.PID, 15*time.Second) {
+			return nil, fmt.Errorf("changed %s process %d was not replaced by the complete generation (now %d)", service.name, service.before.PID, service.current.PID)
+		}
+	}
+
+	// A contract change of greeter alone replaces the host and greeter; the new
+	// host takes over the running echo instance, which keeps serving greeter's
+	// calls.
+	takeoverOffset := logOffset()
+	if err := harnessReplaceEachInFile(filepath.Join(appRoot, "greeter/package.scn"), [2]string{"record \"greet_result\" {\n", "record \"greet_result\" {\n  field \"note\" {\n    type = string\n  }\n\n"}); err != nil {
+		return nil, err
+	}
+	takeoverContract, err := harnessProcessModelWaitActivation(ctx, started.LogPath, takeoverOffset, true, func(revision string) bool { return revision != changedContract })
+	if err != nil {
+		return nil, err
+	}
+	takeoverRebuilt, err := harnessProcessModelRebuiltSet(started.LogPath, takeoverOffset)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(takeoverRebuilt, "greeter_greeter") || slices.Contains(takeoverRebuilt, "echo_echo") {
+		return nil, fmt.Errorf("a greeter contract change relinked %v; want greeter and not echo", takeoverRebuilt)
+	}
+	takeoverHost := 0
+	for begin := time.Now(); ; {
+		session, err := harnessLiveSession(ctx, home, appRoot)
+		if err != nil {
+			return nil, err
+		}
+		if takeoverHost, _ = strconv.Atoi(session.AppPID); takeoverHost > 0 && takeoverHost != replacedHost {
+			break
+		}
+		if time.Since(begin) > 30*time.Second {
+			return nil, fmt.Errorf("the greeter contract change kept host %d (session reports %q)", replacedHost, session.AppPID)
+		}
+		if err := harnessWaitContext(ctx, 20*time.Millisecond); err != nil {
+			return nil, err
+		}
+	}
+	seen = append(seen, takeoverHost)
+	greeterFive, err := call(ctx, "/greet", `{"name":"probe"}`)
+	if err != nil || greeterFive.Message != "greeter-two|echo-two|hello probe" || greeterFive.PID == greeterFour.PID || greeterFive.Implementation == greeterFour.Implementation || greeterFive.Host != takeoverHost {
+		return nil, fmt.Errorf("after the greeter contract change greet = %#v, %v", greeterFive, err)
+	}
+	echoFive, err := call(ctx, "/echo", `{"message":"hi"}`)
+	if err != nil || echoFive.Message != "echo-two|hi" || echoFive.PID != echoFour.PID || echoFive.Implementation != echoFour.Implementation || echoFive.Host != takeoverHost {
+		return nil, fmt.Errorf("the new host did not take over echo process %d: echo = %#v, %v", echoFour.PID, echoFive, err)
+	}
+	for _, pid := range []int{replacedHost, greeterFour.PID} {
+		if !harnessWaitProcessExit(pid, 15*time.Second) {
+			return nil, fmt.Errorf("process %d replaced by the greeter contract change is still running", pid)
+		}
+	}
+	if err := syscall.Kill(echoFour.PID, 0); err != nil {
+		return nil, fmt.Errorf("the taken-over echo process %d stopped: %w", echoFour.PID, err)
 	}
 	stockLinks, err := harnessProcessModelStockOnly(started.LogPath)
 	if err != nil {
@@ -371,9 +444,13 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	}
 	return map[string]any{
 		"stock_entrypoint_links":                  stockLinks,
-		"host_pids":                               []int{host, replacedHost},
-		"echo_pids":                               []int{echoOne.PID, echoTwo.PID, echoThree.PID},
-		"greeter_pids":                            []int{greeterOne.PID, greeterTwo.PID, greeterThree.PID, greeterFour.PID},
+		"host_pids":                               []int{host, replacedHost, takeoverHost},
+		"echo_pids":                               []int{echoOne.PID, echoTwo.PID, echoThree.PID, echoFour.PID, echoFive.PID},
+		"greeter_pids":                            []int{greeterOne.PID, greeterTwo.PID, greeterThree.PID, greeterFour.PID, greeterFive.PID},
+		"committed_contract_started":              committedStarted,
+		"greeter_contract_relinked":               takeoverRebuilt,
+		"greeter_contract_revision":               takeoverContract,
+		"echo_taken_over_by_new_host":             echoFive.PID,
 		"pinned_across_three_generations":         inFlight.response.Message,
 		"pinned_generation":                       inFlight.response.Generation,
 		"current_generation_after_two_edits":      echoTwo.Generation,
@@ -386,7 +463,7 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		"shared_edit_rebuilt":                     rebuilt,
 		"failed_contract_generation_kept_serving": true,
 		"committed_contract_revision":             changedContract,
-		"proof":                                   "public_scenery_up_process_model_replaced_only_changed_services_with_retained_generations_background_activation_complete_replacement_and_identity_attribution",
+		"proof":                                   "public_scenery_up_process_model_replaced_only_changed_services_with_retained_generations_background_activation_host_replacement_takeover_and_identity_attribution",
 	}, nil
 }
 
@@ -573,7 +650,7 @@ func harnessProcessModelCleanup(home, appRoot string, pids []int) error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		for _, pattern := range []string{"d[0-9]*.sock", "s[0-9]*.sock", "process-link-[0-9]*.json"} {
+		for _, pattern := range []string{"d.sock", "s[0-9]*.sock", "process-link.json"} {
 			if matched, _ := filepath.Match(pattern, name); matched {
 				return fmt.Errorf("process-model wiring %s outlived scenery down", name)
 			}

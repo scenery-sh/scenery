@@ -126,8 +126,11 @@ func TestDevProcessReplacementRestoresThePreviousHostOnlyAfterCandidatesStop(t *
 	}
 }
 
+// A prepared instance's start environment names its link file, so it serves any
+// host incarnation of that link and no other link.
 func TestDevProcessPreparationServesOnlyItsOwnLinkAndIdentity(t *testing.T) {
-	link, other := &devProcessLink{epoch: 1}, &devProcessLink{epoch: 2}
+	link, other := &devProcessLink{epoch: 1, path: "/tmp/process-link.json"}, &devProcessLink{epoch: 2, path: "/tmp/other/process-link.json"}
+	nextIncarnation := &devProcessLink{epoch: 3, path: link.path}
 	process := build.DevelopmentProcess{Name: "echo_echo", Binary: "/tmp/echo-1", Identity: build.DevelopmentProcessIdentity{ImplementationRevision: "sha256:one"}}
 	request := devProcessStartRequest{Command: "/tmp/session/echo-1"}
 	preparation := &devProcessPreparation{link: link, instances: map[string]*devProcessInstance{
@@ -142,9 +145,11 @@ func TestDevProcessPreparationServesOnlyItsOwnLinkAndIdentity(t *testing.T) {
 	if instance, err := preparation.instance(link, replaced); instance != nil || err != nil {
 		t.Fatalf("instance of another identity = %#v, %v", instance, err)
 	}
-	instance, err := preparation.instance(link, process)
-	if err != nil || instance == nil || instance.request != &request {
-		t.Fatalf("prepared instance = %#v, %v", instance, err)
+	for _, incarnation := range []*devProcessLink{link, nextIncarnation} {
+		instance, err := preparation.instance(incarnation, process)
+		if err != nil || instance == nil || instance.request != &request {
+			t.Fatalf("prepared instance for incarnation %d = %#v, %v", incarnation.epoch, instance, err)
+		}
 	}
 	// A preparation that failed refuses every instance.
 	failed := &devProcessPreparation{link: link, err: errors.New("preflight failed"), done: make(chan struct{})}
@@ -565,4 +570,30 @@ func TestDevProcessProofsCoverOnlyTheSameExecutableIdentityAndEnvironment(t *tes
 		t.Fatalf("remembered %d proofs, limit %d", len(proofs.keys), devProcessProofLimit)
 	}
 	proofs.Unlock()
+}
+
+// A new host takes over the running instances whose identity is unchanged and
+// starts every other service.
+func TestDevProcessTakeoverKeepsOnlyRunningUnchangedInstances(t *testing.T) {
+	identity := func(value string) build.DevelopmentProcessIdentity {
+		return build.DevelopmentProcessIdentity{ContractRevision: "sha256:contract-" + value, ImplementationRevision: "sha256:" + value}
+	}
+	process := func(name, value string) build.DevelopmentProcess {
+		return build.DevelopmentProcess{Name: name, Identity: identity(value)}
+	}
+	echo := &devProcessInstance{process: process("echo_echo", "echo")}
+	greeter := &devProcessInstance{process: process("greeter_greeter", "greeter"), stopped: true}
+	house := &devProcessInstance{process: process("house_house", "house")}
+	kept, starting := devProcessTakeover(map[string]*devProcessInstance{"echo_echo": echo, "greeter_greeter": greeter, "house_house": house},
+		[]build.DevelopmentProcess{process("echo_echo", "echo"), process("greeter_greeter", "greeter"), process("house_house", "house-changed"), process("garden_garden", "garden")})
+	if len(kept) != 1 || kept["echo_echo"] != echo {
+		t.Fatalf("kept instances = %#v", kept)
+	}
+	var names []string
+	for _, process := range starting {
+		names = append(names, process.Name)
+	}
+	if !slices.Equal(names, []string{"greeter_greeter", "house_house", "garden_garden"}) {
+		t.Fatalf("starting services = %v", names)
+	}
 }

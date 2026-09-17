@@ -676,6 +676,21 @@ compile the application graph as it needs.
   1,548 to 1,480, churn 1,542 to 1,472, failing edit to reported failure 1,736
   to 1,659. The workspace framework fingerprint keeps its persisted metadata
   cache (about 12 ms) because one-shot commands rely on it across processes.
+- [x] (2026-09-17) A replaced host takes over unchanged service instances. Every
+  host incarnation of a session now uses one link file and dispatch socket,
+  which a service reads once at startup and a new host binds only after its
+  predecessor exited; generation numbers continue across incarnations so a
+  request or retirement addressed to the previous host never names a
+  generation of the new one. A complete generation started by a contract or
+  host change keeps every running instance whose linked identity is
+  unchanged, when the processes' environment is unchanged, and starts only the
+  others; a rollback restores the previous host with the same instances. The
+  `process-model` probe now also changes greeter's contract alone and requires
+  a new host and greeter while the same echo process answers through the new
+  host. On ONLV a contract edit starts two processes (host and the edited
+  service) instead of 48: runtime activation 1.2 s to 565 ms, build request
+  4.0 to 3.4 s, edit to response 5.6 to 5.0 s p50; assistants stayed ready with
+  matching capability revisions and body edits were unchanged (1,480 ms).
 
 ## Surprises & Discoveries
 
@@ -1194,13 +1209,14 @@ compile the application graph as it needs.
   capability revision; tying helpers to the whole application contract rebuilt
   both ONLV helpers on every unrelated contract edit. Date: 2026-09-17.
   Author: Claude.
-- Decision: keep restarting every service process when a contract change
-  replaces the host, and make the restart cheap instead (verified retained
-  executables, reused preflight proofs). Rationale: an instance's link, socket
-  and background-work admission belong to one host incarnation; moving live
-  instances to a new host is a lifecycle change with its own rollback cases,
-  while the remaining activation takes about 1.2 s on ONLV. Date: 2026-09-17.
-  Author: Claude.
+- Decision: a replaced host takes over the running service instances whose
+  identity is unchanged (superseding the earlier decision to restart them all).
+  Rationale (human request after the contract identity work): a service reads
+  its link once and admits background attempts by its identity, so one link
+  path per session and generation numbers that continue across host
+  incarnations let a new host serve an unchanged instance without restarting
+  it; an attempt during the host swap fails as unavailable, as it would while
+  its process restarted. Date: 2026-09-17. Author: human, Claude.
 
 ## Outcomes & Retrospective
 
