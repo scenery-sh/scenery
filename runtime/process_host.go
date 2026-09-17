@@ -140,6 +140,9 @@ type processHostGeneration struct {
 	instances map[string]*processHostInstance
 	bindings  map[string]string
 	inFlight  atomic.Int64
+	// retired is closed when the generation is removed, which ends the
+	// admissions and conversation run scopes that hold it.
+	retired chan struct{}
 }
 
 type processHostInstance struct {
@@ -151,6 +154,11 @@ type processHostInstance struct {
 }
 
 type processHostGenerationKey struct{}
+
+// processHostAttestationKey carries the attesting writer of a host-local
+// request, whose attested generation an assistant event stream selects before
+// its answer starts.
+type processHostAttestationKey struct{}
 
 // MainProcessHost serves a process host until the supervisor or a signal stops
 // it: public requests on the runtime listen address, and dispatch plus generation
@@ -166,6 +174,11 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 	host, err := newProcessHost(cfg, link.Token, CurrentLinkedContractBundle().ContractRevision)
 	if err != nil {
 		return err
+	}
+	if link.HostState != "" {
+		if err := host.openState(link.HostState); err != nil {
+			return err
+		}
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
@@ -289,15 +302,18 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 		}
 		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil {
 			// The host's own endpoints serve before a generation is published;
-			// once one is, a request holds the generation its answer attests
-			// for its whole lifetime (see pinAssistantConversation).
+			// once one is, a request holds the generation current at ingress for
+			// its whole lifetime and its answer attests that generation, unless
+			// an assistant event stream attests the generation its
+			// conversation's run executes in (see attachAssistantStream).
 			current := h.acquire(0)
+			writer := &processHostAttestingWriter{ResponseWriter: w, generation: current}
 			if current != nil {
 				defer current.inFlight.Add(-1)
-				w.Header().Set(processGenerationHeader, strconv.FormatUint(current.number, 10))
-				req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, current))
+				ctx := context.WithValue(req.Context(), processHostGenerationKey{}, current)
+				req = req.WithContext(context.WithValue(ctx, processHostAttestationKey{}, writer))
 			}
-			h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: current}, req)
+			h.local.ServeHTTP(writer, req)
 			return
 		}
 	}
@@ -459,7 +475,7 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	if h.current != nil && manifest.Generation <= h.current.number || manifest.Generation == 0 {
 		return fmt.Errorf("generation %d does not follow the published generation", manifest.Generation)
 	}
-	generation := &processHostGeneration{number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings)}
+	generation := &processHostGeneration{number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings), retired: make(chan struct{})}
 	for name, spec := range manifest.Processes {
 		identity := spec.Identity
 		// A service instance records its service contract revision, which a
@@ -483,7 +499,8 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 
 // retire removes a replaced generation when no work is pinned to it. A forced
 // retirement removes it regardless: its pinned internal calls then fail as not
-// sent, and work already forwarded ends when the supervisor stops its instances.
+// sent, the background attempts admitted to it are interrupted, and work
+// already forwarded ends when the supervisor stops its instances.
 func (h *processHost) retire(number uint64, force bool) (int, string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -497,6 +514,7 @@ func (h *processHost) retire(number uint64, force bool) (int, string) {
 		return http.StatusConflict, fmt.Sprintf("generation has %d requests in flight", generation.inFlight.Load())
 	}
 	delete(h.generations, number)
+	close(generation.retired)
 	return http.StatusNoContent, ""
 }
 

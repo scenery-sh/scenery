@@ -3,10 +3,13 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -184,4 +187,113 @@ func TestEventConsumerWithoutARegisteredBusIsUnavailable(t *testing.T) {
 	if recorder.Code != http.StatusServiceUnavailable || !strings.HasPrefix(recorder.Body.String(), "capability_unavailable: event bus app/event_bus/orders for worker/consumer/placed is not registered") {
 		t.Fatalf("activation without the consumer's bus = %d %q", recorder.Code, recorder.Body.String())
 	}
+}
+
+// A background attempt whose admission ends before the attempt does is
+// interrupted rather than left running with a generation no host dispatches or
+// moved to a newer one: when its host is replaced while its process is kept, and
+// when the supervisor forces the retirement of its generation.
+func TestBackgroundAttemptIsInterruptedWhenItsAdmissionEnds(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	useLinkedProcessIdentityForTest(t)
+	echoOne := startProcessHostTestBackend(t, "echo_echo", 411, "sha256:echo-1")
+	echoTwo := startProcessHostTestBackend(t, "echo_echo", 412, "sha256:echo-2")
+	self := processGenerationInstance{PID: os.Getpid(), Identity: processInstanceIdentity(CurrentLinkedContractBundle())}
+	target := serveProcessLinkForTest(t, http.NotFoundHandler())
+	self.Network, self.Address = target.Network, target.Address
+	// Every host incarnation serves the same dispatch socket.
+	var serving atomic.Pointer[processHost]
+	control := serveProcessLinkForTest(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { serving.Load().serveControl(w, req) }))
+	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: control}
+	useProcessLinkForTest(t, config)
+	startHost := func(number uint64, echo *processHostTestBackend) *processHost {
+		t.Helper()
+		host, err := newProcessHost(ProcessHostConfig{Name: "events"}, processLinkTestToken, processHostTestContract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := host.publish(processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Identity: processHostTestBuild(number), Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
+			Processes: map[string]processGenerationInstance{"worker_worker": self, "echo_echo": echo.instance}}); err != nil {
+			t.Fatal(err)
+		}
+		serving.Store(host)
+		return host
+	}
+	bus := &processAdmissionTestBus{}
+	paused, resume := make(chan struct{}, 1), make(chan struct{}, 1)
+	type observed struct {
+		interrupted bool
+		second      error
+	}
+	outcomes := make(chan observed, 1)
+	if err := RegisterContractEventBus("app/event_bus/orders", bus); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterContractEventConsumer(ContractEventConsumerRegistration{
+		Address: "worker/consumer/placed", BusAddress: "app/event_bus/orders", Channel: "orders", ContractAddress: "orders/contract/placed", ContractVersion: 1,
+		Guarantee: "at_least_once", Identity: "worker", Attempts: 1, Backoff: "none",
+		Invoke: func(ctx context.Context, _ []byte) error {
+			invocation, _ := runtimeapi.InvocationFromContext(ctx)
+			if _, err := invokeProcessLinkedBindingJSON(ctx, config, "echo/binding/echo_internal", "worker", invocation, []byte(`{}`)); err != nil {
+				return err
+			}
+			paused <- struct{}{}
+			<-resume
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Second):
+			}
+			_, second := invokeProcessLinkedBindingJSON(context.WithoutCancel(ctx), config, "echo/binding/echo_internal", "worker", invocation, []byte(`{}`))
+			outcomes <- observed{interrupted: errors.Is(context.Cause(ctx), errProcessAdmissionLost), second: second}
+			return nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := StartContractEventRuntime(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = events.Stop(context.Background()) }()
+	deliver := func() chan error {
+		delivered := make(chan error, 1)
+		go func() {
+			delivered <- bus.handle(context.Background(), ContractEventMessage{ID: "message-1", BusAddress: "app/event_bus/orders", Channel: "orders", ContractAddress: "orders/contract/placed", ContractVersion: 1, Payload: []byte(`{}`)})
+		}()
+		return delivered
+	}
+	check := func(scenario string, delivered chan error, notDispatchable uint64) {
+		t.Helper()
+		resume <- struct{}{}
+		got := <-outcomes
+		if !got.interrupted {
+			t.Fatalf("%s: the attempt was not interrupted", scenario)
+		}
+		if typed, ok := errs.As(got.second); !ok || typed.Code != errs.Unavailable || !strings.Contains(typed.Message, "generation "+strconv.FormatUint(notDispatchable, 10)+" is not dispatchable") {
+			t.Fatalf("%s: internal call after the admission ended = %v", scenario, got.second)
+		}
+		err := <-delivered
+		if typed, ok := errs.As(err); !ok || typed.Code != errs.Unavailable || !errors.Is(err, errProcessAdmissionLost) {
+			t.Fatalf("%s: delivery outcome = %v", scenario, err)
+		}
+	}
+
+	previous := startHost(1, echoOne)
+	delivered := deliver()
+	<-paused
+	close(previous.closing)
+	replacement := startHost(2, echoTwo)
+	check("host replaced", delivered, 1)
+
+	delivered = deliver()
+	<-paused
+	if err := replacement.publish(processGenerationManifest{Generation: 3, ContractRevision: processHostTestContract, Identity: processHostTestBuild(3), Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
+		Processes: map[string]processGenerationInstance{"worker_worker": self, "echo_echo": echoOne.instance}}); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := replacement.retire(2, true); status != http.StatusNoContent {
+		t.Fatalf("forced retirement = %d", status)
+	}
+	check("generation retirement forced", delivered, 2)
 }

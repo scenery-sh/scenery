@@ -541,25 +541,29 @@ func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID string
 		}
 		// An attempt that is not admitted to an application generation fails
 		// as an attempt the process could not run, under the task's retry policy.
-		generation, release, err := admitProcessGeneration(ctx)
+		admitted, generation, release, err := admitProcessGeneration(ctx)
 		if err != nil {
 			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("durable task attempt was not admitted to an application generation"))
 			sleepDurableWorker(ctx)
 			continue
 		}
-		jobCtx := context.WithValue(ctx, durableContextStore, db)
+		jobCtx := context.WithValue(admitted, durableContextStore, db)
 		jobCtx = context.WithValue(jobCtx, durableContextJobID, job.ID)
 		jobCtx, restore := enterDurableInvocation(jobCtx, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
 		stopHeartbeat := startDurableHeartbeat(jobCtx, time.Duration(job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
 			return db.HeartbeatJob(heartbeatCtx, job.ID, workerID, leaseID)
 		})
 		result, err := runDurableTaskHandler(jobCtx, handler.timeout, handler.handler, job.InputBlob)
+		err = processAdmissionOutcome(admitted, err)
 		stopHeartbeat()
 		restore()
 		release()
 		if err != nil {
 			message := "durable task failed"
-			if errors.Is(err, context.DeadlineExceeded) {
+			switch {
+			case errors.Is(err, errProcessAdmissionLost):
+				message = "durable task attempt lost the application generation it was admitted to"
+			case errors.Is(err, context.DeadlineExceeded):
 				message = "durable task timed out"
 			}
 			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte(message))

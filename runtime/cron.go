@@ -292,15 +292,15 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 // invokeAdmittedCronJob runs one scheduled run admitted to an application
 // generation; a run that is not admitted does not start.
 func invokeAdmittedCronJob(ctx context.Context, job *CronJob) error {
-	generation, release, err := admitProcessGeneration(ctx)
+	admitted, generation, release, err := admitProcessGeneration(ctx)
 	if err != nil {
 		return err
 	}
 	defer release()
-	if state := stateFromContext(ctx); state != nil {
+	if state := stateFromContext(admitted); state != nil {
 		state.processGeneration = generation
 	}
-	return safeInvokeCronJob(ctx, job)
+	return processAdmissionOutcome(admitted, safeInvokeCronJob(admitted, job))
 }
 
 func safeInvokeCronJob(ctx context.Context, job *CronJob) (err error) {

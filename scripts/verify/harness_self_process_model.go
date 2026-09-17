@@ -650,7 +650,7 @@ func harnessProcessModelCleanup(home, appRoot string, pids []int) error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		for _, pattern := range []string{"d.sock", "s[0-9]*.sock", "process-link.json"} {
+		for _, pattern := range []string{"d.sock", "s[0-9]*.sock", "process-link.json", "host-state"} {
 			if matched, _ := filepath.Match(pattern, name); matched {
 				return fmt.Errorf("process-model wiring %s outlived scenery down", name)
 			}

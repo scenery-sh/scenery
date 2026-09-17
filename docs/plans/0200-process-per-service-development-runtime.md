@@ -691,6 +691,23 @@ compile the application graph as it needs.
   service) instead of 48: runtime activation 1.2 s to 565 ms, build request
   4.0 to 3.4 s, edit to response 5.6 to 5.0 s p50; assistants stayed ready with
   matching capability revisions and body edits were unchanged (1,480 ms).
+- [x] (2026-09-17) Host takeover preserves the authority of kept work, after an
+  external review of the takeover. (1) The supervisor allocates generation
+  numbers from a session counter that a rollback never lowers, so a
+  publication whose answer and confirmation were both lost cannot have its
+  number reused by the restored host for another implementation set. (2) A
+  background attempt whose admission ends (host stopped or replaced, or forced
+  retirement, which now also ends admissions) is interrupted with a cancelled
+  context and fails as unavailable instead of continuing with a generation no
+  host dispatches. (3) Durable receipt authorizations are journaled in the
+  session's private host state directory, which every host incarnation
+  replays, so status and cancellation keep working for the original principal
+  after a host replacement. (4) An assistant tool call executes the generation
+  of its run (started by create or turn, continued by approval, ended by an
+  observed terminal event, the next run or forced retirement) instead of the
+  oldest open gateway request; streams attest that generation, end cleanly when
+  superseded, and a replacement host replays run scopes so a run started on an
+  earlier host fails its tool calls rather than switching generation.
 
 ## Surprises & Discoveries
 
@@ -1195,6 +1212,26 @@ compile the application graph as it needs.
   conversation is never pinned between requests; per-tool identity reporting
   would need a public protocol change for the same guarantee. Date:
   2026-09-17. Author: Claude.
+- Decision: the generation of an assistant tool call is selected by its run
+  scope, not by in-flight gateway requests (superseding the decision above).
+  Rationale: an event stream observes a conversation, and a second tab or a
+  reconnect must not choose what a tool call executes; the oldest-request rule
+  let overlapping streams attest different generations and left a forced
+  retirement pinning a deleted generation. The run is the bounded operation
+  whose behavior is attested. The helper's MCP assertion carries no run ID, so
+  the scope is per conversation, and a run ends for the host only when a
+  stream observes its terminal event: a client that never streams keeps its
+  run's generation until the next run or forced retirement. Date: 2026-09-17.
+  Author: Claude.
+- Decision: state that must outlive one host incarnation (durable receipt
+  authorizations, assistant run scopes) is journaled in a session-private host
+  state directory named by the process link, and a background attempt that
+  loses its admission is interrupted rather than handed over. Rationale: the
+  host is replaceable while service processes and assistant helpers are kept;
+  bounded append-only journals with compaction give the session owner's
+  lifetime without a new daemon, and handing a running attempt to a newer
+  generation would recreate the cross-generation execution admissions exist
+  to prevent. Date: 2026-09-17. Author: Claude.
 - Decision: a service contract revision projects the service's module
   instance, that instance's resources and the other resources its adapter
   covers. Rationale: those are the contract resources the adapter registers;

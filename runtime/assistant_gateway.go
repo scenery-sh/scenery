@@ -742,7 +742,7 @@ func (g *assistantGateway) handleCreate(w http.ResponseWriter, req *http.Request
 		return
 	}
 	conversationDigest := assistanttoken.ConversationDigest(runID)
-	defer pinAssistantConversation(req, g.registration.AssistantAddress, identity.Principal, conversationDigest)()
+	accepted := beginAssistantRun(req, g.registration.AssistantAddress, identity.Principal, conversationDigest, runID)
 	startRequest := assistantruntime.StartRequest{
 		RequestMetadata: g.requestMetadata(req, identity, conversationDigest),
 		RunID:           runID,
@@ -752,6 +752,7 @@ func (g *assistantGateway) handleCreate(w http.ResponseWriter, req *http.Request
 	value, err := g.invoke(req.Context(), req, identity, func(ctx context.Context) (any, error) {
 		return client.StartConversation(ctx, startRequest)
 	})
+	accepted(err == nil)
 	if err != nil {
 		g.writeError(w, err)
 		return
@@ -824,7 +825,7 @@ func (g *assistantGateway) handleTurn(w http.ResponseWriter, req *http.Request) 
 		g.writeError(w, err)
 		return
 	}
-	defer pinAssistantConversation(req, g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest)()
+	accepted := beginAssistantRun(req, g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest, runID)
 	turnRequest := assistantruntime.TurnRequest{
 		RequestMetadata:   g.requestMetadata(req, identity, claims.ConversationDigest),
 		PrivateSessionID:  claims.PrivateSessionID,
@@ -836,6 +837,7 @@ func (g *assistantGateway) handleTurn(w http.ResponseWriter, req *http.Request) 
 	value, err := g.invoke(req.Context(), req, identity, func(ctx context.Context) (any, error) {
 		return client.SendTurn(ctx, turnRequest)
 	})
+	accepted(err == nil)
 	if err != nil {
 		g.writeError(w, err)
 		return
@@ -900,7 +902,7 @@ func (g *assistantGateway) handleApproval(w http.ResponseWriter, req *http.Reque
 	if request.Decision == "approve" {
 		decision = assistantcontrol.DecisionAllow
 	}
-	defer pinAssistantConversation(req, g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest)()
+	accepted := beginAssistantRun(req, g.registration.AssistantAddress, identity.Principal, claims.ConversationDigest, approvalClaims.RunID)
 	approvalRequest := assistantruntime.ApprovalRequest{
 		RequestMetadata:   g.requestMetadata(req, identity, claims.ConversationDigest),
 		PrivateSessionID:  claims.PrivateSessionID,
@@ -913,6 +915,7 @@ func (g *assistantGateway) handleApproval(w http.ResponseWriter, req *http.Reque
 	_, err = g.invoke(req.Context(), req, identity, func(ctx context.Context) (any, error) {
 		return nil, client.ResolveApproval(ctx, approvalRequest)
 	})
+	accepted(err == nil)
 	if err != nil {
 		g.writeError(w, err)
 		return

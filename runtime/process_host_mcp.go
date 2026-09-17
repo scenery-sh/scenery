@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,11 +20,12 @@ import (
 // In a process-model session the host runs assistant gateways, and their MCP
 // tools are registered by service processes. The host dispatcher forwards each
 // tool call to the owning process of the current generation, pinning the call
-// and its internal calls to that generation. The host, which outlives service
-// replacements, authorizes durable receipts: it records the principal, owning
-// process, durable service and task of each accepted receipt, and sends
-// authorized status and cancellation to the owning process of the current
-// generation, which reads the shared durable store.
+// and its internal calls to that generation. The host authorizes durable
+// receipts: it records the principal, owning process, durable service and task
+// of each accepted receipt in the session's receipt journal (see
+// process_host_receipts.go), and sends authorized status and cancellation to
+// the owning process of the current generation, which reads the shared durable
+// store.
 
 var activeProcessHost struct {
 	sync.RWMutex
@@ -50,126 +50,8 @@ func assistantMCPDispatchers() (mcpcontract.ToolDispatcher, mcpgateway.DurableOp
 	return dispatcher, dispatcher
 }
 
-// processHostDurableOwnerLimit bounds the receipts a host authorizes; the
-// oldest receipt is forgotten first and then reads as not found.
-const processHostDurableOwnerLimit = 4096
-
-type processHostDurableOwners struct {
-	sync.RWMutex
-	values map[string]processHostDurableOwner
-	order  []string
-}
-
-type processHostDurableOwner struct {
-	process  string
-	service  string
-	taskName string
-	// ambiguous marks an execution ID accepted by two owners for one principal;
-	// such a receipt fails closed as it does in one application process.
-	ambiguous bool
-}
-
-func (owners *processHostDurableOwners) store(principal, executionID string, owner processHostDurableOwner) {
-	key := principal + "\x00" + executionID
-	owners.Lock()
-	defer owners.Unlock()
-	if owners.values == nil {
-		owners.values = map[string]processHostDurableOwner{}
-	}
-	if existing, exists := owners.values[key]; exists {
-		if existing.process != owner.process || existing.service != owner.service || existing.taskName != owner.taskName {
-			existing.ambiguous = true
-			owners.values[key] = existing
-		}
-		return
-	}
-	if len(owners.order) >= processHostDurableOwnerLimit {
-		delete(owners.values, owners.order[0])
-		owners.order = owners.order[1:]
-	}
-	owners.values[key] = owner
-	owners.order = append(owners.order, key)
-}
-
-func (owners *processHostDurableOwners) load(principal, executionID string) (processHostDurableOwner, bool) {
-	owners.RLock()
-	defer owners.RUnlock()
-	owner, ok := owners.values[principal+"\x00"+executionID]
-	return owner, ok && !owner.ambiguous
-}
-
 type processHostMCPDispatcher struct {
 	host *processHost
-}
-
-// A host-local request of an assistant conversation, such as its event stream,
-// attests the generation it holds. A tool call of that conversation made while
-// such a request is in flight runs in the generation of the oldest of them, so
-// that answer attests the behavior the call executed; a tool call of a
-// conversation without one runs in the current generation, and no answer
-// attests it.
-type processHostConversations struct {
-	sync.Mutex
-	pins map[string][]*processHostConversationPin
-}
-
-type processHostConversationPin struct {
-	generation *processHostGeneration
-}
-
-func processHostConversationKey(assistantAddress, principal, conversationDigest string) string {
-	return strings.TrimSpace(assistantAddress) + "\x00" + strings.TrimSpace(principal) + "\x00" + strings.TrimSpace(conversationDigest)
-}
-
-func (h *processHost) pinConversation(key string, generation *processHostGeneration) func() {
-	pin := &processHostConversationPin{generation: generation}
-	h.conversations.Lock()
-	if h.conversations.pins == nil {
-		h.conversations.pins = map[string][]*processHostConversationPin{}
-	}
-	h.conversations.pins[key] = append(h.conversations.pins[key], pin)
-	h.conversations.Unlock()
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			h.conversations.Lock()
-			defer h.conversations.Unlock()
-			pins := slices.DeleteFunc(h.conversations.pins[key], func(candidate *processHostConversationPin) bool { return candidate == pin })
-			if len(pins) == 0 {
-				delete(h.conversations.pins, key)
-			} else {
-				h.conversations.pins[key] = pins
-			}
-		})
-	}
-}
-
-// conversationGeneration returns the generation a tool call of the conversation
-// runs in: the oldest in-flight host-local request's, or 0 for the current one.
-func (h *processHost) conversationGeneration(key string) uint64 {
-	h.conversations.Lock()
-	defer h.conversations.Unlock()
-	if pins := h.conversations.pins[key]; len(pins) > 0 {
-		return pins[0].generation.number
-	}
-	return 0
-}
-
-// pinAssistantConversation holds a conversation's tool calls in the generation
-// the host-local request req holds, until the returned release. Outside a
-// process host, or before a generation is published, it does nothing.
-func pinAssistantConversation(req *http.Request, assistantAddress, principal, conversationDigest string) func() {
-	activeProcessHost.RLock()
-	host := activeProcessHost.host
-	activeProcessHost.RUnlock()
-	if host == nil || req == nil {
-		return func() {}
-	}
-	generation, _ := req.Context().Value(processHostGenerationKey{}).(*processHostGeneration)
-	if generation == nil {
-		return func() {}
-	}
-	return host.pinConversation(processHostConversationKey(assistantAddress, principal, conversationDigest), generation)
 }
 
 func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract.ToolCallContext, name string, input json.RawMessage) (mcpcontract.ToolOutcome, error) {
@@ -181,7 +63,10 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 	if err != nil {
 		return mcpcontract.ToolOutcome{}, ContractSystemError(err)
 	}
-	generation := d.host.conversationGeneration(processHostConversationKey(call.AssistantAddress, call.Principal, call.ConversationDigest))
+	generation, err := d.host.conversationGeneration(processHostConversationKey(call.AssistantAddress, call.Principal, call.ConversationDigest))
+	if err != nil {
+		return mcpcontract.ToolOutcome{}, err
+	}
 	response, err := d.host.callProcessIn(ctx, generation, process, processMCPCallPath, body)
 	if err != nil {
 		return mcpcontract.ToolOutcome{}, err

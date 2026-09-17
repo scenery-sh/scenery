@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -195,14 +196,18 @@ func StartContractEventRuntime(ctx context.Context) (*ContractEventRuntime, erro
 				if message.BusAddress != consumer.BusAddress || message.Channel != consumer.Channel || message.ContractAddress != consumer.ContractAddress || message.ContractVersion != consumer.ContractVersion {
 					return fmt.Errorf("runtime: event message contradicts subscription %s", consumer.Address)
 				}
-				generation, release, err := admitProcessGeneration(callCtx)
+				admitted, generation, release, err := admitProcessGeneration(callCtx)
 				if err != nil {
 					return fmt.Errorf("runtime: event delivery to %s: %w", consumer.Address, err)
 				}
 				defer release()
-				callCtx, restore := enterContractEventInvocation(callCtx, consumer, message, generation)
+				callCtx, restore := enterContractEventInvocation(admitted, consumer, message, generation)
 				defer restore()
-				return consumer.Invoke(callCtx, append([]byte(nil), message.Payload...))
+				err = processAdmissionOutcome(admitted, consumer.Invoke(callCtx, append([]byte(nil), message.Payload...)))
+				if err != nil && errors.Is(context.Cause(admitted), errProcessAdmissionLost) {
+					return fmt.Errorf("runtime: event delivery to %s: %w", consumer.Address, err)
+				}
+				return err
 			},
 		}
 		stop, err := bus.Subscribe(ctx, subscription)

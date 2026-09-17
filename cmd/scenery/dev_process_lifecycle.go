@@ -130,8 +130,9 @@ type devProcessState struct {
 	retained    map[uint64]map[string]*devProcessInstance
 }
 
-// publishDevProcessGeneration publishes the model's services as the next
-// generation of the current host incarnation; the caller holds model.mu.
+// publishDevProcessGeneration publishes the model's services as a new
+// generation of the current host incarnation under a number no earlier
+// publication of the session proposed; the caller holds model.mu.
 func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *devProcessModel) error {
 	type identity struct {
 		ContractRevision       string `json:"contract_revision"`
@@ -146,13 +147,14 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 		Identity identity `json:"identity"`
 	}
 	attested := model.identity
+	model.published = max(model.published, model.generation) + 1
 	manifest := struct {
 		Generation       uint64              `json:"generation"`
 		ContractRevision string              `json:"contract_revision"`
 		Identity         identity            `json:"identity"`
 		Processes        map[string]instance `json:"processes"`
 		Bindings         map[string]string   `json:"bindings"`
-	}{Generation: model.generation + 1, ContractRevision: model.contract, Identity: identity{attested.ContractRevision, attested.ImplementationRevision, attested.BuildInputDigest, attested.GoTarget}, Processes: map[string]instance{}, Bindings: model.bindings}
+	}{Generation: model.published, ContractRevision: model.contract, Identity: identity{attested.ContractRevision, attested.ImplementationRevision, attested.BuildInputDigest, attested.GoTarget}, Processes: map[string]instance{}, Bindings: model.bindings}
 	for name, service := range model.services {
 		pid, _ := strconv.Atoi(service.app.pid)
 		value := service.process.Identity

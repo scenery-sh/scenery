@@ -51,6 +51,7 @@ func (w *processHostAttestingWriter) attest() {
 	}
 	w.attested = true
 	if w.generation != nil {
+		w.Header().Set(processGenerationHeader, strconv.FormatUint(w.generation.number, 10))
 		attestProcessGeneration(w.Header(), w.generation)
 		return
 	}

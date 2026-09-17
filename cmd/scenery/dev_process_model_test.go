@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -595,5 +596,70 @@ func TestDevProcessTakeoverKeepsOnlyRunningUnchangedInstances(t *testing.T) {
 	}
 	if !slices.Equal(names, []string{"greeter_greeter", "house_house", "garden_garden"}) {
 		t.Fatalf("starting services = %v", names)
+	}
+}
+
+// A publication whose answer and confirmation are both lost may have been
+// applied, so no later publication of the session, including one by a restored
+// host after a rollback, proposes its generation number again.
+func TestDevProcessGenerationNumbersAreNeverReusedAfterAnUnknownPublication(t *testing.T) {
+	directory, err := os.MkdirTemp("", "scp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory, generation: 10, services: map[string]*devProcessInstance{}, retained: map[uint64]map[string]*devProcessInstance{}}
+	link, err := model.newLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(link.close)
+	listener, err := net.Listen("unix", link.dispatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var proposed []uint64
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			var manifest struct {
+				Generation uint64 `json:"generation"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&manifest)
+			mu.Lock()
+			proposed = append(proposed, manifest.Generation)
+			first := len(proposed) == 1
+			mu.Unlock()
+			if !first {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		// The first publication is applied, but its answer and the confirming
+		// status read are lost.
+		connection, _, err := http.NewResponseController(w).Hijack()
+		if err == nil {
+			_ = connection.Close()
+		}
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	model.link = link
+	supervisor := &devSupervisor{processes: model}
+	if err := supervisor.publishDevProcessGeneration(context.Background(), model); err == nil {
+		t.Fatal("publication with lost answer and confirmation succeeded")
+	}
+	if model.generation != 10 {
+		t.Fatalf("committed generation after an unknown publication = %d", model.generation)
+	}
+	// A rollback restores the committed generation of the previous host.
+	model.generation = 10
+	if err := supervisor.publishDevProcessGeneration(context.Background(), model); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(proposed, []uint64{11, 12}) || model.generation != 12 {
+		t.Fatalf("proposed generations = %v, committed %d", proposed, model.generation)
 	}
 }

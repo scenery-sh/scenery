@@ -60,7 +60,12 @@ type devProcessModel struct {
 	epoch      uint64
 	link       *devProcessLink
 	generation uint64
-	contract   string
+	// published is the highest generation number proposed to any host
+	// incarnation of the session. It never decreases, not even when a rollback
+	// restores generation: a publication whose outcome is unknown may have been
+	// applied and admitted work, so its number is never proposed again.
+	published uint64
+	contract  string
 	// identity is the build identity every published generation attests: the
 	// build whose process identities the services have.
 	identity build.DevelopmentProcessIdentity
@@ -93,7 +98,10 @@ type devProcessLink struct {
 	token    string
 	path     string
 	dispatch string
-	control  *http.Client
+	// hostState is the session's private host state directory: durable receipt
+	// authorizations and assistant run scopes every host incarnation reads.
+	hostState string
+	control   *http.Client
 }
 
 type devProcessInstance struct {
@@ -141,6 +149,15 @@ func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
 	} else if socketDir, err = os.MkdirTemp("", "scp"); err != nil {
 		return nil, err
 	}
+	// Host state belongs to one session: an earlier session's receipts and runs
+	// authorize and attest nothing.
+	hostState := filepath.Join(socketDir, devProcessHostStateDir)
+	if err := os.RemoveAll(hostState); err != nil {
+		return nil, err
+	}
+	if err := os.Mkdir(hostState, 0o700); err != nil {
+		return nil, err
+	}
 	s.processes = &devProcessModel{
 		token: token + second, socketDir: socketDir,
 		services: map[string]*devProcessInstance{}, retained: map[uint64]map[string]*devProcessInstance{},
@@ -156,12 +173,13 @@ func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
 func (model *devProcessModel) newLink() (*devProcessLink, error) {
 	epoch := model.epoch + 1
 	link := &devProcessLink{
-		epoch:    epoch,
-		token:    model.token,
-		path:     filepath.Join(model.socketDir, devProcessLinkFile),
-		dispatch: filepath.Join(model.socketDir, devProcessDispatchSocket),
+		epoch:     epoch,
+		token:     model.token,
+		path:      filepath.Join(model.socketDir, devProcessLinkFile),
+		dispatch:  filepath.Join(model.socketDir, devProcessDispatchSocket),
+		hostState: filepath.Join(model.socketDir, devProcessHostStateDir),
 	}
-	data, err := json.Marshal(map[string]any{"token": model.token, "dispatch": map[string]string{"network": "unix", "address": link.dispatch}})
+	data, err := json.Marshal(map[string]any{"token": model.token, "dispatch": map[string]string{"network": "unix", "address": link.dispatch}, "host_state": link.hostState})
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +200,7 @@ func (model *devProcessModel) newLink() (*devProcessLink, error) {
 const (
 	devProcessLinkFile       = "process-link.json"
 	devProcessDispatchSocket = "d.sock"
+	devProcessHostStateDir   = "host-state"
 )
 
 // close ends the supervisor's control connections to a host incarnation.
@@ -200,6 +219,7 @@ func (link *devProcessLink) remove() {
 	link.close()
 	_ = os.Remove(link.path)
 	_ = os.Remove(link.dispatch)
+	_ = os.RemoveAll(link.hostState)
 }
 
 func writePrivateProcessLink(path string, data []byte) error {
