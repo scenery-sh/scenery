@@ -272,7 +272,7 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
+	root := canonicalTestDir(t)
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "demo",
   "database": {
@@ -319,7 +319,7 @@ func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
 func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
+	root := canonicalTestDir(t)
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "demo",
   "database": {

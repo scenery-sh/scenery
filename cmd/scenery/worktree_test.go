@@ -30,7 +30,7 @@ func TestParseWorktreeArgs(t *testing.T) {
 func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(t.TempDir(), "demo")
+	root := filepath.Join(canonicalTestDir(t), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFailsInProcess(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(t.TempDir(), "demo")
+	root := filepath.Join(canonicalTestDir(t), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFailsInProcess(t *testing.T) 
 func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(t.TempDir(), "demo")
+	root := filepath.Join(canonicalTestDir(t), "demo")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
 
 	unlisted := defaultWorktreePath(root, "mistyped")

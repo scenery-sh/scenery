@@ -15,7 +15,7 @@ import (
 
 func validationFixtureRoot(t *testing.T, config string) string {
 	t.Helper()
-	root := t.TempDir()
+	root := canonicalTestDir(t)
 	writeTestAppFile(t, root, ".scenery.json", config)
 	writeTestAppFile(t, root, "go.mod", "module example.com/app\n\ngo 1.24\n")
 	return root

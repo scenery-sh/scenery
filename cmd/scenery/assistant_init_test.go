@@ -16,7 +16,7 @@ import (
 
 func copyAssistantFixture(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	root := canonicalTestDir(t)
 	writeAssistantTestFile(t, filepath.Join(root, ".scenery.json"), `{"name":"assistant-fixture","envs":{"local":{"default":true}}}`)
 	writeAssistantTestFile(t, filepath.Join(root, testAppFilename), `workspace {
   implementation_root "application" {

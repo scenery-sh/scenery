@@ -218,7 +218,10 @@ func TestDiscoverRootAcceptsWatchIgnoreConfig(t *testing.T) {
 }
 
 func TestDiscoverRootFindsParentFromNestedDirectory(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	writeAppTestFile(t, root, ".scenery.json", `{"name":"canonical"}`)
 	child := filepath.Join(root, "apps", "web")
 	if err := os.MkdirAll(child, 0o755); err != nil {
@@ -231,6 +234,32 @@ func TestDiscoverRootFindsParentFromNestedDirectory(t *testing.T) {
 	}
 	if appRoot != root || cfg.Name != "canonical" {
 		t.Fatalf("appRoot = %q cfg.Name = %q, want %q canonical", appRoot, cfg.Name, root)
+	}
+}
+
+func TestDiscoverRootResolvesSymbolicLinksToTheCanonicalRoot(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "checkout", "app")
+	writeAppTestFile(t, root, ".scenery.json", `{"name":"linked"}`)
+	if err := os.MkdirAll(filepath.Join(root, "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(filepath.Join(base, "checkout"), alias); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, start := range []string{root, filepath.Join(alias, "app"), filepath.Join(alias, "app", "web")} {
+		appRoot, cfg, err := DiscoverRoot(start)
+		if err != nil {
+			t.Fatalf("DiscoverRoot(%q) returned error: %v", start, err)
+		}
+		if appRoot != root || cfg.ConfigPath != filepath.Join(root, PrimaryConfigFilename) {
+			t.Fatalf("DiscoverRoot(%q) = %q with config %q, want canonical %q", start, appRoot, cfg.ConfigPath, root)
+		}
 	}
 }
 

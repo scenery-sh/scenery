@@ -442,6 +442,12 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 
 ## CLI Grammar
 
+Commands that select an app discover its root from `--app-root` (or the working
+directory) at the nearest `.scenery.json` ancestor and resolve symbolic links in
+it. App roots and config paths in machine output, build workspaces, build state,
+runtime ownership and build identities name that canonical root, so every
+spelling of one checkout shares one workspace and one build identity.
+
 Current implemented grammar, grouped by surface:
 
 ### Runtime and sessions
@@ -1314,7 +1320,7 @@ Today scenery uses:
 - cache root:
   - `$SCENERY_DEV_CACHE_DIR`, if set
   - otherwise OS user cache + `/scenery`
-- build workspace: `<cache-root>/build/<sanitized-app-name>-<hash>`
+- build workspace: `<cache-root>/build/<sanitized-app-name>-<hash-of-canonical-app-root>`
 - built app binary: `<workspace>/scenery-app`
 - build state: `<workspace>/.scenery-build-state.json`
 ### Repo-Local Cache Locations

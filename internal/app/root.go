@@ -413,6 +413,9 @@ type EndpointFilterConfig struct {
 	ExcludeEndpoints []string `json:"exclude_endpoints"`
 }
 
+// DiscoverRoot returns the canonical app root, with symbolic links resolved,
+// so build workspaces, build state and build identities follow the checkout
+// rather than the spelling that reached it.
 func DiscoverRoot(start string) (string, Config, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
@@ -424,6 +427,9 @@ func DiscoverRoot(start string) (string, Config, error) {
 			return "", Config{}, err
 		}
 		if path != "" {
+			if dir, err = filepath.EvalSymlinks(dir); err != nil {
+				return "", Config{}, err
+			}
 			cfg, err := ParseConfig(dir, data)
 			if err != nil {
 				return "", Config{}, err

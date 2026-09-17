@@ -81,7 +81,16 @@ func TestDeployEnableDisableAndConflict(t *testing.T) {
 		refreshes++
 		return nil
 	}
-	appRoot := writeDeployTestApp(t, "app-a", "onlv.dev", "web")
+	canonicalRoot, rootErr := filepath.EvalSymlinks(writeDeployTestApp(t, "app-a", "onlv.dev", "web"))
+	if rootErr != nil {
+		t.Fatal(rootErr)
+	}
+	// Enable and disable name the app through a symbolic link; the registry
+	// records the canonical root that sessions register.
+	appRoot := filepath.Join(t.TempDir(), "app-a-alias")
+	if err := os.Symlink(canonicalRoot, appRoot); err != nil {
+		t.Fatal(err)
+	}
 
 	var out bytes.Buffer
 	if err := runDeployCommand(&out, []string{"enable", "--app-root", appRoot, "-o", "json"}); err != nil {
@@ -91,8 +100,8 @@ func TestDeployEnableDisableAndConflict(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.Action != "enable" || len(payload.Targets) != 1 || !payload.Targets[0].Enabled || payload.Targets[0].RootService != "web" {
-		t.Fatalf("enable payload = %+v", payload)
+	if payload.Action != "enable" || len(payload.Targets) != 1 || !payload.Targets[0].Enabled || payload.Targets[0].RootService != "web" || payload.Targets[0].AppRoot != canonicalRoot {
+		t.Fatalf("enable payload = %+v, want canonical root %q", payload, canonicalRoot)
 	}
 	if refreshes != 1 {
 		t.Fatalf("refresh count after enable = %d, want 1", refreshes)

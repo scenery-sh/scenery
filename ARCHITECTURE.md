@@ -133,8 +133,12 @@ second runtime. Plan 0181 owns its feasibility decision and promotion gates.
 Follow [app instructions](internal/app/AGENTS.md) for this boundary.
 
 `internal/app` owns repository and app-root discovery. It walks upward to find
-`.scenery.json`, decodes app config, and provides repo-root helpers for self-harness
-work.
+`.scenery.json`, resolves symbolic links in the found root, decodes app config,
+and provides repo-root helpers for self-harness work.
+
+Architecture invariant: a discovered app root is canonical. Build workspaces,
+build state, runtime ownership and build identities derive from it, so every
+spelling that reaches one checkout names one build.
 
 Architecture invariant: `.scenery.json` is the app root marker for scenery apps. App
 loading should fail clearly when the marker is missing or invalid.

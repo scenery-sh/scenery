@@ -25,6 +25,17 @@ import (
 	"scenery.sh/internal/victoria"
 )
 
+// canonicalTestDir returns a test directory spelled as app-root discovery
+// reports it, with symbolic links such as Darwin's /var resolved.
+func canonicalTestDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func writeTestAppFileIfChanged(t *testing.T, root, rel, contents string) {
 	t.Helper()
 	contents = normalizeTestAppConfig(rel, contents)

@@ -353,7 +353,7 @@ func runDeployDisable(stdout io.Writer, opts deployOptions) error {
 	found := false
 	now := time.Now().UTC()
 	for i := range registry.Targets {
-		if filepath.Clean(registry.Targets[i].AppRoot) != appRoot {
+		if registered, err := canonicalDeployAppRoot(registry.Targets[i].AppRoot); err != nil || registered != appRoot {
 			continue
 		}
 		found = true
@@ -732,11 +732,22 @@ func absoluteDeployAppRoot(appRootOpt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	abs, err := filepath.Abs(start)
+	return canonicalDeployAppRoot(start)
+}
+
+// canonicalDeployAppRoot names a registered root as enable records it, with
+// symbolic links resolved; a root that no longer exists keeps its clean
+// absolute spelling so its target can still be disabled.
+func canonicalDeployAppRoot(root string) (string, error) {
+	abs, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(abs), nil
+	canonical, err := filepath.EvalSymlinks(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return filepath.Clean(abs), nil
+	}
+	return canonical, err
 }
 
 func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, registry localagent.DeployRegistry) deployStatusResponse {

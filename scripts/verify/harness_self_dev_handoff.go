@@ -360,16 +360,10 @@ func harnessSameBuild(left, right build.CandidateIdentity) bool {
 
 // harnessDevelopmentCandidate builds the verified development candidate of the
 // current source, as an application that binds its checks to served builds
-// does, without starting or replacing the runtime. It names the app root as the
-// session does: the build workspace, and the local replacement paths written
-// into it, follow the spelling of the root, and the probe root lies under a
-// symbolic link.
+// does, without starting or replacing the runtime. The probe root lies under a
+// symbolic link; the build names it as given and must still reach the served
+// build identity.
 func harnessDevelopmentCandidate(ctx context.Context, root, binary string, env []string) (build.CandidateIdentity, error) {
-	canonical, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return build.CandidateIdentity{}, err
-	}
-	root = canonical
 	command := commandTreeContext(ctx, binary, "build", "--development", "--verify-generation", "--target", "development", "--output", filepath.Join(root, ".scenery", "probe-candidate"), "--app-root", root, "-o", "json")
 	command.Dir, command.Env = root, env
 	output, err := command.Output()
