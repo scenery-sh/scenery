@@ -28,6 +28,10 @@ type projectionInput struct {
 }
 
 func newProjectionInput(result *Result) projectionInput {
+	return sharedProjectionInput(result)
+}
+
+func computeProjectionInput(result *Result) projectionInput {
 	// Include parsed declarations as well as original bytes: callers can supply
 	// synthetic compiler snapshots without reparsing a source file.
 	type sourceInput struct {

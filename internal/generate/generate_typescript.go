@@ -166,7 +166,7 @@ func renderTypeScriptClientFilesByMode(result *Result, selector string, sourceOn
 		}
 	}
 	var err error
-	files, err = includeStaleGeneratedFiles(result.Root, files, map[string]bool{"scenery.typescript-client-generated.json": true}, protectedDescriptors)
+	files, err = includeStaleGeneratedFilesOf(result, result.Root, files, map[string]bool{typescriptGeneratedDescriptorName: true}, protectedDescriptors)
 	if err != nil {
 		return nil, err
 	}

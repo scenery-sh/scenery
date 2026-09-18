@@ -116,6 +116,7 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 			packages.NeedFiles |
 			packages.NeedCompiledGoFiles |
 			packages.NeedTypes |
+			packages.NeedImports |
 			packages.NeedModule,
 		Dir:     root,
 		Overlay: overlay,
@@ -146,12 +147,106 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 		}
 	}
 
-	pkgs, err := packages.Load(cfg, patterns...)
+	// An analysis of a prepared workspace is retained, so the next one loads
+	// only what changed (see retained.go). An overlay supplies bytes the stamp
+	// does not read, and an analysis without a target has no declared context.
+	retainKey := ""
+	var stamp analysisStamp
+	if overlay == nil && target != nil {
+		stamp, err = captureAnalysisStamp(cfg.Dir, target, cfg.Env, cfg.BuildFlags, patterns)
+		if err == nil {
+			// Several targets of one workspace are analyzed in turn, so each
+			// retains its own analysis.
+			retainKey = root + "\x00" + cfg.Dir + "\x00" + stamp.target
+		}
+	}
+	if retainKey != "" {
+		if retained := retainedAnalysisFor(retainKey); retained != nil {
+			plan := planAnalysis(retained, stamp)
+			if !plan.full {
+				if app, ok := analyzeRetained(cfg, root, name, retainKey, retained, stamp, plan); ok {
+					return app, nil
+				}
+			}
+		}
+	}
+	loaded, modulePath, err := loadAnalysisPackages(cfg, root, patterns)
 	if err != nil {
+		if retainKey != "" {
+			forgetAnalysis(retainKey)
+		}
 		return nil, err
 	}
+	analysis := &retainedAnalysis{stamp: stamp, modulePath: modulePath, packages: make(map[string]*retainedPackage, len(loaded))}
+	for _, pkg := range loaded {
+		analysis.packages[pkg.model.ImportPath] = pkg
+	}
+	if retainKey != "" {
+		retainAnalysis(retainKey, analysis)
+	}
+	return analysis.app(name, root), nil
+}
+
+// analyzeRetained answers an analysis from the retained one, loading the
+// planned directories. It reports false when the whole target must be loaded:
+// the load failed or returned other packages than planned, and a whole load
+// then produces the authoritative result, including its errors.
+func analyzeRetained(cfg *packages.Config, root, name, key string, retained *retainedAnalysis, stamp analysisStamp, plan analysisPlan) (*model.App, bool) {
+	load := func(dirs []string) ([]*retainedPackage, bool) {
+		if len(dirs) == 0 {
+			return nil, true
+		}
+		patterns := make([]string, 0, len(dirs))
+		for _, dir := range dirs {
+			if dir == "" {
+				patterns = append(patterns, ".")
+			} else {
+				patterns = append(patterns, "./"+dir)
+			}
+		}
+		loaded, _, err := loadAnalysisPackages(cfg, root, patterns)
+		return loaded, err == nil
+	}
+	// The packages whose own sources changed are loaded first. Their importers
+	// are loaded only when what they can observe of one changed, which a body
+	// edit never does; otherwise the application's main, which imports every
+	// package, would cost a whole load after every edit.
+	loaded, ok := load(plan.dirs)
+	if !ok {
+		return nil, false
+	}
+	dirs, loadedDirs := slices.Clone(plan.dirs), map[string]bool{}
+	var observable []string
+	for _, pkg := range loaded {
+		loadedDirs[pkg.dir] = true
+		if previous := retained.packages[pkg.model.ImportPath]; previous == nil || previous.api != pkg.api {
+			observable = append(observable, pkg.model.ImportPath)
+		}
+	}
+	if importers := retained.importerDirs(observable, loadedDirs); len(importers) > 0 {
+		more, ok := load(importers)
+		if !ok {
+			return nil, false
+		}
+		loaded, dirs = append(loaded, more...), append(dirs, importers...)
+	}
+	merged, ok := mergeAnalysis(retained, stamp, dirs, loaded)
+	if !ok {
+		return nil, false
+	}
+	retainAnalysis(key, merged)
+	return merged.app(name, root), true
+}
+
+// loadAnalysisPackages loads patterns and returns each package with the
+// directory and direct imports a retained analysis needs.
+func loadAnalysisPackages(cfg *packages.Config, root string, patterns []string) ([]*retainedPackage, string, error) {
+	pkgs, err := packages.Load(cfg, patterns...)
+	if err != nil {
+		return nil, "", err
+	}
 	if len(pkgs) == 0 && len(patterns) > 0 {
-		return nil, fmt.Errorf("go package loading returned no Go packages for target %s; check its package patterns and go.mod", strings.Join(patterns, ", "))
+		return nil, "", fmt.Errorf("go package loading returned no Go packages for target %s; check its package patterns and go.mod", strings.Join(patterns, ", "))
 	}
 	var loadErrors []string
 	for _, pkg := range pkgs {
@@ -161,10 +256,10 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 	}
 	if len(loadErrors) > 0 {
 		slices.Sort(loadErrors)
-		return nil, fmt.Errorf("go package loading failed: %s", strings.Join(loadErrors, "; "))
+		return nil, "", fmt.Errorf("go package loading failed: %s", strings.Join(loadErrors, "; "))
 	}
-
-	app := &model.App{Name: name, Root: root}
+	modulePath := ""
+	var loaded []*retainedPackage
 	for _, pkg := range pkgs {
 		paths := packageFilePaths(pkg)
 		if len(paths) == 0 {
@@ -173,22 +268,31 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 		absDir := filepath.Dir(paths[0])
 		relDir, err := filepath.Rel(root, absDir)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		mpkg := &model.Package{
-			Analysis:   &model.PackageAnalysis{Types: pkg.Types},
-			ImportPath: pkg.PkgPath,
-			RelDir:     relDir,
+		moduleDir, err := filepath.Rel(cfg.Dir, absDir)
+		if err != nil {
+			return nil, "", err
 		}
-		app.Packages = append(app.Packages, mpkg)
-		if app.ModulePath == "" && pkg.Module != nil {
-			app.ModulePath = pkg.Module.Path
+		if moduleDir == "." {
+			moduleDir = ""
+		}
+		imports := make([]string, 0, len(pkg.Imports))
+		for path := range pkg.Imports {
+			imports = append(imports, path)
+		}
+		slices.Sort(imports)
+		loaded = append(loaded, &retainedPackage{
+			model:   &model.Package{Analysis: &model.PackageAnalysis{Types: pkg.Types}, ImportPath: pkg.PkgPath, RelDir: relDir},
+			dir:     filepath.ToSlash(moduleDir),
+			imports: imports,
+			api:     packageAPIDigest(pkg.Types),
+		})
+		if modulePath == "" && pkg.Module != nil {
+			modulePath = pkg.Module.Path
 		}
 	}
-	slices.SortFunc(app.Packages, func(left, right *model.Package) int {
-		return strings.Compare(left.RelDir, right.RelDir)
-	})
-	return app, nil
+	return loaded, modulePath, nil
 }
 
 // Go canonicalizes its working directory before matching overlay paths. Keep

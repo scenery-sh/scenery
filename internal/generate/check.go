@@ -28,6 +28,9 @@ func checkGeneratedArtifacts(result *compiler.Result) CheckResult {
 	if result == nil || !result.Valid() {
 		return check
 	}
+	// The check renders its projections from this one result and looks beneath
+	// one root for each; it changes neither, so they share both observations.
+	defer beginArtifactCheckScope(result)()
 	if usesGoImplementation(result.Manifest.Resources) || slices.ContainsFunc(result.Manifest.Resources, func(resource Resource) bool { return resource.Kind == "scenery.go-module" }) {
 		if _, err := GenerateGoContractsFromResult(result, true); err != nil {
 			check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error(), Suggestions: []string{"Run `scenery generate --target contracts -o json` in the app root after resolving any output ownership conflicts."}})

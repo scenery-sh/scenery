@@ -69,7 +69,7 @@ func renderGoContractFiles(result *Result) ([]generatedFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	return includeStaleGeneratedFiles(result.Root, files, goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(result))
+	return includeStaleGeneratedFilesOf(result, result.Root, files, goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(result))
 }
 
 func renderExpectedGoContractFiles(result *Result) ([]generatedFile, error) {
@@ -229,80 +229,6 @@ func generatedFileBytesEqual(path string, current, expected []byte) bool {
 	currentCanonical, _ := json.Marshal(currentValue)
 	expectedCanonical, _ := json.Marshal(expectedValue)
 	return bytes.Equal(currentCanonical, expectedCanonical)
-}
-
-func includeStaleGeneratedFiles(root string, files []generatedFile, descriptorNames, protectedDescriptors map[string]bool) ([]generatedFile, error) {
-	expected := make(map[string]bool, len(files))
-	expectedBytes := make(map[string][]byte, len(files))
-	expectedDescriptors := map[string]bool{}
-	for _, file := range files {
-		path := filepath.Clean(file.Path)
-		expected[path] = true
-		expectedBytes[path] = file.Bytes
-		if descriptorNames[filepath.Base(path)] {
-			expectedDescriptors[path] = true
-		}
-	}
-	stale := map[string]bool{}
-	owned := map[string]bool{}
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path != root && entry.IsDir() && skipGeneratedArtifactScanDirectory(entry.Name()) {
-			return filepath.SkipDir
-		}
-		if !descriptorNames[entry.Name()] || protectedDescriptors[filepath.Clean(path)] {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("generated descriptor is a symlink: %s", path)
-		}
-		base := filepath.Dir(path)
-		ownedFiles, verified, err := verifyGeneratedDescriptorWithExpected(path, expectedBytes)
-		if err != nil {
-			return err
-		}
-		if !verified {
-			return fmt.Errorf("failed_precondition: cannot replace or retire unverified generated descriptor %s; preserve the output and review its ownership or hand edits", path)
-		}
-		owned[filepath.Clean(path)] = true
-		for _, relative := range ownedFiles {
-			ownedPath := filepath.Clean(filepath.Join(base, filepath.FromSlash(relative)))
-			owned[ownedPath] = true
-			if !expected[ownedPath] {
-				stale[ownedPath] = true
-			}
-		}
-		if !expectedDescriptors[filepath.Clean(path)] {
-			stale[filepath.Clean(path)] = true
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	for path := range expected {
-		if owned[path] {
-			continue
-		}
-		if _, err := os.Lstat(path); err == nil {
-			return nil, fmt.Errorf("failed_precondition: generated output %s exists without verified ownership; preserve it and review the missing descriptor or foreign file", path)
-		} else if !os.IsNotExist(err) {
-			return nil, err
-		}
-	}
-	paths := make([]string, 0, len(stale))
-	for path := range stale {
-		if !expected[path] {
-			paths = append(paths, path)
-		}
-	}
-	sort.Strings(paths)
-	for _, path := range paths {
-		files = append(files, generatedFile{Path: path, Remove: true})
-	}
-	return files, nil
 }
 
 func skipGeneratedArtifactScanDirectory(name string) bool {
