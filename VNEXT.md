@@ -125,6 +125,13 @@ the false claim that a mutable filesystem never needs rescanning.
 
 > Source change → a verified response executed by the intended new generation.
 
+The failure path has the same target: source change → a named cause, when the
+new generation cannot serve. Every failed step returns a machine-readable
+cause — the step, its owner, and a bounded, redacted explanation, including a
+supervised helper's own last output — without a rerun. An agent that must
+rerun, or read framework source, to learn why a step failed has lost more time
+than any warm rebuild saves.
+
 ## Worktrees should be isolated sessions over shared immutable work
 
 I would build worktree support into every identity and ownership decision, not
@@ -166,6 +173,14 @@ Internally, distinguish:
 A branch name is a label, not ownership authority. Detached worktrees, renamed
 directories, concurrent framework versions, and reused paths must not confuse
 cleanup or reuse.
+
+The same applies to operating-system resources. With many agents on one
+machine, a session may stop only the processes, sockets and ports it recorded
+as its own when it created them — exact identities, never a command-line
+pattern, a port number, or a parent relationship. A process that merely
+resembles an owned one belongs to someone else, and an orphan stays owned after
+its parent is gone. Cleanup, and the proof that cleanup happened, both operate
+on those records.
 
 The existing rule against installing validation binaries into the shared global
 CLI path is sound. Keep worktree-local or content-addressed prepared executables,
