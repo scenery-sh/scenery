@@ -254,11 +254,24 @@ func (g *Gateway) Serve(ctx context.Context) error {
 }
 
 // Close stops the listener and waits for in-flight HTTP requests to finish.
+// gatewayCloseGrace bounds how long Close lets requests in flight finish. An MCP
+// client keeps a streaming connection open for as long as it runs, and a
+// graceful shutdown waits for every connection to become idle, so without the
+// bound a connected helper would hold the gateway, and every shutdown after it,
+// until its caller's deadline.
+var gatewayCloseGrace = time.Second
+
 func (g *Gateway) Close() error {
 	g.closeOnce.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), gatewayCloseGrace)
 		defer cancel()
-		g.closeErr = g.server.Shutdown(ctx)
+		if err := g.server.Shutdown(ctx); errors.Is(err, context.DeadlineExceeded) {
+			// The connections still open are streams that never become idle;
+			// closing them ends the gateway rather than failing it.
+			g.closeErr = g.server.Close()
+		} else {
+			g.closeErr = err
+		}
 		if err := g.listener.Close(); g.closeErr == nil && err != nil && !errors.Is(err, net.ErrClosed) {
 			g.closeErr = err
 		}

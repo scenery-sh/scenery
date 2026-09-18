@@ -461,7 +461,9 @@ func (manager *assistantProductionRuntime) initialize(ctx context.Context) error
 			AssistantAddress: address, ControlAddress: controlURL, ControlToken: token, MCPListenAddress: strings.TrimPrefix(mcpURL, "http://"), MCPBridgeSecret: bridge,
 			RuntimeRevision: asset.Descriptor.RuntimeRevision, CapabilityRevision: asset.Descriptor.CapabilityRevision, Required: true,
 		})
-		recordAssistantStartupPhase(address, assistantPhaseAssetsVerified, true, 1, "", "")
+		// Whether each verified tree was extracted now or reused from an earlier
+		// start is the evidence that a later start did not extract again.
+		recordAssistantStartupPhase(address, assistantPhaseAssetsVerified, true, 1, "", assistantInstallDetail(nodeInstall, capsuleInstall))
 		started = append(started, item)
 	}
 	if err := WriteAssistantRuntimeConfig(manager.configPath, config); err != nil {
@@ -649,6 +651,12 @@ func startProductionAssistantProcess(_ context.Context, nodePath, entry string, 
 	process := &productionAssistantProcess{cmd: cmd, done: make(chan struct{})}
 	go func() {
 		err := cmd.Wait()
+		// Wait returns after the output copy finished, so the last line the
+		// helper wrote without a newline is complete and must be kept: it is
+		// often the only account of why the helper exited.
+		if flusher, ok := output.(*assistantStartupOutput); ok {
+			flusher.flush()
+		}
 		process.mu.Lock()
 		process.err = err
 		process.mu.Unlock()

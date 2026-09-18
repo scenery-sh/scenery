@@ -3,12 +3,15 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"scenery.sh/internal/runtimeassets"
 )
 
 // A production assistant answers a caller neutrally when it is unavailable, but
@@ -185,6 +188,27 @@ type assistantStartupOutput struct {
 	report  *assistantStartupReport
 	address string
 	pending []byte
+}
+
+// flush keeps an unterminated last line; the caller has stopped writing.
+func (writer *assistantStartupOutput) flush() {
+	if writer == nil || writer.report == nil || len(writer.pending) == 0 {
+		return
+	}
+	writer.report.recordOutput(writer.address, string(writer.pending))
+	writer.pending = nil
+}
+
+// assistantInstallDetail names, for the node tree and the capsule, whether
+// this start extracted it or reused the tree an earlier start verified.
+func assistantInstallDetail(node, capsule runtimeassets.InstallResult) string {
+	state := func(reused bool) string {
+		if reused {
+			return "reused"
+		}
+		return "extracted"
+	}
+	return fmt.Sprintf("node=%s capsule=%s", state(node.Reused), state(capsule.Reused))
 }
 
 func (writer *assistantStartupOutput) Write(data []byte) (int, error) {

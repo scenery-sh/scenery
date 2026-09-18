@@ -63,6 +63,7 @@ DOWN_BINARY=""
 MODEL_PID=""
 MCP_PID=""
 PRODUCTION_PID=""
+PRODUCTION_RESTART_PID=""
 PRODUCTION_BUILD_PID=""
 FAKE_BIN=""
 APP_PORT=49157
@@ -93,6 +94,49 @@ stop_process() {
     i=$((i + 1))
   done
   kill -9 "$pid" 2>/dev/null || true
+}
+
+# A process is identified by its PID and its start time, so a PID the system
+# reused for an unrelated process is never mistaken for an owned one.
+process_start_time() {
+  "$PS" -o lstart= -p "$1" 2>/dev/null | tr -s ' ' || true
+}
+
+# process_identities prints "pid<TAB>start" for every descendant of a process.
+process_identities() {
+  local child
+  for child in $({ "$PGREP" -P "$1" 2>/dev/null || true; }); do
+    printf '%s\t%s\n' "$child" "$(process_start_time "$child")"
+    process_identities "$child"
+  done
+}
+
+# assistant_install_detail reads how a production start obtained its verified
+# trees from that start's private startup report.
+assistant_install_detail() {
+  [ -f "$1" ] || return 0
+  "$JQ" -r '.assistants[] | select(.assistant_address == "app/assistant/support") | .phases[] | select(.phase == "assets_verified") | .detail // ""' "$1" 2>/dev/null | head -n 1 || true
+}
+
+# identity_alive succeeds while the exact process of an identity still runs.
+identity_alive() {
+  local pid="${1%%$'\t'*}"
+  local start="${1#*$'\t'}"
+  [ -n "$start" ] && [ "$(process_start_time "$pid")" = "$start" ]
+}
+
+# Owned process identities are recorded before a production binary stops, so an
+# interrupted run can still stop helpers its binary left behind.
+OWNED_IDENTITIES=""
+stop_owned_process_identities() {
+  local identity
+  [ -n "$OWNED_IDENTITIES" ] && [ -f "$OWNED_IDENTITIES" ] || return 0
+  while IFS= read -r identity; do
+    [ -n "$identity" ] || continue
+    if identity_alive "$identity"; then
+      kill "${identity%%$'\t'*}" 2>/dev/null || true
+    fi
+  done < "$OWNED_IDENTITIES"
 }
 
 capture_runtime_diagnostics() {
@@ -143,6 +187,8 @@ cleanup() {
   stop_process "$MCP_PID"
   stop_process "$PRODUCTION_BUILD_PID"
   stop_process "$PRODUCTION_PID"
+  stop_process "$PRODUCTION_RESTART_PID"
+  stop_owned_process_identities
   capture_runtime_diagnostics
   if [ -x "$DOWN_BINARY" ] && [ "$RUNTIME_APP_ROOT" != "$APP_ROOT" ]; then
     "$DOWN_BINARY" down --app-root "$RUNTIME_APP_ROOT" -o json > "$PRIVATE_ROOT/down.json" 2> "$PRIVATE_ROOT/down.stderr" || true
@@ -1274,9 +1320,6 @@ PRODUCTION_RESTART_ELAPSED=0
 PRODUCTION_ASSETS_REUSED=0
 PRODUCTION_PORT=$((APP_PORT + 100))
 PRODUCTION_WAIT_SECONDS=180
-# A start that reuses extracted assets serves far inside this bound; a cold
-# extraction of the managed Node tree does not.
-PRODUCTION_REUSE_SECONDS=30
 PRODUCTION_WAIT_ELAPSED=0
 printf 'port=%s\n' "$PRODUCTION_PORT" > "$PRIVATE_ROOT/production-port.txt"
 if [ -f "$PRODUCTION_BUNDLE" ] && "$GREP" -q '"assistant_assets"' "$PRODUCTION_BUNDLE" && "$GREP" -q '"node_archive_digest"' "$PRODUCTION_BUNDLE"; then
@@ -1356,32 +1399,44 @@ if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$MANAGED_DATABASE_READY" -eq 1 ]; then
   if ! kill -0 "$PRODUCTION_PID" 2>/dev/null; then
     wait "$PRODUCTION_PID" 2>/dev/null || PRODUCTION_RUN_RC=$?
   fi
-  # A clean shutdown releases the public listener and leaves no helper child
-  # behind; the extraction inventory taken here is the state the second start
-  # must reuse.
-  production_helpers_before="$({ "$PGREP" -P "$PRODUCTION_PID" 2>/dev/null || true; } | wc -l | tr -d ' ')"
-  production_inventory_before="$({ "$SHA" < "$PRIVATE_ROOT/production-extraction-files.txt" 2>/dev/null || true; } | cut -d' ' -f1)"
+  # A clean shutdown releases the public listener and stops every helper the
+  # binary started. The helpers are identified before the binary stops: once
+  # it exits, its children are reparented and no parent query finds them.
+  OWNED_IDENTITIES="$PRIVATE_TMP/production-owned-processes.tsv"
+  process_identities "$PRODUCTION_PID" > "$OWNED_IDENTITIES"
+  cp "$OWNED_IDENTITIES" "$PRIVATE_ROOT/production-owned-processes.tsv" 2>/dev/null || true
+  production_helpers_before="$(grep -c . "$OWNED_IDENTITIES" 2>/dev/null || printf 0)"
+  PRODUCTION_FIRST_INSTALL="$(assistant_install_detail "$PRIVATE_ROOT/production-assistant-startup.json")"
   stop_process "$PRODUCTION_PID"
   production_listener_released=0
   if ! "$LSOF" -nP -iTCP:"$PRODUCTION_PORT" -sTCP:LISTEN 2>/dev/null | "$GREP" -q "$PRODUCTION_PORT"; then
     production_listener_released=1
   fi
-  production_helpers_after="$({ "$PGREP" -P "$PRODUCTION_PID" 2>/dev/null || true; } | wc -l | tr -d ' ')"
-  if [ "$production_listener_released" -eq 1 ] && [ "$production_helpers_after" -eq 0 ]; then
+  production_helpers_alive=0
+  while IFS= read -r identity; do
+    [ -n "$identity" ] || continue
+    if identity_alive "$identity"; then
+      production_helpers_alive=$((production_helpers_alive + 1))
+    fi
+  done < "$OWNED_IDENTITIES"
+  if [ "$production_listener_released" -eq 1 ] && [ "$production_helpers_before" -ge 1 ] && [ "$production_helpers_alive" -eq 0 ]; then
     PRODUCTION_SHUTDOWN_CLEAN=1
   fi
-  printf 'helpers_before_stop=%s\nhelpers_after_stop=%s\nlistener_released=%s\n' \
-    "$production_helpers_before" "$production_helpers_after" "$production_listener_released" > "$PRIVATE_ROOT/production-shutdown.txt"
-  # The second start finds the assets the first start extracted. It must serve a
-  # conversation again without extracting them a second time.
+  printf 'owned_processes_before_stop=%s\nowned_processes_alive_after_stop=%s\nlistener_released=%s\n' \
+    "$production_helpers_before" "$production_helpers_alive" "$production_listener_released" > "$PRIVATE_ROOT/production-shutdown.txt"
+  # The second start finds the assets the first start extracted. Its own
+  # startup report states whether each tree was extracted or reused, and it
+  # must complete the same approved MCP operation against the gateway of this
+  # start.
   if [ "$PRODUCTION_HELPER_READY" -eq 1 ]; then
     PRODUCTION_RESTART_PORT=$((PRODUCTION_PORT + 1))
+    production_restart_started="$(date +%s)"
     SCENERY_LISTEN_ADDR="127.0.0.1:$PRODUCTION_RESTART_PORT" \
       DATABASE_URL="$MANAGED_DATABASE_URL" PATH="$PRIVATE_TMP/no-node" \
       "$PRODUCTION_BINARY" > "$PRIVATE_ROOT/production-restart-run.log" 2>&1 &
     PRODUCTION_RESTART_PID=$!
     production_restart_status=000
-    while [ "$PRODUCTION_RESTART_ELAPSED" -lt "$PRODUCTION_WAIT_SECONDS" ] && kill -0 "$PRODUCTION_RESTART_PID" 2>/dev/null; do
+    while [ "$(( $(date +%s) - production_restart_started ))" -lt "$PRODUCTION_WAIT_SECONDS" ] && kill -0 "$PRODUCTION_RESTART_PID" 2>/dev/null; do
       production_restart_status="$($CURL -sS --max-time 8 -X POST \
         "http://127.0.0.1:$PRODUCTION_RESTART_PORT/assistants/support/v1/conversations" \
         -H 'content-type: application/json' -H 'accept: application/json' \
@@ -1389,25 +1444,39 @@ if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$MANAGED_DATABASE_READY" -eq 1 ]; then
         -o "$PUBLIC_ROOT/http/production-restart-create.body" -w '%{http_code}' \
         --data "$(assistant_message_body production-restart)" 2>/dev/null || printf '000')"
       if [ "$production_restart_status" = "200" ]; then
-        PRODUCTION_RESTART_OK=1
         break
       fi
       sleep 1
-      PRODUCTION_RESTART_ELAPSED=$((PRODUCTION_RESTART_ELAPSED + 1))
     done
-    find "$RUNTIME_APP_ROOT/.scenery/assistant-runtime" -maxdepth 4 -type f -print > "$PRIVATE_ROOT/production-extraction-files-restart.txt" 2>/dev/null || true
-    production_inventory_after="$({ "$SHA" < "$PRIVATE_ROOT/production-extraction-files-restart.txt" 2>/dev/null || true; } | cut -d' ' -f1)"
-    # Reuse is proven by two independent observations: the extracted inventory
-    # did not change, and the second start served well inside the time a cold
-    # extraction of the managed Node tree needs.
-    if [ -n "$production_inventory_before" ] && [ "$production_inventory_before" = "$production_inventory_after" ] \
-      && [ "$PRODUCTION_RESTART_OK" -eq 1 ] && [ "$PRODUCTION_RESTART_ELAPSED" -le "$PRODUCTION_REUSE_SECONDS" ]; then
+    PRODUCTION_RESTART_ELAPSED="$(( $(date +%s) - production_restart_started ))"
+    process_identities "$PRODUCTION_RESTART_PID" >> "$OWNED_IDENTITIES"
+    if [ "$production_restart_status" = "200" ]; then
+      PRODUCTION_DEVELOPMENT_BASE_URL="$BASE_URL"
+      BASE_URL="http://127.0.0.1:$PRODUCTION_RESTART_PORT"
+      if create_public_conversation "production-restart-mcp" "local-mcp" \
+        && drive_public_approvals "production-restart-mcp" "$CASE_CONVERSATION_ID" \
+        && public_final_message_match production-restart-mcp-events 'processed:acceptance-scene' \
+        && public_final_message_match production-restart-mcp-events '"status":"processed:acceptance-scene"'; then
+        PRODUCTION_RESTART_OK=1
+      fi
+      BASE_URL="$PRODUCTION_DEVELOPMENT_BASE_URL"
+    fi
+    if [ -f "$RUNTIME_APP_ROOT/.scenery/assistant-runtime/startup.json" ]; then
+      cp "$RUNTIME_APP_ROOT/.scenery/assistant-runtime/startup.json" "$PRIVATE_ROOT/production-restart-startup.json" 2>/dev/null || true
+    fi
+    PRODUCTION_RESTART_INSTALL="$(assistant_install_detail "$PRIVATE_ROOT/production-restart-startup.json")"
+    # The first start ran over empty runtime state and must have extracted both
+    # trees; the second must have reused both.
+    if [ "$PRODUCTION_FIRST_INSTALL" = "node=extracted capsule=extracted" ] \
+      && [ "$PRODUCTION_RESTART_INSTALL" = "node=reused capsule=reused" ]; then
       PRODUCTION_ASSETS_REUSED=1
     fi
-    printf 'create_status=%s\nwait_elapsed_seconds=%s\nwait_bound_seconds=%s\nreuse_bound_seconds=%s\nassets_reused=%s\n' \
-      "$production_restart_status" "$PRODUCTION_RESTART_ELAPSED" "$PRODUCTION_WAIT_SECONDS" "$PRODUCTION_REUSE_SECONDS" "$PRODUCTION_ASSETS_REUSED" > "$PRIVATE_ROOT/production-restart.txt"
+    printf 'create_status=%s\nmcp_operation=%s\nelapsed_seconds=%s\nwait_bound_seconds=%s\nfirst_start_install=%s\nrestart_install=%s\nassets_reused=%s\n' \
+      "$production_restart_status" "$PRODUCTION_RESTART_OK" "$PRODUCTION_RESTART_ELAPSED" "$PRODUCTION_WAIT_SECONDS" \
+      "$PRODUCTION_FIRST_INSTALL" "$PRODUCTION_RESTART_INSTALL" "$PRODUCTION_ASSETS_REUSED" > "$PRIVATE_ROOT/production-restart.txt"
     stop_process "$PRODUCTION_RESTART_PID"
     PRODUCTION_RESTART_PID=""
+    stop_owned_process_identities
   fi
 elif [ "$PRODUCTION_BUILD_RC" -eq 0 ]; then
   PRODUCTION_RUN_RC=1
@@ -1416,9 +1485,9 @@ else
   PRODUCTION_RUN_RC=$PRODUCTION_BUILD_RC
 fi
 run_test_case "production extraction tamper and recovery" ./runtime 'TestProductionInstallsStartsReusesAndRejectsTamperedAssets|TestProductionConcurrentAssetInstallReusesVerifiedTree|TestProductionAssistantEnvironmentUsesStrictAllowlist' "case-17-production-assets.log"
-PRODUCTION_EVIDENCE="production-build.log,production-run.log,production-create.body,production-startup.txt,production-shutdown.txt,production-restart.txt,production-assistant-startup.json,assistant-fixture.scenery.runtime-bundle.json"
+PRODUCTION_EVIDENCE="production-build.log,production-run.log,production-create.body,production-startup.txt,production-shutdown.txt,production-owned-processes.tsv,production-restart.txt,production-assistant-startup.json,production-restart-startup.json,assistant-fixture.scenery.runtime-bundle.json"
 if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$PRODUCTION_RUN_RC" -eq 0 ] && [ "$PRODUCTION_LISTENING" -eq 1 ] && [ "$PRODUCTION_HELPER_READY" -eq 1 ] && [ "$PRODUCTION_ASSETS_PRESENT" -eq 1 ] && [ "$PRODUCTION_MCP_OK" -eq 1 ] && [ "$PRODUCTION_SHUTDOWN_CLEAN" -eq 1 ] && [ "$PRODUCTION_RESTART_OK" -eq 1 ] && [ "$PRODUCTION_ASSETS_REUSED" -eq 1 ]; then
-  record_case "production binary runs without ambient Node" PASS "$PRODUCTION_EVIDENCE" "artifact embedded its assets, owned its listener, completed a public conversation and an approved MCP operation with empty PATH, shut down without leaving a helper, and served again over the already extracted assets"
+  record_case "production binary runs without ambient Node" PASS "$PRODUCTION_EVIDENCE" "artifact embedded its assets, owned its listener, completed a public conversation and an approved MCP operation with empty PATH, shut down with every owned process gone, and on a second start reused both verified trees and completed the MCP operation again"
 else
   record_case "production binary runs without ambient Node" BLOCKED "$PRODUCTION_EVIDENCE" "assets=$PRODUCTION_ASSETS_PRESENT listener=$PRODUCTION_LISTENING helper=$PRODUCTION_HELPER_READY mcp=$PRODUCTION_MCP_OK shutdown=$PRODUCTION_SHUTDOWN_CLEAN restart=$PRODUCTION_RESTART_OK reused=$PRODUCTION_ASSETS_REUSED exit=$PRODUCTION_RUN_RC wait=$PRODUCTION_WAIT_ELAPSED/$PRODUCTION_WAIT_SECONDS; inspect extraction/runtime hook"
 fi

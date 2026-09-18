@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -292,5 +293,46 @@ func replaceGlobalRegistryForTest() func() {
 		assistantMCPGatewayReadinessState.Lock()
 		assistantMCPGatewayReadinessState.values = prevAssistantMCPGatewayReadiness
 		assistantMCPGatewayReadinessState.Unlock()
+	}
+}
+
+func TestShutdownServicesStillStopsServicesAfterTheDeadlinePassed(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stopped []string
+	var sawExpired bool
+	// The later-initialized service shuts down first and exhausts the deadline,
+	// as a gateway waiting on a connected client did; the earlier one owns a
+	// child process and must still be asked to stop it.
+	for _, registration := range []NativeServiceRegistration{
+		{Address: "app/service/owner", Initialize: func(context.Context) error { return nil }, Shutdown: func(ctx context.Context) error {
+			stopped = append(stopped, "owner")
+			sawExpired = ctx.Err() != nil
+			return nil
+		}},
+		{Address: "app/service/slow", Dependencies: []string{"app/service/owner"}, Initialize: func(context.Context) error { return nil }, Shutdown: func(context.Context) error {
+			stopped = append(stopped, "slow")
+			cancel()
+			return context.DeadlineExceeded
+		}},
+	} {
+		if err := RegisterNativeService(registration); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := InitializeServices(); err != nil {
+		t.Fatal(err)
+	}
+	err := ShutdownServices(ctx)
+	if !slices.Equal(stopped, []string{"slow", "owner"}) {
+		t.Fatalf("stopped = %q, want every service asked to stop", stopped)
+	}
+	if !sawExpired {
+		t.Fatal("a service after the deadline did not see the expired context")
+	}
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ShutdownServices() = %v, want the deadline and the slow service reported", err)
 	}
 }

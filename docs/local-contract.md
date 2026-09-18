@@ -701,7 +701,9 @@ helper always agree on both revisions; a helper prepared for other revisions is
 refused at startup as `revision_mismatch` instead of being installed. A prepared
 or embedded helper carries no address of its own: it resolves its MCP gateway's
 loopback address from the private configuration supervision supplies when it
-starts, so the same compiled helper serves any start. A helper outage is reported as typed assistant unavailability while
+starts, so the same compiled helper serves any start. Stopping an application stops its helpers
+before it exits, even when a service's shutdown exhausted the shutdown
+deadline. A helper outage is reported as typed assistant unavailability while
 the Go app remains alive. `scenery up` and `scenery build` use managed Node/npm
 and exact assistant package locks without rewriting authored package files.
 

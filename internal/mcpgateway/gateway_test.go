@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -845,4 +846,42 @@ func TestGatewayFederationCancellationAndSafeErrorNormalization(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) || result != nil {
 		t.Fatalf("cancel result=%#v err=%v", result, err)
 	}
+}
+
+func TestGatewayCloseEndsAConnectionThatNeverBecomesIdle(t *testing.T) {
+	previous := gatewayCloseGrace
+	gatewayCloseGrace = 20 * time.Millisecond
+	t.Cleanup(func() { gatewayCloseGrace = previous })
+	gateway, err := New(Config{Manifest: testManifest(), Verify: HMACAssertionVerifier{Secret: []byte("secret"), Audience: "scenery"}, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- gateway.Serve(context.Background()) }()
+	// A client that holds its connection active, as a streaming MCP client
+	// does for as long as it runs: the request never completes.
+	conn, err := net.Dial("tcp4", strings.TrimPrefix(gateway.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.Write([]byte("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	closed := make(chan error, 1)
+	go func() { closed <- gateway.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close() = %v, want the held connection closed", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close() waited for a connection that never becomes idle")
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("the held connection stayed open after Close")
+	}
+	<-served
 }

@@ -564,6 +564,11 @@ func InitializeServices() error {
 	return nil
 }
 
+// ShutdownServices shuts every registered service down in reverse
+// initialization order. A deadline that passed does not skip the services left:
+// each still runs with the expired context, which obliges it to release what it
+// owns at once — a service that owns child processes stops them instead of
+// leaving them running after the application exits.
 func ShutdownServices(ctx context.Context) error {
 	global.mu.RLock()
 	hooks := make([]serviceShutdown, 0, len(global.serviceShutdowns))
@@ -586,10 +591,11 @@ func ShutdownServices(ctx context.Context) error {
 	})
 
 	var errsList []error
+	expired := false
 	for _, hook := range hooks {
-		if ctx != nil && ctx.Err() != nil {
+		if ctx != nil && ctx.Err() != nil && !expired {
+			expired = true
 			errsList = append(errsList, ctx.Err())
-			break
 		}
 		func() {
 			defer func() {

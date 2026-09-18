@@ -808,6 +808,17 @@ compile the application graph as it needs.
   every helper start failed before the provider ran. The cache now rewrites roots
   only and requires the assistant's connection to be the dynamic one; a prepared
   output is therefore independent of the address that prepared it.
+- A production binary stopped while its helper was connected left the helper
+  running. The helper, a client of the assistant's MCP gateway, stops after the
+  gateway, and Eve 0.59.1 keeps a streaming connection open that never becomes
+  idle, so the gateway's graceful shutdown waited out the whole five-second
+  service budget; the shutdown loop then stopped at the expired deadline and
+  never asked the production runtime to stop its helper. The acceptance had
+  reported a clean shutdown because it asked for children of the stopped binary,
+  which a reparented orphan no longer is. The gateway now closes connections
+  that are still open after a short grace, every service is asked to stop even
+  after the deadline passed, and the acceptance identifies the owned processes
+  by PID and start time before the binary stops and requires each one gone.
 - `scripts/accept-assistant-runtime.sh`, the real Eve journey (mock model,
   approvals, durable receipt/status/cancel through `scenery up`), is blocked
   independently of this work: its own `go build` binary has no content-bound
