@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	pathpkg "path"
@@ -73,10 +74,22 @@ func WorkspaceRevisionInputs(result *Result) ([]WorkspaceRevisionInput, error) {
 // discovery in long-lived watch owners that necessarily classified those
 // paths before scanning authored files.
 func WorkspaceRevisionInputsWithGenerated(result *Result, generated map[string]bool) ([]WorkspaceRevisionInput, error) {
+	return WorkspaceRevisionInputsReading(result, generated, nil)
+}
+
+// DirectoryReader lists one directory sorted by name, as os.ReadDir does.
+type DirectoryReader func(path string) ([]fs.DirEntry, error)
+
+// WorkspaceRevisionInputsReading is WorkspaceRevisionInputsWithGenerated for a
+// caller that enumerates the same workspace repeatedly, such as a development
+// watcher: readDir supplies each directory's listing, so the caller may answer
+// from listings it has proven current instead of reading every directory of
+// the workspace again. A nil readDir reads each directory.
+func WorkspaceRevisionInputsReading(result *Result, generated map[string]bool, readDir DirectoryReader) ([]WorkspaceRevisionInput, error) {
 	if result == nil {
 		return nil, errors.New("compiler result is unavailable")
 	}
-	paths, err := workspaceRevisionInputPathsWithGenerated(result.Root, result.Sources, generated)
+	paths, err := workspaceRevisionInputPathsReading(result.Root, result.Sources, generated, readDir)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +181,13 @@ func workspaceRevisionInputPaths(root string, sources []*Source) ([]workspaceRev
 }
 
 func workspaceRevisionInputPathsWithGenerated(root string, sources []*Source, generatedPaths map[string]bool) ([]workspaceRevisionInputPath, error) {
+	return workspaceRevisionInputPathsReading(root, sources, generatedPaths, nil)
+}
+
+func workspaceRevisionInputPathsReading(root string, sources []*Source, generatedPaths map[string]bool, readDir DirectoryReader) ([]workspaceRevisionInputPath, error) {
+	if readDir == nil {
+		readDir = os.ReadDir
+	}
 	resourcePaths, err := declaredResourceFileInputs(root, sources)
 	if err != nil {
 		return nil, err
@@ -239,7 +259,7 @@ func workspaceRevisionInputPathsWithGenerated(root string, sources []*Source, ge
 		if err := rejectPathSymlinks(root, walkRoot); err != nil {
 			return nil, fmt.Errorf("workspace implementation_root %s: %w", rootPath, err)
 		}
-		err := filepath.WalkDir(walkRoot, func(filePath string, entry os.DirEntry, walkErr error) error {
+		err := walkRevisionTree(walkRoot, readDir, func(filePath string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
 			}
@@ -251,17 +271,24 @@ func workspaceRevisionInputPathsWithGenerated(root string, sources []*Source, ge
 			if generatedPaths[workspaceRelative] && workspacePathWithinManagedRoot(workspaceRelative, managedRoots) {
 				return nil
 			}
-			if entry.IsDir() {
-				if entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
 			relToImplementation, err := filepath.Rel(walkRoot, filePath)
 			if err != nil {
 				return err
 			}
 			relToImplementation = filepath.ToSlash(relToImplementation)
+			if entry.IsDir() {
+				if entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				// A directory an exclusion covers completely contributes no
+				// input, so it is not walked: a cache or a storage tree below the
+				// implementation root would otherwise cost a read of each of its
+				// directories on every enumeration.
+				if filePath != walkRoot && excludeMatcher.coversDirectory(relToImplementation) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			included, excluded := includeMatcher.matches(relToImplementation), excludeMatcher.matches(relToImplementation)
 			if !included || excluded {
 				return nil
@@ -468,4 +495,46 @@ func declaredResourceFileInputs(root string, sources []*Source) ([]workspaceRevi
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].relative < result[j].relative })
 	return result, nil
+}
+
+// walkRevisionTree walks root in the order and with the callback semantics of
+// filepath.WalkDir, reading each directory through readDir.
+func walkRevisionTree(root string, readDir DirectoryReader, fn fs.WalkDirFunc) error {
+	info, err := os.Lstat(root)
+	if err != nil {
+		err = fn(root, nil, err)
+	} else {
+		err = walkRevisionDir(root, fs.FileInfoToDirEntry(info), readDir, fn)
+	}
+	if errors.Is(err, filepath.SkipDir) || errors.Is(err, filepath.SkipAll) {
+		return nil
+	}
+	return err
+}
+
+func walkRevisionDir(path string, entry fs.DirEntry, readDir DirectoryReader, fn fs.WalkDirFunc) error {
+	if err := fn(path, entry, nil); err != nil || !entry.IsDir() {
+		if errors.Is(err, filepath.SkipDir) && entry.IsDir() {
+			err = nil
+		}
+		return err
+	}
+	entries, err := readDir(path)
+	if err != nil {
+		if err = fn(path, entry, err); err != nil {
+			if errors.Is(err, filepath.SkipDir) {
+				err = nil
+			}
+			return err
+		}
+	}
+	for _, child := range entries {
+		if err := walkRevisionDir(filepath.Join(path, child.Name()), child, readDir, fn); err != nil {
+			if errors.Is(err, filepath.SkipDir) {
+				break
+			}
+			return err
+		}
+	}
+	return nil
 }

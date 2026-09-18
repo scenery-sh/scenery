@@ -1,8 +1,10 @@
 package main
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -379,5 +381,59 @@ func TestRefreshedCompilerMembershipNeverBecomesTheSnapshotGraph(t *testing.T) {
 	}
 	if changed.contract != contract || returned.contract != contract {
 		t.Fatal("the provisional membership graph became the snapshot's bound graph")
+	}
+}
+
+func TestRevisionMembershipFromReusedListingsStillSeesEveryMembershipChange(t *testing.T) {
+	settleDirectoryListings(t)
+	root := t.TempDir()
+	writeWatchFile(t, root, "app.scn", "application \"membership\" {}\nworkspace {\n implementation_root \"go\" {\n  path = \".\"\n  revision_include = [\"**/*.go\", \"go.mod\"]\n  revision_exclude = [\"cache/**\"]\n }\n}\n")
+	writeWatchFile(t, root, "go.mod", "module example.test/membership\n")
+	writeWatchFile(t, root, "pkg/service/handler.go", "package service\n")
+	writeWatchFile(t, root, "pkg/service/handler_test.go", "package service\n")
+	writeWatchFile(t, root, "cache/mod/dep.go", "package dep\n")
+	contract, err := compiler.Compile(root)
+	if err != nil || !contract.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	before, err := scanWatchedFilesReusing(root, fileSnapshot{contract: contract})
+	if err != nil || !before.compilerValid {
+		t.Fatalf("initial capture: %v", err)
+	}
+	bindSnapshotContract(&before, contract)
+	if _, ok := before.compilerFiles["pkg/service/handler_test.go"]; !ok {
+		t.Fatalf("test file is not a revision input: %v", before.compilerFiles)
+	}
+	if _, ok := before.compilerFiles["cache/mod/dep.go"]; ok {
+		t.Fatal("an excluded file became a revision input")
+	}
+	if revisionListings(root).Len() == 0 {
+		t.Fatal("the membership walk retained no listing, so the scans below would not exercise reuse")
+	}
+	writeWatchFile(t, root, "pkg/service/extra_test.go", "package service\n")
+	added, err := scanWatchedFilesReusing(root, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := added.compilerFiles["pkg/service/extra_test.go"]; !ok {
+		t.Fatalf("a new revision input went unseen: %v", slices.Sorted(maps.Keys(added.compilerFiles)))
+	}
+	if err := os.Remove(filepath.Join(root, "pkg/service/extra_test.go")); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := scanWatchedFilesReusing(root, added)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := removed.compilerFiles["pkg/service/extra_test.go"]; ok {
+		t.Fatal("a removed revision input stayed a member")
+	}
+	// An independent observation agrees with the membership reuse produced.
+	fresh, err := scanWatchedFilesFresh(root, removed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused, read := slices.Sorted(maps.Keys(removed.compilerFiles)), slices.Sorted(maps.Keys(fresh.compilerFiles)); !slices.Equal(reused, read) {
+		t.Fatalf("reused listings give membership %v, a fresh read %v", reused, read)
 	}
 }

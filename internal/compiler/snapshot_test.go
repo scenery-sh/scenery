@@ -1,9 +1,11 @@
 package compiler
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -190,5 +192,61 @@ func TestWorkspaceRevisionInputsTrackAbsentOptionalInput(t *testing.T) {
 	}
 	if !slices.Equal(paths, want) {
 		t.Fatalf("optional inputs = %#v, want %#v", paths, want)
+	}
+}
+
+func TestWorkspaceRevisionWalkSkipsACompletelyExcludedDirectoryWithTheSameMembership(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, "app.scn", "application \"pruned\" {}\nworkspace {\n implementation_root \"go\" {\n  path = \".\"\n  revision_include = [\"**/*.go\", \"go.mod\"]\n  revision_exclude = [\"cache/**\", \"**/generated/**\", \"pkg/skip*/**\"]\n }\n}\n")
+	for path, data := range map[string]string{
+		"go.mod":                   "module example.test/pruned\n",
+		"handler.go":               "package pruned\n",
+		"pkg/keep/keep.go":         "package keep\n",
+		"pkg/keep/generated/g.go":  "package generated\n",
+		"pkg/skipped/deep/s.go":    "package deep\n",
+		"cache/mod/dep/dep.go":     "package dep\n",
+		"cache/mod/dep/sub/sub.go": "package sub\n",
+		"cachekeeper/k.go":         "package cachekeeper\n",
+	} {
+		writeCompilerSnapshotFile(t, root, path, data)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	var read []string
+	inputs, err := WorkspaceRevisionInputsReading(result, nil, func(path string) ([]fs.DirEntry, error) {
+		relative, _ := filepath.Rel(root, path)
+		read = append(read, filepath.ToSlash(relative))
+		return os.ReadDir(path)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, input := range inputs {
+		if input.Present {
+			got = append(got, input.Path)
+		}
+	}
+	// An exclusion never changes what it excludes: only how much is read.
+	want := []string{"cachekeeper/k.go", "go.mod", "handler.go", "pkg/keep/keep.go"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("membership = %v, want %v", got, want)
+	}
+	reference, err := WorkspaceRevisionInputs(result)
+	if err != nil || len(reference) != len(inputs) {
+		t.Fatalf("a supplied reader changed the membership: %v, %v", reference, err)
+	}
+	for _, directory := range read {
+		if directory == "cache" || strings.HasPrefix(directory, "cache/") || strings.HasPrefix(directory, "pkg/skipped") {
+			t.Fatalf("a completely excluded directory was read: %s (all reads %v)", directory, read)
+		}
+	}
+	// A pattern that does not name the directory itself is not proof that the
+	// whole directory is excluded, so it is still read.
+	if !slices.Contains(read, "pkg/keep/generated") || !slices.Contains(read, "cachekeeper") {
+		t.Fatalf("a directory no exclusion names was not read: %v", read)
 	}
 }

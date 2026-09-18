@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,13 +13,19 @@ import (
 
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/dirlisting"
 )
 
 // captureCompilerRevisionFiles adds the complete non-declaration membership
 // selected by the last verified graph. It is separate from files because test
 // and explicit revision inputs contribute identity without becoming ordinary
 // runtime source synchronization policy.
-func (snapshot *fileSnapshot) captureCompilerRevisionFiles(root string, previous fileSnapshot) {
+//
+// The membership is enumerated over the whole implementation root on every
+// scan, so its directories come from retained listings that are still proven
+// current (internal/dirlisting), as the watcher's own walk does; a fresh capture
+// reads every directory instead.
+func (snapshot *fileSnapshot) captureCompilerRevisionFiles(root string, previous fileSnapshot, fresh bool) {
 	graph := snapshot.membership
 	if graph == nil {
 		graph = snapshot.contract
@@ -26,11 +33,16 @@ func (snapshot *fileSnapshot) captureCompilerRevisionFiles(root string, previous
 	if graph == nil {
 		return
 	}
-	inputs, err := compiler.WorkspaceRevisionInputsWithGenerated(graph, snapshot.generated)
+	walk := revisionListings(root).Begin(fresh)
+	inputs, err := compiler.WorkspaceRevisionInputsReading(graph, snapshot.generated, func(path string) ([]fs.DirEntry, error) {
+		entries, _, err := walk.ReadDir(path)
+		return entries, err
+	})
 	if err != nil {
 		snapshot.compilerValid = false
 		return
 	}
+	walk.Finish()
 	snapshot.compilerFiles = make(map[string]fileStamp, len(inputs))
 	snapshot.compilerImpl = make(map[string]bool, len(inputs))
 	snapshot.compilerAbsent = make(map[string]bool)
@@ -66,6 +78,14 @@ func (snapshot *fileSnapshot) captureCompilerRevisionFiles(root string, previous
 		snapshot.compilerFiles[rel] = stamp
 		snapshot.compilerImpl[rel] = input.Implementation
 	}
+}
+
+// revisionListings is the directory listing tree of the revision membership
+// walks of root. It is separate from the watcher's tree because the two walks
+// visit different directories, and a completed walk evicts what it did not
+// visit.
+func revisionListings(root string) *dirlisting.Tree {
+	return dirlisting.TreeFor("revision\x00" + filepath.Clean(root))
 }
 
 func snapshotFingerprint(snapshot fileSnapshot) string {

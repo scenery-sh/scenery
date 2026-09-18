@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -23,8 +24,39 @@ type devDatabaseSetup struct {
 	Migrations  []dbMigrationPlan
 }
 
-func (s *devSupervisor) nextDevDatabaseSetup(initial bool, contract *compiler.Result) (devDatabaseSetup, bool, error) {
+// devDatabaseSetupInputs is the database setup a contract's migration and seed
+// bytes describe. The setup reads the contract's resources and SQL
+// requirements, so it describes every contract of the same revision and
+// requirements.
+type devDatabaseSetupInputs struct {
+	read     bool
+	revision string
+	sql      compiler.SQLRequirements
+	setup    devDatabaseSetup
+	hasWork  bool
+	err      error
+}
+
+func (s *devSupervisor) readDevDatabaseSetupInputs(contract *compiler.Result) devDatabaseSetupInputs {
 	setup, hasWork, err := buildDevDatabaseSetup(s.root, s.cfg, contract)
+	inputs := devDatabaseSetupInputs{read: true, sql: contract.SQLRequirements, setup: setup, hasWork: hasWork, err: err}
+	if contract.Manifest != nil {
+		inputs.revision = contract.Manifest.ContractRevision
+	}
+	return inputs
+}
+
+// describes reports whether the inputs were read for a contract equal to
+// contract in everything the setup reads.
+func (inputs devDatabaseSetupInputs) describes(contract *compiler.Result) bool {
+	return inputs.read && contract != nil && contract.Manifest != nil && inputs.revision != "" &&
+		inputs.revision == contract.Manifest.ContractRevision && reflect.DeepEqual(inputs.sql, contract.SQLRequirements)
+}
+
+// nextDevDatabaseSetup decides whether the setup of inputs must run before the
+// candidate is activated.
+func (s *devSupervisor) nextDevDatabaseSetup(initial bool, inputs devDatabaseSetupInputs) (devDatabaseSetup, bool, error) {
+	setup, hasWork, err := inputs.setup, inputs.hasWork, inputs.err
 	if err != nil || !hasWork {
 		return setup, false, err
 	}

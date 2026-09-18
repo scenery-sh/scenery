@@ -122,27 +122,76 @@ func waitForSnapshotToSettlePolling(ctx context.Context, root string, current fi
 	}
 }
 
+// waitForSnapshotToSettleEvents returns a scan of a tree that no event disturbed
+// for watchSettleDelay. The scan runs inside that quiet window instead of after
+// it: it starts watchScanLead after the last event, and an event that arrives
+// before the window closes discards it. The returned snapshot was therefore
+// read in a period the window proved quiet, and at most one scan is in flight.
 func waitForSnapshotToSettleEvents(ctx context.Context, root string, current fileSnapshot, events <-chan struct{}) (fileSnapshot, error) {
-	timer := time.NewTimer(watchSettleDelay)
-	defer timer.Stop()
-
+	type scanned struct {
+		snapshot fileSnapshot
+		err      error
+	}
+	quiet := time.NewTimer(watchSettleDelay)
+	defer quiet.Stop()
+	scanLead := min(watchScanLead, watchSettleDelay)
+	lead := time.NewTimer(scanLead)
+	defer lead.Stop()
+	var (
+		results  chan scanned // non-nil while a scan runs
+		finished *scanned     // the scan no event disturbed
+		stale    bool         // an event arrived after the running scan began
+		due      bool         // the lead elapsed while a stale scan was running
+		settled  bool         // the quiet window closed
+	)
+	scan := func() {
+		results = make(chan scanned, 1)
+		stale, due = false, false
+		go func(out chan<- scanned) {
+			snapshot, err := scanWatchedFilesReusing(root, current)
+			out <- scanned{snapshot: snapshot, err: err}
+		}(results)
+	}
+	join := func() {
+		if results != nil {
+			<-results
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
+			join()
 			return fileSnapshot{}, ctx.Err()
-		case <-timer.C:
-			return scanWatchedFilesReusing(root, current)
 		case _, ok := <-events:
 			if !ok {
+				join()
 				return scanWatchedFilesReusing(root, current)
 			}
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
+			stale, due, settled, finished = true, false, false, nil
+			quiet.Reset(watchSettleDelay)
+			lead.Reset(scanLead)
+		case <-lead.C:
+			if results == nil {
+				scan()
+			} else {
+				due = true
 			}
-			timer.Reset(watchSettleDelay)
+		case result := <-results:
+			results = nil
+			switch {
+			case stale && due:
+				scan()
+			case stale:
+			case settled:
+				return result.snapshot, result.err
+			default:
+				finished = &result
+			}
+		case <-quiet.C:
+			settled = true
+			if finished != nil {
+				return finished.snapshot, finished.err
+			}
 		}
 	}
 }

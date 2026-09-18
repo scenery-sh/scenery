@@ -53,31 +53,29 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 	if fresh {
 		discoverGenerated = compiler.ReconcileGeneratedPaths
 	}
-	generated, err := discoverGenerated(root)
-	if err != nil {
-		return fileSnapshot{}, err
+	// Generated path discovery walks the tree on its own listings, so it runs
+	// beside the watch walk; the files the walk found are classified once both
+	// finished, in walk order.
+	type discovery struct {
+		paths map[string]bool
+		err   error
 	}
-	walk := watchListings(root).Begin(fresh)
-	snapshot.generated = make(map[string]bool, len(generated))
-	snapshot.generatedContent = make(map[string]fileStamp, len(generated))
-	snapshot.retryGenerated = previous.retryGenerated
-	for rel := range generated {
-		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
-		snapshot.generated[rel] = err == nil && info.Mode().IsRegular()
-		if snapshot.generated[rel] {
-			stamp, reused := reusableStamp(previous.generatedContent, rel, info, false)
-			if !reused {
-				stamp, _, err = stampWatchedFile(filepath.Join(root, filepath.FromSlash(rel)), info, false)
-				if err != nil {
-					continue
-				}
-			}
-			snapshot.generatedContent[rel] = stamp
-		}
+	discovering := make(chan discovery, 1)
+	go func() {
+		paths, err := discoverGenerated(root)
+		discovering <- discovery{paths: paths, err: err}
+	}()
+	type candidate struct {
+		rel, path string
+		entry     fs.DirEntry
 	}
-	var dirs []string
+	var (
+		dirs       []string
+		candidates []candidate
+	)
 	ignore := watchignore.New(root)
-	err = walkWatchTree(root, ignore, walk, &snapshot.scanStats, func(path string, d fs.DirEntry, err error) error {
+	walk := watchListings(root).Begin(fresh)
+	walkErr := walkWatchTree(root, ignore, walk, &snapshot.scanStats, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Tolerate entries vanishing or turning unreadable mid-scan; a
 			// transient walk error must not abort the watch loop.
@@ -109,9 +107,6 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		if generated[rel] {
-			return nil
-		}
 		if shouldIgnoreWatchEntryWithMatcher(rel, false, ignore) {
 			return nil
 		}
@@ -125,17 +120,51 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 				return nil
 			}
 		}
+		candidates = append(candidates, candidate{rel: rel, path: path, entry: d})
+		return nil
+	})
+	discovered := <-discovering
+	if discovered.err != nil {
+		return fileSnapshot{}, discovered.err
+	}
+	if walkErr != nil {
+		return fileSnapshot{}, walkErr
+	}
+	walk.Finish()
+	generated := discovered.paths
+	snapshot.generated = make(map[string]bool, len(generated))
+	snapshot.generatedContent = make(map[string]fileStamp, len(generated))
+	snapshot.retryGenerated = previous.retryGenerated
+	for rel := range generated {
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
+		snapshot.generated[rel] = err == nil && info.Mode().IsRegular()
+		if snapshot.generated[rel] {
+			stamp, reused := reusableStamp(previous.generatedContent, rel, info, false)
+			if !reused {
+				stamp, _, err = stampWatchedFile(filepath.Join(root, filepath.FromSlash(rel)), info, false)
+				if err != nil {
+					continue
+				}
+			}
+			snapshot.generatedContent[rel] = stamp
+		}
+	}
+	for _, found := range candidates {
+		rel, path, d := found.rel, found.path, found.entry
+		if generated[rel] {
+			continue
+		}
 
 		info, err := d.Info()
 		if err != nil {
-			return nil
+			continue
 		}
 		var data []byte
 		stamp, reused := reusableStamp(previous.files, rel, info, false)
 		if !reused {
 			stamp, data, err = stampWatchedFile(path, info, false)
 			if err != nil {
-				return nil
+				continue
 			}
 			snapshot.scanStats.filesHashed++
 			snapshot.scanStats.bytesHashed += int64(len(data))
@@ -146,7 +175,7 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 			if !cached {
 				if data == nil {
 					if data, err = os.ReadFile(path); err != nil {
-						return nil
+						continue
 					}
 				}
 				patterns = parseGoEmbedPatterns(string(data))
@@ -155,21 +184,16 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 			pkgDir := filepath.Dir(rel)
 			for _, pattern := range patterns {
 				if err := addEmbeddedSnapshotFiles(root, pkgDir, pattern, snapshot.files, previous.files, ignore); err != nil {
-					return err
+					return fileSnapshot{}, err
 				}
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		return fileSnapshot{}, err
 	}
-	walk.Finish()
 	// WalkDir visits each directory exactly once, so the list is already
 	// unique; DFS pre-order is not string-sorted, so sort stays.
 	sort.Strings(dirs)
 	snapshot.dirs = dirs
-	snapshot.captureCompilerRevisionFiles(root, previous)
+	snapshot.captureCompilerRevisionFiles(root, previous, fresh)
 	snapshot.capturedAt = time.Now()
 	return snapshot, nil
 }

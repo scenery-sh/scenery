@@ -415,7 +415,10 @@ canonical, location-independent form a production capsule has, so restoring it
 is a verified copy that rewrites nothing.
 
 The development watcher uses a 100 ms quiet window; its 250 ms fallback poll
-interval is unchanged. Atomic/multi-file saves are coalesced, and authored
+interval is unchanged. The scan that captures a change runs inside that window,
+20 ms after the last file event, and an event before the window closes discards
+it, so a build starts when the window closes instead of one scan later.
+Atomic/multi-file saves are coalesced, and authored
 changes arriving during a build remain pending for the next generation.
 Generated publication does not create a rebuild feedback loop.
 

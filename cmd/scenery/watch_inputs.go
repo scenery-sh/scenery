@@ -167,7 +167,7 @@ func refreshSnapshotContract(root string, snapshot *fileSnapshot, result *compil
 		return
 	}
 	candidate.generated = generated
-	candidate.captureCompilerRevisionFiles(root, *snapshot)
+	candidate.captureCompilerRevisionFiles(root, *snapshot, false)
 	if !candidate.compilerValid {
 		return
 	}

@@ -90,12 +90,19 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	if err := requireGenerateHooks(); err != nil {
 		return nil, nil, err
 	}
-	planStarted := time.Now()
-	plan, err := generateHooks.RuntimeIntegrationPlan(result.Contract)
-	RecordStep(ctx, Step{Name: "process.plan", StartedAt: planStarted, Duration: time.Since(planStarted), Cache: "not_applicable", Reason: "runtime_integration_plan", OK: err == nil, Actions: len(plan.Services)})
-	if err != nil {
-		return nil, nil, err
-	}
+	// The plan reads the contract only, so it is made while the workspace is
+	// verified and its build inputs are read; every return joins it.
+	planned := make(chan struct{})
+	var plan generateapi.RuntimeIntegrationPlan
+	var planErr error
+	contract := result.Contract
+	go func() {
+		defer close(planned)
+		planStarted := time.Now()
+		plan, planErr = generateHooks.RuntimeIntegrationPlan(contract)
+		RecordStep(ctx, Step{Name: "process.plan", StartedAt: planStarted, Duration: time.Since(planStarted), Cache: "not_applicable", Reason: "runtime_integration_plan", OK: planErr == nil, Actions: len(plan.Services)})
+	}()
+	defer func() { <-planned }()
 	unlock, err := lockWorkspace(result.Dir)
 	if err != nil {
 		return nil, nil, err
@@ -120,7 +127,10 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	var set *DevelopmentProcessSet
 	check, err := compileBesidePreparedVerification(ctx, result, func(ctx context.Context) error {
 		var buildErr error
-		set, buildErr = buildDevelopmentProcesses(ctx, result, plan.Services)
+		set, buildErr = buildDevelopmentProcesses(ctx, result, func() ([]generateapi.ServiceProcessPlan, error) {
+			<-planned
+			return plan.Services, planErr
+		})
 		return buildErr
 	})
 	if err != nil {
@@ -154,8 +164,12 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	}, nil
 }
 
-func buildDevelopmentProcesses(ctx context.Context, result *Result, services []generateapi.ServiceProcessPlan) (*DevelopmentProcessSet, error) {
+func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func() ([]generateapi.ServiceProcessPlan, error)) (*DevelopmentProcessSet, error) {
 	manifest, err := buildInputManifest(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	services, err := planned()
 	if err != nil {
 		return nil, err
 	}

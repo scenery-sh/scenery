@@ -753,6 +753,27 @@ compile the application graph as it needs.
   capsules are staged beside the prepared Go workspace instead of inside it,
   which lets the production artifact build finish and keeps workspace membership
   verification strict.
+- [x] (2026-09-18) The warm body edit was measured in the developer's own ONLV
+  checkout instead of a clean worktree: 2,972 ms p50 from the write of
+  `health/health.go` to the first public answer of the new generation, against
+  the 1,480 ms this plan had recorded. Four slices brought it to 1,264 ms p50
+  (n=8, min 1,251, max 1,356), with `go build` starting 285 ms after the write
+  instead of 412 ms. (1) Revision membership reuses directory listings and
+  skips a directory that a `revision_exclude` pattern covers completely; ONLV
+  excluded `.cache/**`, `.debug/**`, `.pulse/**` and `var/**`, which had been
+  4,538 of its 5,095 revision inputs (`watch.scan` 323 to 98 ms,
+  `supervisor.snapshot_verify` 469 to 260 ms). (2) The implementation check
+  retains its analysis per target and loads only the packages whose own source
+  bytes changed, and their importers only when the package's API digest
+  changed; one check shares its projection input and one scan of generated
+  descriptors between the Go and TypeScript renders (`implementation.check`
+  1,715 to 365 ms). (3) The capture scan runs inside the watcher's quiet window,
+  a scan discovers generated paths beside its walk, and the migration and seed
+  bytes and the integration plan are read beside other work
+  (`supervisor.snapshot_verify` 260 to 146 ms; the build request starts 101 ms
+  after the write instead of 177 ms). A signature-breaking edit still fails the
+  build and the check with the generation unchanged, and the restoring edit
+  loads everything once.
 
 ## Surprises & Discoveries
 
@@ -1030,6 +1051,35 @@ compile the application graph as it needs.
 - `testdata/assistant` tracks generated Go projections from an earlier
   specification revision; regenerating it rewrites its contract revision and
   removes those files, so it was left unchanged.
+
+- The 346 ms candidate preflight is not Scenery's work. It is what macOS
+  charges for the first execution of a new executable, measured on this machine
+  with freshly linked Go programs that do nothing (median of five, 2026-09-18):
+  221 ms at 2 MB, 417 ms at 31 MB and 899 ms at 102 MB, against 6-8 ms for the
+  second execution of the same file. A byte copy of an already executed program
+  still costs 87, 272 and 771 ms. So a new file costs about 7 ms per megabyte
+  whatever it contains, and a new code identity about 130 ms more; ONLV's
+  16-24 MB service executables land exactly on the measured preflight. The
+  separate start that follows costs little because the file was already
+  assessed. Consequences: a smaller service executable shortens the link and
+  this charge together, a single-start handshake cannot remove it, and whether
+  the launching application's Developer Tools exemption removes it is still to
+  be measured, because only a person can grant that.
+
+- What remains of a warm ONLV body edit is mostly not Scenery's. One stock
+  `go build` of a service after a body edit, run by hand in the prepared
+  workspace (2026-09-18): about 190 ms loading packages, 110 ms checking the
+  build cache of unchanged dependencies, 90 ms compiling the three packages of
+  the edited closure and 250 ms linking a 17 MB executable with `-w`; adding
+  `-s` saves 27 ms of the link. With nothing to do the same command still takes
+  290 ms. ONLV ran with the framework replaced by a local directory, which Go
+  cannot index, so its package load is the pessimistic case. The macOS first
+  execution of the new executable adds 340 ms. Beside these, Scenery's own
+  serial work before the build is about 185 ms (status persistence and the
+  compile-start notification 31 ms, framework verification 17 ms, workspace
+  cache 53 ms, workspace verification, input fingerprint and process identity
+  about 60 ms), and every status write rewrites the whole dashboard state file
+  (13-18 ms each, 250 ms in `supervisor.publish` after activation).
 
 ## Decision Log
 
@@ -1431,6 +1481,35 @@ compile the application graph as it needs.
   runtime this plan replaces. An idea from them returns only as an item of this
   plan with a fresh measurement under the process model. No active plan carries
   an unchanged-start target. Date: 2026-09-18. Author: human, Claude.
+- Decision: the 300 ms target excludes the macOS first-execution charge of the
+  candidate preflight. Rationale (human choice): Scenery neither causes nor can
+  remove it, and only a person can grant the exemption that might. It stays
+  measured and reported. Date: 2026-09-18. Author: human.
+- Decision: the implementation check reuses a retained analysis instead of
+  loading every package of a target on each edit. Rationale: it was the largest
+  avoidable cost (1.7 s on ONLV) and grew with the application instead of the
+  change. The reuse is decided on bytes, not times: the stamp covers the
+  target, environment, flags, patterns, module files and the content of every
+  source directory; anything it cannot attribute to a package loads
+  everything; importers are loaded when the changed package's API digest
+  differs; a failed load retains nothing. Date: 2026-09-18. Author: Claude.
+- Decision: the watcher's capture scan runs inside the quiet window instead of
+  after it. Rationale: file events arrive immediately (kqueue, inotify), so a
+  scan that no event followed until the window closed read the tree in a period
+  the window proved quiet, exactly what the scan after the window assumes; an
+  event discards it. The window stays 100 ms, at most one scan is in flight, and
+  the verification before activation remains the check that no source changed.
+  Date: 2026-09-18. Author: Claude.
+- Decision: keep the verification before activation reading every directory,
+  and shorten it by discovering generated paths beside the walk. Rationale: the
+  two walks use separate listings and the files found are classified once both
+  finished, in walk order, so the snapshot is the one the sequential scan
+  produced. Date: 2026-09-18. Author: Claude.
+- Decision: do not move status persistence and the compile-start notification
+  off the build's serial path, and do not strip the symbol table (`-s`).
+  Rationale: the first would let build step events overtake the build-start
+  event that consumers order by, for 31 ms; the second saves 27 ms and changes
+  what a debugger flag has to restore. Date: 2026-09-18. Author: Claude.
 
 ## Outcomes & Retrospective
 

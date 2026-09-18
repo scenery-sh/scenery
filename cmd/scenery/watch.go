@@ -33,6 +33,9 @@ var (
 	watchPollInterval       = 250 * time.Millisecond
 	watchBackupPollInterval = 2 * time.Second
 	watchSettleDelay        = 100 * time.Millisecond
+	// watchScanLead coalesces the events of one save before the scan that
+	// runs inside the settle window starts.
+	watchScanLead = 20 * time.Millisecond
 )
 
 // productionFrontendWatch registers the source dirs of serve-mode

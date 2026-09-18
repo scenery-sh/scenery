@@ -795,6 +795,30 @@ func (m globMatcher) matches(value string) bool {
 	return false
 }
 
+// coversDirectory reports whether one pattern matches every path beneath
+// directory, which is the case for a pattern that names the directory segment
+// by segment and ends in `**`. It is deliberately conservative: a pattern of
+// another shape may cover the directory too, and the directory is then walked.
+func (m globMatcher) coversDirectory(directory string) bool {
+	segments := strings.Split(filepath.ToSlash(directory), "/")
+	for _, pattern := range m {
+		if len(pattern) != len(segments)+1 || pattern[len(segments)] != "**" {
+			continue
+		}
+		covered := true
+		for index, segment := range segments {
+			if pattern[index] == "**" || !matchGlobSegment(pattern[index], segment) {
+				covered = false
+				break
+			}
+		}
+		if covered {
+			return true
+		}
+	}
+	return false
+}
+
 func matchesAnyGlob(patterns []string, value string) bool {
 	return newGlobMatcher(patterns).matches(value)
 }

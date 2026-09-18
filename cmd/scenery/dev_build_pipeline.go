@@ -249,6 +249,23 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			concurrentEnvironment <- resolvedEnvironment{environment: environment, sql: contract.SQLRequirements, err: err}
 		}()
 	}
+	// The migration and seed bytes of a rebuild are read while Go compiles as
+	// well; a candidate whose checked contract differs reads them again.
+	type readDatabaseSetup struct {
+		inputs   devDatabaseSetupInputs
+		started  time.Time
+		duration time.Duration
+	}
+	var concurrentDatabaseSetup chan readDatabaseSetup
+	if !initial && result != nil && result.Contract != nil {
+		concurrentDatabaseSetup = make(chan readDatabaseSetup, 1)
+		contract := result.Contract
+		go func() {
+			started := time.Now()
+			inputs := s.readDevDatabaseSetupInputs(contract)
+			concurrentDatabaseSetup <- readDatabaseSetup{inputs: inputs, started: started, duration: time.Since(started)}
+		}()
+	}
 	var processes *build.DevelopmentProcessSet
 	joinImplementationCheck := func() error { return nil }
 	if err := s.console.Phase("Compiling application source code", func() error {
@@ -322,8 +339,19 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	setupStarted := time.Now()
-	dbSetup, shouldRunDBSetup, err := s.nextDevDatabaseSetup(initial, result.Contract)
-	build.RecordStep(ctx, build.Step{Name: "supervisor.database_setup_check", StartedAt: setupStarted, Duration: time.Since(setupStarted), Cache: "not_applicable", Reason: "migration_and_seed_inputs", OK: err == nil})
+	var setupInputs devDatabaseSetupInputs
+	var setupDuration time.Duration
+	if concurrentDatabaseSetup != nil {
+		if read := <-concurrentDatabaseSetup; read.inputs.describes(result.Contract) {
+			setupInputs, setupStarted, setupDuration = read.inputs, read.started, read.duration
+		}
+	}
+	if !setupInputs.read {
+		setupInputs = s.readDevDatabaseSetupInputs(result.Contract)
+		setupDuration = time.Since(setupStarted)
+	}
+	dbSetup, shouldRunDBSetup, err := s.nextDevDatabaseSetup(initial, setupInputs)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.database_setup_check", StartedAt: setupStarted, Duration: setupDuration, Cache: "not_applicable", Reason: "migration_and_seed_inputs", OK: err == nil})
 	if err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
