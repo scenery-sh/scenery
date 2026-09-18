@@ -1422,6 +1422,15 @@ compile the application graph as it needs.
   incarnations let a new host serve an unchanged instance without restarting
   it; an attempt during the host swap fails as unavailable, as it would while
   its process restarted. Date: 2026-09-17. Author: human, Claude.
+- Decision: this plan alone carries the 300/500 ms warm body-edit target. Plans
+  0179, 0180 and 0181 pursued the same goal on the single-executable runtime
+  and were closed on 2026-09-18 (0179 superseded with its goals unmet, 0180
+  completed with the target unmet, 0181 a NO-GO experiment). Rationale: four
+  active plans for one target told an agent four different things about how
+  the development loop is built; their open items and baselines describe a
+  runtime this plan replaces. An idea from them returns only as an item of this
+  plan with a fresh measurement under the process model. No active plan carries
+  an unchanged-start target. Date: 2026-09-18. Author: human, Claude.
 
 ## Outcomes & Retrospective
 

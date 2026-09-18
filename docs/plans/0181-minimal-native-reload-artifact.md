@@ -4,6 +4,10 @@ This ExecPlan is a living document. Keep Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective current. It follows
 [PLANS.md](../../PLANS.md).
 
+Closed on 2026-09-18 as a completed NO-GO experiment. Do not continue it as
+implementation guidance: the development runtime that followed is
+`docs/plans/0200-process-per-service-development-runtime.md`.
+
 ## Purpose / Big Picture
 
 An ordinary implementation-only Go edit still rebuilds and restarts the full
@@ -50,7 +54,8 @@ This plan does not reinterpret that result as success.
 - [x] (2026-09-13) Record a NO-GO decision for a process-per-edit stock-Go
   implementation island. Do not begin production host integration
   until the developer has received this experimental checkpoint.
-- [ ] If and only if the experimental gate passes and continuation is explicitly
+- [x] (2026-09-18) Not pursued, because the experimental gate did not pass.
+  Original item: if and only if the experimental gate passes and continuation is explicitly
   selected after the checkpoint, integrate the singular stable development host,
   exact generation switch, drain, retained rollback, database behavior, internal
   calls, streaming, and worktree isolation.
@@ -246,6 +251,12 @@ without selecting or implementing one. This plan remains active because the
 The owned ONLV worktree was removed, the original ONLV checkout remained clean,
 no experiment process remained, and temporary binaries/prototype directories
 were moved to the macOS Trash for recoverable cleanup.
+
+Closed on 2026-09-18. The NO-GO stands: the conditional stable-host integration
+was never started, and no product code depends on this experiment. The
+process-island evidence of plan 0199 and the process-per-service runtime of
+plan 0200 took the development runtime in a different direction; the 300/500 ms
+edit target is carried by plan 0200 alone.
 
 ## Context and Orientation
 

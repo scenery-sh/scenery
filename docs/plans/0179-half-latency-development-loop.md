@@ -3,6 +3,12 @@
 This ExecPlan is a living document. Keep Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective current. It follows [PLANS.md](../../PLANS.md).
 
+Superseded on 2026-09-18 by
+`docs/plans/0200-process-per-service-development-runtime.md`. Do not continue
+this plan as active implementation guidance: its goals were not met, its open
+items are not carried automatically, and its baseline is the single-executable
+runtime that plan 0200 replaces.
+
 ## Purpose / Big Picture
 
 The developer requests at least 50% faster semantic edits and unchanged starts.
@@ -698,6 +704,16 @@ snapshot before activation. A changed graph discards the speculative stage.
 At most two distinct helper handshakes run after the API listener; callbacks
 and shared output are serialized. Focused concurrency/ownership and race tests
 pass for the helper-start work; integrated timing and named probes are pending.
+
+Superseded on 2026-09-18 by plan 0200, with both numerical goals unmet: the
+final semantic-edit median was 5,461 ms against a 3,153 ms threshold, and the
+unchanged-start median 4,032 ms against 4,017 ms. The retained increments
+shipped and stay in the product. The open Progress items are left as they were:
+they describe work on the single-executable development loop, measured against
+the final 0178 medians, and the process-per-service runtime changed both the
+path and the baseline. An idea from them is worth reopening only as an item of
+plan 0200 with a fresh measurement under that runtime. No active plan carries an
+unchanged-start target; this plan missed its own by 15 ms.
 
 ## Context and Orientation
 

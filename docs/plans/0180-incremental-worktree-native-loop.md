@@ -4,6 +4,9 @@ This ExecPlan is a living document. Keep Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective current. It follows
 [PLANS.md](../../PLANS.md).
 
+Closed on 2026-09-18 as completed. Its unmet latency target is carried by
+`docs/plans/0200-process-per-service-development-runtime.md`.
+
 ## Purpose / Big Picture
 
 Make the ordinary Scenery development loop incremental and worktree-native
@@ -574,6 +577,11 @@ series measured p50/p95/worst 2,652.676/2,659.123/2,659.448 ms. A future
 performance slice needs a
 materially different artifact-boundary hypothesis; the rejected near-monolithic
 worker must not be repeated unchanged.
+
+Closed on 2026-09-18. Every planned slice is implemented and its correctness
+evidence passed; the requested subsecond loop was not reached by this plan's
+approach. The 300/500 ms target is carried by plan 0200, whose process-per-service
+runtime replaces the single-executable rebuild this plan optimized.
 
 ## Context and Orientation
 
