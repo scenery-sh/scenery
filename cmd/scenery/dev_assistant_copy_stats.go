@@ -29,7 +29,4 @@ func (s *assistantSupervisor) traceAssistantCache(ctx context.Context, definitio
 			"traversal_ms": milliseconds(stats.Duration - stats.Read - stats.Hash - stats.Write),
 		})
 	}
-	cache.onRelocate = func(started time.Time, err error) {
-		s.emitStep(ctx, definition, "assistant.cache_relocate", started, "hit", "private_manifest_relocation", err)
-	}
 }

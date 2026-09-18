@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -24,16 +23,17 @@ import (
 // The input includes the complete materialized authored/generated tree, the
 // verified managed toolchain manifest/platform and exact Node executable bytes.
 type assistantOverlayCache struct {
-	path       string
-	key        string
-	onCopy     func(assistantCopyStats, error)
-	onRelocate func(time.Time, error)
+	path   string
+	key    string
+	onCopy func(assistantCopyStats, error)
 }
 
+// A cache record identifies its inputs and the verified tree. The tree is
+// canonical: it records no directory of its own (see eve.CanonicalRoot), so a
+// restore is a verified copy that rewrites nothing.
 type assistantOverlayCacheRecord struct {
-	Key       string                   `json:"key"`
-	BuildRoot string                   `json:"build_root"`
-	Tree      runtimeassets.Descriptor `json:"tree"`
+	Key  string                   `json:"key"`
+	Tree runtimeassets.Descriptor `json:"tree"`
 }
 
 func openAssistantOverlayCache(root, overlay, node string) (*assistantOverlayCache, error) {
@@ -46,7 +46,7 @@ func openAssistantOverlayCache(root, overlay, node string) (*assistantOverlayCac
 		return nil, err
 	}
 	key := strings.TrimPrefix(digestBytes([]byte(strings.Join([]string{
-		"assistant-prepared-v1", inputs, nodeDigest,
+		"assistant-prepared-v2", inputs, nodeDigest,
 		toolchain.BundledManifestSHA256(), toolchain.CurrentPlatform().String(),
 	}, "\n"))), "sha256:")
 	base := filepath.Join(root, ".scenery", "assistant-cache", "prepared")
@@ -123,7 +123,7 @@ func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bo
 	if err := decodeJSONExact(data, &record); err != nil {
 		return false, err
 	}
-	if record.Key != c.key || !filepath.IsAbs(record.BuildRoot) {
+	if record.Key != c.key {
 		return false, errors.New("prepared cache input identity mismatch")
 	}
 	if err := record.Tree.Validate(); err != nil {
@@ -138,36 +138,10 @@ func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bo
 	if err != nil {
 		return false, err
 	}
-	relocationStarted := time.Now()
-	defer func() {
-		if c.onRelocate != nil {
-			c.onRelocate(relocationStarted, err)
-		}
-	}()
-	index := filepath.Join(overlay, ".output", "server", "index.mjs")
-	data, err = os.ReadFile(index)
-	if err != nil {
-		return false, err
-	}
-	data, err = relocateAssistantBuildManifest(data, record.BuildRoot, overlay)
-	if err != nil {
-		return false, err
-	}
-	if err = os.WriteFile(index, data, 0o644); err != nil {
-		return false, err
-	}
 	return true, nil
 }
 
 func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) error {
-	// Validate the pinned provider output shape before making it reusable.
-	index, err := os.ReadFile(filepath.Join(overlay, ".output", "server", "index.mjs"))
-	if err != nil {
-		return err
-	}
-	if _, err := relocateAssistantBuildManifest(index, overlay, overlay); err != nil {
-		return err
-	}
 	stage, err := os.MkdirTemp(filepath.Dir(c.path), ".stage-")
 	if err != nil {
 		return err
@@ -180,12 +154,27 @@ func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) err
 	if err := copyAssistantPreparedTree(ctx, overlay, tree, nil); err != nil {
 		return err
 	}
+	// The build recorded the overlay it was built in. The reusable copy records
+	// the canonical root instead, as a production capsule does, and only a build
+	// whose Scenery connection is resolved at runtime is kept.
+	index := filepath.Join(tree, filepath.FromSlash(eve.ServerModulePath))
+	data, err := os.ReadFile(index)
+	if err != nil {
+		return err
+	}
+	data = eve.CanonicalizeServerModule(data, overlay)
+	if err := eve.ValidateCanonicalServerModule(data); err != nil {
+		return err
+	}
+	if err := os.WriteFile(index, data, 0o644); err != nil {
+		return err
+	}
 	descriptor, err := runtimeassets.DescribeTree(tree)
 	if err != nil {
 		return err
 	}
-	record := assistantOverlayCacheRecord{Key: c.key, BuildRoot: overlay, Tree: descriptor}
-	data, err := json.Marshal(record)
+	record := assistantOverlayCacheRecord{Key: c.key, Tree: descriptor}
+	data, err = json.Marshal(record)
 	if err != nil {
 		return err
 	}
@@ -326,61 +315,4 @@ func copyAssistantPreparedTreeMeasured(ctx context.Context, source, destination 
 		return errors.New("prepared cache files are missing")
 	}
 	return nil
-}
-
-// Eve's pinned server output embeds one JSON discovery manifest. Relocate only
-// its known root fields and generated Scenery connection URL, never authored
-// JavaScript, arbitrary strings, or dependency bytes.
-// relocateAssistantBuildManifest rewrites the roots a prepared build recorded
-// so the same output serves a new private overlay. It rewrites no address: the
-// generated connection is dynamic, so the compiled manifest carries the
-// assistant's connection without a URL and the helper resolves the gateway's
-// address when a session starts.
-func relocateAssistantBuildManifest(data []byte, oldRoot, newRoot string) ([]byte, error) {
-	marker := []byte("const manifest = {\n")
-	start := bytes.Index(data, marker)
-	if start < 0 || bytes.Count(data, marker) != 1 {
-		return nil, errors.New("unsupported assistant build manifest")
-	}
-	start += len("const manifest = ")
-	end := bytes.Index(data[start:], []byte("\n};"))
-	if end < 0 {
-		return nil, errors.New("unterminated assistant build manifest")
-	}
-	end += start + 2
-	var manifest map[string]json.RawMessage
-	if err := json.Unmarshal(data[start:end], &manifest); err != nil {
-		return nil, err
-	}
-	for key, pair := range map[string][2]string{"appRoot": {oldRoot, newRoot}, "agentRoot": {filepath.Join(oldRoot, "agent"), filepath.Join(newRoot, "agent")}} {
-		var value string
-		if json.Unmarshal(manifest[key], &value) != nil || value != pair[0] {
-			return nil, fmt.Errorf("assistant build manifest %s mismatch", key)
-		}
-		manifest[key], _ = json.Marshal(pair[1])
-	}
-	// The assistant's own connection must be the dynamic one; a static entry
-	// would carry the address of the build instead of the address this start
-	// supplies, which no relocation can correct.
-	var dynamic []map[string]json.RawMessage
-	if err := json.Unmarshal(manifest["dynamicConnections"], &dynamic); err != nil {
-		return nil, err
-	}
-	count := 0
-	for _, connection := range dynamic {
-		var slug string
-		if json.Unmarshal(connection["slug"], &slug) == nil && slug == "scenery" {
-			count++
-		}
-	}
-	if count != 1 {
-		return nil, errors.New("assistant build manifest Scenery connection missing or duplicated")
-	}
-	replacement, err := json.MarshalIndent(manifest, "", "\t")
-	if err != nil {
-		return nil, err
-	}
-	result := append([]byte(nil), data[:start]...)
-	result = append(result, replacement...)
-	return append(result, data[end:]...), nil
 }

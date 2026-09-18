@@ -212,6 +212,21 @@ func recordAssistantPreparationStep(stateRoot string, definition assistantDefini
 	return path
 }
 
+// assistantPreparationSteps are the steps a failure record may describe.
+var assistantPreparationSteps = []string{"assistant.dependencies", "assistant.build", "assistant.cache_restore", "assistant.cache_publish", "assistant.stage"}
+
+// clearAssistantPreparationFailures removes every failure record of an
+// assistant once it has been prepared: a working preparation supersedes the
+// failures before it, whichever path prepared it.
+func clearAssistantPreparationFailures(stateRoot string, definition assistantDefinition) {
+	if strings.TrimSpace(stateRoot) == "" {
+		return
+	}
+	for _, step := range assistantPreparationSteps {
+		_ = os.Remove(assistantPreparationFailurePath(stateRoot, definition, step))
+	}
+}
+
 // assistantStepErrorText is the redacted, bounded text of a failed step.
 func assistantStepErrorText(err error) string {
 	return boundAssistantDiagnostic(redactAssistantDiagnostic(strings.TrimSpace(err.Error())))

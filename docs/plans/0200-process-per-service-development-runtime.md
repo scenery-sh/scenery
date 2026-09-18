@@ -825,6 +825,14 @@ compile the application graph as it needs.
   written into. A failed step now names its cause in its event and keeps a
   private record, with the provider's bounded and redacted output tail, beside
   the removed overlay.
+- The development cache still rewrote each restored build's recorded roots into
+  the overlay that restored it, while the production capsule records the
+  canonical root `/scenery-assistant` once, when it is built, and serves from
+  any extraction directory. The cache now publishes the same canonical form
+  through the same function (`eve.CanonicalizeServerModule`), refuses a build
+  whose Scenery connection is not dynamic, and restores by verified copy
+  alone; its key revision changed, so earlier entries are misses rather than
+  failures.
 - `scripts/accept-assistant-runtime.sh`, the real Eve journey (mock model,
   approvals, durable receipt/status/cancel through `scenery up`), is blocked
   independently of this work: its own `go build` binary has no content-bound

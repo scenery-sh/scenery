@@ -200,7 +200,7 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 			}
 			if hit && err == nil {
 				s.emitStep(ctx, prepared.definition, "assistant.dependencies", started, "hit", "verified_private_overlay_copy", nil)
-				s.emitStep(ctx, prepared.definition, "assistant.build", time.Now(), "hit", "verified_relocated_build", nil)
+				s.emitStep(ctx, prepared.definition, "assistant.build", time.Now(), "hit", "verified_canonical_build", nil)
 				goto preparedOverlay
 			}
 		}
@@ -233,6 +233,7 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 	}
 preparedOverlay:
 	prepared.overlay = overlay
+	clearAssistantPreparationFailures(s.config.StateRoot, prepared.definition)
 	return nil
 }
 

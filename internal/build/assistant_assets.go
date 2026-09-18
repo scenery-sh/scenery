@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -26,14 +25,9 @@ import (
 	"scenery.sh/internal/toolchain"
 )
 
-// Eve places a fresh build identifier in generated server modules on every
-// invocation.  The identifier is build metadata, not runtime state, so it is
-// canonicalized before the capsule is archived.
 // assistantAssetScratchSuffix names the build's own assistant scratch tree,
 // beside the prepared Go workspace it belongs to.
 const assistantAssetScratchSuffix = "-assistant-assets"
-
-var eveBuildPathPattern = regexp.MustCompile(`\.eve/builds/[A-Za-z0-9_-]+/`)
 
 // prepareAssistantRuntimeAssets builds the immutable production inputs for
 // every declared assistant and writes the generated embed package into the Go
@@ -533,9 +527,13 @@ func copyDeterministicCapsule(source, destination string) error {
 		// Restrict canonicalization to these known textual outputs so arbitrary
 		// native modules and other binary dependencies are copied byte-for-byte.
 		switch relativeSlash {
-		case ".output/server/index.mjs":
-			data = bytes.ReplaceAll(data, []byte(filepath.Clean(source)), []byte("/scenery-assistant"))
-			data = eveBuildPathPattern.ReplaceAll(data, []byte(".eve/builds/build/"))
+		case eve.ServerModulePath:
+			data = eve.CanonicalizeServerModule(data, source)
+			// A capsule is started anywhere by anyone, so it must reach the
+			// gateway of each start: its Scenery connection must be dynamic.
+			if err := eve.ValidateCanonicalServerModule(data); err != nil {
+				return err
+			}
 		case ".output/nitro.json":
 			data = normalizeNitroMetadata(data)
 		}

@@ -408,9 +408,11 @@ preparation, then joins and revalidates the graph and source before activation.
 Helper-only watches and delayed retries are serialized with this handoff.
 Helper startup handshakes run with a two-address bound after the API listener;
 unconfirmed shutdown retains process/file ownership and prevents duplicate starts.
-The `assistant.stage`, `assistant.cache_copy` and `assistant.cache_relocate`
-trace steps distinguish preparation from activation; copy evidence includes
-entry/file/byte counts and read, hash, write and traversal time.
+The `assistant.stage` and `assistant.cache_copy` trace steps distinguish
+preparation from activation; copy evidence includes entry/file/byte counts and
+read, hash, write and traversal time. A prepared helper build is cached in the
+canonical, location-independent form a production capsule has, so restoring it
+is a verified copy that rewrites nothing.
 
 The development watcher uses a 100 ms quiet window; its 250 ms fallback poll
 interval is unchanged. Atomic/multi-file saves are coalesced, and authored

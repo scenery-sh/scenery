@@ -88,7 +88,8 @@ func TestCopyDeterministicCapsuleNormalizesAbsolutePathsAndBuildMetadata(t *test
 		if name == "second" {
 			buildID = "mse4349i-1fc5f786-14b3-412c-a9eb-7479e39329e0"
 		}
-		write(".output/server/index.mjs", `const roots = "/PLACEHOLDER/agent"; const build = ".eve/builds/`+buildID+`/host";`)
+		write(".output/server/index.mjs", `const roots = "/PLACEHOLDER/agent"; const build = ".eve/builds/`+buildID+`/host";`+"\nconst manifest = {\n"+
+			`"agentRoot":"/PLACEHOLDER/agent","appRoot":"/PLACEHOLDER","connections":[],"dynamicConnections":[{"slug":"scenery"}]`+"\n};\n")
 		write(".output/nitro.json", `{"preset":"node-server","date":"2026-08-04T03:04:46.761Z"}`)
 		writeBytes(".output/server/native.node", []byte{0x00, 0x7f, '.', 'e', 'v', 'e', '/', 'b', 'u', 'i', 'l', 'd', 's', '/', 'b', 'i', 'n', 'a', 'r', 'y', '/', 0xff})
 		write(".scenery/bootstrap.mjs", "// generated\n")

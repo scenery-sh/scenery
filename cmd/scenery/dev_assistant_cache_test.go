@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/assistantadapter/eve"
 )
 
 func assistantCacheTestWrite(t *testing.T, root, path, data string) {
@@ -27,11 +29,11 @@ func assistantCacheTestInput(t *testing.T, root string) {
 	assistantCacheTestWrite(t, root, ".scenery/runtime-manifest.json", "runtime-capability-identity")
 }
 
-// A prepared build records the roots it was built in and its connections. The
-// assistant's own connection is dynamic and carries no address, so relocation
-// rewrites roots only.
+// A provider build records the root it was built in, a random build
+// identifier, and its connections; the assistant's own connection is dynamic
+// and carries no address.
 func assistantCacheTestIndex(root string) string {
-	return "const authored = 'do not replace " + root + "';\nconst manifest = {\n" +
+	return "const built = '" + root + "/.eve/builds/Xa1_b2/server.mjs';\nconst manifest = {\n" +
 		`"agentRoot":"` + filepath.ToSlash(filepath.Join(root, "agent")) + `",` + "\n" +
 		`"appRoot":"` + filepath.ToSlash(root) + `",` + "\n" +
 		`"connections":[{"connectionName":"authored","url":"http://127.0.0.1:9"}],` + "\n" +
@@ -73,11 +75,13 @@ func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"appRoot": "`+second+`"`) {
-		t.Fatalf("build manifest was not relocated: %s", data)
+	// The restored build is the canonical one, byte for byte: it names neither
+	// the overlay it was built in nor the one it now serves.
+	if strings.Contains(string(data), first) || strings.Contains(string(data), second) || !strings.Contains(string(data), `"appRoot":"`+eve.CanonicalRoot+`"`) {
+		t.Fatalf("restored build is not location-independent: %s", data)
 	}
-	if !strings.Contains(string(data), "do not replace "+first) {
-		t.Fatal("authored JavaScript was rewritten")
+	if strings.Contains(string(data), "Xa1_b2") {
+		t.Fatal("restored build kept its random build identifier")
 	}
 	for _, path := range []string{".home", ".output/.eve"} {
 		if _, err := os.Lstat(filepath.Join(second, path)); !os.IsNotExist(err) {
@@ -162,15 +166,31 @@ func TestAssistantPreparedCacheRejectsTamperedOutput(t *testing.T) {
 	}
 }
 
-func TestAssistantBuildManifestRelocationRejectsUnknownShape(t *testing.T) {
-	// A build whose Scenery connection is static carries the address of its own
-	// build; relocation must refuse it instead of serving an unreachable one.
+func TestAssistantPreparedCacheRefusesABuildItCannotReuse(t *testing.T) {
+	// A build whose Scenery connection is static carries the gateway address of
+	// its own build, which no later start can reach; it is never published.
 	staticConnection := strings.Replace(assistantCacheTestIndex("/old"),
-		`"dynamicConnections":[{"slug":"scenery","logicalPath":"connections/scenery.ts"}]`,
-		`"dynamicConnections":[]`, 1)
-	for _, data := range []string{"unknown output", assistantCacheTestIndex("/wrong"), staticConnection} {
-		if _, err := relocateAssistantBuildManifest([]byte(data), "/old", "/new"); err == nil {
-			t.Fatal("unsupported build manifest accepted")
-		}
+		`"connections":[{"connectionName":"authored","url":"http://127.0.0.1:9"}],`,
+		`"connections":[{"connectionName":"scenery","url":"http://127.0.0.1:1"}],`, 1)
+	noDynamic := strings.Replace(assistantCacheTestIndex("/old"),
+		`"dynamicConnections":[{"slug":"scenery","logicalPath":"connections/scenery.ts"}]`, `"dynamicConnections":[]`, 1)
+	for name, index := range map[string]string{"unknown output": "unknown output", "static Scenery connection": staticConnection, "missing Scenery connection": noDynamic} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			overlay := filepath.Join(root, "old")
+			assistantCacheTestInput(t, overlay)
+			assistantCacheTestWrite(t, root, "node", "node")
+			cache, err := openAssistantOverlayCache(root, overlay, filepath.Join(root, "node"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assistantCacheTestWrite(t, overlay, ".output/server/index.mjs", strings.ReplaceAll(index, "/old", overlay))
+			if err := cache.publish(context.Background(), overlay); err == nil {
+				t.Fatal("a build that cannot be reused was published")
+			}
+			if _, err := os.Lstat(cache.path); !os.IsNotExist(err) {
+				t.Fatalf("a refused build left a cache entry: %v", err)
+			}
+		})
 	}
 }

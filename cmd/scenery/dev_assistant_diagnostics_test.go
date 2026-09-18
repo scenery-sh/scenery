@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/devdash"
 )
 
@@ -105,16 +106,23 @@ func TestAssistantPreparationFailureNamesItsCauseAfterTheOverlayIsRemoved(t *tes
 	if strings.Contains(string(data), "abc123") {
 		t.Fatal("the failure record kept a credential")
 	}
-	// The next attempt of the step succeeds, and its record no longer describes
-	// the step.
+	stagePath := assistantPreparationFailurePath(s.config.StateRoot, assistantDefinition{Name: "support"}, "assistant.stage")
+	if _, err := os.Stat(stagePath); err != nil {
+		t.Fatalf("the failed stage kept no record: %v", err)
+	}
+	// The helper is then prepared again by its retry, a path that runs no stage
+	// step. No failure before a working preparation describes the assistant any
+	// longer.
 	s.config.BuildOverlay = func(context.Context, string, string, string, string) error { return nil }
-	stage, err = s.stage(context.Background(), nextAssistantStageResult(result))
-	if err != nil {
+	retry := s.captureStage().prepared["app/assistant/support"]
+	retry.overlay = eve.Overlay{}
+	if err := s.prepareOverlay(context.Background(), &retry); err != nil {
 		t.Fatal(err)
 	}
-	s.releaseStage(stage)
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("a succeeded step kept its failure record: %v", err)
+	for _, record := range []string{path, stagePath} {
+		if _, err := os.Stat(record); !os.IsNotExist(err) {
+			t.Fatalf("a prepared assistant kept an earlier failure record %s: %v", record, err)
+		}
 	}
 }
 
