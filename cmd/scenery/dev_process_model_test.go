@@ -838,3 +838,54 @@ func TestDevProcessHostStateEpochAdvancesWhenAuthorityIsUncertain(t *testing.T) 
 		})
 	}
 }
+
+// Settling the host state and rebinding the link happen after the previous host
+// stopped, so their failure must reach the step that abandons the candidates
+// and restores that host: a replacement must never leave the session with no
+// host because its post-stop preparation failed.
+func TestDevProcessPostStopPreparationFailureRestoresThePreviousHost(t *testing.T) {
+	directory, err := os.MkdirTemp("", "scp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	model := &devProcessModel{token: strings.Repeat("t", 32), socketDir: directory}
+	if err := os.Mkdir(model.hostStateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link, err := model.newLink()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(link.close)
+	model.link = link
+	// A session directory that cannot gain a new epoch fails the settlement of
+	// an uncertain authority.
+	if err := os.Chmod(directory, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(directory, 0o700) })
+	supervisor := &devSupervisor{processes: model}
+	var events []string
+	replacement := devProcessReplacement{
+		startServices: func(context.Context) error { events = append(events, "start-services"); return nil },
+		stopPrevious:  func() error { events = append(events, "stop-previous-host"); return nil },
+		startHost: func(context.Context) error {
+			events = append(events, "prepare-host-state")
+			if err := supervisor.settleDevProcessHostState(model, devProcessHostStatus{}, false); err != nil {
+				return err
+			}
+			return link.rebindHostState(model.hostStateDir())
+		},
+		abandon: func() error { events = append(events, "abandon-candidates"); return nil },
+		restore: func(context.Context) (bool, error) { events = append(events, "restore-previous-host"); return true, nil },
+		commit:  func(context.Context) { events = append(events, "commit") },
+	}
+	restored, err := replacement.run(context.Background())
+	if !restored || err == nil || !strings.Contains(err.Error(), "process host state epoch") {
+		t.Fatalf("restored = %t, err = %v", restored, err)
+	}
+	if want := []string{"start-services", "stop-previous-host", "prepare-host-state", "abandon-candidates", "restore-previous-host"}; !reflect.DeepEqual(events, want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}

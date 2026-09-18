@@ -519,12 +519,24 @@ func (bootstrap *AssistantBootstrap) apply(ctx context.Context, config Assistant
 		status.Required = descriptor.Required
 		status.RuntimeRevision = descriptor.RuntimeRevision
 		status.CapabilityRevision = descriptor.CapabilityRevision
+		// Every request the public surface sends carries the registered
+		// application's revisions, so a helper prepared for other revisions can
+		// never serve one. Refusing the client here names that at startup
+		// instead of reporting a ready assistant that fails every request.
+		if descriptor.RuntimeRevision != registration.RuntimeRevision || descriptor.CapabilityRevision != registration.CapabilityRevision {
+			status.ErrorCode = "revision_mismatch"
+			recordAssistantStartupPhase(registration.Address, assistantPhaseHelperAccepted, false, 0, status.ErrorCode, "helper descriptor revisions do not match the registered application")
+			results[registration.Address] = result{status: status}
+			continue
+		}
 		if descriptor.MCPListenAddress != "" {
 			if ready, errorCode := assistantMCPGatewayReady(registration.Address); !ready {
 				status.ErrorCode = errorCode
+				recordAssistantStartupPhase(registration.Address, assistantPhaseGatewayReady, false, 0, errorCode, "")
 				results[registration.Address] = result{status: status}
 				continue
 			}
+			recordAssistantStartupPhase(registration.Address, assistantPhaseGatewayReady, true, 0, "", "")
 		}
 		probeCtx, cancel := context.WithTimeout(ctx, bootstrap.probeTimeout)
 		client, err := bootstrap.factory(descriptor)
@@ -541,9 +553,13 @@ func (bootstrap *AssistantBootstrap) apply(ctx context.Context, config Assistant
 				_ = client.Close()
 			}
 			status.ErrorCode = assistantBootstrapErrorCode(err)
+			// The helper's failure text is the provider-neutral control error,
+			// which carries no credential.
+			recordAssistantStartupPhase(registration.Address, assistantPhaseHelperAccepted, false, 0, status.ErrorCode, err.Error())
 			results[registration.Address] = result{status: status}
 			continue
 		}
+		recordAssistantStartupPhase(registration.Address, assistantPhaseHelperAccepted, true, 0, "", "")
 		status.State = string(assistantruntime.StateReady)
 		status.ErrorCode = ""
 		results[registration.Address] = result{client: client, status: status}
@@ -582,6 +598,10 @@ func (bootstrap *AssistantBootstrap) apply(ctx context.Context, config Assistant
 	}
 	bootstrap.clients = newClients
 	bootstrap.mu.Unlock()
+	for _, registration := range registered {
+		client := newClients[registration.Address]
+		recordAssistantStartupPhase(registration.Address, assistantPhaseClientReady, client != nil, 0, results[registration.Address].status.ErrorCode, results[registration.Address].status.State)
+	}
 	for address, client := range previous {
 		if client == nil || sameAssistantClient(client, clientGeneration[address]) {
 			continue

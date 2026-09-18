@@ -25,7 +25,15 @@ const channelSource = readFileSync(join(overlay, "agent/channels/scenery.ts"), "
 const revision = (name) => channelSource.match(new RegExp(`const ${name} = "([^"]+)"`))[1];
 const identity = JSON.parse(`{"assistant_address":${channelSource.match(/const assistantAddress = (".*?");/)[1]},"runtime_revision":${channelSource.match(/const runtimeRevision = (".*?");/)[1]},"capability_revision":${channelSource.match(/const capabilityRevision = (".*?");/)[1]}}`);
 const channel = (await import(join(overlay, "agent/channels/scenery.js"))).default;
-const connection = (await import(join(overlay, "agent/connections/scenery.ts"))).default;
+// The connection is dynamic: Eve resolves it at a session boundary, which is
+// when the gateway address supervision supplied becomes readable. A compiled
+// capsule therefore carries no address of its own.
+const connectionModule = (await import(join(overlay, "agent/connections/scenery.ts"))).default;
+const resolveConnection = () => connectionModule.events["session.started"](undefined, {
+  session: { id: "session-resolve", auth: { current: { principalId: "principal-1" } } },
+  channel: { kind: "http" },
+});
+const connection = await resolveConnection();
 
 let nextSession = 0;
 
@@ -410,4 +418,19 @@ test("a subscriber that leaves stops following the session", async () => {
   const reads = eve.reads;
   await sleep(300);
   assert.equal(eve.reads, reads, "the session is not read for a subscriber that left");
+});
+
+test("the connection resolves the gateway address supervision supplies, not one from its build", async () => {
+  const first = "http://127.0.0.1:4455";
+  process.env.SCENERY_MCP_URL = first;
+  assert.equal((await resolveConnection()).url, first);
+  // A second start of the same compiled connection reaches the address of that
+  // start, which is what a pre-built capsule must do.
+  process.env.SCENERY_MCP_URL = "http://127.0.0.1:4466";
+  assert.equal((await resolveConnection()).url, "http://127.0.0.1:4466");
+  process.env.SCENERY_MCP_URL = "https://gateway.example.test";
+  await assert.rejects(async () => resolveConnection());
+  delete process.env.SCENERY_MCP_URL;
+  await assert.rejects(async () => resolveConnection());
+  process.env.SCENERY_MCP_URL = first;
 });

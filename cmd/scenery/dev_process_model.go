@@ -484,6 +484,8 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 	var started []*devProcessInstance
 	var previousHost *runningApp
 	previousStopped, startAssistants := false, false
+	// The previous host's final authority report, read before it stops.
+	final, reported := devProcessHostStatus{}, false
 	replacement := devProcessReplacement{
 		startServices: func(ctx context.Context) error {
 			var err error
@@ -498,7 +500,6 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			}
 			// The previous host stops recording authority and reports its final
 			// host state before it exits, so the report cannot become stale.
-			final, reported := devProcessHostStatus{}, false
 			if previous.link != nil && previous.host != nil && previous.host.app == previousHost {
 				final, reported = previous.link.quiesce(ctx)
 			}
@@ -509,12 +510,18 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				return err
 			}
 			previousStopped = true
+			return nil
+		},
+		startHost: func(ctx context.Context) error {
+			// Settling the host state and rebinding the link happen after the
+			// predecessor stopped, so they belong to the step whose failure
+			// abandons the candidates and restores that predecessor.
 			if err := s.settleDevProcessHostState(model, final, reported); err != nil {
 				return err
 			}
-			return link.rebindHostState(model.hostStateDir())
-		},
-		startHost: func(ctx context.Context) error {
+			if err := link.rebindHostState(model.hostStateDir()); err != nil {
+				return err
+			}
 			if s.assistants != nil {
 				// Assistant descriptors (MCP listeners and bridge secrets) change
 				// only after the previous host has stopped.

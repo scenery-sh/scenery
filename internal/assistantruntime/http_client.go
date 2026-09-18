@@ -545,7 +545,9 @@ func (c *HTTPClient) doControl(ctx context.Context, request assistantcontrol.Req
 		if errors.Is(err, ErrRedirectRejected) {
 			return assistantcontrol.Response{}, ErrRedirectRejected
 		}
-		return assistantcontrol.Response{}, ErrUnavailable
+		// The transport cause names what an operator must fix; it is diagnostic
+		// only, never part of a public answer.
+		return assistantcontrol.Response{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode >= 300 && response.StatusCode < 400 {

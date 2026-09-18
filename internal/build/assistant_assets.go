@@ -321,17 +321,24 @@ func buildAssistantAsset(ctx context.Context, result *Result, assistant compiler
 	if err != nil {
 		return generateapi.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: failed_precondition: %w", assistant.Address, err)
 	}
-	manifest, err := mcpprojection.ProjectManifest(expanded, result.Contract.WorkspaceRevision, referenceValueForBuild(assistant.Spec["mcp_server"]))
+	// The declared reference is resolved exactly as generation resolves it: the
+	// server address selects the projected capabilities and is part of the
+	// capability revision the generated application expects from this capsule.
+	serverAddress, err := mcpprojection.AssistantServerAddress(expanded, assistant.Address)
 	if err != nil {
 		return generateapi.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: %w", assistant.Address, err)
 	}
-	capabilityRevision, err := mcpprojection.CapabilityRevision(expanded, assistant.Address, referenceValueForBuild(assistant.Spec["mcp_server"]))
+	manifest, err := mcpprojection.ProjectManifest(expanded, result.Contract.WorkspaceRevision, serverAddress)
+	if err != nil {
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: %w", assistant.Address, err)
+	}
+	capabilityRevision, err := mcpprojection.CapabilityRevision(result.Contract.Manifest, assistant.Address, serverAddress)
 	if err != nil {
 		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s capability revision: %w", assistant.Address, err)
 	}
 	overlay, err := eve.MaterializeOverlay(eve.OverlayRequest{
 		SourceRoot: sourceRoot, OverlayRoot: overlayRoot, AssistantAddress: assistant.Address,
-		RuntimeRevision: assistantRuntimeRevisionForBuild(result), CapabilityRevision: capabilityRevision,
+		RuntimeRevision: assistantRuntimeRevisionForBuild(result, assistant.Address), CapabilityRevision: capabilityRevision,
 		ApprovalNeverTools: eve.ApprovalNeverTools(manifest),
 		ControlURL:         "http://127.0.0.1:1", MCPURL: "http://127.0.0.1:1",
 	})
@@ -387,7 +394,7 @@ func buildAssistantAsset(ctx context.Context, result *Result, assistant compiler
 	if err != nil {
 		return generateapi.AssistantAssetInput{}, fmt.Errorf("marshal assistant %s capsule descriptor: %w", assistant.Address, err)
 	}
-	runtimeRevision := assistantRuntimeRevisionForBuild(result)
+	runtimeRevision := assistantRuntimeRevisionForBuild(result, assistant.Address)
 	descriptor := generateapi.AssistantAssetDescriptor{
 		Kind: generateapi.AssistantAssetDescriptorKind, SchemaRevision: runtimeassets.AssistantAssetSchemaRevision,
 		AssistantAddress: assistant.Address, Target: platform.String(), RuntimeRevision: runtimeRevision,
@@ -676,25 +683,9 @@ func stringValueForBuild(value any) string {
 	return strings.TrimSpace(text)
 }
 
-func referenceValueForBuild(value any) string {
-	if reference, ok := value.(map[string]any); ok {
-		value = reference["$ref"]
+func assistantRuntimeRevisionForBuild(result *Result, address string) string {
+	if result == nil {
+		return compiler.DefaultAssistantRuntimeRevision
 	}
-	return stringValueForBuild(value)
-}
-
-func assistantRuntimeRevisionForBuild(result *Result) string {
-	if result != nil {
-		keys := make([]string, 0, len(result.ImplementationRevisions))
-		for key := range result.ImplementationRevisions {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			if value := strings.TrimSpace(result.ImplementationRevisions[key]); value != "" {
-				return value
-			}
-		}
-	}
-	return "runtime-1"
+	return compiler.AssistantRuntimeRevision(result.ImplementationRevisions, address)
 }

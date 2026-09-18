@@ -384,3 +384,41 @@ func TestCapabilityRevisionFollowsOnlyTheAssistantCapabilities(t *testing.T) {
 		t.Fatal("an undeclared assistant had a capability revision")
 	}
 }
+
+func TestAssistantServerAddressResolvesTheDeclaredReference(t *testing.T) {
+	fixture, _ := readNativeGraphFixture(t)
+	withServer := func(reference any) *graph.Manifest {
+		manifest := cloneManifest(fixture)
+		manifest.Resources = append(manifest.Resources, graph.Resource{Address: "app/assistant/support", Kind: assistantKind, Name: "support", Module: "app",
+			Spec: map[string]any{"mcp_server": reference}})
+		return manifest
+	}
+	canonical := "app/mcp_server/support"
+	for _, reference := range []any{"mcp_server.support", map[string]any{"$ref": "mcp_server.support"}, map[string]any{"$ref": canonical}} {
+		address, err := AssistantServerAddress(withServer(reference), "app/assistant/support")
+		if err != nil || address != canonical {
+			t.Fatalf("server address for %v = %q, %v", reference, address, err)
+		}
+	}
+	// The address is part of the revision, so an unresolved reference would give
+	// the same assistant a second revision its helper can never satisfy.
+	short, err := CapabilityRevision(withServer("mcp_server.support"), "app/assistant/support", "mcp_server.support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := CapabilityRevision(withServer("mcp_server.support"), "app/assistant/support", canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if short == resolved {
+		t.Fatal("an unresolved MCP server reference produced the resolved capability revision")
+	}
+	for _, reference := range []any{nil, "", "mcp_server.absent", "server"} {
+		if address, err := AssistantServerAddress(withServer(reference), "app/assistant/support"); err == nil {
+			t.Fatalf("reference %v resolved to %q", reference, address)
+		}
+	}
+	if _, err := AssistantServerAddress(withServer("mcp_server.support"), "app/assistant/missing"); err == nil {
+		t.Fatal("an undeclared assistant resolved an MCP server")
+	}
+}

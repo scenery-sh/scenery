@@ -26,7 +26,6 @@ import (
 type assistantOverlayCache struct {
 	path       string
 	key        string
-	mcpURL     string
 	onCopy     func(assistantCopyStats, error)
 	onRelocate func(time.Time, error)
 }
@@ -34,11 +33,10 @@ type assistantOverlayCache struct {
 type assistantOverlayCacheRecord struct {
 	Key       string                   `json:"key"`
 	BuildRoot string                   `json:"build_root"`
-	MCPURL    string                   `json:"mcp_url"`
 	Tree      runtimeassets.Descriptor `json:"tree"`
 }
 
-func openAssistantOverlayCache(root, overlay, node, mcpURL string) (*assistantOverlayCache, error) {
+func openAssistantOverlayCache(root, overlay, node string) (*assistantOverlayCache, error) {
 	inputs, err := assistantOverlayInputDigest(overlay)
 	if err != nil {
 		return nil, err
@@ -58,7 +56,7 @@ func openAssistantOverlayCache(root, overlay, node, mcpURL string) (*assistantOv
 	if err := os.MkdirAll(base, 0o700); err != nil {
 		return nil, err
 	}
-	return &assistantOverlayCache{path: filepath.Join(base, key), key: key, mcpURL: mcpURL}, nil
+	return &assistantOverlayCache{path: filepath.Join(base, key), key: key}, nil
 }
 
 func assistantOverlayInputDigest(root string) (string, error) {
@@ -125,7 +123,7 @@ func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bo
 	if err := decodeJSONExact(data, &record); err != nil {
 		return false, err
 	}
-	if record.Key != c.key || !filepath.IsAbs(record.BuildRoot) || record.MCPURL == "" {
+	if record.Key != c.key || !filepath.IsAbs(record.BuildRoot) {
 		return false, errors.New("prepared cache input identity mismatch")
 	}
 	if err := record.Tree.Validate(); err != nil {
@@ -151,7 +149,7 @@ func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bo
 	if err != nil {
 		return false, err
 	}
-	data, err = relocateAssistantBuildManifest(data, record.BuildRoot, overlay, record.MCPURL, c.mcpURL)
+	data, err = relocateAssistantBuildManifest(data, record.BuildRoot, overlay)
 	if err != nil {
 		return false, err
 	}
@@ -167,7 +165,7 @@ func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) err
 	if err != nil {
 		return err
 	}
-	if _, err := relocateAssistantBuildManifest(index, overlay, overlay, c.mcpURL, c.mcpURL); err != nil {
+	if _, err := relocateAssistantBuildManifest(index, overlay, overlay); err != nil {
 		return err
 	}
 	stage, err := os.MkdirTemp(filepath.Dir(c.path), ".stage-")
@@ -186,7 +184,7 @@ func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) err
 	if err != nil {
 		return err
 	}
-	record := assistantOverlayCacheRecord{Key: c.key, BuildRoot: overlay, MCPURL: c.mcpURL, Tree: descriptor}
+	record := assistantOverlayCacheRecord{Key: c.key, BuildRoot: overlay, Tree: descriptor}
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -333,7 +331,12 @@ func copyAssistantPreparedTreeMeasured(ctx context.Context, source, destination 
 // Eve's pinned server output embeds one JSON discovery manifest. Relocate only
 // its known root fields and generated Scenery connection URL, never authored
 // JavaScript, arbitrary strings, or dependency bytes.
-func relocateAssistantBuildManifest(data []byte, oldRoot, newRoot, oldURL, newURL string) ([]byte, error) {
+// relocateAssistantBuildManifest rewrites the roots a prepared build recorded
+// so the same output serves a new private overlay. It rewrites no address: the
+// generated connection is dynamic, so the compiled manifest carries the
+// assistant's connection without a URL and the helper resolves the gateway's
+// address when a session starts.
+func relocateAssistantBuildManifest(data []byte, oldRoot, newRoot string) ([]byte, error) {
 	marker := []byte("const manifest = {\n")
 	start := bytes.Index(data, marker)
 	if start < 0 || bytes.Count(data, marker) != 1 {
@@ -356,27 +359,23 @@ func relocateAssistantBuildManifest(data []byte, oldRoot, newRoot, oldURL, newUR
 		}
 		manifest[key], _ = json.Marshal(pair[1])
 	}
-	var connections []map[string]json.RawMessage
-	if err := json.Unmarshal(manifest["connections"], &connections); err != nil {
+	// The assistant's own connection must be the dynamic one; a static entry
+	// would carry the address of the build instead of the address this start
+	// supplies, which no relocation can correct.
+	var dynamic []map[string]json.RawMessage
+	if err := json.Unmarshal(manifest["dynamicConnections"], &dynamic); err != nil {
 		return nil, err
 	}
 	count := 0
-	for _, connection := range connections {
-		var name, url string
-		_ = json.Unmarshal(connection["connectionName"], &name)
-		if name != "scenery" {
-			continue
+	for _, connection := range dynamic {
+		var slug string
+		if json.Unmarshal(connection["slug"], &slug) == nil && slug == "scenery" {
+			count++
 		}
-		if json.Unmarshal(connection["url"], &url) != nil || url != oldURL {
-			return nil, errors.New("assistant build manifest MCP URL mismatch")
-		}
-		connection["url"], _ = json.Marshal(newURL)
-		count++
 	}
 	if count != 1 {
 		return nil, errors.New("assistant build manifest Scenery connection missing or duplicated")
 	}
-	manifest["connections"], _ = json.Marshal(connections)
 	replacement, err := json.MarshalIndent(manifest, "", "\t")
 	if err != nil {
 		return nil, err

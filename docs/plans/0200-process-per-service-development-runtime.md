@@ -772,8 +772,42 @@ compile the application graph as it needs.
   Node and capsule and serves HTTP without ambient Node (the packaging fix
   above), but the embedded helper never reports ready: the extracted Node
   process runs while `conversation.create` answers `unavailable` for the full
-  180-second bound. That is a production assistant runtime blocker, recorded
-  rather than fixed here.
+  180-second bound.
+- The production assistant's unavailability was one unresolved reference. The
+  artifact build passed the assistant's declared `mcp_server` reference to the
+  MCP projection unresolved (`mcp_server.support`), while generation passes the
+  canonical address (`app/mcp_server/support`). The server address is part of
+  the capability revision and selects the projected capabilities, so the capsule
+  and its asset descriptor carried a revision computed over an empty capability
+  set, and the generated application carried another. Startup therefore
+  succeeded, because the helper's health and info answers are compared with the
+  descriptor the same build wrote; every conversation request then failed inside
+  the client, which refused its own outgoing request: the request carries the
+  registered application's revisions and the client was configured from the
+  descriptor. One resolution now serves generation, the development runtime and
+  the build (`mcpprojection.AssistantServerAddress`), the helper implementation
+  revision has one answer as well (`compiler.AssistantRuntimeRevision`), and a
+  descriptor that disagrees with its registration is refused at startup as
+  `revision_mismatch` instead of being installed ready.
+- The private startup report of a production runtime named that failure. Without
+  it the helper's own output was discarded and the public answer stayed
+  neutral, so the only evidence was a timed-out wait.
+- A working production assistant then failed its first MCP operation with a
+  transport error. The provider's build snapshots a static connection's resolved
+  URL into the compiled agent manifest, and its runtime reads that snapshot, not
+  the module: the same capsule started with a reachable gateway address never
+  contacted it, while its build-time placeholder was refused. Eve 0.39.1 offered
+  no runtime resolution, and its build rejects a `url` thunk outright. Eve 0.59.1
+  resolves a whole connection at a session boundary through `defineDynamic`, so
+  the generated connection is dynamic now and the compiled capsule carries no
+  address at all. Two starts of identical capsule bytes reach their own gateways
+  and nothing else.
+- The development overlay cache existed only to rewrite that snapshot: it
+  relocated a prepared build's roots and its connection URL. With a dynamic
+  connection there is no URL to rewrite, so the relocation refused the build and
+  every helper start failed before the provider ran. The cache now rewrites roots
+  only and requires the assistant's connection to be the dynamic one; a prepared
+  output is therefore independent of the address that prepared it.
 - `scripts/accept-assistant-runtime.sh`, the real Eve journey (mock model,
   approvals, durable receipt/status/cancel through `scenery up`), is blocked
   independently of this work: its own `go build` binary has no content-bound

@@ -1267,8 +1267,16 @@ PRODUCTION_RUN_RC=0
 PRODUCTION_LISTENING=0
 PRODUCTION_HELPER_READY=0
 PRODUCTION_ASSETS_PRESENT=0
+PRODUCTION_MCP_OK=0
+PRODUCTION_SHUTDOWN_CLEAN=0
+PRODUCTION_RESTART_OK=0
+PRODUCTION_RESTART_ELAPSED=0
+PRODUCTION_ASSETS_REUSED=0
 PRODUCTION_PORT=$((APP_PORT + 100))
 PRODUCTION_WAIT_SECONDS=180
+# A start that reuses extracted assets serves far inside this bound; a cold
+# extraction of the managed Node tree does not.
+PRODUCTION_REUSE_SECONDS=30
 PRODUCTION_WAIT_ELAPSED=0
 printf 'port=%s\n' "$PRODUCTION_PORT" > "$PRIVATE_ROOT/production-port.txt"
 if [ -f "$PRODUCTION_BUNDLE" ] && "$GREP" -q '"assistant_assets"' "$PRODUCTION_BUNDLE" && "$GREP" -q '"node_archive_digest"' "$PRODUCTION_BUNDLE"; then
@@ -1323,14 +1331,84 @@ if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$MANAGED_DATABASE_READY" -eq 1 ]; then
     done
     printf '%s\n' "$production_create_status" > "$PRIVATE_ROOT/production-create.status"
   fi
-  printf 'wait_bound_seconds=%s\nwait_elapsed_seconds=%s\nhelper_wait_bound_seconds=%s\nhelper_wait_elapsed_seconds=%s\nlistener=%s\nhelper=%s\n' \
-    "$PRODUCTION_WAIT_SECONDS" "$PRODUCTION_WAIT_ELAPSED" "$PRODUCTION_WAIT_SECONDS" "$production_helper_wait" "$PRODUCTION_LISTENING" "$PRODUCTION_HELPER_READY" > "$PRIVATE_ROOT/production-startup.txt"
+  # A served conversation is not a working assistant yet: the production helper
+  # must also complete a real MCP operation over the same public route, with the
+  # same approval and structured result the development cases prove.
+  if [ "$PRODUCTION_HELPER_READY" -eq 1 ]; then
+    PRODUCTION_DEVELOPMENT_BASE_URL="$BASE_URL"
+    BASE_URL="http://127.0.0.1:$PRODUCTION_PORT"
+    if create_public_conversation "production-local-mcp" "local-mcp" \
+      && drive_public_approvals "production-local-mcp" "$CASE_CONVERSATION_ID" \
+      && public_final_message_match production-local-mcp-events 'processed:acceptance-scene' \
+      && public_final_message_match production-local-mcp-events '"status":"processed:acceptance-scene"'; then
+      PRODUCTION_MCP_OK=1
+    fi
+    BASE_URL="$PRODUCTION_DEVELOPMENT_BASE_URL"
+  fi
+  printf 'wait_bound_seconds=%s\nwait_elapsed_seconds=%s\nhelper_wait_bound_seconds=%s\nhelper_wait_elapsed_seconds=%s\nlistener=%s\nhelper=%s\nmcp_operation=%s\n' \
+    "$PRODUCTION_WAIT_SECONDS" "$PRODUCTION_WAIT_ELAPSED" "$PRODUCTION_WAIT_SECONDS" "$production_helper_wait" "$PRODUCTION_LISTENING" "$PRODUCTION_HELPER_READY" "$PRODUCTION_MCP_OK" > "$PRIVATE_ROOT/production-startup.txt"
   ps -axo pid,ppid,command > "$PRIVATE_ROOT/production-processes.txt" 2>/dev/null || true
+  # The private startup report names the first failed phase of every assistant.
+  if [ -f "$RUNTIME_APP_ROOT/.scenery/assistant-runtime/startup.json" ]; then
+    cp "$RUNTIME_APP_ROOT/.scenery/assistant-runtime/startup.json" "$PRIVATE_ROOT/production-assistant-startup.json" 2>/dev/null || true
+  fi
   find "$RUNTIME_APP_ROOT/.scenery/assistant-runtime" -maxdepth 4 -type f -print > "$PRIVATE_ROOT/production-extraction-files.txt" 2>/dev/null || true
   if ! kill -0 "$PRODUCTION_PID" 2>/dev/null; then
     wait "$PRODUCTION_PID" 2>/dev/null || PRODUCTION_RUN_RC=$?
   fi
+  # A clean shutdown releases the public listener and leaves no helper child
+  # behind; the extraction inventory taken here is the state the second start
+  # must reuse.
+  production_helpers_before="$({ "$PGREP" -P "$PRODUCTION_PID" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+  production_inventory_before="$({ "$SHA" < "$PRIVATE_ROOT/production-extraction-files.txt" 2>/dev/null || true; } | cut -d' ' -f1)"
   stop_process "$PRODUCTION_PID"
+  production_listener_released=0
+  if ! "$LSOF" -nP -iTCP:"$PRODUCTION_PORT" -sTCP:LISTEN 2>/dev/null | "$GREP" -q "$PRODUCTION_PORT"; then
+    production_listener_released=1
+  fi
+  production_helpers_after="$({ "$PGREP" -P "$PRODUCTION_PID" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+  if [ "$production_listener_released" -eq 1 ] && [ "$production_helpers_after" -eq 0 ]; then
+    PRODUCTION_SHUTDOWN_CLEAN=1
+  fi
+  printf 'helpers_before_stop=%s\nhelpers_after_stop=%s\nlistener_released=%s\n' \
+    "$production_helpers_before" "$production_helpers_after" "$production_listener_released" > "$PRIVATE_ROOT/production-shutdown.txt"
+  # The second start finds the assets the first start extracted. It must serve a
+  # conversation again without extracting them a second time.
+  if [ "$PRODUCTION_HELPER_READY" -eq 1 ]; then
+    PRODUCTION_RESTART_PORT=$((PRODUCTION_PORT + 1))
+    SCENERY_LISTEN_ADDR="127.0.0.1:$PRODUCTION_RESTART_PORT" \
+      DATABASE_URL="$MANAGED_DATABASE_URL" PATH="$PRIVATE_TMP/no-node" \
+      "$PRODUCTION_BINARY" > "$PRIVATE_ROOT/production-restart-run.log" 2>&1 &
+    PRODUCTION_RESTART_PID=$!
+    production_restart_status=000
+    while [ "$PRODUCTION_RESTART_ELAPSED" -lt "$PRODUCTION_WAIT_SECONDS" ] && kill -0 "$PRODUCTION_RESTART_PID" 2>/dev/null; do
+      production_restart_status="$($CURL -sS --max-time 8 -X POST \
+        "http://127.0.0.1:$PRODUCTION_RESTART_PORT/assistants/support/v1/conversations" \
+        -H 'content-type: application/json' -H 'accept: application/json' \
+        -D "$PUBLIC_ROOT/http/production-restart-create.headers" \
+        -o "$PUBLIC_ROOT/http/production-restart-create.body" -w '%{http_code}' \
+        --data "$(assistant_message_body production-restart)" 2>/dev/null || printf '000')"
+      if [ "$production_restart_status" = "200" ]; then
+        PRODUCTION_RESTART_OK=1
+        break
+      fi
+      sleep 1
+      PRODUCTION_RESTART_ELAPSED=$((PRODUCTION_RESTART_ELAPSED + 1))
+    done
+    find "$RUNTIME_APP_ROOT/.scenery/assistant-runtime" -maxdepth 4 -type f -print > "$PRIVATE_ROOT/production-extraction-files-restart.txt" 2>/dev/null || true
+    production_inventory_after="$({ "$SHA" < "$PRIVATE_ROOT/production-extraction-files-restart.txt" 2>/dev/null || true; } | cut -d' ' -f1)"
+    # Reuse is proven by two independent observations: the extracted inventory
+    # did not change, and the second start served well inside the time a cold
+    # extraction of the managed Node tree needs.
+    if [ -n "$production_inventory_before" ] && [ "$production_inventory_before" = "$production_inventory_after" ] \
+      && [ "$PRODUCTION_RESTART_OK" -eq 1 ] && [ "$PRODUCTION_RESTART_ELAPSED" -le "$PRODUCTION_REUSE_SECONDS" ]; then
+      PRODUCTION_ASSETS_REUSED=1
+    fi
+    printf 'create_status=%s\nwait_elapsed_seconds=%s\nwait_bound_seconds=%s\nreuse_bound_seconds=%s\nassets_reused=%s\n' \
+      "$production_restart_status" "$PRODUCTION_RESTART_ELAPSED" "$PRODUCTION_WAIT_SECONDS" "$PRODUCTION_REUSE_SECONDS" "$PRODUCTION_ASSETS_REUSED" > "$PRIVATE_ROOT/production-restart.txt"
+    stop_process "$PRODUCTION_RESTART_PID"
+    PRODUCTION_RESTART_PID=""
+  fi
 elif [ "$PRODUCTION_BUILD_RC" -eq 0 ]; then
   PRODUCTION_RUN_RC=1
   printf 'production skipped: managed app database URL was not resolved after scenery up\n' > "$PRIVATE_ROOT/production-run.log"
@@ -1338,10 +1416,11 @@ else
   PRODUCTION_RUN_RC=$PRODUCTION_BUILD_RC
 fi
 run_test_case "production extraction tamper and recovery" ./runtime 'TestProductionInstallsStartsReusesAndRejectsTamperedAssets|TestProductionConcurrentAssetInstallReusesVerifiedTree|TestProductionAssistantEnvironmentUsesStrictAllowlist' "case-17-production-assets.log"
-if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$PRODUCTION_RUN_RC" -eq 0 ] && [ "$PRODUCTION_LISTENING" -eq 1 ] && [ "$PRODUCTION_HELPER_READY" -eq 1 ] && [ "$PRODUCTION_ASSETS_PRESENT" -eq 1 ]; then
-  record_case "production binary runs without ambient Node" PASS "production-build.log,production-run.log,production-create.body,production-startup.txt,assistant-fixture.scenery.runtime-bundle.json" "artifact embeds assistant assets, binary owned its listener, and helper completed a public conversation with empty PATH"
+PRODUCTION_EVIDENCE="production-build.log,production-run.log,production-create.body,production-startup.txt,production-shutdown.txt,production-restart.txt,production-assistant-startup.json,assistant-fixture.scenery.runtime-bundle.json"
+if [ "$PRODUCTION_BUILD_RC" -eq 0 ] && [ "$PRODUCTION_RUN_RC" -eq 0 ] && [ "$PRODUCTION_LISTENING" -eq 1 ] && [ "$PRODUCTION_HELPER_READY" -eq 1 ] && [ "$PRODUCTION_ASSETS_PRESENT" -eq 1 ] && [ "$PRODUCTION_MCP_OK" -eq 1 ] && [ "$PRODUCTION_SHUTDOWN_CLEAN" -eq 1 ] && [ "$PRODUCTION_RESTART_OK" -eq 1 ] && [ "$PRODUCTION_ASSETS_REUSED" -eq 1 ]; then
+  record_case "production binary runs without ambient Node" PASS "$PRODUCTION_EVIDENCE" "artifact embedded its assets, owned its listener, completed a public conversation and an approved MCP operation with empty PATH, shut down without leaving a helper, and served again over the already extracted assets"
 else
-  record_case "production binary runs without ambient Node" BLOCKED "production-build.log,production-run.log,production-create.body,production-startup.txt,assistant-fixture.scenery.runtime-bundle.json" "assets=$PRODUCTION_ASSETS_PRESENT listener=$PRODUCTION_LISTENING helper=$PRODUCTION_HELPER_READY exit=$PRODUCTION_RUN_RC wait=$PRODUCTION_WAIT_ELAPSED/$PRODUCTION_WAIT_SECONDS; inspect extraction/runtime hook"
+  record_case "production binary runs without ambient Node" BLOCKED "$PRODUCTION_EVIDENCE" "assets=$PRODUCTION_ASSETS_PRESENT listener=$PRODUCTION_LISTENING helper=$PRODUCTION_HELPER_READY mcp=$PRODUCTION_MCP_OK shutdown=$PRODUCTION_SHUTDOWN_CLEAN restart=$PRODUCTION_RESTART_OK reused=$PRODUCTION_ASSETS_REUSED exit=$PRODUCTION_RUN_RC wait=$PRODUCTION_WAIT_ELAPSED/$PRODUCTION_WAIT_SECONDS; inspect extraction/runtime hook"
 fi
 
 # 14. Run independently against only public roots and captures.  Never pass

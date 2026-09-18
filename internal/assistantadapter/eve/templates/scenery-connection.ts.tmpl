@@ -3,26 +3,32 @@
 // Scenery assertion. Eve never receives the caller's original token or an
 // external MCP credential.
 import { createHmac, randomBytes } from "node:crypto";
-import { defineMcpClientConnection } from "eve/connections";
+import { defineDynamic, defineMcpClientConnection } from "eve/connections";
 import { isIP } from "node:net";
 import { lookupConversationDigest, runForTurn } from "../channels/scenery.js";
 
 const assistantAddress = {{json .AssistantAddress}};
 const capabilityRevision = {{json .CapabilityRevision}};
 const approvalNeverTools = new Set<string>({{json .ApprovalNeverTools}});
-const configuredMcpURL = process.env.SCENERY_MCP_URL;
-if (!configuredMcpURL) throw new Error("SCENERY_MCP_URL is required");
-const mcpURLObject = new URL(configuredMcpURL);
-const mcpHost = mcpURLObject.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-const mcpLoopback = mcpHost === "localhost" || mcpHost.endsWith(".localhost") ||
-  (isIP(mcpHost) === 4 && mcpHost.startsWith("127.")) || (isIP(mcpHost) === 6 && mcpHost === "::1");
-const mcpPort = Number(mcpURLObject.port);
-if (mcpURLObject.protocol !== "http:" || mcpURLObject.username || mcpURLObject.password ||
-    mcpURLObject.pathname !== "/" || mcpURLObject.search || mcpURLObject.hash || !mcpLoopback ||
-    !Number.isInteger(mcpPort) || mcpPort < 1 || mcpPort > 65535) {
-  throw new Error("SCENERY_MCP_URL must be an http loopback host:port");
+// Supervision supplies the gateway's loopback address when it starts the
+// helper, so the URL is resolved on every connection instead of when this
+// module is loaded: a compiled capsule must carry no address of its own, and a
+// build resolves a placeholder that no runtime ever reaches.
+function mcpURL(): string {
+  const configuredMcpURL = process.env.SCENERY_MCP_URL;
+  if (!configuredMcpURL) throw new Error("SCENERY_MCP_URL is required");
+  const mcpURLObject = new URL(configuredMcpURL);
+  const mcpHost = mcpURLObject.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const mcpLoopback = mcpHost === "localhost" || mcpHost.endsWith(".localhost") ||
+    (isIP(mcpHost) === 4 && mcpHost.startsWith("127.")) || (isIP(mcpHost) === 6 && mcpHost === "::1");
+  const mcpPort = Number(mcpURLObject.port);
+  if (mcpURLObject.protocol !== "http:" || mcpURLObject.username || mcpURLObject.password ||
+      mcpURLObject.pathname !== "/" || mcpURLObject.search || mcpURLObject.hash || !mcpLoopback ||
+      !Number.isInteger(mcpPort) || mcpPort < 1 || mcpPort > 65535) {
+    throw new Error("SCENERY_MCP_URL must be an http loopback host:port");
+  }
+  return mcpURLObject.origin;
 }
-const mcpURL = mcpURLObject.origin;
 
 const base64url = (value) => Buffer.from(value).toString("base64url");
 
@@ -58,13 +64,21 @@ async function assertion(ctx) {
   return `${encoded}.${signature}`;
 }
 
-export default defineMcpClientConnection({
-  url: mcpURL,
-  description: "Scenery capabilities for this assistant.",
-  approval: ({ toolName }) => approvalNeverTools.has(toolName)
-    ? "not-applicable"
-    : "user-approval",
-  headers: async (ctx) => ({
-    "Scenery-Assistant-Assertion": await assertion(ctx),
-  }),
+// The connection is resolved when a session starts, not when this module is
+// compiled: a build snapshots every static connection's URL, and the gateway's
+// address exists only once supervision has started this helper. The file name
+// keeps supplying the connection's name.
+export default defineDynamic({
+  events: {
+    "session.started": () => defineMcpClientConnection({
+      url: mcpURL(),
+      description: "Scenery capabilities for this assistant.",
+      approval: ({ toolName }) => approvalNeverTools.has(toolName)
+        ? "not-applicable"
+        : "user-approval",
+      headers: async (ctx) => ({
+        "Scenery-Assistant-Assertion": await assertion(ctx),
+      }),
+    }),
+  },
 });

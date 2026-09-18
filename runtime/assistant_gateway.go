@@ -699,8 +699,19 @@ func (g *assistantGateway) publicRunID(conversationID, privateRunID, eventType, 
 	return privateRunID, nil
 }
 
+// recordConversationRequest records how a public conversation request ended,
+// for the private startup report of a production runtime.
+func (g *assistantGateway) recordConversationRequest(err error) {
+	if err == nil {
+		recordAssistantStartupPhase(g.registration.Address, assistantPhaseRequestServed, true, 0, "", "")
+		return
+	}
+	recordAssistantStartupPhase(g.registration.Address, assistantPhaseRequestServed, false, 0, assistantBootstrapErrorCode(err), err.Error())
+}
+
 func (g *assistantGateway) noClientError() error {
 	if g.currentClient() == nil {
+		recordAssistantStartupPhase(g.registration.Address, assistantPhaseRequestClient, false, 0, "unavailable", "no assistant client is installed")
 		return assistantruntime.ErrUnavailable
 	}
 	return nil
@@ -760,6 +771,7 @@ func (g *assistantGateway) handleCreate(w http.ResponseWriter, req *http.Request
 		sent = true
 		return client.StartConversation(ctx, startRequest)
 	})
+	g.recordConversationRequest(err)
 	if err != nil {
 		reservation.finish(assistantRunStartOutcome(sent, err))
 		g.observeAssistantRun(reservation, nil, assistantruntime.StreamRequest{})

@@ -221,7 +221,7 @@ func TestAssistantInitAppliesScaffoldInProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(lock)
-	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:50688be5a4ea2b73acffd21b724caa699ea81e8343befd22b1212e89e845938a"; got != want {
+	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:05412849aaf7cb286b2f1227c2149e02b6977c02f68028d3ff8cd7e89c08c9c2"; got != want {
 		t.Fatalf("lock digest=%s want=%s", got, want)
 	}
 	if len(request.Operations) != 1 || request.Operations[0].Op != "resource.create" || request.Operations[0].Address != "app/assistant/extra" {

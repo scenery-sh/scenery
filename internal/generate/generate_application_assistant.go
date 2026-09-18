@@ -5,14 +5,10 @@ import (
 	"sort"
 	"strings"
 
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/mcpprojection"
 )
-
-// generatedAssistantRuntimeRevision is the deterministic M3 fallback used
-// when the compiler has not computed a build-specific implementation
-// revision yet. The runtime can replace the helper client independently.
-const generatedAssistantRuntimeRevision = "runtime-1"
 
 func canonicalAssistantResources(resources []Resource) []Resource {
 	seen := map[string]bool{}
@@ -28,20 +24,11 @@ func canonicalAssistantResources(resources []Resource) []Resource {
 	return assistants
 }
 
-func assistantRuntimeRevision(result *Result) string {
-	if result != nil {
-		keys := make([]string, 0, len(result.ImplementationRevisions))
-		for key := range result.ImplementationRevisions {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			if revision := strings.TrimSpace(result.ImplementationRevisions[key]); revision != "" {
-				return revision
-			}
-		}
+func assistantRuntimeRevision(result *Result, address string) string {
+	if result == nil {
+		return compiler.DefaultAssistantRuntimeRevision
 	}
-	return generatedAssistantRuntimeRevision
+	return compiler.AssistantRuntimeRevision(result.ImplementationRevisions, address)
 }
 
 func assistantSurface(assistant Resource) (map[string]any, error) {
@@ -112,7 +99,13 @@ func renderAssistantRegistration(result *Result, resources map[string]Resource, 
 	// Every declared assistant is required by default. The runtime bootstrap
 	// still fails closed to a neutral unavailable public surface when its
 	// supervisor-supplied private helper descriptor is absent or unhealthy.
-	serverAddress := resolveResourceRef(assistant, refString(assistant.Spec["mcp_server"]), "mcp_server")
+	// One resolution of the declared reference serves generation, the
+	// development runtime and the artifact build: the server address is part of
+	// the capability revision every one of them must agree on.
+	serverAddress, err := mcpprojection.AssistantServerAddress(result.Manifest, assistant.Address)
+	if err != nil {
+		return "", fmt.Errorf("assistant %s MCP server: %w", assistant.Address, err)
+	}
 	server, ok := resources[serverAddress]
 	if !ok || server.Kind != "scenery.mcp-server" {
 		return "", fmt.Errorf("assistant %s references unknown MCP server %q", assistant.Address, serverAddress)
@@ -130,7 +123,7 @@ func renderAssistantRegistration(result *Result, resources map[string]Resource, 
 	if err != nil {
 		return "", fmt.Errorf("assistant %s MCP manifest encoding: %w", assistant.Address, err)
 	}
-	registration := fmt.Sprintf("if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: %q, Name: %q, Path: %q, Access: %s, Policy: %s, AssistantAddress: %q, RuntimeRevision: %q, CapabilityRevision: %q, Required: true}); err != nil { return err }\n", assistant.Address, name, path, access, policy, assistant.Address, assistantRuntimeRevision(result), capabilityRevision)
+	registration := fmt.Sprintf("if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: %q, Name: %q, Path: %q, Access: %s, Policy: %s, AssistantAddress: %q, RuntimeRevision: %q, CapabilityRevision: %q, Required: true}); err != nil { return err }\n", assistant.Address, name, path, access, policy, assistant.Address, assistantRuntimeRevision(result, assistant.Address), capabilityRevision)
 	registration += fmt.Sprintf("if err := sceneryruntime.RegisterAssistantMCPManifestChecked(%q, %q, []byte(%q)); err != nil { return err }\n", assistant.Address, serverAddress, string(manifestJSON))
 	return registration, nil
 }

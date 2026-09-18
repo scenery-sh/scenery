@@ -2,6 +2,9 @@
 package compiler
 
 import (
+	"sort"
+	"strings"
+
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/scn"
 )
@@ -23,6 +26,33 @@ type Result struct {
 	Diagnostics             []graph.Diagnostic         `json:"diagnostics"`
 	Sources                 []*scn.Source              `json:"-"`
 }
+
+// AssistantRuntimeRevision is the helper implementation revision an assistant
+// runs: the revision recorded for its own address, or the first recorded
+// revision in address order when the compiler recorded none for it.
+// Generation, the development runtime and the artifact build must answer this
+// the same way, because the registered application and its prepared helper
+// compare the revision on every control message.
+func AssistantRuntimeRevision(revisions map[string]string, address string) string {
+	if revision := strings.TrimSpace(revisions[address]); revision != "" {
+		return revision
+	}
+	keys := make([]string, 0, len(revisions))
+	for key := range revisions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if revision := strings.TrimSpace(revisions[key]); revision != "" {
+			return revision
+		}
+	}
+	return DefaultAssistantRuntimeRevision
+}
+
+// DefaultAssistantRuntimeRevision identifies a helper the compiler recorded no
+// implementation revision for.
+const DefaultAssistantRuntimeRevision = "runtime-1"
 
 // ManifestForView returns one immutable compiler snapshot.
 func (r *Result) ManifestForView(view string) (*graph.Manifest, error) {

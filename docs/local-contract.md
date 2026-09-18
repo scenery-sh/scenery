@@ -693,7 +693,15 @@ The helper is always a managed child process. Its versioned control protocol
 (`scenery.assistant.control.*`) and MCP listener are private loopback services;
 they require per-process authentication and exact runtime/capability revision
 handshakes. An assistant's capability revision identifies its own contract and
-its MCP server's capabilities, not the whole application contract. A helper outage is reported as typed assistant unavailability while
+its MCP server's capabilities, not the whole application contract. Generation,
+the development runtime and the artifact build resolve the declared MCP server
+reference to the same canonical address and answer the helper's implementation
+revision the same way, so an assistant's registered application and its prepared
+helper always agree on both revisions; a helper prepared for other revisions is
+refused at startup as `revision_mismatch` instead of being installed. A prepared
+or embedded helper carries no address of its own: it resolves its MCP gateway's
+loopback address from the private configuration supervision supplies when it
+starts, so the same compiled helper serves any start. A helper outage is reported as typed assistant unavailability while
 the Go app remains alive. `scenery up` and `scenery build` use managed Node/npm
 and exact assistant package locks without rewriting authored package files.
 

@@ -21,17 +21,21 @@ func assistantCacheTestWrite(t *testing.T, root, path, data string) {
 
 func assistantCacheTestInput(t *testing.T, root string) {
 	t.Helper()
-	assistantCacheTestWrite(t, root, "package.json", `{"dependencies":{"eve":"0.39.1"}}`)
+	assistantCacheTestWrite(t, root, "package.json", `{"dependencies":{"eve":"0.59.1"}}`)
 	assistantCacheTestWrite(t, root, "package-lock.json", `{"lockfileVersion":3}`)
 	assistantCacheTestWrite(t, root, "agent/agent.ts", "authored")
 	assistantCacheTestWrite(t, root, ".scenery/runtime-manifest.json", "runtime-capability-identity")
 }
 
-func assistantCacheTestIndex(root, url string) string {
-	return "const authored = 'do not replace " + root + " or " + url + "';\nconst manifest = {\n" +
+// A prepared build records the roots it was built in and its connections. The
+// assistant's own connection is dynamic and carries no address, so relocation
+// rewrites roots only.
+func assistantCacheTestIndex(root string) string {
+	return "const authored = 'do not replace " + root + "';\nconst manifest = {\n" +
 		`"agentRoot":"` + filepath.ToSlash(filepath.Join(root, "agent")) + `",` + "\n" +
 		`"appRoot":"` + filepath.ToSlash(root) + `",` + "\n" +
-		`"connections":[{"connectionName":"scenery","url":"` + url + `"},{"connectionName":"authored","url":"` + url + `"}]` + "\n};\nexport { manifest };"
+		`"connections":[{"connectionName":"authored","url":"http://127.0.0.1:9"}],` + "\n" +
+		`"dynamicConnections":[{"slug":"scenery","logicalPath":"connections/scenery.ts"}]` + "\n};\nexport { manifest };"
 }
 
 func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
@@ -41,8 +45,7 @@ func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
 	assistantCacheTestInput(t, second)
 	node := filepath.Join(root, "node")
 	assistantCacheTestWrite(t, root, "node", "managed executable")
-	oldURL, newURL := "http://127.0.0.1:1234", "http://127.0.0.1:5678"
-	cache, err := openAssistantOverlayCache(root, first, node, oldURL)
+	cache, err := openAssistantOverlayCache(root, first, node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,13 +53,13 @@ func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
 		t.Fatalf("cold cache: %v %v", hit, err)
 	}
 	assistantCacheTestWrite(t, first, "node_modules/eve/index.js", "dependency")
-	assistantCacheTestWrite(t, first, ".output/server/index.mjs", assistantCacheTestIndex(first, oldURL))
+	assistantCacheTestWrite(t, first, ".output/server/index.mjs", assistantCacheTestIndex(first))
 	assistantCacheTestWrite(t, first, ".output/.eve/discovery/manifest.json", "ephemeral")
 	assistantCacheTestWrite(t, first, ".home/private-token", "private")
 	if err := cache.publish(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	next, err := openAssistantOverlayCache(root, second, node, newURL)
+	next, err := openAssistantOverlayCache(root, second, node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,10 +73,10 @@ func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"appRoot": "`+second+`"`) || !strings.Contains(string(data), newURL) {
+	if !strings.Contains(string(data), `"appRoot": "`+second+`"`) {
 		t.Fatalf("build manifest was not relocated: %s", data)
 	}
-	if !strings.Contains(string(data), "do not replace "+first+" or "+oldURL) {
+	if !strings.Contains(string(data), "do not replace "+first) {
 		t.Fatal("authored JavaScript was rewritten")
 	}
 	for _, path := range []string{".home", ".output/.eve"} {
@@ -101,7 +104,7 @@ func TestAssistantPreparedCacheInvalidatesExactInputs(t *testing.T) {
 		{".scenery/runtime-manifest.json", "capability edit"}, {"agent/connections/scenery.ts", "adapter edit"},
 	} {
 		assistantCacheTestWrite(t, overlay, change.path, change.value)
-		cache, err := openAssistantOverlayCache(root, overlay, node, "http://127.0.0.1:1")
+		cache, err := openAssistantOverlayCache(root, overlay, node)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +114,7 @@ func TestAssistantPreparedCacheInvalidatesExactInputs(t *testing.T) {
 		previous = cache.key
 	}
 	assistantCacheTestWrite(t, root, "node", "node2")
-	cache, err := openAssistantOverlayCache(root, overlay, node, "http://127.0.0.1:1")
+	cache, err := openAssistantOverlayCache(root, overlay, node)
 	if err != nil || cache.key == previous {
 		t.Fatalf("node change not invalidated: %v", err)
 	}
@@ -125,12 +128,12 @@ func TestAssistantPreparedCacheRejectsTamperedOutput(t *testing.T) {
 			assistantCacheTestInput(t, source)
 			assistantCacheTestInput(t, dest)
 			assistantCacheTestWrite(t, root, "node", "node")
-			cache, err := openAssistantOverlayCache(root, source, filepath.Join(root, "node"), "http://127.0.0.1:1")
+			cache, err := openAssistantOverlayCache(root, source, filepath.Join(root, "node"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			assistantCacheTestWrite(t, source, "node_modules/eve/index.js", "dependency")
-			assistantCacheTestWrite(t, source, ".output/server/index.mjs", assistantCacheTestIndex(source, cache.mcpURL))
+			assistantCacheTestWrite(t, source, ".output/server/index.mjs", assistantCacheTestIndex(source))
 			if err := cache.publish(context.Background(), source); err != nil {
 				t.Fatal(err)
 			}
@@ -160,8 +163,13 @@ func TestAssistantPreparedCacheRejectsTamperedOutput(t *testing.T) {
 }
 
 func TestAssistantBuildManifestRelocationRejectsUnknownShape(t *testing.T) {
-	for _, data := range []string{"unknown output", assistantCacheTestIndex("/wrong", "http://127.0.0.1:1"), assistantCacheTestIndex("/old", "http://127.0.0.1:2")} {
-		if _, err := relocateAssistantBuildManifest([]byte(data), "/old", "/new", "http://127.0.0.1:1", "http://127.0.0.1:3"); err == nil {
+	// A build whose Scenery connection is static carries the address of its own
+	// build; relocation must refuse it instead of serving an unreachable one.
+	staticConnection := strings.Replace(assistantCacheTestIndex("/old"),
+		`"dynamicConnections":[{"slug":"scenery","logicalPath":"connections/scenery.ts"}]`,
+		`"dynamicConnections":[]`, 1)
+	for _, data := range []string{"unknown output", assistantCacheTestIndex("/wrong"), staticConnection} {
+		if _, err := relocateAssistantBuildManifest([]byte(data), "/old", "/new"); err == nil {
 			t.Fatal("unsupported build manifest accepted")
 		}
 	}

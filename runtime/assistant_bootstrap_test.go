@@ -115,8 +115,8 @@ func TestAssistantBootstrapSupportsMultipleHelpersAndAtomicReplacement(t *testin
 	}
 	bootstrap := NewAssistantBootstrap(AssistantBootstrapOptions{Factory: factory, ProbeTimeout: time.Second})
 	config := AssistantRuntimeConfig{Assistants: []AssistantBootstrapDescriptor{
-		{AssistantAddress: "app/assistant/a", ControlAddress: "http://127.0.0.1:4101", ControlToken: "token-a", RuntimeRevision: "runtime-a", CapabilityRevision: "capability-a"},
-		{AssistantAddress: "app/assistant/b", ControlAddress: "http://127.0.0.1:4102", ControlToken: "token-b", RuntimeRevision: "runtime-b", CapabilityRevision: "capability-b"},
+		{AssistantAddress: "app/assistant/a", ControlAddress: "http://127.0.0.1:4101", ControlToken: "token-a", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"},
+		{AssistantAddress: "app/assistant/b", ControlAddress: "http://127.0.0.1:4102", ControlToken: "token-b", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"},
 	}}
 	if err := bootstrap.Apply(context.Background(), config); err != nil {
 		t.Fatalf("initial Apply() = %v", err)
@@ -216,25 +216,45 @@ func TestAssistantBootstrapUnavailableAndRevisionMismatchLeavePublicSurfaceAlive
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	registerTestAssistant(t, "app/assistant/support", "support")
-	config := AssistantRuntimeConfig{Assistants: []AssistantBootstrapDescriptor{{
-		AssistantAddress: "app/assistant/support", ControlAddress: "http://127.0.0.1:4101", ControlToken: "token", RuntimeRevision: "runtime-a", CapabilityRevision: "capability-a",
-	}}}
+	descriptor := func(runtimeRevision, capabilityRevision string) AssistantRuntimeConfig {
+		return AssistantRuntimeConfig{Assistants: []AssistantBootstrapDescriptor{{
+			AssistantAddress: "app/assistant/support", ControlAddress: "http://127.0.0.1:4101", ControlToken: "token", RuntimeRevision: runtimeRevision, CapabilityRevision: capabilityRevision,
+		}}}
+	}
 	for _, test := range []struct {
 		name      string
+		config    AssistantRuntimeConfig
 		factory   AssistantClientFactory
 		wantError string
 	}{
 		{
-			name: "unavailable",
+			name:   "unavailable",
+			config: descriptor("runtime-1", "capability-1"),
 			factory: func(AssistantBootstrapDescriptor) (AssistantClient, error) {
-				return assistantruntime.NewUnavailableFakeHelper(assistantruntime.FakeConfig{AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-a", CapabilityRevision: "capability-a"}), nil
+				return assistantruntime.NewUnavailableFakeHelper(assistantruntime.FakeConfig{AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"}), nil
 			},
 			wantError: "unavailable",
 		},
 		{
-			name: "revision mismatch",
+			name:   "revision mismatch",
+			config: descriptor("runtime-1", "capability-1"),
 			factory: func(AssistantBootstrapDescriptor) (AssistantClient, error) {
-				helper := assistantruntime.NewFakeHelper(assistantruntime.FakeConfig{AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-other", CapabilityRevision: "capability-a"})
+				helper := assistantruntime.NewFakeHelper(assistantruntime.FakeConfig{AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-other", CapabilityRevision: "capability-1"})
+				if err := helper.Start(context.Background()); err != nil {
+					return nil, err
+				}
+				return helper, nil
+			},
+			wantError: "revision_mismatch",
+		},
+		{
+			// A helper prepared for other revisions than the registered
+			// application can never serve a request, because every request
+			// carries the registration's revisions.
+			name:   "helper prepared for another application revision",
+			config: descriptor("runtime-1", "capability-other"),
+			factory: func(descriptor AssistantBootstrapDescriptor) (AssistantClient, error) {
+				helper := assistantruntime.NewFakeHelper(assistantruntime.FakeConfig{AssistantAddress: descriptor.AssistantAddress, RuntimeRevision: descriptor.RuntimeRevision, CapabilityRevision: descriptor.CapabilityRevision})
 				if err := helper.Start(context.Background()); err != nil {
 					return nil, err
 				}
@@ -245,7 +265,7 @@ func TestAssistantBootstrapUnavailableAndRevisionMismatchLeavePublicSurfaceAlive
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			bootstrap := NewAssistantBootstrap(AssistantBootstrapOptions{Factory: test.factory, ProbeTimeout: 10 * time.Millisecond})
-			if err := bootstrap.Apply(context.Background(), config); err != nil {
+			if err := bootstrap.Apply(context.Background(), test.config); err != nil {
 				t.Fatalf("Apply() = %v", err)
 			}
 			statuses := bootstrap.Statuses()

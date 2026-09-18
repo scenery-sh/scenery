@@ -42,6 +42,50 @@ const (
 	maxResultBytes = int64(16 << 20)
 )
 
+// AssistantServerAddress is the canonical address of the MCP server an
+// assistant declares. The server address is part of the assistant's capability
+// revision and selects its projected capabilities, so every producer of that
+// revision, generation, the development runtime and the artifact build, must
+// resolve the declared reference the same way; an unresolved reference
+// projects no capability and gives the same assistant a second revision its
+// helper can never satisfy.
+func AssistantServerAddress(manifest *graph.Manifest, assistant string) (string, error) {
+	if manifest == nil {
+		return "", projectionError("failed_precondition", "expanded manifest is nil")
+	}
+	resources := resourcesByAddress(manifest)
+	resource, ok := resources[assistant]
+	if !ok || resource.Kind != assistantKind {
+		return "", projectionError("failed_precondition", fmt.Sprintf("assistant %s is not declared", assistant))
+	}
+	reference := assistantServerReference(resource.Spec["mcp_server"])
+	if reference == "" {
+		return "", projectionError("failed_precondition", fmt.Sprintf("assistant %s declares no MCP server", assistant))
+	}
+	address := reference
+	if !strings.Contains(reference, "/") {
+		parts := strings.Split(reference, ".")
+		if len(parts) != 2 {
+			return "", projectionError("failed_precondition", fmt.Sprintf("assistant %s MCP server reference %q is not resolvable", assistant, reference))
+		}
+		address = graph.ResourceAddress("app", parts[0], parts[1])
+	}
+	if server, ok := resources[address]; !ok || server.Kind != mcpServerKind {
+		return "", projectionError("failed_precondition", fmt.Sprintf("assistant %s references unknown MCP server %q", assistant, reference))
+	}
+	return address, nil
+}
+
+// assistantServerReference reads the declared reference, which the graph keeps
+// either as a reference object or as a plain string.
+func assistantServerReference(value any) string {
+	if object, ok := value.(map[string]any); ok {
+		value = object["$ref"]
+	}
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
 // CapabilityRevision identifies what an assistant can do through its MCP
 // server: the assistant's contract projection and the server's projected
 // capabilities and connections, with the application identity and

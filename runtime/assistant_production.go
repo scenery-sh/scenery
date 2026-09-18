@@ -159,6 +159,10 @@ func RegisterEmbeddedAssistantAssets(options AssistantProductionOptions, assets 
 	}
 	global.mu.RUnlock()
 	manager := &assistantProductionRuntime{stateRoot: stateRoot, configPath: filepath.Join(stateRoot, assistantProductionConfigName), assets: make(map[string]*assistantProductionAsset, len(assets))}
+	// Startup phases of this application's assistants are recorded privately
+	// beside their state, so an unavailable assistant names its first failed
+	// step without another run.
+	openAssistantStartupReport(stateRoot)
 	for index := range assets {
 		assetCopy := cloneEmbeddedAsset(assets[index])
 		manager.assets[assetCopy.Descriptor.AssistantAddress] = &assistantProductionAsset{input: assetCopy}
@@ -457,6 +461,7 @@ func (manager *assistantProductionRuntime) initialize(ctx context.Context) error
 			AssistantAddress: address, ControlAddress: controlURL, ControlToken: token, MCPListenAddress: strings.TrimPrefix(mcpURL, "http://"), MCPBridgeSecret: bridge,
 			RuntimeRevision: asset.Descriptor.RuntimeRevision, CapabilityRevision: asset.Descriptor.CapabilityRevision, Required: true,
 		})
+		recordAssistantStartupPhase(address, assistantPhaseAssetsVerified, true, 1, "", "")
 		started = append(started, item)
 	}
 	if err := WriteAssistantRuntimeConfig(manager.configPath, config); err != nil {
@@ -627,17 +632,31 @@ func startProductionAssistantProcess(_ context.Context, nodePath, entry string, 
 	// entry path from the capsule.
 	cmd.Dir = workingDirectory
 	cmd.Env = productionAssistantEnvironment(item)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	// The helper's own output is the only account of a failure inside the
+	// provider runtime; a bounded tail of it belongs in the private startup
+	// report, never in an answer.
+	address := item.input.Descriptor.AssistantAddress
+	output := io.Writer(io.Discard)
+	if report := currentAssistantStartupReport(); report != nil {
+		output = &assistantStartupOutput{report: report, address: address}
+	}
+	cmd.Stdout, cmd.Stderr = output, output
 	if err := cmd.Start(); err != nil {
+		recordAssistantStartupPhase(address, assistantPhaseProcessStarted, false, 1, "start_failed", err.Error())
 		return nil, err
 	}
+	recordAssistantStartupPhase(address, assistantPhaseProcessStarted, true, 1, "", "")
 	process := &productionAssistantProcess{cmd: cmd, done: make(chan struct{})}
 	go func() {
 		err := cmd.Wait()
 		process.mu.Lock()
 		process.err = err
 		process.mu.Unlock()
+		detail := "exited"
+		if err != nil {
+			detail = err.Error()
+		}
+		recordAssistantStartupPhase(address, assistantPhaseProcessExited, err == nil, 1, "", detail)
 		process.once.Do(func() { close(process.done) })
 	}()
 	return process, nil

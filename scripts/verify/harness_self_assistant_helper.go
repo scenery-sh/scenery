@@ -60,7 +60,10 @@ func runHarnessAssistantHelperProbe(parent context.Context, repoRoot string) (ma
 	for path, content := range map[string]string{
 		"node_modules/eve/package.json":   `{"name":"eve","type":"module","exports":{"./channels":"./channels.js","./connections":"./connections.js"}}`,
 		"node_modules/eve/channels.js":    "export const defineChannel = (definition) => definition;\nexport const GET = (path, handler) => ({ method: \"GET\", path, handler });\nexport const POST = (path, handler) => ({ method: \"POST\", path, handler });\n",
-		"node_modules/eve/connections.js": "export const defineMcpClientConnection = (definition) => definition;\n",
+		// defineDynamic resolves the connection at a session boundary, which is
+		// how the generated connection reaches the gateway address supervision
+		// supplies; the simulation records the definition it returns.
+		"node_modules/eve/connections.js": "export const defineMcpClientConnection = (definition) => definition;\nexport const defineDynamic = (definition) => definition;\n",
 		"agent/channels/scenery.js":       "export * from \"./scenery.ts\";\nexport { default } from \"./scenery.ts\";\n",
 	} {
 		target := filepath.Join(overlay, filepath.FromSlash(path))

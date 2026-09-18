@@ -44,7 +44,12 @@ func assistantDefinitionsFromResult(result *compiler.Result, root string) []assi
 		if source == "" || packagePath == "" || lockPath == "" {
 			continue
 		}
-		server := assistantRef(resource.Spec["mcp_server"])
+		// The server address is resolved exactly as generation and the artifact
+		// build resolve it; it selects the projected capabilities and is part of
+		// the capability revision the helper must carry. An assistant whose
+		// reference does not resolve keeps its watched implementation inputs and
+		// fails closed on projection, which the compiler already reports.
+		server, _ := mcpprojection.AssistantServerAddress(result.Manifest, resource.Address)
 		name := strings.TrimSpace(resource.Name)
 		if name == "" {
 			name = assistantNameFromAddress(resource.Address)
@@ -76,22 +81,10 @@ func assistantDefinitionsFromResult(result *compiler.Result, root string) []assi
 }
 
 func assistantRuntimeRevisionFor(result *compiler.Result, address string) string {
-	if result != nil {
-		if revision := strings.TrimSpace(result.ImplementationRevisions[address]); revision != "" {
-			return revision
-		}
-		keys := make([]string, 0, len(result.ImplementationRevisions))
-		for key := range result.ImplementationRevisions {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			if revision := strings.TrimSpace(result.ImplementationRevisions[key]); revision != "" {
-				return revision
-			}
-		}
+	if result == nil {
+		return compiler.DefaultAssistantRuntimeRevision
 	}
-	return assistantRuntimeRevision
+	return compiler.AssistantRuntimeRevision(result.ImplementationRevisions, address)
 }
 
 func assistantString(value any) string {
@@ -99,17 +92,6 @@ func assistantString(value any) string {
 		return strings.TrimSpace(stringValue)
 	}
 	return ""
-}
-
-func assistantRef(value any) string {
-	if ref, ok := value.(map[string]any); ok {
-		value = ref["$ref"]
-	}
-	result := assistantString(value)
-	if strings.HasPrefix(result, "mcp_server.") {
-		return "app/mcp_server/" + strings.TrimPrefix(result, "mcp_server.")
-	}
-	return result
 }
 
 func assistantApprovalNeverTools(result *compiler.Result, server string) []string {
@@ -209,7 +191,7 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 	started := time.Now()
 	var cache *assistantOverlayCache
 	if s.cacheOverlays {
-		cache, err = openAssistantOverlayCache(s.config.Root, overlay.Root, nodePath, prepared.mcpURL)
+		cache, err = openAssistantOverlayCache(s.config.Root, overlay.Root, nodePath)
 		if err == nil {
 			s.traceAssistantCache(ctx, prepared.definition, cache)
 			var hit bool
@@ -337,14 +319,13 @@ func assistantCapabilityRevision(result *compiler.Result, address string) string
 	if result == nil || result.Manifest == nil {
 		return ""
 	}
-	for _, resource := range result.Manifest.Resources {
-		if resource.Kind == "scenery.assistant" && resource.Address == address {
-			revision, err := mcpprojection.CapabilityRevision(result.Manifest, address, assistantRef(resource.Spec["mcp_server"]))
-			if err != nil {
-				return ""
-			}
-			return revision
-		}
+	server, err := mcpprojection.AssistantServerAddress(result.Manifest, address)
+	if err != nil {
+		return ""
 	}
-	return ""
+	revision, err := mcpprojection.CapabilityRevision(result.Manifest, address, server)
+	if err != nil {
+		return ""
+	}
+	return revision
 }

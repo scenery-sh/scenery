@@ -30,7 +30,7 @@ const (
 	// EveVersion and NodeVersion are implementation identities.  They are
 	// intentionally kept below this developer-only package and are not part of
 	// the public assistant contract.
-	EveVersion  = "0.39.1"
+	EveVersion  = "0.59.1"
 	NodeVersion = "24.18.0"
 
 	defaultAssertionTTL = 30 * time.Second

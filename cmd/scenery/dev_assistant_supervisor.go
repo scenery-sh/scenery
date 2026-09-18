@@ -31,7 +31,6 @@ import (
 )
 
 const (
-	assistantRuntimeRevision = "runtime-1"
 	assistantStartupTimeout  = 30 * time.Second
 	assistantProbeInterval   = 100 * time.Millisecond
 	assistantRestartBase     = 250 * time.Millisecond
