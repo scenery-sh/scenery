@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -196,6 +195,9 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 			s.traceAssistantCache(ctx, prepared.definition, cache)
 			var hit bool
 			hit, err = cache.restore(ctx, overlay.Root)
+			if err != nil {
+				s.emitStep(ctx, prepared.definition, "assistant.cache_restore", started, "miss", "verified_private_overlay_copy", err)
+			}
 			if hit && err == nil {
 				s.emitStep(ctx, prepared.definition, "assistant.dependencies", started, "hit", "verified_private_overlay_copy", nil)
 				s.emitStep(ctx, prepared.definition, "assistant.build", time.Now(), "hit", "verified_relocated_build", nil)
@@ -273,10 +275,9 @@ func installAssistantDependencies(ctx context.Context, overlay, npm, home string
 	command := execCommandContext(ctx, npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund")
 	command.Dir = overlay
 	command.Env = []string{"PATH=" + filepath.Join(home, "bin"), "HOME=" + filepath.Join(overlay, ".home"), "NPM_CONFIG_UPDATE_NOTIFIER=false", "NPM_CONFIG_FUND=false", "NPM_CONFIG_AUDIT=false"}
-	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("assistant dependency install: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
+	// The install's own output is the cause of its failure; it is kept, bounded
+	// and redacted, for the failure's private record rather than its message.
+	return runAssistantProviderCommand(command, "assistant dependency install")
 }
 
 // buildAssistantOverlay compiles the pinned provider workspace before the
@@ -306,9 +307,7 @@ func buildAssistantOverlay(ctx context.Context, overlay, nodePath, nodeHome, mcp
 		"SCENERY_MCP_URL=" + mcpURL,
 		"NPM_CONFIG_UPDATE_NOTIFIER=false",
 	}
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
-	return command.Run()
+	return runAssistantProviderCommand(command, "assistant provider build")
 }
 
 // assistantCapabilityRevision is the capability revision of the assistant at

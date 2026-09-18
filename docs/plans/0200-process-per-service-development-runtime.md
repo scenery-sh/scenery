@@ -819,6 +819,12 @@ compile the application graph as it needs.
   that are still open after a short grace, every service is asked to stop even
   after the deadline passed, and the acceptance identifies the owned processes
   by PID and start time before the binary stops and requires each one gone.
+- A development helper that could not be prepared was retried with its cause
+  lost in three places: the stage held the error, the step event published only
+  `ok: false`, and the provider's output was discarded with the overlay it was
+  written into. A failed step now names its cause in its event and keeps a
+  private record, with the provider's bounded and redacted output tail, beside
+  the removed overlay.
 - `scripts/accept-assistant-runtime.sh`, the real Eve journey (mock model,
   approvals, durable receipt/status/cancel through `scenery up`), is blocked
   independently of this work: its own `go build` binary has no content-bound

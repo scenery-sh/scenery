@@ -930,10 +930,24 @@ func (s *assistantSupervisor) emit(ctx context.Context, definition assistantDefi
 	s.config.OnEvent(ctx, devdash.DevSource{ID: "assistant:" + definition.Name, Kind: "assistant", Name: definition.Name, Role: "assistant-helper", Status: level}, level, message, fields)
 }
 
+// emitStep publishes one preparation step. A failed step names its cause and
+// the private record that keeps it, with the provider's own output, after the
+// failed overlay is gone; only the step's event and record change, not the
+// assistant's status or the retry that follows.
 func (s *assistantSupervisor) emitStep(ctx context.Context, definition assistantDefinition, name string, started time.Time, cache, reason string, err error) {
-	s.emit(ctx, definition, "info", "assistant.step", map[string]any{
+	fields := map[string]any{
 		"name": name, "assistant": definition.Address, "started_at": started.UTC().Format(time.RFC3339Nano),
 		"duration_ms": float64(time.Since(started).Microseconds()) / 1000,
 		"cache":       cache, "reason": reason, "ok": err == nil,
-	})
+	}
+	level := "info"
+	detail := recordAssistantPreparationStep(s.config.StateRoot, definition, name, err, s.config.Now())
+	if err != nil {
+		level = "error"
+		fields["error"] = assistantStepErrorText(err)
+		if detail != "" {
+			fields["detail_path"] = detail
+		}
+	}
+	s.emit(ctx, definition, level, "assistant.step", fields)
 }

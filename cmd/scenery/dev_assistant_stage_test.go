@@ -152,8 +152,14 @@ func TestAssistantStageFailureLeavesActiveStateUntouched(t *testing.T) {
 		}
 	}
 	entries, err := os.ReadDir(s.config.StateRoot)
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("failed candidate leaked its tree: %v, %v", entries, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the active tree remains beside the failure records, which outlive the
+	// failed candidate on purpose.
+	entries = slices.DeleteFunc(entries, func(entry os.DirEntry) bool { return entry.Name() == assistantDiagnosticsDir })
+	if len(entries) != 1 {
+		t.Fatalf("failed candidate leaked its tree: %v", entries)
 	}
 }
 
