@@ -1083,9 +1083,30 @@ func stopStaleEdgeAgentProcesses(socketPath, routerAddr string, skipPID int, tim
 	return nil
 }
 
+// edgeAgentCommandMatches reports whether a process command line is a scenery
+// agent server listening on routerAddr: the scenery executable itself running
+// `system agent` with flags only. Callers stop the processes it matches, so it
+// must not match a process that only mentions an agent — a client such as
+// `system agent restart`, which the agent it restarts would otherwise stop
+// together with every shell that started it, or a wrapper shell, a pager or an
+// editor holding the same words. A command line joins argv with spaces, so an
+// executable path that contains a space does not match: such an agent is left
+// running rather than an unrelated process stopped.
 func edgeAgentCommandMatches(command string, routerAddr string) bool {
-	return strings.Contains(command, "scenery system agent") &&
-		strings.Contains(command, "--router-listen "+routerAddr)
+	fields := strings.Fields(command)
+	if len(fields) < 3 || !strings.HasPrefix(filepath.Base(fields[0]), "scenery") || fields[1] != "system" || fields[2] != "agent" {
+		return false
+	}
+	flags := fields[3:]
+	if len(flags) > 0 && !strings.HasPrefix(flags[0], "-") {
+		return false
+	}
+	for index, flag := range flags {
+		if flag == "--router-listen="+routerAddr || (flag == "--router-listen" && index+1 < len(flags) && flags[index+1] == routerAddr) {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForTCPAddrFree(ctx context.Context, addr string) error {

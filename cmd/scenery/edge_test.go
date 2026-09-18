@@ -249,6 +249,23 @@ func TestEdgeAgentCommandMatchesSameRouter(t *testing.T) {
 	if edgeAgentCommandMatches("/usr/bin/other --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440", "127.0.0.1:9440") {
 		t.Fatal("non-scenery agent command should not match")
 	}
+	if !edgeAgentCommandMatches("/repo/.scenery/harness/bin/scenery system agent --router-listen=127.0.0.1:9440", "127.0.0.1:9440") {
+		t.Fatal("an agent spelling its router flag with = should match")
+	}
+	// A process that only mentions an agent is never one: stopping it would stop
+	// the restart that started the new agent, and the shells that ran it.
+	for _, command := range []string{
+		"/Users/petrbrazdil/go/bin/scenery system agent restart --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440 --router-http",
+		"/Users/petrbrazdil/go/bin/scenery system agent cleanup --router-listen 127.0.0.1:9440",
+		"/bin/bash -c /Users/petrbrazdil/go/bin/scenery system agent --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440",
+		"/bin/zsh -c source snapshot; scenery system agent restart --router-listen 127.0.0.1:9440",
+		"grep scenery system agent --router-listen 127.0.0.1:9440",
+		"/Users/petrbrazdil/go/bin/scenery system agents --router-listen 127.0.0.1:9440",
+	} {
+		if edgeAgentCommandMatches(command, "127.0.0.1:9440") {
+			t.Fatalf("a process that is not an agent server matched: %s", command)
+		}
+	}
 }
 
 func TestRuntimeProcessParsingAndManagedCaddyMatch(t *testing.T) {
