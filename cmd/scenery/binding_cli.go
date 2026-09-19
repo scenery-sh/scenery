@@ -208,7 +208,7 @@ func parseCLIControlFlags(arguments []string) ([]string, string, bool, error) {
 		}
 	}
 	if output != "human" && output != "json" {
-		return nil, "", false, fmt.Errorf("unsupported output %q", output)
+		return nil, "", false, usageErrorf("unsupported output %q", output)
 	}
 	return remaining, output, help, nil
 }
@@ -260,14 +260,14 @@ func buildCLIInput(resources []graph.Resource, binding graph.Resource, arguments
 		}
 		if !isFlag {
 			if strings.HasPrefix(argument, "-") {
-				return nil, fmt.Errorf("unknown flag %q", argument)
+				return nil, usageErrorf("unknown flag %q", argument)
 			}
 			positionals = append(positionals, argument)
 			continue
 		}
 		longName := stringValueForCLI(flag["name"])
 		if seenFlags[longName] {
-			return nil, fmt.Errorf("flag --%s was provided more than once", longName)
+			return nil, usageErrorf("flag --%s was provided more than once", longName)
 		}
 		seenFlags[longName] = true
 		if value == "" {
@@ -278,7 +278,7 @@ func buildCLIInput(resources []graph.Resource, binding graph.Resource, arguments
 				index++
 				value = arguments[index]
 			} else {
-				return nil, fmt.Errorf("flag --%s requires a value", longName)
+				return nil, usageErrorf("flag --%s requires a value", longName)
 			}
 		}
 		if err := set(contractReference(flag["to"]), value); err != nil {
@@ -292,15 +292,15 @@ func buildCLIInput(resources []graph.Resource, binding graph.Resource, arguments
 				return nil, err
 			}
 		} else if argument["required"] == true {
-			return nil, fmt.Errorf("missing argument %s", stringValueForCLI(argument["name"]))
+			return nil, usageErrorf("missing argument %s", stringValueForCLI(argument["name"]))
 		}
 	}
 	if len(positionals) > len(contractChildren(cli, "argument")) {
-		return nil, fmt.Errorf("unexpected argument %q", positionals[len(contractChildren(cli, "argument"))])
+		return nil, usageErrorf("unexpected argument %q", positionals[len(contractChildren(cli, "argument"))])
 	}
 	for name, flag := range flagsByLong {
 		if flag["required"] == true && !seenFlags[name] {
-			return nil, fmt.Errorf("missing required flag --%s", name)
+			return nil, usageErrorf("missing required flag --%s", name)
 		}
 	}
 	return input, nil

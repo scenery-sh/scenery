@@ -184,10 +184,10 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 		positionals = positionals[1:]
 	}
 	if cliFlagSet(flags, "lang") || cliFlagSet(flags, "output") {
-		return generateOptions{}, fmt.Errorf("client output flags are not supported here; declare a typescript_client in %s", scn.AppFilename)
+		return generateOptions{}, usageErrorf("client output flags are not supported here; declare a typescript_client in %s", scn.AppFilename)
 	}
 	if len(positionals) > 0 {
-		return generateOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
+		return generateOptions{}, usageErrorf("unexpected argument %q", positionals[0])
 	}
 	return opts, nil
 }

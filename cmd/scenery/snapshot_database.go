@@ -50,7 +50,7 @@ func rejectSnapshotLiveSession(ctx context.Context, appRoot string) error {
 		return err
 	}
 	if held {
-		return fmt.Errorf("snapshot requires the live dev runtime or restore operation to stop first; run scenery down --app-root %s", appRoot)
+		return preconditionErrorf("snapshot requires the live dev runtime or restore operation to stop first; run scenery down --app-root %s", appRoot)
 	}
 	return nil
 }

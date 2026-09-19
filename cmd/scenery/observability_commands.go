@@ -9,7 +9,10 @@ import (
 
 func tracesCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery traces list|clear [-o json] [--app-root <path>]")
+		return usageErrorf("usage: scenery traces list|clear [-o json] [--app-root <path>]")
+	}
+	if err := flagBeforeWord(args, "the traces subcommand"); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "list":
@@ -17,13 +20,16 @@ func tracesCommand(args []string) error {
 	case "clear":
 		return runTracesClear(context.Background(), os.Stdout, args[1:])
 	default:
-		return fmt.Errorf("unknown traces command %q", args[0])
+		return usageErrorf("unknown traces command %q", args[0])
 	}
 }
 
 func metricsCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery metrics list|query|labels|series [-o json] [--app-root <path>]")
+		return usageErrorf("usage: scenery metrics list|query|labels|series [-o json] [--app-root <path>]")
+	}
+	if err := flagBeforeWord(args, "the metrics subcommand"); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "list":
@@ -35,7 +41,7 @@ func metricsCommand(args []string) error {
 	case "series":
 		return runMetricsSeriesCommand(context.Background(), os.Stdout, args[1:])
 	default:
-		return fmt.Errorf("unknown metrics command %q", args[0])
+		return usageErrorf("unknown metrics command %q", args[0])
 	}
 }
 
@@ -78,7 +84,7 @@ func runObservabilityList(ctx context.Context, stdout io.Writer, subject string,
 		_, err = fmt.Fprintf(stdout, "traces=%d errors=%d error_rate=%.4f logs=%d avg=%.3fms p95=%.3fms\n", resp.Summary.TraceCount, resp.Summary.ErrorCount, resp.Summary.ErrorRate, resp.Summary.LogCount, resp.Summary.AvgDurationMS, resp.Summary.P95DurationMS)
 		return err
 	default:
-		return fmt.Errorf("unknown observability subject %q", subject)
+		return usageErrorf("unknown observability subject %q", subject)
 	}
 }
 

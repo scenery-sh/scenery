@@ -136,7 +136,7 @@ func durableWorkerCommand(args []string, stdout io.Writer) error {
 		return runWorkerDurableJobsFunc(opts, stdout)
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("scenery worker durable requires --endpoint and --token")
+		return usageErrorf("scenery worker durable requires --endpoint and --token")
 	}
 	opts, err := parseWorkerDurableArgs(args)
 	if err != nil {
@@ -160,10 +160,10 @@ func parseWorkerArgs(args []string) (workerOptions, error) {
 	}
 	opts.Env = strings.TrimSpace(opts.Env)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return workerOptions{}, fmt.Errorf("--env must not be empty")
+		return workerOptions{}, usageErrorf("--env must not be empty")
 	}
 	if opts.LogFormat != "text" && opts.LogFormat != "json" {
-		return workerOptions{}, fmt.Errorf("invalid --log-format %q", opts.LogFormat)
+		return workerOptions{}, usageErrorf("invalid --log-format %q", opts.LogFormat)
 	}
 	return opts, nil
 }
@@ -185,7 +185,7 @@ func parseWorkerDurableTokenCreateArgs(args []string) (workerDurableTokenCreateO
 	}
 	opts.Service, opts.Name, opts.ID = strings.TrimSpace(opts.Service), strings.TrimSpace(opts.Name), strings.TrimSpace(opts.ID)
 	if opts.Service == "" {
-		return workerDurableTokenCreateOptions{}, fmt.Errorf("--service is required")
+		return workerDurableTokenCreateOptions{}, usageErrorf("--service is required")
 	}
 	if opts.Name == "" {
 		opts.Name = opts.Service + " durable worker"
@@ -213,21 +213,21 @@ func parseWorkerDurableArgs(args []string) (workerDurableOptions, error) {
 	opts.Endpoint = strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
 	opts.Token = strings.TrimSpace(opts.Token)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return workerDurableOptions{}, fmt.Errorf("--env must not be empty")
+		return workerDurableOptions{}, usageErrorf("--env must not be empty")
 	}
 	if opts.LogFormat != "text" && opts.LogFormat != "json" {
-		return workerDurableOptions{}, fmt.Errorf("invalid --log-format %q", opts.LogFormat)
+		return workerDurableOptions{}, usageErrorf("invalid --log-format %q", opts.LogFormat)
 	}
 	for _, service := range opts.Services {
 		if service == "" {
-			return workerDurableOptions{}, fmt.Errorf("--service must not be empty")
+			return workerDurableOptions{}, usageErrorf("--service must not be empty")
 		}
 	}
 	if opts.Endpoint == "" {
-		return workerDurableOptions{}, fmt.Errorf("--endpoint is required")
+		return workerDurableOptions{}, usageErrorf("--endpoint is required")
 	}
 	if opts.Token == "" {
-		return workerDurableOptions{}, fmt.Errorf("--token is required")
+		return workerDurableOptions{}, usageErrorf("--token is required")
 	}
 	return opts, nil
 }
@@ -244,32 +244,32 @@ func parseWorkerDurableJobsArgs(args []string) (workerDurableJobsOptions, error)
 		return workerDurableJobsOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return workerDurableJobsOptions{}, fmt.Errorf("scenery worker durable jobs requires list, inspect, cancel, or retry")
+		return workerDurableJobsOptions{}, usageErrorf("scenery worker durable jobs requires list, inspect, cancel, or retry")
 	}
 	opts.Action = positionals[0]
 	switch opts.Action {
 	case "list":
 	case "inspect", "cancel", "retry":
 		if len(positionals) < 2 {
-			return workerDurableJobsOptions{}, fmt.Errorf("scenery worker durable jobs %s requires a job id", opts.Action)
+			return workerDurableJobsOptions{}, usageErrorf("scenery worker durable jobs %s requires a job id", opts.Action)
 		}
 		opts.JobID = strings.TrimSpace(positionals[1])
 		if opts.JobID == "" {
-			return workerDurableJobsOptions{}, fmt.Errorf("job id must not be empty")
+			return workerDurableJobsOptions{}, usageErrorf("job id must not be empty")
 		}
 		positionals = append(positionals[:1], positionals[2:]...)
 	default:
-		return workerDurableJobsOptions{}, fmt.Errorf("unknown scenery worker durable jobs command %q", opts.Action)
+		return workerDurableJobsOptions{}, usageErrorf("unknown scenery worker durable jobs command %q", opts.Action)
 	}
 	if len(positionals) > 1 {
-		return workerDurableJobsOptions{}, fmt.Errorf("unexpected argument %q", positionals[1])
+		return workerDurableJobsOptions{}, usageErrorf("unexpected argument %q", positionals[1])
 	}
 	opts.Service = strings.TrimSpace(opts.Service)
 	if opts.Limit < 1 || opts.Limit > 500 {
-		return workerDurableJobsOptions{}, fmt.Errorf("--limit must be between 1 and 500")
+		return workerDurableJobsOptions{}, usageErrorf("--limit must be between 1 and 500")
 	}
 	if opts.Service == "" {
-		return workerDurableJobsOptions{}, fmt.Errorf("--service is required")
+		return workerDurableJobsOptions{}, usageErrorf("--service is required")
 	}
 	return opts, nil
 }
@@ -475,7 +475,7 @@ func runWorkerDurableJobs(opts workerDurableJobsOptions, stdout io.Writer) error
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("durable job %q not found", opts.JobID)
+			return usageErrorf("durable job %q not found", opts.JobID)
 		}
 		record := durableJobRecordFromStore(job)
 		resp.Job = &record
@@ -497,7 +497,7 @@ func runWorkerDurableJobs(opts workerDurableJobsOptions, stdout io.Writer) error
 		}
 		resp.OK = true
 	default:
-		return fmt.Errorf("unknown durable jobs action %q", opts.Action)
+		return usageErrorf("unknown durable jobs action %q", opts.Action)
 	}
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)

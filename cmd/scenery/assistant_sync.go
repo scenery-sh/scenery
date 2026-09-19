@@ -57,11 +57,14 @@ type assistantSyncDependencies struct {
 
 func runAssistantSync(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("missing assistant name")
+		return usageErrorf("missing assistant name")
+	}
+	if err := flagBeforeWord(args, "the assistant name"); err != nil {
+		return err
 	}
 	name := strings.TrimSpace(args[0])
 	if !validAssistantName(name) {
-		return fmt.Errorf("assistant name %q must be lower_snake_case", name)
+		return usageErrorf("assistant name %q must be lower_snake_case", name)
 	}
 	flags := newCLIFlagSet("assistant sync")
 	var appRoot string
@@ -73,10 +76,10 @@ func runAssistantSync(args []string, stdout io.Writer) error {
 		return err
 	}
 	if len(positionals) != 0 {
-		return fmt.Errorf("unexpected argument %q", positionals[0])
+		return usageErrorf("unexpected argument %q", positionals[0])
 	}
 	if !jsonOutput {
-		return errors.New("scenery assistant sync currently requires -o json")
+		return usageErrorf("scenery assistant sync currently requires -o json")
 	}
 	root, _, compiled, err := loadAssistantApp(appRoot)
 	if err != nil {

@@ -252,11 +252,11 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 			return err
 		}
 		if !result.OK {
-			return fmt.Errorf("scenery validate failed")
+			return &codedCLIError{err: fmt.Errorf("scenery validate failed"), code: 1}
 		}
 		return nil
 	default:
-		return fmt.Errorf("unknown validate action %q", opts.Action)
+		return usageErrorf("unknown validate action %q", opts.Action)
 	}
 }
 
@@ -282,7 +282,7 @@ func parseValidateArgs(args []string) (validateOptions, error) {
 	switch opts.Action {
 	case "inspect":
 		if len(positionals) == 0 {
-			return validateOptions{}, fmt.Errorf("missing validation profile")
+			return validateOptions{}, usageErrorf("missing validation profile")
 		}
 		opts.Profile = positionals[0]
 		positionals = positionals[1:]
@@ -298,17 +298,17 @@ func parseValidateArgs(args []string) (validateOptions, error) {
 		}
 	}
 	if len(positionals) > 0 {
-		return validateOptions{}, fmt.Errorf("unknown argument %q", positionals[0])
+		return validateOptions{}, usageErrorf("unexpected argument %q", positionals[0])
 	}
 	if cliFlagSet(flags, "base") && opts.Action != "changed" {
-		return validateOptions{}, fmt.Errorf("--base is only supported for validate changed")
+		return validateOptions{}, usageErrorf("--base is only supported for validate changed")
 	}
 	opts.Base = strings.TrimSpace(opts.Base)
 	if opts.Base == "" {
-		return validateOptions{}, fmt.Errorf("--base must not be empty")
+		return validateOptions{}, usageErrorf("--base must not be empty")
 	}
 	if (opts.Action == "graph" || opts.Action == "list" || opts.Action == "inspect") && opts.Write {
-		return validateOptions{}, fmt.Errorf("--write is only supported when running validation")
+		return validateOptions{}, usageErrorf("--write is only supported when running validation")
 	}
 	return opts, nil
 }
@@ -338,7 +338,7 @@ func buildValidationInspectResponse(appRoot string, cfg appcfg.Config, profile s
 	profile = planner.ResolveProfileName(profile)
 	rec, ok := validationProfileRecordFor(cfg, profile)
 	if !ok {
-		return validationInspectResponse{}, fmt.Errorf("validation profile %q is not configured", profile)
+		return validationInspectResponse{}, unconfiguredValidationProfile(profile)
 	}
 	plan, _ := planner.NamedPlan(profile, validation.Selection{Mode: "explicit", Requested: []string{profile}})
 	tasks := referencedValidationTasks(appRoot, cfg, plan.Steps)
@@ -357,7 +357,7 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 	planner := newValidationPlanner(appRoot, cfg)
 	profile = planner.ResolveProfileName(profile)
 	if _, ok := cfg.Validation.Profiles[profile]; !ok {
-		return validationGraphResponse{}, fmt.Errorf("validation profile %q is not configured", profile)
+		return validationGraphResponse{}, unconfiguredValidationProfile(profile)
 	}
 	resp := validationGraphResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity(validationGraphKind),
@@ -731,4 +731,13 @@ func writeValidationCoverage(stdout io.Writer, selection validation.Selection) {
 	for _, path := range selection.Coverage {
 		_, _ = fmt.Fprintf(stdout, "coverage %s\t%s\t%s\n", path.Status, path.Path, path.Reason)
 	}
+}
+
+// unconfiguredValidationProfile names the profile the request selected, or says
+// that none was selected because the app declares no default.
+func unconfiguredValidationProfile(profile string) error {
+	if profile == "" {
+		return usageErrorf("no validation profile was named and the app declares no default or quick profile")
+	}
+	return usageErrorf("validation profile %q is not configured; use `scenery validate list`", profile)
 }

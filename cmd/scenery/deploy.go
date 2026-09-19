@@ -215,7 +215,7 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 
 func runDeployCommandWithStatusDependencies(stdout io.Writer, args []string, statusDeps deployStatusDependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery deploy <ssh-target> [--app-root <path>] | setup|status|enable|disable|publish|resume|teardown [-o json]")
+		return usageErrorf("usage: scenery deploy <ssh-target> [--app-root <path>] | setup|status|enable|disable|publish|resume|teardown [-o json]")
 	}
 	subcommand := args[0]
 	if strings.HasPrefix(subcommand, "-") {
@@ -247,7 +247,7 @@ func runDeployCommandWithStatusDependencies(stdout io.Writer, args []string, sta
 	case "teardown":
 		return runDeployTeardown(stdout, opts)
 	default:
-		return fmt.Errorf("unknown scenery deploy subcommand %q", subcommand)
+		return usageErrorf("unknown scenery deploy subcommand %q", subcommand)
 	}
 }
 
@@ -276,14 +276,14 @@ func parseDeployOptions(subcommand string, args []string) (deployOptions, error)
 		return deployOptions{}, err
 	}
 	if opts.ACMECA != "" && opts.ACMECA != "production" && opts.ACMECA != "staging" {
-		return deployOptions{}, fmt.Errorf("--acme-ca must be production or staging")
+		return deployOptions{}, usageErrorf("--acme-ca must be production or staging")
 	}
 	opts.Env = strings.TrimSpace(opts.Env)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return deployOptions{}, fmt.Errorf("--env must not be empty")
+		return deployOptions{}, usageErrorf("--env must not be empty")
 	}
 	if subcommand != "setup" && (opts.ACMEEmail != "" || opts.ACMECA != "") {
-		return deployOptions{}, fmt.Errorf("--acme-email and --acme-ca are only supported by scenery deploy setup")
+		return deployOptions{}, usageErrorf("--acme-email and --acme-ca are only supported by scenery deploy setup")
 	}
 	return opts, nil
 }

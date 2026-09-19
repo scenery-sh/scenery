@@ -75,7 +75,7 @@ func parseScriptRunArgs(args []string) (scriptOptions, error) {
 	}
 	opts.Env = strings.TrimSpace(opts.Env)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return scriptOptions{}, fmt.Errorf("--env must not be empty")
+		return scriptOptions{}, usageErrorf("--env must not be empty")
 	}
 	opts.Lang, err = normalizeScriptLang(lang)
 	if err != nil {
@@ -101,7 +101,7 @@ func normalizeScriptLang(value string) (string, error) {
 	case "typescript", "ts":
 		return scriptLangTypeScript, nil
 	default:
-		return "", fmt.Errorf("--lang must be go or typescript")
+		return "", usageErrorf("--lang must be go or typescript")
 	}
 }
 
@@ -109,11 +109,11 @@ func parseScriptTarget(value string) (scriptTarget, error) {
 	value = strings.TrimSpace(value)
 	domain, name, ok := strings.Cut(value, ":")
 	if !ok || strings.Contains(name, ":") {
-		return scriptTarget{}, fmt.Errorf("invalid code task target %q; expected <domain>:<name>", value)
+		return scriptTarget{}, usageErrorf("invalid code task target %q; expected <domain>:<name>", value)
 	}
 	target := scriptTarget{Domain: strings.TrimSpace(domain), Name: strings.TrimSpace(name)}
 	if !validScriptSegment(target.Domain) || !validScriptSegment(target.Name) {
-		return scriptTarget{}, fmt.Errorf("invalid code task target %q; domain and name must match [A-Za-z0-9_][A-Za-z0-9_-]*", value)
+		return scriptTarget{}, usageErrorf("invalid code task target %q; domain and name must match [A-Za-z0-9_][A-Za-z0-9_-]*", value)
 	}
 	return target, nil
 }
@@ -342,7 +342,7 @@ func typeScriptScriptCommand(path string) (string, []string, error) {
 	if node, err := execLookPath("node"); err == nil {
 		return node, []string{"--import", "tsx", filepath.ToSlash(path)}, nil
 	}
-	return "", nil, fmt.Errorf("scenery task run requires bun or node in PATH for TypeScript code tasks")
+	return "", nil, unavailableErrorf("scenery task run requires bun or node in PATH for TypeScript code tasks")
 }
 
 func validateGoScriptBuildTag(path string) error {

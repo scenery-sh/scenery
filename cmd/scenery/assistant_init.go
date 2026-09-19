@@ -70,11 +70,14 @@ type assistantInitDependencies struct {
 
 func runAssistantInit(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("missing assistant name")
+		return usageErrorf("missing assistant name")
+	}
+	if err := flagBeforeWord(args, "the assistant name"); err != nil {
+		return err
 	}
 	opts := assistantScaffoldOptions{Name: strings.TrimSpace(args[0])}
 	if !validAssistantName(opts.Name) {
-		return fmt.Errorf("assistant name %q must be lower_snake_case", opts.Name)
+		return usageErrorf("assistant name %q must be lower_snake_case", opts.Name)
 	}
 	flags := newCLIFlagSet("assistant init")
 	flags.StringVar(&opts.MCPServer, "mcp-server", "", "")
@@ -87,13 +90,13 @@ func runAssistantInit(args []string, stdout io.Writer) error {
 		return err
 	}
 	if len(positionals) != 0 {
-		return fmt.Errorf("unexpected argument %q", positionals[0])
+		return usageErrorf("unexpected argument %q", positionals[0])
 	}
 	if !opts.JSON {
-		return errors.New("scenery assistant init currently requires -o json")
+		return usageErrorf("scenery assistant init currently requires -o json")
 	}
 	if strings.TrimSpace(opts.MCPServer) == "" || strings.TrimSpace(opts.Client) == "" {
-		return errors.New("assistant init requires --mcp-server and --client")
+		return usageErrorf("assistant init requires --mcp-server and --client")
 	}
 	root, cfg, compiled, err := loadAssistantApp(opts.AppRoot)
 	if err != nil {

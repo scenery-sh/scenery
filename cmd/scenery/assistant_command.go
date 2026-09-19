@@ -75,7 +75,10 @@ type assistantStatusResponse struct {
 
 func assistantCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing assistant subcommand")
+		return usageErrorf("missing assistant subcommand")
+	}
+	if err := flagBeforeWord(args, "the assistant subcommand"); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "init":
@@ -85,17 +88,20 @@ func assistantCommand(args []string) error {
 	case "status":
 		return runAssistantStatus(args[1:], os.Stdout)
 	default:
-		return fmt.Errorf("unknown assistant subcommand %q", args[0])
+		return usageErrorf("unknown assistant subcommand %q", args[0])
 	}
 }
 
 func runAssistantStatus(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("missing assistant name")
+		return usageErrorf("missing assistant name")
+	}
+	if err := flagBeforeWord(args, "the assistant name"); err != nil {
+		return err
 	}
 	name := strings.TrimSpace(args[0])
 	if name == "" {
-		return fmt.Errorf("assistant name must not be empty")
+		return usageErrorf("assistant name must not be empty")
 	}
 	flags := newCLIFlagSet("assistant status")
 	jsonOutput := false
@@ -107,10 +113,10 @@ func runAssistantStatus(args []string, stdout io.Writer) error {
 		return err
 	}
 	if len(positionals) != 0 {
-		return fmt.Errorf("unexpected argument %q", positionals[0])
+		return usageErrorf("unexpected argument %q", positionals[0])
 	}
 	if !jsonOutput {
-		return fmt.Errorf("scenery assistant status currently requires -o json")
+		return usageErrorf("scenery assistant status currently requires -o json")
 	}
 	root, err := resolveAppRoot(appRoot)
 	if err != nil {

@@ -82,7 +82,7 @@ func runWorktreeCommandWithGit(ctx context.Context, stdout io.Writer, args []str
 	case "upgrade":
 		return runWorktreeUpgrade(ctx, stdout, opts)
 	default:
-		return fmt.Errorf("unknown worktree command %q", opts.Command)
+		return usageErrorf("unknown worktree command %q", opts.Command)
 	}
 }
 
@@ -99,33 +99,36 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 		return worktreeOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return worktreeOptions{}, fmt.Errorf("usage: scenery worktree create|list|remove|upgrade")
+		return worktreeOptions{}, usageErrorf("usage: scenery worktree create|list|remove|upgrade")
 	}
 	opts.Command = positionals[0]
 	if len(positionals) > 1 {
 		opts.Name = positionals[1]
 	}
 	if len(positionals) > 2 {
-		return worktreeOptions{}, fmt.Errorf("unexpected argument %q", positionals[2])
+		return worktreeOptions{}, usageErrorf("unexpected argument %q", positionals[2])
 	}
 	switch opts.Command {
 	case "create", "remove":
 		if strings.TrimSpace(opts.Name) == "" {
-			return worktreeOptions{}, fmt.Errorf("scenery worktree %s requires <name>", opts.Command)
+			return worktreeOptions{}, usageErrorf("scenery worktree %s requires <name>", opts.Command)
 		}
 	case "list":
+		if opts.Name != "" {
+			return worktreeOptions{}, usageErrorf("unexpected argument %q", opts.Name)
+		}
 	case "upgrade":
 		if opts.Name != "" || opts.From != "" {
-			return worktreeOptions{}, fmt.Errorf("scenery worktree upgrade accepts --app-root, not a Git worktree name or --from")
+			return worktreeOptions{}, usageErrorf("scenery worktree upgrade accepts --app-root, not a Git worktree name or --from")
 		}
 		if opts.Yes != (opts.ExpectedRevision != "") {
-			return worktreeOptions{}, fmt.Errorf("scenery worktree upgrade applies only with both --yes and --expect-revision; omit both to preview")
+			return worktreeOptions{}, usageErrorf("scenery worktree upgrade applies only with both --yes and --expect-revision; omit both to preview")
 		}
 	default:
-		return worktreeOptions{}, fmt.Errorf("unknown worktree command %q", opts.Command)
+		return worktreeOptions{}, usageErrorf("unknown worktree command %q", opts.Command)
 	}
 	if opts.Command != "upgrade" && (opts.Yes || opts.ExpectedRevision != "") {
-		return worktreeOptions{}, fmt.Errorf("--yes and --expect-revision belong only to scenery worktree upgrade")
+		return worktreeOptions{}, usageErrorf("--yes and --expect-revision belong only to scenery worktree upgrade")
 	}
 	return opts, nil
 }
@@ -291,7 +294,7 @@ func runGitCommand(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		return preconditionErrorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
@@ -301,7 +304,7 @@ func gitCommandOutput(ctx context.Context, appRoot string, args ...string) (stri
 	cmd := exec.CommandContext(ctx, "git", all...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(string(output)))
+		return "", preconditionErrorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
 }

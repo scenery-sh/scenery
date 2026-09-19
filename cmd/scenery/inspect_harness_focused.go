@@ -67,7 +67,7 @@ func buildInspectHarnessFocusedResponse(opts inspectOptions) (any, error) {
 		}
 		return buildInspectHarnessTimingResponse(root, scope, top)
 	default:
-		return nil, fmt.Errorf("unknown inspect harness topic %q", opts.Harness.Topic)
+		return nil, usageErrorf("unknown inspect harness topic %q", opts.Harness.Topic)
 	}
 }
 

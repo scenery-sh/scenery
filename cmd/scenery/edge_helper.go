@@ -43,7 +43,7 @@ type edgeHelperListenSpec struct {
 
 func edgePrivilegedHelperCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge privileged-helper install|run|uninstall")
+		return usageErrorf("usage: scenery system edge privileged-helper install|run|uninstall")
 	}
 	cmd := args[0]
 	opts, err := parseEdgeHelperArgs(args[1:])
@@ -58,7 +58,7 @@ func edgePrivilegedHelperCommand(args []string) error {
 	case "uninstall":
 		return edgePrivilegedHelperUninstall()
 	default:
-		return fmt.Errorf("unknown edge privileged-helper command %q", cmd)
+		return usageErrorf("unknown edge privileged-helper command %q", cmd)
 	}
 }
 
@@ -85,23 +85,23 @@ func parseEdgeHelperArgs(args []string) (edgeHelperOptions, error) {
 
 func requireEdgeHelperOwnerOptions(opts edgeHelperOptions) error {
 	if opts.OwnerUID <= 0 {
-		return fmt.Errorf("--owner-uid is required")
+		return usageErrorf("--owner-uid is required")
 	}
 	if opts.OwnerGID <= 0 {
-		return fmt.Errorf("--owner-gid is required")
+		return usageErrorf("--owner-gid is required")
 	}
 	if strings.TrimSpace(opts.OwnerHome) == "" {
-		return fmt.Errorf("--owner-home is required")
+		return usageErrorf("--owner-home is required")
 	}
 	if strings.TrimSpace(opts.HelperTargetState) == "" {
-		return fmt.Errorf("--helper-target-state is required")
+		return usageErrorf("--helper-target-state is required")
 	}
 	return nil
 }
 
 func edgePrivilegedHelperInstall(opts edgeHelperOptions) error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery system edge privileged helper install is currently supported on macOS")
+		return unavailableErrorf("scenery system edge privileged helper install is currently supported on macOS")
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("scenery system edge privileged-helper install must run as root; use `scenery system edge privileged install`")
@@ -173,7 +173,7 @@ func retryEdgeHelperLaunchctl(window time.Duration, sleep func(time.Duration), r
 
 func edgePrivilegedHelperUninstall() error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery system edge privileged helper uninstall is currently supported on macOS")
+		return unavailableErrorf("scenery system edge privileged helper uninstall is currently supported on macOS")
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("scenery system edge privileged-helper uninstall must run as root; use `scenery system edge privileged uninstall`")

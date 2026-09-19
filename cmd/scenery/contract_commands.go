@@ -30,7 +30,7 @@ type contractOptions struct {
 
 func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) error {
 	if len(args) == 0 || args[0] != "serve" {
-		return fmt.Errorf("usage: scenery agent serve --stdio [--app-root <path>]")
+		return usageErrorf("usage: scenery agent serve --stdio [--app-root <path>]")
 	}
 	var appRoot string
 	var stdio bool
@@ -42,7 +42,7 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 		return err
 	}
 	if !stdio || len(positionals) != 0 {
-		return fmt.Errorf("usage: scenery agent serve --stdio [--app-root <path>]")
+		return usageErrorf("usage: scenery agent serve --stdio [--app-root <path>]")
 	}
 	// Resolve the application root before accepting requests. The root is a
 	// process-owned boundary of this stdio server; it must not be selected or
@@ -83,7 +83,10 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 
 func runContractChanges(stdout io.Writer, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery changes plan|apply")
+		return usageErrorf("usage: scenery changes plan|apply")
+	}
+	if err := flagBeforeWord(args, "the changes subcommand"); err != nil {
+		return err
 	}
 	subcommand := args[0]
 	var appRoot, output, changesPath, planPath, outPath string
@@ -118,7 +121,7 @@ func runContractChanges(stdout io.Writer, args []string) error {
 	switch subcommand {
 	case "plan":
 		if changesPath == "" || outPath == "" || len(positionals) > 0 {
-			return fmt.Errorf("usage: scenery changes plan --changes FILE --base-workspace-revision REV --base-contract-revision REV --out PLAN")
+			return usageErrorf("usage: scenery changes plan --changes FILE --base-workspace-revision REV --base-contract-revision REV --out PLAN")
 		}
 		operations, err := readSemanticOperations(changesPath)
 		if err != nil {
@@ -151,7 +154,7 @@ func runContractChanges(stdout io.Writer, args []string) error {
 		if planPath == "" && len(positionals) == 1 {
 			planPath = positionals[0]
 		} else if planPath == "" || len(positionals) > 0 {
-			return fmt.Errorf("usage: scenery changes apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
+			return usageErrorf("usage: scenery changes apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
 		}
 		var plan evolution.ChangePlan
 		if err := readExactPlanFile(planPath, "change plan", &plan); err != nil {
@@ -181,14 +184,14 @@ func runContractChanges(stdout io.Writer, args []string) error {
 		return err
 	case "rename":
 		if len(positionals) != 2 {
-			return fmt.Errorf("usage: scenery changes rename ADDRESS NEW_NAME [--dry-run] [-o json]")
+			return usageErrorf("usage: scenery changes rename ADDRESS NEW_NAME [--dry-run] [-o json]")
 		}
 		base, err := compiler.Compile(root)
 		if err != nil {
 			return err
 		}
 		if !base.Valid() {
-			return fmt.Errorf("current contract is invalid")
+			return preconditionErrorf("current contract is invalid")
 		}
 		plan, err := evolution.PlanChanges(root, withPredictedGenerateChecks(evolution.ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: revisionFlag(base.Manifest.ContractRevision), Caller: "local", Operations: []evolution.SemanticOperation{{Op: "resource.rename", Address: positionals[0], Value: positionals[1]}}}))
 		if err != nil {
@@ -226,7 +229,7 @@ func runContractChanges(stdout io.Writer, args []string) error {
 		}
 		return err
 	default:
-		return fmt.Errorf("unknown scenery changes subcommand %q", subcommand)
+		return usageErrorf("unknown scenery changes subcommand %q", subcommand)
 	}
 }
 
@@ -275,7 +278,7 @@ func runContractGraph(stdout io.Writer, args []string) error {
 		return err
 	}
 	if len(positionals) != 1 {
-		return fmt.Errorf("usage: scenery graph ADDRESS [--direction dependencies|dependents|both]")
+		return usageErrorf("usage: scenery graph ADDRESS [--direction dependencies|dependents|both]")
 	}
 	result, err := compileContractRoot(appRoot)
 	if err != nil {
@@ -314,7 +317,7 @@ func runContractDiff(stdout io.Writer, args []string) error {
 		return err
 	}
 	if !semantic || len(positionals) != 2 {
-		return fmt.Errorf("usage: scenery diff --semantic BASE TARGET [--rename-receipts change-plan-or-receipt.json] [-o human|json]")
+		return usageErrorf("usage: scenery diff --semantic BASE TARGET [--rename-receipts change-plan-or-receipt.json] [-o human|json]")
 	}
 	base, err := evolution.LoadManifestReference(positionals[0])
 	if err != nil {
@@ -360,7 +363,7 @@ func runContractDiff(stdout io.Writer, args []string) error {
 			return err
 		}
 	} else {
-		return fmt.Errorf("unsupported output %q", output)
+		return usageErrorf("unsupported output %q", output)
 	}
 	if exitCode && len(diff.Changes) > 0 {
 		return &silentCLIError{err: fmt.Errorf("semantic differences found")}
@@ -536,7 +539,7 @@ func runContractCheck(stdout io.Writer, args []string) error {
 		return err
 	}
 	if len(positionals) > 0 {
-		return fmt.Errorf("unexpected argument %q", positionals[0])
+		return usageErrorf("unexpected argument %q", positionals[0])
 	}
 	root, err := findContractRoot(opts.AppRoot)
 	if err != nil {
@@ -577,7 +580,7 @@ func runContractCompile(stdout io.Writer, args []string) error {
 		return err
 	}
 	if len(positionals) > 0 {
-		return fmt.Errorf("unexpected argument %q", positionals[0])
+		return usageErrorf("unexpected argument %q", positionals[0])
 	}
 	result, err := compileContractRoot(opts.AppRoot)
 	if err != nil {
@@ -603,7 +606,7 @@ func runContractList(stdout io.Writer, args []string) error {
 		return err
 	}
 	if len(positionals) != 1 {
-		return fmt.Errorf("usage: scenery list KIND")
+		return usageErrorf("usage: scenery list <kind>")
 	}
 	result, err := compileContractRoot(opts.AppRoot)
 	if err != nil {
@@ -634,7 +637,7 @@ func runContractGet(stdout io.Writer, args []string, explain bool) error {
 		return err
 	}
 	if len(positionals) != 1 {
-		return fmt.Errorf("usage: scenery %s ADDRESS", name)
+		return usageErrorf("usage: scenery %s <address>", name)
 	}
 	result, err := compileContractRoot(opts.AppRoot)
 	if err != nil {
@@ -669,7 +672,7 @@ func runContractSchema(stdout io.Writer, args []string) error {
 		return err
 	}
 	if len(positionals) != 1 {
-		return fmt.Errorf("usage: scenery schema KIND")
+		return usageErrorf("usage: scenery schema <kind>")
 	}
 	schema, ok := contractagent.AgentSchema(positionals[0])
 	if !ok {

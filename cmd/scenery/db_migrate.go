@@ -58,10 +58,10 @@ func parseDBMigrationArgs(args []string) (dbMigrationOptions, error) {
 		return opts, err
 	}
 	if opts.Status && opts.AdoptInitial {
-		return opts, fmt.Errorf("--status and --adopt-initial are mutually exclusive")
+		return opts, usageErrorf("--status and --adopt-initial are mutually exclusive")
 	}
 	if len(positionals) > 1 {
-		return opts, fmt.Errorf("usage: scenery db migrate [service] [--status | --adopt-initial] [--app-root <path>] [-o json]")
+		return opts, usageErrorf("usage: scenery db migrate [service] [--status | --adopt-initial] [--app-root <path>] [-o json]")
 	}
 	if len(positionals) == 1 {
 		opts.Service = positionals[0]

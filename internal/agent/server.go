@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -358,9 +359,35 @@ func listenRouter(addr string) (net.Listener, string, error) {
 	return nil, "", fmt.Errorf("listen scenery agent router at %s failed; stop the existing owner or choose a different --router-listen address: %w", addr, err)
 }
 
+// SocketPathError reports an agent socket path the operating system cannot
+// bind, which it would otherwise refuse as an unexplained invalid argument.
+type SocketPathError struct {
+	Path  string
+	Limit int
+}
+
+func (e *SocketPathError) Error() string {
+	return fmt.Sprintf("agent socket path %s is %d bytes; a Unix socket path holds at most %d, so use a shorter home or --socket path", e.Path, len(e.Path), e.Limit)
+}
+
+// ExitCode classifies the refusal as a failed precondition of the host.
+func (e *SocketPathError) ExitCode() int { return 3 }
+
+// unixSocketPathLimit is the longest sun_path the platform binds, without its
+// terminating NUL.
+func unixSocketPathLimit() int {
+	if runtime.GOOS == "linux" {
+		return 107
+	}
+	return 103
+}
+
 func listenUnixSocket(path string) (net.Listener, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("agent socket path is empty")
+	}
+	if limit := unixSocketPathLimit(); len(path) > limit {
+		return nil, &SocketPathError{Path: path, Limit: limit}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err

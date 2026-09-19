@@ -284,7 +284,7 @@ func processStartTime(pid int) (string, error) {
 
 func processCommand(pid int) (string, error) {
 	if pid <= 0 {
-		return "", fmt.Errorf("pid must be positive")
+		return "", usageErrorf("pid must be positive")
 	}
 	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {

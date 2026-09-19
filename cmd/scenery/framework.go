@@ -58,14 +58,14 @@ func parseFrameworkArgs(args []string) (frameworkOptions, error) {
 		return opts, err
 	}
 	if len(positionals) != 1 || (positionals[0] != "use" && positionals[0] != "inspect") {
-		return opts, fmt.Errorf("usage: scenery framework use|inspect [--source <checkout>] [--runtime] [--app-root <path>] [-o json]")
+		return opts, usageErrorf("usage: scenery framework use|inspect [--source <checkout>] [--runtime] [--app-root <path>] [-o json]")
 	}
 	opts.Command = positionals[0]
 	if opts.Command == "inspect" && opts.Source != "" {
-		return opts, fmt.Errorf("--source belongs only to scenery framework use")
+		return opts, usageErrorf("--source belongs only to scenery framework use")
 	}
 	if opts.Command != "inspect" && opts.Runtime {
-		return opts, fmt.Errorf("--runtime belongs only to scenery framework inspect")
+		return opts, usageErrorf("--runtime belongs only to scenery framework inspect")
 	}
 	return opts, nil
 }

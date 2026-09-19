@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"os"
 	"sort"
 	"strconv"
@@ -489,13 +488,13 @@ func parseInspectTraceFlags(opts *inspectOptions, flag, value string) error {
 	case "--limit", "-n":
 		limit, err := strconv.Atoi(value)
 		if err != nil || limit <= 0 {
-			return fmt.Errorf("invalid limit %q", value)
+			return usageErrorf("invalid limit %q", value)
 		}
 		opts.Trace.Limit = limit
 	case "--since":
 		duration, err := time.ParseDuration(value)
 		if err != nil || duration <= 0 {
-			return fmt.Errorf("invalid since duration %q", value)
+			return usageErrorf("invalid since duration %q", value)
 		}
 		opts.Trace.Since = duration
 	case "--service":
@@ -507,23 +506,23 @@ func parseInspectTraceFlags(opts *inspectOptions, flag, value string) error {
 	case "--session":
 		opts.Trace.Session = strings.TrimSpace(value)
 		if opts.Trace.Session == "" {
-			return fmt.Errorf("invalid session %q", value)
+			return usageErrorf("invalid session %q", value)
 		}
 	case "--status":
 		switch strings.ToLower(value) {
 		case "ok", "error":
 			opts.Trace.Status = strings.ToLower(value)
 		default:
-			return fmt.Errorf("invalid status %q", value)
+			return usageErrorf("invalid status %q", value)
 		}
 	case "--min-duration-ms":
 		ms, err := strconv.ParseFloat(value, 64)
 		if err != nil || ms < 0 {
-			return fmt.Errorf("invalid min duration %q", value)
+			return usageErrorf("invalid min duration %q", value)
 		}
 		opts.Trace.MinDurationMS = ms
 	default:
-		return fmt.Errorf("unknown flag %q", flag)
+		return usageErrorf("unknown flag %q", flag)
 	}
 	return nil
 }

@@ -9,12 +9,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
+	"syscall"
+
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/storagefs"
 	publicstorage "scenery.sh/storage"
-	"strings"
-	"syscall"
 )
 
 type storageCLIOptions struct {
@@ -178,7 +179,7 @@ func runStorageCommandContext(ctx context.Context, args []string, stdin io.Reade
 		}
 		return writeStorageJSON(stdout, response)
 	}
-	return fmt.Errorf("unknown storage command %q", opts.Command)
+	return usageErrorf("unknown storage command %q", opts.Command)
 }
 
 func storageScope(plan *storageNamespacePlan, owner storagefs.Owner, opts storageCLIOptions) storageResponseScope {
@@ -297,15 +298,16 @@ func parseStorageArgs(args []string) (storageCLIOptions, error) {
 		return opts, err
 	}
 	if len(positional) == 0 {
-		return opts, fmt.Errorf("missing storage command")
+		return opts, usageErrorf("missing storage command")
 	}
 	opts.Command = positional[0]
 	count := map[string]int{"cleanup": 1, "ls": 2, "stat": 3, "get": 3, "rm": 3, "put": 4}[opts.Command]
 	if count == 0 {
-		return opts, fmt.Errorf("unknown storage command %q; use inspect storage for discovery", opts.Command)
+		return opts, usageErrorf("unknown storage command %q; use inspect storage for discovery", opts.Command)
 	}
 	if len(positional) != count {
-		return opts, fmt.Errorf("storage %s expects %d positional arguments after the command", opts.Command, count-1)
+		operands := map[string]string{"cleanup": "no operand", "ls": "<store>", "stat": "<store> <key>", "get": "<store> <key>", "rm": "<store> <key|prefix>", "put": "<store> <key> <file|->"}[opts.Command]
+		return opts, fmt.Errorf("storage %s takes %s, not %d operands", opts.Command, operands, len(positional)-1)
 	}
 	if count >= 2 {
 		opts.Store = strings.TrimSpace(positional[1])
@@ -324,32 +326,32 @@ func parseStorageArgs(args []string) (storageCLIOptions, error) {
 		return opts, fmt.Errorf("storage get requires --output")
 	}
 	if opts.IfAbsent && opts.IfMatch != "" {
-		return opts, fmt.Errorf("--if-absent and --if-match are mutually exclusive")
+		return opts, usageErrorf("--if-absent and --if-match are mutually exclusive")
 	}
 	if opts.Yes && opts.DryRun {
-		return opts, fmt.Errorf("--yes and --dry-run are mutually exclusive")
+		return opts, usageErrorf("--yes and --dry-run are mutually exclusive")
 	}
 	if opts.Recursive && opts.Command != "rm" {
-		return opts, fmt.Errorf("--recursive requires storage rm")
+		return opts, usageErrorf("--recursive requires storage rm")
 	}
 	if opts.Purge && opts.Command != "cleanup" {
-		return opts, fmt.Errorf("--purge requires storage cleanup")
+		return opts, usageErrorf("--purge requires storage cleanup")
 	}
 	destructive := opts.Command == "cleanup" || (opts.Command == "rm" && opts.Recursive)
 	if (opts.Yes || opts.DryRun || opts.ExpectRevision != "") && !destructive {
 		return opts, fmt.Errorf("preview/apply flags require cleanup or recursive rm")
 	}
 	if destructive && opts.Yes && opts.ExpectRevision == "" {
-		return opts, fmt.Errorf("--yes requires --expect-revision from a fresh preview")
+		return opts, usageErrorf("--yes requires --expect-revision from a fresh preview")
 	}
 	if opts.ExpectRevision != "" && !opts.Yes {
-		return opts, fmt.Errorf("--expect-revision requires --yes")
+		return opts, usageErrorf("--expect-revision requires --yes")
 	}
 	if opts.Command != "put" && cliFlagSet(flags, "if-absent", "content-type", "metadata") {
 		return opts, fmt.Errorf("upload flags require storage put")
 	}
 	if opts.IfMatch != "" && opts.Command != "put" && opts.Command != "rm" {
-		return opts, fmt.Errorf("--if-match requires put or non-recursive rm")
+		return opts, usageErrorf("--if-match requires put or non-recursive rm")
 	}
 	if opts.IfMatch != "" && opts.Recursive {
 		return opts, fmt.Errorf("recursive rm uses --expect-revision, not --if-match")
@@ -358,13 +360,13 @@ func parseStorageArgs(args []string) (storageCLIOptions, error) {
 		return opts, fmt.Errorf("list flags require storage ls")
 	}
 	if opts.Command != "get" && cliFlagSet(flags, "output") {
-		return opts, fmt.Errorf("--output requires storage get")
+		return opts, usageErrorf("--output requires storage get")
 	}
 	if opts.Command == "cleanup" && cliFlagSet(flags, "tenant") {
 		return opts, fmt.Errorf("cleanup selects a complete namespace, not a tenant")
 	}
 	if cliFlagSet(flags, "limit") && opts.Limit <= 0 {
-		return opts, fmt.Errorf("--limit must be positive")
+		return opts, usageErrorf("--limit must be positive")
 	}
 	if opts.Recursive {
 		if opts.Key == "" {

@@ -45,7 +45,7 @@ func saveSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 	var capture *storagefs.Capture
 	if opts.Storage {
 		if len(cfg.Storage.Stores) == 0 {
-			return snapshotSaveResult{}, fmt.Errorf("snapshot save --storage requires configured stores")
+			return snapshotSaveResult{}, preconditionErrorf("snapshot save --storage requires configured stores")
 		}
 		if opts.DB {
 			_, source, err := configuredSnapshotDatabaseTarget(appRoot, cfg)

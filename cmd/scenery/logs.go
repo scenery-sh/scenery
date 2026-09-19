@@ -228,38 +228,38 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 		return logsOptions{}, err
 	}
 	if opts.Limit <= 0 {
-		return logsOptions{}, fmt.Errorf("invalid limit %d", opts.Limit)
+		return logsOptions{}, usageErrorf("invalid limit %d", opts.Limit)
 	}
 	opts.Stream = normalizeLogStream(stream)
 	if opts.Stream == "" {
-		return logsOptions{}, fmt.Errorf("invalid stream %q", stream)
+		return logsOptions{}, usageErrorf("invalid stream %q", stream)
 	}
 	opts.Session = strings.TrimSpace(opts.Session)
 	if cliFlagSet(flags, "session") && opts.Session == "" {
-		return logsOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+		return logsOptions{}, usageErrorf("invalid session %q", opts.Session)
 	}
 	opts.Source = strings.TrimSpace(opts.Source)
 	if cliFlagSet(flags, "source") && opts.Source == "" {
-		return logsOptions{}, fmt.Errorf("invalid source %q", opts.Source)
+		return logsOptions{}, usageErrorf("invalid source %q", opts.Source)
 	}
 	opts.Kind = strings.ToLower(strings.TrimSpace(opts.Kind))
 	if cliFlagSet(flags, "kind") && opts.Kind == "" {
-		return logsOptions{}, fmt.Errorf("invalid kind %q", opts.Kind)
+		return logsOptions{}, usageErrorf("invalid kind %q", opts.Kind)
 	}
 	if cliFlagSet(flags, "level") {
 		opts.Level = normalizeLogLevel(level)
 		if opts.Level == "" {
-			return logsOptions{}, fmt.Errorf("invalid level %q", level)
+			return logsOptions{}, usageErrorf("invalid level %q", level)
 		}
 	}
 	opts.Grep = strings.TrimSpace(opts.Grep)
 	if cliFlagSet(flags, "grep") && opts.Grep == "" {
-		return logsOptions{}, fmt.Errorf("invalid grep %q", opts.Grep)
+		return logsOptions{}, usageErrorf("invalid grep %q", opts.Grep)
 	}
 	if since != "" {
 		opts.Since, err = time.ParseDuration(since)
 		if err != nil || opts.Since <= 0 {
-			return logsOptions{}, fmt.Errorf("invalid since duration %q", since)
+			return logsOptions{}, usageErrorf("invalid since duration %q", since)
 		}
 		opts.SinceRaw = since
 	}

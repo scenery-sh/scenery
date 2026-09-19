@@ -15,7 +15,7 @@ import (
 
 func runDeployment(stdout io.Writer, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery deploy plan|apply")
+		return usageErrorf("usage: scenery deploy plan|apply")
 	}
 	subcommand := args[0]
 	var appRoot, output, outPath, planPath, baseWorkspace, baseContract, expectedWorkspace, expectedContract, caller string
@@ -39,7 +39,7 @@ func runDeployment(stdout io.Writer, args []string) error {
 		return err
 	}
 	if output != "human" && output != "json" {
-		return fmt.Errorf("unsupported output %q", output)
+		return usageErrorf("unsupported output %q", output)
 	}
 	root, err := findContractRoot(appRoot)
 	if err != nil {
@@ -51,7 +51,7 @@ func runDeployment(stdout io.Writer, args []string) error {
 	switch subcommand {
 	case "plan":
 		if len(positionals) != 1 || strings.TrimSpace(outPath) == "" {
-			return fmt.Errorf("usage: scenery deploy plan DEPLOYMENT --out PLAN [-o human|json]")
+			return usageErrorf("usage: scenery deploy plan DEPLOYMENT --out PLAN [-o human|json]")
 		}
 		result, err := compiler.Compile(root)
 		if err != nil {
@@ -104,10 +104,10 @@ func runDeployment(stdout io.Writer, args []string) error {
 		if planPath == "" && len(positionals) == 1 {
 			planPath = positionals[0]
 		} else if planPath == "" || len(positionals) != 0 {
-			return fmt.Errorf("usage: scenery deploy apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
+			return usageErrorf("usage: scenery deploy apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
 		}
 		if expectedWorkspace == "" || expectedContract == "" {
-			return fmt.Errorf("usage: scenery deploy apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
+			return usageErrorf("usage: scenery deploy apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
 		}
 		var plan deployplan.DeploymentPlan
 		if err := readExactPlanFile(planPath, "deployment plan", &plan); err != nil {
@@ -152,7 +152,7 @@ func runDeployment(stdout io.Writer, args []string) error {
 		}
 		return err
 	default:
-		return fmt.Errorf("unknown scenery deploy subcommand %q", subcommand)
+		return usageErrorf("unknown scenery deploy subcommand %q", subcommand)
 	}
 }
 

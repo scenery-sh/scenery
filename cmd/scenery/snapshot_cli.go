@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -111,7 +112,10 @@ func snapshotCommand(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery snapshot save|verify|load [flags]")
+		return usageErrorf("usage: scenery snapshot save|verify|load [flags]")
+	}
+	if err := flagBeforeWord(args, "the snapshot subcommand"); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "save":
@@ -121,7 +125,7 @@ func snapshotCommand(args []string) error {
 	case "verify":
 		return runSnapshotVerify(ctx, os.Stdout, args[1:])
 	default:
-		return fmt.Errorf("unknown snapshot command %q", args[0])
+		return usageErrorf("unknown snapshot command %q", args[0])
 	}
 }
 
@@ -139,10 +143,10 @@ func parseSnapshotVerifyArgs(args []string) (snapshotVerifyOptions, error) {
 		return snapshotVerifyOptions{}, err
 	}
 	if strings.TrimSpace(opts.Input) == "" {
-		return snapshotVerifyOptions{}, fmt.Errorf("snapshot verify requires --input <file.zip>")
+		return snapshotVerifyOptions{}, usageErrorf("snapshot verify requires --input <file.zip>")
 	}
 	if opts.ExpectSHA256 != "" && !snapshotarchive.ValidSHA256("sha256:"+opts.ExpectSHA256) {
-		return snapshotVerifyOptions{}, fmt.Errorf("--expect-sha256 requires 64 lowercase hexadecimal characters")
+		return snapshotVerifyOptions{}, usageErrorf("--expect-sha256 requires 64 lowercase hexadecimal characters")
 	}
 	return opts, nil
 }
@@ -163,13 +167,13 @@ func parseSnapshotSaveArgs(args []string) (snapshotSaveOptions, error) {
 		return snapshotSaveOptions{}, err
 	}
 	if !opts.DB && !opts.Storage {
-		return snapshotSaveOptions{}, fmt.Errorf("snapshot save requires --db and/or --storage")
+		return snapshotSaveOptions{}, usageErrorf("snapshot save requires --db and/or --storage")
 	}
 	if strings.TrimSpace(opts.Output) == "" {
-		return snapshotSaveOptions{}, fmt.Errorf("snapshot save requires --output <file.zip>")
+		return snapshotSaveOptions{}, usageErrorf("snapshot save requires --output <file.zip>")
 	}
 	if !strings.EqualFold(filepath.Ext(opts.Output), ".zip") {
-		return snapshotSaveOptions{}, fmt.Errorf("snapshot output must end in .zip")
+		return snapshotSaveOptions{}, usageErrorf("snapshot output must end in .zip")
 	}
 	return opts, nil
 }
@@ -195,35 +199,35 @@ func parseSnapshotLoadArgs(args []string) (snapshotLoadOptions, error) {
 		return snapshotLoadOptions{}, err
 	}
 	if !opts.DB && !opts.Storage {
-		return snapshotLoadOptions{}, fmt.Errorf("snapshot load requires --db and/or --storage")
+		return snapshotLoadOptions{}, usageErrorf("snapshot load requires --db and/or --storage")
 	}
 	if strings.TrimSpace(opts.Input) == "" {
-		return snapshotLoadOptions{}, fmt.Errorf("snapshot load requires --input <file.zip>")
+		return snapshotLoadOptions{}, usageErrorf("snapshot load requires --input <file.zip>")
 	}
 	if opts.Mode != "overwrite" && opts.Mode != "merge" {
-		return snapshotLoadOptions{}, fmt.Errorf("snapshot load requires --mode overwrite|merge")
+		return snapshotLoadOptions{}, usageErrorf("snapshot load requires --mode overwrite|merge")
 	}
 	if opts.DB && opts.Storage && opts.Mode == "merge" {
-		return snapshotLoadOptions{}, fmt.Errorf("combined database/storage merge is not replay-safe; use overwrite or select one class")
+		return snapshotLoadOptions{}, usageErrorf("combined database/storage merge is not replay-safe; use overwrite or select one class")
 	}
 	if opts.ExpectSHA256 != "" && !snapshotarchive.ValidSHA256("sha256:"+opts.ExpectSHA256) {
-		return snapshotLoadOptions{}, fmt.Errorf("--expect-sha256 requires 64 lowercase hexadecimal characters")
+		return snapshotLoadOptions{}, usageErrorf("--expect-sha256 requires 64 lowercase hexadecimal characters")
 	}
 	if opts.Mode == "overwrite" && !opts.Yes {
-		return snapshotLoadOptions{}, fmt.Errorf("snapshot overwrite requires --yes")
+		return snapshotLoadOptions{}, usageErrorf("snapshot overwrite requires --yes")
 	}
 	onConflictSet := cliFlagSet(flags, "on-conflict")
 	if onConflictSet && (opts.Mode != "merge" || !opts.Storage) {
-		return snapshotLoadOptions{}, fmt.Errorf("--on-conflict is valid only with --mode merge --storage")
+		return snapshotLoadOptions{}, usageErrorf("--on-conflict is valid only with --mode merge --storage")
 	}
 	if opts.Mode == "merge" && opts.Storage && opts.OnConflict == "" {
 		opts.OnConflict = "fail"
 	}
 	if opts.OnConflict != "" && opts.OnConflict != "fail" && opts.OnConflict != "skip" && opts.OnConflict != "overwrite" {
-		return snapshotLoadOptions{}, fmt.Errorf("--on-conflict must be fail, skip, or overwrite")
+		return snapshotLoadOptions{}, usageErrorf("--on-conflict must be fail, skip, or overwrite")
 	}
 	if opts.OnConflict == "overwrite" && !opts.Yes {
-		return snapshotLoadOptions{}, fmt.Errorf("snapshot merge --on-conflict overwrite requires --yes")
+		return snapshotLoadOptions{}, usageErrorf("snapshot merge --on-conflict overwrite requires --yes")
 	}
 	return opts, nil
 }
@@ -253,6 +257,9 @@ func runSnapshotLoad(ctx context.Context, stdout io.Writer, args []string) error
 	if err != nil {
 		return err
 	}
+	if err := requireSnapshotInput(opts.Input); err != nil {
+		return err
+	}
 	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
@@ -277,6 +284,9 @@ func runSnapshotVerify(ctx context.Context, stdout io.Writer, args []string) err
 	if err != nil {
 		return err
 	}
+	if err := requireSnapshotInput(opts.Input); err != nil {
+		return err
+	}
 	result, err := verifySnapshotPinned(ctx, opts.Input, opts.ExpectSHA256)
 	if err != nil {
 		return err
@@ -298,4 +308,17 @@ func snapshotSchemas(database postgresdb.Database) []snapshotManifestSchema {
 		out = append(out, snapshotManifestSchema{Service: schema.Name, Schema: schema.Schema})
 	}
 	return out
+}
+
+// requireSnapshotInput names an archive the request pointed at that is not
+// there, before any work reports the same fact as an internal failure.
+func requireSnapshotInput(path string) error {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return usageErrorf("snapshot input %s does not exist", path)
+	}
+	if err == nil && info.IsDir() {
+		return usageErrorf("snapshot input %s is a directory, not a .zip archive", path)
+	}
+	return nil
 }

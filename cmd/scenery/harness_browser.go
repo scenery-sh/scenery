@@ -135,7 +135,7 @@ func runSceneryHarnessUI(ctx context.Context, stdout io.Writer, args []string) e
 		return err
 	}
 	if !opts.JSON {
-		return fmt.Errorf("scenery harness ui currently requires -o json")
+		return usageErrorf("scenery harness ui currently requires -o json")
 	}
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {

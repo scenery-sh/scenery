@@ -67,7 +67,8 @@ func cliErrorDiagnostic(err error) graph.Diagnostic {
 	case 10:
 		kind = "internal"
 	}
-	return compiler.TransportDiagnostic(kind, err.Error())
+	// The marker that classified the error is not part of what it says.
+	return compiler.TransportDiagnostic(kind, strings.TrimPrefix(err.Error(), kind+": "))
 }
 
 func preserveCLIDiagnostic(err error) error {

@@ -111,7 +111,7 @@ func parseTelemetryArgs(args []string, now time.Time) (telemetryQueryOptions, er
 	flags.Func("app", "", func(value string) error {
 		value = strings.TrimSpace(value)
 		if value == "" {
-			return errors.New("app filter must not be empty")
+			return usageErrorf("--app must not be empty")
 		}
 		opts.Apps = append(opts.Apps, value)
 		return nil
@@ -119,7 +119,7 @@ func parseTelemetryArgs(args []string, now time.Time) (telemetryQueryOptions, er
 	flags.Func("command", "", func(value string) error {
 		value = strings.TrimSpace(value)
 		if value == "" {
-			return errors.New("command filter must not be empty")
+			return usageErrorf("--command must not be empty")
 		}
 		opts.Commands = append(opts.Commands, value)
 		return nil
@@ -131,7 +131,7 @@ func parseTelemetryArgs(args []string, now time.Time) (telemetryQueryOptions, er
 			opts.Measurements = append(opts.Measurements, value)
 			return nil
 		default:
-			return fmt.Errorf("measurement must be %q or %q", cliTelemetryMeasurementCompletion, cliTelemetryMeasurementStartup)
+			return usageErrorf("--measurement must be %q or %q", cliTelemetryMeasurementCompletion, cliTelemetryMeasurementStartup)
 		}
 	})
 	positionals, err := parseCLIFlags(flags, args)
@@ -142,7 +142,7 @@ func parseTelemetryArgs(args []string, now time.Time) (telemetryQueryOptions, er
 		return telemetryQueryOptions{}, err
 	}
 	if opts.Limit < 1 || opts.Limit > maximumTelemetryLimit {
-		return telemetryQueryOptions{}, fmt.Errorf("--limit must be between 1 and %d", maximumTelemetryLimit)
+		return telemetryQueryOptions{}, usageErrorf("--limit must be between 1 and %d", maximumTelemetryLimit)
 	}
 	if since != "" {
 		duration, err := parsePositiveDuration(since, "since")

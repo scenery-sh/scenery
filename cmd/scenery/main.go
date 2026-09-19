@@ -43,10 +43,22 @@ func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, 
 	telemetry.finish(exitCode)
 	if err != nil {
 		if _, silent := errors.AsType[*silentCLIError](err); !silent {
-			_, _ = fmt.Fprintln(stderr, err)
+			_, _ = fmt.Fprintln(stderr, humanCLIErrorMessage(err))
 		}
 	}
 	return exitCode
+}
+
+// humanCLIErrorMessage is an error's text without the request-failure marker
+// that classified it, which the exit code already reports.
+func humanCLIErrorMessage(err error) string {
+	message := err.Error()
+	for _, kind := range []string{"invalid_request", "failed_precondition", "capability_unavailable", "permission_denied", "revision_conflict"} {
+		if rest, ok := strings.CutPrefix(message, kind+": "); ok {
+			return rest
+		}
+	}
+	return message
 }
 
 func renderMachineError(stdout io.Writer, args []string, err error) error {
@@ -225,7 +237,7 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		if handled, err := runBindingCLI(os.Stdout, os.Stderr, args); handled {
 			return err
 		}
-		return fmt.Errorf("unknown command %q; use `scenery help`", args[0])
+		return usageErrorf("unknown command %q; use `scenery help`", args[0])
 	}
 }
 
@@ -437,20 +449,20 @@ func parseDevArgs(args []string) (devOptions, error) {
 	opts.ListenSet = cliFlagSet(flags, "listen")
 	opts.Env = strings.TrimSpace(opts.Env)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return devOptions{}, fmt.Errorf("--env must not be empty")
+		return devOptions{}, usageErrorf("--env must not be empty")
 	}
 	opts.Wait, err = normalizeDetachedDevWaitMode(opts.Wait)
 	if err != nil {
 		return devOptions{}, err
 	}
 	if opts.Output != "human" && opts.Output != "json" && opts.Output != "jsonl" {
-		return devOptions{}, fmt.Errorf("unsupported output %q", opts.Output)
+		return devOptions{}, usageErrorf("unsupported output %q", opts.Output)
 	}
 	if opts.Detach && opts.Output == "jsonl" {
-		return devOptions{}, fmt.Errorf("unsupported output %q for detached up; use -o json", opts.Output)
+		return devOptions{}, usageErrorf("unsupported output %q for detached up; use -o json", opts.Output)
 	}
 	if !opts.Detach && opts.Output == "json" {
-		return devOptions{}, fmt.Errorf("unsupported output %q for streaming up; use -o jsonl", opts.Output)
+		return devOptions{}, usageErrorf("unsupported output %q for streaming up; use -o jsonl", opts.Output)
 	}
 	opts.JSON = opts.Output != "human"
 	return opts, nil

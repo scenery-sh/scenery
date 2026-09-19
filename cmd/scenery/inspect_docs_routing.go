@@ -48,7 +48,7 @@ func validateInspectDocsOptions(opts inspectDocsOptions) error {
 		switch strings.ToLower(strings.TrimSpace(opts.Status)) {
 		case "active", "reference", "completed", "deprecated":
 		default:
-			return fmt.Errorf("--status must be active, reference, completed, or deprecated")
+			return usageErrorf("--status must be active, reference, completed, or deprecated")
 		}
 	}
 	filterCount := 0
@@ -62,10 +62,10 @@ func validateInspectDocsOptions(opts inspectDocsOptions) error {
 		filterCount++
 	}
 	if opts.All && (strings.TrimSpace(opts.ForPath) != "" || filterCount > 0) {
-		return fmt.Errorf("--all cannot be combined with --for-path, --tag, --status, or --review-due")
+		return usageErrorf("--all cannot be combined with --for-path, --tag, --status, or --review-due")
 	}
 	if strings.TrimSpace(opts.ForPath) != "" && filterCount > 0 {
-		return fmt.Errorf("--for-path cannot be combined with --tag, --status, or --review-due")
+		return usageErrorf("--for-path cannot be combined with --tag, --status, or --review-due")
 	}
 	return nil
 }
@@ -94,22 +94,22 @@ func buildInspectDocsQuery(repoRoot string, opts inspectDocsOptions) (inspectDoc
 
 func normalizeInspectDocsQueryPath(repoRoot, raw string) (string, error) {
 	if strings.ContainsRune(raw, 0) {
-		return "", fmt.Errorf("--for-path contains NUL")
+		return "", usageErrorf("--for-path contains NUL")
 	}
 	value := filepath.Clean(filepath.FromSlash(strings.TrimSpace(raw)))
 	if filepath.IsAbs(value) {
 		rel, err := filepath.Rel(repoRoot, value)
 		if err != nil {
-			return "", fmt.Errorf("resolve --for-path: %w", err)
+			return "", usageErrorf("resolve --for-path: %w", err)
 		}
 		value = rel
 	}
 	value = filepath.ToSlash(filepath.Clean(value))
 	if value == ".." || strings.HasPrefix(value, "../") {
-		return "", fmt.Errorf("--for-path must stay within the repository")
+		return "", usageErrorf("--for-path must stay within the repository")
 	}
 	if value == "" {
-		return "", fmt.Errorf("--for-path must not be empty")
+		return "", usageErrorf("--for-path must not be empty")
 	}
 	return value, nil
 }

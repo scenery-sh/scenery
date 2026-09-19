@@ -63,7 +63,7 @@ func (s *devSupervisor) startDesktopShells(ctx context.Context) error {
 	}
 	session := s.currentAgentSession()
 	if session == nil || s.agent == nil {
-		return fmt.Errorf("scenery up --desktop requires the local scenery agent and a registered dev session")
+		return preconditionErrorf("scenery up --desktop requires the local scenery agent and a registered dev session")
 	}
 	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {

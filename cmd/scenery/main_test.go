@@ -80,8 +80,9 @@ func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 			if record.Command != test.wantCommand || record.ExitCode != test.want {
 				t.Fatalf("telemetry = %#v, want command %q and exit code %d", record, test.wantCommand, test.want)
 			}
-			if test.err != nil && !strings.Contains(stderr.String(), test.err.Error()) {
-				t.Fatalf("stderr = %q, want %q", stderr.String(), test.err)
+			// The exit code reports the failure class; stderr says what failed.
+			if test.err != nil && (stderr.String() != humanCLIErrorMessage(test.err)+"\n" || strings.Contains(stderr.String(), "invalid_request")) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), humanCLIErrorMessage(test.err))
 			}
 		})
 	}

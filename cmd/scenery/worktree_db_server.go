@@ -66,7 +66,7 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 		return nil
 	}
 	if opts.Action != "start" && opts.Action != "stop" && opts.Action != "logs" {
-		return fmt.Errorf("unknown db server command %q", opts.Action)
+		return usageErrorf("unknown db server command %q", opts.Action)
 	}
 	appID := ""
 	allowAllocation := false

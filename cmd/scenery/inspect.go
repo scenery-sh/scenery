@@ -344,11 +344,14 @@ func parseInspectArgs(args []string) (inspectOptions, error) {
 
 func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOptions, error) {
 	if len(args) == 0 {
-		return inspectOptions{}, fmt.Errorf("missing inspect subject")
+		return inspectOptions{}, usageErrorf("missing inspect subject")
+	}
+	if err := flagBeforeWord(args, "the inspect subject"); err != nil {
+		return inspectOptions{}, err
 	}
 	opts := inspectOptions{Subject: args[0]}
 	if !allowObservability && (opts.Subject == "traces" || opts.Subject == "metrics") {
-		return inspectOptions{}, fmt.Errorf("unknown inspect subject %q; use `scenery %s list`", opts.Subject, opts.Subject)
+		return inspectOptions{}, usageErrorf("unknown inspect subject %q; use `scenery %s list`", opts.Subject, opts.Subject)
 	}
 	flags := newCLIFlagSet("inspect " + opts.Subject)
 	registerJSONOutput(flags, &opts.JSON)
@@ -376,59 +379,62 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		return inspectOptions{}, err
 	}
 	if cliFlagSet(flags, "repo-root") && opts.Subject != "docs" && opts.Subject != "harness" {
-		return inspectOptions{}, fmt.Errorf("--repo-root is only supported for inspect docs and inspect harness")
+		return inspectOptions{}, usageErrorf("--repo-root is only supported for inspect docs and inspect harness")
 	}
 	if cliFlagSet(flags, "stats") && opts.Subject != "storage" {
-		return inspectOptions{}, fmt.Errorf("--stats requires inspect storage")
+		return inspectOptions{}, usageErrorf("--stats requires inspect storage")
 	}
 	if cliFlagSet(flags, "verify-generation") && opts.Subject != "build" {
-		return inspectOptions{}, fmt.Errorf("--verify-generation requires inspect build")
+		return inspectOptions{}, usageErrorf("--verify-generation requires inspect build")
 	}
 	if cliFlagSet(flags, "frontend") && opts.Subject != "ui" {
-		return inspectOptions{}, fmt.Errorf("--frontend is only supported for inspect ui")
+		return inspectOptions{}, usageErrorf("--frontend is only supported for inspect ui")
 	}
 	if cliFlagSet(flags, "implementation") && opts.Subject != "assistants" {
-		return inspectOptions{}, fmt.Errorf("--implementation is only supported for inspect assistants")
+		return inspectOptions{}, usageErrorf("--implementation is only supported for inspect assistants")
 	}
 	for _, name := range []string{"for-path", "tag", "review-due", "all"} {
 		if cliFlagSet(flags, name) && opts.Subject != "docs" {
-			return inspectOptions{}, fmt.Errorf("--%s is only supported for inspect docs", name)
+			return inspectOptions{}, usageErrorf("--%s is only supported for inspect docs", name)
 		}
 	}
 	if opts.Subject == "docs" {
 		opts.Docs.ForPath = strings.TrimSpace(opts.Docs.ForPath)
 		opts.Docs.Tag = strings.TrimSpace(opts.Docs.Tag)
 		if cliFlagSet(flags, "for-path") && opts.Docs.ForPath == "" {
-			return inspectOptions{}, fmt.Errorf("--for-path must not be empty")
+			return inspectOptions{}, usageErrorf("--for-path must not be empty")
 		}
 		if cliFlagSet(flags, "tag") && opts.Docs.Tag == "" {
-			return inspectOptions{}, fmt.Errorf("--tag must not be empty")
+			return inspectOptions{}, usageErrorf("--tag must not be empty")
 		}
 	}
 	if opts.Subject == "harness" && len(positionals) > 0 {
 		opts.Harness.Topic = positionals[0]
 		if opts.Harness.Topic != "artifact" && opts.Harness.Topic != "diagnostics" && opts.Harness.Topic != "timing" {
-			return inspectOptions{}, fmt.Errorf("unknown flag %q", positionals[0])
+			return inspectOptions{}, usageErrorf("unknown inspect harness topic %q; use artifact, diagnostics or timing", positionals[0])
 		}
 		positionals = positionals[1:]
 		if opts.Harness.Topic == "artifact" {
 			if len(positionals) == 0 {
-				return inspectOptions{}, fmt.Errorf("missing inspect harness artifact name")
+				return inspectOptions{}, usageErrorf("missing inspect harness artifact name")
 			}
 			opts.Harness.Name, positionals = positionals[0], positionals[1:]
 		}
 	}
 	if len(positionals) > 0 {
-		return inspectOptions{}, fmt.Errorf("unknown flag %q", positionals[0])
+		return inspectOptions{}, usageErrorf("unexpected argument %q", positionals[0])
 	}
 	if cliFlagSet(flags, "severity") && (opts.Subject != "harness" || opts.Harness.Topic != "diagnostics") {
-		return inspectOptions{}, fmt.Errorf("--severity is only supported for inspect harness diagnostics")
+		return inspectOptions{}, usageErrorf("--severity is only supported for inspect harness diagnostics")
+	}
+	if cliFlagSet(flags, "severity") && opts.Harness.Severity != "error" && opts.Harness.Severity != "warning" {
+		return inspectOptions{}, usageErrorf("--severity must be error or warning")
 	}
 	if cliFlagSet(flags, "top") && (opts.Subject != "harness" || opts.Harness.Topic != "timing") {
-		return inspectOptions{}, fmt.Errorf("--top is only supported for inspect harness timing")
+		return inspectOptions{}, usageErrorf("--top is only supported for inspect harness timing")
 	}
 	if cliFlagSet(flags, "top") && opts.Harness.Top <= 0 {
-		return inspectOptions{}, fmt.Errorf("--top must be a positive integer")
+		return inspectOptions{}, usageErrorf("--top must be a positive integer")
 	}
 	for _, name := range []string{"limit", "since", "service", "endpoint", "trace-id", "session", "status", "min-duration-ms"} {
 		if !cliFlagSet(flags, name) {
@@ -437,26 +443,26 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		if name == "status" && opts.Subject == "docs" {
 			opts.Docs.Status = strings.ToLower(strings.TrimSpace(*traceValues[name]))
 			if opts.Docs.Status == "" {
-				return inspectOptions{}, fmt.Errorf("--status must not be empty")
+				return inspectOptions{}, usageErrorf("--status must not be empty")
 			}
 			continue
 		}
 		if name == "session" && opts.Subject == "observability" {
 			opts.Trace.Session = strings.TrimSpace(*traceValues[name])
 			if opts.Trace.Session == "" {
-				return inspectOptions{}, fmt.Errorf("invalid session %q", *traceValues[name])
+				return inspectOptions{}, usageErrorf("invalid session %q", *traceValues[name])
 			}
 			continue
 		}
 		if opts.Subject != "traces" && opts.Subject != "metrics" {
-			return inspectOptions{}, fmt.Errorf("--%s is only supported for traces list and metrics list", name)
+			return inspectOptions{}, usageErrorf("--%s is only supported for traces list and metrics list", name)
 		}
 		if err := parseInspectTraceFlags(&opts, "--"+name, *traceValues[name]); err != nil {
 			return inspectOptions{}, err
 		}
 	}
 	if cliFlagSet(flags, "slowest") && opts.Subject != "traces" && opts.Subject != "metrics" {
-		return inspectOptions{}, fmt.Errorf("--slowest is only supported for traces list and metrics list")
+		return inspectOptions{}, usageErrorf("--slowest is only supported for traces list and metrics list")
 	}
 	if opts.Subject == "docs" {
 		if err := validateInspectDocsOptions(opts.Docs); err != nil {

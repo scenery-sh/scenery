@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
+	"syscall"
 
 	localagent "scenery.sh/internal/agent"
 )
@@ -26,12 +29,18 @@ func commandWorktreeClient(ctx context.Context, root string) (*localagent.Client
 		return nil, err
 	}
 	if _, err := paths.LoadRecord(""); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, preconditionErrorf("no local runtime state exists for %s; start it with `scenery up`: %w", root, err)
+		}
 		return nil, err
 	}
 	client := localagent.NewClient(paths.Socket)
 	health, err := client.Health(ctx)
 	if err != nil {
 		client.CloseIdleConnections()
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+			return nil, preconditionErrorf("the local runtime of %s is not running; start it with `scenery up`: %w", root, err)
+		}
 		return nil, err
 	}
 	if err := localagent.ValidateWorktreeHealth(health, paths); err != nil {

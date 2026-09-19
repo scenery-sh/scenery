@@ -162,7 +162,7 @@ func parseDBSeedArgs(args []string) (dbSeedOptions, error) {
 	}
 	opts.Env = strings.TrimSpace(opts.Env)
 	if opts.Env == "" {
-		return dbSeedOptions{}, fmt.Errorf("environment is required")
+		return dbSeedOptions{}, usageErrorf("environment is required")
 	}
 	return opts, nil
 }

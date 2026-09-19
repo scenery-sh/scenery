@@ -139,7 +139,7 @@ func runLogsTailCommand(ctx context.Context, stdout io.Writer, args []string) er
 	}
 	stack := resolveLogsVictoriaStackFunc(ctx, scope.AppRoot)
 	if stack == nil || stack.BaseURL("logs") == "" {
-		return fmt.Errorf("VictoriaLogs is unavailable")
+		return unavailableErrorf("VictoriaLogs is unavailable")
 	}
 	events := newCLIEventWriter(stdout)
 	count := 0
@@ -298,7 +298,7 @@ func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 	opts := logsQueryOptions{Session: "current", Since: 15 * time.Minute, SinceRaw: "15m", Limit: 200, Timeout: 3 * time.Second}
 	since, start, end, timeout, fields := opts.SinceRaw, "", "", opts.Timeout.String(), ""
 	flags := newCLIFlagSet("logs query")
-	registerJSONLinesOutput(flags, &opts.JSONL)
+	registerJSONOrLinesOutput(flags, &opts.JSONL)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Session, "session", opts.Session, "")
 	flags.StringVar(&opts.Query, "query", "", "")
@@ -318,7 +318,7 @@ func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 	}
 	opts.Session, opts.Query, opts.LogQL = strings.TrimSpace(opts.Session), strings.TrimSpace(opts.Query), strings.TrimSpace(opts.LogQL)
 	if opts.Session == "" {
-		return logsQueryOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+		return logsQueryOptions{}, usageErrorf("invalid session %q", opts.Session)
 	}
 	if opts.Since, err = parsePositiveDuration(since, "since"); err != nil {
 		return logsQueryOptions{}, err
@@ -335,7 +335,7 @@ func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 		}
 	}
 	if opts.Limit <= 0 {
-		return logsQueryOptions{}, fmt.Errorf("invalid limit %q", strconv.Itoa(opts.Limit))
+		return logsQueryOptions{}, usageErrorf("invalid limit %q", strconv.Itoa(opts.Limit))
 	}
 	if opts.Timeout, err = parsePositiveDuration(timeout, "timeout"); err != nil {
 		return logsQueryOptions{}, err
@@ -344,10 +344,10 @@ func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 		opts.Fields = splitCSV(fields)
 	}
 	if opts.LogQL != "" {
-		return logsQueryOptions{}, fmt.Errorf("--logql is not supported yet; use native VictoriaLogs LogsQL with --query")
+		return logsQueryOptions{}, usageErrorf("--logql is not supported yet; use native VictoriaLogs LogsQL with --query")
 	}
 	if opts.Query == "" {
-		return logsQueryOptions{}, fmt.Errorf("missing required --query")
+		return logsQueryOptions{}, usageErrorf("missing required --query")
 	}
 	opts.Limit, opts.Warnings = clampLimit(opts.Limit, logsQueryLimitMax, opts.Warnings)
 	return opts, nil
@@ -359,7 +359,7 @@ func parseLogsTailArgs(args []string) (logsQueryOptions, error) {
 		return logsQueryOptions{}, err
 	}
 	if !opts.Start.IsZero() || !opts.End.IsZero() {
-		return logsQueryOptions{}, fmt.Errorf("logs tail does not support --start or --end; use --since for VictoriaLogs start_offset")
+		return logsQueryOptions{}, usageErrorf("logs tail does not support --start or --end; use --since for VictoriaLogs start_offset")
 	}
 	opts.JSONL = true
 	opts.Limit = 0
@@ -390,7 +390,7 @@ func parseMetricsQueryArgs(args []string) (metricsQueryOptions, error) {
 	}
 	opts.Session, opts.PromQL = strings.TrimSpace(opts.Session), strings.TrimSpace(opts.PromQL)
 	if opts.Session == "" {
-		return metricsQueryOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+		return metricsQueryOptions{}, usageErrorf("invalid session %q", opts.Session)
 	}
 	if opts.Since, err = parsePositiveDuration(since, "since"); err != nil {
 		return metricsQueryOptions{}, err
@@ -413,10 +413,10 @@ func parseMetricsQueryArgs(args []string) (metricsQueryOptions, error) {
 		return metricsQueryOptions{}, err
 	}
 	if opts.Limit <= 0 {
-		return metricsQueryOptions{}, fmt.Errorf("invalid limit %q", strconv.Itoa(opts.Limit))
+		return metricsQueryOptions{}, usageErrorf("invalid limit %q", strconv.Itoa(opts.Limit))
 	}
 	if opts.PromQL == "" {
-		return metricsQueryOptions{}, fmt.Errorf("missing required --promql")
+		return metricsQueryOptions{}, usageErrorf("missing required --promql")
 	}
 	opts.Limit, opts.Warnings = clampLimit(opts.Limit, metricsQueryLimitMax, opts.Warnings)
 	return opts, nil
@@ -443,7 +443,7 @@ func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOp
 	}
 	opts.Session, opts.Match = strings.TrimSpace(opts.Session), strings.TrimSpace(opts.Match)
 	if opts.Session == "" {
-		return metricsCatalogOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+		return metricsCatalogOptions{}, usageErrorf("invalid session %q", opts.Session)
 	}
 	if opts.Since, err = parsePositiveDuration(since, "since"); err != nil {
 		return metricsCatalogOptions{}, err
@@ -460,13 +460,13 @@ func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOp
 		}
 	}
 	if opts.Limit <= 0 {
-		return metricsCatalogOptions{}, fmt.Errorf("invalid limit %q", strconv.Itoa(opts.Limit))
+		return metricsCatalogOptions{}, usageErrorf("invalid limit %q", strconv.Itoa(opts.Limit))
 	}
 	if opts.Timeout, err = parsePositiveDuration(timeout, "timeout"); err != nil {
 		return metricsCatalogOptions{}, err
 	}
 	if requireMatch && opts.Match == "" {
-		return metricsCatalogOptions{}, fmt.Errorf("missing required --match")
+		return metricsCatalogOptions{}, usageErrorf("missing required --match")
 	}
 	opts.Limit, opts.Warnings = clampLimit(opts.Limit, metricsCatalogLimitMax, opts.Warnings)
 	return opts, nil
@@ -550,7 +550,7 @@ func queryBounds(since time.Duration, sinceRaw string, start, end time.Time) obs
 func parsePositiveDuration(value, name string) (time.Duration, error) {
 	duration, err := time.ParseDuration(value)
 	if err != nil || duration <= 0 {
-		return 0, fmt.Errorf("invalid %s duration %q", name, value)
+		return 0, usageErrorf("invalid %s duration %q", name, value)
 	}
 	return duration, nil
 }
@@ -558,12 +558,12 @@ func parsePositiveDuration(value, name string) (time.Duration, error) {
 func parseQueryTime(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return time.Time{}, fmt.Errorf("invalid time %q", value)
+		return time.Time{}, usageErrorf("invalid time %q", value)
 	}
 	if t, err := time.Parse(time.RFC3339Nano, value); err == nil {
 		return t.UTC(), nil
 	}
-	return time.Time{}, fmt.Errorf("invalid time %q; use RFC3339", value)
+	return time.Time{}, usageErrorf("invalid time %q; use RFC3339", value)
 }
 
 func splitCSV(value string) []string {

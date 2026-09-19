@@ -169,7 +169,7 @@ func parseDeploySSHOptions(target string, args []string) (deploySSHOptions, erro
 	}
 	opts.Env = strings.TrimSpace(opts.Env)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return deploySSHOptions{}, fmt.Errorf("--env must not be empty")
+		return deploySSHOptions{}, usageErrorf("--env must not be empty")
 	}
 	return opts, nil
 }

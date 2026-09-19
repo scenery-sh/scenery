@@ -161,7 +161,7 @@ func parseHarnessArgs(args []string) (harnessOptions, error) {
 		if value != "true" {
 			opts.ValidationProfile = strings.TrimSpace(value)
 			if opts.ValidationProfile == "" {
-				return fmt.Errorf("--with-validation profile must not be empty")
+				return usageErrorf("--with-validation profile must not be empty")
 			}
 		}
 		return nil
@@ -274,7 +274,7 @@ func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArt
 	case "metrics":
 		err = runObservabilityList(context.Background(), &out, "metrics", []string{"--app-root", appRoot, "-o", "json"})
 	default:
-		err = fmt.Errorf("unknown observability subject %q", subject)
+		err = usageErrorf("unknown observability subject %q", subject)
 	}
 	step := harnessStep{
 		Name:       subject + " list",

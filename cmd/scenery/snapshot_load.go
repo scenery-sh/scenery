@@ -100,7 +100,7 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 	}
 	live, err := plan.Worktree.AcquireLiveLock()
 	if err != nil {
-		return snapshotLoadResult{}, fmt.Errorf("snapshot load requires a stopped worktree owner: %w", err)
+		return snapshotLoadResult{}, preconditionErrorf("snapshot load requires a stopped worktree owner: %w", err)
 	}
 	defer func() { returnErr = errors.Join(returnErr, live.Release()) }()
 	op, err := plan.Worktree.BeginOperation()

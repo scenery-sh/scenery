@@ -61,7 +61,7 @@ type edgeOptions struct {
 
 func edgeCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]")
+		return usageErrorf("usage: scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]")
 	}
 	cmd := args[0]
 	if cmd == "dns" {
@@ -90,7 +90,7 @@ func edgeCommand(args []string) error {
 	case "uninstall":
 		return edgeUninstall(opts)
 	default:
-		return fmt.Errorf("unknown edge command %q", cmd)
+		return usageErrorf("unknown edge command %q", cmd)
 	}
 }
 
@@ -109,7 +109,7 @@ func parseEdgeArgs(args []string) (edgeOptions, error) {
 	if opts.Domain != "" {
 		opts.Domain = normalizeRouteNamespaceHost(opts.Domain)
 		if opts.Domain == "" {
-			return edgeOptions{}, fmt.Errorf("--domain must be a valid domain")
+			return edgeOptions{}, usageErrorf("--domain must be a valid domain")
 		}
 	}
 	return opts, nil
@@ -117,7 +117,7 @@ func parseEdgeArgs(args []string) (edgeOptions, error) {
 
 func edgeDNSCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge dns install|status|restart|uninstall [--domain <domain>] [-o json]")
+		return usageErrorf("usage: scenery system edge dns install|status|restart|uninstall [--domain <domain>] [-o json]")
 	}
 	cmd := args[0]
 	opts, err := parseEdgeArgs(args[1:])
@@ -135,7 +135,7 @@ func edgeDNSCommand(args []string) error {
 	case "uninstall":
 		return edgeDNSUninstall(opts)
 	default:
-		return fmt.Errorf("unknown edge dns command %q", cmd)
+		return usageErrorf("unknown edge dns command %q", cmd)
 	}
 }
 
@@ -739,7 +739,7 @@ type edgeDNSHelperOptions struct {
 
 func edgeDNSHelperCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge dns-helper install|uninstall --domain <domain> [--nameserver <ip>] [--port <port>]")
+		return usageErrorf("usage: scenery system edge dns-helper install|uninstall --domain <domain> [--nameserver <ip>] [--port <port>]")
 	}
 	cmd := args[0]
 	opts, err := parseEdgeDNSHelperArgs(args[1:])
@@ -752,7 +752,7 @@ func edgeDNSHelperCommand(args []string) error {
 	case "uninstall":
 		return edgeDNSHelperUninstall(opts)
 	default:
-		return fmt.Errorf("unknown edge dns-helper command %q", cmd)
+		return usageErrorf("unknown edge dns-helper command %q", cmd)
 	}
 }
 
@@ -772,20 +772,20 @@ func parseEdgeDNSHelperArgs(args []string) (edgeDNSHelperOptions, error) {
 	opts.Domain = normalizeRouteNamespaceHost(opts.Domain)
 	opts.Nameserver, opts.Port = strings.TrimSpace(opts.Nameserver), strings.TrimSpace(opts.Port)
 	if opts.Domain == "" {
-		return edgeDNSHelperOptions{}, fmt.Errorf("--domain is required")
+		return edgeDNSHelperOptions{}, usageErrorf("--domain is required")
 	}
 	if net.ParseIP(opts.Nameserver) == nil {
-		return edgeDNSHelperOptions{}, fmt.Errorf("--nameserver must be an IP address")
+		return edgeDNSHelperOptions{}, usageErrorf("--nameserver must be an IP address")
 	}
 	if _, err := strconv.Atoi(opts.Port); err != nil || opts.Port == "" {
-		return edgeDNSHelperOptions{}, fmt.Errorf("--port must be an integer")
+		return edgeDNSHelperOptions{}, usageErrorf("--port must be an integer")
 	}
 	return opts, nil
 }
 
 func edgeDNSHelperInstall(opts edgeDNSHelperOptions) error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery system edge dns-helper install is currently supported on macOS")
+		return unavailableErrorf("scenery system edge dns-helper install is currently supported on macOS")
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("scenery system edge dns-helper install must run as root; use `scenery system edge dns install`")
@@ -803,7 +803,7 @@ func edgeDNSHelperInstall(opts edgeDNSHelperOptions) error {
 
 func edgeDNSHelperUninstall(opts edgeDNSHelperOptions) error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery system edge dns-helper uninstall is currently supported on macOS")
+		return unavailableErrorf("scenery system edge dns-helper uninstall is currently supported on macOS")
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("scenery system edge dns-helper uninstall must run as root; use `scenery system edge dns uninstall`")
@@ -1209,7 +1209,7 @@ func refreshEdgeTargetMetadata(paths localagent.Paths, state localagent.EdgeStat
 
 func edgePrivilegedCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge privileged install|status|uninstall [-o json]")
+		return usageErrorf("usage: scenery system edge privileged install|status|uninstall [-o json]")
 	}
 	cmd := args[0]
 	opts, err := parseEdgeArgs(args[1:])
@@ -1224,13 +1224,13 @@ func edgePrivilegedCommand(args []string) error {
 	case "uninstall":
 		return edgePrivilegedUninstall()
 	default:
-		return fmt.Errorf("unknown edge privileged command %q", cmd)
+		return usageErrorf("unknown edge privileged command %q", cmd)
 	}
 }
 
 func edgePrivilegedInstall() error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery system edge privileged install is currently supported on macOS")
+		return unavailableErrorf("scenery system edge privileged install is currently supported on macOS")
 	}
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery system edge privileged install`; run it as your normal user so Scenery can record the expected owner")
@@ -1284,7 +1284,7 @@ func edgePrivilegedStatus(opts edgeOptions) error {
 
 func edgePrivilegedUninstall() error {
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery system edge privileged uninstall is currently supported on macOS")
+		return unavailableErrorf("scenery system edge privileged uninstall is currently supported on macOS")
 	}
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery system edge privileged uninstall`; run it as your normal user")

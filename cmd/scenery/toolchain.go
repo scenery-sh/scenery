@@ -86,10 +86,10 @@ func runToolchain(ctx context.Context, stdout io.Writer, args []string) error {
 		return renderToolchainStatus(stdout, opts.JSON, opts.All, status)
 	case "path":
 		if opts.Tool == "" {
-			return fmt.Errorf("scenery system toolchain path requires --tool <name>")
+			return usageErrorf("scenery system toolchain path requires --tool <name>")
 		}
 		if _, ok := manifest.Artifact(opts.Tool); !ok {
-			return fmt.Errorf("unknown toolchain artifact %q", opts.Tool)
+			return usageErrorf("unknown toolchain artifact %q", opts.Tool)
 		}
 		status, err := store.Path(ctx, opts.Tool, opts.Platform)
 		if err != nil && !opts.JSON {
@@ -104,7 +104,7 @@ func runToolchain(ctx context.Context, stdout io.Writer, args []string) error {
 		_, printErr := fmt.Fprintln(stdout, status.ManagedPath)
 		return printErr
 	default:
-		return fmt.Errorf("unknown toolchain command %q", opts.Command)
+		return usageErrorf("unknown toolchain command %q", opts.Command)
 	}
 }
 
@@ -124,11 +124,11 @@ func parseToolchainArgs(args []string) (toolchainOptions, error) {
 		return toolchainOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return toolchainOptions{}, fmt.Errorf("usage: scenery system toolchain list|sync|verify|path [-o json]")
+		return toolchainOptions{}, usageErrorf("usage: scenery system toolchain list|sync|verify|path [-o json]")
 	}
 	opts.Command = positionals[0]
 	if len(positionals) > 1 {
-		return toolchainOptions{}, fmt.Errorf("unknown argument %q", positionals[1])
+		return toolchainOptions{}, usageErrorf("unexpected argument %q", positionals[1])
 	}
 	if platformName != "" {
 		opts.Platform, err = toolchain.ParsePlatform(platformName)
@@ -139,10 +139,10 @@ func parseToolchainArgs(args []string) (toolchainOptions, error) {
 	switch opts.Command {
 	case "list", "sync", "verify", "path":
 	default:
-		return toolchainOptions{}, fmt.Errorf("unknown toolchain command %q", opts.Command)
+		return toolchainOptions{}, usageErrorf("unknown toolchain command %q", opts.Command)
 	}
 	if opts.Command == "path" && opts.Tool == "" {
-		return toolchainOptions{}, fmt.Errorf("scenery system toolchain path requires --tool <name>")
+		return toolchainOptions{}, usageErrorf("scenery system toolchain path requires --tool <name>")
 	}
 	return opts, nil
 }

@@ -123,7 +123,7 @@ func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error 
 		return nil
 	case "graph":
 		if !opts.JSON {
-			return fmt.Errorf("scenery task graph requires -o json")
+			return usageErrorf("scenery task graph requires -o json")
 		}
 		graph, err := buildTaskGraph(appRoot, cfg)
 		if err != nil {
@@ -133,18 +133,18 @@ func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error 
 	case "run":
 		return runTaskTarget(ctx, appRoot, opts)
 	default:
-		return fmt.Errorf("unknown task command %q", opts.Action)
+		return usageErrorf("unknown task command %q", opts.Action)
 	}
 }
 
 func parseTaskArgs(args []string) (taskOptions, error) {
 	if len(args) == 0 {
-		return taskOptions{}, fmt.Errorf("usage: scenery task list|inspect|run|graph [--app-root <path>] [-o json]")
+		return taskOptions{}, usageErrorf("usage: scenery task list|inspect|run|graph [--app-root <path>] [-o json]")
 	}
 	opts := taskOptions{Action: args[0]}
 	before, passthrough, hasPassthrough := splitCLIPassthrough(args[1:])
 	if hasPassthrough && opts.Action != "run" {
-		return taskOptions{}, fmt.Errorf("-- is only supported for task run")
+		return taskOptions{}, usageErrorf("-- is only supported for task run")
 	}
 	flags := newCLIFlagSet("task " + opts.Action)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
@@ -157,14 +157,14 @@ func parseTaskArgs(args []string) (taskOptions, error) {
 		return taskOptions{}, err
 	}
 	if cliFlagSet(flags, "env") && opts.Action != "run" {
-		return taskOptions{}, fmt.Errorf("--env is only supported for task run")
+		return taskOptions{}, usageErrorf("--env is only supported for task run")
 	}
 	opts.Env = strings.TrimSpace(opts.Env)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return taskOptions{}, fmt.Errorf("--env must not be empty")
+		return taskOptions{}, usageErrorf("--env must not be empty")
 	}
 	if cliFlagSet(flags, "lang") && opts.Action != "run" && opts.Action != "inspect" {
-		return taskOptions{}, fmt.Errorf("--lang is only supported for task inspect and task run")
+		return taskOptions{}, usageErrorf("--lang is only supported for task inspect and task run")
 	}
 	opts.Lang, err = normalizeScriptLang(lang)
 	if err != nil {
@@ -174,23 +174,23 @@ func parseTaskArgs(args []string) (taskOptions, error) {
 		opts.Target = positionals[0]
 	}
 	if len(positionals) > 1 {
-		return taskOptions{}, fmt.Errorf("unexpected argument %q; pass task arguments after --", positionals[1])
+		return taskOptions{}, usageErrorf("unexpected argument %q; pass task arguments after --", positionals[1])
 	}
 	opts.Args = append([]string(nil), passthrough...)
 	switch opts.Action {
 	case "list", "graph":
 		if opts.Target != "" {
-			return taskOptions{}, fmt.Errorf("unexpected task target %q", opts.Target)
+			return taskOptions{}, usageErrorf("unexpected task target %q", opts.Target)
 		}
 	case "inspect", "run":
 		if opts.Target == "" {
-			return taskOptions{}, fmt.Errorf("missing task target")
+			return taskOptions{}, usageErrorf("missing task target")
 		}
 		if _, err := taskTargetKind(opts.Target); err != nil {
 			return taskOptions{}, err
 		}
 	default:
-		return taskOptions{}, fmt.Errorf("unknown task command %q", opts.Action)
+		return taskOptions{}, usageErrorf("unknown task command %q", opts.Action)
 	}
 	return opts, nil
 }
@@ -293,10 +293,10 @@ func codeTaskListRecord(task scriptCandidate) taskListRecord {
 func taskTargetKind(target string) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
-		return "", fmt.Errorf("missing task target")
+		return "", usageErrorf("missing task target")
 	}
 	if strings.Count(target, ":") != 1 {
-		return "", fmt.Errorf("invalid code task target %q; code-backed task targets must contain exactly one ':'", target)
+		return "", usageErrorf("invalid code task target %q; code-backed task targets must contain exactly one ':'", target)
 	}
 	if _, err := parseScriptTarget(target); err != nil {
 		return "", err

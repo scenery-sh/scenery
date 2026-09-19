@@ -29,7 +29,10 @@ type dbCLIOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery db list|shell|apply|migrate|seed|setup|reset|drop|server [--app-root <path>]")
+		return usageErrorf("usage: scenery db list|shell|apply|migrate|seed|setup|reset|drop|server [--app-root <path>]")
+	}
+	if err := flagBeforeWord(args, "the db subcommand"); err != nil {
+		return err
 	}
 	switch args[0] {
 	case "list":
@@ -51,7 +54,7 @@ func dbCommand(args []string) error {
 	case "server":
 		return dbServerCommand(args[1:])
 	default:
-		return fmt.Errorf("unknown db command %q", args[0])
+		return usageErrorf("unknown db command %q", args[0])
 	}
 }
 
@@ -203,6 +206,9 @@ func runDBList(ctx context.Context, stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(opts.Args) > 0 {
+		return usageErrorf("unexpected argument %q", opts.Args[0])
+	}
 	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
@@ -246,7 +252,7 @@ func dbShellCommand(args []string) (returnErr error) {
 	if schema, ok := databaseSchemaByService(database, opts.Service); ok {
 		environment = overlayEnv(environment, map[string]string{"PGOPTIONS": "-c search_path=" + schema + ",scenery"})
 	} else if strings.TrimSpace(opts.Service) != "" {
-		return fmt.Errorf("database service %q is not configured", opts.Service)
+		return usageErrorf("database service %q is not configured", opts.Service)
 	}
 	program := "psql"
 	toolArgs := []string{database.URL}
@@ -276,7 +282,7 @@ func dbShellCommand(args []string) (returnErr error) {
 	}
 	path, err := exec.LookPath(program)
 	if err != nil {
-		return fmt.Errorf("%s not found in PATH; cannot open postgres database %s", program, database.Database)
+		return unavailableErrorf("%s not found in PATH; cannot open postgres database %s", program, database.Database)
 	}
 	cmd := exec.Command(path, append(toolArgs, opts.Args...)...)
 	cmd.Dir = appRoot
@@ -298,7 +304,7 @@ func dbDropCommand(args []string) (returnErr error) {
 	}
 	ctx := context.Background()
 	if strings.TrimSpace(opts.Service) != "" {
-		return fmt.Errorf("database service %q is not configured", opts.Service)
+		return usageErrorf("database service %q is not configured", opts.Service)
 	}
 	database, closeOperation, err := beginInactiveDatabaseOperation(ctx, appRoot, cfg)
 	if err != nil {
@@ -330,7 +336,7 @@ func dbResetCommand(args []string) (returnErr error) {
 		}
 	}
 	if opts.Service == "" && !opts.Yes {
-		return fmt.Errorf("resetting the managed postgres app database requires --yes")
+		return usageErrorf("resetting the managed postgres app database requires --yes")
 	}
 	database, closeOperation, err := beginInactiveDatabaseOperation(ctx, appRoot, cfg)
 	if err != nil {
@@ -397,11 +403,16 @@ func parseDBServerArgs(args []string) (dbServerOptions, error) {
 		return dbServerOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return dbServerOptions{}, fmt.Errorf("usage: scenery db server status|start|stop|logs [--app-root <path>] [-o json]")
+		return dbServerOptions{}, usageErrorf("usage: scenery db server status|start|stop|logs [--app-root <path>] [-o json]")
 	}
 	opts.Action = positionals[0]
+	switch opts.Action {
+	case "status", "start", "stop", "logs":
+	default:
+		return dbServerOptions{}, usageErrorf("unknown db server command %q", opts.Action)
+	}
 	if len(positionals) > 1 {
-		return dbServerOptions{}, fmt.Errorf("unknown argument %q", positionals[1])
+		return dbServerOptions{}, usageErrorf("unexpected argument %q", positionals[1])
 	}
 	return opts, nil
 }
@@ -528,7 +539,7 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 		return nil
 	}
 	if database.Source == postgresdb.SourceExternal {
-		return fmt.Errorf("refusing to reset external postgres database")
+		return preconditionErrorf("refusing to reset external postgres database")
 	}
 	if strings.TrimSpace(opts.Service) != "" {
 		observed, err := readActualDatabaseSchemas(ctx, database)
@@ -538,7 +549,7 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 		database = observed
 		schema, ok := databaseSchemaByService(database, opts.Service)
 		if !ok {
-			return fmt.Errorf("database service %q is not configured", opts.Service)
+			return usageErrorf("database service %q is not configured", opts.Service)
 		}
 		db, err := openPostgresDatabase(ctx, database.URL)
 		if err != nil {
@@ -548,7 +559,7 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 		return postgresdb.ResetSchema(ctx, db, schema)
 	}
 	if !opts.Yes {
-		return fmt.Errorf("resetting the managed postgres app database requires --yes")
+		return usageErrorf("resetting the managed postgres app database requires --yes")
 	}
 	admin, err := managedPostgresAdmin(ctx, database)
 	if err != nil {
@@ -690,7 +701,7 @@ func parseDBTargetArgs(args []string) (dbCLIOptions, error) {
 		opts.Service = positionals[0]
 	}
 	if len(positionals) > 1 {
-		return dbCLIOptions{}, fmt.Errorf("unexpected argument %q", positionals[1])
+		return dbCLIOptions{}, usageErrorf("unexpected argument %q", positionals[1])
 	}
 	return opts, nil
 }
