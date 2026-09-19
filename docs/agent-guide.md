@@ -423,10 +423,13 @@ read, hash, write and traversal time. A prepared helper build is cached in the
 canonical, location-independent form a production capsule has, so restoring it
 is a verified copy that rewrites nothing.
 
-The development watcher uses a 100 ms quiet window; its 250 ms fallback poll
-interval is unchanged. The scan that captures a change runs inside that window,
-20 ms after the last file event, and an event before the window closes discards
-it, so a build starts when the window closes instead of one scan later.
+The development watcher uses a 50 ms quiet window; its 250 ms fallback poll
+interval is unchanged. The window only has to cover the burst of one save: a
+change that arrives later starts its own build, and no generation activates
+unless its sources are still the captured ones. The scan that captures a change
+runs inside that window, 10 ms after the last file event, and an event before
+the window closes discards it, so a build starts when the window closes or, on a
+large tree, when that scan ends.
 Atomic/multi-file saves are coalesced, and authored
 changes arriving during a build remain pending for the next generation.
 Generated publication does not create a rebuild feedback loop.

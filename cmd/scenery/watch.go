@@ -32,10 +32,14 @@ import (
 var (
 	watchPollInterval       = 250 * time.Millisecond
 	watchBackupPollInterval = 2 * time.Second
-	watchSettleDelay        = 100 * time.Millisecond
+	// watchSettleDelay is how long the tree must stay quiet before a change is
+	// built. It only has to cover the burst of one save: a change that arrives
+	// later starts its own build, and no generation activates unless its sources
+	// are still the captured ones.
+	watchSettleDelay = 50 * time.Millisecond
 	// watchScanLead coalesces the events of one save before the scan that
 	// runs inside the settle window starts.
-	watchScanLead = 20 * time.Millisecond
+	watchScanLead = 10 * time.Millisecond
 )
 
 // productionFrontendWatch registers the source dirs of serve-mode

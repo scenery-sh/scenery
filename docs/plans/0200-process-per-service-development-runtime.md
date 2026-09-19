@@ -782,6 +782,12 @@ compile the application graph as it needs.
   1,155, max 1,212), `go.command` from about 485 to 432 ms, and the `health`
   service executable from 16.3 to 15.0 MB with 304 instead of 333 packages; the
   host keeps the SDK.
+- [x] (2026-09-19) The watcher's quiet window is 50 ms instead of 100 ms and its
+  capture scan starts 10 ms after the last event instead of 20 ms. On ONLV the
+  build request starts 91 ms after the write instead of 101 ms, because the
+  scan of its tree (about 80 ms) now bounds the start; a small application
+  gains the full 50 ms. The `dev-process` probe, which counts builds for atomic
+  and multi-file saves under production timing, passes unchanged.
 
 ## Surprises & Discoveries
 
@@ -1108,6 +1114,18 @@ compile the application graph as it needs.
   revision over 555 inputs. A save of the 1.9 MB store encoded it twice (3 ms
   each) and wrote it in 0.6 ms; it is now encoded once. The step delays only a
   build whose change arrived during the previous build.
+
+- Giving the build a lead over the implementation check does not shorten a warm
+  edit, although a measurement by hand suggested it would. By hand in ONLV's
+  workspace, a `go list -export -deps ./health` started with the build slowed
+  the build from 550 to 710 ms, and started 150 ms later it left the build alone
+  and took 146 instead of 322 ms itself, because it found the changed package
+  compiled in the build cache. In the live loop, alternating sessions with a
+  lead of 0, 150 and 300 ms (n=8 each, two rounds, 2026-09-19): `go.command`
+  436, 429, 512 ms and 530, 527, 516 ms; edit to new generation 1,156, 1,144,
+  1,244 ms and 1,253, 1,241, 1,269 ms. The drift between rounds exceeds any
+  effect of the lead. Only the check itself became 50-70 ms shorter, and it is
+  not on the critical path.
 
 ## Decision Log
 
@@ -1551,6 +1569,15 @@ compile the application graph as it needs.
   shorten their build; the contract refresh runs after activation, and
   replacing its byte comparison with watcher stamps trades a proof for 57 ms
   that no first answer waits for. Date: 2026-09-19. Author: Claude.
+- Decision: halve the watcher's quiet window to 50 ms. Rationale (human choice):
+  an agent writes files atomically and one at a time, so the window was mostly
+  waiting; correctness does not rest on it, because a generation activates only
+  if its sources are still the captured ones, and the cost of a save that spans
+  the window is one superseded build. Date: 2026-09-19. Author: human.
+- Decision: do not stagger the implementation check behind the build. Rationale:
+  the live A/B above shows no gain on the critical path, and a scheduling delay
+  that only saves background CPU is not worth a tuning constant. Date:
+  2026-09-19. Author: Claude.
 
 ## Outcomes & Retrospective
 
