@@ -13,6 +13,12 @@ reuse IDs; this list can still be ordered by current priority.
   - Created: 2026-09-15
   - Focus: run each Go service package as its own development process behind a stable host, route internal bindings across processes, and rebuild only affected service processes; target warm body edit p50 300 ms / p95 500 ms on ONLV.
 
+- [0201 Agent-Readable Failures And CLI Grammar](0201-agent-readable-failures-and-cli-grammar.md)
+  - Status: active
+  - Owner: scenery CLI / agent DX
+  - Created: 2026-09-19
+  - Focus: a wrongly written request is an invalid request that names the mistake, every `report_token` resolves locally with `scenery inspect report`, and `--probe cli-grammar` holds the parser to the grammar `scenery help` advertises; remaining: prove a token minted inside a running `scenery up` resolves.
+
 - [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md)
   - Status: active
   - Owner: scenery runtime / PostgreSQL

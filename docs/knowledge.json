@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0201-agent-readable-failures-and-cli-grammar.md",
+      "title": "Agent-Readable Failures And CLI Grammar",
+      "owner": "scenery CLI / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-19",
+      "review_after": "2026-10-19",
+      "summary": "Usage errors classified by type as invalid requests, report tokens that resolve locally to their cause through scenery inspect report, and the cli-grammar probe that derives refused and accepted invocations from scenery help.",
+      "tags": ["plans", "execplans", "cli", "diagnostics", "agent-dx", "harness"]
+    },
+    {
+      "path": "docs/schemas/scenery.failure.report.schema.json",
+      "title": "scenery.failure.report Schema",
+      "owner": "scenery CLI / agent DX",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-09-19",
+      "review_after": "2026-10-19",
+      "summary": "Current machine-output schema of the locally stored cause behind one internal failure report token, returned by scenery inspect report.",
+      "tags": ["schemas", "cli", "diagnostics", "agent-dx"]
+    },
+    {
       "path": "docs/plans/0200-process-per-service-development-runtime.md",
       "title": "Process-Per-Service Development Runtime",
       "owner": "scenery runtime / build / development supervisor",

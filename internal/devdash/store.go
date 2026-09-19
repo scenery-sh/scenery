@@ -378,10 +378,17 @@ func (s *Store) refreshForExternalChangeLocked() error {
 func (s *Store) saveState(state *storeState) error {
 	normalizeStoreState(state)
 	pruneStoreState(state)
-	pruneStoreStateToBudget(state, softStoreFileBytes)
+	// A state inside its budget is encoded once; measuring it for the budget
+	// first would encode it twice on every save.
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
+	}
+	if len(data) > softStoreFileBytes {
+		pruneStoreStateToBudget(state, softStoreFileBytes)
+		if data, err = json.Marshal(state); err != nil {
+			return err
+		}
 	}
 	if len(data) > hardStoreFileBytes {
 		pruneStoreStateToBudget(state, hardStoreFileBytes)

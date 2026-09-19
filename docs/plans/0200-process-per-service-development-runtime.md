@@ -774,6 +774,14 @@ compile the application graph as it needs.
   after the write instead of 177 ms). A signature-breaking edit still fails the
   build and the check with the generation unchanged, and the restoring edit
   loads everything once.
+- [x] (2026-09-19) Development service processes no longer link the MCP SDK.
+  `scenery.sh/runtime` reaches the assistant gateway and the MCP federation
+  through the SDK-free `internal/mcpapi`, and only generated code that registers
+  assistants or federations imports `scenery.sh/runtime/mcphost`, which links
+  them. On ONLV the warm body edit went from 1,262 to 1,186 ms p50 (n=8, min
+  1,155, max 1,212), `go.command` from about 485 to 432 ms, and the `health`
+  service executable from 16.3 to 15.0 MB with 304 instead of 333 packages; the
+  host keeps the SDK.
 
 ## Surprises & Discoveries
 
@@ -1080,6 +1088,26 @@ compile the application graph as it needs.
   cache 53 ms, workspace verification, input fingerprint and process identity
   about 60 ms), and every status write rewrites the whole dashboard state file
   (13-18 ms each, 250 ms in `supervisor.publish` after activation).
+
+- What a dependency costs a service executable was measured with plain programs
+  on this machine (body edit, `go build -ldflags=-w`, 2026-09-19): hello world
+  110 ms and 1.6 MB; a `net/http` server 280 ms and 6.2 MB; the same with the
+  pgx driver and pool 420 ms and 11.6 MB; the same with the MCP SDK as well
+  560 ms and 13.1 MB. The SDK costs about as much build time as the Postgres
+  driver while adding a quarter of its size. `go run` of the hello world takes
+  330 ms and of the HTTP server 540 ms, because the first execution of a new
+  executable costs 210-260 ms on macOS. ONLV registers standard authentication
+  in every service process, which opens the database, so the driver stays in
+  every service executable; 36 of its 47 services also reach pgx from their own
+  code.
+- `supervisor.publish` (150-370 ms after activation on ONLV) is not the
+  dashboard store. Timed on ONLV: status persistence 11 ms, the notification
+  13 ms, the process event 13 ms, the agent session update 23 ms, and
+  `refreshSnapshotContract` 100-120 ms, of which `compiler.SnapshotUnchanged`
+  is 57 ms because it reads every `.scn` source and recomputes the workspace
+  revision over 555 inputs. A save of the 1.9 MB store encoded it twice (3 ms
+  each) and wrote it in 0.6 ms; it is now encoded once. The step delays only a
+  build whose change arrived during the previous build.
 
 ## Decision Log
 
@@ -1510,6 +1538,19 @@ compile the application graph as it needs.
   Rationale: the first would let build step events overtake the build-start
   event that consumers order by, for 31 ms; the second saves 27 ms and changes
   what a debugger flag has to restore. Date: 2026-09-18. Author: Claude.
+- Decision: invert the runtime's dependency on the MCP implementation with
+  constructor hooks instead of build tags. Rationale: the host and the services
+  are linked by one `go build`, which takes one set of tags; a tagged variant of
+  the runtime package would also be compiled and tested twice. With hooks the
+  linker includes the SDK only where generated code imports
+  `scenery.sh/runtime/mcphost`, and a production executable without assistants
+  or federations sheds it as well. Date: 2026-09-19. Author: Claude.
+- Decision: keep the Postgres driver in the runtime's closure and leave
+  `refreshSnapshotContract` byte-exact. Rationale: ONLV's service processes
+  need the driver for standard authentication, so separating it would not
+  shorten their build; the contract refresh runs after activation, and
+  replacing its byte comparison with watcher stamps trades a proof for 57 ms
+  that no first answer waits for. Date: 2026-09-19. Author: Claude.
 
 ## Outcomes & Retrospective
 
