@@ -70,6 +70,7 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("assistant-journey", runHarnessAssistantJourneyProbeStep),
 		harnessSingleProbe("build-info", runHarnessBuildInfoProbeStep),
 		harnessSingleProbe("cli-process", runHarnessCLIProcessProbeStep),
+		harnessSingleProbe("cli-grammar", runHarnessCLIGrammarProbeStep),
 		harnessSingleProbe("dev-follower", runHarnessDevFollowProbeStep),
 		harnessSingleProbe("dev-process", runHarnessDevManagedProcessProbeStep),
 		harnessSingleProbe("process-model", runHarnessProcessModelProbeStep),

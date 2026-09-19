@@ -10,7 +10,7 @@ import (
 
 func TestHarnessExplicitProofSelection(t *testing.T) {
 	t.Parallel()
-	want := strings.Fields("parallel-runtime postgres ui fixtures storage core-separation capability-authority auth worktree agent-restart assistant-init assistant-runtime assistant-helper assistant-journey build-info cli-process dev-follower dev-process process-model dev-lock dev-cleanup inspect-go toolchain-build worktree-git edge generation native-contract snapshot-backup typescript code-task victoria desktop deploy-ssh validation-git test-cache")
+	want := strings.Fields("parallel-runtime postgres ui fixtures storage core-separation capability-authority auth worktree agent-restart assistant-init assistant-runtime assistant-helper assistant-journey build-info cli-process cli-grammar dev-follower dev-process process-model dev-lock dev-cleanup inspect-go toolchain-build worktree-git edge generation native-contract snapshot-backup typescript code-task victoria desktop deploy-ssh validation-git test-cache")
 	if got := harnessProbeIDs(); !slices.Equal(got, want) {
 		t.Fatalf("functional inventory = %v, want %v", got, want)
 	}
