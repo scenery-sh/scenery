@@ -10,8 +10,8 @@ import (
 	"testing/synctest"
 
 	"scenery.sh/internal/appsdk"
+	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
-	"scenery.sh/internal/mcpgateway"
 	"scenery.sh/runtime/shared"
 )
 
@@ -251,7 +251,7 @@ func replaceGlobalRegistryForTest() func() {
 	mcpDurableOwners.Unlock()
 	activeAssistantMCPGateways.Lock()
 	prevAssistantMCPGateways := activeAssistantMCPGateways.values
-	activeAssistantMCPGateways.values = make(map[string]*mcpgateway.Gateway)
+	activeAssistantMCPGateways.values = make(map[string]mcpapi.Gateway)
 	activeAssistantMCPGateways.Unlock()
 	assistantMCPGatewayReadinessState.Lock()
 	prevAssistantMCPGatewayReadiness := assistantMCPGatewayReadinessState.values

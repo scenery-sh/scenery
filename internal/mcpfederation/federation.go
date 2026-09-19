@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
 )
 
@@ -55,7 +56,7 @@ var toolNameRE = regexp.MustCompile(mcpcontract.ToolNamePattern)
 
 var (
 	ErrClosed              = errors.New("MCP federation is closed")
-	ErrRequiredUnavailable = errors.New("required MCP connection is unavailable")
+	ErrRequiredUnavailable = mcpapi.ErrRequiredUnavailable
 	ErrOptionalUnavailable = errors.New("optional MCP connection is unavailable")
 	ErrToolNotFound        = errors.New("federated MCP tool is unavailable")
 	ErrToolCollision       = errors.New("federated MCP tool name collides")
@@ -69,86 +70,36 @@ var (
 	ErrRefreshInProgress   = errors.New("MCP federation refresh is already in progress")
 )
 
-// AuthScheme identifies one of the static authentication schemes supported by
-// an mcp_connection.  OAuth and arbitrary multi-header authentication are
-// intentionally not represented.
-type AuthScheme string
-
-const (
-	AuthNone   AuthScheme = "none"
-	AuthBearer AuthScheme = "bearer"
-	AuthHeader AuthScheme = "header"
+// The configuration types belong to the SDK-free boundary package, so a
+// process can describe a federation without linking this implementation.
+type (
+	AuthScheme = mcpapi.AuthScheme
+	Auth       = mcpapi.Auth
+	ToolPolicy = mcpapi.ToolPolicy
+	Connection = mcpapi.Connection
+	Config     = mcpapi.FederationConfig
+	Diagnostic = mcpapi.FederationDiagnostic
 )
 
-// Auth contains Scenery-owned secret material.  Secret is copied during
-// construction and is never present in Tool, Snapshot, Diagnostic, or any
-// returned error.
-type Auth struct {
-	Scheme AuthScheme
-	Secret []byte
-	Header string
+const (
+	AuthNone   = mcpapi.AuthNone
+	AuthBearer = mcpapi.AuthBearer
+	AuthHeader = mcpapi.AuthHeader
+)
+
+func init() {
+	mcpapi.NewFederation = func(config mcpapi.FederationConfig) (mcpapi.Federation, error) {
+		federation, err := New(config)
+		if err != nil {
+			return nil, err
+		}
+		return federation, nil
+	}
 }
 
-// ToolPolicy is the local policy applied to every remote tool in a
-// connection.  Remote annotations are ignored.  Limits are bounded before a
-// tool is exposed and again before every call.
-type ToolPolicy struct {
-	Approval       mcpcontract.Approval
-	Effect         mcpcontract.Effect
-	MaxInputBytes  int
-	MaxResultBytes int
-}
-
-// Connection is the deployment-time configuration for one mcp_connection.
-// URL and Auth are intentionally consumed only by this package's transport.
-type Connection struct {
-	Address   string
-	Namespace string
-	URL       string
-	Required  bool
-	Auth      Auth
-	Allow     []string
-	Block     []string
-
-	ConnectTimeout time.Duration
-	CallTimeout    time.Duration
-	RefreshTTL     time.Duration
-	Policy         ToolPolicy
-}
-
-// Config configures a federation instance.  LocalToolNames is the set of
-// generated/local capability names; remote names colliding with it are
-// rejected before the snapshot is committed.
-type Config struct {
-	Connections    []Connection
-	LocalToolNames []string
-
-	// RefreshEvery controls the background refresh cadence started by Start.
-	// A zero value uses one second.  It is bounded to at least 10ms.
-	RefreshEvery time.Duration
-	// DiagnosticTTL rate-limits optional-connection outage diagnostics.
-	// A zero value uses one minute.
-	DiagnosticTTL time.Duration
-	// MaxHTTPResponse bounds a single remote HTTP response body.  It protects
-	// list and call responses before SDK JSON decoding.  A zero value uses 32MiB.
-	MaxHTTPResponse int64
-	// MaxTools bounds one remote inventory, including paginated tools/list
-	// responses.
-	MaxTools int
-
-	// OnDiagnostic receives a generic developer diagnostic for optional
-	// connection outages.  The callback is never given an underlying network
-	// error or credential.
-	OnDiagnostic func(Diagnostic)
-}
-
-// Diagnostic is a safe, provider-neutral developer diagnostic.  It contains
-// no URL, auth header, secret, or remote error text.
-type Diagnostic struct {
-	Address string
-	Code    string
-	Message string
-	At      time.Time
+// RequiredUnavailable names the required connections that are not ready.
+func (f *Federation) RequiredUnavailable() []string {
+	return append([]string(nil), f.Snapshot().RequiredUnavailable...)
 }
 
 // Tool is a remote MCP tool under its deterministic Scenery namespace.

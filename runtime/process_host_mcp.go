@@ -14,8 +14,8 @@ import (
 	"sync"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
-	"scenery.sh/internal/mcpgateway"
 )
 
 // In a process-model session the host runs assistant gateways, and their MCP
@@ -41,7 +41,7 @@ func setActiveProcessHost(host *processHost) {
 }
 
 // assistantMCPDispatchers selects the dispatcher of an assistant MCP gateway.
-func assistantMCPDispatchers() (mcpcontract.ToolDispatcher, mcpgateway.DurableOperations) {
+func assistantMCPDispatchers() (mcpcontract.ToolDispatcher, mcpapi.DurableOperations) {
 	activeProcessHost.RLock()
 	host := activeProcessHost.host
 	activeProcessHost.RUnlock()

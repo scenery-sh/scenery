@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
 )
 
@@ -65,6 +66,21 @@ var (
 )
 
 var gatewayToolNameRE = regexp.MustCompile(mcpcontract.ToolNamePattern)
+
+func init() {
+	mcpapi.NewGateway = func(config mcpapi.GatewayConfig) (mcpapi.Gateway, error) {
+		gateway, err := New(Config{
+			Manifest: config.Manifest, CapabilityRevision: config.CapabilityRevision,
+			Verify:   HMACAssertionVerifier{Secret: config.Secret, Audience: config.Audience},
+			Dispatch: config.Dispatch, Durable: config.Durable, Federation: config.Federation,
+			ListenAddr: config.ListenAddr, Version: config.Version,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return gateway, nil
+	}
+}
 
 // ToolDispatcher is the generated, provider-neutral execution boundary.  The
 // gateway never calls an app service directly.

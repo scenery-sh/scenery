@@ -295,7 +295,7 @@ verification is read-only and generated paths stay beneath declared managed
 roots. Architecture invariant: `internal/generate/api` stays free of
 compiler, parse, TypeScript verification, and generate itself.
 
-### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpgateway`, and `internal/mcpfederation`
+### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, `internal/mcpgateway`, and `internal/mcpfederation`
 
 These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines
 the manifest, tool policy, assertions, and limits; `internal/mcpprojection`
@@ -305,6 +305,17 @@ dispatches local generated bindings and federated tools; and
 `internal/mcpfederation` owns Scenery's external Streamable HTTP clients,
 namespaces, filters, auth, readiness, and refresh lifecycle. They do not expose
 a public MCP listener and do not import the developer adapter.
+
+Only `internal/mcpgateway` and `internal/mcpfederation` import the MCP SDK.
+`internal/mcpapi` is their SDK-free boundary: it owns the federation's
+configuration types and the gateway's options, and each implementation installs
+its constructor there when it is linked. `scenery.sh/runtime` imports only that
+boundary, so the SDK and its dependencies are linked by the executables that
+import `scenery.sh/runtime/mcphost` — generated code that registers assistants
+or federations, that is the production executable and the development process
+host — and by no development service process. A process asked to start a
+gateway or federation it did not link reports the gateway unavailable or
+`mcpapi.ErrNotLinked`.
 
 ### `internal/assistantapi`, `internal/assistantcontrol`, `internal/assistantruntime`, and `internal/assistantadapter`
 

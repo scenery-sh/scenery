@@ -406,7 +406,7 @@ func TestAssistantMCPGatewayStartsAndStopsInAppChild(t *testing.T) {
 	activeAssistantMCPGateways.Lock()
 	gateway := activeAssistantMCPGateways.values["app/assistant/support"]
 	activeAssistantMCPGateways.Unlock()
-	if gateway == nil || !strings.HasPrefix(gateway.URL, "http://127.0.0.1:") {
+	if concrete, ok := gateway.(*mcpgateway.Gateway); !ok || !strings.HasPrefix(concrete.URL, "http://127.0.0.1:") {
 		t.Fatalf("gateway = %#v", gateway)
 	}
 	if err := shutdownAssistantMCPGateway(context.Background(), "app/assistant/support"); err != nil {
@@ -474,7 +474,8 @@ func TestAssistantMCPGatewayDispatchesRegisteredLocalToolWithSignedAssertion(t *
 	activeAssistantMCPGateways.Lock()
 	gateway := activeAssistantMCPGateways.values["app/assistant/support"]
 	activeAssistantMCPGateways.Unlock()
-	if gateway == nil {
+	served, ok := gateway.(*mcpgateway.Gateway)
+	if !ok {
 		t.Fatal("app-owned MCP gateway did not start")
 	}
 	claims := mcpgateway.AssertionClaims{Audience: "scenery", AssistantAddress: "app/assistant/support", Principal: "alice", ConversationDigest: "conversation", CapabilityRevision: "capability-1", ExpiresAt: time.Now().Add(time.Minute).Unix(), Nonce: "nonce-1"}
@@ -483,7 +484,7 @@ func TestAssistantMCPGatewayDispatchesRegisteredLocalToolWithSignedAssertion(t *
 		t.Fatal(err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "runtime-test-client", Version: "1"}, nil)
-	transport := &mcp.StreamableClientTransport{Endpoint: gateway.URL, HTTPClient: &http.Client{Transport: signedAssertionTransport{token: assertion}}, DisableStandaloneSSE: true, MaxRetries: -1}
+	transport := &mcp.StreamableClientTransport{Endpoint: served.URL, HTTPClient: &http.Client{Transport: signedAssertionTransport{token: assertion}}, DisableStandaloneSSE: true, MaxRetries: -1}
 	session, err := client.Connect(context.Background(), transport, nil)
 	if err != nil {
 		_ = shutdownAssistantMCPGateway(context.Background(), "app/assistant/support")

@@ -21,8 +21,8 @@ import (
 	"time"
 	"unicode"
 
+	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
-	"scenery.sh/internal/mcpfederation"
 )
 
 const (
@@ -270,9 +270,8 @@ func MCPFederationReadiness(serverAddress string) error {
 	if state.federation != nil && state.federation.Ready() {
 		return nil
 	}
-	if concrete, ok := state.federation.(*mcpfederation.Federation); ok {
-		snapshot := concrete.Snapshot()
-		return &MCPFederationReadinessError{ServerAddress: serverAddress, RequiredUnavailable: append([]string(nil), snapshot.RequiredUnavailable...)}
+	if concrete, ok := state.federation.(mcpapi.Federation); ok {
+		return &MCPFederationReadinessError{ServerAddress: serverAddress, RequiredUnavailable: concrete.RequiredUnavailable()}
 	}
 	if state.readiness == nil {
 		return ErrMCPFederationNotReady
@@ -289,17 +288,17 @@ func initializeMCPFederation(ctx context.Context, registration MCPFederationRegi
 	maps.Copy(resolvers, global.mcpSecretResolvers)
 	global.mu.RUnlock()
 
-	connections := make([]mcpfederation.Connection, 0, len(registration.Connections))
+	connections := make([]mcpapi.Connection, 0, len(registration.Connections))
 	for _, spec := range registration.Connections {
 		auth, err := resolveMCPConnectionAuth(ctx, spec, resolvers)
 		if err != nil {
 			return err
 		}
-		connections = append(connections, mcpfederation.Connection{
+		connections = append(connections, mcpapi.Connection{
 			Address: spec.Address, Namespace: spec.Namespace, URL: spec.URL, Required: spec.Required,
 			Auth: auth, Allow: append([]string(nil), spec.Allow...), Block: append([]string(nil), spec.Block...),
 			ConnectTimeout: spec.ConnectTimeout, CallTimeout: spec.CallTimeout, RefreshTTL: spec.RefreshTTL,
-			Policy: mcpfederation.ToolPolicy{
+			Policy: mcpapi.ToolPolicy{
 				// Remote metadata is untrusted. External capabilities are
 				// conservatively approval-gated and marked open-world.
 				Approval:      mcpcontract.ApprovalAlways,
@@ -308,15 +307,18 @@ func initializeMCPFederation(ctx context.Context, registration MCPFederationRegi
 			},
 		})
 	}
-	config := mcpfederation.Config{
+	config := mcpapi.FederationConfig{
 		Connections: connections, LocalToolNames: append([]string(nil), registration.LocalToolNames...),
-		OnDiagnostic: func(diagnostic mcpfederation.Diagnostic) {
+		OnDiagnostic: func(diagnostic mcpapi.FederationDiagnostic) {
 			// The federation diagnostic is already sanitized; keep the log
 			// fields explicitly limited so future provider errors cannot leak.
 			slog.Warn("optional MCP connection unavailable", "server", registration.Address, "connection", diagnostic.Address, "code", diagnostic.Code, "message", diagnostic.Message)
 		},
 	}
-	federation, err := mcpfederation.New(config)
+	if mcpapi.NewFederation == nil {
+		return mcpapi.ErrNotLinked
+	}
+	federation, err := mcpapi.NewFederation(config)
 	for i := range connections {
 		clear(connections[i].Auth.Secret)
 	}
@@ -327,7 +329,7 @@ func initializeMCPFederation(ctx context.Context, registration MCPFederationRegi
 	// readiness state, not a process-start failure; malformed configuration,
 	// collisions, and protocol violations remain initialization failures.
 	refreshErr := federation.Refresh(ctx)
-	if refreshErr != nil && !errors.Is(refreshErr, mcpfederation.ErrRequiredUnavailable) {
+	if refreshErr != nil && !errors.Is(refreshErr, mcpapi.ErrRequiredUnavailable) {
 		_ = federation.Close()
 		return errors.New("runtime: MCP federation initialization failed")
 	}
@@ -336,9 +338,8 @@ func initializeMCPFederation(ctx context.Context, registration MCPFederationRegi
 		return errors.New("runtime: MCP federation initialization failed")
 	}
 	state := &mcpFederationState{serverAddress: registration.Address, federation: federation, close: federation.Close}
-	if errors.Is(refreshErr, mcpfederation.ErrRequiredUnavailable) {
-		snapshot := federation.Snapshot()
-		state.readiness = &MCPFederationReadinessError{ServerAddress: registration.Address, RequiredUnavailable: append([]string(nil), snapshot.RequiredUnavailable...)}
+	if errors.Is(refreshErr, mcpapi.ErrRequiredUnavailable) {
+		state.readiness = &MCPFederationReadinessError{ServerAddress: registration.Address, RequiredUnavailable: federation.RequiredUnavailable()}
 	}
 	global.mu.Lock()
 	previous := global.mcpFederations[registration.Address]
@@ -364,44 +365,44 @@ func shutdownMCPFederation(_ context.Context, serverAddress string) error {
 	return nil
 }
 
-func resolveMCPConnectionAuth(ctx context.Context, spec MCPConnectionSpec, resolvers map[string]MCPSecretResolver) (mcpfederation.Auth, error) {
+func resolveMCPConnectionAuth(ctx context.Context, spec MCPConnectionSpec, resolvers map[string]MCPSecretResolver) (mcpapi.Auth, error) {
 	scheme := strings.ToLower(strings.TrimSpace(spec.AuthScheme))
 	if scheme == "" {
-		scheme = string(mcpfederation.AuthNone)
+		scheme = string(mcpapi.AuthNone)
 	}
 	switch scheme {
-	case string(mcpfederation.AuthNone):
+	case string(mcpapi.AuthNone):
 		if spec.AuthHeader != "" || !emptyMCPSecretReference(spec.Secret) {
-			return mcpfederation.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
+			return mcpapi.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
 		}
-		return mcpfederation.Auth{Scheme: mcpfederation.AuthNone}, nil
-	case string(mcpfederation.AuthBearer), string(mcpfederation.AuthHeader):
+		return mcpapi.Auth{Scheme: mcpapi.AuthNone}, nil
+	case string(mcpapi.AuthBearer), string(mcpapi.AuthHeader):
 		if !validMCPSecretReference(spec.Secret) {
-			return mcpfederation.Auth{}, errors.New("runtime: MCP connection secret reference is invalid")
+			return mcpapi.Auth{}, errors.New("runtime: MCP connection secret reference is invalid")
 		}
-		if scheme == string(mcpfederation.AuthBearer) && spec.AuthHeader != "" {
-			return mcpfederation.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
+		if scheme == string(mcpapi.AuthBearer) && spec.AuthHeader != "" {
+			return mcpapi.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
 		}
-		if scheme == string(mcpfederation.AuthHeader) && !validMCPHeader(spec.AuthHeader) {
-			return mcpfederation.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
+		if scheme == string(mcpapi.AuthHeader) && !validMCPHeader(spec.AuthHeader) {
+			return mcpapi.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
 		}
 		resolver := resolvers[spec.Secret.StoreAddress]
 		if resolver == nil {
-			return mcpfederation.Auth{}, errors.New("runtime: MCP connection secret resolver is unavailable")
+			return mcpapi.Auth{}, errors.New("runtime: MCP connection secret resolver is unavailable")
 		}
 		value, err := resolver(ctx, spec.Secret)
 		if err != nil || len(value) == 0 {
-			return mcpfederation.Auth{}, errors.New("runtime: MCP connection secret could not be resolved")
+			return mcpapi.Auth{}, errors.New("runtime: MCP connection secret could not be resolved")
 		}
 		defer clear(value)
 		copyValue := append([]byte(nil), value...)
 		// The federation constructor copies the credential into its private
 		// transport configuration. Clear our temporary copy as soon as possible.
 		defer clear(copyValue)
-		auth := mcpfederation.Auth{Scheme: mcpfederation.AuthScheme(scheme), Header: spec.AuthHeader, Secret: append([]byte(nil), copyValue...)}
+		auth := mcpapi.Auth{Scheme: mcpapi.AuthScheme(scheme), Header: spec.AuthHeader, Secret: append([]byte(nil), copyValue...)}
 		return auth, nil
 	default:
-		return mcpfederation.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
+		return mcpapi.Auth{}, errors.New("runtime: MCP connection authentication is invalid")
 	}
 }
 
@@ -459,23 +460,23 @@ func normalizeMCPFederationRegistration(registration MCPFederationRegistration) 
 		}
 		scheme := strings.ToLower(strings.TrimSpace(spec.AuthScheme))
 		if scheme == "" {
-			scheme = string(mcpfederation.AuthNone)
+			scheme = string(mcpapi.AuthNone)
 		}
 		spec.AuthScheme = scheme
 		spec.AuthHeader = strings.TrimSpace(spec.AuthHeader)
 		spec.Secret.ResourceAddress = strings.TrimSpace(spec.Secret.ResourceAddress)
 		spec.Secret.StoreAddress = strings.TrimSpace(spec.Secret.StoreAddress)
 		spec.Secret.Key = strings.TrimSpace(spec.Secret.Key)
-		if scheme == string(mcpfederation.AuthHeader) && !validMCPHeader(spec.AuthHeader) {
+		if scheme == string(mcpapi.AuthHeader) && !validMCPHeader(spec.AuthHeader) {
 			return MCPFederationRegistration{}, errors.New("runtime: MCP connection authentication is invalid")
 		}
-		if scheme != string(mcpfederation.AuthNone) && scheme != string(mcpfederation.AuthBearer) && scheme != string(mcpfederation.AuthHeader) {
+		if scheme != string(mcpapi.AuthNone) && scheme != string(mcpapi.AuthBearer) && scheme != string(mcpapi.AuthHeader) {
 			return MCPFederationRegistration{}, errors.New("runtime: MCP connection authentication is invalid")
 		}
-		if scheme == string(mcpfederation.AuthNone) && (!emptyMCPSecretReference(spec.Secret) || spec.AuthHeader != "") {
+		if scheme == string(mcpapi.AuthNone) && (!emptyMCPSecretReference(spec.Secret) || spec.AuthHeader != "") {
 			return MCPFederationRegistration{}, errors.New("runtime: MCP connection authentication is invalid")
 		}
-		if scheme != string(mcpfederation.AuthNone) && !validMCPSecretReference(spec.Secret) {
+		if scheme != string(mcpapi.AuthNone) && !validMCPSecretReference(spec.Secret) {
 			return MCPFederationRegistration{}, errors.New("runtime: MCP connection secret reference is invalid")
 		}
 		connections[i] = cloneMCPConnectionSpec(spec)
@@ -595,4 +596,4 @@ func cloneMCPFederationStates(values map[string]*mcpFederationState) map[string]
 	return clone
 }
 
-var _ MCPFederation = (*mcpfederation.Federation)(nil)
+var _ MCPFederation = mcpapi.Federation(nil)

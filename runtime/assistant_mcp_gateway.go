@@ -19,8 +19,8 @@ import (
 
 	"scenery.sh/internal/assistantruntime"
 	"scenery.sh/internal/contract"
+	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
-	"scenery.sh/internal/mcpgateway"
 )
 
 const (
@@ -149,11 +149,11 @@ func addAssistantBootstrapDependency(serviceAddress string) {
 
 var activeAssistantMCPGateways struct {
 	sync.Mutex
-	values map[string]*mcpgateway.Gateway
+	values map[string]mcpapi.Gateway
 }
 
 type assistantMCPGatewayReadiness struct {
-	gateway   *mcpgateway.Gateway
+	gateway   mcpapi.Gateway
 	ready     bool
 	errorCode string
 }
@@ -164,17 +164,17 @@ var assistantMCPGatewayReadinessState struct {
 }
 
 func init() {
-	activeAssistantMCPGateways.values = make(map[string]*mcpgateway.Gateway)
+	activeAssistantMCPGateways.values = make(map[string]mcpapi.Gateway)
 	assistantMCPGatewayReadinessState.values = make(map[string]assistantMCPGatewayReadiness)
 }
 
-func setAssistantMCPGatewayReadiness(address string, gateway *mcpgateway.Gateway, ready bool, errorCode string) {
+func setAssistantMCPGatewayReadiness(address string, gateway mcpapi.Gateway, ready bool, errorCode string) {
 	assistantMCPGatewayReadinessState.Lock()
 	assistantMCPGatewayReadinessState.values[address] = assistantMCPGatewayReadiness{gateway: gateway, ready: ready, errorCode: errorCode}
 	assistantMCPGatewayReadinessState.Unlock()
 }
 
-func setAssistantMCPGatewayReadinessIfCurrent(address string, gateway *mcpgateway.Gateway, ready bool, errorCode string) {
+func setAssistantMCPGatewayReadinessIfCurrent(address string, gateway mcpapi.Gateway, ready bool, errorCode string) {
 	assistantMCPGatewayReadinessState.Lock()
 	current := assistantMCPGatewayReadinessState.values[address]
 	if current.gateway == gateway {
@@ -223,16 +223,25 @@ func initializeAssistantMCPGateway(ctx context.Context, assistantAddress string)
 		federation = value
 	}
 	dispatch, durable := assistantMCPDispatchers()
-	gateway, err := mcpgateway.New(mcpgateway.Config{
+	if mcpapi.NewGateway == nil {
+		// Only a process that serves assistants links the gateway.
+		setAssistantMCPGatewayReadiness(assistantAddress, nil, false, "gateway_unavailable")
+		return nil
+	}
+	gatewayConfig := mcpapi.GatewayConfig{
 		Manifest:           manifest,
 		CapabilityRevision: descriptor.CapabilityRevision,
-		Verify:             mcpgateway.HMACAssertionVerifier{Secret: []byte(descriptor.MCPBridgeSecret), Audience: "scenery"},
+		Secret:             []byte(descriptor.MCPBridgeSecret),
+		Audience:           "scenery",
 		Dispatch:           dispatch,
 		Durable:            durable,
-		Federation:         federation,
 		ListenAddr:         descriptor.MCPListenAddress,
 		Version:            "scenery-app-assistant",
-	})
+	}
+	if federation != nil {
+		gatewayConfig.Federation = federation
+	}
+	gateway, err := mcpapi.NewGateway(gatewayConfig)
 	if err != nil {
 		setAssistantMCPGatewayReadiness(assistantAddress, nil, false, "gateway_unavailable")
 		return nil
