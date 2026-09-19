@@ -38,6 +38,15 @@ to the grammar that `scenery help` advertises, in both directions.
   that is no zip archive and a migration selection without a target are
   classified; the report store and the probe exposed them.
 
+- [x] (2026-09-19) A token minted inside a detached `scenery up` resolves. The
+  `process-model` probe first starts the session on an address no host can bind
+  (`203.0.113.7:59999`); the answer is one `SCN9xxx` diagnostic whose message
+  withholds the address, and `scenery inspect report <report-token> -o json`,
+  run afterwards in the same agent home, returns command `up`, the arguments of
+  the detached child and a cause that names the address. The real start that
+  follows still succeeds. `scenery up --port` outside 0-65535, found the same
+  way, is an invalid request now.
+
 ## Surprises & Discoveries
 
 - Go's `errors.AsType` for an `ExitCode() int` method matches a wrapped
@@ -53,6 +62,14 @@ to the grammar that `scenery help` advertises, in both directions.
 - The first end-to-end use of the report store found two more misclassified
   requests at once (`check --app-root /nonexistent`, `snapshot verify` of a text
   file), which is the argument for keeping the cause readable.
+
+- A running session mints no token for an ordinary build failure. Breaking the
+  Go code or a `.scn` source of a session started on a disposable copy of
+  `testdata/apps/multiservice` produced `build.error` events that carry the
+  cause themselves (`SCN6202` with the Go compiler's text, `SCN3005`), and no
+  report was written. Tokens come from the paths that render a sanitized
+  diagnostic, which for `scenery up` is the startup answer of the detached
+  session; that is the path the probe exercises.
 
 ## Decision Log
 
@@ -78,9 +95,15 @@ to the grammar that `scenery help` advertises, in both directions.
 
 ## Outcomes & Retrospective
 
-Not yet completed. Remaining: diagnostics minted inside a running
-`scenery up` are recorded by that process's sink, but no acceptance proves a
-build failure's token resolves; application runtimes have no sink.
+Completed 2026-09-19. A wrongly written request is an invalid request that
+names the mistake (164 of 182 malformed invocations had answered `SCN9000`);
+every report token the CLI mints, including one minted inside a detached
+`scenery up`, resolves locally to its cause; and `--probe cli-grammar` derives
+273 refusals and 42 acceptances from the grammar `scenery help` advertises.
+Keeping the cause readable paid for itself at once: its first uses found six
+more requests that were reported as internal failures. Not in scope and
+unchanged: an application runtime has no sink, so a token it mints in an HTTP
+answer still resolves to nothing.
 
 ## Context and Orientation
 
@@ -97,13 +120,13 @@ stores and reads reports; `internal/machine/internal_failure.go` is the sink.
 1. Usage errors are invalid requests (done).
 2. Report tokens resolve locally (done).
 3. The advertised grammar is proved against the parser (done).
-4. Prove that a token minted by a running development session resolves.
+4. Prove that a token minted by a running development session resolves (done).
 
 ## Plan of Work
 
-Milestone 4 adds an assertion to an existing development probe: provoke an
-internal build failure, read its token from the JSONL stream, and resolve it
-with `scenery inspect report`.
+Milestone 4 added an assertion to the `process-model` probe: a detached start
+that fails internally answers with a token, and `scenery inspect report`
+resolves it in a later invocation.
 
 ## Concrete Steps
 
@@ -111,6 +134,7 @@ Run from the repository root:
 
     go test ./cmd/scenery ./internal/machine ./internal/agent
     go run ./scripts/verify --probe cli-grammar --summary
+    go run ./scripts/verify --probe process-model --summary
     go run ./scripts/verify --summary --write
 
 ## Validation and Acceptance

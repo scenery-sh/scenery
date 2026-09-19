@@ -453,6 +453,9 @@ func parseDevArgs(args []string) (devOptions, error) {
 	}
 	opts.PortSet = cliFlagSet(flags, "port", "p")
 	opts.ListenSet = cliFlagSet(flags, "listen")
+	if opts.PortSet && (opts.Port < 0 || opts.Port > 65535) {
+		return devOptions{}, usageErrorf("--port must be between 0 and 65535")
+	}
 	opts.Env = strings.TrimSpace(opts.Env)
 	if cliFlagSet(flags, "env") && opts.Env == "" {
 		return devOptions{}, usageErrorf("--env must not be empty")

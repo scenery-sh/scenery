@@ -19,6 +19,7 @@ func TestMalformedInvocationsAreInvalidRequestsThatNameTheMistake(t *testing.T) 
 		{"ps -o json extra", `unexpected argument "extra"`},
 		{"down extra", `unexpected argument "extra"`},
 		{"check --app-root -o json", "missing value for --app-root"},
+		{"up --port 99999", "--port must be between 0 and 65535"},
 		{"doctor -o yaml", `unsupported output "yaml"; use human or json`},
 		{"logs query --query x -o yaml", `unsupported output "yaml"; use json or jsonl`},
 		{"logs --limit x", `invalid value "x" for --limit`},

@@ -19,6 +19,8 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/machine"
 )
 
 const harnessProcessModelProbeName = "process model replacement probe"
@@ -65,6 +67,9 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		return nil, err
 	}
 	env := harnessAppEnv(home)
+	if err := verifyHarnessStartupFailureReport(ctx, repoRoot, appRoot, env); err != nil {
+		return nil, err
+	}
 	output, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "up", "--detach", "--wait", "ready", "-o", "json")
 	if err != nil {
 		return nil, err
@@ -748,4 +753,42 @@ func harnessWaitProcessExit(pid int, timeout time.Duration) bool {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return syscall.Kill(pid, 0) != nil
+}
+
+// verifyHarnessStartupFailureReport starts the session on an address no host
+// can bind (TEST-NET-3). The detached session fails internally, so its answer
+// withholds the cause behind a report token; the token, minted inside that
+// other process, must resolve to the cause from a later invocation, and the
+// failed start must leave nothing that keeps the real start from succeeding.
+func verifyHarnessStartupFailureReport(ctx context.Context, repoRoot, appRoot string, env []string) error {
+	const unassignable = "203.0.113.7:59999"
+	output, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "up", "--detach", "--wait", "ready", "--listen", unassignable, "-o", "json")
+	if err == nil {
+		return fmt.Errorf("a session started on the unassignable address %s", unassignable)
+	}
+	envelope, decodeErr := machine.Decode[graph.Diagnostic](output, currentMachineSpecRevision())
+	if decodeErr != nil || len(envelope.Diagnostics) != 1 {
+		return fmt.Errorf("startup failure is not one diagnostic: %v: %s", decodeErr, output)
+	}
+	diagnostic := envelope.Diagnostics[0]
+	if !strings.HasPrefix(diagnostic.Code, "SCN9") || diagnostic.ReportToken == "" || strings.Contains(diagnostic.Message, "203.0.113.7") {
+		return fmt.Errorf("startup failure diagnostic = %+v", diagnostic)
+	}
+	reported, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "inspect", "report", diagnostic.ReportToken, "-o", "json")
+	if err != nil {
+		return fmt.Errorf("report %s does not resolve: %w", diagnostic.ReportToken, err)
+	}
+	var report struct {
+		ReportToken string   `json:"report_token"`
+		Command     string   `json:"command"`
+		Arguments   []string `json:"arguments"`
+		Cause       string   `json:"cause"`
+	}
+	if err := decodeCLIJSON(reported, &report); err != nil {
+		return err
+	}
+	if report.ReportToken != diagnostic.ReportToken || report.Command != "up" || !strings.Contains(report.Cause, "203.0.113.7") || !slices.Contains(report.Arguments, unassignable) {
+		return fmt.Errorf("report %s does not carry the cause of the failed start: %+v", diagnostic.ReportToken, report)
+	}
+	return nil
 }

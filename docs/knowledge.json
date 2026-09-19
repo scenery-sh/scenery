@@ -22,7 +22,7 @@
       "path": "docs/plans/0201-agent-readable-failures-and-cli-grammar.md",
       "title": "Agent-Readable Failures And CLI Grammar",
       "owner": "scenery CLI / agent DX",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-09-19",
