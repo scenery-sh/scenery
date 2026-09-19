@@ -58,6 +58,16 @@ type LogEvent struct {
 	Timestamp   time.Time      `json:"timestamp"`
 }
 
+// InternalFailure is the cause behind a report token an application process
+// minted. The token went out in a sanitized answer; the cause goes to the
+// session's supervisor, which keeps it where the developer can read it.
+type InternalFailure struct {
+	ReportToken string    `json:"report_token"`
+	Code        string    `json:"code"`
+	Cause       string    `json:"cause"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
 type ReportEnvelope struct {
 	Type         string        `json:"type"`
 	AppID        string        `json:"app_id"`
@@ -69,4 +79,6 @@ type ReportEnvelope struct {
 	TraceSummary *TraceSummary `json:"trace_summary,omitempty"`
 	TraceEvent   *TraceEvent   `json:"trace_event,omitempty"`
 	LogEvent     *LogEvent     `json:"log_event,omitempty"`
+	// InternalFailure accompanies Type "internal-failure".
+	InternalFailure *InternalFailure `json:"internal_failure,omitempty"`
 }

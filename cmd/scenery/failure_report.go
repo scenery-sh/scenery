@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"scenery.sh/internal/devreport"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/redact"
 )
@@ -36,6 +37,14 @@ type failureReport struct {
 	WorkingDirectory string   `json:"working_directory"`
 	Cause            string   `json:"cause"`
 	ProducerVersion  string   `json:"producer_version"`
+	// Origin is "cli" for a token this CLI process minted, described by its
+	// command, arguments and working directory, and "runtime" for one an
+	// application process of a development session minted and reported,
+	// described by that process, its app and its session.
+	Origin      string `json:"origin"`
+	ReporterPID int    `json:"reporter_pid,omitempty"`
+	AppID       string `json:"app_id,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
 }
 
 // failureReportArguments are the arguments of the running invocation.
@@ -59,17 +68,26 @@ func installFailureReports(args []string) {
 	})
 }
 
+// recordRuntimeFailureReport keeps the cause an application process of a
+// development session reported for a token it minted. The receiving process
+// may be the agent, so the report describes the reporter, not the receiver.
+func recordRuntimeFailureReport(report devreport.ReportEnvelope) {
+	failure := report.InternalFailure
+	if failure == nil {
+		return
+	}
+	recordedAt := failure.Timestamp
+	if recordedAt.IsZero() {
+		recordedAt = time.Now().UTC()
+	}
+	_ = storeFailureReport(failureReport{
+		ReportToken: failure.ReportToken, Code: failure.Code, RecordedAt: recordedAt.UTC().Format(time.RFC3339Nano),
+		Command: "runtime", Arguments: []string{}, Cause: redact.String(failure.Cause),
+		Origin: "runtime", ReporterPID: report.ReporterPID, AppID: report.AppID, SessionID: report.SessionID,
+	})
+}
+
 func writeFailureReport(failure machine.InternalFailure, now time.Time) error {
-	if !failureReportTokenPattern.MatchString(failure.ReportToken) {
-		return errors.New("invalid report token")
-	}
-	dir, err := failureReportDir()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
 	var invocation []string
 	if stored := failureReportArguments.Load(); stored != nil {
 		invocation = *stored
@@ -79,17 +97,31 @@ func writeFailureReport(failure machine.InternalFailure, now time.Time) error {
 		arguments = append(arguments, redact.String(argument))
 	}
 	workingDirectory, _ := os.Getwd()
-	report := failureReport{
-		cliPayloadIdentity: newCLIPayloadIdentity(failureReportKind),
-		ReportToken:        failure.ReportToken, Code: failure.Code, RecordedAt: now.Format(time.RFC3339Nano),
+	return storeFailureReport(failureReport{
+		ReportToken: failure.ReportToken, Code: failure.Code, RecordedAt: now.Format(time.RFC3339Nano),
 		Command: telemetryCommand(invocation), Arguments: arguments, WorkingDirectory: workingDirectory,
-		Cause: redact.String(failure.Cause), ProducerVersion: buildVersionResponse().Version,
+		Cause: redact.String(failure.Cause), Origin: "cli",
+	})
+}
+
+func storeFailureReport(report failureReport) error {
+	if !failureReportTokenPattern.MatchString(report.ReportToken) {
+		return errors.New("invalid report token")
 	}
+	dir, err := failureReportDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	report.cliPayloadIdentity = newCLIPayloadIdentity(failureReportKind)
+	report.ProducerVersion = buildVersionResponse().Version
 	encoded, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, failure.ReportToken+".json")
+	path := filepath.Join(dir, report.ReportToken+".json")
 	temporary := path + ".tmp"
 	if err := os.WriteFile(temporary, append(encoded, '\n'), 0o600); err != nil {
 		return err

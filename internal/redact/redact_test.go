@@ -42,3 +42,17 @@ func TestValuePreservesErrorMessages(t *testing.T) {
 		t.Fatalf("Value(struct{error}) = %#v, want nested message", nested)
 	}
 }
+
+func TestStringRedactsTheCredentialsOfAURLInsideAMessage(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{
+		"open postgres://shop:hunter2@db.internal/shop: connection refused":   "open postgres://shop:[redacted]@db.internal/shop: connection refused",
+		"dial https://svc:p%40ss@example.test:8443/x and http://plain.test/y": "dial https://svc:[redacted]@example.test:8443/x and http://plain.test/y",
+		"listen tcp 203.0.113.7:59999: bind: can't assign requested address":  "listen tcp 203.0.113.7:59999: bind: can't assign requested address",
+		"ratio 3:4 at user@example.test":                                      "ratio 3:4 at user@example.test",
+	} {
+		if got := String(input); got != want {
+			t.Errorf("String(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

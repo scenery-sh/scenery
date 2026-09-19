@@ -13,14 +13,15 @@
     "arguments",
     "working_directory",
     "cause",
-    "producer_version"
+    "producer_version",
+    "origin"
   ],
   "properties": {
     "kind": {
       "const": "scenery.failure.report"
     },
     "schema_revision": {
-      "const": "sha256:514b68276099698f2b83dce78a190f7d218e8f8f232b3272c306b9d47323ff80"
+      "const": "sha256:4d4540496d4ad6467a4d1ff95b00228858e088a6da619310a057ab6ffbd9e273"
     },
     "report_token": {
       "type": "string",
@@ -49,6 +50,21 @@
       "type": "string"
     },
     "producer_version": {
+      "type": "string"
+    },
+    "origin": {
+      "enum": [
+        "cli",
+        "runtime"
+      ]
+    },
+    "reporter_pid": {
+      "type": "integer"
+    },
+    "app_id": {
+      "type": "string"
+    },
+    "session_id": {
       "type": "string"
     }
   },

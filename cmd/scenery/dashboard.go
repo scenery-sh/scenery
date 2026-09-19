@@ -534,6 +534,10 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 			fillLogEventIdentity(report.LogEvent, report)
 			go s.logExporter(report.LogEvent)
 		}
+	case "internal-failure":
+		// An application process minted a report token; keep its cause where
+		// `scenery inspect report` reads it.
+		recordRuntimeFailureReport(report)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

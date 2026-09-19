@@ -129,7 +129,8 @@ scenery schema SCN2101 -o json
 ```
 
 Internal diagnostics publish a sanitized message and opaque report token. The
-CLI that minted the token kept the cause; read it on the same machine with:
+CLI that minted the token kept the cause, and so did the development session of
+an application process that minted one; read it on the same machine with:
 
 ```sh
 scenery inspect report <report-token> -o json

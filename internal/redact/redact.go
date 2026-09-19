@@ -14,6 +14,10 @@ const Placeholder = "[redacted]"
 var sensitiveAssignmentRE = regexp.MustCompile(`(?i)\b(authorization|token|access[_-]?token|refresh[_-]?token|password|secret|api[_-]?key|database[_-]?url|jwt)\b(\s*[:=]\s*)([^,\s;]+)`)
 var bearerTokenRE = regexp.MustCompile(`(?i)\bBearer\s+[^\s,;]+`)
 
+// embeddedURLPasswordRE finds the password of a URL inside a longer text, such
+// as an error message that quotes the address it could not reach.
+var embeddedURLPasswordRE = regexp.MustCompile(`\b([a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@]*):[^\s@/]+@`)
+
 func Value(value any) any {
 	return redactor{seen: make(map[visit]bool)}.value(reflect.ValueOf(value), "")
 }
@@ -27,6 +31,7 @@ func String(value string) string {
 		return redacted
 	}
 	value = bearerTokenRE.ReplaceAllString(value, "Bearer "+Placeholder)
+	value = embeddedURLPasswordRE.ReplaceAllString(value, "${1}:"+Placeholder+"@")
 	return sensitiveAssignmentRE.ReplaceAllStringFunc(value, func(match string) string {
 		parts := sensitiveAssignmentRE.FindStringSubmatch(match)
 		if len(parts) < 4 {

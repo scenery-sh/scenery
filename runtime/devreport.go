@@ -23,6 +23,7 @@ import (
 	"scenery.sh/errs"
 	"scenery.sh/internal/devreport"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/redact"
 	"scenery.sh/runtime/shared"
 )
@@ -70,8 +71,26 @@ type reportingHandler struct {
 var reporterMu sync.RWMutex
 var globalReporter *devReporter
 
+// reportInternalFailures makes a report token this process mints useful. The
+// answer that carries the token withholds the cause, so the cause is logged
+// beside the token, where the operator of a deployed process finds it, and
+// sent to the development supervisor when one is attached, where
+// `scenery inspect report` resolves it.
+func reportInternalFailures() {
+	machine.SetInternalFailureSink(func(failure machine.InternalFailure) {
+		cause := redact.String(failure.Cause)
+		slog.Error("internal failure", "report_token", failure.ReportToken, "code", failure.Code, "cause", cause)
+		if reporter := activeReporter(); reporter != nil {
+			reporter.enqueue(devreport.ReportEnvelope{Type: "internal-failure", InternalFailure: &devreport.InternalFailure{
+				ReportToken: failure.ReportToken, Code: failure.Code, Cause: cause, Timestamp: time.Now().UTC(),
+			}})
+		}
+	})
+}
+
 func startDevelopmentReporting(cfg AppConfig) func() {
 	_ = cfg
+	reportInternalFailures()
 	url := stringsTrim(osGetenv("SCENERY_DEV_REPORT_URL"))
 	token := stringsTrim(osGetenv("SCENERY_DEV_REPORT_TOKEN"))
 	appID := stringsTrim(osGetenv("SCENERY_APP_ID"))

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/devreport"
 	"scenery.sh/internal/machine"
 )
 
@@ -31,7 +33,7 @@ func TestAReportTokenResolvesToTheCauseItWithheld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Kind != failureReportKind || report.Code != "SCN9000" || report.Command != "db apply" ||
+	if report.Kind != failureReportKind || report.Code != "SCN9000" || report.Command != "db apply" || report.Origin != "cli" ||
 		report.Cause != "dial tcp 10.0.0.7:5432: connect: connection refused" || report.ReportToken != diagnostic.ReportToken {
 		t.Fatalf("report = %+v", report)
 	}
@@ -80,5 +82,31 @@ func TestFailureReportsAreBounded(t *testing.T) {
 	}
 	if _, err := readFailureReport("rpt_0004"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestARuntimeReportedFailureResolvesAsItsReporter(t *testing.T) {
+	home := t.TempDir()
+	paths := localagent.PathsForHome(home)
+	commandAgentPathsOverride = &paths
+	t.Cleanup(func() { commandAgentPathsOverride = nil })
+	// The receiving process may be the agent; its own invocation is not the report's.
+	failureReportArguments.Store(&[]string{"system", "agent"})
+	recordRuntimeFailureReport(devdash.ReportEnvelope{
+		Type: "internal-failure", AppID: "shop", SessionID: "main-1", ReporterPID: 4242,
+		InternalFailure: &devreport.InternalFailure{ReportToken: "rpt_runtime1", Code: "SCN9000", Cause: "open postgres://shop:hunter2@db/shop: refused"},
+	})
+	report, err := readFailureReport("rpt_runtime1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Origin != "runtime" || report.Command != "runtime" || len(report.Arguments) != 0 || report.ReporterPID != 4242 ||
+		report.AppID != "shop" || report.SessionID != "main-1" || strings.Contains(report.Cause, "hunter2") || !strings.Contains(report.Cause, "refused") {
+		t.Fatalf("report = %+v", report)
+	}
+	recordRuntimeFailureReport(devdash.ReportEnvelope{Type: "internal-failure"})
+	recordRuntimeFailureReport(devdash.ReportEnvelope{Type: "internal-failure", InternalFailure: &devreport.InternalFailure{ReportToken: "../escape", Cause: "x"}})
+	if entries, _ := os.ReadDir(filepath.Join(home, "reports")); len(entries) != 1 {
+		t.Fatalf("reports = %d", len(entries))
 	}
 }
