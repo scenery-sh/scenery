@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/atomicfile"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
 )
 
@@ -67,7 +68,13 @@ func DescribeError(err error) (Failure, bool) {
 	return Failure{}, false
 }
 
-func InternalFailure() Failure {
+// InternalFailure is the opaque failure of an error DescribeError does not
+// classify; its cause goes to the process's internal failure sink.
+func InternalFailure(cause error) Failure {
 	definition, _ := spec.DiagnosticDefinitionFor("SCN9000")
-	return Failure{Code: "internal", Diagnostic: "SCN9000", Message: definition.Meaning, ReportToken: "rpt_" + strings.ToLower(rand.Text()), HTTPStatus: 500, ExitCode: 10}
+	token := "rpt_" + strings.ToLower(rand.Text())
+	if cause != nil {
+		machine.ReportInternalFailure(token, "SCN9000", cause.Error())
+	}
+	return Failure{Code: "internal", Diagnostic: "SCN9000", Message: definition.Meaning, ReportToken: token, HTTPStatus: 500, ExitCode: 10}
 }

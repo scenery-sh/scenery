@@ -22,6 +22,7 @@ import (
 
 type inspectOptions struct {
 	Subject          string
+	ReportToken      string
 	AppRoot          string
 	RepoRoot         string
 	JSON             bool
@@ -152,6 +153,13 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return inspectInvalidRequest(fmt.Errorf("scenery inspect currently requires -o json"))
 	}
 
+	if opts.Subject == "report" {
+		report, err := readFailureReport(opts.ReportToken)
+		if err != nil {
+			return err
+		}
+		return writeInspectJSON(stdout, report)
+	}
 	if opts.Subject == "docs" {
 		repoRoot, err := discoverSceneryRepoRoot(opts.RepoRoot)
 		if err != nil {
@@ -407,6 +415,12 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		if cliFlagSet(flags, "tag") && opts.Docs.Tag == "" {
 			return inspectOptions{}, usageErrorf("--tag must not be empty")
 		}
+	}
+	if opts.Subject == "report" {
+		if len(positionals) == 0 {
+			return inspectOptions{}, usageErrorf("missing report token; usage: scenery inspect report <report-token> -o json")
+		}
+		opts.ReportToken, positionals = positionals[0], positionals[1:]
 	}
 	if opts.Subject == "harness" && len(positionals) > 0 {
 		opts.Harness.Topic = positionals[0]

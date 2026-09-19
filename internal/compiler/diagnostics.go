@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"scenery.sh/internal/machine"
 )
 
 var reportTokenCounter atomic.Uint64
@@ -26,12 +28,14 @@ func TransportDiagnostic(kind, message string) Diagnostic {
 	return internalDiagnostic("SCN9000", message)
 }
 
-func internalDiagnostic(code, _ string) Diagnostic {
+func internalDiagnostic(code, cause string) Diagnostic {
 	message := "internal tooling failure"
 	if definition, ok := DiagnosticDefinitionFor(code); ok {
 		message = definition.Meaning
 	}
-	return Diagnostic{Code: code, Severity: "error", Message: message, ReportToken: newReportToken()}
+	token := newReportToken()
+	machine.ReportInternalFailure(token, code, cause)
+	return Diagnostic{Code: code, Severity: "error", Message: message, ReportToken: token}
 }
 
 func newReportToken() string {

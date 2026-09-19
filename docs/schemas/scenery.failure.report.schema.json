@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.failure.report.schema.json",
+  "title": "scenery.failure.report",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "report_token",
+    "code",
+    "recorded_at",
+    "command",
+    "arguments",
+    "working_directory",
+    "cause",
+    "producer_version"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.failure.report"
+    },
+    "schema_revision": {
+      "const": "sha256:514b68276099698f2b83dce78a190f7d218e8f8f232b3272c306b9d47323ff80"
+    },
+    "report_token": {
+      "type": "string",
+      "pattern": "^rpt_[a-z0-9]+$"
+    },
+    "code": {
+      "type": "string"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "command": {
+      "type": "string"
+    },
+    "arguments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "working_directory": {
+      "type": "string"
+    },
+    "cause": {
+      "type": "string"
+    },
+    "producer_version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

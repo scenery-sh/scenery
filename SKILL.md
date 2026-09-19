@@ -61,6 +61,8 @@ an unavailable procedure. Practical examples live in the
 - Prefer `-o json` and `-o jsonl`. Check schema/spec revisions and producer
   identity, branch on stable `SCNxxxx` diagnostics, and resolve opaque source
   IDs through the source map. Never guess substrate ports or owner records.
+  An internal `SCN9xxx` diagnostic withholds its cause; read it with
+  `scenery inspect report <report-token> -o json`.
 
 ## Authorization and Data
 

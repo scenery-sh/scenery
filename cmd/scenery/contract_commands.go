@@ -527,7 +527,7 @@ func findContractRoot(value string) (string, error) {
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			return "", fmt.Errorf("no %s found from %s", scn.AppFilename, start)
+			return "", usageErrorf("no %s found from %s; run inside a Scenery app or pass --app-root <path>", scn.AppFilename, start)
 		}
 		abs = parent
 	}

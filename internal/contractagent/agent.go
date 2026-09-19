@@ -791,6 +791,7 @@ func agentError(kind, message string) *AgentError {
 	if kind == "internal" {
 		result.Message = "internal tooling failure"
 		result.ReportToken = newReportToken()
+		machine.ReportInternalFailure(result.ReportToken, "internal", message)
 	}
 	return result
 }

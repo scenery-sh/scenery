@@ -25,6 +25,10 @@ It also owns the one current command-data payload schema identity registry.
   complete self-normalized JSON Schema. Private artifacts without a checked
   schema use complete structural descriptors guarded by type-shape tests.
 
+- A site that mints a `report_token` hands its cause to
+  `ReportInternalFailure` exactly once. The cause never enters an envelope; a
+  process installs at most one sink and a process without one discards it.
+
 ## Verification
 
 ```sh

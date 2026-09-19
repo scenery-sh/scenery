@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ type cliRunFunc func([]string, *cliTelemetryInvocation) error
 func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, runCLI cliRunFunc, record func(cliTelemetryRecord)) int {
 	telemetry := newCLITelemetryInvocation(started, args)
 	telemetry.recorder = record
+	installFailureReports(args)
 	err := renderMachineError(stdout, args, runCLI(args, telemetry))
 	exitCode := cliExitCode(err)
 	telemetry.finish(exitCode)
@@ -307,6 +309,10 @@ func cliExitCode(err error) int {
 	}
 	if _, ok := errors.AsType[*appcfg.ConfigError](err); ok {
 		return 3
+	}
+	// The request named a place without an app, or a file that is no archive.
+	if errors.Is(err, appcfg.ErrRootNotFound) || errors.Is(err, zip.ErrFormat) {
+		return 2
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	kind, _, _ := strings.Cut(message, ":")

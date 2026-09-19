@@ -21,7 +21,7 @@ const (
 func HTTPError(w http.ResponseWriter, err error) {
 	failure, ok := storagefs.DescribeError(err)
 	if !ok {
-		failure = storagefs.InternalFailure()
+		failure = storagefs.InternalFailure(err)
 	}
 	if data, marshalErr := json.Marshal(failure); marshalErr == nil && len(data) <= maxStorageErrorBytes {
 		encoded := base64.RawURLEncoding.EncodeToString(data)

@@ -40,7 +40,7 @@ func (e *dashboardStorageFailure) Error() string { return e.Diagnostic + ": " + 
 func dashboardStorageError(err error) error {
 	failure, ok := storagefs.DescribeError(err)
 	if !ok {
-		failure = storagefs.InternalFailure()
+		failure = storagefs.InternalFailure(err)
 	}
 	return &dashboardStorageFailure{failure}
 }

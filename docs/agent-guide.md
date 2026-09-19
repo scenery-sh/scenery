@@ -128,7 +128,15 @@ Branch on stable diagnostic codes, never message text. Inspect the catalog with:
 scenery schema SCN2101 -o json
 ```
 
-Internal diagnostics publish a sanitized message and opaque report token.
+Internal diagnostics publish a sanitized message and opaque report token. The
+CLI that minted the token kept the cause; read it on the same machine with:
+
+```sh
+scenery inspect report <report-token> -o json
+```
+
+A request written wrongly is never internal: it is `SCN8001` (exit 2) and its
+message names the argument, flag or value to correct.
 
 For semantic creation, first read agent capabilities and verify the kind appears in `resource_create_kinds`, then fetch `schema.get`. Recursive schemas distinguish source attributes from child blocks, labels, cardinality, ordering, phases, defaults, constraints, sensitivity, and patchability. Unadvertised kinds are intentionally unavailable.
 

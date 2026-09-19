@@ -96,7 +96,7 @@ func runDBMigrate(ctx context.Context, stdout io.Writer, args []string) (returnE
 		plans = selected
 	}
 	if len(plans) == 0 {
-		return fmt.Errorf("no database.migrations target is configured for this selection")
+		return preconditionErrorf("no database.migrations target is configured for this selection")
 	}
 	if opts.AdoptInitial {
 		for _, plan := range plans {
