@@ -476,6 +476,28 @@ describe("Scenery TypeScript client exact codecs", () => {
 		expect(requests).toBe(1);
 	});
 
+	test("forwards keepalive only when a call asks for it", async () => {
+		const inits: RequestInit[] = [];
+		const client = new PublicApiClient({
+			baseUrl: "https://example.test" as URLString,
+			fetch: async (_input, init) => {
+				inits.push(init ?? {});
+				return new Response(JSON.stringify({ code: "transport.invalid_request", message: "invalid" }), {
+					status: 400,
+					headers: { "content-type": "application/problem+json" },
+				});
+			},
+		});
+		await client.processScene({ sceneId: "scene-1" }, { keepalive: true });
+		await client.processScene({ sceneId: "scene-1" });
+		expect(inits.map((init) => init.keepalive)).toEqual([true, undefined]);
+		expect("keepalive" in inits[1]!).toBe(false);
+		await expect(
+			client.processScene({ sceneId: "scene-1" }, { keepalive: "yes" as unknown as boolean }),
+		).rejects.toMatchObject({ code: "invalid_options" });
+		expect(inits).toHaveLength(2);
+	});
+
 	test("performs no fetch for an already-cancelled call", async () => {
 		let requested = false;
 		const controller = new AbortController();
