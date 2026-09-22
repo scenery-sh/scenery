@@ -178,8 +178,10 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 		}
 		inputWant := goName(operation.Name) + "Input"
 		outcomeWant := goName(operation.Name) + "Outcome"
-		inputGot := types.TypeString(signature.Params().At(1).Type(), packageQualifier)
-		outcomeGot := types.TypeString(signature.Results().At(0).Type(), packageQualifier)
+		inputType := signature.Params().At(1).Type()
+		outcomeType := signature.Results().At(0).Type()
+		inputGot := types.TypeString(inputType, packageQualifier)
+		outcomeGot := types.TypeString(outcomeType, packageQualifier)
 		errorIndex := 1
 		streamGot := ""
 		if streaming {
@@ -187,7 +189,7 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 			errorIndex = 2
 		}
 		errorGot := types.TypeString(signature.Results().At(errorIndex).Type(), packageQualifier)
-		valid := strings.HasSuffix(inputGot, "/scenerycontract."+inputWant) && strings.HasSuffix(outcomeGot, "/scenerycontract."+outcomeWant) && errorGot == "error"
+		valid := contractTypeMatches(inputType, inputWant) && contractTypeMatches(outcomeType, outcomeWant) && errorGot == "error"
 		if streaming {
 			valid = valid && (streamGot == "scenery.sh.ByteStream" || strings.HasSuffix(streamGot, "/runtime.ContractByteStream"))
 		}
@@ -200,6 +202,22 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 		}
 	}
 	return diagnostics
+}
+
+// contractTypeMatches accepts the generated contract type named want or any
+// type identical to it. Generated contracts declare an operation's input as an
+// alias when it reuses a shared record (`type FinishInput = SessionRef`); a
+// handler may spell either name because Go treats them as the same type.
+func contractTypeMatches(got types.Type, want string) bool {
+	if strings.HasSuffix(types.TypeString(got, packageQualifier), "/scenerycontract."+want) {
+		return true
+	}
+	named, ok := types.Unalias(got).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil || !strings.HasSuffix(named.Obj().Pkg().Path(), "/scenerycontract") {
+		return false
+	}
+	expected, ok := named.Obj().Pkg().Scope().Lookup(want).(*types.TypeName)
+	return ok && types.Identical(types.Unalias(expected.Type()), types.Unalias(got))
 }
 
 func packageQualifier(pkg *types.Package) string {
