@@ -182,6 +182,30 @@ func BootstrapAgentLaunchd() error {
 	return bootstrapAndStartAgentLaunchd(plistPath)
 }
 
+// ReloadAgentLaunchd re-registers the loaded supervised agent job: bootout
+// stops the running agent, then bootstrap and an explicit start load the
+// installed plist again. Registration is when launchd records the job's
+// launch constraints, including the executable's code-directory hash, so a
+// kickstart of the old registration refuses a reinstalled binary at the same
+// path ("needs LWCR update", spawn failed with EX_CONFIG). This is the form of
+// `scenery system agent restart` under supervision.
+func ReloadAgentLaunchd() error {
+	if !launchdSupportedFunc() {
+		return fmt.Errorf("scenery agent launchd supervision is currently supported on macOS")
+	}
+	plistPath, err := AgentLaunchdPlistPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(plistPath); err != nil {
+		return err
+	}
+	// An already unloaded job is the state bootout produces; bootstrap below
+	// reports any real launchd failure.
+	_, _ = launchctlRunFunc("bootout", launchdGUITarget())
+	return bootstrapAndStartAgentLaunchd(plistPath)
+}
+
 // RemoveAgentLaunchd boots the supervised agent job out of launchd before
 // removing its plist, so teardown never leaves a loaded job pointing at a
 // deleted plist.
@@ -204,9 +228,8 @@ func RemoveAgentLaunchd() (bool, error) {
 }
 
 // KickstartAgentLaunchd asks launchd to (re)start the supervised agent. With
-// kill=true the running agent is terminated and respawned atomically, which
-// is the cooperative form of `scenery system agent restart` under
-// supervision.
+// kill=true the running agent is terminated and respawned under the existing
+// registration; use ReloadAgentLaunchd when the executable may have changed.
 func KickstartAgentLaunchd(kill bool) error {
 	args := []string{"kickstart"}
 	if kill {
@@ -222,6 +245,49 @@ func KickstartAgentLaunchd(kill bool) error {
 
 var launchdPrintPIDRE = regexp.MustCompile(`(?m)^\s*pid = (\d+)\s*$`)
 var launchdPrintStateRE = regexp.MustCompile(`(?m)^\s*state = (\S+)\s*$`)
+var launchdPrintJobStateRE = regexp.MustCompile(`(?m)^\s*job state = (.+?)\s*$`)
+var launchdPrintLastExitRE = regexp.MustCompile(`(?m)^\s*last exit code = (.+?)\s*$`)
+var launchdPrintPropertiesRE = regexp.MustCompile(`(?m)^\s*properties = (.+?)\s*$`)
+
+// AgentLaunchdSpawnFailure describes why launchd cannot spawn the supervised
+// agent, or returns "" when the loaded job shows no spawn failure. launchd
+// records such failures only in its job state; the agent itself never runs,
+// so its log stays silent.
+func AgentLaunchdSpawnFailure() string {
+	if !launchdSupportedFunc() {
+		return ""
+	}
+	out, err := launchctlRunFunc("print", launchdGUITarget())
+	if err != nil {
+		return ""
+	}
+	jobState := ""
+	if match := launchdPrintJobStateRE.FindSubmatch(out); match != nil {
+		jobState = string(match[1])
+	}
+	needsConstraintUpdate := false
+	if match := launchdPrintPropertiesRE.FindSubmatch(out); match != nil {
+		for property := range strings.SplitSeq(string(match[1]), "|") {
+			if strings.TrimSpace(property) == "needs LWCR update" {
+				needsConstraintUpdate = true
+			}
+		}
+	}
+	if jobState != "spawn failed" && !needsConstraintUpdate {
+		return ""
+	}
+	details := []string{}
+	if jobState != "" {
+		details = append(details, "job state "+jobState)
+	}
+	if match := launchdPrintLastExitRE.FindSubmatch(out); match != nil {
+		details = append(details, "last exit code "+string(match[1]))
+	}
+	if needsConstraintUpdate {
+		details = append(details, "launch constraints still name a previous executable")
+	}
+	return strings.Join(details, "; ")
+}
 
 // AgentLaunchdStatusForSocket reports supervision truth for the agent that
 // owns socketPath. SupervisesSocket is false when the installed plist manages

@@ -159,9 +159,10 @@ func reapStaleAgentRouterOwner(opts agentOptions) error {
 }
 
 var (
-	agentSupervisorStatusFunc    = localagent.AgentLaunchdStatusForSocket
-	agentSupervisorKickstartFunc = localagent.KickstartAgentLaunchd
-	agentSupervisorBootstrapFunc = localagent.BootstrapAgentLaunchd
+	agentSupervisorStatusFunc       = localagent.AgentLaunchdStatusForSocket
+	agentSupervisorReloadFunc       = localagent.ReloadAgentLaunchd
+	agentSupervisorBootstrapFunc    = localagent.BootstrapAgentLaunchd
+	agentSupervisorSpawnFailureFunc = localagent.AgentLaunchdSpawnFailure
 )
 
 func agentRestartCommand(args []string) error {
@@ -178,7 +179,9 @@ func agentRestartCommand(args []string) error {
 		paths.RunDir = filepath.Dir(paths.SocketPath)
 	}
 	client := localagent.NewClient(paths.SocketPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// A supervised restart waits for launchd to tear the old job down and
+	// load it again before the agent itself starts.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	oldHealth, running := currentAgentHealth(ctx, client)
@@ -231,9 +234,11 @@ func agentRestartCommand(args []string) error {
 }
 
 // restartAgentViaSupervisor restarts the agent through launchd when the
-// installed supervised plist manages this socket. Kickstart replaces the
-// running agent atomically, so the restart cooperates with KeepAlive instead
-// of racing it; a plist that exists but is not loaded is repaired by
+// installed supervised plist manages this socket. A loaded job is registered
+// again rather than kickstarted: registration pins the executable's launch
+// constraints, so only a fresh registration can start a reinstalled binary.
+// Launchd owns the stop and start, so the restart cooperates with KeepAlive
+// instead of racing it; a plist that exists but is not loaded is repaired by
 // bootstrapping it. It returns supervised=false when no supervisor owns the
 // socket, leaving the caller on the unsupervised stop/start path.
 func restartAgentViaSupervisor(ctx context.Context, client *localagent.Client, paths localagent.Paths, oldHealth localagent.HealthResponse, running bool) (localagent.HealthResponse, bool, error) {
@@ -254,15 +259,31 @@ func restartAgentViaSupervisor(ctx context.Context, client *localagent.Client, p
 			return localagent.HealthResponse{}, true, err
 		}
 	}
+	start := agentSupervisorReloadFunc
 	if !status.Loaded {
-		if err := agentSupervisorBootstrapFunc(); err != nil {
-			return localagent.HealthResponse{}, true, err
-		}
-	} else if err := agentSupervisorKickstartFunc(true); err != nil {
-		return localagent.HealthResponse{}, true, err
+		start = agentSupervisorBootstrapFunc
+	}
+	if err := start(); err != nil {
+		return localagent.HealthResponse{}, true, supervisedAgentStartError(err, status.PlistPath)
 	}
 	health, err := waitForAgentStart(ctx, client, oldHealth.PID, paths.LogPath, logOffset)
-	return health, true, err
+	if err != nil {
+		return localagent.HealthResponse{}, true, supervisedAgentStartError(err, status.PlistPath)
+	}
+	return health, true, nil
+}
+
+// supervisedAgentStartError reports a launchd spawn failure as the failed
+// precondition it is. launchd never runs the agent in that state, so waiting
+// on the socket alone would surface only a timeout.
+func supervisedAgentStartError(err error, plistPath string) error {
+	failure := agentSupervisorSpawnFailureFunc()
+	if failure == "" {
+		return err
+	}
+	domain := fmt.Sprintf("gui/%d", os.Getuid())
+	return fmt.Errorf("failed_precondition: launchd cannot start the supervised scenery agent %s (%s); check the executable named in %s, then reload the job with `launchctl bootout %s/%s` and `launchctl bootstrap %s %s`: %w",
+		localagent.AgentLaunchdLabel, failure, plistPath, domain, localagent.AgentLaunchdLabel, domain, plistPath, err)
 }
 
 func parseAgentArgs(args []string) (agentOptions, error) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -70,19 +71,22 @@ func (f *fakeAgentHealthServer) setDashboard(backend localagent.Backend) {
 	f.mu.Unlock()
 }
 
-func withAgentSupervisorHooks(t *testing.T, status localagent.LaunchdAgentStatus, kickstart func(bool) error, bootstrap func() error) {
+func withAgentSupervisorHooks(t *testing.T, status localagent.LaunchdAgentStatus, reload func() error, bootstrap func() error) {
 	t.Helper()
 	oldStatus := agentSupervisorStatusFunc
-	oldKickstart := agentSupervisorKickstartFunc
+	oldReload := agentSupervisorReloadFunc
 	oldBootstrap := agentSupervisorBootstrapFunc
+	oldSpawnFailure := agentSupervisorSpawnFailureFunc
 	t.Cleanup(func() {
 		agentSupervisorStatusFunc = oldStatus
-		agentSupervisorKickstartFunc = oldKickstart
+		agentSupervisorReloadFunc = oldReload
 		agentSupervisorBootstrapFunc = oldBootstrap
+		agentSupervisorSpawnFailureFunc = oldSpawnFailure
 	})
 	agentSupervisorStatusFunc = func(socketPath string) localagent.LaunchdAgentStatus { return status }
-	if kickstart != nil {
-		agentSupervisorKickstartFunc = kickstart
+	agentSupervisorSpawnFailureFunc = func() string { return "" }
+	if reload != nil {
+		agentSupervisorReloadFunc = reload
 	}
 	if bootstrap != nil {
 		agentSupervisorBootstrapFunc = bootstrap
@@ -116,16 +120,16 @@ func deployStatusTestDependencies(supervisor localagent.LaunchdAgentStatus, laun
 	}
 }
 
-func TestRestartAgentViaSupervisorKickstartsLoadedJob(t *testing.T) {
+func TestRestartAgentViaSupervisorReloadsLoadedJob(t *testing.T) {
 	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
 	fake := startFakeAgentHealthServer(t, paths.SocketPath, 111)
 
-	kicked := false
+	reloaded := false
 	// The supervisor owns pid 111, so restart must not SIGTERM it directly:
-	// kickstart -k replaces it atomically.
+	// launchd stops it while registering the job again.
 	withAgentSupervisorHooks(t, localagent.LaunchdAgentStatus{
 		Supported:        true,
 		PlistPresent:     true,
@@ -133,14 +137,14 @@ func TestRestartAgentViaSupervisorKickstartsLoadedJob(t *testing.T) {
 		Loaded:           true,
 		Running:          true,
 		PID:              111,
-	}, func(kill bool) error {
-		if !kill {
-			t.Fatal("supervised restart must kickstart with -k")
-		}
-		kicked = true
+	}, func() error {
+		reloaded = true
 		fake.setPID(222)
 		return nil
-	}, nil)
+	}, func() error {
+		t.Fatal("loaded job must be reloaded, not only bootstrapped")
+		return nil
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -150,8 +154,8 @@ func TestRestartAgentViaSupervisorKickstartsLoadedJob(t *testing.T) {
 		t.Fatalf("old health = %+v, running=%v", oldHealth, running)
 	}
 	health, supervised, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
-	if err != nil || !supervised || !kicked {
-		t.Fatalf("supervised restart = %+v, supervised=%v, kicked=%v, err=%v", health, supervised, kicked, err)
+	if err != nil || !supervised || !reloaded {
+		t.Fatalf("supervised restart = %+v, supervised=%v, reloaded=%v, err=%v", health, supervised, reloaded, err)
 	}
 	if health.PID != 222 {
 		t.Fatalf("restarted pid = %d, want 222", health.PID)
@@ -171,8 +175,8 @@ func TestRestartAgentViaSupervisorRepairsUnloadedJob(t *testing.T) {
 		PlistPresent:     true,
 		SupervisesSocket: true,
 		Loaded:           false,
-	}, func(bool) error {
-		t.Fatal("unloaded job must bootstrap, not kickstart")
+	}, func() error {
+		t.Fatal("unloaded job must bootstrap, not reload")
 		return nil
 	}, func() error {
 		bootstrapped = true
@@ -200,8 +204,8 @@ func TestRestartAgentViaSupervisorSkipsForeignPlist(t *testing.T) {
 		PlistPresent:     true,
 		SupervisesSocket: false,
 		Loaded:           true,
-	}, func(bool) error {
-		t.Fatal("foreign plist must not be kickstarted")
+	}, func() error {
+		t.Fatal("foreign plist must not be reloaded")
 		return nil
 	}, nil)
 	ctx := context.Background()
@@ -209,6 +213,46 @@ func TestRestartAgentViaSupervisorSkipsForeignPlist(t *testing.T) {
 	_, supervised, err := restartAgentViaSupervisor(ctx, client, paths, localagent.HealthResponse{}, false)
 	if err != nil || supervised {
 		t.Fatalf("foreign plist supervised=%v err=%v", supervised, err)
+	}
+}
+
+func TestRestartAgentViaSupervisorReportsLaunchdSpawnFailure(t *testing.T) {
+	paths := localagent.PathsForHome(t.TempDir())
+	status := localagent.LaunchdAgentStatus{
+		Supported:        true,
+		PlistPresent:     true,
+		SupervisesSocket: true,
+		Loaded:           true,
+		PlistPath:        "/Users/example/Library/LaunchAgents/dev.scenery.agent.plist",
+	}
+	withAgentSupervisorHooks(t, status, func() error {
+		return errors.New("launchctl kickstart gui/501/dev.scenery.agent: exit status 5")
+	}, nil)
+	agentSupervisorSpawnFailureFunc = func() string {
+		return "job state spawn failed; last exit code 78: EX_CONFIG"
+	}
+	client := localagent.NewClient(paths.SocketPath)
+	_, supervised, err := restartAgentViaSupervisor(context.Background(), client, paths, localagent.HealthResponse{}, false)
+	if !supervised || err == nil {
+		t.Fatalf("spawn failure supervised=%v err=%v", supervised, err)
+	}
+	if code := cliExitCode(err); code != 3 {
+		t.Fatalf("exit code = %d, want failed precondition 3: %v", code, err)
+	}
+	if diagnostic := cliErrorDiagnostic(err); diagnostic.Code != "SCN8003" {
+		t.Fatalf("diagnostic = %+v, want SCN8003", diagnostic)
+	}
+	for _, want := range []string{"job state spawn failed", "EX_CONFIG", "launchctl bootstrap gui/", status.PlistPath, "exit status 5"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err, want)
+		}
+	}
+
+	// Without a launchd spawn failure the start error stays as reported.
+	agentSupervisorSpawnFailureFunc = func() string { return "" }
+	_, _, err = restartAgentViaSupervisor(context.Background(), client, paths, localagent.HealthResponse{}, false)
+	if err == nil || strings.HasPrefix(err.Error(), "failed_precondition:") {
+		t.Fatalf("plain start error = %v", err)
 	}
 }
 
