@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -145,6 +146,18 @@ func (c *runConsole) RebuildFailed(err error) {
 		return
 	}
 	c.printError("rebuild failed", err)
+}
+
+// FrameworkHandoff announces that the runtime stops so the prepared producer
+// of the app's newly selected Scenery continues this `scenery up`.
+func (c *runConsole) FrameworkHandoff(handoff *frameworkHandoff) {
+	if c.json {
+		c.Event("framework.handoff", handoff.summary())
+		return
+	}
+	c.printf(c.out, "\n  %s\n  %s\n\n",
+		c.palette.Bold("The app now selects Scenery "+handoff.label()+"; restarting with it."),
+		c.palette.Dim(handoff.Executable))
 }
 
 func (c *runConsole) Banner(urls runURLs) {
@@ -406,7 +419,11 @@ func (c *runConsole) Finish(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	data := map[string]any{"event_count": c.eventCount, "ok": err == nil}
-	if err != nil {
+	if handoff, ok := errors.AsType[*frameworkHandoff](err); ok {
+		// The runtime stopped cleanly; the next producer starts its own stream.
+		data["ok"] = true
+		data["handoff"] = handoff.summary()
+	} else if err != nil {
 		data["error"] = err.Error()
 		data["diagnostic"] = cliErrorDiagnostic(err)
 		data["exit_code"] = cliExitCode(err)

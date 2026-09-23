@@ -54,7 +54,9 @@ an unavailable procedure. Practical examples live in the
 - Pin `scenery.sh` in the app's `go.mod`, run `scenery framework use -o json`, and
   use the reported worktree-local executable. Explicit co-development selects
   `framework use --source <checkout>`; it freezes source bytes. Do not commit
-  its local replacement or infer runtime parity from a checkout SHA.
+  its local replacement or infer runtime parity from a checkout SHA. After a
+  pin change, a running `scenery up` prepares and hands off to the newly
+  selected framework itself; do not kill it to upgrade.
 - Use `scenery up` for the live loop and another worktree for another code copy.
   Discover URLs through `scenery ps -o json`. An incompatible owner is not
   permission to replace a live runtime. Installation does not migrate apps/data.

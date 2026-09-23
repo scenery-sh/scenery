@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0203-framework-handoff.md",
+      "title": "Framework Handoff For Running Development Runtimes",
+      "owner": "scenery runtime / build",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-23",
+      "review_after": "2026-10-23",
+      "summary": "A running scenery up started by a prepared framework executable detects a changed go.mod framework selection, prepares it while serving, then stops and continues as the new producer (exec in the foreground, detached relaunch); the generated dev-runtime.ts reports stale-runtime status mismatches with details.",
+      "tags": ["plans", "execplans", "runtime", "build", "typescript"]
+    },
+    {
       "path": "docs/plans/0202-development-runtime-rpc-contract.md",
       "title": "Development Runtime RPC Contract And Console Removal",
       "owner": "scenery runtime / generate",

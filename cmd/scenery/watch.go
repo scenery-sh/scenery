@@ -23,6 +23,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/localproxy"
@@ -369,6 +370,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 
 	console := newRunConsole(os.Stdout, os.Stderr, verbose, jsonMode, cfg.AppID(), root)
 	defer func() {
+		if _, handoff := errors.AsType[*frameworkHandoff](runErr); handoff {
+			console.Finish(runErr)
+			return
+		}
 		runErr = preserveCLIDiagnostic(runErr)
 		console.Finish(runErr)
 		if jsonMode && runErr != nil {
@@ -485,6 +490,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		defer func() { _ = watcher.Close() }()
 	}
 
+	var failedHandoff build.DesiredFramework
 	for {
 		nextSnapshot, forced, err := waitForStableChange(ctx, root, snapshot, watcher, supervisor.rebuildRequestChan())
 		if err != nil {
@@ -505,6 +511,11 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		}
 		if len(appPaths) == 0 && !forced {
 			continue
+		}
+		// Checked before the config reload: a newly selected framework may use
+		// a configuration language this producer cannot decode.
+		if handoff := supervisor.frameworkHandoffBeforeBuild(ctx, &failedHandoff); handoff != nil {
+			return handoff
 		}
 		supervisor.announceRebuild(appPaths)
 		if err := supervisor.RebuildAndRestart(ctx, false, &snapshot); err != nil {

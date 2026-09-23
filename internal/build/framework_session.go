@@ -142,38 +142,114 @@ func VerifyPreparedFramework(selection FrameworkSelection) error {
 	return nil
 }
 
-// ResolveFrameworkModule consumes the authored module selection. Download is
-// explicit preparation only; starting/rebuilding a session never changes it.
-func ResolveFrameworkModule(ctx context.Context, appRoot string, download bool) (string, string, error) {
+// DesiredFramework is the framework selection authored in an application's
+// go.mod: the pinned scenery.sh requirement, and the local replacement
+// directory when one applies to it. Root is empty for a pinned module.
+type DesiredFramework struct {
+	Version string
+	Root    string
+}
+
+// ReadDesiredFramework parses the authored selection only. It neither
+// resolves nor downloads the module and reads no framework source.
+func ReadDesiredFramework(appRoot string) (DesiredFramework, error) {
 	data, err := os.ReadFile(filepath.Join(appRoot, "go.mod"))
 	if err != nil {
-		return "", "", err
+		return DesiredFramework{}, err
 	}
 	module, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {
-		return "", "", err
+		return DesiredFramework{}, err
 	}
-	version := ""
+	desired := DesiredFramework{}
 	for _, requirement := range module.Require {
 		if requirement.Mod.Path == "scenery.sh" {
-			version = requirement.Mod.Version
+			desired.Version = requirement.Mod.Version
 		}
 	}
-	if version == "" {
-		return "", "", fmt.Errorf("application go.mod must pin scenery.sh before preparing its framework")
+	if desired.Version == "" {
+		return DesiredFramework{}, fmt.Errorf("application go.mod must pin scenery.sh before preparing its framework")
 	}
 	for _, replacement := range module.Replace {
-		if replacement.Old.Path != "scenery.sh" || (replacement.Old.Version != "" && replacement.Old.Version != version) {
+		if replacement.Old.Path != "scenery.sh" || (replacement.Old.Version != "" && replacement.Old.Version != desired.Version) {
 			continue
 		}
 		if replacement.New.Version != "" {
-			return "", "", fmt.Errorf("select the scenery.sh module directly; remote replacement is not a coherent framework selection")
+			return DesiredFramework{}, fmt.Errorf("select the scenery.sh module directly; remote replacement is not a coherent framework selection")
 		}
 		root := replacement.New.Path
 		if !filepath.IsAbs(root) {
 			root = filepath.Join(appRoot, root)
 		}
-		return filepath.Clean(root), version, nil
+		desired.Root = filepath.Clean(root)
+		return desired, nil
+	}
+	return desired, nil
+}
+
+// FrameworkSnapshotDigest returns the source digest that names an app-local
+// framework snapshot directory, as `scenery framework use --source` selects
+// it. Any other directory is not a snapshot of this app root.
+func FrameworkSnapshotDigest(appRoot, root string) (string, bool) {
+	relative, err := filepath.Rel(filepath.Join(canonicalPath(appRoot), ".scenery", "framework", "source"), canonicalPath(root))
+	if err != nil || strings.ContainsRune(relative, filepath.Separator) {
+		return "", false
+	}
+	digest := "sha256:" + relative
+	return digest, validFrameworkDigest(digest)
+}
+
+// LinkedFrameworkDigest is the framework source digest linked into this
+// producer, or empty for an unbound executable.
+func LinkedFrameworkDigest() string {
+	return linkedFrameworkDigest
+}
+
+// RunsPreparedFramework reports whether this process is a framework
+// executable that `scenery framework use` prepared for appRoot, as opposed to
+// a repository harness binary or another explicitly chosen executable.
+func RunsPreparedFramework(appRoot string) bool {
+	executable, err := os.Executable()
+	if err != nil || linkedFrameworkDigest == "" {
+		return false
+	}
+	return preparedFrameworkExecutable(appRoot, linkedFrameworkDigest, canonicalPath(executable))
+}
+
+func preparedFrameworkExecutable(appRoot, sourceDigest, executable string) bool {
+	binaries := filepath.Join(canonicalPath(appRoot), ".scenery", "framework", "bin", strings.TrimPrefix(sourceDigest, "sha256:"))
+	relative, err := filepath.Rel(binaries, executable)
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// canonicalPath resolves symlinks in the longest existing prefix, so /tmp and
+// /private/tmp spellings of one app root compare equal even for a snapshot
+// directory that a fresh checkout names but has not materialized yet.
+func canonicalPath(path string) string {
+	path = filepath.Clean(path)
+	missing := ""
+	for current := path; ; current = filepath.Dir(current) {
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			return filepath.Join(resolved, missing)
+		}
+		if parent := filepath.Dir(current); parent == current {
+			return path
+		}
+		missing = filepath.Join(filepath.Base(current), missing)
+	}
+}
+
+// ResolveFrameworkModule consumes the authored module selection. Download is
+// explicit preparation only; a build never changes it. A running `scenery up`
+// downloads only while preparing a framework handoff.
+func ResolveFrameworkModule(ctx context.Context, appRoot string, download bool) (string, string, error) {
+	desired, err := ReadDesiredFramework(appRoot)
+	if err != nil {
+		return "", "", err
+	}
+	version := desired.Version
+	if desired.Root != "" {
+		return desired.Root, version, nil
 	}
 	arguments := []string{"list", "-m", "-json", "scenery.sh"}
 	environment := gotarget.Hermetic(nil)
