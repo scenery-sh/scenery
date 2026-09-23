@@ -455,6 +455,8 @@ func (s *Service) ProcessScene(
 
 Handlers are exported, non-generic, and non-variadic. Cancellation and deadlines flow through `context.Context`. Durable execution may invoke a handler more than once.
 
+The input and outcome parameters are checked by Go type identity, not by spelling. When an operation reuses a shared record, its generated input is an alias (`type FinishSessionInput = SessionRef`), and a handler may name either the alias or the record.
+
 Handlers do not receive `http.Request`, `ResponseWriter`, Scenery request wrappers, or transport metadata under this contract.
 
 ### 12.2 Closed outcomes
