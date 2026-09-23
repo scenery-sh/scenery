@@ -1,22 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
-	"io"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,10 +19,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	dashboardstatic "scenery.sh/cmd/scenery/dashboard_static"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 )
 
 var dashboardUpgrader = websocket.Upgrader{
@@ -60,11 +53,7 @@ type dashboardServer struct {
 	state       dashboardRunState
 	logExporter func(*devdash.LogEvent)
 
-	mu             sync.Mutex
-	clients        map[*dashboardClient]struct{}
-	assets         fs.FS
-	traces         *dashboardTraceEventBuffer
-	bundleWarnOnce sync.Once
+	traces *dashboardTraceEventBuffer
 }
 
 type dashboardServerHooks struct {
@@ -82,7 +71,6 @@ type dashboardVictoria interface {
 type dashboardController interface {
 	dashboardActiveAppID() string
 	dashboardCurrentSessionID() string
-	dashboardListApps(context.Context) ([]map[string]any, error)
 	dashboardStatusFor(context.Context, string) (devdash.AppStatus, error)
 	dashboardStore() *devdash.Store
 	dashboardAuthorizeReport(*http.Request, devdash.ReportEnvelope) dashboardReportAuth
@@ -106,13 +94,6 @@ func (s *dashboardServer) dashboardCurrentSessionID() string {
 		return ""
 	}
 	return s.controller.dashboardCurrentSessionID()
-}
-
-func (s *dashboardServer) dashboardListApps(ctx context.Context) ([]map[string]any, error) {
-	if s == nil || s.controller == nil {
-		return []map[string]any{}, nil
-	}
-	return s.controller.dashboardListApps(ctx)
 }
 
 func (s *dashboardServer) dashboardStatusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {
@@ -147,23 +128,23 @@ func dashboardStoreAppID(status devdash.AppStatus) string {
 	return firstNonEmpty(status.BaseAppID, status.AppID)
 }
 
-func newDashboardServer(supervisor *devSupervisor, assetsDir string) *dashboardServer {
-	return newDashboardServerWithController(supervisor, supervisor.root, devdash.ListenAddr(), assetsDir, supervisor)
+func newDashboardServer(supervisor *devSupervisor) *dashboardServer {
+	return newDashboardServerWithController(supervisor, supervisor.root, devdash.ListenAddr(), supervisor)
 }
 
-func newDashboardServerWithController(controller dashboardController, root, addr, assetsDir string, supervisor *devSupervisor) *dashboardServer {
-	return newDashboardServerWithControllerHooks(controller, root, addr, assetsDir, supervisor, dashboardServerHooks{})
+func newDashboardServerWithController(controller dashboardController, root, addr string, supervisor *devSupervisor) *dashboardServer {
+	return newDashboardServerWithControllerHooks(controller, root, addr, supervisor, dashboardServerHooks{})
 }
 
-func newDashboardServerWithControllerHooks(controller dashboardController, root, addr, assetsDir string, supervisor *devSupervisor, hooks dashboardServerHooks) *dashboardServer {
-	assets, _ := dashboardAssetFS(assetsDir)
+// The dashboard listener is the worktree's runtime control backend: the
+// development runtime RPC, storage transfers, report intake and the
+// supervisor control plane. It serves no browser UI.
+func newDashboardServerWithControllerHooks(controller dashboardController, root, addr string, supervisor *devSupervisor, hooks dashboardServerHooks) *dashboardServer {
 	s := &dashboardServer{
 		controller: controller,
 		supervisor: supervisor,
 		addr:       addr,
 		state:      newDashboardRunState(root, addr),
-		clients:    make(map[*dashboardClient]struct{}),
-		assets:     assets,
 		traces:     newDashboardTraceEventBuffer(),
 	}
 	s.logExporter = hooks.exportLogEvent
@@ -171,7 +152,6 @@ func newDashboardServerWithControllerHooks(controller dashboardController, root,
 		s.logExporter = s.exportVictoriaLogEvent
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc(devdash.WebSocketPath, s.handleWebSocket)
 	mux.HandleFunc(dashboardStoragePath, s.handleStorageTransfer)
 	mux.HandleFunc(devdash.ReportPath, s.handleReport)
@@ -276,187 +256,18 @@ func (s *dashboardServer) Close() error {
 	return err
 }
 
-func (s *dashboardServer) handleRoot(w http.ResponseWriter, req *http.Request) {
-	s.writeDashboardBundleHeaders(w)
-	switch req.URL.Path {
-	case "/":
-		if appID := s.dashboardActiveAppID(); appID != "" {
-			http.Redirect(w, req, "/"+appID, http.StatusFound)
-			return
-		}
-	default:
-		if sessionID, ok := dashboardSessionPath(req.URL.Path); ok {
-			http.Redirect(w, req, "/"+url.PathEscape(sessionID), http.StatusFound)
-			return
-		}
-		if isDashboardStaticPath(req.URL.Path) {
-			s.serveAsset(w, req, strings.TrimPrefix(req.URL.Path, "/"), detectAssetContentType(req.URL.Path))
-			return
-		}
-	}
-
-	if req.Method != http.MethodGet || req.URL.Path == devdash.WebSocketPath {
-		http.NotFound(w, req)
-		return
-	}
-	index := s.indexHTML(strings.TrimPrefix(req.URL.Path, "/"))
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = io.WriteString(w, index)
-}
-
-func (s *dashboardServer) serveAsset(w http.ResponseWriter, req *http.Request, name, contentType string) {
-	data, err := s.readAsset(name)
-	if err != nil {
-		http.NotFound(w, req)
-		return
-	}
-	s.writeDashboardBundleHeaders(w)
-	w.Header().Set("Cache-Control", "no-store")
-	if contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	http.ServeContent(w, req, filepath.Base(name), time.Time{}, bytes.NewReader(data))
-}
-
-func (s *dashboardServer) indexHTML(appID string) string {
-	if appID == "" {
-		appID = s.dashboardActiveAppID()
-	}
-	bundle := s.dashboardBundleStatus()
-	if data, err := s.readAsset("index.html"); err == nil {
-		index := strings.ReplaceAll(string(data), "__APP_ID__", appID)
-		return dashboardIndexWithBundleMeta(index, bundle)
-	}
-	return dashboardIndexWithBundleMeta(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>scenery Dev Dashboard</title>
-    <style>
-      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; background: #0e1411; color: #ebf1ea; }
-      main { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
-      h1 { margin: 0 0 12px; font-size: 32px; }
-      p { color: #b3c0b5; line-height: 1.6; }
-      code { background: #1b241d; padding: 2px 6px; border-radius: 6px; }
-    </style>
-  </head>
-	<body>
-    <main>
-      <h1>scenery Dev Dashboard</h1>
-      <p>The dashboard server is running for <code>`+appID+`</code>, but the dashboard UI build is not available.</p>
-      <p>Build it from the scenery repo with <code>bun run build</code> inside <code>apps/console/</code>.</p>
-      <p>WebSocket endpoint: <code>ws://`+s.addr+devdash.WebSocketPath+`</code></p>
-    </main>
-  </body>
-</html>`, bundle)
-}
-
-func (s *dashboardServer) dashboardBundleStatus() devdash.DashboardBundle {
-	status, err := dashboardBundleStatusForCurrentRepo()
-	if err != nil {
-		return devdash.DashboardBundle{}
-	}
-	if status.Stale {
-		s.bundleWarnOnce.Do(func() {
-			slog.Warn("scenery dashboard UI bundle is stale", "running_hash", status.RunningHash, "disk_hash", status.DiskHash, "disk_path", status.DiskPath, "suggested_action", status.Warning)
-		})
-	}
-	return status
-}
-
-func (s *dashboardServer) writeDashboardBundleHeaders(w http.ResponseWriter) {
-	status := s.dashboardBundleStatus()
-	if status.RunningHash != "" {
-		w.Header().Set("X-Scenery-Dashboard-Bundle-Hash", status.RunningHash)
-	}
-	if status.Stale {
-		w.Header().Set("X-Scenery-Dashboard-Bundle-Stale", "true")
-		w.Header().Set("X-Scenery-Dashboard-Bundle-Warning", status.Warning)
-	}
-}
-
-func dashboardIndexWithBundleMeta(index string, status devdash.DashboardBundle) string {
-	if status.RunningHash == "" {
-		return index
-	}
-	lines := []string{`    <meta name="scenery-dashboard-bundle-hash" content="` + html.EscapeString(status.RunningHash) + `" />`}
-	if status.Stale {
-		lines = append(lines,
-			`    <meta name="scenery-dashboard-bundle-stale" content="true" />`,
-			`    <meta name="scenery-dashboard-bundle-warning" content="`+html.EscapeString(status.Warning)+`" />`,
-		)
-	}
-	meta := strings.Join(lines, "\n")
-	if strings.Contains(index, "</head>") {
-		return strings.Replace(index, "</head>", meta+"\n  </head>", 1)
-	}
-	return index
-}
-
-func dashboardSessionPath(path string) (string, bool) {
-	path = strings.Trim(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 2 || parts[0] != "s" || strings.TrimSpace(parts[1]) == "" {
-		return "", false
-	}
-	return parts[1], true
-}
-
-func dashboardAssetFS(assetsDir string) (fs.FS, error) {
-	if dir := strings.TrimSpace(assetsDir); dir != "" {
-		return os.DirFS(dir), nil
-	}
-	if dir := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_DASHBOARD_UI_DIR")); dir != "" {
-		return os.DirFS(dir), nil
-	}
-	if embedded := embeddedDashboardAssetFS(); embedded != nil {
-		return embedded, nil
-	}
-	return nil, fs.ErrNotExist
-}
-
-var embeddedDashboardAssetFS = dashboardstatic.FS
-
-func isDashboardStaticPath(path string) bool {
-	switch path {
-	case "/favicon.ico", "/manifest.webmanifest", "/site.webmanifest":
-		return true
-	}
-	return strings.HasPrefix(path, "/assets/")
-}
-
-func (s *dashboardServer) readAsset(name string) ([]byte, error) {
-	if s == nil || s.assets == nil {
-		return nil, fs.ErrNotExist
-	}
-	switch name {
-	case "favicon.ico":
-		if data, err := fs.ReadFile(s.assets, "favicon.ico"); err == nil {
-			return data, nil
-		}
-		return fs.ReadFile(s.assets, "assets/favicon.ico")
-	case "site.webmanifest", "manifest.webmanifest":
-		if data, err := fs.ReadFile(s.assets, "site.webmanifest"); err == nil {
-			return data, nil
-		}
-		return fs.ReadFile(s.assets, "manifest.webmanifest")
-	default:
-		return fs.ReadFile(s.assets, strings.TrimPrefix(name, "/"))
-	}
-}
-
 func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Request) {
 	conn, err := dashboardUpgrader.Upgrade(w, req, nil)
 	if err != nil {
 		return
 	}
-	ctx := req.Context()
-	client := s.addClient(conn)
+	ctx, cancel := context.WithCancel(req.Context())
+	client := &dashboardClient{conn: conn}
+	var calls sync.WaitGroup
 	defer func() {
-		s.removeClient(client)
+		cancel()
 		_ = conn.Close()
+		calls.Wait()
 	}()
 
 	for {
@@ -464,13 +275,17 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 		if err := conn.ReadJSON(&reqMsg); err != nil {
 			return
 		}
-		resp := s.handleRPC(ctx, reqMsg)
-		if reqMsg.ID == nil {
-			continue
-		}
-		if err := client.writeJSON(resp); err != nil {
-			return
-		}
+		// Calls on one connection run concurrently, so a slow query does not
+		// hold back a status poll; responses carry their request id.
+		calls.Go(func() {
+			resp := s.handleRPC(ctx, reqMsg)
+			if reqMsg.ID == nil {
+				return
+			}
+			if err := client.writeJSON(resp); err != nil {
+				_ = conn.Close()
+			}
+		})
 	}
 }
 
@@ -507,14 +322,6 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 			fillTraceSummaryIdentity(report.TraceSummary, report)
 			events := s.drainBufferedTraceEvents(report.TraceSummary)
 			go s.exportVictoriaTraceSummaryWithEvents(context.Background(), report.TraceSummary, events)
-			s.notify(&devdash.Notification{
-				Method: "trace/new",
-				Params: map[string]any{
-					"app_id":     report.AppID,
-					"test_trace": false,
-					"span":       report.TraceSummary,
-				},
-			})
 		}
 	case "trace-event":
 		if report.TraceEvent != nil {
@@ -610,193 +417,26 @@ func fillLogEventIdentity(event *devdash.LogEvent, report devdash.ReportEnvelope
 	}
 }
 
-func (s *dashboardServer) notify(notification *devdash.Notification) {
-	if notification == nil {
-		return
-	}
-	message := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  notification.Method,
-		"params":  notification.Params,
-	}
-	s.mu.Lock()
-	clients := make([]*dashboardClient, 0, len(s.clients))
-	for client := range s.clients {
-		clients = append(clients, client)
-	}
-	s.mu.Unlock()
-	go s.broadcastNotification(message, clients)
-}
-
-func (s *dashboardServer) broadcastNotification(message map[string]any, clients []*dashboardClient) {
-	for _, client := range clients {
-		if err := client.writeJSON(message); err != nil {
-			s.removeClient(client)
-			_ = client.conn.Close()
-		}
-	}
-}
-
-func (s *dashboardServer) addClient(conn dashboardWebSocket) *dashboardClient {
-	client := &dashboardClient{conn: conn}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.clients[client] = struct{}{}
-	return client
-}
-
-func (s *dashboardServer) removeClient(client *dashboardClient) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.clients, client)
-}
-
-func (s *dashboardServer) apiCall(ctx context.Context, params devdash.APICallRequest) (map[string]any, error) {
-	status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
-	if err != nil {
-		return nil, err
-	}
-	if !status.Running {
-		return nil, fmt.Errorf("app not running")
-	}
-	path, method, err := s.resolveEndpointRequest(status.Meta, params)
-	if err != nil {
-		return nil, err
-	}
-	body := io.Reader(nil)
-	if len(params.Payload) > 0 {
-		body = strings.NewReader(string(params.Payload))
-	}
-	client, baseURL := dashboardAppHTTPClient(status.Addr)
-	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, body)
-	if err != nil {
-		return nil, err
-	}
-	if len(params.Payload) > 0 {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if params.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+params.AuthToken)
-	}
-	if params.CorrelationID != "" {
-		req.Header.Set("X-Correlation-ID", params.CorrelationID)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	return map[string]any{
-		"status":      resp.Status,
-		"status_code": resp.StatusCode,
-		"body":        bodyBytes,
-		"trace_id":    resp.Header.Get("X-Trace-Id"),
-	}, nil
-}
-
-func dashboardAppHTTPClient(addr string) (*http.Client, string) {
-	if host, _, err := net.SplitHostPort(addr); err == nil || strings.Contains(host, ":") {
-		return http.DefaultClient, "http://" + addr
-	}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var dialer net.Dialer
-			return dialer.DialContext(ctx, "unix", addr)
-		},
-	}
-	return &http.Client{Transport: transport}, "http://scenery-app"
-}
-
-func (s *dashboardServer) resolveEndpointRequest(meta json.RawMessage, params devdash.APICallRequest) (path, method string, err error) {
-	path = strings.TrimSpace(params.Path)
-	method = strings.ToUpper(strings.TrimSpace(params.Method))
-	if path != "" && method != "" {
-		return path, method, nil
-	}
-	var payload struct {
-		Svcs []struct {
-			Name string `json:"name"`
-			Rpcs []struct {
-				Name        string         `json:"name"`
-				Path        struct{}       `json:"-"`
-				Methods     []string       `json:"http_methods"`
-				AccessType  string         `json:"access_type"`
-				ServiceName string         `json:"service_name"`
-				RawPath     map[string]any `json:"path"`
-			} `json:"rpcs"`
-		} `json:"svcs"`
-	}
-	if err := json.Unmarshal(meta, &payload); err != nil {
-		return "", "", err
-	}
-	for _, svc := range payload.Svcs {
-		if svc.Name != params.Service {
-			continue
-		}
-		for _, rpc := range svc.Rpcs {
-			if rpc.Name != params.Endpoint {
-				continue
-			}
-			if path == "" {
-				path = renderMetadataPath(rpc.RawPath)
-			}
-			if method == "" {
-				if len(rpc.Methods) > 0 {
-					method = rpc.Methods[0]
-				} else {
-					method = http.MethodGet
-				}
-			}
-			return path, method, nil
-		}
-	}
-	if path == "" {
-		return "", "", fmt.Errorf("unknown endpoint %s.%s", params.Service, params.Endpoint)
-	}
-	if method == "" {
-		method = http.MethodGet
-	}
-	return path, method, nil
-}
-
-func renderMetadataPath(raw map[string]any) string {
-	segments, _ := raw["segments"].([]any)
-	if len(segments) == 0 {
-		return "/"
-	}
-	var parts []string
-	for _, item := range segments {
-		segment, _ := item.(map[string]any)
-		value, _ := segment["value"].(string)
-		segmentType, _ := segment["type"].(string)
-		switch segmentType {
-		case "PARAM":
-			parts = append(parts, ":"+value)
-		default:
-			parts = append(parts, value)
-		}
-	}
-	return "/" + strings.Join(parts, "/")
-}
-
-func (s *dashboardServer) queryDB(ctx context.Context, req devdash.QueryRequest) ([]any, error) {
+// queryDB runs one statement and answers its columns in select order with
+// every row as a value array, like postgres/rows.
+func (s *dashboardServer) queryDB(ctx context.Context, req runtimeQueryRequest) (runtimeQueryResult, error) {
 	appID := firstNonEmpty(req.AppID, s.dashboardActiveAppID())
 	status, err := s.dashboardStatusFor(ctx, appID)
 	if err != nil {
-		return nil, err
+		return runtimeQueryResult{}, err
 	}
 	db, err := openPostgresDashboardDB(ctx, status.AppRoot)
 	if err != nil {
-		return nil, err
+		return runtimeQueryResult{}, err
 	}
 	defer func() { _ = db.Close() }()
 	rows, err := db.QueryContext(ctx, req.Query, req.Params...)
 	if err != nil {
-		return nil, err
+		return runtimeQueryResult{}, err
 	}
 	defer func() { _ = rows.Close() }()
-	return scanRows(rows, req.ArrayMode)
+	columns, values, err := scanRuntimeRows(rows)
+	return runtimeQueryResult{Columns: columns, Rows: values}, err
 }
 
 func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) {
@@ -814,37 +454,31 @@ func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) 
 	return openPostgresDatabase(ctx, database.URL)
 }
 
-func scanRows(rows *sql.Rows, arrayMode bool) ([]any, error) {
-	cols, err := rows.Columns()
+// scanRuntimeRows reads every row as values in column order; text-like bytes
+// become strings. It never answers a nil row list.
+func scanRuntimeRows(rows *sql.Rows) ([]string, [][]any, error) {
+	columns, err := rows.Columns()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var results []any
+	out := [][]any{}
 	for rows.Next() {
-		values := make([]any, len(cols))
-		pointers := make([]any, len(cols))
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
 		for i := range values {
 			pointers[i] = &values[i]
 		}
 		if err := rows.Scan(pointers...); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for i, value := range values {
 			if bytes, ok := value.([]byte); ok {
 				values[i] = string(bytes)
 			}
 		}
-		if arrayMode {
-			results = append(results, values)
-			continue
-		}
-		row := make(map[string]any, len(cols))
-		for i, col := range cols {
-			row[col] = values[i]
-		}
-		results = append(results, row)
+		out = append(out, values)
 	}
-	return results, rows.Err()
+	return columns, out, rows.Err()
 }
 
 type rpcRequest struct {
@@ -865,35 +499,6 @@ type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
-}
-
-func detectAssetContentType(path string) string {
-	switch filepath.Ext(path) {
-	case ".css":
-		return "text/css; charset=utf-8"
-	case ".js":
-		return "text/javascript; charset=utf-8"
-	case ".png":
-		return "image/png"
-	case ".svg":
-		return "image/svg+xml"
-	case ".mp4":
-		return "video/mp4"
-	case ".m4a":
-		return "audio/mp4"
-	case ".woff":
-		return "font/woff"
-	case ".woff2":
-		return "font/woff2"
-	case ".ttf":
-		return "font/ttf"
-	case ".eot":
-		return "application/vnd.ms-fontobject"
-	case ".ico":
-		return "image/x-icon"
-	default:
-		return ""
-	}
 }
 
 func firstNonEmpty(values ...string) string {

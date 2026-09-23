@@ -42,7 +42,7 @@ func TestDiagnosticCatalogDeclaresEveryEmittedCodeOnce(t *testing.T) {
 				return err
 			}
 			if entry.IsDir() {
-				if entry.Name() == "testdata" || entry.Name() == "dashboard_static" {
+				if entry.Name() == "testdata" {
 					return filepath.SkipDir
 				}
 				return nil

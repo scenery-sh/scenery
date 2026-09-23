@@ -11,6 +11,10 @@ import (
 	"scenery.sh/internal/devdash"
 )
 
+// The development runtime RPC is the documented JSON-RPC 2.0 contract served
+// at the app origin's /runtime WebSocket (docs/local-contract.md). Every method
+// here is part of that contract except traces/clear, which only
+// `scenery traces clear` sends.
 func (s *dashboardServer) handleRPC(ctx context.Context, req rpcRequest) rpcResponse {
 	result, err := s.dispatchRPC(ctx, req.Method, req.Params)
 	if err != nil {
@@ -40,75 +44,24 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		return s.storageRPC(ctx, method, raw)
 	}
 	switch method {
-	case "list-apps":
-		return s.dashboardListApps(ctx)
 	case "status":
 		var params struct {
 			AppID string `json:"app_id"`
 		}
-		_ = json.Unmarshal(raw, &params)
-		return s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
-	case "logs/list":
-		var params struct {
-			AppID    string `json:"app_id"`
-			Limit    int    `json:"limit"`
-			AfterID  int64  `json:"after_id"`
-			SourceID string `json:"source_id"`
-			Kind     string `json:"kind"`
-			Level    string `json:"level"`
-			Stream   string `json:"stream"`
-			Grep     string `json:"grep"`
+		if err := decodeRuntimeParams(raw, &params); err != nil {
+			return nil, err
 		}
-		_ = json.Unmarshal(raw, &params)
-		if params.AppID == "" {
-			params.AppID = s.dashboardActiveAppID()
-		}
-		status, err := s.dashboardStatusFor(ctx, params.AppID)
-		if err != nil {
-			status = devdash.AppStatus{AppID: params.AppID}
-		}
-		victoria := s.dashboardVictoria()
-		if victoria == nil {
-			return []dashboardLogEvent{}, nil
-		}
-		items, err := victoria.ListDevEvents(ctx, devdash.DevEventQuery{
-			AppID:     dashboardStoreAppID(status),
-			SessionID: status.SessionID,
-			SourceID:  params.SourceID,
-			Kind:      params.Kind,
-			Level:     params.Level,
-			Stream:    firstNonEmpty(params.Stream, "all"),
-			Grep:      params.Grep,
-			AfterID:   params.AfterID,
-			Limit:     params.Limit,
-		})
+		status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
 		if err != nil {
 			return nil, err
 		}
-		return dashboardLogEventsFromDevEvents(items), nil
-	case "process/output/list":
-		var params struct {
-			AppID string `json:"app_id"`
-			Limit int    `json:"limit"`
-		}
-		_ = json.Unmarshal(raw, &params)
-		if params.AppID == "" {
-			params.AppID = s.dashboardActiveAppID()
-		}
-		status, err := s.dashboardStatusFor(ctx, params.AppID)
-		if err != nil {
-			return s.dashboardStore().ListProcessOutput(ctx, params.AppID, params.Limit)
-		}
-		return s.dashboardStore().ListProcessOutputForSession(ctx, dashboardStoreAppID(status), status.SessionID, params.Limit)
+		return newRuntimeStatus(status), nil
 	case "traces/clear":
 		var params struct {
 			AppID string `json:"app_id"`
 		}
 		_ = json.Unmarshal(raw, &params)
-		if params.AppID == "" {
-			params.AppID = s.dashboardActiveAppID()
-		}
-		status, err := s.dashboardStatusFor(ctx, params.AppID)
+		status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
 		if err != nil {
 			return nil, err
 		}
@@ -116,128 +69,144 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			victoria.MarkCleared(dashboardStoreAppID(status), time.Now().UTC())
 		}
 		return "ok", nil
-	case "traces/list":
-		var params struct {
-			AppID     string `json:"app_id"`
-			MessageID string `json:"message_id"`
-		}
-		_ = json.Unmarshal(raw, &params)
-		if params.AppID == "" {
-			params.AppID = s.dashboardActiveAppID()
-		}
-		status, err := s.dashboardStatusFor(ctx, params.AppID)
-		if err != nil {
-			return nil, err
-		}
-		return s.listTraceSummaries(ctx, dashboardStoreAppID(status), status.SessionID, 100, params.MessageID)
 	case "postgres/tables":
 		var params dashboardPostgresRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
+		if err := decodeRuntimeParams(raw, &params); err != nil {
 			return nil, err
 		}
 		return s.postgresTables(ctx, params)
 	case "postgres/schema":
 		var params dashboardPostgresRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
+		if err := decodeRuntimeParams(raw, &params); err != nil {
 			return nil, err
 		}
 		return s.postgresSchema(ctx, params)
 	case "postgres/rows":
 		var params dashboardPostgresRowsRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
+		if err := decodeRuntimeParams(raw, &params); err != nil {
 			return nil, err
 		}
 		return s.postgresRows(ctx, params)
-	case "api-call":
-		var params devdash.APICallRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		return s.apiCall(ctx, params)
-	case "stored-requests/list":
-		var params struct {
-			AppID string `json:"app_id"`
-		}
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		return s.listStoredRequests(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
-	case "stored-requests/create":
-		var params storedRequestRPCParams
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		created, err := s.createStoredRequest(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		return created.ID, nil
-	case "stored-requests/update":
-		var params storedRequestRPCParams
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		updated, err := s.updateStoredRequest(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		return updated.ID, nil
-	case "stored-requests/delete":
-		var params struct {
-			AppID string `json:"app_id"`
-			ID    string `json:"id"`
-		}
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		if err := s.deleteStoredRequest(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()), params.ID); err != nil {
-			return nil, err
-		}
-		return true, nil
 	case "db/query":
-		var params devdash.QueryRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
+		var params runtimeQueryRequest
+		if err := decodeRuntimeParams(raw, &params); err != nil {
 			return nil, err
 		}
 		return s.queryDB(ctx, params)
 	default:
-		if strings.HasPrefix(method, "ai/") {
-			return nil, fmt.Errorf("%s is unsupported in scenery", method)
-		}
 		return nil, fmt.Errorf("method not found: %s", method)
 	}
 }
 
-type dashboardLogEvent struct {
-	ID        int64                 `json:"id"`
-	Time      string                `json:"time"`
-	SessionID string                `json:"session_id,omitempty"`
-	Source    devdash.DevSource     `json:"source"`
-	Level     string                `json:"level"`
-	Message   string                `json:"message"`
-	Fields    json.RawMessage       `json:"fields,omitempty"`
-	Raw       string                `json:"raw,omitempty"`
-	Parse     devdash.DevEventParse `json:"parse"`
+// Contract methods reject unknown parameters, so a client that drifted from
+// the documented shape fails visibly instead of being silently ignored.
+func decodeRuntimeParams(raw json.RawMessage, target any) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("invalid params: %w", err)
+	}
+	return nil
 }
 
-func dashboardLogEventsFromDevEvents(items []devdash.DevEvent) []dashboardLogEvent {
-	out := make([]dashboardLogEvent, 0, len(items))
-	for _, item := range items {
-		createdAt := ""
-		if !item.CreatedAt.IsZero() {
-			createdAt = item.CreatedAt.Format(time.RFC3339Nano)
-		}
-		out = append(out, dashboardLogEvent{
-			ID:        item.ID,
-			Time:      createdAt,
-			SessionID: item.SessionID,
-			Source:    item.Source,
-			Level:     item.Level,
-			Message:   item.Message,
-			Fields:    item.Fields,
-			Raw:       item.Raw,
-			Parse:     item.Parse,
+type runtimeQueryRequest struct {
+	AppID  string `json:"app_id"`
+	Query  string `json:"query"`
+	Params []any  `json:"params"`
+}
+
+type runtimeQueryResult struct {
+	Columns []string `json:"columns"`
+	Rows    [][]any  `json:"rows"`
+}
+
+// runtimeStatus is the `status` result: the documented subset of the session
+// record, without the app model or substrate endpoints.
+type runtimeStatus struct {
+	cliPayloadIdentity
+	AppID               string                  `json:"app_id"`
+	BaseAppID           string                  `json:"base_app_id,omitempty"`
+	SessionID           string                  `json:"session_id,omitempty"`
+	AppRoot             string                  `json:"app_root"`
+	Running             bool                    `json:"running"`
+	SessionStatus       string                  `json:"session_status,omitempty"`
+	SessionStatusReason string                  `json:"session_status_reason,omitempty"`
+	Compiling           bool                    `json:"compiling"`
+	CompileError        string                  `json:"compile_error,omitempty"`
+	PID                 string                  `json:"pid,omitempty"`
+	Routes              map[string]string       `json:"routes"`
+	ServiceProcesses    []runtimeServiceProcess `json:"service_processes"`
+	Observability       *runtimeObservability   `json:"observability,omitempty"`
+}
+
+type runtimeServiceProcess struct {
+	Name                   string `json:"name"`
+	PID                    string `json:"pid,omitempty"`
+	Generation             uint64 `json:"generation,omitempty"`
+	ImplementationRevision string `json:"implementation_revision,omitempty"`
+	State                  string `json:"state"`
+	Reason                 string `json:"reason,omitempty"`
+}
+
+type runtimeObservability struct {
+	Enabled bool          `json:"enabled"`
+	Message string        `json:"message,omitempty"`
+	Metrics runtimeSignal `json:"metrics"`
+	Logs    runtimeSignal `json:"logs"`
+	Traces  runtimeSignal `json:"traces"`
+}
+
+type runtimeSignal struct {
+	Enabled   bool   `json:"enabled"`
+	Available bool   `json:"available"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
+}
+
+func newRuntimeStatus(status devdash.AppStatus) runtimeStatus {
+	out := runtimeStatus{
+		cliPayloadIdentity:  newCLIPayloadIdentity("scenery.dev-runtime.status"),
+		AppID:               status.AppID,
+		BaseAppID:           status.BaseAppID,
+		SessionID:           status.SessionID,
+		AppRoot:             status.AppRoot,
+		Running:             status.Running,
+		SessionStatus:       status.SessionStatus,
+		SessionStatusReason: status.SessionStatusReason,
+		Compiling:           status.Compiling,
+		CompileError:        status.CompileError,
+		PID:                 status.PID,
+		Routes:              status.Routes,
+		ServiceProcesses:    make([]runtimeServiceProcess, 0, len(status.ServiceProcesses)),
+	}
+	if out.Routes == nil {
+		out.Routes = map[string]string{}
+	}
+	for _, process := range status.ServiceProcesses {
+		out.ServiceProcesses = append(out.ServiceProcesses, runtimeServiceProcess{
+			Name:                   process.Name,
+			PID:                    process.PID,
+			Generation:             process.Generation,
+			ImplementationRevision: process.ImplementationRevision,
+			State:                  process.State,
+			Reason:                 process.Reason,
 		})
 	}
+	if state := status.Observability; state != nil {
+		out.Observability = &runtimeObservability{
+			Enabled: state.Enabled,
+			Message: state.Message,
+			Metrics: newRuntimeSignal(state.Metrics),
+			Logs:    newRuntimeSignal(state.Logs),
+			Traces:  newRuntimeSignal(state.Traces),
+		}
+	}
 	return out
+}
+
+func newRuntimeSignal(state devdash.ObservabilityBackendState) runtimeSignal {
+	return runtimeSignal{Enabled: state.Enabled, Available: state.Available, Status: state.Status, Message: state.Message}
 }

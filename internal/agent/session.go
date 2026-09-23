@@ -349,7 +349,6 @@ func routesForSession(sessionID, routerAddr, routerScheme string, backends map[s
 	if _, ok := backends[RouteAPI]; ok {
 		routes[RouteAPI] = routeURL(routerScheme, sessionRouteHost(RouteAPI, sessionID, namespace), routerAddr, "")
 	}
-	routes[RouteDashboard] = routeURL(routerScheme, sessionRouteHost("console", sessionID, namespace), routerAddr, "")
 	for kind := range backends {
 		switch kind {
 		case RouteAPI, RouteDashboard:
@@ -378,9 +377,7 @@ func normalizeRouteManifest(manifest RouteManifest, sessionID, baseAppID, appRoo
 	}
 	if out.Root == "" {
 		if mode == RouteModePath {
-			out.Root = "scenery-console"
-		} else {
-			out.Root = RouteDashboard
+			out.Root = "scenery-index"
 		}
 	}
 	out.Routes = normalizeRouteRecords(manifest.Routes)
@@ -416,13 +413,9 @@ func hostRouteManifestForSession(sessionID, branch string, routes map[string]str
 		if name == "" || strings.TrimSpace(rawURL) == "" {
 			continue
 		}
-		kind := name
-		if name == RouteDashboard {
-			kind = "scenery-console"
-		}
 		records[name] = RouteRecord{
 			Name:    name,
-			Kind:    kind,
+			Kind:    name,
 			URL:     strings.TrimSpace(rawURL),
 			Backend: backendForRouteName(name),
 		}
@@ -430,7 +423,6 @@ func hostRouteManifestForSession(sessionID, branch string, routes map[string]str
 	return RouteManifest{
 		ArtifactIdentity: routeManifestIdentity(),
 		Mode:             RouteModeHost,
-		Root:             RouteDashboard,
 		Worktree:         sanitizeLabel(firstNonEmpty(branch, sessionID)),
 		Routes:           records,
 	}
@@ -441,10 +433,7 @@ func completePathRouteRecords(baseURL string, records map[string]RouteRecord, ba
 		records = map[string]RouteRecord{}
 	}
 	if _, ok := records["root"]; !ok {
-		records["root"] = RouteRecord{Name: "root", Kind: "scenery-console", URL: joinRouteURL(baseURL, "/"), Path: "/"}
-	}
-	if _, ok := records[RouteDashboard]; !ok {
-		records[RouteDashboard] = RouteRecord{Name: RouteDashboard, Kind: "scenery-console", URL: joinRouteURL(baseURL, PathModeDashboardPrefix+"/"), Path: PathModeDashboardPrefix + "/", StripPrefix: PathModeDashboardPrefix, Backend: RouteDashboard}
+		records["root"] = RouteRecord{Name: "root", Kind: "scenery-index", URL: joinRouteURL(baseURL, "/"), Path: "/"}
 	}
 	rootBackend := normalizeRouteName(records["root"].Backend)
 	for name := range backends {
@@ -502,8 +491,8 @@ func normalizeRouteRecords(records map[string]RouteRecord) map[string]RouteRecor
 }
 
 // normalizePublicRoutes canonicalizes a dev domain exposure list: route
-// names sanitized, "console" folded into the dashboard route, "runtime"
-// kept as the runtime-surface marker, duplicates dropped, order sorted.
+// names sanitized, "runtime" kept as the runtime-surface marker, duplicates
+// dropped, order sorted.
 func normalizePublicRoutes(names []string) []string {
 	if len(names) == 0 {
 		return nil
@@ -528,9 +517,6 @@ func normalizePublicRoutes(names []string) []string {
 func normalizeRouteName(name string) string {
 	if strings.TrimSpace(name) == "root" {
 		return "root"
-	}
-	if strings.TrimSpace(name) == "console" {
-		return RouteDashboard
 	}
 	return sanitizeLabel(name)
 }

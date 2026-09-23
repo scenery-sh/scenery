@@ -86,8 +86,9 @@ by the change. Runtime/UI tasks require the requested live scenario and current
 served identity, not only compilation. Report commands, results, and unresolved
 coverage; planned, skipped, or warning-only checks are not successful proof.
 
-Use the app's frontend checks and browser acceptance for its pages.
-`scenery harness ui -o json` validates Scenery's dashboard. Repository validation
+Use the app's frontend checks and browser acceptance for its pages. Scenery has
+no dashboard; app-owned developer tooling uses the generated `dev-runtime.ts`
+client for the development runtime RPC. Repository validation
 uses `go run ./scripts/verify --summary --write` or the quick mode selected by
 the root matrix; it is not an installed app command. Reuse successful checks
 for unchanged inputs and keep Go's test cache enabled.

@@ -35,7 +35,7 @@ deployable environments (validation enforces this).
 From the repository root, run:
 
 ```sh
-apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
+tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
 go test ./internal/generate
 ```
 

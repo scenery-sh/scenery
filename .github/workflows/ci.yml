@@ -38,16 +38,6 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare dashboard embed
-        run: ./scripts/build-dashboard-ui-embed.sh
-
       - name: Verify repository
         run: go run ./scripts/verify --summary --write
 
-      - name: Lint dashboard
-        working-directory: apps/console
-        run: bun run lint
-
-      - name: Test dashboard
-        working-directory: apps/console
-        run: bun test tests

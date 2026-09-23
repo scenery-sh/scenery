@@ -35,7 +35,6 @@ func TestMain(m *testing.M) {
 	edgeHelperPlistOptionsFunc = func() (edgeHelperOptions, error) {
 		return edgeHelperOptions{}, errors.New("edge helper introspection is disabled in tests; override edgeHelperPlistOptionsFunc for specific helper state")
 	}
-	dashboardConsoleDistDirFunc = func() (string, bool) { return "", false }
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)

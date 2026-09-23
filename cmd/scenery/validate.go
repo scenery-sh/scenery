@@ -584,8 +584,6 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 		switch ref.Name {
 		case "harness", "harness:core":
 			return runSceneryHarness(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
-		case "harness:ui":
-			return runSceneryHarnessUI(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
 		case "check":
 			return runSceneryCheck(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
 		case "test", "test:go":

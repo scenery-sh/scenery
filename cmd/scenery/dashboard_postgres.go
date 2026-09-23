@@ -7,20 +7,20 @@ import (
 	"strings"
 )
 
+// PostgreSQL inspection addresses the selected app's single development
+// database; a table is named by schema plus table or a qualified table name.
 type dashboardPostgresRequest struct {
-	AppID    string `json:"app_id"`
-	Database string `json:"database"`
-	Schema   string `json:"schema"`
-	Table    string `json:"table"`
+	AppID  string `json:"app_id"`
+	Schema string `json:"schema"`
+	Table  string `json:"table"`
 }
 
 type dashboardPostgresRowsRequest struct {
-	AppID    string `json:"app_id"`
-	Database string `json:"database"`
-	Schema   string `json:"schema"`
-	Table    string `json:"table"`
-	Limit    int    `json:"limit"`
-	Offset   int    `json:"offset"`
+	AppID  string `json:"app_id"`
+	Schema string `json:"schema"`
+	Table  string `json:"table"`
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
 }
 
 type dashboardPostgresTable struct {
@@ -146,28 +146,8 @@ func (s *dashboardServer) postgresRows(ctx context.Context, req dashboardPostgre
 		return dashboardPostgresRows{}, err
 	}
 	defer func() { _ = rows.Close() }()
-	cols, err := rows.Columns()
-	if err != nil {
-		return dashboardPostgresRows{}, err
-	}
-	var out [][]any
-	for rows.Next() {
-		values := make([]any, len(cols))
-		pointers := make([]any, len(cols))
-		for i := range values {
-			pointers[i] = &values[i]
-		}
-		if err := rows.Scan(pointers...); err != nil {
-			return dashboardPostgresRows{}, err
-		}
-		for i, value := range values {
-			if bytes, ok := value.([]byte); ok {
-				values[i] = string(bytes)
-			}
-		}
-		out = append(out, values)
-	}
-	return dashboardPostgresRows{Columns: cols, Rows: out, Limit: limit, Offset: offset}, rows.Err()
+	cols, out, err := scanRuntimeRows(rows)
+	return dashboardPostgresRows{Columns: cols, Rows: out, Limit: limit, Offset: offset}, err
 }
 
 func (s *dashboardServer) openDashboardPostgres(ctx context.Context, appID string) (*sql.DB, error) {

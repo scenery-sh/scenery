@@ -29,7 +29,7 @@
       "const": "scenery.agent_context"
     },
     "schema_revision": {
-      "const": "sha256:52ba6c27a29a23ce2450a3207cf6b2f6d07b0dbd4d7bf0788f03d035b3b34461"
+      "const": "sha256:dae5b1c37bc92ff6e30d2a0247c346c953a997f657c07cd8e2a3da0df55802c8"
     },
     "generated_at": {
       "type": "string"
@@ -118,7 +118,6 @@
           "cli-json-contract",
           "compiler-or-generator",
           "ui-catalog",
-          "dashboard",
           "release-sensitive-or-runtime",
           "repository-fallback"
         ]
@@ -131,7 +130,7 @@
         "enum": [
           "runtime",
           "CLI contract",
-          "dashboard",
+          "ui",
           "schema",
           "release",
           "onlv-impacting"

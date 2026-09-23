@@ -254,6 +254,9 @@ func renderTypeScriptTargetWithCatalog(result *Result, target Resource, root str
 	if len(assistants) > 0 {
 		files = append(files, generatedFile{Path: assistantGeneratedPath(root), Bytes: []byte(renderTypeScriptAssistantFile(target, assistants))})
 	}
+	if typeScriptDevRuntimeEnabled(target) {
+		files = append(files, renderTypeScriptDevRuntimeFile(root))
+	}
 	reactFiles, catalogRoots, err := renderTypeScriptReactWithCatalog(result, target, root, bindings, assistants, catalog)
 	if err != nil {
 		return nil, err

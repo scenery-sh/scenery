@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0202-development-runtime-rpc-contract.md",
+      "title": "Development Runtime RPC Contract And Console Removal",
+      "owner": "scenery runtime / generate",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-23",
+      "review_after": "2026-10-23",
+      "summary": "Removes the Scenery dashboard UI and harness, documents the development runtime RPC at /runtime and /runtime/storage as an official contract, and generates an opt-in dev-runtime.ts client (typescript_client.dev_runtime) that ONLV NextNext uses for bottom-panel runtime, database and storage tabs.",
+      "tags": ["plans", "execplans", "runtime", "generate", "typescript"]
+    },
+    {
+      "path": "docs/schemas/scenery.dev-runtime.status.schema.json",
+      "title": "scenery.dev-runtime.status Schema",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-23",
+      "review_after": "2026-10-23",
+      "summary": "Result of the development runtime RPC status method: session identity and health, compile state, routes, service processes and observability readiness, verified by the generated dev-runtime.ts client.",
+      "tags": ["schemas", "runtime", "typescript"]
+    },
+    {
       "path": "docs/plans/0201-agent-readable-failures-and-cli-grammar.md",
       "title": "Agent-Readable Failures And CLI Grammar",
       "owner": "scenery CLI / agent DX",
@@ -703,7 +727,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Checkout-local setup and required validation discovery, with separate dashboard and embedded catalog workflows.",
+      "summary": "Checkout-local setup and required validation discovery, with the embedded catalog and TypeScript tooling workflows.",
       "tags": [
         "contributing",
         "validation",
@@ -2351,8 +2375,7 @@
         "docs/schemas/scenery.metrics.query.schema.json",
         "docs/schemas/scenery.metrics.series.schema.json",
         "docs/schemas/scenery.telemetry.schema.json",
-        "docs/schemas/scenery.harness.ui.schema.json",
-        "docs/schemas/scenery.harness.ui.dom.schema.json",
+        "docs/schemas/scenery.dev-runtime.status.schema.json",
         "docs/schemas/scenery.inspect.validation.schema.json",
         "docs/schemas/scenery.inspect.durable.schema.json",
         "docs/schemas/scenery.internal.devtools.versions.schema.json",
@@ -2466,9 +2489,7 @@
         "docs/schemas/scenery.harness.test_timing.schema.json",
         "docs/schemas/scenery.inspect.docs.schema.json",
         "docs/schemas/scenery.inspect.harness.schema.json",
-        "docs/schemas/scenery.agent_context.schema.json",
-        "docs/schemas/scenery.harness.ui.schema.json",
-        "docs/schemas/scenery.harness.ui.dom.schema.json"
+        "docs/schemas/scenery.agent_context.schema.json"
       ]
     },
     {
@@ -2480,7 +2501,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-14",
       "review_after": "2026-10-14",
-      "summary": "Practical app recipes with scoped application validation and correct separation between app browser acceptance and the dashboard harness.",
+      "summary": "Practical app recipes with scoped application validation and app-owned browser acceptance.",
       "tags": [
         "cookbook",
         "apps",
@@ -2498,9 +2519,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Rules for maintaining and consuming the binary-owned Astryx + StyleX React catalog under ui, including generated Vite aliases, shared page layouts, the Astryx surface mirror, and the full QueryTable, WorkspacePage, and detail-page behavior contracts; the runnable dashboard remains owned separately by apps/console.",
+      "last_reviewed": "2026-09-23",
+      "review_after": "2026-10-23",
+      "summary": "Rules for maintaining and consuming the binary-owned Astryx + StyleX React catalog under ui, including generated Vite aliases, shared page layouts, the Astryx surface mirror, and the full QueryTable, WorkspacePage, and detail-page behavior contracts; tools/typescript holds only its typecheck dependencies.",
       "tags": [
         "ui",
         "agents",

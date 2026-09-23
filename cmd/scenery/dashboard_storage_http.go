@@ -14,7 +14,9 @@ import (
 	publicstorage "scenery.sh/storage"
 )
 
-const dashboardStoragePath = "/__storage"
+// dashboardStoragePath is the listener path behind the app origin's
+// /runtime/storage route.
+const dashboardStoragePath = "/__scenery/storage"
 
 // Files stream outside JSON RPC, on the same dashboard listener. A custom
 // header plus exact browser origin prevents cross-origin form/navigation reads

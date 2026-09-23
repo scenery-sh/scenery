@@ -330,56 +330,57 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	return opts, nil
 }
 
-// harnessConsoleLaneNames are the self-harness lanes that need bun and the
-// installed apps/console dependency tree.
-var harnessConsoleLaneNames = []string{
-	"dashboard ui typecheck",
-	"dashboard ui build",
-	"dashboard ui fresh",
+// typescriptToolingRootRel holds the TypeScript compiler and type
+// dependencies for generated clients and the ui/ catalog.
+const typescriptToolingRootRel = "tools/typescript"
+
+// harnessTypeScriptLaneNames are the self-harness lanes that need bun and the
+// installed tools/typescript dependency tree.
+var harnessTypeScriptLaneNames = []string{
 	"Scenery TypeScript client conformance",
 	"Scenery TypeScript client typecheck",
 	"Scenery UI catalog typecheck",
 }
 
-// runHarnessConsoleDepsStep provisions the apps/console dependency tree so a
-// fresh worktree passes the tsc-dependent lanes without a manual preflight.
-// `bun install --frozen-lockfile` honors bun.lock, fails on drift instead of
-// rewriting it, and is a fast no-op when node_modules is already current. When
-// bun is missing or the install fails, the dependent lanes are skipped and the
-// returned step carries the one actionable diagnostic instead of letting every
-// lane fail on exec errors.
-func runHarnessConsoleDepsStep(ctx context.Context, consoleRoot string, artifactCtx harnessArtifactContext) (harnessStep, bool) {
+// runHarnessTypeScriptDepsStep provisions the tools/typescript dependency tree
+// so a fresh worktree passes the tsc-dependent lanes without a manual
+// preflight. `bun install --frozen-lockfile` honors bun.lock, fails on drift
+// instead of rewriting it, and is a fast no-op when node_modules is already
+// current. When bun is missing or the install fails, the dependent lanes are
+// skipped and the returned step carries the one actionable diagnostic instead
+// of letting every lane fail on exec errors.
+func runHarnessTypeScriptDepsStep(ctx context.Context, toolingRoot string, artifactCtx harnessArtifactContext) (harnessStep, bool) {
 	command := []string{"bun", "install", "--frozen-lockfile"}
 	if _, err := exec.LookPath("bun"); err != nil {
 		step := harnessStep{
-			Name:    "console dependencies",
+			Name:    "typescript dependencies",
 			Command: command,
-			Error:   "bun was not found in PATH; skipped lanes: " + strings.Join(harnessConsoleLaneNames, ", "),
+			Error:   "bun was not found in PATH; skipped lanes: " + strings.Join(harnessTypeScriptLaneNames, ", "),
 			Summary: map[string]any{
-				"console_deps":  "unavailable",
-				"skipped_lanes": harnessConsoleLaneNames,
+				"typescript_deps": "unavailable",
+				"skipped_lanes":   harnessTypeScriptLaneNames,
 			},
 			Diagnostics: []checkDiagnostic{{
-				Stage:           "console dependencies",
+				Stage:           "typescript dependencies",
 				Severity:        "error",
-				Message:         "bun is not in PATH, so the dashboard and TypeScript client lanes were skipped and not measured",
+				Message:         "bun is not in PATH, so the TypeScript client and UI catalog lanes were skipped and not measured",
 				SuggestedAction: "Install bun (https://bun.sh), then rerun `go run ./scripts/verify --summary --write`.",
 			}},
 		}
 		return step, false
 	}
-	step := runHarnessExecStep(ctx, consoleRoot, "console dependencies", command, artifactCtx)
+	step := runHarnessExecStep(ctx, toolingRoot, "typescript dependencies", command, artifactCtx)
 	if !step.OK {
 		step.Diagnostics = append(step.Diagnostics, checkDiagnostic{
-			Stage:           "console dependencies",
+			Stage:           "typescript dependencies",
 			Severity:        "error",
-			Message:         "bun install --frozen-lockfile failed in apps/console, so the dashboard and TypeScript client lanes were skipped and not measured",
-			SuggestedAction: "Fix apps/console dependency state (bun.lock must match package.json), then rerun `go run ./scripts/verify --summary --write`.",
+			Message:         "bun install --frozen-lockfile failed in tools/typescript, so the TypeScript client and UI catalog lanes were skipped and not measured",
+			SuggestedAction: "Fix tools/typescript dependency state (bun.lock must match package.json), then rerun `go run ./scripts/verify --summary --write`.",
 		})
 		if step.Summary == nil {
 			step.Summary = map[string]any{}
 		}
-		step.Summary["skipped_lanes"] = harnessConsoleLaneNames
+		step.Summary["skipped_lanes"] = harnessTypeScriptLaneNames
 	}
 	return step, step.OK
 }
@@ -633,18 +634,8 @@ func harnessBinaryInputSkipDir(name string) bool {
 	return name == "coverage" || appwalk.SkipDirName(name)
 }
 
-const dashboardStaticDistRel = "cmd/scenery/dashboard_static/dist"
-
 func harnessBinaryInputSkipDirForWalk(root, path string) bool {
-	if harnessBinaryEmbeddedDistPath(path) {
-		return false
-	}
 	return harnessBinaryInputSkipDir(filepath.Base(path)) || appwalk.SkipDir(root, path)
-}
-
-func harnessBinaryEmbeddedDistPath(path string) bool {
-	path = filepath.ToSlash(filepath.Clean(path))
-	return strings.HasSuffix(path, "/"+dashboardStaticDistRel) || path == dashboardStaticDistRel
 }
 
 func harnessBinaryInputFile(path string) bool {
@@ -694,8 +685,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.agent_context.schema.json",
 		"docs/schemas/scenery.help.schema.json",
 		"docs/schemas/scenery.harness.result.schema.json",
-		"docs/schemas/scenery.harness.ui.schema.json",
-		"docs/schemas/scenery.harness.ui.dom.schema.json",
+		"docs/schemas/scenery.dev-runtime.status.schema.json",
 		"docs/schemas/scenery.cli.schema.json",
 		"docs/schemas/scenery.inspect.app.schema.json",
 		"docs/schemas/scenery.inspect.build.schema.json",
@@ -751,7 +741,6 @@ func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harness
 		newHarnessArtifact("fixture-matrix", ".scenery/harness/fixture-matrix-latest.json", harnessFixtureMatrixKind, false),
 		newHarnessArtifact("schema-validation", ".scenery/harness/schema-validation-latest.json", harnessSchemaValidationKind, false),
 		newHarnessArtifact("agent-context", ".scenery/harness/agent-context.json", harnessAgentContextKind, false),
-		{Name: "dashboard-ui", Path: "apps/console/dist/index.html"},
 	}
 	reportWillExist := map[string]bool{
 		"self-harness":      selfWillExist,

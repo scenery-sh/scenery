@@ -1,2 +1,1 @@
 cmd/scenery/devdash_static/** -diff linguist-generated=true linguist-vendored=true
-cmd/scenery/dashboard_static/dist/** -diff linguist-generated=true

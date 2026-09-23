@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -675,4 +676,13 @@ func resolveStatusAppRoot(value string) (string, error) {
 		return filepath.Clean(abs), nil
 	}
 	return "", err
+}
+
+func freeLoopbackAddr() (string, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = ln.Close() }()
+	return ln.Addr().String(), nil
 }

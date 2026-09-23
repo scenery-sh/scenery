@@ -18,7 +18,7 @@ import (
 func startDashboardTestBackend(t *testing.T, body string) (*httptest.Server, localagent.Backend) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		_, _ = fmt.Fprintf(w, "%s:%s", body, req.URL.Path)
+		_, _ = fmt.Fprintf(w, "%s:%s?%s", body, req.URL.Path, req.URL.RawQuery)
 	}))
 	t.Cleanup(server.Close)
 	return server, localagent.Backend{Network: "tcp", Addr: strings.TrimPrefix(server.URL, "http://")}
@@ -97,8 +97,9 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 	defer cleanup()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	statusCode, body := localPathRouterTestGet(t, baseURL+localagent.PathModeDashboardPrefix+"/overview")
-	if statusCode != http.StatusOK || !strings.Contains(body, "dash-a:/overview") {
+	storageURL := baseURL + localagent.PathModeRuntimeStoragePath + "?key=a.txt"
+	statusCode, body := localPathRouterTestGet(t, storageURL)
+	if statusCode != http.StatusOK || body != "dash-a:"+dashboardStoragePath+"?key=a.txt" {
 		t.Fatalf("dashboard via backend A = %d %q", statusCode, body)
 	}
 
@@ -106,15 +107,15 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 	// loopback address and only agent health knows the new one.
 	serverB, backendB := startDashboardTestBackend(t, "dash-b")
 	fake.setDashboard(backendB)
-	statusCode, body = localPathRouterTestGet(t, baseURL+localagent.PathModeDashboardPrefix+"/overview")
-	if statusCode != http.StatusOK || !strings.Contains(body, "dash-b:/overview") {
+	statusCode, body = localPathRouterTestGet(t, storageURL)
+	if statusCode != http.StatusOK || body != "dash-b:"+dashboardStoragePath+"?key=a.txt" {
 		t.Fatalf("dashboard after backend change = %d %q", statusCode, body)
 	}
 
 	// A dead current backend must answer with the terse scenery 502, not the
 	// default httputil proxy error, once the bounded dial retry is exhausted.
 	serverB.Close()
-	statusCode, body = localPathRouterTestGet(t, baseURL+localagent.PathModeDashboardPrefix+"/overview")
+	statusCode, body = localPathRouterTestGet(t, storageURL)
 	select {
 	case <-retryWaited:
 	default:
@@ -205,16 +206,18 @@ func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	for path, want := range map[string]string{
-		"/":                            "/assets/app.js",
-		"/assets/app.js":               "frontend-js",
-		"/favicon.ico":                 "frontend-icon",
-		"/console/":                    "/console/assets/dashboard.js",
-		"/console/assets/dashboard.js": "dashboard-js",
+		"/":              "/assets/app.js",
+		"/assets/app.js": "frontend-js",
+		"/favicon.ico":   "frontend-icon",
 	} {
 		status, body := localPathRouterTestGet(t, baseURL+path)
 		if status != http.StatusOK || !strings.Contains(body, want) {
 			t.Fatalf("%s = %d %q, want 200 containing %q", path, status, body, want)
 		}
+	}
+	// Scenery serves no dashboard UI: /console belongs to the application.
+	if status, body := localPathRouterTestGet(t, baseURL+"/console/assets/dashboard.js"); strings.Contains(body, "dashboard-js") {
+		t.Fatalf("/console/assets/dashboard.js = %d %q, want the application's response", status, body)
 	}
 }
 

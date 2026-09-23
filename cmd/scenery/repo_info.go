@@ -24,7 +24,6 @@ var isExecPlanPath = repoinfo.IsExecPlanPath
 var populateHarnessChangedAreaReport = repoinfo.PopulateChangedArea
 var isIgnoredHarnessLocalArtifact = repoinfo.IsLocalArtifact
 var discoverSceneryRepoRoot = repoinfo.DiscoverRoot
-var findSceneryRepoRoot = repoinfo.FindRoot
 
 const docsIndexKind = repoinfo.IndexKind
 const inspectDocsKind = repoinfo.InspectKind
@@ -36,11 +35,9 @@ const harnessValidationGoPackage = repoinfo.ValidationGoPackage
 const harnessValidationCLIJSONContract = repoinfo.ValidationCLIJSONContract
 const harnessValidationCompilerGenerator = repoinfo.ValidationCompilerGenerator
 const harnessValidationUICatalog = repoinfo.ValidationUICatalog
-const harnessValidationDashboard = repoinfo.ValidationDashboard
 const harnessValidationReleaseRuntime = repoinfo.ValidationReleaseRuntime
 const harnessValidationRepositoryFallback = repoinfo.ValidationRepositoryFallback
 const harnessValidationQuickCommand = repoinfo.ValidationQuickCommand
 const harnessValidationFullCommand = repoinfo.ValidationFullCommand
-const harnessValidationUICommand = repoinfo.ValidationUICommand
 
 var harnessFixtureRegenerationCommands = repoinfo.FixtureRegenerationCommands

@@ -63,10 +63,10 @@ func (p *worktreeRuntimeProbe) optionalVictoria() error {
 			return err
 		}
 		e["serving_with_all_optional_binaries_absent_ms"] = time.Since(started).Milliseconds()
-		if err := p.get(runtime.Session.RouteManifest.BaseURL + "/console/"); err != nil {
+		if err := p.get(runtime.Session.RouteManifest.BaseURL + "/runtime/health"); err != nil {
 			return err
 		}
-		stopSentinel := p.startSentinel(runtime.Session.RouteManifest.BaseURL + "/console/")
+		stopSentinel := p.startSentinel(runtime.Session.RouteManifest.BaseURL + "/runtime/health")
 		defer stopSentinel()
 		deadline := time.Now().Add(15 * time.Second)
 		for {
@@ -107,11 +107,15 @@ func (p *worktreeRuntimeProbe) optionalVictoria() error {
 		}
 		record, err := p.record(root)
 		if err != nil || record.Postgres != nil {
-			return fmt.Errorf("optional observability or console allocated PostgreSQL: %v", err)
+			return fmt.Errorf("optional observability or the runtime RPC allocated PostgreSQL: %v", err)
 		}
 		counts := stopSentinel()
 		if counts[0] < 2 || counts[1] != 0 {
 			return fmt.Errorf("optional recovery caused %d serving failures in %d requests", counts[1], counts[0])
+		}
+		status, err := p.dashboardRPC(root, "status", map[string]string{})
+		if err != nil || status.Error != nil {
+			return fmt.Errorf("runtime RPC status failed after optional recovery: %v %+v", err, status.Error)
 		}
 		e["sentinel_requests"], e["sentinel_failures"] = counts[0], counts[1]
 		e["old_metrics_pid"], e["new_metrics_pid"], e["postgres_allocated"] = owner.PID, second.PIDs["metrics"], false

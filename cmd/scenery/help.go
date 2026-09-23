@@ -194,7 +194,6 @@ var helpReferenceGroups = []helpReferenceGroup{
 	}},
 	{Name: "Harness", Commands: []string{
 		"scenery harness",
-		"scenery harness ui",
 	}},
 	{Name: "Inspection", Commands: []string{
 		"scenery inspect app",
@@ -490,14 +489,13 @@ var helpCommands = []helpCommandEntry{
 		Stability: "stable",
 	},
 	{
-		Command:     "harness",
-		Group:       "Harness",
-		Summary:     "Run application and UI harnesses.",
-		Usage:       []string{"scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]", "scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]"},
-		Subcommands: []string{"ui"},
-		Flags:       []string{"--app-root <path>", "-o", "json", "--write", "--dashboard-url <url>", "--headed", "--with-validation[=<profile>]"},
-		JSON:        true,
-		Stability:   "stable",
+		Command:   "harness",
+		Group:     "Harness",
+		Summary:   "Run the application harness.",
+		Usage:     []string{"scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]"},
+		Flags:     []string{"--app-root <path>", "-o", "json", "--write", "--with-validation[=<profile>]"},
+		JSON:      true,
+		Stability: "stable",
 	},
 	{
 		Command: "inspect",

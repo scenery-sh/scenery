@@ -609,11 +609,7 @@ func normalizeAliasLease(alias AliasLease) AliasLease {
 }
 
 func normalizeAliasRoute(route string) string {
-	route = sanitizeLabel(route)
-	if route == "console" {
-		return RouteDashboard
-	}
-	return route
+	return sanitizeLabel(route)
 }
 
 func (r *Registry) load() error {

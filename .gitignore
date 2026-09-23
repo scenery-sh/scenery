@@ -7,8 +7,6 @@
 
 # Local dependencies and caches
 node_modules/
-/cmd/scenery/dashboard_static/dist/*
-!/cmd/scenery/dashboard_static/dist/placeholder.txt
 /oracle/
 /coverage/
 /.DS_Store

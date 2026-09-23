@@ -15,7 +15,7 @@ import (
 )
 
 func (p *worktreeRuntimeProbe) noSQL() error {
-	return p.scenario("A2", "ordinary no-SQL runtime and console allocate no PostgreSQL", func(e map[string]any) error {
+	return p.scenario("A2", "ordinary no-SQL runtime and its development RPC allocate no PostgreSQL", func(e map[string]any) error {
 		root := filepath.Join(p.root, "basic")
 		p.roots = append(p.roots, root)
 		for _, name := range []string{".scenery.json", ".gitignore", "app.scn", "go.mod", "go.sum", "service/api.go", "service/package.scn"} {
@@ -38,7 +38,7 @@ func (p *worktreeRuntimeProbe) noSQL() error {
 		if err != nil {
 			return err
 		}
-		if err := p.get(runtime.Session.RouteManifest.BaseURL + "/console/"); err != nil {
+		if err := p.get(runtime.Session.RouteManifest.BaseURL + "/runtime/health"); err != nil {
 			return err
 		}
 		response, err := p.dashboardRPC(root, "postgres/tables", map[string]string{"app_id": runtime.Session.SessionID})
@@ -53,9 +53,9 @@ func (p *worktreeRuntimeProbe) noSQL() error {
 			return err
 		}
 		if record.Postgres != nil {
-			return fmt.Errorf("no-SQL runtime or console allocated managed PostgreSQL")
+			return fmt.Errorf("no-SQL runtime or its development RPC allocated managed PostgreSQL")
 		}
-		e["base_url"], e["console_http"], e["postgres_allocated"] = runtime.Session.RouteManifest.BaseURL, 200, false
+		e["base_url"], e["runtime_http"], e["postgres_allocated"] = runtime.Session.RouteManifest.BaseURL, 200, false
 		e["auxiliary_capability_error"] = response.Error.Message
 		return nil
 	})

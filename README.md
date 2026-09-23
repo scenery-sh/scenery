@@ -26,14 +26,15 @@ plumbing around it.
 
 - **One local development command.** `scenery up` runs your backend, configured
   frontend dev servers, and managed dependencies, with file watching and a
-  development dashboard. Each native service runs as its own process, so an
+  development runtime RPC your own frontend can build developer tools on. Each native service runs as its own process, so an
   edit restarts only the services it changes.
 - **Common backend capabilities.** Typed HTTP APIs, authentication, PostgreSQL,
   object storage, background jobs, and schedules.
 - **A connected frontend.** Generated TypeScript clients match your declared
   APIs. Your product UI stays in your frontend.
-- **Tools to understand the app.** Browse APIs, logs, traces, and metrics
-  through the dashboard or CLI.
+- **Tools to understand the app.** Inspect APIs, logs, traces, and metrics
+  through the CLI, or build them into your frontend with the generated
+  development runtime client.
 
 Scenery is aimed at developers building Go-backed applications who want these
 pieces to work together. It is a runtime and toolchain for your code, not an
@@ -92,12 +93,11 @@ currently beta.
 
 ### Install from source
 
-You need Go 1.27+ and Bun. Apps using managed PostgreSQL also need Docker.
+You need Go 1.27+. Apps using managed PostgreSQL also need Docker.
 
 ```sh
 git clone https://github.com/scenery-sh/scenery.git
 cd scenery
-./scripts/build-dashboard-ui-embed.sh
 go install ./cmd/scenery
 scenery doctor
 ```

@@ -35,7 +35,8 @@ It does not generate:
 - server-side internal binding clients;
 - raw or transport-coupled handlers;
 - implementation-declared or opaque wire facets as verified APIs;
-- WebSocket, streaming, event-consumer, or arbitrary CLI clients;
+- WebSocket, streaming, event-consumer, or arbitrary CLI clients, except the
+  fixed development runtime client of [section 5.1](#dev-runtime-client);
 - a client for an unexported binding.
 
 ## 3. Client target
@@ -60,7 +61,9 @@ The target schema declares:
 - minimum TypeScript and JavaScript runtime versions;
 - fetch implementation identity;
 - output root;
-- optional operation inclusion filters over exported verified resources.
+- optional operation inclusion filters over exported verified resources;
+- optional `dev_runtime` (bool, default false) selecting the development
+  runtime client.
 
 Filters cannot make a required referenced type or outcome disappear. Target configuration is part of `typescript_client_revision[target]`.
 
@@ -97,6 +100,23 @@ A generator MAY combine physical files only when exports and artifact bytes rema
 The generated HTTP client stores per-binding request and response mappings in a descriptor table and executes them through one shared runtime helper. Methods remain one typed async function per covered binding. The generated runtime includes query, binding header/cookie, multipart, and retry sections only when at least one covered descriptor or the target retry configuration requires that capability. The record-validation expression evaluator is emitted only when a reachable record declares a validation rule; ordinary field constraints and scalar validation remain enforced. The helper is not part of the public `index.ts` export surface.
 
 `index.ts` exports the client class/factory, public contract types, runtime error types, metadata, and scalar helper types. It does not export internal implementation helpers.
+
+<a id="dev-runtime-client"></a>
+### 5.1 Development runtime client
+
+When the target sets `dev_runtime = true`, generation MUST also emit
+`dev-runtime.ts` in the same descriptor-covered set. It is a fixed client for
+the development runtime RPC defined by
+[the local contract](../local-contract.md#development-runtime-rpc); it does not
+depend on gateways, bindings or reachable types. Its only generated value is
+`DEV_RUNTIME_STATUS_SCHEMA_REVISION`, the exact
+`scenery.dev-runtime.status` schema revision of the generating producer.
+`status()` MUST reject a result whose kind or revision differs.
+
+`index.ts` MUST NOT re-export it, so applications that never import it pay no
+bundle cost. It exports `DevRuntimeClient`, `DevRuntimeError`, `storageTarget`
+and the request/result types. Targets without `dev_runtime` produce no
+`dev-runtime.ts`.
 
 ## 6. Naming
 

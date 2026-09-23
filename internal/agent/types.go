@@ -17,7 +17,10 @@ const (
 	EdgeStateKind      = "scenery.edge.state"
 	EdgeTargetKind     = "scenery.edge.target"
 
-	RouteAPI       = "api"
+	RouteAPI = "api"
+	// RouteDashboard names the worktree's runtime control backend (development
+	// runtime RPC, storage transfers, report intake). It is a backend, never a
+	// browser route.
 	RouteDashboard = "dashboard"
 	RoutePublic    = "public"
 
@@ -26,8 +29,9 @@ const (
 	// and never a valid route or alias name.
 	RoutePathMode = "__path"
 
-	PathModeDashboardPrefix = "/console"
-	PathModeRuntimePrefix   = "/runtime"
+	PathModeRuntimePrefix = "/runtime"
+	// PathModeRuntimeStoragePath streams development runtime storage transfers.
+	PathModeRuntimeStoragePath = PathModeRuntimePrefix + "/storage"
 
 	DefaultRouteBaseDomain = "local.dev"
 

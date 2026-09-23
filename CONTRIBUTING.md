@@ -7,7 +7,7 @@ Thanks for helping improve scenery. Keep changes small, explicit, and easy to va
 Requirements:
 
 - Go 1.27+
-- Bun for dashboard, generated TypeScript, and full self-harness validation
+- Bun for generated TypeScript, UI catalog, and full self-harness validation
 
 Build a checkout-local CLI from the repo root:
 
@@ -35,15 +35,6 @@ defines the required proof, including the release loop for runtime changes.
 Go changes require affected-package tests and `go test ./...`; retain the Go
 test cache unless measuring fresh execution or investigating nondeterminism.
 Rebuild the local CLI after source changes; worktrees share the installed CLI.
-
-For dashboard UI changes:
-
-```sh
-cd apps/console
-bun run lint
-bun run typecheck
-bun run build
-```
 
 For catalog changes, follow [ui/AGENTS.md](ui/AGENTS.md). `ui/` is embedded
 source, not a standalone Bun app; its checker and fixture commands run from

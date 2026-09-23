@@ -465,9 +465,8 @@ func TestWriteDetachedDevResultTextIncludesReadyBanner(t *testing.T) {
 			AppRoot: "/tmp/app",
 			Status:  "running",
 			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
-				localagent.RouteAPI:       {URL: "https://app.localhost/api/"},
-				localagent.RouteDashboard: {URL: "https://app.localhost/console/"},
-				"web":                     {URL: "https://app.localhost/web/"},
+				localagent.RouteAPI: {URL: "https://app.localhost/api/"},
+				"web":               {URL: "https://app.localhost/web/"},
 			}},
 		},
 	}
@@ -480,8 +479,6 @@ func TestWriteDetachedDevResultTextIncludesReadyBanner(t *testing.T) {
 		"scenery development server running",
 		"API:",
 		"https://app.localhost/api/",
-		"Dashboard:",
-		"https://app.localhost/console/",
 		"Frontend web:",
 		"https://app.localhost/web/",
 	} {

@@ -181,8 +181,6 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 		return "scripts/verify/harness_self_dev_lock.go"
 	case "schema validation":
 		return ".scenery/harness/schema-validation-latest.json"
-	case "dashboard ui typecheck", "dashboard ui build", "dashboard ui fresh":
-		return "apps/console"
 	case "parallel worktree runtimes":
 		return ".scenery/harness/agent-context.json"
 	default:
@@ -363,8 +361,8 @@ func classifyHarnessAgentRisk(changedArea *harnessChangedAreaReport) []string {
 		switch validationClass {
 		case harnessValidationCLIJSONContract:
 			classes["CLI contract"] = true
-		case harnessValidationDashboard, harnessValidationUICatalog:
-			classes["dashboard"] = true
+		case harnessValidationUICatalog:
+			classes["ui"] = true
 		case harnessValidationReleaseRuntime:
 			classes["runtime"] = true
 			classes["release"] = true
@@ -391,8 +389,8 @@ func classifyHarnessAgentRisk(changedArea *harnessChangedAreaReport) []string {
 			classes["runtime"] = true
 		case "cli-contract", "harness-contract":
 			classes["CLI contract"] = true
-		case "dashboard-ui", "victoria-dev-event-read-path":
-			classes["dashboard"] = true
+		case "victoria-dev-event-read-path":
+			classes["runtime"] = true
 		case "json-schema-contract":
 			classes["schema"] = true
 		}

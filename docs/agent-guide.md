@@ -249,7 +249,7 @@ marker is found; it is not evidence that an app can compile or start.
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.
 
-Default local routing resolves the single default named env and gives one app root/worktree one localhost base URL. Top-level `.scenery.json` `root` names the frontend served only at `/` on that base URL and every deploy surface; a single frontend is the default root, while other frontends remain at `/<name>/`. The root record is the lowest-precedence SPA catch-all, behind runtime, dashboard, API, and non-root frontend routes. Dashboard documents rewrite their root-absolute assets beneath `/console/`, so a root frontend owns `/assets/*`, favicons, and manifests consistently on localhost and domain routes. `scenery up --env <name>` selects another declared env. Its `domain`, `expose`, port fields, and frontend `serve` modes determine routing; an omitted best-match route returns 404 before the root catch-all is considered. Session JSON includes `environment`. Domain-edge unreadiness degrades to localhost without a cross-env redirect.
+Default local routing resolves the single default named env and gives one app root/worktree one localhost base URL. Top-level `.scenery.json` `root` names the frontend served only at `/` on that base URL and every deploy surface; a single frontend is the default root, while other frontends remain at `/<name>/`. The root record is the lowest-precedence SPA catch-all, behind runtime, API, and non-root frontend routes. A root frontend owns `/assets/*`, favicons, and manifests on localhost and dev domains. `scenery up --env <name>` selects another declared env. Its `domain`, `expose`, port fields, and frontend `serve` modes determine routing; an omitted best-match route returns 404 before the root catch-all is considered. Session JSON includes `environment`. Domain-edge unreadiness degrades to localhost without a cross-env redirect.
 
 Treat Caddy, dnsmasq, Victoria, proxy sockets, hidden ports, and local stores as substrate unless the task explicitly diagnoses them. Prefer scenery inspection and status commands over direct substrate access.
 
@@ -476,6 +476,16 @@ Tables default to `scroll = "table"`, which keeps page controls fixed and gives 
 
 Stats tiles may format primary and sub-line fields and declaratively set, toggle, or clear a typed filter or predicate through that same table request state. Date/datetime filters may add local-calendar `today`, `last_7_days`, and `month_to_date` presets without changing their paired wire inputs.
 
+Scenery ships no dashboard UI. Build development tooling (runtime status,
+database browsing, storage maintenance) inside the app's own frontend: set
+`dev_runtime = true` on its TypeScript target and import `DevRuntimeClient` from
+the generated `dev-runtime.ts`, only in development builds. The client talks to
+the app origin's `/runtime` WebSocket and `/runtime/storage` transfers
+([contract](local-contract.md#development-runtime-rpc)); `status().app_id` is the
+`appId` for the other calls, and storage calls need a `storageTarget` pinned
+from a fresh `storageInspect`. Regenerate whenever the app's Scenery producer
+changes; a revision mismatch fails `status()` with code `protocol`.
+
 For UI cleanup triage, run `scenery inspect ui --frontend <name>` and start with
 the highest-score file while reading both axes independently. Replace raw
 layout and controls with the existing Astryx or `@scenery/ui` vocabulary, and
@@ -579,8 +589,8 @@ mode builds the product under `.scenery/harness/bin/scenery`. The product has
 no repository-verification subcommand; use `go run ./scripts/verify` from this
 repository root.
 
-Scenery CLI installation and updates are source-only: select a checkout revision,
-run `./scripts/build-dashboard-ui-embed.sh`. Running `go install ./cmd/scenery` is reserved for an explicit human request.
+Scenery CLI installation and updates are source-only: select a checkout revision
+and build it with Go. Running `go install ./cmd/scenery` is reserved for an explicit human request.
 For concurrent versions use
 separate absolute binary paths. Installing a CLI is not an application or data
 migration; keep its source revision coherent with the application's runtime
@@ -631,7 +641,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
-- `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing. Detached `--wait ready` returns only after every advertised route and one declared frontend asset are reachable. Re-running `scenery up` while a verified live owner already runs the same app root succeeds instead of failing: the human foreground form reports that runtime and attaches to its logs (Ctrl+C detaches without stopping it), `-o jsonl` reports and exits `0`, and detached reruns apply the requested wait readiness to the existing owner and set `already_running` in the JSON result. While that supervisor remains live, shared Victoria observability is probed and recovered as one managed stack; failed recovery is always surfaced as a degraded error rather than hidden behind verbose output.
+- `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, the development runtime RPC, logs, traces, metrics, managed dev services, and optional frontend routing. Detached `--wait ready` returns only after every advertised route and one declared frontend asset are reachable. Re-running `scenery up` while a verified live owner already runs the same app root succeeds instead of failing: the human foreground form reports that runtime and attaches to its logs (Ctrl+C detaches without stopping it), `-o jsonl` reports and exits `0`, and detached reruns apply the requested wait readiness to the existing owner and set `already_running` in the JSON result. While that supervisor remains live, shared Victoria observability is probed and recovered as one managed stack; failed recovery is always surfaced as a degraded error rather than hidden behind verbose output.
 - `scenery deploy <ssh-target>` is beta single-server source sync: the target belongs to exactly one `envs.<name>.deploy.ssh`; the remote restart and publication use that env name, rsync preserves remote `.env*` and `.scenery`, and status/registry records the environment. `scenery deploy --env <name>` selects the env directly when it has one target.
 - Public deploy hosts have two service managers: launchd on macOS (privileged loopback helper) and systemd on Linux (`scenery deploy setup` as root installs `scenery-agent.service`, `scenery-edge.service` binding public 80/443 directly, and a boot-time deploy resume oneshot). Public-domain TLS uses ACME first and the internal Caddy CA as an origin-certificate fallback for TLS-terminating proxies such as Cloudflare in Full mode. While the edge unit exists, edge restart/reload paths converge through systemd. Public resume uses bounded reacquisition to retain a healthy fingerprinted Caddy/helper/agent chain and restarts it only when unavailable, independently of optional `local.dev` DNS; deploy status is degraded when the loaded one-shot resume job last completed with a nonzero exit.
 - Public edge dispatch reads an immutable in-memory route snapshot. The agent validates candidate public-route owner fingerprints when sessions are restored or registered, republishes on deploy/session changes, and periodically invalidates owners that exit; public requests do not read `deploy.json` or inspect processes. Enabled-but-down hosts and backend dial failures remain fail-closed with `503`.
@@ -781,24 +791,17 @@ For quick documentation validation, run the repository command:
 go run ./scripts/verify --quick --summary --write
 ```
 
-For UI verification, install Bun, then run from the repo root:
+For TypeScript client and UI catalog verification, install Bun, then run from
+the repo root:
 
 ```sh
-./scripts/build-dashboard-ui-embed.sh
 go run ./scripts/verify --probe ui --summary --write
 ```
 
-The embed script installs frozen console dependencies and builds the dashboard
-before the Go binary embeds it. Only `placeholder.txt` is tracked in the embed
-directory. The `dashboard ui fresh` lane checks the prepared product binary's
-actual HTTP bundle hash, never the verifier's assets. Its release negative probe
-requires a deliberately stale product to fail while the verifier is fresh.
-Repeat embed preparation after dashboard changes. The `ui` probe (also in
-release) provisions console dependencies before TypeScript lanes and reports
-unavailable dependencies explicitly. Default/quick/race do not provision
-console dependencies but do build the local product.
-The release shell prepares the embed itself; do not add this UI probe as an
-extra prerequisite to `scripts/release-gate.sh`.
+The `ui` probe (also in release) provisions the frozen `tools/typescript`
+dependencies before its TypeScript lanes and reports unavailable dependencies
+explicitly. Default/quick/race do not provision them but do build the local
+product. Scenery embeds no dashboard, so building the CLI needs only Go.
 
 ### Self-Harness Timing
 

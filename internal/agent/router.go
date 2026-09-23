@@ -76,10 +76,6 @@ func (s *Server) routerMux() http.Handler {
 			s.handlePathModeRoute(w, req, sessionWithRouteManifest(session, manifest))
 			return
 		}
-		if kind == RouteDashboard {
-			s.handleConsole(w, req, session)
-			return
-		}
 		backend, ok := session.Backends[kind]
 		if !ok {
 			http.NotFound(w, req)
@@ -300,19 +296,6 @@ func (s *Server) handleFrontendRoute(w http.ResponseWriter, req *http.Request, s
 	})
 }
 
-func (s *Server) handleConsole(w http.ResponseWriter, req *http.Request, session Session) {
-	if s.dashboard.Addr != "" {
-		s.proxyBackend(w, req, s.dashboard, "")
-		return
-	}
-	backend, ok := session.Backends[RouteDashboard]
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	s.proxyBackend(w, req, backend, "")
-}
-
 func requestHost(req *http.Request) string {
 	host := strings.ToLower(strings.TrimSpace(req.Host))
 	if host == "" && req.URL != nil {
@@ -508,7 +491,7 @@ func isProtectedFrontendRoutePath(requestPath string, record RouteRecord) bool {
 // PublicBlockedPathPrefixes is the shared protected top-level path contract
 // used by both the agent proxy and the managed Caddy static edge.
 func PublicBlockedPathPrefixes() []string {
-	return []string{PathModeRuntimePrefix, "/dashboard", PathModeDashboardPrefix, "/__scenery"}
+	return []string{PathModeRuntimePrefix, "/__scenery"}
 }
 
 // FrontendProtectedPathPrefixes are control/data prefixes that must never be
@@ -637,6 +620,23 @@ func (s *Server) handlePathModeRoute(w http.ResponseWriter, req *http.Request, s
 			publicURL:   joinPathModeURL(session.RouteManifest.BaseURL, PathModeRuntimePrefix),
 		})
 		return
+	case PathModeRuntimeStoragePath:
+		backend := s.dashboard
+		if backend.Addr == "" {
+			var ok bool
+			backend, ok = session.Backends[RouteDashboard]
+			if !ok {
+				http.NotFound(w, req)
+				return
+			}
+		}
+		s.proxyBackendWithOptions(w, req, backend, proxyBackendOptions{
+			rewritePath: "/__scenery/storage",
+			routePrefix: PathModeRuntimeStoragePath,
+			baseURL:     session.RouteManifest.BaseURL,
+			publicURL:   joinPathModeURL(session.RouteManifest.BaseURL, PathModeRuntimeStoragePath),
+		})
+		return
 	case PathModeRuntimePrefix + "/config":
 		api, ok := session.Backends[RouteAPI]
 		if !ok {
@@ -660,23 +660,6 @@ func (s *Server) handlePathModeRoute(w http.ResponseWriter, req *http.Request, s
 	}
 	if record.Name == "root" && record.Kind != "frontend" {
 		s.handlePathModeRoot(w, req, session)
-		return
-	}
-	if record.Backend == RouteDashboard || record.Kind == "scenery-console" {
-		if shouldRedirectPathPrefix(req, record) {
-			http.Redirect(w, req, record.Path, http.StatusMovedPermanently)
-			return
-		}
-		backend := s.dashboard
-		if backend.Addr == "" {
-			var ok bool
-			backend, ok = session.Backends[RouteDashboard]
-			if !ok {
-				http.NotFound(w, req)
-				return
-			}
-		}
-		s.proxyBackendWithOptions(w, req, backend, pathProxyOptions(session, record))
 		return
 	}
 	backend, ok := session.Backends[record.Backend]
@@ -803,7 +786,7 @@ func pathProxyOptions(session Session, record RouteRecord) proxyBackendOptions {
 		stripPrefix = ""
 	}
 	htmlPrefix := ""
-	if strings.TrimSpace(record.Kind) == "frontend" || record.Backend == RouteDashboard || record.Kind == "scenery-console" {
+	if strings.TrimSpace(record.Kind) == "frontend" {
 		htmlPrefix = prefix
 	}
 	return proxyBackendOptions{

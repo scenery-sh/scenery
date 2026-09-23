@@ -88,7 +88,7 @@ func TestMarkInconsistentStatusSessionsMarksConfiguredEdgeInternalRouterRouteDeg
 				BaseDomain: "onlv.dev",
 			},
 			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
-				localagent.RouteDashboard: {URL: "https://console.custom-domain.onlv.dev:9440/"},
+				localagent.RouteAPI: {URL: "https://api.custom-domain.onlv.dev:9440/"},
 			}},
 		},
 	})
