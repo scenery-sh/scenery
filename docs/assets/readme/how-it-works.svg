@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">How Scenery works</title>
+  <desc id="desc">You write .scn declarations (what exists), Go handlers (what it does) and .scenery.json (how it runs). Scenery compiles one typed app graph, generates Go and TypeScript code, and runs one supervised runtime. You get typed HTTP APIs, durable jobs and schedules, PostgreSQL and storage, auth with users and tenants, TypeScript clients, logs, traces and metrics, and a JSON CLI for AI agents.</desc>
+  <style>
+    .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
+    .base { fill: none; stroke: #33407A; stroke-width: 2; }
+    .flow { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 4 10; animation: flow 1.4s linear infinite; }
+    @keyframes flow { to { stroke-dashoffset: -28; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+  <defs>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="0.55" stop-color="#FB923C"/>
+      <stop offset="1" stop-color="#EC4899"/>
+    </linearGradient>
+    <linearGradient id="markBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A2F78"/>
+      <stop offset="1" stop-color="#0E1333"/>
+    </linearGradient>
+    <clipPath id="markClip"><rect width="64" height="64" rx="16"/></clipPath>
+    <symbol id="mark" viewBox="0 0 64 64">
+      <g clip-path="url(#markClip)">
+        <rect width="64" height="64" fill="url(#markBg)"/>
+        <circle cx="41" cy="23" r="10" fill="url(#sun)"/>
+        <path d="M-4 52 L17 30 L28 41 L36 34 L68 58 V68 H-4 Z" fill="#8B5CF6"/>
+        <path d="M-4 60 L15 47 L28 56 L45 43 L68 60 V68 H-4 Z" fill="#22D3EE"/>
+      </g>
+      <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="15.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1.5"/>
+    </symbol>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A0F26"/>
+      <stop offset="1" stop-color="#151239"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#FFFFFF" fill-opacity="0.06"/>
+    </pattern>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <linearGradient id="panelStroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#F472B6"/>
+    </linearGradient>
+    <radialGradient id="panelGlow" cx="600" cy="130" r="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flowIn" x1="380" y1="0" x2="460" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#22D3EE"/>
+    </marker>
+    <clipPath id="card"><rect width="1200" height="640" rx="28"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1200" height="640" fill="url(#bg)"/>
+    <rect width="1200" height="640" fill="url(#dots)"/>
+  </g>
+
+  <g class="sans" font-size="14" font-weight="700" letter-spacing="3.5" fill="#7C86B2" text-anchor="middle">
+    <text x="210" y="66">YOU WRITE</text>
+    <text x="600" y="66">SCENERY</text>
+    <text x="990" y="66">YOU GET</text>
+  </g>
+
+    <path d="M744 258 C784 258 780 126 816 126" class="base"/>
+    <path d="M744 258 C784 258 780 126 816 126" class="flow" stroke="#22D3EE"/>
+    <circle cx="816" cy="126" r="3.5" fill="#22D3EE"/>
+    <circle cx="744" cy="258" r="3" fill="#22D3EE"/>
+    <path d="M744 280 C784 280 780 192 816 192" class="base"/>
+    <path d="M744 280 C784 280 780 192 816 192" class="flow" stroke="#A78BFA"/>
+    <circle cx="816" cy="192" r="3.5" fill="#A78BFA"/>
+    <circle cx="744" cy="280" r="3" fill="#A78BFA"/>
+    <path d="M744 302 C784 302 780 258 816 258" class="base"/>
+    <path d="M744 302 C784 302 780 258 816 258" class="flow" stroke="#38BDF8"/>
+    <circle cx="816" cy="258" r="3.5" fill="#38BDF8"/>
+    <circle cx="744" cy="302" r="3" fill="#38BDF8"/>
+    <path d="M744 324 C784 324 780 324 816 324" class="base"/>
+    <path d="M744 324 C784 324 780 324 816 324" class="flow" stroke="#FBBF24"/>
+    <circle cx="816" cy="324" r="3.5" fill="#FBBF24"/>
+    <circle cx="744" cy="324" r="3" fill="#FBBF24"/>
+    <path d="M744 346 C784 346 780 390 816 390" class="base"/>
+    <path d="M744 346 C784 346 780 390 816 390" class="flow" stroke="#60A5FA"/>
+    <circle cx="816" cy="390" r="3.5" fill="#60A5FA"/>
+    <circle cx="744" cy="346" r="3" fill="#60A5FA"/>
+    <path d="M744 368 C784 368 780 456 816 456" class="base"/>
+    <path d="M744 368 C784 368 780 456 816 456" class="flow" stroke="#34D399"/>
+    <circle cx="816" cy="456" r="3.5" fill="#34D399"/>
+    <circle cx="744" cy="368" r="3" fill="#34D399"/>
+    <path d="M744 390 C784 390 780 522 816 522" class="base"/>
+    <path d="M744 390 C784 390 780 522 816 522" class="flow" stroke="#F472B6"/>
+    <circle cx="816" cy="522" r="3.5" fill="#F472B6"/>
+    <circle cx="744" cy="390" r="3" fill="#F472B6"/>
+    <path d="M384 164 C424 164 416 290 454 290" class="base" marker-end="url(#arrow)"/>
+    <path d="M384 164 C424 164 416 290 454 290" class="flow" stroke="url(#flowIn)"/>
+    <circle cx="384" cy="164" r="3.5" fill="#A78BFA"/>
+    <path d="M384 324 C424 324 416 324 454 324" class="base" marker-end="url(#arrow)"/>
+    <path d="M384 324 C424 324 416 324 454 324" class="flow" stroke="url(#flowIn)"/>
+    <circle cx="384" cy="324" r="3.5" fill="#A78BFA"/>
+    <path d="M384 484 C424 484 416 358 454 358" class="base" marker-end="url(#arrow)"/>
+    <path d="M384 484 C424 484 416 358 454 358" class="flow" stroke="url(#flowIn)"/>
+    <circle cx="384" cy="484" r="3.5" fill="#A78BFA"/>
+
+  <g>
+    <rect x="40" y="96" width="340" height="136" rx="18" fill="#111836" stroke="#27305C"/>
+    <rect x="62" y="120" width="64" height="64" rx="16" fill="#A78BFA" fill-opacity="0.14" stroke="#A78BFA" stroke-opacity="0.55"/>
+    <text x="94" y="159" text-anchor="middle" class="mono" font-size="19" font-weight="700" fill="#A78BFA">.scn</text>
+    <text x="146" y="148" class="sans" font-size="23" font-weight="700" fill="#F5F7FF">What exists</text>
+    <text x="146" y="178" class="mono" font-size="16" fill="#A78BFA">app.scn · package.scn</text>
+    <text x="146" y="206" class="sans" font-size="16" fill="#A9B2D6">Routes, jobs, data, auth</text>
+  </g>
+  <g>
+    <rect x="40" y="256" width="340" height="136" rx="18" fill="#111836" stroke="#27305C"/>
+    <rect x="62" y="280" width="64" height="64" rx="16" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-opacity="0.55"/>
+    <text x="94" y="319" text-anchor="middle" class="mono" font-size="19" font-weight="700" fill="#22D3EE">Go</text>
+    <text x="146" y="308" class="sans" font-size="23" font-weight="700" fill="#F5F7FF">What it does</text>
+    <text x="146" y="338" class="mono" font-size="16" fill="#22D3EE">*.go</text>
+    <text x="146" y="366" class="sans" font-size="16" fill="#A9B2D6">Plain, typed Go handlers</text>
+  </g>
+  <g>
+    <rect x="40" y="416" width="340" height="136" rx="18" fill="#111836" stroke="#27305C"/>
+    <rect x="62" y="440" width="64" height="64" rx="16" fill="#FBBF24" fill-opacity="0.14" stroke="#FBBF24" stroke-opacity="0.55"/>
+    <text x="94" y="479" text-anchor="middle" class="mono" font-size="19" font-weight="700" fill="#FBBF24">{ }</text>
+    <text x="146" y="468" class="sans" font-size="23" font-weight="700" fill="#F5F7FF">How it runs</text>
+    <text x="146" y="498" class="mono" font-size="16" fill="#FBBF24">.scenery.json</text>
+    <text x="146" y="526" class="sans" font-size="16" fill="#A9B2D6">Envs, frontends, domains</text>
+  </g>
+
+  <g>
+    <rect x="460" y="96" width="280" height="456" rx="22" fill="#121A42"/>
+    <rect x="460" y="96" width="280" height="456" rx="22" fill="url(#panelGlow)"/>
+    <rect x="461" y="97" width="278" height="454" rx="21" fill="none" stroke="url(#panelStroke)" stroke-width="2"/>
+    <use href="#mark" x="570" y="122" width="60" height="60"/>
+    <text x="600" y="216" text-anchor="middle" class="sans" font-size="28" font-weight="800" letter-spacing="-0.5" fill="#F5F7FF">scenery</text>
+    <path d="M488 238 H712" stroke="#2B3566" stroke-width="1.5"/>
+    <path d="M496 296 V356" stroke="#3A4478" stroke-width="2" stroke-dasharray="3 5"/>
+    <circle cx="496" cy="278" r="16" fill="url(#accent)"/>
+    <text x="496" y="284" text-anchor="middle" class="sans" font-size="16" font-weight="800" fill="#0A0F26">1</text>
+    <text x="526" y="285" class="sans" font-size="21" font-weight="700" fill="#F5F7FF">Compile</text>
+    <text x="526" y="310" class="sans" font-size="15" fill="#A9B2D6">one typed app graph</text>
+    <path d="M496 392 V452" stroke="#3A4478" stroke-width="2" stroke-dasharray="3 5"/>
+    <circle cx="496" cy="374" r="16" fill="url(#accent)"/>
+    <text x="496" y="380" text-anchor="middle" class="sans" font-size="16" font-weight="800" fill="#0A0F26">2</text>
+    <text x="526" y="381" class="sans" font-size="21" font-weight="700" fill="#F5F7FF">Generate</text>
+    <text x="526" y="406" class="sans" font-size="15" fill="#A9B2D6">Go + TypeScript code</text>
+    <circle cx="496" cy="470" r="16" fill="url(#accent)"/>
+    <text x="496" y="476" text-anchor="middle" class="sans" font-size="16" font-weight="800" fill="#0A0F26">3</text>
+    <text x="526" y="477" class="sans" font-size="21" font-weight="700" fill="#F5F7FF">Run</text>
+    <text x="526" y="502" class="sans" font-size="15" fill="#A9B2D6">one supervised runtime</text>
+  </g>
+
+  <g>
+    <rect x="820" y="98" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle cx="852" cy="126" r="18" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-opacity="0.55"/>
+    <text x="852" y="131.0" text-anchor="middle" class="mono" font-size="13" font-weight="700" fill="#22D3EE">&lt;/&gt;</text>
+    <text x="884" y="132" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">Typed HTTP APIs</text>
+  </g>
+  <g>
+    <rect x="820" y="164" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle cx="852" cy="192" r="18" fill="#A78BFA" fill-opacity="0.14" stroke="#A78BFA" stroke-opacity="0.55"/>
+    <circle cx="852" cy="192.0" r="8" stroke="#A78BFA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M852 187.5 V192.0 L855.5 194.0" stroke="#A78BFA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="884" y="198" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">Durable jobs &amp; schedules</text>
+  </g>
+  <g>
+    <rect x="820" y="230" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle cx="852" cy="258" r="18" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/>
+    <ellipse cx="852" cy="253.0" rx="7.5" ry="2.8" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M844.5 253.0 V263.0 A7.5 2.8 0 0 0 859.5 263.0 V253.0" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M844.5 258.0 A7.5 2.8 0 0 0 859.5 258.0" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="884" y="264" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">PostgreSQL &amp; storage</text>
+  </g>
+  <g>
+    <rect x="820" y="296" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle cx="852" cy="324" r="18" fill="#FBBF24" fill-opacity="0.14" stroke="#FBBF24" stroke-opacity="0.55"/>
+    <rect x="845" y="322.0" width="14" height="10" rx="2.5" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M848 322.0 V319.0 A4 4 0 0 1 856 319.0 V322.0" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="884" y="330" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">Auth, users &amp; tenants</text>
+  </g>
+  <g>
+    <rect x="820" y="362" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle cx="852" cy="390" r="18" fill="#60A5FA" fill-opacity="0.14" stroke="#60A5FA" stroke-opacity="0.55"/>
+    <text x="852" y="394.5" text-anchor="middle" class="sans" font-size="13" font-weight="800" fill="#60A5FA">TS</text>
+    <text x="884" y="396" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">TypeScript clients</text>
+  </g>
+  <g>
+    <rect x="820" y="428" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle cx="852" cy="456" r="18" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/>
+    <path d="M843 457.0 H847 L850 450.0 L853.5 463.0 L856 454.0 L857.5 457.0 H861" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="884" y="462" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">Logs, traces &amp; metrics</text>
+  </g>
+  <g>
+    <rect x="820" y="494" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle cx="852" cy="522" r="18" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/>
+    <path d="M852 513.0 C853 519.0 855 521.0 861 522.0 C855 523.0 853 525.0 852 531.0 C851 525.0 849 523.0 843 522.0 C849 521.0 851 519.0 852 513.0 Z" fill="#F472B6"/>
+    <text x="884" y="528" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">JSON CLI for AI agents</text>
+  </g>
+
+  <text x="600" y="606" text-anchor="middle" class="sans" font-size="16" fill="#7C86B2">Save a .scn or .go file: Scenery updates the generated Go contracts, rebuilds only what changed, and keeps serving.</text>
+</svg>
