@@ -111,7 +111,10 @@ the development runtime RPC defined by
 depend on gateways, bindings or reachable types. Its only generated value is
 `DEV_RUNTIME_STATUS_SCHEMA_REVISION`, the exact
 `scenery.dev-runtime.status` schema revision of the generating producer.
-`status()` MUST reject a result whose kind or revision differs.
+`status()` MUST reject a result whose kind or revision differs, with
+error code `protocol` and `details` naming the expected and received kind and
+revision. A result without the status kind MUST be reported as a runtime that
+needs `scenery up` restarted, not as a client to regenerate.
 
 `index.ts` MUST NOT re-export it, so applications that never import it pay no
 bundle cost. It exports `DevRuntimeClient`, `DevRuntimeError`, `storageTarget`

@@ -352,14 +352,31 @@ export class DevRuntimeClient {
 
 	async status(options: { appId?: string; signal?: AbortSignal } = {}): Promise<DevRuntimeStatus> {
 		const params = options.appId ? { app_id: options.appId } : {};
-		const status = await this.#call<DevRuntimeStatus>("status", params, options.signal);
-		if (status?.kind !== DEV_RUNTIME_STATUS_KIND || status.schema_revision !== DEV_RUNTIME_STATUS_SCHEMA_REVISION) {
+		const result = await this.#call<unknown>("status", params, options.signal);
+		const received = typeof result === "object" && result !== null ? (result as Record<string, unknown>) : {};
+		const details = {
+			expected_kind: DEV_RUNTIME_STATUS_KIND,
+			expected_schema_revision: DEV_RUNTIME_STATUS_SCHEMA_REVISION,
+			received_kind: typeof received.kind === "string" ? received.kind : null,
+			received_schema_revision: typeof received.schema_revision === "string" ? received.schema_revision : null,
+		};
+		if (details.received_kind !== DEV_RUNTIME_STATUS_KIND) {
+			// Scenery before the documented development runtime RPC answers
+			// `status` with another shape. The runtime, not this client, is stale.
 			throw new DevRuntimeError(
 				"protocol",
-				`development runtime status ${String(status?.schema_revision)} does not match this client (${DEV_RUNTIME_STATUS_SCHEMA_REVISION}); regenerate the client with the running Scenery`,
+				`the running Scenery does not serve ${DEV_RUNTIME_STATUS_KIND}; restart scenery up so it runs the Scenery version the app selects`,
+				{ details },
 			);
 		}
-		return status;
+		if (details.received_schema_revision !== DEV_RUNTIME_STATUS_SCHEMA_REVISION) {
+			throw new DevRuntimeError(
+				"protocol",
+				`the running Scenery serves ${DEV_RUNTIME_STATUS_KIND} ${String(details.received_schema_revision)}, but this client reads ${DEV_RUNTIME_STATUS_SCHEMA_REVISION}; restart scenery up if the app's Scenery version changed, otherwise regenerate this client with the running Scenery`,
+				{ details },
+			);
+		}
+		return result as DevRuntimeStatus;
 	}
 
 	async postgresTables(appId: string, signal?: AbortSignal): Promise<readonly PostgresTable[]> {

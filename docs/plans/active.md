@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0203 Framework Handoff For Running Development Runtimes](0203-framework-handoff.md)
+  - Status: active
+  - Owner: scenery runtime / build
+  - Created: 2026-09-23
+  - Focus: a running `scenery up` started by a prepared framework executable follows the app's `go.mod` selection: it prepares a changed framework while serving, then stops and continues as the new producer (exec in the foreground, detached relaunch otherwise); the generated `dev-runtime.ts` explains stale-runtime status mismatches.
+
 - [0202 Development Runtime RPC Contract And Console Removal](0202-development-runtime-rpc-contract.md)
   - Status: active
   - Owner: scenery runtime / generate

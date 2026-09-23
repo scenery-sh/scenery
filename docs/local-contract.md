@@ -864,6 +864,28 @@ paths absolute relative to the authored module. Build input manifests include
 runtime build-input digest also binds the selected source content and CLI bytes.
 The supervisor verifies its compiled source stamp and the app's actual framework
 before each build; changing another checkout cannot silently select a new runtime.
+
+**Framework handoff.** A `scenery up` whose executable is a producer that
+`framework use` prepared for the same app root (under
+`.scenery/framework/bin/`) follows the app's own selection. Before each rebuild,
+and before a foreground or `--detach` launch acquires anything, it compares the
+authored `go.mod` selection with itself without reading framework source: a
+pinned version against its own version, an app-local snapshot
+(`.scenery/framework/source/<digest>`) against its linked source digest. When
+they differ it prepares the selection exactly as `framework use` does (including
+the module download) while the current runtime keeps serving, lets the new
+executable publish its own receipt, then stops the runtime as Ctrl+C does and
+continues as that executable: the foreground process `exec`s it with the same
+arguments, keeping its PID and output; a detached supervisor relaunches as
+`<new> up --detach -o json`, whose result lands in the retiring log; a launch
+that has not started anything simply `exec`s it. A handoff never rewrites
+`go.mod`: a local replacement pointing at a mutable checkout still needs an
+explicit `framework use` and restart. A failed preparation is reported once per
+selection as a rebuild error, the runtime keeps serving, and the framework
+mismatch stays the build error. The new producer starts under ordinary startup
+rules; retained state it cannot accept fails its startup exactly as a manual
+restart would. Repository harness binaries and other explicitly chosen
+executables never hand off.
 Repository validation stamps its worktree-local CLI automatically. An unbound
 source-built executable must prepare a matching producer before starting an app.
 
@@ -1026,7 +1048,7 @@ Command split:
   remains pending. Contradictory ownership is SCN8003 / exit 3; permanent
   control/specification failures return immediately instead of consuming the
   readiness deadline. `--wait registered` does not promise process publication.
-- `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths and app config `watch.ignore` paths as outside the watch surface and does not descend into ignored directories. `watch.ignore` also excludes those paths from the rebuild/change fingerprint used by the dev loop, but it does not affect Git tracking. A second live code copy requires a separate Git worktree. Re-running `scenery up` while a verified live owner already runs the same app root is an idempotent success, not an error, and never starts a second supervisor: the human foreground form reports the existing runtime's owner PID, routed URLs, and the log/stop commands, then attaches to the running runtime's structured logs. The attached follower never takes ownership: Ctrl+C detaches with exit code `0` and leaves the runtime running (stopping stays explicit through `scenery down`), and the follower exits on its own once the app root no longer has a live verified owner. `-o jsonl` does not attach; it emits a `run.already_running` event and returns `0`.
+- `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths and app config `watch.ignore` paths as outside the watch surface and does not descend into ignored directories. `watch.ignore` also excludes those paths from the rebuild/change fingerprint used by the dev loop, but it does not affect Git tracking. A second live code copy requires a separate Git worktree. Re-running `scenery up` while a verified live owner already runs the same app root is an idempotent success, not an error, and never starts a second supervisor: the human foreground form reports the existing runtime's owner PID, routed URLs, and the log/stop commands, then attaches to the running runtime's structured logs. The attached follower never takes ownership: Ctrl+C detaches with exit code `0` and leaves the runtime running (stopping stays explicit through `scenery down`), and the follower exits on its own once the app root no longer has a live verified owner. `-o jsonl` does not attach; it emits a `run.already_running` event and returns `0`. When the app's `go.mod` selects another framework than the running prepared producer, `scenery up` hands off to it (see Framework handoff with `scenery framework use`) instead of reporting a framework mismatch on every rebuild.
 - After a failed build, changes to declared generated artifacts wake the watcher so regenerating stale clients retries the current contract automatically. Successful builds ignore generated content writes to prevent self-triggered rebuild loops; authored changes made during a build remain pending.
 - `scenery up --detach` starts the same worktree-owning supervisor and embedded private control plane in a background child process. By default (`--wait ready`) it waits up to two minutes until the child session is registered, its status is `running`, the API and configured frontend backends accept connections, every advertised route completes without an infrastructure 5xx response, and one script or stylesheet asset discovered in each frontend HTML shell loads successfully, then prints the app action summary, status/log/stop commands, and registered routes. Application-level 401 or 404 responses prove routing; discovered frontend assets must return below 400. `--wait registered` has a 30-second budget and returns when the child registers as the root's runtime owner, without promising serving readiness. Timeout errors report the actual child PID and last route/asset failure. Supervisor stdout/stderr is retained beneath the worktree's private control directory. A compatible live owner with the same selected environment is reused: the requested readiness check still applies, `scenery.dev.detach.already_running` is true, and `log_path` is omitted because no child was started. A different environment or incompatible identity fails without replacing the owner.
 - Detached startup observes supervisor exit independently of session polling. A private inherited pipe carries one terminal `scenery.cli.event` summary with the current schema/spec/producer identity and a structured diagnostic; stdout/stderr is not parsed as startup authority. Terminal startup failure preserves the original diagnostic fields, exit classification, and internal report token after session cleanup. The public diagnostic adds `details.detached_startup` with `reason`, `owner_pid`, `wait`, and `log_path`, plus a log suggestion when a new child was started. Reasons distinguish `child_failure`, `child_exit` (no result), `protocol_error`, `timeout`, and other `wait_failure`. Exit without a result, malformed protocol, and actual deadline expiration are SCN8003 / exit 3; unknown internal failures remain sanitized SCN9000 / exit 10. The launcher reaps failed children. `--wait registered` intentionally does not promise later readiness or observe failures after it returns. Structured `build.error`, `run.failed`, and failed run summaries include `data.diagnostic` and `data.exit_code`; log text remains non-authoritative context.
@@ -1154,6 +1176,7 @@ scenery up -o jsonl
 
 - output is JSONL
 - each line is a `scenery.cli.event` envelope whose `data` conforms to `scenery.run.event`; one terminal summary ends the stream
+- a framework handoff (described with `scenery framework use`) emits a `framework.handoff` event and ends this producer's stream with its summary (`ok: true`, `handoff: {executable, framework_version, source_digest}`); the new producer then starts its own stream, from sequence 1 and with its own identity, on the same output
 - human-readable console output is suppressed in this mode
 - child stdout/stderr are emitted as structured `process.output` events instead of raw terminal writes
 
@@ -1379,7 +1402,10 @@ Generated client:
   `DevRuntimeClient` implements this contract, and `status()` fails with code
   `protocol` when the runtime's `scenery.dev-runtime.status` schema revision
   differs from the client's, so a client generated by another Scenery producer
-  is caught before it misreads results.
+  is caught before it misreads results. The error's `details` carry the
+  expected and received kind and revision; a result that is not a
+  `scenery.dev-runtime.status` at all (an older Scenery) says to restart
+  `scenery up`, and a revision mismatch names both remedies.
 
 ## Artifact Locations
 

@@ -86,7 +86,7 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	var selection build.FrameworkSelection
 	changed := false
 	if opts.Command == "use" {
-		selection, changed, err = useAppFramework(ctx, root, opts.Source)
+		selection, changed, err = useAppFramework(ctx, root, opts.Source, false)
 		if err == nil && !build.OwnsFrameworkSelection(selection) {
 			// B must publish and emit B's exact protocol. A must not decode,
 			// restamp or wrap that output with its own specification identity.
@@ -141,7 +141,10 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	return err
 }
 
-func useAppFramework(ctx context.Context, root, sourceOverride string) (build.FrameworkSelection, bool, error) {
+// useAppFramework prepares the framework the app selects. preserveModule
+// refuses a selection that would rewrite go.mod: a running runtime preparing
+// its handoff never edits authored files.
+func useAppFramework(ctx context.Context, root, sourceOverride string, preserveModule bool) (build.FrameworkSelection, bool, error) {
 	var selection build.FrameworkSelection
 	modulePath := filepath.Join(root, "go.mod")
 	moduleInfo, err := os.Lstat(modulePath)
@@ -199,6 +202,9 @@ func useAppFramework(ctx context.Context, root, sourceOverride string) (build.Fr
 		if err != nil {
 			return selection, false, err
 		}
+	}
+	if preserveModule && !bytes.Equal(before, after) {
+		return selection, false, fmt.Errorf("the app's local scenery.sh replacement is not an app-local framework snapshot; run scenery framework use, then restart scenery up")
 	}
 	current, err := os.ReadFile(modulePath)
 	if err != nil || !bytes.Equal(current, before) {

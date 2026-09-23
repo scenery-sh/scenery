@@ -370,6 +370,11 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 		return err
 	}
 	warnDevEscapeHatches(opts)
+	if !detachedDevChildMode() {
+		if handoff := startupFrameworkHandoff(opts.AppRoot); handoff != nil {
+			return continueWithFramework(handoff, args)
+		}
+	}
 	if opts.Detach && !detachedDevChildMode() {
 		// The detached child owns readiness and writes the startup sample. The
 		// launcher only waits and renders the result, so recording it as well
@@ -382,7 +387,11 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 	if telemetry != nil {
 		onReady = telemetry.startupReady
 	}
-	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.Desktop, opts.AppRoot, opts.Env, onReady)
+	err = runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.Desktop, opts.AppRoot, opts.Env, onReady)
+	if handoff, ok := errors.AsType[*frameworkHandoff](err); ok {
+		return continueWithFramework(handoff, args)
+	}
+	return err
 }
 
 func validateRuntimePlan(appRootOption string) error {
