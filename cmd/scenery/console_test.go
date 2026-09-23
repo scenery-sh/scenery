@@ -155,8 +155,7 @@ func TestRunConsoleAlreadyRunningText(t *testing.T) {
 	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", t.TempDir())
 
 	console.AlreadyRunning(74057, "running", runURLs{
-		API:       "https://app.localhost/api/",
-		Dashboard: "https://app.localhost/console/",
+		API: "https://app.localhost/api/",
 	}, `scenery logs --follow --app-root "/tmp/app"`, `scenery down --app-root "/tmp/app"`)
 
 	got := out.String()
@@ -164,7 +163,6 @@ func TestRunConsoleAlreadyRunningText(t *testing.T) {
 		"scenery up is already running for this app root",
 		"(owner PID 74057)",
 		"https://app.localhost/api/",
-		"https://app.localhost/console/",
 		`logs: scenery logs --follow --app-root "/tmp/app"`,
 		`stop: scenery down --app-root "/tmp/app"`,
 	} {

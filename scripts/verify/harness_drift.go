@@ -519,9 +519,6 @@ func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (ha
 
 func harnessBinaryFreshnessCoversRel(rel string) bool {
 	rel = filepath.ToSlash(rel)
-	if strings.HasPrefix(rel, dashboardStaticDistRel+"/") && harnessBinaryInputFile(rel) {
-		return true
-	}
 	for _, prefix := range []string{"auth/", "cmd/", "db/", "errs/", "internal/", "middleware/", "runtime/", "ui/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {
@@ -852,10 +849,7 @@ func harnessStepEffects(step harnessStep) []string {
 	case "go tests", "go test timing", "affected package tests", "race shortlist", "race full suite":
 		set["test-cache"] = true
 		set["external-binary"] = true
-	case "dashboard ui typecheck", "dashboard ui build":
-		set["node-runtime"] = true
-		set["external-binary"] = true
-	case "console dependencies":
+	case "typescript dependencies":
 		set["node-runtime"] = true
 		set["external-binary"] = true
 		set["filesystem-write"] = true
@@ -869,7 +863,7 @@ func harnessStepEffects(step harnessStep) []string {
 		set["path-binary"] = true
 	case "toolchain preflight":
 		set["external-binary"] = true
-	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "inspect docs", "architecture checks", "dashboard ui fresh":
+	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "inspect docs", "architecture checks":
 		set["filesystem-read"] = true
 	}
 	return sortedStringSet(set)

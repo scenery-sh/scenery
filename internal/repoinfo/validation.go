@@ -11,13 +11,14 @@ const (
 	ValidationCLIJSONContract    = "cli-json-contract"
 	ValidationCompilerGenerator  = "compiler-or-generator"
 	ValidationUICatalog          = "ui-catalog"
-	ValidationDashboard          = "dashboard"
 	ValidationReleaseRuntime     = "release-sensitive-or-runtime"
 	ValidationRepositoryFallback = "repository-fallback"
 
 	ValidationQuickCommand = "go run ./scripts/verify --quick --summary --write"
 	ValidationFullCommand  = "go run ./scripts/verify --summary --write"
-	ValidationUICommand    = ".scenery/harness/bin/scenery harness ui -o json --write"
+	// ValidationCatalogTypecheckCommand typechecks the ui/ catalog with the
+	// TypeScript tooling dependencies under tools/typescript.
+	ValidationCatalogTypecheckCommand = "tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json"
 )
 
 var FixtureRegenerationCommands = []string{
@@ -57,11 +58,8 @@ func addHarnessChangedAreaValidation(report *harnessreport.ChangedAreaReport, co
 			strings.HasPrefix(file.Path, "cmd/scenery/generate") {
 			classes[ValidationCompilerGenerator] = true
 		}
-		if strings.HasPrefix(file.Path, "ui/") {
+		if strings.HasPrefix(file.Path, "ui/") || strings.HasPrefix(file.Path, "tools/typescript/") {
 			classes[ValidationUICatalog] = true
-		}
-		if strings.HasPrefix(file.Path, "apps/console/") {
-			classes[ValidationDashboard] = true
 		}
 		if harnessReleaseSensitivePath(file.Path, file.Category) {
 			classes[ValidationReleaseRuntime] = true
@@ -80,15 +78,11 @@ func addHarnessChangedAreaValidation(report *harnessreport.ChangedAreaReport, co
 		commands["go test ./..."] = true
 	}
 	if classes[ValidationUICatalog] {
-		commands["apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json"] = true
+		commands[ValidationCatalogTypecheckCommand] = true
 		commands["go test ./internal/generate"] = true
 		for _, command := range FixtureRegenerationCommands {
 			commands[command] = true
 		}
-	}
-	if classes[ValidationDashboard] {
-		commands["cd apps/console && bun run lint && bun run typecheck && bun run build"] = true
-		commands[ValidationUICommand] = true
 	}
 	if classes[ValidationReleaseRuntime] {
 		commands[ValidationFullCommand] = true

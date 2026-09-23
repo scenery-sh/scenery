@@ -120,14 +120,6 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 			}
 		}
 	}
-	// Module archives contain dashboard source, not ignored compiled assets.
-	// Build only inside the private selected snapshot; never mutate the module
-	// cache or original co-development checkout during producer preparation.
-	uiBuild := exec.CommandContext(ctx, "bash", "./scripts/build-dashboard-ui-embed.sh")
-	uiBuild.Dir, uiBuild.Env = snapshot.Root, frameworkGoEnvironment()
-	if output, err := uiBuild.CombinedOutput(); err != nil {
-		return selection, fmt.Errorf("prepare selected Scenery dashboard (requires bun): %w: %s", err, strings.TrimSpace(string(output)))
-	}
 	flags, err := FrameworkProducerLinkerFlags(snapshot.Digest)
 	if err != nil {
 		return selection, err

@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0202 Development Runtime RPC Contract And Console Removal](0202-development-runtime-rpc-contract.md)
+  - Status: active
+  - Owner: scenery runtime / generate
+  - Created: 2026-09-23
+  - Focus: remove the Scenery dashboard UI and harness, publish the development runtime RPC (`/runtime`, `/runtime/storage`) as a documented contract with an opt-in generated `dev-runtime.ts` client, and move runtime, database and storage tooling into ONLV NextNext's bottom panel.
+
 - [0200 Process-Per-Service Development Runtime](0200-process-per-service-development-runtime.md)
   - Status: active
   - Owner: scenery runtime / build / development supervisor

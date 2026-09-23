@@ -267,15 +267,13 @@ hand.
 > so upgrades can require changes to your app. Deployment tooling is in beta,
 > and there are no prebuilt releases yet: install from source.
 
-You need **Go 1.27+** and **Bun**. Apps that use managed PostgreSQL also need
-**Docker**.
+You need **Go 1.27+**. Apps that use managed PostgreSQL also need **Docker**.
 
 ```sh
 git clone https://github.com/scenery-sh/scenery.git
 cd scenery
-./scripts/build-dashboard-ui-embed.sh   # build the dev console
-go install ./cmd/scenery                # install the CLI
-scenery doctor                          # check your machine
+go install ./cmd/scenery   # install the CLI
+scenery doctor             # check your machine
 ```
 
 Make sure your Go bin directory is on your `PATH`. Then pick a path:

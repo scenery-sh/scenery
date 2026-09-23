@@ -371,8 +371,6 @@ func stepCommand(appRoot string, ref StepRef) []string {
 		switch ref.Name {
 		case "harness", "harness:core":
 			return []string{"scenery", "harness", "--app-root", appRoot, "-o", "json"}
-		case "harness:ui":
-			return []string{"scenery", "harness", "ui", "--app-root", appRoot, "-o", "json"}
 		case "check":
 			return []string{"scenery", "check", "--app-root", appRoot, "-o", "json"}
 		case "test", "test:go":
@@ -394,7 +392,7 @@ func stepCommand(appRoot string, ref StepRef) []string {
 
 func builtinSupported(name string) bool {
 	switch name {
-	case "harness", "harness:core", "harness:ui", "check", "test", "test:go", "generate", "generate:sqlc", "db:apply", "db:seed", "db:setup":
+	case "harness", "harness:core", "check", "test", "test:go", "generate", "generate:sqlc", "db:apply", "db:seed", "db:setup":
 		return true
 	default:
 		return false

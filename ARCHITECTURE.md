@@ -19,8 +19,8 @@ At a high level, scenery does four things:
 - discovers an app root and compiles `.scn` source into a typed resource graph
 - generates a transient build workspace and synthetic runtime entrypoint
 - runs one local HTTP server for the app's public, auth, and internal surfaces
-- exposes local development, inspection, harness, and dashboard tools around
-  that server
+- exposes local development, inspection and harness tools, and the development
+  runtime RPC, around that server
 
 The central flow is:
 
@@ -68,7 +68,7 @@ commands such as `up`, `worker`, `build`, `check`, `inspect`,
 `harness`, `logs`, `console`, `db`, `task`, and `generate`.
 
 `scenery up` starts the local
-app session around the app runtime: dashboard, agent routing, live rebuild behavior,
+app session around the app runtime: the development runtime RPC, agent routing, live rebuild behavior,
 logs, traces, metrics, managed dev services, optional frontend routing, and
 process supervision.
 
@@ -581,7 +581,7 @@ stable, and oriented around user-app concepts. Internal implementation can move;
 public names and behavior are much harder to change.
 
 Architecture invariant: public packages may delegate inward to runtime internals
-when necessary, but they should not pull in CLI, dashboard, parser, build, or
+when necessary, but they should not pull in CLI, runtime control backend, parser, build, or
 codegen concerns.
 
 Architecture invariant: local object, metadata-sidecar, fsync, range, list,
@@ -654,15 +654,16 @@ writing its session manifest. Localhost serving requires no machine edge.
 
 These packages support the local development platform around a running app.
 
-`internal/devdash` stores dashboard-visible state and observability data. It
-also owns the shared asset-name hashing used to compare a running dashboard
-bundle with built assets; only the product embeds and serves those assets.
-`internal/localproxy` owns the local proxy layer. Victoria sidecars are supervised
-from `cmd/scenery` as worktree-owned optional companions, and native dashboard views
-surface local logs, traces, and metrics. The dashboard server and UI embedding
-are orchestrated from `cmd/scenery`. `dashboard_storage.go` resolves registered
-app scopes for storage RPC; `dashboard_storage_http.go` streams file transfers
-on the same dashboard listener under a pinned namespace maintenance lease.
+`internal/devdash` stores the runtime control backend's session state and
+observability data. `internal/localproxy` owns the local proxy layer. Victoria
+sidecars are supervised from `cmd/scenery` as worktree-owned optional
+companions. The runtime control backend (the internal `dashboard` listener) is
+orchestrated from `cmd/scenery`: `dashboard_rpc.go` serves the documented
+development runtime RPC, `dashboard_postgres.go` its PostgreSQL inspection,
+`dashboard_storage.go` resolves registered app scopes for storage RPC, and
+`dashboard_storage_http.go` streams file transfers on the same listener under a
+pinned namespace maintenance lease. Scenery serves no dashboard UI; apps build
+developer tooling on the generated `dev-runtime.ts` client.
 
 Architecture invariant: development services should be optional around the app
 runtime. They can improve local ergonomics, but the generated app binary must
@@ -671,8 +672,9 @@ remain runnable as a headless execution path.
 ### `ui`
 
 `ui` is the editable Astryx + StyleX source for the binary-owned `@scenery/ui`
-catalog materialized into React-enabled TypeScript clients. `apps/console` is
-the separate Scenery dashboard frontend.
+catalog materialized into React-enabled TypeScript clients. `tools/typescript`
+holds only the TypeScript dependencies that typecheck it and the generated
+clients.
 
 Architecture invariant: the catalog stays domain-neutral, keeps its runtime
 libraries as peer dependencies, exports curated components from `index.ts`,
@@ -709,7 +711,7 @@ the self-harness with a concrete rationale. New dependencies should be rare and
 should solve a specific maintenance, correctness, or interoperability problem.
 
 Dependency-heavy concerns should stay near the edge that needs them. For
-example, local proxy, package loading, dashboard storage, and websocket support
+example, local proxy, package loading, runtime storage transfers, and websocket support
 are boundary concerns; parser/model/runtime fundamentals should stay as small as
 practical.
 
@@ -725,7 +727,7 @@ the exact changed-area command union and
 for changed external boundaries. Full release and resource measurement are
 explicit workflows, not the ordinary iteration loop. Use
 [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) to
-prepare the local binary and dashboard embed.
+prepare the local binary.
 
 ### Generated Artifacts
 
@@ -733,21 +735,21 @@ Generated app files should be deterministic. Golden tests should make generated
 shape changes explicit, and inspect schemas should describe JSON contracts that
 agents and tools consume.
 
-Generated workspaces, dashboard build artifacts, and harness snapshots are
+Generated workspaces and harness snapshots are
 outputs, not primary source. Keep source-of-truth logic in Go source, schemas,
 fixtures, and docs.
 
 ### Observability
 
 Local observability is part of the product surface. Runtime traces, logs,
-metrics, dashboard state, and inspect commands should give enough evidence to
+metrics, runtime RPC status, and inspect commands should give enough evidence to
 debug a local app without relying on external services.
 
 `scenery up` uses supervised VictoriaMetrics, VictoriaLogs, and VictoriaTraces
 sidecars for local observability when their managed binaries are available.
-Dashboard session metadata and saved request state live in a small JSON store
-under the worktree's private control root; the project does not carry an embedded SQL driver for
-dashboard state. Runtime remains decoupled from Victoria server packages;
+Runtime session metadata lives in a small JSON store under the worktree's
+private control root; the project does not carry an embedded SQL driver for
+that state. Runtime remains decoupled from Victoria server packages;
 the stable boundary is HTTP/OTLP, not Go library imports.
 
 ### File Size And Placement

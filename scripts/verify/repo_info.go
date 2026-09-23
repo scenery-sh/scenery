@@ -22,6 +22,5 @@ var docsIndexSchemaRevision = repoinfo.IndexSchemaRevision
 
 const harnessValidationCLIJSONContract = repoinfo.ValidationCLIJSONContract
 const harnessValidationUICatalog = repoinfo.ValidationUICatalog
-const harnessValidationDashboard = repoinfo.ValidationDashboard
 const harnessValidationReleaseRuntime = repoinfo.ValidationReleaseRuntime
 const harnessValidationQuickCommand = repoinfo.ValidationQuickCommand

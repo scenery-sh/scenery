@@ -31,4 +31,5 @@ typescript_client "public_api" {
   module      = "esm"
   runtime     = "fetch"
   output_root = "clients/generated/public_api"
+  dev_runtime = true
 }

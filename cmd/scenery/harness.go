@@ -50,10 +50,6 @@ func harnessCommand(args []string) error {
 }
 
 func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) error {
-	if len(args) > 0 && args[0] == "ui" {
-		return runSceneryHarnessUI(ctx, stdout, args[1:])
-	}
-
 	opts, err := parseHarnessArgs(args)
 	if err != nil {
 		return fmt.Errorf("invalid_request: %w", err)

@@ -1,6 +1,6 @@
 # scenery UI Agent Contract
 
-`ui/` is the editable source for Scenery's binary-owned generated-app React catalog. The runnable dashboard lives under `apps/console/` and follows its local `AGENTS.md`.
+`ui/` is the editable source for Scenery's binary-owned generated-app React catalog. Scenery ships no runnable dashboard; `tools/typescript/` only holds the TypeScript dependencies that typecheck this catalog and the generated clients.
 
 ## Ownership
 
@@ -62,7 +62,7 @@ Prefer extending the existing catalog over adding another component system. Shar
 Run from the repository root:
 
 ```sh
-apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
+tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
 go test ./internal/generate
 go test ./cmd/scenery -run 'TestGenerate|TestHarnessKnowledge'
 ```

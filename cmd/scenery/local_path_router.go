@@ -22,6 +22,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/machine"
 )
 
@@ -175,18 +176,10 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		dashboardProxyFor := func(backend localagent.Backend) *httputil.ReverseProxy {
 			dashboardProxy := reverseProxyForLocalBackend(backend)
 			configureQuietLocalProxy(dashboardProxy, "dashboard backend "+backend.Addr)
-			dashboardProxy.ModifyResponse = func(resp *http.Response) error {
-				if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
-					return nil
-				}
-				return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
-					return localPathRouterRewriteHTMLRootRefs(body, localagent.PathModeDashboardPrefix)
-				})
-			}
 			dashboardRewrite := dashboardProxy.Rewrite
 			dashboardProxy.Rewrite = func(request *httputil.ProxyRequest) {
 				originalHost := request.In.Host
-				originalPath := cleanLocalPathPreserveSlash(request.In.URL.Path)
+				originalPath := cleanLocalPath(request.In.URL.Path)
 				dashboardRewrite(request)
 				req := request.Out
 				req.Host = originalHost
@@ -194,41 +187,32 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 				req.Header.Set("X-Forwarded-Proto", "http")
 				req.Header.Set("X-Forwarded-Port", strconv.Itoa(lease.Port))
 				req.Header.Set("X-Scenery-Base-URL", baseURL)
-				req.Header.Set("X-Scenery-Public-URL", joinDashboardPublicURL(baseURL, req.URL.Path))
-				req.Header.Set("X-Scenery-Route-Prefix", localagent.PathModeDashboardPrefix)
-				if originalPath == localagent.PathModeRuntimePrefix {
-					req.URL.Path = "/__scenery"
+				switch originalPath {
+				case localagent.PathModeRuntimePrefix:
+					req.URL.Path = devdash.WebSocketPath
+				case localagent.PathModeRuntimeStoragePath:
+					req.URL.Path = dashboardStoragePath
 				}
-				dashboardPrefix := localagent.PathModeDashboardPrefix
-				if originalPath == dashboardPrefix || strings.HasPrefix(originalPath, dashboardPrefix+"/") {
-					req.URL.Path = strings.TrimPrefix(originalPath, dashboardPrefix)
-					if req.URL.Path == "" {
-						req.URL.Path = "/"
-					}
-				}
+				req.URL.RawPath = ""
 			}
 			return dashboardProxy
 		}
 		dashboardHandler := newLocalDialRetryHandler(dashboardProxyFor, dashboardBackends, opts.DialRetry)
 		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			rawPath := cleanLocalPathPreserveSlash(req.URL.Path)
 			requestPath := cleanLocalPath(req.URL.Path)
 			refreshCtx, cancel := context.WithTimeout(req.Context(), 200*time.Millisecond)
 			currentSession := localPathRouterCurrentSession(refreshCtx, agentClient, session)
 			dashboardBackend := dashboardBackends.refresh(refreshCtx)
 			cancel()
-			dashboardPrefix := localagent.PathModeDashboardPrefix
-			if requestPath == dashboardPrefix && rawPath == dashboardPrefix {
-				http.Redirect(w, req, dashboardPrefix+"/", http.StatusMovedPermanently)
-				return
-			}
+			// The development runtime RPC and its storage transfers go straight
+			// to the worktree's runtime control backend.
 			if requestPath == localagent.PathModeRuntimePrefix && isUpgradeRequest(req) {
-				if tunnelErr := tunnelLocalBackendUpgrade(w, req, dashboardBackend, "/__scenery"); tunnelErr != nil {
-					http.Error(w, "scenery: dashboard backend unavailable", http.StatusBadGateway)
+				if tunnelErr := tunnelLocalBackendUpgrade(w, req, dashboardBackend, devdash.WebSocketPath); tunnelErr != nil {
+					http.Error(w, "scenery: runtime backend unavailable", http.StatusBadGateway)
 				}
 				return
 			}
-			if requestPath == localagent.PathModeRuntimePrefix || requestPath == dashboardPrefix || strings.HasPrefix(rawPath, dashboardPrefix+"/") {
+			if requestPath == localagent.PathModeRuntimePrefix || requestPath == localagent.PathModeRuntimeStoragePath {
 				dashboardHandler.ServeHTTP(w, req)
 				return
 			}
@@ -306,7 +290,7 @@ func localPathRouterRedirect(next http.Handler, target string) http.Handler {
 
 func localPathRouterLocalOnlyPath(value string) bool {
 	requestPath := cleanLocalPath(value)
-	for _, prefix := range []string{localagent.PathModeDashboardPrefix, localagent.PathModeRuntimePrefix, "/__scenery"} {
+	for _, prefix := range []string{localagent.PathModeRuntimePrefix, "/__scenery"} {
 		if requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/") {
 			return true
 		}
@@ -729,26 +713,6 @@ func cleanLocalPath(value string) string {
 		value = "/" + value
 	}
 	return path.Clean(value)
-}
-
-func cleanLocalPathPreserveSlash(value string) string {
-	trailing := strings.HasSuffix(value, "/") && value != "/"
-	cleaned := cleanLocalPath(value)
-	if trailing && cleaned != "/" && !strings.HasSuffix(cleaned, "/") {
-		cleaned += "/"
-	}
-	return cleaned
-}
-
-func joinDashboardPublicURL(baseURL, requestPath string) string {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if baseURL == "" {
-		return strings.TrimSpace(requestPath)
-	}
-	if requestPath == "" || requestPath == "/" {
-		return baseURL + "/"
-	}
-	return baseURL + "/" + strings.TrimLeft(requestPath, "/")
 }
 
 type localPathRouterArtifacts struct {

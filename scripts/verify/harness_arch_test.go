@@ -15,7 +15,7 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 		writeArchitectureSupportFiles(t, root)
 		writeTestAppFile(t, root, "internal/example/example.go", "package example\n\nimport \"fmt\"\n\nfunc Format(v string) string { return fmt.Sprintf(\"%s\", v) }\n")
-		writeTestAppFile(t, root, "apps/console/node_modules/pkg/README.md", "model context "+"protocol\n")
+		writeTestAppFile(t, root, "tools/typescript/node_modules/pkg/README.md", "model context "+"protocol\n")
 		writeTestAppFile(t, root, "docs/current.md", "MCP uses the Model Context Protocol.\n")
 
 		step := runHarnessArchitectureStep(root)
@@ -165,5 +165,5 @@ func TestRemovedAgentTransportTermUsesTokenBoundaries(t *testing.T) {
 func writeArchitectureSupportFiles(t *testing.T, root string) {
 	t.Helper()
 	writeTestAppFile(t, root, ".gitignore", "/oracle/\n/coverage/\n.scenery/\n.DS_Store\nnode_modules/\n")
-	writeTestAppFile(t, root, ".gitattributes", "cmd/scenery/devdash_static/** -diff linguist-generated=true linguist-vendored=true\ncmd/scenery/dashboard_static/dist/** -diff linguist-generated=true\n")
+	writeTestAppFile(t, root, ".gitattributes", "cmd/scenery/devdash_static/** -diff linguist-generated=true linguist-vendored=true\n")
 }

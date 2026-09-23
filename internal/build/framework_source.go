@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 
@@ -47,10 +46,6 @@ func FrameworkSourceManifest(root string) (FrameworkSource, error) {
 	if err != nil {
 		return FrameworkSource{}, err
 	}
-	files, err = frameworkProducerSourceFiles(canonical, files)
-	if err != nil {
-		return FrameworkSource{}, err
-	}
 	entries := make(map[string]string, len(files))
 	for _, relative := range files {
 		if err := addBuildInput(entries, "framework/source/"+relative, filepath.Join(canonical, filepath.FromSlash(relative))); err != nil {
@@ -66,54 +61,6 @@ func FrameworkSourceManifest(root string) (FrameworkSource, error) {
 		_, _ = io.WriteString(hash, input.Identity+"\x00"+input.Digest+"\x00")
 	}
 	return FrameworkSource{Root: canonical, Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)), Inputs: manifest}, nil
-}
-
-// Dashboard source and its lockfile are producer inputs; generated dist bytes
-// are bound by the executable digest. Keeping those domains separate lets a
-// published module and its locally prepared CLI agree without checking build
-// output into the module or requiring another developer's ignored dist tree.
-func frameworkProducerSourceFiles(root string, goFiles []string) ([]string, error) {
-	files := make([]string, 0, len(goFiles))
-	for _, path := range goFiles {
-		if strings.HasPrefix(path, "cmd/scenery/dashboard_static/dist/") && path != "cmd/scenery/dashboard_static/dist/placeholder.txt" {
-			continue
-		}
-		files = append(files, path)
-	}
-	ui := filepath.Join(root, "apps/console")
-	if _, err := os.Stat(ui); err == nil {
-		if err := filepath.WalkDir(ui, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			relative, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			relative = filepath.ToSlash(relative)
-			if entry.IsDir() {
-				if shouldSkipDir(relative) || filepath.Base(relative) == "dist" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if shouldSkipFile(relative) || strings.HasSuffix(relative, ".tsbuildinfo") {
-				return nil
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				return fmt.Errorf("dashboard producer source contains a symlink: %s", relative)
-			}
-			files = append(files, relative)
-			return nil
-		}); err != nil {
-			return nil, err
-		}
-		files = append(files, "scripts/build-dashboard-ui-embed.sh")
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-	slices.Sort(files)
-	return slices.Compact(files), nil
 }
 
 func FrameworkProducerLinkerFlags(sourceDigest string) (string, error) {

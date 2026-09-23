@@ -30,7 +30,6 @@ type runURLs struct {
 	// and the local edge is serving it; empty otherwise.
 	App       string
 	API       string
-	Dashboard string
 	Frontends map[string]string
 	Victoria  map[string]string
 }
@@ -134,9 +133,6 @@ func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 	if err == nil {
 		return
 	}
-	if urls.Dashboard != "" {
-		c.printf(c.err, "  %s %s %s\n", c.palette.Cyan("➜"), "Dashboard:", c.palette.Cyan(urls.Dashboard))
-	}
 	c.printf(c.err, "  %s\n\n", c.palette.Dim("scenery up is still running and will rebuild after file changes."))
 }
 
@@ -191,10 +187,7 @@ func (c *runConsole) printURLRows(urls runURLs) {
 	if urls.App != "" {
 		rows = append(rows, bannerRow{label: "App:", url: urls.App})
 	}
-	rows = append(rows,
-		bannerRow{label: "API:", url: urls.API},
-		bannerRow{label: "Dashboard:", url: urls.Dashboard},
-	)
+	rows = append(rows, bannerRow{label: "API:", url: urls.API})
 	for _, name := range sortedKeys(urls.Frontends) {
 		rows = append(rows, bannerRow{label: frontendLabel(name), url: urls.Frontends[name]})
 	}
@@ -293,7 +286,6 @@ func (c *runConsole) printSetupDone(title string) {
 func runURLData(urls runURLs, verbose bool) map[string]any {
 	data := map[string]any{
 		"api_url":       urls.API,
-		"dashboard_url": urls.Dashboard,
 		"frontend_urls": urls.Frontends,
 	}
 	if urls.App != "" {

@@ -481,7 +481,6 @@ func detachedDevRunURLs(session localagent.Session) runURLs {
 	return runURLs{
 		App:       detachedDevDomainURL(session),
 		API:       session.RouteManifest.Routes[localagent.RouteAPI].URL,
-		Dashboard: session.RouteManifest.Routes[localagent.RouteDashboard].URL,
 		Frontends: frontendURLsFromAgentRoutes(session.RouteManifest.URLs(), nil),
 	}
 }

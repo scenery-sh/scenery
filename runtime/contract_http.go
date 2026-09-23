@@ -430,7 +430,11 @@ func decodeContractBody(request *http.Request, body ContractBodyMapping, schema 
 	}
 	switch body.Codec {
 	case "json", "problem_json":
-		return strictContractJSON(payload)
+		raw, err := strictContractJSON(payload)
+		if err != nil {
+			return nil, contractRequestError(schema, "transport.invalid_request", http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err), err)
+		}
+		return raw, nil
 	case "text":
 		if !utf8.Valid(payload) {
 			return nil, contractRequestError(schema, "transport.invalid_request", http.StatusBadRequest, "text body is not UTF-8", nil)
@@ -505,15 +509,24 @@ func strictContractJSON(input []byte) (json.RawMessage, error) {
 	decoder.UseNumber()
 	value, err := decodeUniqueContractJSON(decoder)
 	if err != nil {
-		return nil, err
+		return nil, strictContractJSONError(err)
 	}
 	if _, err := decoder.Token(); err != io.EOF {
 		if err == nil {
 			return nil, fmt.Errorf("trailing JSON value")
 		}
-		return nil, err
+		return nil, strictContractJSONError(err)
 	}
 	return json.Marshal(value)
+}
+
+// strictContractJSONError reports input that ends before its value does as
+// truncated JSON rather than as the decoder's bare EOF sentinels.
+func strictContractJSONError(err error) error {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return errors.New("unexpected end of JSON input")
+	}
+	return err
 }
 
 func decodeUniqueContractJSON(decoder *json.Decoder) (any, error) {
@@ -546,7 +559,11 @@ func decodeUniqueContractJSON(decoder *json.Decoder) (any, error) {
 			}
 			object[key] = value
 		}
-		if close, err := decoder.Token(); err != nil || close != json.Delim('}') {
+		close, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		if close != json.Delim('}') {
 			return nil, fmt.Errorf("invalid JSON object")
 		}
 		return object, nil
@@ -559,7 +576,11 @@ func decodeUniqueContractJSON(decoder *json.Decoder) (any, error) {
 			}
 			list = append(list, value)
 		}
-		if close, err := decoder.Token(); err != nil || close != json.Delim(']') {
+		close, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		if close != json.Delim(']') {
 			return nil, fmt.Errorf("invalid JSON array")
 		}
 		return list, nil

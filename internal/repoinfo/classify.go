@@ -98,7 +98,7 @@ func classifyHarnessChangedFile(path string) string {
 		return "internal"
 	case harnessPublicRuntimePath(path):
 		return "runtime"
-	case strings.HasPrefix(path, "ui/"), strings.HasPrefix(path, "apps/console/"):
+	case strings.HasPrefix(path, "ui/"), strings.HasPrefix(path, "tools/typescript/"):
 		return "ui"
 	case strings.HasPrefix(path, "docs/schemas/"):
 		return "schema"
@@ -162,16 +162,10 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 		docs["docs/plans/active.md"] = true
 		risks["exec-plan"] = true
 	case "ui":
-		if strings.HasPrefix(path, "apps/console/") {
-			risks["dashboard-ui"] = true
-			docs["apps/console/AGENTS.md"] = true
-			commands["cd apps/console && bun run lint && bun run typecheck && bun run build"] = true
-		} else {
-			risks["generated-ui-catalog"] = true
-			docs["docs/ui-agent-contract.md"] = true
-			commands["apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json"] = true
-			commands["go test ./internal/generate"] = true
-		}
+		risks["generated-ui-catalog"] = true
+		docs["docs/ui-agent-contract.md"] = true
+		commands[ValidationCatalogTypecheckCommand] = true
+		commands["go test ./internal/generate"] = true
 	case "fixture":
 		docs["docs/app-development-cookbook.md"] = true
 		risks["fixture-contract"] = true

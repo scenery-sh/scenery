@@ -956,28 +956,6 @@
       ]
     },
     {
-      "name": "SCENERY_DEV_DASHBOARD_UI_DIR",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "agent.routing",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Overrides the built dashboard UI directory used by the dashboard backend",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_DEV_DETACHED_CHILD",
       "match": "exact",
       "scope": "internal",

@@ -37,13 +37,13 @@ func TestPathRouteManifestForSession(t *testing.T) {
 	if got, want := session.RouteManifest.Routes[RouteAPI].URL, "http://localhost:4001/api/"; got != want {
 		t.Fatalf("api route = %q, want %q", got, want)
 	}
-	if got, want := session.RouteManifest.Routes[RouteDashboard].URL, "http://localhost:4001/console/"; got != want {
-		t.Fatalf("dashboard route = %q, want %q", got, want)
+	if record, ok := session.RouteManifest.Routes[RouteDashboard]; ok {
+		t.Fatalf("path manifest advertises a dashboard route: %+v", record)
 	}
 	if got, want := session.RouteManifest.Routes["ui"].StripPrefix, "/ui"; got != want {
 		t.Fatalf("ui strip prefix = %q, want %q", got, want)
 	}
-	if got, want := session.RouteManifest.Routes["root"].Kind, "scenery-console"; got != want {
+	if got, want := session.RouteManifest.Routes["root"].Kind, "scenery-index"; got != want {
 		t.Fatalf("root kind = %q, want %q", got, want)
 	}
 }
@@ -83,8 +83,8 @@ func TestPathRouteManifestRootFrontendIsCatchAllWithoutNamedMount(t *testing.T) 
 	if got, ok := routeForPath(session.RouteManifest, "/api/users"); !ok || got.Name != RouteAPI {
 		t.Fatalf("api route = %+v, ok=%v", got, ok)
 	}
-	if got, ok := routeForPath(session.RouteManifest, PathModeDashboardPrefix+"/"); !ok || got.Name != RouteDashboard {
-		t.Fatalf("dashboard route = %+v, ok=%v", got, ok)
+	if got, ok := routeForPath(session.RouteManifest, "/console/"); !ok || got.Name != "root" {
+		t.Fatalf("/console/ route = %+v, ok=%v, want the root frontend", got, ok)
 	}
 }
 
@@ -114,18 +114,15 @@ func TestPublicPathExposureUsesBestUnfilteredRoute(t *testing.T) {
 	manifest := RouteManifest{
 		PublicRoutes: []string{"root"},
 		Routes: map[string]RouteRecord{
-			"root":    {Name: "root", Kind: "frontend", Path: "/", Backend: "web"},
-			"admin":   {Name: "admin", Kind: "frontend", Path: "/admin/", Backend: "admin"},
-			"console": {Name: RouteDashboard, Kind: "scenery-console", Path: "/console/", Backend: RouteDashboard},
+			"root":  {Name: "root", Kind: "frontend", Path: "/", Backend: "web"},
+			"admin": {Name: "admin", Kind: "frontend", Path: "/admin/", Backend: "admin"},
 		},
 	}
 	for path, want := range map[string]bool{
-		"/":                 true,
-		"/projects/42":      true,
-		"/admin/":           false,
-		"/admin/settings":   false,
-		"/console/":         false,
-		"/console/services": false,
+		"/":               true,
+		"/projects/42":    true,
+		"/admin/":         false,
+		"/admin/settings": false,
 	} {
 		if got := publicPathExposed(manifest, path); got != want {
 			t.Errorf("%s exposed = %v, want %v", path, got, want)

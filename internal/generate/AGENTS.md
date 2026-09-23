@@ -60,6 +60,11 @@ CLI wires generation.
   materialization;
   never consult PATH or fall back when the checker or app dependencies are
   unavailable.
+- `typescript_client.dev_runtime = true` adds the fixed `dev-runtime.ts`
+  development runtime RPC client (`dev_runtime_client.ts`), with only the
+  `scenery.dev-runtime.status` schema revision substituted. `index.ts` does not
+  re-export it; change it together with the RPC contract in
+  `docs/local-contract.md` and `cmd/scenery/dashboard_rpc.go`.
 - Emit authored strings in JSX attributes as brace-wrapped JavaScript string expressions (`prop={"..."}`), never HTML-like quoted attributes; keep ordinary quoted literals only inside JavaScript object/array expressions. Generated URL-backed state that creates history entries must also subscribe to `popstate`.
 - Generated React page adapters must preserve typed client failures as data and let transport or decoding exceptions reach TanStack Query for the host retry policy. Map the final query state, including exhausted exceptions, into the page contract's renderable error state.
 - Generated `detail_page` adapters own typed dynamic route parameters and one shared content component used by routed and controlled-dialog wrappers. They compose declared sections, generated form-dialog actions, related table pages with exact input injection, and app-owned typed action slots; mutations invalidate the detail and every related query without moving domain workflows into generation.
@@ -82,6 +87,6 @@ go run ./cmd/scenery generate --target typescript_client.public_api --app-root i
 go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
 go run ./cmd/scenery generate --target typescript_client.public_api --app-root testdata/assistant -o json
 bun test internal/generate/testdata/typescript_client_conformance.test.ts
-apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
-apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
+tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
+tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
 ```

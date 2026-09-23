@@ -121,18 +121,16 @@ func selectedHarnessProbes(opts harnessSelfOptions) []harnessProbe {
 }
 
 func runHarnessUIProbe(ctx context.Context, repoRoot string, resp *harnessSelfResponse, artifactCtx harnessArtifactContext) {
-	dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
-	deps, ready := runHarnessConsoleDepsStep(ctx, dashboardUIRoot, artifactCtx)
+	toolingRoot := filepath.Join(repoRoot, filepath.FromSlash(typescriptToolingRootRel))
+	deps, ready := runHarnessTypeScriptDepsStep(ctx, toolingRoot, artifactCtx)
 	resp.Steps = append(resp.Steps, deps)
 	if !ready {
 		return
 	}
+	tsc := filepath.Join(toolingRoot, "node_modules", ".bin", "tsc")
 	resp.Steps = append(resp.Steps,
-		runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
-		runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
-		runHarnessDashboardFreshnessStep(ctx, repoRoot),
 		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
-		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
-		runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
+		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{tsc, "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
+		runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{tsc, "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
 	)
 }

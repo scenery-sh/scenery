@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"sort"
 	"strings"
 
-	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/storagefs"
 )
@@ -35,10 +33,7 @@ func runInspectStorage(ctx context.Context, stdout io.Writer, plan *storageNames
 			return err
 		}
 	}
-	if response.Storage.BrowserURL != "" {
-		_, err = fmt.Fprintln(stdout, response.Storage.BrowserURL)
-	}
-	return err
+	return nil
 }
 
 func buildInspectStorageResponse(ctx context.Context, plan *storageNamespacePlan, cfg appcfg.Config, withStats bool) (inspectStorageResponse, error) {
@@ -94,35 +89,5 @@ func buildInspectStorageResponse(ctx context.Context, plan *storageNamespacePlan
 			stores[i].TotalBytes = &zeroBytes
 		}
 	}
-	storage.BrowserURL = storageBrowserURL(plan)
 	return inspectStorageResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.inspect"), App: inspectAppInfo(plan.Binding.AppRoot, cfg, nil), Storage: storage, Stores: stores}, nil
-}
-
-func storageBrowserURL(plan *storageNamespacePlan) string {
-	live, err := plan.Worktree.ProbeLiveLock()
-	if err != nil || !live {
-		return ""
-	}
-	record, err := plan.Worktree.LoadRecord(plan.Binding.AppID)
-	if err != nil {
-		return ""
-	}
-	registry, err := plan.Worktree.OpenRegistry(record.RouterAddress)
-	if err != nil {
-		return ""
-	}
-	for _, session := range registry.List() {
-		if session.AppRoot == plan.Binding.AppRoot && session.BaseAppID == plan.Binding.AppID {
-			browser, err := url.Parse(session.RouteManifest.Routes[localagent.RouteDashboard].URL)
-			if err != nil || browser.Host == "" {
-				return ""
-			}
-			query := browser.Query()
-			query.Set("page", "Storage")
-			query.Set("app", session.SessionID)
-			browser.RawQuery = query.Encode()
-			return browser.String()
-		}
-	}
-	return ""
 }

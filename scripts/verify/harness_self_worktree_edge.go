@@ -55,7 +55,7 @@ func (p *worktreeRuntimeProbe) edgeSeparation(root, sibling string) error {
 		for _, check := range []struct {
 			path string
 			want int
-		}{{"/api/books", 200}, {"/console/", 404}, {"/runtime/health", 404}, {"/__scenery", 404}} {
+		}{{"/api/books", 200}, {"/runtime/storage", 404}, {"/runtime/health", 404}, {"/__scenery", 404}} {
 			req, err := http.NewRequestWithContext(p.ctx, http.MethodGet, "http://"+server.RouterAddr()+check.path, nil)
 			if err != nil {
 				return err
@@ -70,7 +70,7 @@ func (p *worktreeRuntimeProbe) edgeSeparation(root, sibling string) error {
 				return fmt.Errorf("explicit domain %s returned %d, expected %d", check.path, response.StatusCode, check.want)
 			}
 		}
-		if err := p.get(session.RouteManifest.BaseURL + "/console/"); err != nil {
+		if err := p.get(session.RouteManifest.BaseURL + "/runtime/health"); err != nil {
 			return err
 		}
 		if response, err := p.dashboardRPC(root, "postgres/tables", map[string]string{"app_id": session.SessionID}); err != nil || response.Error != nil {

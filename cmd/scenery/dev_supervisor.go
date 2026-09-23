@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -201,7 +200,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		ErrOutput: os.Stderr,
 	})
 	s.assistantTokenKeyPath = assistantTokenKeyPath
-	s.dashboard = newDashboardServer(s, "")
+	s.dashboard = newDashboardServer(s)
 	s.events = newDevEventSink(s)
 	return s, nil
 }
@@ -808,10 +807,6 @@ func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
 	s.mu.Unlock()
 
 	_ = s.persistStatus(ctx)
-	s.dashboard.notify(&devdash.Notification{
-		Method: "process/stop",
-		Params: s.appStatus(),
-	})
 	s.writeProcessEvent(ctx, "process-stop", s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event("process.stop", map[string]any{
@@ -1030,13 +1025,6 @@ func (s *devSupervisor) apiURL() string {
 	return "http://" + s.addr
 }
 
-func (s *devSupervisor) dashboardURL() string {
-	if session := s.currentAgentSession(); session != nil && session.RouteManifest.Routes[localagent.RouteDashboard].URL != "" {
-		return session.RouteManifest.Routes[localagent.RouteDashboard].URL
-	}
-	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.activeAppID())
-}
-
 func (s *devSupervisor) frontendURLs() map[string]string {
 	if session := s.currentAgentSession(); session != nil {
 		return frontendURLsFromAgentRoutes(session.RouteManifest.URLs(), s.cfg.Frontends)
@@ -1085,10 +1073,6 @@ func (s *devSupervisor) dashboardActiveAppID() string {
 
 func (s *devSupervisor) dashboardCurrentSessionID() string {
 	return s.currentSessionID()
-}
-
-func (s *devSupervisor) dashboardListApps(ctx context.Context) ([]map[string]any, error) {
-	return s.listApps(ctx)
 }
 
 func (s *devSupervisor) dashboardStatusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {
@@ -1170,7 +1154,6 @@ func (s *devSupervisor) runURLs() runURLs {
 	return runURLs{
 		App:       s.devDomainURL,
 		API:       s.apiURL(),
-		Dashboard: s.dashboardURL(),
 		Frontends: s.frontendURLs(),
 		Victoria:  s.victoria.URLs(),
 	}
@@ -1185,10 +1168,6 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 		s.setMetadata(metadata, apiEncoding)
 	}
 	_ = s.persistStatus(ctx)
-	s.dashboard.notify(&devdash.Notification{
-		Method: "process/compile-error",
-		Params: s.appStatus(),
-	})
 	s.writeProcessEvent(ctx, "compile-error", map[string]any{"error": err.Error()})
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "error", Reason: err.Error()}, "error", "build failed", map[string]any{
 		"error": err.Error(),
@@ -1269,56 +1248,6 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 	applySessionStatusToAppStatus(&status, session)
 	status.Meta = s.metadataWithRuntimePostgresDatabases(status.Meta, status.AppRoot)
 	return status
-}
-
-func (s *devSupervisor) listApps(ctx context.Context) ([]map[string]any, error) {
-	appID := s.activeAppID()
-	if appID == "" {
-		return []map[string]any{}, nil
-	}
-	if s.store == nil {
-		status := s.appStatus()
-		return []map[string]any{{
-			"id":                  status.AppID,
-			"name":                firstNonEmpty(s.cfg.Name, status.AppID),
-			"app_root":            status.AppRoot,
-			"session_id":          status.SessionID,
-			"offline":             !status.Running,
-			"sessionStatus":       status.SessionStatus,
-			"sessionStatusReason": status.SessionStatusReason,
-			"compileError":        status.CompileError,
-		}}, nil
-	}
-	app, err := s.store.GetApp(ctx, appID)
-	if err != nil {
-		status := s.appStatus()
-		return []map[string]any{{
-			"id":                  status.AppID,
-			"name":                firstNonEmpty(s.cfg.Name, status.AppID),
-			"app_root":            status.AppRoot,
-			"session_id":          status.SessionID,
-			"offline":             !status.Running,
-			"sessionStatus":       status.SessionStatus,
-			"sessionStatusReason": status.SessionStatusReason,
-			"compileError":        status.CompileError,
-		}}, nil
-	}
-	var session *localagent.Session
-	if current := s.currentAgentSession(); current != nil {
-		copy := *current
-		session = &copy
-	}
-	applySessionStatusToAppRecord(&app, session)
-	return []map[string]any{{
-		"id":                  app.ID,
-		"name":                app.Name,
-		"app_root":            app.Root,
-		"session_id":          app.SessionID,
-		"offline":             !app.Running,
-		"sessionStatus":       app.SessionStatus,
-		"sessionStatusReason": app.SessionStatusReason,
-		"compileError":        app.CompileError,
-	}}, nil
 }
 
 func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {

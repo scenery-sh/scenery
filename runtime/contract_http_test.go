@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"scenery.sh/errs"
 	"scenery.sh/internal/devreport"
 )
 
@@ -298,6 +299,114 @@ func TestContractTransportErrorsUseProfileStatuses(t *testing.T) {
 	}
 	if err := json.Unmarshal(unacceptable.Body.Bytes(), &problem); err != nil || problem.Code != "transport.not_acceptable" {
 		t.Fatalf("problem = %#v, err = %v", problem, err)
+	}
+}
+
+func TestMalformedJSONBodiesAreInvalidRequests(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	invoked := false
+	if err := RegisterEndpointChecked(&Endpoint{
+		Service: "contract", Name: "Malformed", Access: Public, Path: "/malformed", Methods: []string{http.MethodPost},
+		DecodeContractRequest: func(request *http.Request, paths map[string]string) (ContractDecodedRequest, error) {
+			input, err := DecodeContractInput[mappedContractInput](request, paths, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json"}})
+			return ContractDecodedRequest{Payload: input}, err
+		},
+		Invoke: func(_ context.Context, _ []any, payload any) (any, error) {
+			invoked = true
+			return payload, nil
+		},
+		EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
+			return EncodeContractJSONForRequest(request, http.StatusOK, outcome, []string{"application/json"}, 0)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/malformed", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		server.Handler.ServeHTTP(recorder, request)
+		return recorder
+	}
+	if valid := post(`{"name":"roof"}`); valid.Code != http.StatusOK || !invoked {
+		t.Fatalf("valid body = %d %q, invoked %v", valid.Code, valid.Body.String(), invoked)
+	}
+
+	const truncated = "invalid request body: unexpected end of JSON input"
+	tests := []struct{ name, body, message string }{
+		{name: "empty", body: ``, message: truncated},
+		{name: "whitespace", body: " \n", message: truncated},
+		{name: "cut after member name", body: `{"name":`, message: truncated},
+		{name: "cut inside string", body: `{"name":"ro`, message: truncated},
+		{name: "cut before object close", body: `{"name":"roof"`, message: truncated},
+		{name: "cut inside array", body: `{"tags":["a",`, message: truncated},
+		{name: "missing colon", body: `{"name" "roof"}`},
+		{name: "trailing comma", body: `{"name":"roof",}`},
+		{name: "bare word", body: `roof`},
+		{name: "trailing value", body: `{"name":"roof"} {}`},
+		{name: "duplicate member", body: `{"name":"a","name":"b"}`},
+		{name: "byte order mark", body: "\xef\xbb\xbf{}"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invoked = false
+			recorder := post(test.body)
+			var problem struct{ Code, Message string }
+			if err := json.Unmarshal(recorder.Body.Bytes(), &problem); err != nil || recorder.Code != http.StatusBadRequest || recorder.Header().Get("Content-Type") != "application/problem+json" || problem.Code != "transport.invalid_request" {
+				t.Fatalf("response = %d %q %q, err = %v", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body.String(), err)
+			}
+			if !strings.HasPrefix(problem.Message, "invalid request body: ") || strings.Contains(problem.Message, "EOF") || test.message != "" && problem.Message != test.message {
+				t.Fatalf("message = %q, want %q", problem.Message, test.message)
+			}
+			if invoked {
+				t.Fatal("a malformed body reached the handler")
+			}
+		})
+	}
+}
+
+func TestUnclassifiedDecodeFailureUsesStandardProblemOutcome(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	decodeErrors := map[string]error{
+		"/unclassified": errors.New("open /private/model.bin: EOF"),
+		"/typed":        errs.B().Code(errs.InvalidArgument).Msg("name is required").Err(),
+	}
+	for path, decodeErr := range decodeErrors {
+		if err := RegisterEndpointChecked(&Endpoint{
+			Service: "contract", Name: strings.TrimPrefix(path, "/"), Access: Public, Path: path, Methods: []string{http.MethodPost},
+			DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
+				return ContractDecodedRequest{}, decodeErr
+			},
+			Invoke:                func(context.Context, []any, any) (any, error) { return struct{}{}, nil },
+			EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) { return ContractHTTPResponse{}, nil },
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unclassified := httptest.NewRecorder()
+	server.Handler.ServeHTTP(unclassified, httptest.NewRequest(http.MethodPost, "/unclassified", nil))
+	if unclassified.Code != http.StatusInternalServerError || unclassified.Header().Get("Content-Type") != "application/problem+json" {
+		t.Fatalf("unclassified response = %d %#v %q", unclassified.Code, unclassified.Header(), unclassified.Body.String())
+	}
+	if got, want := unclassified.Body.String(), "{\"code\":\"system.internal\",\"message\":\"contract implementation failure\"}\n"; got != want {
+		t.Fatalf("unclassified body = %q, want %q", got, want)
+	}
+
+	typed := httptest.NewRecorder()
+	server.Handler.ServeHTTP(typed, httptest.NewRequest(http.MethodPost, "/typed", nil))
+	if got, want := typed.Body.String(), "{\"code\":\"invalid_argument\",\"message\":\"name is required\"}\n"; typed.Code != http.StatusBadRequest || got != want {
+		t.Fatalf("typed response = %d %q, want 400 %q", typed.Code, got, want)
 	}
 }
 

@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.dev-runtime.status.schema.json",
+  "title": "scenery.dev-runtime.status",
+  "description": "Result of the development runtime RPC method `status` (docs/local-contract.md#development-runtime-rpc).",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app_id",
+    "app_root",
+    "running",
+    "compiling",
+    "routes",
+    "service_processes"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.dev-runtime.status"
+    },
+    "schema_revision": {
+      "const": "sha256:f3ddf47476997761c64f4b9c70e82c7e41e016a20571d14ce463419ec5b19da1"
+    },
+    "app_id": {
+      "type": "string",
+      "description": "Session route identity; the app_id argument of the other development runtime methods."
+    },
+    "base_app_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "app_root": {
+      "type": "string"
+    },
+    "running": {
+      "type": "boolean"
+    },
+    "session_status": {
+      "type": "string",
+      "description": "Session health such as running, degraded, stale, compile-error or stopped; only running is healthy."
+    },
+    "session_status_reason": {
+      "type": "string"
+    },
+    "compiling": {
+      "type": "boolean"
+    },
+    "compile_error": {
+      "type": "string"
+    },
+    "pid": {
+      "type": "string"
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "service_processes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/serviceProcess"
+      }
+    },
+    "observability": {
+      "$ref": "#/$defs/observability"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "serviceProcess": {
+      "type": "object",
+      "required": [
+        "name",
+        "state"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "implementation_revision": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "observability": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "metrics",
+        "logs",
+        "traces"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        },
+        "metrics": {
+          "$ref": "#/$defs/signal"
+        },
+        "logs": {
+          "$ref": "#/$defs/signal"
+        },
+        "traces": {
+          "$ref": "#/$defs/signal"
+        }
+      },
+      "additionalProperties": false
+    },
+    "signal": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "available",
+        "status"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

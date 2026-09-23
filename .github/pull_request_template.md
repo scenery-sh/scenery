@@ -9,7 +9,7 @@
 - [ ] `go test ./...`
 - [ ] `go run ./scripts/verify --summary --write`
 - [ ] Runtime/release-sensitive paths: repository release mode and `scripts/release-gate.sh`
-- [ ] Dashboard paths: console lint/typecheck/build and `scenery harness ui` browser proof
+- [ ] Development runtime RPC paths: `docs/local-contract.md` and the generated `dev-runtime.ts` client updated together
 
 ## Notes
 

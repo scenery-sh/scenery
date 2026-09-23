@@ -62,7 +62,7 @@ func TestMalformedInvocationsAreInvalidRequestsThatNameTheMistake(t *testing.T) 
 		{"inspect harness diagnostics --severity nope -o json", "--severity must be error or warning"},
 		{"system nope", `unknown system command "nope"`},
 		{"system toolchain path", "scenery system toolchain path requires --tool <name>"},
-		{"harness ui extra -o json", `unexpected argument "extra"`},
+		{"harness ui -o json", `unexpected argument "ui"`},
 	} {
 		err := run(strings.Fields(invocation.args))
 		if err == nil {

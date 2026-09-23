@@ -24,7 +24,7 @@ From the Scenery source checkout, with Go, Docker, Bun, curl, and jq available:
 ```sh
 go build -o .scenery/harness/bin/scenery ./cmd/scenery
 bash examples/webhook-inbox/verify.sh
-apps/console/node_modules/.bin/tsc -p examples/webhook-inbox/client/tsconfig.json
+tools/typescript/node_modules/.bin/tsc -p examples/webhook-inbox/client/tsconfig.json
 ```
 
 The script copies ordinary app source to a new temporary directory, points its

@@ -17,7 +17,6 @@ The selected `.scenery.json` environment loads `.env`, `.env.<env>`, `.env.local
 | `SCENERY_AGENT_TRUST` | user input | `1` asks the agent to trust the existing local scenery CA when starting HTTPS routing. |
 | `SCENERY_DEV_CACHE_DIR` | user input | Overrides build cache and explicitly standalone cache consumers, not durable worktree ownership or its private dashboard. |
 | `SCENERY_DEV_DASHBOARD_ADDR` | internal/user input | Dashboard client backend address. Ordinary development sets it from the acquired worktree owner; a parent value cannot select or redirect that owner. |
-| `SCENERY_DEV_DASHBOARD_UI_DIR` | user input | Overrides the built dashboard UI directory used by the dashboard backend. |
 | `SCENERY_FRONTEND_<NAME>_ADDR` | user input | Manual frontend upstream override, for example `SCENERY_FRONTEND_PULSE_ADDR=127.0.0.1:4321`. |
 
 ## App Child Identity

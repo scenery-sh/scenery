@@ -3,7 +3,6 @@ package devdash
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -93,7 +92,6 @@ type storeState struct {
 	ProcessOutput       []ProcessOutput              `json:"process_output,omitempty"`
 	DevSources          map[string]DevSource         `json:"dev_sources,omitempty"`
 	DevEvents           []storedDevEvent             `json:"dev_events,omitempty"`
-	StoredRequests      map[string]StoredRequest     `json:"stored_requests,omitempty"`
 	NextProcessEventID  int64                        `json:"next_process_event_id,omitempty"`
 	NextProcessOutputID int64                        `json:"next_process_output_id,omitempty"`
 	NextDevEventID      int64                        `json:"next_dev_event_id,omitempty"`
@@ -472,7 +470,6 @@ func storeSizeBreakdown(state *storeState) map[string]int {
 		"process_output":         state.ProcessOutput,
 		"dev_sources":            state.DevSources,
 		"dev_events":             state.DevEvents,
-		"stored_requests":        state.StoredRequests,
 		"next_process_event_id":  state.NextProcessEventID,
 		"next_process_output_id": state.NextProcessOutputID,
 		"next_dev_event_id":      state.NextDevEventID,
@@ -586,9 +583,6 @@ func normalizeStoreState(state *storeState) {
 	}
 	if state.DevSources == nil {
 		state.DevSources = map[string]DevSource{}
-	}
-	if state.StoredRequests == nil {
-		state.StoredRequests = map[string]StoredRequest{}
 	}
 	if state.NextProcessEventID <= 0 {
 		state.NextProcessEventID = maxProcessEventID(state.ProcessEvents) + 1
@@ -1311,94 +1305,6 @@ func splitDevSourceKey(key string) (string, string, string) {
 	return parts[0], parts[1], parts[2]
 }
 
-func (s *Store) ListStoredRequests(ctx context.Context, appID string) ([]StoredRequest, error) {
-	list := []StoredRequest{}
-	err := s.withState(ctx, false, func(state *storeState) error {
-		for key, req := range state.StoredRequests {
-			kAppID, _ := splitStoredRequestKey(key)
-			if kAppID != appID {
-				continue
-			}
-			req.AppID = appID
-			list = append(list, sanitizeStoredRequest(req))
-		}
-		sort.SliceStable(list, func(i, j int) bool { return list[i].ID < list[j].ID })
-		return nil
-	})
-	return list, err
-}
-
-func (s *Store) CreateStoredRequest(ctx context.Context, req StoredRequest) (StoredRequest, error) {
-	if req.AppID == "" {
-		return StoredRequest{}, errors.New("stored request app id is required")
-	}
-	req = sanitizeStoredRequest(req)
-	if req.ID == "" {
-		id, err := newStoredRequestID()
-		if err != nil {
-			return StoredRequest{}, err
-		}
-		req.ID = id
-	}
-	err := s.withState(ctx, true, func(state *storeState) error {
-		key := storedRequestKey(req.AppID, req.ID)
-		if _, exists := state.StoredRequests[key]; exists {
-			return fmt.Errorf("stored request %q already exists", req.ID)
-		}
-		state.StoredRequests[key] = req
-		return nil
-	})
-	return req, err
-}
-
-func (s *Store) UpdateStoredRequest(ctx context.Context, req StoredRequest) (StoredRequest, error) {
-	if req.AppID == "" {
-		return StoredRequest{}, errors.New("stored request app id is required")
-	}
-	if req.ID == "" {
-		return StoredRequest{}, errors.New("stored request id is required")
-	}
-	req = sanitizeStoredRequest(req)
-	err := s.withState(ctx, true, func(state *storeState) error {
-		key := storedRequestKey(req.AppID, req.ID)
-		if _, exists := state.StoredRequests[key]; !exists {
-			return sql.ErrNoRows
-		}
-		state.StoredRequests[key] = req
-		return nil
-	})
-	return req, err
-}
-
-func (s *Store) DeleteStoredRequest(ctx context.Context, appID, id string) error {
-	if appID == "" {
-		return errors.New("stored request app id is required")
-	}
-	if id == "" {
-		return errors.New("stored request id is required")
-	}
-	return s.withState(ctx, true, func(state *storeState) error {
-		key := storedRequestKey(appID, id)
-		if _, exists := state.StoredRequests[key]; !exists {
-			return sql.ErrNoRows
-		}
-		delete(state.StoredRequests, key)
-		return nil
-	})
-}
-
-func storedRequestKey(appID, id string) string {
-	return appID + "\x00" + id
-}
-
-func splitStoredRequestKey(key string) (string, string) {
-	appID, id, ok := strings.Cut(key, "\x00")
-	if !ok {
-		return "", key
-	}
-	return appID, id
-}
-
 func SortTraceSummariesByDuration(items []*TraceSummary) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].DurationNanos == items[j].DurationNanos {
@@ -1406,19 +1312,6 @@ func SortTraceSummariesByDuration(items []*TraceSummary) {
 		}
 		return items[i].DurationNanos > items[j].DurationNanos
 	})
-}
-
-func sanitizeStoredRequest(req StoredRequest) StoredRequest {
-	req.Data.PathParams = normalizeStoredRequestJSON(req.Data.PathParams)
-	req.Data.Payload = normalizeStoredRequestJSON(req.Data.Payload)
-	return req
-}
-
-func normalizeStoredRequestJSON(value json.RawMessage) json.RawMessage {
-	if len(value) == 0 {
-		return nil
-	}
-	return compactRawMessage(value)
 }
 
 func compactRawMessage(value json.RawMessage) json.RawMessage {
@@ -1542,12 +1435,4 @@ func isEmptyJSONValue(value json.RawMessage) bool {
 		return true
 	}
 	return false
-}
-
-func newStoredRequestID() (string, error) {
-	var data [12]byte
-	if _, err := rand.Read(data[:]); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("sr_%x", data[:]), nil
 }

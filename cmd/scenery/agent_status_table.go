@@ -62,7 +62,7 @@ func statusSessionURL(session localagent.Session) string {
 	if value := strings.TrimSpace(session.RouteManifest.BaseURL); value != "" {
 		return value
 	}
-	return statusSessionConsoleURL(session)
+	return strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteAPI].URL)
 }
 
 func statusSessionServices(session localagent.Session) string {
@@ -83,28 +83,6 @@ func statusSessionServices(session localagent.Session) string {
 		parts = append(parts, name+"="+strings.TrimSpace(routes[name].URL))
 	}
 	return strings.Join(parts, ",")
-}
-
-func statusSessionConsoleURL(session localagent.Session) string {
-	if session.RouteManifest.Routes != nil {
-		if value := strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteDashboard].URL); value != "" {
-			return value
-		}
-	}
-	if session.Aliases != nil {
-		if value := strings.TrimSpace(session.Aliases[localagent.RouteDashboard]); value != "" {
-			return value
-		}
-	}
-	if session.RouteNamespace.Hosts != nil {
-		if host := strings.TrimSpace(session.RouteNamespace.Hosts["console"]); host != "" {
-			return host
-		}
-		if host := strings.TrimSpace(session.RouteNamespace.Hosts[localagent.RouteDashboard]); host != "" {
-			return host
-		}
-	}
-	return ""
 }
 
 func filepathBase(path string) string {
