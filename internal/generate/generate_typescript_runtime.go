@@ -33,6 +33,8 @@ export class SceneryClientError extends Error {
 export interface CallOptions {
   readonly signal?: AbortSignal;
   readonly headers?: Readonly<Record<string, string>>;
+  /** Let the request outlive the page, e.g. a final upload on pagehide. Browsers cap in-flight keepalive bodies at 64 KiB. */
+  readonly keepalive?: boolean;
 }
 
 export interface AuthenticationOptions {
