@@ -465,6 +465,11 @@ func (s *server) registerTyped(ep *Endpoint) {
 		ctx = withRuntimeInvocation(ctx, state)
 		decoded, decodeErr := ep.DecodeContractRequest(req.WithContext(ctx), contractPathValues)
 		if decodeErr != nil {
+			if _, classified := contractTransportHTTPStatus(decodeErr); !classified && errs.HTTPStatus(decodeErr) == http.StatusInternalServerError {
+				// An unclassified decoder failure is internal: answer the
+				// standard problem and keep its cause for logs and traces.
+				decodeErr = ContractSystemError(decodeErr)
+			}
 			logRequestStart(state)
 			decodeStatus := errs.HTTPStatus(decodeErr)
 			if transportStatus, ok := contractTransportHTTPStatus(decodeErr); ok {
