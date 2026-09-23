@@ -40,7 +40,7 @@ plumbing into a declaration, so your time goes into the product.
 | 🔌 | Hand-written routers, request parsing and JSON codecs | Declare an operation and its route; the handler receives typed input |
 | 🧬 | Frontend types drift away from the backend API | A typed TypeScript client is generated from the same declaration |
 | 🧰 | Scripts to start Postgres, workers and frontend servers | `scenery up` starts and supervises all of it |
-| 🔍 | Logs in one tool, traces in another, if anywhere | Logs, traces and metrics in one dev console and one CLI |
+| 🔍 | Logs in one tool, traces in another, if anywhere | Logs, traces and metrics collected for every run and queried from one CLI |
 | 🤖 | AI agents guess how the project is wired | Agents read the same app graph as JSON |
 
 ## How it works
@@ -117,16 +117,15 @@ files:
 ```console
 $ scenery up
   …
-  ✔ Generating boilerplate code (54ms)
+  ✔ Generating boilerplate code (196ms)
   ✔ Analyzing service topology (0ms)
-  ✔ Starting Victoria observability stack (129ms)
-  ✔ Compiling application source code (245ms)
+  ✔ Starting Victoria observability stack (229ms)
+  ✔ Compiling application source code (731ms)
   …
 
   scenery development server running
 
   ➜ API:           http://localhost:4624/api/
-  ➜ Dashboard:     http://localhost:4624/console/
   ➜ Frontend root: http://localhost:4624/
 ```
 
@@ -178,7 +177,8 @@ Your port will differ; `scenery ps` lists the URLs of every running app.
     <td valign="top">
       <b>🔭 Logs, traces and metrics</b><br>
       Requests, database queries and HTTP calls are traced automatically.
-      Explore them in the dev console or query them from the CLI.
+      Query them with <code>scenery logs</code>, <code>traces</code> and
+      <code>metrics</code>.
     </td>
     <td valign="top">
       <b>🔁 Live rebuilds</b><br>
@@ -193,22 +193,23 @@ Your port will differ; `scenery ps` lists the URLs of every running app.
   </tr>
 </table>
 
-**Also included:** an isolated runtime and data for every Git worktree, branded
-dev domains, declared AI assistants over MCP, app-local code tasks, and beta
-deployment to your own server.
+**Also included:** a development runtime RPC with a generated `dev-runtime.ts`
+client for building your own dev tools, an isolated runtime and data for every
+Git worktree, branded dev domains, declared AI assistants over MCP, app-local
+code tasks, and beta deployment to your own server.
 
 ## One command, the whole app
 
 <p align="center">
-  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up starts Go services as one process per service, background jobs, schedules and events, managed PostgreSQL in Docker, frontend dev servers behind one router, the dev console with logs, traces and data, and live rebuilds that restart only the services that changed." width="100%">
+  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up starts Go services as one process per service, background jobs, schedules and events, managed PostgreSQL in Docker, frontend dev servers behind one router, the observability stack for logs, traces and metrics, and live rebuilds that restart only the services that changed." width="100%">
 </p>
 
 | Command | What it does |
 |---|---|
-| `scenery up` | Build, start and watch the app with its database, frontends and dev console |
+| `scenery up` | Build, start and watch the app with its database and frontends |
 | `scenery ps` | List running apps and their URLs |
 | `scenery logs --follow` | Stream the app's logs |
-| `scenery console` | Open the dev console |
+| `scenery console` | Browse and filter logs in an interactive terminal console |
 | `scenery check` | Validate declarations and generated Go contracts |
 | `scenery generate` | Regenerate TypeScript clients and other configured outputs |
 | `scenery down` | Stop the app |

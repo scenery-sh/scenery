@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
   <title id="title">One command runs the whole app</title>
-  <desc id="desc">scenery up starts Go services as one process per service, background jobs, schedules and events, managed PostgreSQL in Docker, frontend dev servers behind one router, the dev console with logs, traces and data, and live rebuilds that restart only the services that changed. scenery ps, scenery logs --follow and scenery down inspect and stop it.</desc>
+  <desc id="desc">scenery up starts Go services as one process per service, background jobs, schedules and events, managed PostgreSQL in Docker, frontend dev servers behind one router, the observability stack for logs, traces and metrics, and live rebuilds that restart only the services that changed. scenery ps, scenery logs --follow and scenery down inspect and stop it.</desc>
   <style>
     .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
@@ -96,8 +96,8 @@
     <text x="424" y="252" class="mono" font-size="24" font-weight="700"><tspan fill="#7C86B2">$</tspan><tspan fill="#F5F7FF"> scenery up</tspan></text>
     <rect class="cursor" x="600" y="232" width="12" height="24" fill="#22D3EE"/>
     <text x="424" y="284" class="mono" font-size="14" font-weight="700" fill="#F5F7FF">scenery development server running</text>
-    <text x="424" y="310" class="mono" font-size="13" fill="#A9B2D6"><tspan fill="#22D3EE">➜</tspan><tspan x="442">API:</tspan><tspan x="530" fill="#22D3EE">http://localhost:4624/api/</tspan></text>
-    <text x="424" y="332" class="mono" font-size="13" fill="#A9B2D6"><tspan fill="#22D3EE">➜</tspan><tspan x="442">Dashboard:</tspan><tspan x="530" fill="#22D3EE">http://localhost:4624/console/</tspan></text>
+    <text x="424" y="310" class="mono" font-size="13" fill="#A9B2D6"><tspan fill="#22D3EE">➜</tspan><tspan x="442">API:</tspan><tspan x="562" fill="#22D3EE">http://localhost:4624/api/</tspan></text>
+    <text x="424" y="332" class="mono" font-size="13" fill="#A9B2D6"><tspan fill="#22D3EE">➜</tspan><tspan x="442">Frontend root:</tspan><tspan x="562" fill="#22D3EE">http://localhost:4624/</tspan></text>
   </g>
 
     <rect x="378.1" y="378" width="107.0" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.05" stroke="#33407A"/>
@@ -139,8 +139,8 @@
     <rect x="880" y="214" width="280" height="92" rx="18" fill="#111836" stroke="#27305C"/>
     <circle cx="922" cy="260" r="22" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/>
     <path d="M913 261.0 H917 L920 254.0 L923.5 267.0 L926 258.0 L927.5 261.0 H931" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="958" y="255" class="sans" font-size="19" font-weight="700" fill="#F5F7FF">Dev console</text>
-    <text x="958" y="279" class="sans" font-size="15" fill="#A9B2D6">logs, traces, data</text>
+    <text x="958" y="255" class="sans" font-size="19" font-weight="700" fill="#F5F7FF">Observability</text>
+    <text x="958" y="279" class="sans" font-size="15" fill="#A9B2D6">logs, traces, metrics</text>
   </g>
   <g>
     <rect x="880" y="388" width="280" height="92" rx="18" fill="#111836" stroke="#27305C"/>
