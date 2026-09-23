@@ -60,9 +60,14 @@ SQL, and browse, upload, download and delete local storage objects, while
   `dev-runtime-panel`): Runtime, Database and Storage bottom-panel tabs,
   browser acceptance at `http://localhost:4688`. Nothing is committed in
   either repository yet.
-- [ ] Developer review; then commit Scenery, pin the new Scenery in ONLV and
-  commit ONLV (the ONLV `go.mod` currently carries a local source replacement
-  from `framework use --source` that must not be committed).
+- [x] (2026-09-23) Committed and pushed: Scenery `eee721d3` on
+  `feat/scenery-dev-console-550ec3`, installed as the local CLI; ONLV
+  `e070d727` on `dev-runtime-panel`, pinned to
+  `scenery.sh v0.3.7-0.20260923124750-eee721d37fd8` without a replacement
+  (`framework use`, `generate --check` and `check` clean; the fixture runtime
+  restarted on the pinned producer serves `/runtime`).
+- [ ] Merge both branches; after the Scenery merge, repin ONLV to the merged
+  Scenery commit.
 
 ## Surprises & Discoveries
 
@@ -146,8 +151,8 @@ SQL, and browse, upload, download and delete local storage objects, while
 
 ## Outcomes & Retrospective
 
-Implemented and accepted locally on 2026-09-23; open only for developer review,
-commits and the ONLV Scenery pin. Scenery serves no dashboard UI; the
+Implemented, accepted and pushed on 2026-09-23; open only for merging both
+branches and repinning ONLV to the merged Scenery commit. Scenery serves no dashboard UI; the
 development runtime RPC is documented, schema-identified and generated as an
 opt-in client; ONLV's bottom panel renders runtime status, PostgreSQL browsing
 and SQL, and storage browsing, upload, replacement, download and deletion on
