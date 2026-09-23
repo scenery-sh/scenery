@@ -282,6 +282,7 @@ export interface PublicApiClientOptions {
 export interface CallOptions {
   readonly signal?: AbortSignal;
   readonly headers?: Readonly<Record<string, string>>;
+  readonly keepalive?: boolean;
 }
 
 export class PublicApiClient {
@@ -297,6 +298,8 @@ export class PublicApiClient {
 There is exactly one method per covered binding operation unless multiple covered bindings for one operation require distinct transport surfaces; then method names are deterministically binding-qualified and collisions are compile errors.
 
 Generated methods dispatch through the shared table-driven runtime helper. Capability projection removes unused query, binding header/cookie, multipart, and retry branches from `runtime.ts`; it does not create per-method runtime copies. Generated methods do not inline a second copy of the request/response machine and they do not generate React hooks.
+
+`keepalive: true` sets `RequestInit.keepalive` so a call can complete after the page is hidden or unloaded, for example a final upload on `pagehide`. The client adds the field only when the option is `true`, rejects a non-boolean value as `invalid_options` before fetch, and leaves the browser's in-flight keepalive body limit (64 KiB) to the caller.
 
 Authentication material is supplied only through an explicitly generated authentication capability or request option authorized by the target. The generic `headers` option cannot override framework-owned content, host, forwarding, trace, or credential headers.
 

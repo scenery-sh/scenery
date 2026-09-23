@@ -30,6 +30,8 @@ export class SceneryClientError extends Error {
 export interface CallOptions {
   readonly signal?: AbortSignal;
   readonly headers?: Readonly<Record<string, string>>;
+  /** Let the request outlive the page, e.g. a final upload on pagehide. Browsers cap in-flight keepalive bodies at 64 KiB. */
+  readonly keepalive?: boolean;
 }
 
 export interface AuthenticationOptions {
@@ -1594,6 +1596,7 @@ export async function invoke(
   registry: TypeRegistry,
 ): Promise<unknown> {
   if (options.signal?.aborted) throw new SceneryClientError("cancelled", binding.address, "request cancelled");
+  if (options.keepalive !== undefined && typeof options.keepalive !== "boolean") throw new SceneryClientError("invalid_options", binding.address, "keepalive must be a boolean");
   const path = buildBindingPath(binding, input, registry);
   const headers = mergeHeaders(transport.headers, options.headers, binding.address);
   if (transport.authentication?.authorization !== undefined) headers.set("authorization", transport.authentication.authorization);
@@ -1616,6 +1619,7 @@ export async function invoke(
     headers,
     body,
     credentials: transport.authentication?.credentials,
+    ...(options.keepalive === true ? { keepalive: true } : {}),
   };
   let response: Response;
   try {
