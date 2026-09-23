@@ -163,3 +163,29 @@ func TestContractAuthorizationDenyRulesTakePrecedence(t *testing.T) {
 		t.Fatalf("deny rule did not take precedence: %v", err)
 	}
 }
+
+// Policy list literals and decoded input arrays must agree on emptiness: an
+// empty array equals `[]` and never null, and a null value never equals `[]`.
+func TestContractAuthorizationComparesEmptyListsExactly(t *testing.T) {
+	restore := enterState(&requestState{request: shared.Request{}})
+	defer restore()
+	type input struct {
+		Tags json.RawMessage `json:"tags"`
+	}
+	for _, test := range []struct {
+		expression, tags string
+		allowed          bool
+	}{
+		{expression: `input.tags == []`, tags: `[]`, allowed: true},
+		{expression: `input.tags == null`, tags: `[]`, allowed: false},
+		{expression: `input.tags == []`, tags: `null`, allowed: false},
+		{expression: `input.tags == null`, tags: `null`, allowed: true},
+		{expression: `[] == []`, tags: `null`, allowed: true},
+	} {
+		policy := &ContractHTTPPolicy{AuthorizationStrategy: "deny_unless_allowed", AuthorizationRules: []ContractAuthorizationRule{{Expression: test.expression}}}
+		err := authorizeContractInvocation(policy, input{Tags: json.RawMessage(test.tags)})
+		if allowed := err == nil; allowed != test.allowed {
+			t.Errorf("%s with tags %s: allowed = %v (%v), want %v", test.expression, test.tags, allowed, err, test.allowed)
+		}
+	}
+}

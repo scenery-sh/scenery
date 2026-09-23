@@ -726,7 +726,9 @@ function responseHeaderValues(headers: Headers, name: string): ResponseHeaderVal
     return { values: extended.getSetCookie(), preservesRepetition: true };
   }
 /*__scenery_runtime_response_cookie_end__*/
-  if (typeof extended.getAll === "function") return { values: extended.getAll(name), preservesRepetition: true };
+  if (typeof extended.getAll === "function") {
+    try { return { values: extended.getAll(name), preservesRepetition: true }; } catch { /* Bun and Cloudflare Workers accept only Set-Cookie. */ }
+  }
   if (typeof extended.raw === "function") {
     const raw = extended.raw();
     return { values: raw[name.toLowerCase()] ?? raw[name] ?? [], preservesRepetition: true };
