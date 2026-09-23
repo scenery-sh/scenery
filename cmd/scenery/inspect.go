@@ -125,7 +125,6 @@ type inspectStorageRecord struct {
 	Default    string                  `json:"default,omitempty"`
 	Readiness  string                  `json:"readiness"`
 	Scope      storageResponseScope    `json:"scope"`
-	BrowserURL string                  `json:"browser_url,omitempty"`
 	Recovery   *storagefs.RecoveryInfo `json:"recovery,omitempty"`
 	Totals     *storagefs.Stats        `json:"totals,omitempty"`
 }

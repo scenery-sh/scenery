@@ -100,7 +100,7 @@ func BenchmarkMatchesAnyGlobPerFile(b *testing.B) {
 	matcher := newGlobMatcher(patterns)
 	values := []string{
 		"internal/agent/router.go",
-		"apps/console/src/main.tsx",
+		"tools/typescript/perf/query-table-profiler.bench.tsx",
 		"go.mod",
 		"internal/spec/testdata/fixture.json",
 		"cmd/scenery/deeply/nested/path/to/file_test.go",

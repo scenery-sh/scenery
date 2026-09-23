@@ -82,20 +82,13 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "running"}, "info", "build started", map[string]any{
 		"initial": initial,
 	})
-	// The status is observed once; the process event carries its compact form.
-	status := s.appStatus()
-	s.dashboard.notify(&devdash.Notification{
-		Method: "process/compile-start",
-		Params: status,
-	})
-	status.Meta, status.APIEncoding = nil, nil
-	s.writeProcessEvent(ctx, "compile-start", status)
+	s.writeProcessEvent(ctx, "compile-start", s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event("process.compile-start", map[string]any{
 			"initial": initial,
 		})
 	}
-	build.RecordStep(ctx, build.Step{Name: "supervisor.compile_start_notify", StartedAt: notifyStarted, Duration: time.Since(notifyStarted), Cache: "not_applicable", Reason: "dashboard_and_events", OK: true})
+	build.RecordStep(ctx, build.Step{Name: "supervisor.compile_start_notify", StartedAt: notifyStarted, Duration: time.Since(notifyStarted), Cache: "not_applicable", Reason: "events", OK: true})
 
 	var earlyAssistants *assistantStageAttempt
 	if initial && s.assistants != nil && captured.contract.Valid() {
@@ -161,10 +154,6 @@ func (s *devSupervisor) publishActivatedApp(ctx context.Context, initial bool, s
 	if reload {
 		method = "process/reload"
 	}
-	s.dashboard.notify(&devdash.Notification{
-		Method: method,
-		Params: s.appStatus(),
-	})
 	s.writeProcessEvent(ctx, method, s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event(method, map[string]any{

@@ -48,7 +48,7 @@ func TestCaddyConfigRendersStaticFrontendRoutes(t *testing.T) {
 	})
 	for _, want := range []string{
 		"platform.onegraph.dev:19443 {",
-		"@scenery_blocked path /runtime /runtime/* /dashboard /dashboard/* /console /console/* /__scenery /__scenery/*",
+		"@scenery_blocked path /runtime /runtime/* /__scenery /__scenery/*",
 		"handle /api/* {",
 		"root * " + current,
 		"respond @fe_platform_method \"method not allowed\" 405",

@@ -51,7 +51,6 @@ func buildInspectHarnessResponse(opts inspectOptions) (inspectHarnessResponse, e
 		newInspectHarnessLatest("app-harness", ".scenery/harness/latest.json", "scenery.harness.result"),
 		newInspectHarnessLatest("self-harness", ".scenery/harness/self-latest.json", "scenery.harness.self"),
 		newInspectHarnessLatest("self-summary", ".scenery/harness/self-summary-latest.json", harnessSelfSummaryKind),
-		newInspectHarnessLatest("ui-harness", ".scenery/harness/ui/latest.json", "scenery.harness.ui"),
 		newInspectHarnessLatest("evidence-artifacts", ".scenery/harness/artifacts", harnessArtifactEvidenceKind),
 	}
 	for _, item := range candidates {
@@ -71,16 +70,6 @@ func buildInspectHarnessResponse(opts inspectOptions) (inspectHarnessResponse, e
 			if payload, err := readHarnessJSON[harnessSelfResponse](abs); err == nil {
 				resp.Artifacts = append(resp.Artifacts, payload.Artifacts...)
 				resp.Evidence = append(resp.Evidence, evidenceFromHarnessSteps(payload.Steps)...)
-			}
-		case "ui-harness":
-			if payload, err := readHarnessJSON[harnessUIResponse](abs); err == nil {
-				resp.Artifacts = append(resp.Artifacts, payload.Artifacts...)
-				resp.Evidence = append(resp.Evidence, payload.Evidence...)
-				for _, route := range payload.Routes {
-					if route.Evidence != nil {
-						resp.Evidence = append(resp.Evidence, *route.Evidence)
-					}
-				}
 			}
 		}
 	}

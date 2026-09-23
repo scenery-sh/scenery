@@ -618,7 +618,6 @@ func knowledgeTagsContain(values []string, want string) bool {
 }
 
 var requiredSkillMentions = []string{
-	"scenery harness ui -o json",
 	"go run ./scripts/verify --summary --write",
 }
 

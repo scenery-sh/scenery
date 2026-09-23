@@ -98,8 +98,8 @@ func TestValidateExecPlanValidationLanguageAllowsExactSkipCondition(t *testing.T
 		"",
 		"## Validation and Acceptance",
 		"",
-		"Run `.scenery/harness/bin/scenery harness ui -o json --write`.",
-		"If Chrome is absent, keep acceptance incomplete and attach the harness missing-browser diagnostic.",
+		"Run `go run ./scripts/verify --probe ui --summary --write`.",
+		"If bun is absent, keep acceptance incomplete and attach the typescript dependencies diagnostic.",
 		"",
 		"## Idempotence and Recovery",
 	}, "\n")

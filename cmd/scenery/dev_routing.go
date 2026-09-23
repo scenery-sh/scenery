@@ -59,10 +59,9 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 		return nil, &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.expose requires envs.%s.domain", env.Name, env.Name)}
 	}
 	valid := map[string]bool{
-		"root":                    true,
-		localagent.RouteAPI:       true,
-		localagent.RouteDashboard: true,
-		"runtime":                 true,
+		"root":              true,
+		localagent.RouteAPI: true,
+		"runtime":           true,
 	}
 	rootFrontend := localagentLabel(cfg.RootFrontend())
 	for name := range cfg.Frontends {
@@ -77,14 +76,11 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 	var out []string
 	for _, raw := range entries {
 		name := localagentLabel(raw)
-		if name == "console" {
-			name = localagent.RouteDashboard
-		}
 		if name == rootFrontend {
 			return nil, &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.expose entry %q names the root frontend; use \"root\" because it has no /%s/ mount", env.Name, raw, rootFrontend)}
 		}
 		if name == "" || !valid[name] {
-			return nil, &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.expose entry %q is not root, api, console, runtime, or a configured frontend name", env.Name, raw)}
+			return nil, &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.expose entry %q is not root, api, runtime, or a configured frontend name", env.Name, raw)}
 		}
 		if seen[name] {
 			continue

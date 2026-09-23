@@ -1,7 +1,7 @@
 {
   "compatibility_catalog": "scenery.compatibility-core",
-  "content_digest": "sha256:73a76947dd55bdc0f954016f3c34d26c66a0c044583f1f6713ba3b24b7ad6d22",
-  "contract_revision": "sha256:0dd6dd1a7a1b11b9715e10ac1fbace9692745722f61e25eb903e8c17ab88f709",
+  "content_digest": "sha256:6bb332b825a2d68b60b472926228e8e2a7efc9bf13f6cedd3238fab25048de8e",
+  "contract_revision": "sha256:4428ad1856223304c7e29d7f02320ee7c903f109875f955d0d69614afcd6e285",
   "covered_bindings": [
     "house/binding/list_scene_events_http",
     "house/binding/process_scene_http"
@@ -22,6 +22,7 @@
   ],
   "files": [
     "client.ts",
+    "dev-runtime.ts",
     "index.ts",
     "metadata.ts",
     "runtime.ts",
@@ -29,12 +30,12 @@
   ],
   "generator": "scenery.generate.typescript",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:c7a0e3e6dc912fab7f506b4d76ea5eb7f6fae02ee79a33ab44507b688e628019"
+    "app/http_gateway/public_api": "sha256:fa498bdf963ee2b8f36c8a9964e66ac7540525848c23607e66ac88df8d35f1f3"
   },
   "javascript_target": null,
   "kind": "scenery.typescript-client-generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:307e0c6f754a18a941353cc7c59eea0a67ff1920fc7c6099ca16525d2aa6ea87"
+    "app/http_gateway/public_api": "sha256:5345e00967e1d1552c9a073aba3c59fa8092c40ceeab277a4bc46f2d336e933c"
   },
   "package": "@example/scenery-client",
   "producer": {
@@ -44,9 +45,9 @@
     }
   },
   "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",
-  "spec_revision": "sha256:fb93dea5fd3fc1808888fc6a36840c96da352b94635ef0f2d8bc451e1360953f",
+  "spec_revision": "sha256:0eccf0537f2664c988897188587b40b51a72fe869bc2e34488b8cbeed2177902",
   "target": "app/typescript_client/public_api",
-  "typescript_client_revision": "sha256:5eb8e7eb55b3aa4dcea627fdb779790db652f18a60e7f8ae421aba2df3868a47",
+  "typescript_client_revision": "sha256:fa17453e12138951b920ae25df9cf38df77a3c553886d81fd1a274b7dc7f8ca4",
   "typescript_version": null,
   "ui_catalog_roots": []
 }

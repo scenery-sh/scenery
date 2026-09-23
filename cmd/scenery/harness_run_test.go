@@ -155,19 +155,19 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 			paths:       []string{"ui/src/button.tsx"},
 			wantClasses: []string{harnessValidationUICatalog},
 			wantCommands: append([]string{
-				"apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json",
+				"tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json",
 				"go test ./internal/generate",
 			}, harnessFixtureRegenerationCommands...),
 			forbidCommands: []string{harnessValidationFullCommand},
 		},
 		{
-			name:        "dashboard",
-			paths:       []string{"apps/console/src/App.tsx"},
-			wantClasses: []string{harnessValidationDashboard},
-			wantCommands: []string{
-				"cd apps/console && bun run lint && bun run typecheck && bun run build",
-				harnessValidationUICommand,
-			},
+			name:        "typescript tooling",
+			paths:       []string{"tools/typescript/package.json"},
+			wantClasses: []string{harnessValidationUICatalog},
+			wantCommands: append([]string{
+				"tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json",
+				"go test ./internal/generate",
+			}, harnessFixtureRegenerationCommands...),
 			forbidCommands: []string{harnessValidationFullCommand},
 		},
 		{

@@ -77,19 +77,6 @@ func (e *devEventSink) Output(ctx context.Context, source devdash.DevSource, pla
 	}
 	event := assignDevEventID(devdash.DevEventFromOutput(s.activeAppID(), s.currentSessionID(), source, plain, output.CreatedAt))
 	e.ExportVictoriaDevEvent(event)
-	if s.dashboard != nil {
-		s.dashboard.notify(&devdash.Notification{
-			Method: "process/output",
-			Params: map[string]any{
-				"appID":      s.activeAppID(),
-				"pid":        source.PID,
-				"stream":     source.Stream,
-				"source":     source,
-				"output":     output.Output,
-				"created_at": output.CreatedAt.Format(time.RFC3339Nano),
-			},
-		})
-	}
 	if s.console != nil {
 		s.console.Event("process.output", map[string]any{
 			"pid":        source.PID,

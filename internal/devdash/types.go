@@ -60,7 +60,6 @@ type AppStatus struct {
 	Aliases             map[string]string   `json:"aliases,omitempty"`
 	SessionStatus       string              `json:"sessionStatus,omitempty"`
 	SessionStatusReason string              `json:"sessionStatusReason,omitempty"`
-	DashboardBundle     *DashboardBundle    `json:"dashboardBundle,omitempty"`
 	Compiling           bool                `json:"compiling"`
 	CompileError        string              `json:"compileError,omitempty"`
 	// ServiceProcesses reports the service processes of a process-model
@@ -79,14 +78,6 @@ type ServiceProcess struct {
 	// budget or whose background work activation is not yet confirmed.
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
-}
-
-type DashboardBundle struct {
-	RunningHash string `json:"runningHash,omitempty"`
-	DiskHash    string `json:"diskHash,omitempty"`
-	DiskPath    string `json:"diskPath,omitempty"`
-	Stale       bool   `json:"stale"`
-	Warning     string `json:"warning,omitempty"`
 }
 
 type ObservabilityState struct {
@@ -172,49 +163,8 @@ type DevEventQuery struct {
 	Limit     int
 }
 
-type Notification struct {
-	Method string `json:"method"`
-	Params any    `json:"params"`
-}
-
 type TraceSummary = devreport.TraceSummary
 type TraceEvent = devreport.TraceEvent
 type LogEvent = devreport.LogEvent
 
-type StoredRequest struct {
-	ID     string            `json:"id"`
-	AppID  string            `json:"-"`
-	Title  string            `json:"title"`
-	RPC    string            `json:"rpcName"`
-	Svc    string            `json:"svcName"`
-	Shared bool              `json:"shared"`
-	Data   StoredRequestData `json:"data"`
-}
-
-type StoredRequestData struct {
-	Method     string          `json:"method"`
-	PathParams json.RawMessage `json:"pathParams"`
-	Payload    json.RawMessage `json:"payload"`
-}
-
 type ReportEnvelope = devreport.ReportEnvelope
-
-type QueryRequest struct {
-	Query     string `json:"query"`
-	Params    []any  `json:"params"`
-	ArrayMode bool   `json:"arrayMode"`
-	DbID      string `json:"dbId"`
-	AppID     string `json:"appId"`
-}
-
-type APICallRequest struct {
-	AppID         string          `json:"app_id"`
-	Service       string          `json:"service"`
-	Endpoint      string          `json:"endpoint"`
-	Path          string          `json:"path"`
-	Method        string          `json:"method"`
-	Payload       json.RawMessage `json:"payload"`
-	AuthPayload   json.RawMessage `json:"auth_payload,omitempty"`
-	AuthToken     string          `json:"auth_token,omitempty"`
-	CorrelationID string          `json:"correlation_id,omitempty"`
-}

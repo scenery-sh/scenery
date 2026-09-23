@@ -15,7 +15,7 @@
       "const": "scenery.storage.inspect"
     },
     "schema_revision": {
-      "const": "sha256:2a3f8176b64c077ad30bcd93ffca3009edf23d924d9f24caa06c48901dc774f8"
+      "const": "sha256:f7fba39ebea700be26dfc1034cfe23c2632f1d04984f18f5e8275ae122c7a21b"
     },
     "app": {
       "type": "object",
@@ -72,9 +72,6 @@
         },
         "scope": {
           "$ref": "scenery.storage.object.schema.json#/$defs/scope"
-        },
-        "browser_url": {
-          "type": "string"
         },
         "recovery": {
           "type": "object",

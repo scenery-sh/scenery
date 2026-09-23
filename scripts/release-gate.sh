@@ -126,12 +126,6 @@ lint_go() {
   run golangci-lint run ./...
 }
 
-dashboard_embed() {
-  cd "$ROOT"
-  need bun
-  run ./scripts/build-dashboard-ui-embed.sh || return $?
-}
-
 repository_verification() {
   cd "$ROOT"
   run go run ./scripts/verify --release --summary --write || return $?
@@ -168,7 +162,6 @@ for raw in files.read_bytes().split(b"\0"):
     shutil.copy2(src, out)
 PY
   cd "$tmp/src"
-  run ./scripts/build-dashboard-ui-embed.sh || return $?
   run go build -o "$tmp/bin/scenery" ./cmd/scenery
 }
 
@@ -250,7 +243,6 @@ main() {
   printf 'scenery release gate\nroot: %s\nlogs: %s\n' "$ROOT" "$LOG_DIR"
 
   step "go lint" lint_go
-  step "dashboard embed" dashboard_embed
   step "repository verification" repository_verification
   step "source snapshot build" source_snapshot_build
   step "fixture smoke" fixture_smoke

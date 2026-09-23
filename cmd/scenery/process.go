@@ -42,4 +42,3 @@ var startDevManagedProcess = devprocess.Start
 
 const stopTimeout = devprocess.DefaultStopTimeout
 
-var newLineTail = devprocess.NewLineTail

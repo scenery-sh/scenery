@@ -104,18 +104,6 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 	}
 	assertions["A1_unavailable_toolchain_rejected"] = toolchainDiagnostics
 
-	// Deliberately compile an obsolete asset-name set into the product. The
-	// independently built verifier must inspect the product's actual HTTP hash.
-	embed := filepath.Join(source, "cmd/scenery/dashboard_static/dist")
-	if err := writeHarnessToolchainSourceFile(filepath.Join(embed, "index.html"), "<!doctype html><title>Owned stale bundle</title>\n", 0o600); err != nil {
-		return summary, err
-	}
-	if err := writeHarnessToolchainSourceFile(filepath.Join(embed, "stale-owned-asset.js"), "// Owned negative fixture.\n", 0o600); err != nil {
-		return summary, err
-	}
-	if err := copyHarnessDirectory(filepath.Join(repoRoot, dashboardUIRootRel, "dist"), filepath.Join(source, dashboardUIRootRel, "dist")); err != nil {
-		return summary, err
-	}
 	product := harnessLocalSceneryBinaryPath(source)
 	buildProduct := func() error {
 		producer, err := build.FrameworkSourceManifest(source)
@@ -132,38 +120,6 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 	if err := buildProduct(); err != nil {
 		return summary, err
 	}
-	staleSHA, err := worktreeProbeFileSHA(product)
-	if err != nil {
-		return summary, err
-	}
-	stale, failure := harnessDashboardFreshness(ctx, source)
-	if failure != "the prepared product dashboard bundle is stale" || stale["stale"] != true || stale["dashboard_http"] != 200 {
-		return summary, fmt.Errorf("stale-product acceptance did not reject the actual HTTP bundle: %s (%v)", failure, stale)
-	}
-	assertions["A4_stale_product_rejected"] = stale
-	stale["sha256"] = staleSHA
-	if err := os.RemoveAll(embed); err != nil {
-		return summary, err
-	}
-	if err := copyHarnessDirectory(filepath.Join(repoRoot, "cmd/scenery/dashboard_static/dist"), embed); err != nil {
-		return summary, err
-	}
-	if err := buildProduct(); err != nil {
-		return summary, err
-	}
-	matched, failure := harnessDashboardFreshness(ctx, source)
-	if failure != "" {
-		return summary, fmt.Errorf("matched product rejected: %s", failure)
-	}
-	assertions["A4_matched_product_accepted"] = matched
-	matchedSHA, err := worktreeProbeFileSHA(product)
-	if err != nil {
-		return summary, err
-	}
-	if matchedSHA == staleSHA {
-		return summary, errors.New("stale and matched product builds have identical binary identity")
-	}
-	matched["sha256"] = matchedSHA
 	// Remove repository execution sources/cache from this disposable SDK copy.
 	// Subsequent app generation and runtime commands have only the product.
 	for _, rel := range []string{"scripts/verify", "scripts/testsuite", "internal/testsuite"} {
@@ -227,25 +183,6 @@ func copyHarnessSourceOnlySnapshot(ctx context.Context, source, destination stri
 		}
 	}
 	return nil
-}
-
-func copyHarnessDirectory(source, destination string) error {
-	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return os.MkdirAll(filepath.Join(destination, rel), 0o700)
-		}
-		if !entry.Type().IsRegular() {
-			return fmt.Errorf("non-regular fixture asset %s", path)
-		}
-		return copyHarnessFile(path, filepath.Join(destination, rel), 0o600)
-	})
 }
 
 func copyHarnessFile(source, destination string, mode os.FileMode) error {

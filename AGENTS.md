@@ -53,7 +53,6 @@ Guidance, Verification and Child Agent Index as useful section headings.
 
 - `scripts/verify/AGENTS.md` owns repository verification, release probes, and exact-root timing enforcement outside the product CLI.
 
-- `apps/console/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
 - `examples/webhook-inbox/AGENTS.md` owns the independent durable webhook example and its isolated native proof.
 - `internal/app/AGENTS.md` owns app discovery, configuration and pure SQL requirement supply.
 - `internal/parse/AGENTS.md` owns Go package analysis and model-owned ABI data.
@@ -189,8 +188,7 @@ Repository verification belongs to `scripts/verify`, not the application CLI.
 | Go package(s) | affected `go test ./<package>` commands, then `go test ./...` |
 | CLI JSON contract | `go test ./cmd/scenery`, quick verifier, matching `docs/local-contract.md` update |
 | Compiler or generator | affected tests, both fixture regenerations below, then `go test ./...` |
-| UI catalog | `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json`, `go test ./internal/generate`, both fixture regenerations |
-| Dashboard | `cd apps/console && bun run lint && bun run typecheck && bun run build`, then `.scenery/harness/bin/scenery harness ui -o json --write` |
+| UI catalog or `tools/typescript` | `tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json`, `go test ./internal/generate`, both fixture regenerations |
 | Release-sensitive or runtime | `go run ./scripts/verify --summary --write`; named probes for changed external boundaries |
 
 Matches are cumulative; unmatched source/config/fixtures require `go test ./...`.
@@ -223,8 +221,9 @@ go run ./cmd/scenery generate --target typescript_client.public_api --app-root i
 
 Target-app changes use `scenery check -o json`, `go test ./...`, and
 `scenery harness -o json --write`, plus the app's declared checks and acceptance.
-Follow `apps/console/AGENTS.md` for dashboard work and `ui/AGENTS.md` for the
-binary-owned catalog; do not bypass their boundaries.
+Follow `ui/AGENTS.md` for the binary-owned catalog; do not bypass its
+boundaries. Scenery serves no dashboard UI: development tooling consumes the
+documented development runtime RPC through a generated `dev-runtime.ts` client.
 
 ## Completion Contract
 

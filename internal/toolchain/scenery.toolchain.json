@@ -9,11 +9,11 @@
       "lock": "go.sum"
     },
     {
-      "name": "dashboard-ui",
+      "name": "typescript-tooling",
       "kind": "package-manager",
       "manager": "bun",
-      "manifest": "apps/console/package.json",
-      "lock": "apps/console/bun.lock"
+      "manifest": "tools/typescript/package.json",
+      "lock": "tools/typescript/bun.lock"
     }
   ],
   "artifacts": [

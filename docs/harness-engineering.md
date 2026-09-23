@@ -14,15 +14,14 @@ The harness contract gives Codex and other agents a short feedback loop:
 
 The repository-only command is `go run ./scripts/verify`, run from the Scenery
 checkout. It owns repository checks, release probes and timing enforcement;
-the installed product cannot run them. `scenery harness` validates an app,
-`scenery harness ui` drives its dashboard, and `scenery inspect harness` reads
-bounded existing reports. The `scenery.harness.self` report names and paths
+the installed product cannot run them. `scenery harness` validates an app
+and `scenery inspect harness` reads bounded existing reports. Scenery has no
+dashboard harness. The `scenery.harness.self` report names and paths
 remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
 go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
-scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
 
@@ -52,10 +51,10 @@ cat .scenery/harness/agent-context.json
 # refresh agent-context after editing, then run changed_area.recommended_commands
 ```
 
-For a missing local binary or dashboard embed, follow
+For a missing local binary, follow
 [Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
 Every mode builds the prepared worktree-local CLI. Default, quick and race modes
-do not provision console dependencies or run live-runtime probes.
+do not provision `tools/typescript` dependencies or run live-runtime probes.
 
 When a change alters an external boundary, run its named probe from the catalog
 below. For example, auth changes select `--probe auth`; worktree runtime and
@@ -76,9 +75,6 @@ verifier and retains lint, source-snapshot build, and its distinct binary/router
 artifact probes. By default those binary probes use the verifier's prepared
 product; an explicit `SCENERY_BIN` remains the separately selected shell target.
 The source-snapshot build is disposable and no step installs a CLI.
-Dashboard embed preparation precedes the product build; the verifier then
-rebuilds source assets to compare them with that product's real HTTP hash.
-Those preparation and freshness boundaries are distinct, not duplicate UI gates.
 Its headless fixture probes use `scenery build
 --target development --output <binary> -o json` and launch that binary with `SCENERY_LISTEN_ADDR`;
 they do not start a development session. Readiness requires HTTP 200 and fails
@@ -170,12 +166,6 @@ client-app substrate readiness must be reported as explicit evidence with
 phase/session/substrate context; it should not masquerade as a core release
 safety failure unless the release gate is intentionally validating that boundary.
 
-For dashboard route or UI behavior changes, also run:
-
-```text
-scenery harness ui -o json --write
-```
-
 For changes to the PostgreSQL service probe's schema/durable/reset/snapshot
 boundary, run the full selected database proof (missing Docker fails):
 
@@ -198,7 +188,7 @@ release certification. Failed steps identify their focused rerun command.
 |---|---|
 | `parallel-runtime` | Parallel runtime/session isolation |
 | `postgres` | Full PostgreSQL service, durable, reset and snapshot proof |
-| `ui` | Dashboard build/freshness and TypeScript conformance/typechecks |
+| `ui` | `tools/typescript` dependencies, TypeScript client conformance, generated-client and UI catalog typechecks |
 | `fixtures` | Fixture generation/compilation matrix |
 | `storage` | Storage CLI, routes, restart persistence and a fresh tagged 260-entry disk-pressure reclamation/resume integration test |
 | `core-separation` | Product/verifier dependency and source-only boundaries |
@@ -257,16 +247,7 @@ as beta diagnostic inputs for agents. Their exact schema revisions support
 automation, but their rollup and backend-selection semantics remain internal
 and unstable; see [local-contract.md](local-contract.md).
 
-`scenery harness ui -o json` is the implemented browser-backed dashboard route
-check. It starts a temporary dashboard target unless `--dashboard-url` is
-provided, visits stable dashboard routes, runs route-specific semantic journeys,
-checks durable `data-scenery-ui` markers, and writes screenshots, DOM snapshots,
-console, and network artifacts under `.scenery/harness/ui/`. The route journeys
-prove behavior such as API Explorer endpoint/form rendering, service metadata,
-trace empty/table/detail states, database availability or intentional empty
-states, cron status, and durable/worker status cards.
-
-`scenery inspect harness -o json` reads the latest app, self, and UI harness
+`scenery inspect harness -o json` reads the latest app and self harness
 outputs from `.scenery/harness/` and returns their artifacts plus normalized
 evidence records. Focused drill-down commands read bounded topic detail without
 opening the full archive:
@@ -285,8 +266,6 @@ JSON output conforms to:
 - [scenery.harness.result.schema.json](schemas/scenery.harness.result.schema.json)
 - [scenery.harness.artifact.schema.json](schemas/scenery.harness.artifact.schema.json)
 - [scenery.inspect.harness.schema.json](schemas/scenery.inspect.harness.schema.json)
-- [scenery.harness.ui.schema.json](schemas/scenery.harness.ui.schema.json)
-- [scenery.harness.ui.dom.schema.json](schemas/scenery.harness.ui.dom.schema.json)
 
 When `--write` is present, scenery writes:
 
@@ -305,23 +284,9 @@ large evidence payloads such as Go test JSONL are written under:
 <root>/.scenery/harness/artifacts/<run-id>/
 ```
 
-The same evidence model is shared by the app harness, self-harness, UI harness,
-and release gate so agents can inspect failures without scraping terminal
+The same evidence model is shared by the app harness, self-harness, and release
+gate so agents can inspect failures without scraping terminal
 scrollback.
-
-When `scenery harness ui -o json --write` is present, the browser harness writes:
-
-```text
-<app-root>/.scenery/harness/ui/latest.json
-<app-root>/.scenery/harness/ui/screenshots/<route>.png
-<app-root>/.scenery/harness/ui/dom/<route>.json
-<app-root>/.scenery/harness/ui/console.jsonl
-<app-root>/.scenery/harness/ui/network.jsonl
-```
-
-The DOM snapshots are compact semantic snapshots of elements carrying
-`data-scenery-ui`, not full HTML dumps. They exist so agents can reproduce,
-repair, restart, and verify browser behavior from machine-readable route state.
 
 The self-harness writes `.scenery/harness/agent-context.json` as the default
 handoff file for agents. It includes current failing steps, the first file to
@@ -368,7 +333,7 @@ edge tests retain renderer, publication, and injected-runner coverage.
 
 The core-separation release step builds the verifier from source without tests
 or generated app caches, rejects repository execution in the product dependency
-closure, checks actual stale/matched product dashboard bundles, and exercises
+closure, and exercises
 app commands after removing verifier/test-engine sources from its disposable
 SDK. It also proves invalid old grammar, unavailable-toolchain diagnostics and
 real 20-process rejection of a deliberately slow disposable test root.

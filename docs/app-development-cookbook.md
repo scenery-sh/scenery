@@ -1088,5 +1088,4 @@ scenery logs -o jsonl --limit 200
 Follow [application validation and completion](agent-guide.md#application-validation-and-completion)
 for baseline commands, declared profiles, and evidence reuse. Changed `.scn`
 source requires `scenery fmt --check -o json`. Generated TypeScript also requires
-the app's typecheck/tests. Validate app pages with their own browser acceptance;
-`scenery harness ui -o json --write` covers Scenery's dashboard only.
+the app's typecheck/tests. Validate app pages with their own browser acceptance.

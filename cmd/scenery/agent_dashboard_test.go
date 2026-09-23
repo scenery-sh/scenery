@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -77,14 +76,6 @@ func TestAgentDashboardControllerUsesSessionRouteIDs(t *testing.T) {
 	}
 
 	controller := &agentDashboardController{store: store}
-	apps, err := controller.dashboardListApps(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(apps) != 1 || apps[0]["id"] != "session-a" || apps[0]["base_app_id"] != "demo" {
-		t.Fatalf("apps = %+v", apps)
-	}
-
 	status, err := controller.dashboardStatusFor(ctx, "session-a")
 	if err != nil {
 		t.Fatal(err)
@@ -107,33 +98,6 @@ func TestAppRecordStatusUsesStoredSessionHealth(t *testing.T) {
 	})
 	if status.Running || status.SessionStatus != "degraded" || status.SessionStatusReason == "" {
 		t.Fatalf("status = %+v, want degraded and not running", status)
-	}
-}
-
-func TestAppRecordStatusIncludesDashboardBundleJSON(t *testing.T) {
-	stubEmbeddedDashboardAssets(t, fstest.MapFS{
-		"index.html": {Data: []byte(`<!doctype html><html><head></head><body>bundle</body></html>`)},
-	})
-
-	status := appRecordStatus(devdash.AppRecord{
-		ID:        "demo",
-		SessionID: "session-a",
-		Root:      "/tmp/demo",
-	})
-	if status.DashboardBundle == nil || status.DashboardBundle.RunningHash == "" {
-		t.Fatalf("dashboard bundle = %+v, want running hash", status.DashboardBundle)
-	}
-	data, err := json.Marshal(status)
-	if err != nil {
-		t.Fatalf("marshal status: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		t.Fatalf("unmarshal status: %v", err)
-	}
-	bundle, ok := payload["dashboardBundle"].(map[string]any)
-	if !ok || bundle["runningHash"] == "" {
-		t.Fatalf("dashboardBundle JSON = %#v", payload["dashboardBundle"])
 	}
 }
 
@@ -162,7 +126,7 @@ func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 		_ = store.Close()
 	})
 	controller := &agentDashboardController{store: store, agent: agentRegistry}
-	dashboard := newDashboardServerWithController(controller, t.TempDir(), "127.0.0.1:0", "", nil)
+	dashboard := newDashboardServerWithController(controller, t.TempDir(), "127.0.0.1:0", nil)
 
 	app := devdash.AppRecord{
 		ID:        "demo",
@@ -316,39 +280,6 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	}
 
 	controller := &agentDashboardController{store: store, agent: agentRegistry}
-	apps, err := controller.dashboardListApps(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	offlineByID := map[string]bool{}
-	statusByID := map[string]string{}
-	reasonByID := map[string]string{}
-	for _, app := range apps {
-		id, _ := app["id"].(string)
-		offline, _ := app["offline"].(bool)
-		offlineByID[id] = offline
-		statusByID[id], _ = app["sessionStatus"].(string)
-		reasonByID[id], _ = app["sessionStatusReason"].(string)
-	}
-	if offlineByID[session.SessionID] {
-		t.Fatalf("live session marked offline: apps=%+v", apps)
-	}
-	if statusByID[session.SessionID] != "running" {
-		t.Fatalf("live session status = %q, want running: apps=%+v", statusByID[session.SessionID], apps)
-	}
-	if !offlineByID[degradedSession.SessionID] {
-		t.Fatalf("degraded session not marked offline: apps=%+v", apps)
-	}
-	if statusByID[degradedSession.SessionID] != "degraded" || reasonByID[degradedSession.SessionID] == "" {
-		t.Fatalf("degraded session status = %q reason %q, apps=%+v", statusByID[degradedSession.SessionID], reasonByID[degradedSession.SessionID], apps)
-	}
-	if !offlineByID["stale-session"] {
-		t.Fatalf("stale session not marked offline: apps=%+v", apps)
-	}
-	if statusByID["stale-session"] != "stale" {
-		t.Fatalf("stale session status = %q, want stale: apps=%+v", statusByID["stale-session"], apps)
-	}
-
 	status, err := controller.dashboardStatusFor(ctx, session.SessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +287,7 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	if !status.Running || status.SessionStatus != "running" {
 		t.Fatalf("live status health = %+v, want running", status)
 	}
-	if status.Routes[localagent.RouteAPI] == "" || status.Routes[localagent.RouteDashboard] == "" {
+	if status.Routes[localagent.RouteAPI] == "" {
 		t.Fatalf("live status routes missing user-facing entries: %+v", status.Routes)
 	}
 	if _, ok := status.Routes["victoria"]; ok {
@@ -415,7 +346,7 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	server := newDashboardServerWithController(&agentDashboardController{
 		store: store,
 		agent: agentRegistry,
-	}, t.TempDir(), "127.0.0.1:0", "", nil)
+	}, t.TempDir(), "127.0.0.1:0", nil)
 	body, err := json.Marshal(devdash.ReportEnvelope{
 		Type:      "log",
 		AppID:     "demo",
@@ -463,7 +394,7 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 	}}
 	exported := make(chan *devdash.LogEvent, 1)
 	controller := &agentDashboardController{agent: agentRegistry}
-	server := newDashboardServerWithControllerHooks(controller, t.TempDir(), "127.0.0.1:0", "", nil, dashboardServerHooks{
+	server := newDashboardServerWithControllerHooks(controller, t.TempDir(), "127.0.0.1:0", nil, dashboardServerHooks{
 		exportLogEvent: func(event *devdash.LogEvent) {
 			exported <- event
 		},

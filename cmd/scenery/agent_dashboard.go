@@ -49,7 +49,7 @@ func startAgentDashboardListener(ctx context.Context, agentServer *localagent.Se
 		store: store,
 		agent: agentServer,
 	}
-	server := newDashboardServerWithController(controller, paths.AgentDir, addr, "", nil)
+	server := newDashboardServerWithController(controller, paths.AgentDir, addr, nil)
 	server.state.cacheRoot = filepath.Join(paths.AgentDir, "dashboard")
 	start := func() error { return server.Start(ctx) }
 	if listener != nil {
@@ -82,33 +82,6 @@ func (c *agentDashboardController) dashboardActiveAppID() string {
 
 func (c *agentDashboardController) dashboardCurrentSessionID() string {
 	return ""
-}
-
-func (c *agentDashboardController) dashboardListApps(ctx context.Context) ([]map[string]any, error) {
-	records, err := c.store.ListAppSessions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]map[string]any, 0, len(records))
-	for _, app := range records {
-		app = c.appRecordWithRegistryLiveness(app)
-		routeID := firstNonEmpty(app.RouteID, app.SessionID, app.ID)
-		if routeID == "" {
-			continue
-		}
-		items = append(items, map[string]any{
-			"id":                  routeID,
-			"name":                app.Name,
-			"app_root":            app.Root,
-			"session_id":          app.SessionID,
-			"base_app_id":         firstNonEmpty(app.BaseAppID, app.ID),
-			"offline":             !app.Running,
-			"sessionStatus":       app.SessionStatus,
-			"sessionStatusReason": app.SessionStatusReason,
-			"compileError":        app.CompileError,
-		})
-	}
-	return items, nil
 }
 
 func (c *agentDashboardController) dashboardStatusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {
@@ -233,18 +206,9 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		Aliases:             app.Aliases,
 		SessionStatus:       app.SessionStatus,
 		SessionStatusReason: app.SessionStatusReason,
-		DashboardBundle:     dashboardBundleStatusPtr(),
 		Compiling:           app.Compiling,
 		CompileError:        app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, nil)
 	return status
-}
-
-func dashboardBundleStatusPtr() *devdash.DashboardBundle {
-	status, err := dashboardBundleStatusForCurrentRepo()
-	if err != nil || status.RunningHash == "" {
-		return nil
-	}
-	return &status
 }

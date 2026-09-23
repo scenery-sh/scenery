@@ -19,7 +19,7 @@
       "const": "scenery.harness.self"
     },
     "schema_revision": {
-      "const": "sha256:110fa218b7f76bef21748ff76c0e228f56b605e8c07ceb0eff309d32c5f40e8e"
+      "const": "sha256:d4210f5be864b82c94e518c9b4ae1c4045eddb2d1954da516d9e12d4baf691ef"
     },
     "ok": {
       "type": "boolean"
@@ -157,7 +157,7 @@
           "const": "scenery.harness.changed_area"
         },
         "schema_revision": {
-          "const": "sha256:5c5d834d0db2d94a819c3ffb50841d3cb61870c83cf0cd746107131cd7679106"
+          "const": "sha256:a7240232c8378e835cac0ec4fa6f9a9236b5988ec7692d1988d43edbf5a73b0f"
         },
         "changed_files": {
           "type": "array",
@@ -186,7 +186,6 @@
               "cli-json-contract",
               "compiler-or-generator",
               "ui-catalog",
-              "dashboard",
               "release-sensitive-or-runtime",
               "repository-fallback"
             ]

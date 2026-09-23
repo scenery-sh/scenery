@@ -94,9 +94,9 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 	if status != http.StatusNotFound {
 		t.Fatalf("public runtime status=%d, want 404", status)
 	}
-	status, _ = request("onlv.dev", PathModeDashboardPrefix+"/", true, false)
-	if status != http.StatusNotFound {
-		t.Fatalf("public dashboard status=%d, want 404", status)
+	status, body = request("onlv.dev", "/console/", true, false)
+	if status != http.StatusOK || body != "frontend:/console/" {
+		t.Fatalf("/console/ is an application path: status=%d body=%q", status, body)
 	}
 	status, _ = request("onlv.dev", "/__scenery/config", true, false)
 	if status != http.StatusNotFound {

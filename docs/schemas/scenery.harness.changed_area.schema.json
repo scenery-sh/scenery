@@ -18,7 +18,7 @@
       "const": "scenery.harness.changed_area"
     },
     "schema_revision": {
-      "const": "sha256:5c5d834d0db2d94a819c3ffb50841d3cb61870c83cf0cd746107131cd7679106"
+      "const": "sha256:a7240232c8378e835cac0ec4fa6f9a9236b5988ec7692d1988d43edbf5a73b0f"
     },
     "changed_files": {
       "type": "array",
@@ -47,7 +47,6 @@
           "cli-json-contract",
           "compiler-or-generator",
           "ui-catalog",
-          "dashboard",
           "release-sensitive-or-runtime",
           "repository-fallback"
         ]

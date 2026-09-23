@@ -15,14 +15,18 @@ when recorded; those historical `harness self` invocations are not live commands
   - [Agent Thread Findings - 2026-06-29](#agent-thread-findings---2026-06-29)
   - [Agent Thread Findings - 2026-06-28](#agent-thread-findings---2026-06-28)
   - [Agent Thread Findings - 2026-06-27](#agent-thread-findings---2026-06-27)
-  - [Full Dashboard Parity](#full-dashboard-parity)
-  - [Browser Harness Fixture-Backed Mutation Depth](#browser-harness-fixture-backed-mutation-depth)
   - [Deeper Architecture Checks](#deeper-architecture-checks)
   - [Long Build Tests](#long-build-tests)
   - [Published Dotfiles](#published-dotfiles)
 
 ## Resolved
 
+- 2026-09-23: Scenery dashboard debt (Full Dashboard Parity, Browser Harness
+  Fixture-Backed Mutation Depth, and the dashboard/console findings of the
+  2026-06-28 through 2026-07-03 agent threads below) — obsolete: ExecPlan 0202
+  removed `apps/console`, the embedded dashboard, and `scenery harness ui`. The
+  remaining data surface is the documented development runtime RPC with a
+  generated `dev-runtime.ts` client; apps own their developer UI.
 - 2026-09-16: Deprecated single application development model — removed with
   its selector, candidate restart path, retained compiler,
   `internal/nativebuilddriver` and the native build benchmarks. The
@@ -307,26 +311,6 @@ Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
    - Symptom: broad rename created bad identifiers and stale helper names, then compile exposed old branch helper calls in agent cleanup, harness, and tests.
    - Evidence needed: thread `019f086a-4db6-7731-945e-ea43ce0224c0`; statuses mention "mechanical rename was a little too broad", "bad spaces", malformed signatures, and old helper names in `cmd/scenery/db_branch_*`, `cmd/scenery/agent.go`, and `cmd/scenery/harness_*`.
    - Next action: prefer targeted compile-guided edits around provider boundaries, then run `go test ./cmd/scenery` before widening.
-
-### Full Dashboard Parity
-
-- Area: dashboard
-- Severity: medium
-- Owner: scenery dashboard
-- Created: 2026-04-27
-- Review after: 2026-08-17 (last reviewed 2026-07-18)
-
-The editable dashboard source exists, but parity should continue to be verified visually for complex pages such as traces, API Explorer, Cron, and DB Explorer.
-
-### Browser Harness Fixture-Backed Mutation Depth
-
-- Area: harness
-- Severity: medium
-- Owner: scenery runtime
-- Created: 2026-06-07
-- Review after: 2026-08-17 (last reviewed 2026-07-18)
-
-The browser UI harness now captures route-specific semantic journeys, screenshots, console events, network requests, and DOM snapshots for the core dashboard routes. Remaining debt is deeper fixture-backed mutation coverage for flows such as actually sending API Explorer requests, running DB queries against managed fixtures, clearing traces, and validating docs/help routes when those pages exist.
 
 ### Deeper Architecture Checks
 

@@ -159,7 +159,7 @@ func runHarnessEdgeStaticFrontendProbe(ctx context.Context, root string) (proof 
 		{method: "GET", path: "/api/things", status: 200, body: "agent:/api/things"},
 		{method: "GET", path: "/.hidden", status: 404},
 	}
-	for _, path := range []string{"/runtime", "/dashboard/x", "/__scenery/config", "/console", "/platform/api/x", "/platform/runtime", "/platform/__scenery/config"} {
+	for _, path := range []string{"/runtime", "/runtime/storage", "/__scenery/config", "/platform/api/x", "/platform/runtime", "/platform/__scenery/config"} {
 		checks = append(checks, httpCheck{method: "GET", path: path, status: 404})
 	}
 	for _, check := range checks {

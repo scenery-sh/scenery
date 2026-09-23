@@ -107,9 +107,8 @@ func TestLocalPathRouterRedirectKeepsControlRoutesLocal(t *testing.T) {
 	handler := localPathRouterRedirect(next, "https://local.clean.tech")
 
 	for _, path := range []string{
-		"/console/",
-		"/console/__scenery",
 		"/runtime/health",
+		"/runtime/storage",
 		"/__scenery",
 	} {
 		response := httptest.NewRecorder()

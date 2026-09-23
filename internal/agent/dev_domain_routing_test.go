@@ -359,8 +359,8 @@ func TestServerDevDomainHostServesPathMode(t *testing.T) {
 func TestNormalizePublicRoutes(t *testing.T) {
 	t.Parallel()
 
-	got := normalizePublicRoutes([]string{"console", "API", "runtime", "api", "", "next"})
-	want := []string{"api", "dashboard", "next", "runtime"}
+	got := normalizePublicRoutes([]string{"docs", "API", "runtime", "api", "", "next"})
+	want := []string{"api", "docs", "next", "runtime"}
 	if len(got) != len(want) {
 		t.Fatalf("normalizePublicRoutes = %v, want %v", got, want)
 	}

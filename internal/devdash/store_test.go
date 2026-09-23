@@ -37,13 +37,6 @@ func TestOpenStorePersistsJSONState(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert app: %v", err)
 	}
-	if _, err := store.CreateStoredRequest(ctx, StoredRequest{
-		AppID: "app-test",
-		Title: "Persisted",
-		Data:  StoredRequestData{Method: "GET"},
-	}); err != nil {
-		t.Fatalf("create stored request: %v", err)
-	}
 	if _, err := filepath.Abs(filepath.Join(cacheRoot, "devdash.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -68,13 +61,6 @@ func TestOpenStorePersistsJSONState(t *testing.T) {
 	}
 	if session.SessionStatus != "degraded" || session.SessionStatusReason == "" {
 		t.Fatalf("persisted session = %+v", session)
-	}
-	requests, err := reopened.ListStoredRequests(ctx, "app-test")
-	if err != nil {
-		t.Fatalf("list persisted requests: %v", err)
-	}
-	if len(requests) != 1 || requests[0].Title != "Persisted" {
-		t.Fatalf("persisted requests = %+v", requests)
 	}
 }
 
@@ -336,105 +322,6 @@ func TestStoreFlushErrorAllowsDeferredRetry(t *testing.T) {
 	}
 	if store.shared.savePending {
 		t.Fatal("failed flush left savePending set, blocking retry scheduling")
-	}
-}
-
-func TestStoreStoredRequestsCRUD(t *testing.T) {
-	t.Parallel()
-
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-
-	ctx := context.Background()
-	list, err := store.ListStoredRequests(ctx, "app-test")
-	if err != nil {
-		t.Fatalf("list empty stored requests: %v", err)
-	}
-	if list == nil {
-		t.Fatal("expected empty stored request list, got nil")
-	}
-
-	created, err := store.CreateStoredRequest(ctx, StoredRequest{
-		AppID:  "app-test",
-		Title:  "Initial",
-		RPC:    "Config",
-		Svc:    "tenants",
-		Shared: true,
-		Data: StoredRequestData{
-			Method:     "GET",
-			PathParams: json.RawMessage(`{"tenantID":"123"}`),
-			Payload:    json.RawMessage(`{"ok":true}`),
-		},
-	})
-	if err != nil {
-		t.Fatalf("create stored request: %v", err)
-	}
-	if created.ID == "" {
-		t.Fatal("expected stored request id")
-	}
-
-	list, err = store.ListStoredRequests(ctx, "app-test")
-	if err != nil {
-		t.Fatalf("list stored requests: %v", err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 stored request, got %d", len(list))
-	}
-	if got := list[0].Data.PathParams; string(got) != `{"tenantID":"123"}` {
-		t.Fatalf("unexpected path params: %s", got)
-	}
-
-	updated, err := store.UpdateStoredRequest(ctx, StoredRequest{
-		ID:     created.ID,
-		AppID:  "app-test",
-		Title:  "Updated",
-		RPC:    "Config",
-		Svc:    "tenants",
-		Shared: false,
-		Data: StoredRequestData{
-			Method:     "POST",
-			PathParams: json.RawMessage(`{"tenantID":"456"}`),
-			Payload:    json.RawMessage(`{"ok":false}`),
-		},
-	})
-	if err != nil {
-		t.Fatalf("update stored request: %v", err)
-	}
-	if updated.Title != "Updated" {
-		t.Fatalf("unexpected updated title: %q", updated.Title)
-	}
-
-	list, err = store.ListStoredRequests(ctx, "app-test")
-	if err != nil {
-		t.Fatalf("list after update: %v", err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 stored request after update, got %d", len(list))
-	}
-	if list[0].Shared {
-		t.Fatal("expected shared=false after update")
-	}
-	if got := list[0].Data.Payload; string(got) != `{"ok":false}` {
-		t.Fatalf("unexpected payload after update: %s", got)
-	}
-
-	if err := store.DeleteStoredRequest(ctx, "app-test", created.ID); err != nil {
-		t.Fatalf("delete stored request: %v", err)
-	}
-	list, err = store.ListStoredRequests(ctx, "app-test")
-	if err != nil {
-		t.Fatalf("list after delete: %v", err)
-	}
-	if len(list) != 0 {
-		t.Fatalf("expected 0 stored requests after delete, got %d", len(list))
-	}
-	if list == nil {
-		t.Fatal("expected empty stored request list after delete, got nil")
 	}
 }
 

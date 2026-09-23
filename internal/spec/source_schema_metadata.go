@@ -449,6 +449,8 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return primitive("relative_path")
 		case "react":
 			return object("typescript_client_react")
+		case "dev_runtime":
+			return primitive("bool")
 		default:
 			return primitive("string")
 		}
