@@ -343,6 +343,30 @@ func TestTypeScriptRuntimeCapabilitySectionsAreIndependent(t *testing.T) {
 	}
 }
 
+// Bun and Cloudflare Workers expose Headers.getAll but throw for every name
+// except Set-Cookie. The generated lookup must treat that rejection as an
+// unavailable strategy instead of a malformed response. The Bun conformance
+// suite executes this behavior; this pins it in every capability variant.
+func TestTypeScriptResponseHeaderLookupFallsBackWhenGetAllRejectsTheName(t *testing.T) {
+	const guarded = "if (typeof extended.getAll === \"function\") {\n    try { return { values: extended.getAll(name), preservesRepetition: true }; } catch {"
+	for name, caps := range map[string]tsRuntimeCapabilities{
+		"header only":        {responseHeader: true},
+		"header and cookies": {responseHeader: true, responseCookie: true},
+	} {
+		_, lookup, found := strings.Cut(renderTSRuntime(caps), "function responseHeaderValues")
+		lookup, _, closed := strings.Cut(lookup, "\n}\n")
+		if !found || !closed {
+			t.Fatalf("%s: runtime has no response header lookup", name)
+		}
+		if !strings.Contains(lookup, guarded) || strings.Count(lookup, "extended.getAll(") != 1 {
+			t.Fatalf("%s: getAll is not guarded:\n%s", name, lookup)
+		}
+		if !strings.HasSuffix(lookup, "return { values: value === null ? [] : [value], preservesRepetition: false };") {
+			t.Fatalf("%s: lookup lost the standard Fetch fallback:\n%s", name, lookup)
+		}
+	}
+}
+
 func TestUnitTypeMapsAcrossGoAndTypeScriptGenerators(t *testing.T) {
 	unit := map[string]any{"$ref": "std.type.unit"}
 	if got := goType(unit); got != "scenery.Unit" {

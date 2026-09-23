@@ -398,7 +398,9 @@ func (parser *authorizationParser) parseList() (any, error) {
 	if err := parser.advance(); err != nil {
 		return nil, err
 	}
-	var values []any
+	// Decoded JSON arrays are non-nil, so the empty literal must be too for
+	// `input.tags == []` to match an empty array.
+	values := []any{}
 	if parser.current.kind == authorizationRBracket {
 		return values, parser.advance()
 	}

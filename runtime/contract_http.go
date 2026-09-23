@@ -568,7 +568,9 @@ func decodeUniqueContractJSON(decoder *json.Decoder) (any, error) {
 		}
 		return object, nil
 	case '[':
-		var list []any
+		// A non-nil slice keeps an empty array distinct from null when the
+		// decoded value is marshaled back to JSON.
+		list := []any{}
 		for decoder.More() {
 			value, err := decodeUniqueContractJSON(decoder)
 			if err != nil {
