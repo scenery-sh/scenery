@@ -66,11 +66,7 @@ func (s storageHTTPRoutes) handleStorageList(w http.ResponseWriter, req *http.Re
 		storage.HTTPError(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := json.NewEncoder(w).Encode(page); err != nil {
-		errs.HTTPError(w, errs.Wrap(err, "encode storage list response"))
-	}
+	writeStorageHTTPJSON(w, http.StatusOK, page)
 }
 
 func (s storageHTTPRoutes) handleStorageObject(w http.ResponseWriter, req *http.Request, params routeParams, internal bool) {
@@ -111,12 +107,7 @@ func (s storageHTTPRoutes) handleStorageObject(w http.ResponseWriter, req *http.
 			storage.HTTPError(w, err)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusCreated)
-		if err := json.NewEncoder(w).Encode(obj); err != nil {
-			errs.HTTPError(w, errs.Wrap(err, "encode storage object response"))
-		}
+		writeStorageHTTPJSON(w, http.StatusCreated, obj)
 	case http.MethodDelete:
 		if storageHTTPBool(req.URL.Query().Get("recursive")) {
 			if err := store.DeletePrefix(ctx, key); err != nil {
@@ -136,7 +127,7 @@ func (s storageHTTPRoutes) handleStorageObject(w http.ResponseWriter, req *http.
 func authenticateStorageHTTPRequest(w http.ResponseWriter, req *http.Request, store string, internal bool) (context.Context, bool) {
 	storeCfg, access, err := storageHTTPStoreConfig(store)
 	if err != nil {
-		errs.HTTPError(w, err)
+		writeStorageHTTPFailure(w, err)
 		return nil, false
 	}
 	if internal {
@@ -155,7 +146,7 @@ func authenticateStorageHTTPRequest(w http.ResponseWriter, req *http.Request, st
 		Methods: []string{req.Method},
 	})
 	if err != nil {
-		errs.HTTPError(w, err)
+		writeStorageHTTPFailure(w, err)
 		return nil, false
 	}
 	ctx := req.Context()
@@ -266,5 +257,43 @@ func storageHTTPError(err error) error {
 	if _, ok := errors.AsType[*storage.TenantRequiredError](err); ok {
 		return errs.B().Code(errs.PermissionDenied).Msg(err.Error()).Cause(err).Err()
 	}
-	return errs.Wrap(err, "storage request failed")
+	// An unclassified failure is internal; keep its own text for the report.
+	return err
 }
+
+// writeStorageHTTPJSON encodes a response before writing its status, so a value
+// that cannot be encoded answers an internal failure instead of a success with
+// a broken body.
+func writeStorageHTTPJSON(w http.ResponseWriter, status int, value any) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		writeStorageHTTPFailure(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(body, '\n'))
+}
+
+// writeStorageHTTPFailure answers a failure outside the store: store selection,
+// authentication or response encoding. One that maps to HTTP 500, such as an
+// auth handler's database error or a missing auth handler, answers storage's
+// opaque internal failure, and the process logs its cause beside the report
+// token. Typed errs failures, such as unauthenticated or not found, keep their
+// errs rendering.
+func writeStorageHTTPFailure(w http.ResponseWriter, err error) {
+	if errs.HTTPStatus(err) != http.StatusInternalServerError {
+		errs.HTTPError(w, err)
+		return
+	}
+	storage.HTTPError(w, storageHTTPInternalError{cause: err})
+}
+
+// storageHTTPInternalError hides a failure's chain from storage's failure
+// classification. An auth handler error that wraps a canceled context describes
+// the handler, not the store, so it answers as internal instead of as a store
+// failure that quotes its text.
+type storageHTTPInternalError struct{ cause error }
+
+func (e storageHTTPInternalError) Error() string { return e.cause.Error() }
