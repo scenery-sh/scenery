@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -396,6 +397,39 @@ func TestAssistantEventStreamsAttestTheirConversationsRun(t *testing.T) {
 	}
 	if current := fixture.events(); generation(current) != "4" {
 		t.Fatalf("stream of a conversation whose latest run cannot execute attests %q", generation(current))
+	}
+}
+
+// A forced retirement ends the streams attesting the retired generation before
+// it answers, and a stream attaching to that generation afterwards ends at once,
+// so no stream relays an event under a retired attestation.
+func TestForcedRetirementEndsAttestingStreamsBeforeAnswering(t *testing.T) {
+	fixture := newAssistantRunFixture(t)
+	fixture.publish(1)
+	fixture.host.mu.RLock()
+	retiring := fixture.host.generations[1]
+	fixture.host.mu.RUnlock()
+	fixture.publish(2)
+	attach := func() (context.Context, func()) {
+		req := httptest.NewRequest(http.MethodGet, "/events", nil)
+		req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, retiring))
+		return attachAssistantStream(req, "support", "principal", "digest")
+	}
+	before, detachBefore := attach()
+	defer detachBefore()
+	if cause := context.Cause(before); cause != nil {
+		t.Fatalf("stream of a dispatchable generation ended: %v", cause)
+	}
+	if status, reason := fixture.host.retire(1, true); status != http.StatusNoContent {
+		t.Fatalf("forced retirement = %d: %s", status, reason)
+	}
+	if cause := context.Cause(before); !errors.Is(cause, errAssistantStreamSuperseded) {
+		t.Fatalf("stream attesting a retired generation after retirement answered: %v", cause)
+	}
+	after, detachAfter := attach()
+	defer detachAfter()
+	if cause := context.Cause(after); !errors.Is(cause, errAssistantStreamSuperseded) {
+		t.Fatalf("stream attaching to a retired generation: %v", cause)
 	}
 }
 
