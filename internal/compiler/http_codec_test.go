@@ -46,6 +46,22 @@ func TestDecodeHTTPJSONRejectsBoundaryAmbiguity(t *testing.T) {
 	}
 }
 
+func TestDecodeHTTPJSONKeepsEmptyCollectionsDistinctFromNull(t *testing.T) {
+	for _, input := range []string{`[]`, `{}`, `{"a":[],"b":{},"c":[[],{},{"d":[]}],"e":null}`} {
+		value, err := DecodeHTTPJSON([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := MarshalCanonical(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(canonical) != input {
+			t.Errorf("canonical form of %s = %s", input, canonical)
+		}
+	}
+}
+
 func TestNegotiateHTTPMediaUsesQualitySpecificityAndDeclarationOrder(t *testing.T) {
 	produced := []string{"application/problem+json", "application/json", "text/plain"}
 	media, err := NegotiateHTTPMedia("application/*;q=0.8, application/json;q=0.8, text/*;q=0.9", produced)

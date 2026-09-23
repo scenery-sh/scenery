@@ -381,11 +381,7 @@ func (s *server) registerRaw(ep *Endpoint) {
 
 		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
 		if err != nil {
-			logRequestStart(state)
-			finishRequestTrace(state, errs.HTTPStatus(err), err)
-			if !writeContractAdmissionError(w, ep, err) {
-				errs.HTTPError(w, err)
-			}
+			writeAuthenticationFailure(w, state, ep, err)
 			return
 		}
 		state.auth = authInfo
@@ -409,8 +405,17 @@ func (s *server) registerRaw(ep *Endpoint) {
 		callErr = executeStreamingRawEndpoint(ep, stream, req.WithContext(streamCtx))
 		status = stream.StatusCode()
 		if callErr != nil && !stream.WroteHeader() {
+			// A raw endpoint answers an internal failure, such as a recovered
+			// panic, like a typed one: the standard system.internal problem,
+			// with the panic value kept for logs and traces.
+			callErr = classifyContractFailure(callErr)
 			status = errs.HTTPStatus(callErr)
-			errs.HTTPErrorWithCode(w, callErr, status)
+			if transportStatus, ok := contractTransportHTTPStatus(callErr); ok {
+				status = transportStatus
+			}
+			if !writeContractTransportError(w, callErr) {
+				errs.HTTPErrorWithCode(w, callErr, status)
+			}
 		}
 	}
 
@@ -454,22 +459,14 @@ func (s *server) registerTyped(ep *Endpoint) {
 
 		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
 		if err != nil {
-			logRequestStart(state)
-			finishRequestTrace(state, errs.HTTPStatus(err), err)
-			if !writeContractAdmissionError(w, ep, err) {
-				errs.HTTPError(w, err)
-			}
+			writeAuthenticationFailure(w, state, ep, err)
 			return
 		}
 		state.auth = authInfo
 		ctx = withRuntimeInvocation(ctx, state)
 		decoded, decodeErr := ep.DecodeContractRequest(req.WithContext(ctx), contractPathValues)
 		if decodeErr != nil {
-			if _, classified := contractTransportHTTPStatus(decodeErr); !classified && errs.HTTPStatus(decodeErr) == http.StatusInternalServerError {
-				// An unclassified decoder failure is internal: answer the
-				// standard problem and keep its cause for logs and traces.
-				decodeErr = ContractSystemError(decodeErr)
-			}
+			decodeErr = classifyContractFailure(decodeErr)
 			logRequestStart(state)
 			decodeStatus := errs.HTTPStatus(decodeErr)
 			if transportStatus, ok := contractTransportHTTPStatus(decodeErr); ok {
@@ -579,6 +576,21 @@ func writeContractByteStream(writer io.Writer, response ContractHTTPResponse) er
 		return copyErr
 	}
 	return compressed.Close()
+}
+
+// classifyContractFailure makes a typed endpoint's unclassified failure — one
+// that would otherwise answer HTTP 500 with its own text — the standard
+// system.internal problem, keeping the failure as the cause for logs and
+// traces. Transport, admission and typed non-internal errs failures keep
+// their own rendering.
+func classifyContractFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, classified := contractTransportHTTPStatus(err); classified || errs.HTTPStatus(err) != http.StatusInternalServerError {
+		return err
+	}
+	return ContractSystemError(err)
 }
 
 func writeContractAdmissionError(writer http.ResponseWriter, endpoint *Endpoint, err error) bool {
@@ -716,4 +728,24 @@ func authenticateRequest(req *http.Request, ep *Endpoint) (AuthInfo, error) {
 		return AuthInfo{}, errs.B().Code(errs.Unauthenticated).Msg("auth handler returned empty user id").Err()
 	}
 	return info, nil
+}
+
+// writeAuthenticationFailure answers a typed or raw endpoint request whose
+// authentication failed and finishes its trace. A failure that would otherwise
+// answer HTTP 500 with its own text, such as an auth handler's database error
+// or a missing auth handler, answers the standard system.internal problem, and
+// logs and traces keep its cause. Admission and other typed errs failures keep
+// their own rendering.
+func writeAuthenticationFailure(writer http.ResponseWriter, state *requestState, endpoint *Endpoint, err error) {
+	err = classifyContractFailure(err)
+	logRequestStart(state)
+	status := errs.HTTPStatus(err)
+	if transportStatus, ok := contractTransportHTTPStatus(err); ok {
+		status = transportStatus
+	}
+	finishRequestTrace(state, status, err)
+	if writeContractTransportError(writer, err) || writeContractAdmissionError(writer, endpoint, err) {
+		return
+	}
+	errs.HTTPError(writer, err)
 }

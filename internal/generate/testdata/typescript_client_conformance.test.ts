@@ -328,6 +328,55 @@ describe("Scenery TypeScript client exact codecs", () => {
 		);
 	});
 
+	test("decodes response headers on runtimes whose Headers.getAll accepts only Set-Cookie", async () => {
+		const string = { kind: "primitive", name: "string" } as const;
+		const binding: BindingCall = {
+			address: "test/binding/cached",
+			method: "GET",
+			path: "/cached",
+			responseLimitBytes: 1024,
+			responses: [
+				{
+					status: 200,
+					role: "completion",
+					kind: "result",
+					name: "cached",
+					body: { codec: "json", producedMediaTypes: ["application/json"], path: ["snapshot"], value: string },
+					headers: [{ name: "cache-control", encoding: "repeated", path: ["cacheControl"], value: string }],
+				},
+			],
+		};
+		const cached = () => new Response('"current"', { status: 200, headers: { "content-type": "application/json", "cache-control": "private, no-store", "x-value": "one, two" } });
+		const verify = async () => {
+			await expect(matchResponse(cached(), binding, registry)).resolves.toEqual({
+				kind: "result",
+				name: "cached",
+				value: { snapshot: "current", cacheControl: "private, no-store" },
+			});
+			expect(() => decodeResponseHeader(cached(), "x-value", "repeated", { kind: "list", value: string }, registry, "test/binding/cached")).toThrow(
+				expect.objectContaining({ code: "unsupported_runtime" }),
+			);
+		};
+		// The native Bun Headers already behave this way; the emulation below
+		// pins the Bun and Cloudflare Workers contract independent of the Bun version.
+		await verify();
+		const native = Object.getOwnPropertyDescriptor(Headers.prototype, "getAll");
+		Object.defineProperty(Headers.prototype, "getAll", {
+			configurable: true,
+			writable: true,
+			value(this: Headers, name: string): string[] {
+				if (name.toLowerCase() !== "set-cookie") throw new TypeError('Only "set-cookie" is supported.');
+				return this.getSetCookie();
+			},
+		});
+		try {
+			await verify();
+		} finally {
+			if (native === undefined) delete (Headers.prototype as { getAll?: unknown }).getAll;
+			else Object.defineProperty(Headers.prototype, "getAll", native);
+		}
+	});
+
 	test("matches failures before same-status completions and requires exactly one completion", async () => {
 		const problem = { kind: "primitive", name: "problem" } as const;
 		const binding: BindingCall = {
