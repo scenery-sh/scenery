@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Scenery</title>
+  <defs>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="0.55" stop-color="#FB923C"/>
+      <stop offset="1" stop-color="#EC4899"/>
+    </linearGradient>
+    <linearGradient id="markBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A2F78"/>
+      <stop offset="1" stop-color="#0E1333"/>
+    </linearGradient>
+    <clipPath id="markClip"><rect width="64" height="64" rx="16"/></clipPath>
+    <symbol id="mark" viewBox="0 0 64 64">
+      <g clip-path="url(#markClip)">
+        <rect width="64" height="64" fill="url(#markBg)"/>
+        <circle cx="41" cy="23" r="10" fill="url(#sun)"/>
+        <path d="M-4 52 L17 30 L28 41 L36 34 L68 58 V68 H-4 Z" fill="#8B5CF6"/>
+        <path d="M-4 60 L15 47 L28 56 L45 43 L68 60 V68 H-4 Z" fill="#22D3EE"/>
+      </g>
+      <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="15.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1.5"/>
+    </symbol>
+  </defs>
+  <use href="#mark" width="64" height="64"/>
+</svg>
