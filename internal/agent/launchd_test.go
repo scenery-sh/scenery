@@ -265,3 +265,60 @@ func TestStartSupervisedAgentProcessCooperatesWithLaunchd(t *testing.T) {
 		t.Fatal("unsupported platform must not use the supervisor")
 	}
 }
+
+func TestReloadAgentLaunchdRegistersJobAgain(t *testing.T) {
+	dir := t.TempDir()
+	recorder := &launchctlRecorder{}
+	withLaunchdHooks(t, dir, recorder)
+	paths := PathsForHome(filepath.Join(t.TempDir(), ".scenery"))
+	plistPath := filepath.Join(dir, "dev.scenery.agent.plist")
+	if err := os.WriteFile(plistPath, []byte(AgentLaunchdPlist("/usr/local/bin/scenery", paths, StartOptions{})), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReloadAgentLaunchd(); err != nil {
+		t.Fatalf("ReloadAgentLaunchd: %v", err)
+	}
+	// Only a fresh registration re-reads the executable's launch
+	// constraints; kickstart -k would reuse the old registration.
+	commands := recorder.commands()
+	want := []string{"bootout gui/501/dev.scenery.agent", "bootstrap gui/501 " + plistPath, "kickstart gui/501/dev.scenery.agent"}
+	if strings.Join(commands, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("launchctl calls = %v, want %v", commands, want)
+	}
+}
+
+func TestReloadAgentLaunchdRequiresInstalledPlist(t *testing.T) {
+	recorder := &launchctlRecorder{}
+	withLaunchdHooks(t, t.TempDir(), recorder)
+	if err := ReloadAgentLaunchd(); !os.IsNotExist(err) {
+		t.Fatalf("ReloadAgentLaunchd without plist = %v", err)
+	}
+	if len(recorder.calls) != 0 {
+		t.Fatalf("launchctl called without an installed plist: %v", recorder.commands())
+	}
+}
+
+func TestAgentLaunchdSpawnFailureReadsJobState(t *testing.T) {
+	recorder := &launchctlRecorder{results: map[string]launchctlResult{}}
+	withLaunchdHooks(t, t.TempDir(), recorder)
+
+	// Observed after reinstalling the agent executable at the same path.
+	recorder.results["print"] = launchctlResult{out: []byte("gui/501/dev.scenery.agent = {\n\tstate = spawn scheduled\n\tlast exit code = 78: EX_CONFIG\n\tjob state = spawn failed\n\tproperties = keepalive | runatload | needs LWCR update | managed LWCR\n}\n")}
+	failure := AgentLaunchdSpawnFailure()
+	for _, want := range []string{"job state spawn failed", "last exit code 78: EX_CONFIG", "launch constraints still name a previous executable"} {
+		if !strings.Contains(failure, want) {
+			t.Fatalf("spawn failure %q missing %q", failure, want)
+		}
+	}
+
+	recorder.results["print"] = launchctlResult{out: []byte("gui/501/dev.scenery.agent = {\n\tstate = running\n\tpid = 4242\n\tjob state = running\n\tproperties = keepalive | runatload | managed LWCR\n}\n")}
+	if failure := AgentLaunchdSpawnFailure(); failure != "" {
+		t.Fatalf("running job reported spawn failure %q", failure)
+	}
+
+	recorder.results["print"] = launchctlResult{out: []byte("Could not find service"), err: fmt.Errorf("exit status 113")}
+	if failure := AgentLaunchdSpawnFailure(); failure != "" {
+		t.Fatalf("unloaded job reported spawn failure %q", failure)
+	}
+}
