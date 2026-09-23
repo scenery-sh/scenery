@@ -525,6 +525,16 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 // sent, the background attempts admitted to it are interrupted, and work
 // already forwarded ends when the supervisor stops its instances.
 func (h *processHost) retire(number uint64, force bool) (int, string) {
+	if status, reason := h.removeGeneration(number, force); status != http.StatusNoContent {
+		return status, reason
+	}
+	// The event streams attesting the generation end before retirement is
+	// answered, so none relays an event after it.
+	h.conversations.retired(number)
+	return http.StatusNoContent, ""
+}
+
+func (h *processHost) removeGeneration(number uint64, force bool) (int, string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	generation := h.generations[number]

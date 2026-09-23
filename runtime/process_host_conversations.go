@@ -365,6 +365,20 @@ func (conversations *processHostConversations) accept(run *processHostRun) {
 	}
 }
 
+// retired ends the streams that attest a retired generation; the caller has
+// already closed the generation's retired channel.
+func (conversations *processHostConversations) retired(number uint64) {
+	conversations.Lock()
+	defer conversations.Unlock()
+	for _, streams := range conversations.streams {
+		for stream := range streams {
+			if stream.number == number {
+				stream.end(errAssistantStreamSuperseded)
+			}
+		}
+	}
+}
+
 // observed records that the host observed an event of the run: an unknown
 // start is then known to have started, and a terminal event ends the run.
 func (reservation *assistantRunReservation) observed(terminal bool) {
@@ -484,14 +498,14 @@ func attachAssistantStream(req *http.Request, assistantAddress, principal, conve
 		conversations.streams[conversation] = map[*processHostConversationStream]struct{}{}
 	}
 	conversations.streams[conversation][stream] = struct{}{}
+	// retire closes the channel before it ends the registered streams, so a
+	// stream registered after that pass observes the retirement here.
+	select {
+	case <-attested.retired:
+		end(errAssistantStreamSuperseded)
+	default:
+	}
 	conversations.Unlock()
-	go func() {
-		select {
-		case <-attested.retired:
-			end(errAssistantStreamSuperseded)
-		case <-ctx.Done():
-		}
-	}()
 	return ctx, func() {
 		end(context.Canceled)
 		conversations.Lock()
