@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"scenery.sh/internal/appconfig"
@@ -83,7 +84,7 @@ func (s *devSupervisor) applyConfigurationChange(ctx context.Context) {
 		return
 	}
 	started := time.Now()
-	resolution, err := resolveDevConfig(ctx, active.result.Contract.Manifest, s.cfg, s.env, store, document, processServices(active.set.Services), func() (appconfig.SecretBackend, error) {
+	resolution, err := resolveDevConfig(ctx, active.result.Contract.Manifest, s.cfg, s.env, store, document, generationConsumers(active.set), func() (appconfig.SecretBackend, error) {
 		if configSecretBackendOverride != nil {
 			return configSecretBackendOverride(store)
 		}
@@ -95,6 +96,21 @@ func (s *devSupervisor) applyConfigurationChange(ctx context.Context) {
 		return
 	}
 	changed := changedConfigServices(applied, resolution)
+	if slices.Contains(changed, hostConsumer) {
+		// The host serves framework routes such as standard authentication, so
+		// a change it consumes starts a new generation; services whose own
+		// configuration is unchanged keep running.
+		_, _, err := s.activateDevProcesses(ctx, &devRuntimePlan{Result: active.result, Processes: active.set}, nil)
+		build.RecordStep(ctx, build.Step{Name: "supervisor.configuration_apply", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "environment_revision", OK: err == nil, Actions: len(changed)})
+		if err != nil {
+			s.recordRejectedConfig(document.Revision, err)
+			s.announceConfig("config.rejected", map[string]any{"revision": document.Revision, "error": humanCLIErrorMessage(err)})
+			return
+		}
+		s.announceConfig("config.applied", map[string]any{"revision": resolution.revision, "restarted_services": changed})
+		_ = s.persistStatus(ctx)
+		return
+	}
 	model := s.processes
 	model.mu.Lock()
 	previous := model.config

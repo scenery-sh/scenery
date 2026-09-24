@@ -381,7 +381,7 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 	// environment keeps every service instance whose identity is unchanged,
 	// even when a changed contract or host replaces the host.
 	keepServices := host != nil && model.host != nil && model.host.app == host && model.environment == devProcessEnvironmentIdentity(base)
-	if keepServices && model.contract == contract && model.host.process.Identity == set.Host.Identity {
+	if keepServices && model.contract == contract && model.host.process.Identity == set.Host.Identity && model.host.config.identityOrEmpty() == configuration.identityFor(hostConsumer) {
 		err := s.replaceDevServiceProcesses(ctx, model, set, base, plan.Prepared)
 		activated = err == nil
 		return host, true, err
@@ -501,7 +501,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 	}
 	base := s.appChildEnvironment(result, environment)
 	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, identity: model.identity, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained, unconfirmed: model.unconfirmed}
-	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
+	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr, config: model.config.snapshotFor(hostConsumer)}
 	kept, starting := map[string]*devProcessInstance{}, set.Services
 	if keepServices && previous.link != nil && previous.link.path == link.path {
 		kept, starting = devProcessTakeover(previous.services, set.Services, model.config)
