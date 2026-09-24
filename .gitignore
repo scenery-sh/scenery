@@ -17,6 +17,7 @@ node_modules/
 /scenery
 /scenery.test
 /scenery_internal_main/
+/verify
 coverage.out
 *.log
 *.db
