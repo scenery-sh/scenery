@@ -687,6 +687,7 @@ companions. The runtime control backend (the internal `dashboard` listener) is
 orchestrated from `cmd/scenery`: `dashboard_rpc.go` serves the documented
 development runtime RPC, `dashboard_rpc_limits.go` bounds its per-connection
 and per-app admission, call deadlines and result budgets,
+`dashboard_rpc_connections.go` closes its connections when the backend closes,
 `dashboard_postgres.go` its PostgreSQL inspection,
 `dashboard_storage.go` resolves registered app scopes for storage RPC, and
 `dashboard_storage_http.go` streams file transfers on the same listener under a
