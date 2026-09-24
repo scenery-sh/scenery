@@ -63,24 +63,27 @@ type downResponse struct {
 }
 
 type pruneOptions struct {
-	AppRoot   string
-	OlderThan time.Duration
-	DB        bool
-	State     bool
-	All       bool
-	JSON      bool
+	AppRoot    string
+	OlderThan  time.Duration
+	DB         bool
+	State      bool
+	All        bool
+	BuildCache bool
+	JSON       bool
 }
 
 type pruneResponse struct {
 	cliPayloadIdentity
-	Cutoff           string                   `json:"cutoff"`
-	Pruned           []string                 `json:"pruned"`
-	Skipped          []string                 `json:"skipped"`
-	DBCleanup        bool                     `json:"db_cleanup"`
-	StateCleanup     bool                     `json:"state_cleanup"`
-	DevEventsPruned  int64                    `json:"dev_events_pruned"`
-	DevSourcesPruned int64                    `json:"dev_sources_pruned"`
-	Resources        []worktreePrunedResource `json:"resources"`
+	Cutoff            string                   `json:"cutoff"`
+	Pruned            []string                 `json:"pruned"`
+	Skipped           []string                 `json:"skipped"`
+	DBCleanup         bool                     `json:"db_cleanup"`
+	StateCleanup      bool                     `json:"state_cleanup"`
+	BuildCacheCleanup bool                     `json:"build_cache_cleanup"`
+	DevEventsPruned   int64                    `json:"dev_events_pruned"`
+	DevSourcesPruned  int64                    `json:"dev_sources_pruned"`
+	Resources         []worktreePrunedResource `json:"resources"`
+	BuildCache        *pruneBuildCacheReport   `json:"build_cache"`
 }
 
 func agentCommand(args []string) error {
@@ -727,6 +730,7 @@ func parsePruneArgs(args []string) (pruneOptions, error) {
 	flags.BoolVar(&opts.DB, "db", false, "")
 	flags.BoolVar(&opts.State, "state", false, "")
 	flags.BoolVar(&opts.All, "all", false, "")
+	flags.BoolVar(&opts.BuildCache, "build-cache", false, "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

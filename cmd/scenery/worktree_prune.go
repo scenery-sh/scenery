@@ -41,7 +41,7 @@ func runWorktreePrune(ctx context.Context, stdout io.Writer, args []string) erro
 		return err
 	}
 	cutoff := time.Now().UTC().Add(-opts.OlderThan)
-	response := pruneResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.prune"), Cutoff: cutoff.Format(time.RFC3339Nano), Pruned: []string{}, Skipped: []string{}, DBCleanup: opts.DB, StateCleanup: opts.State, Resources: []worktreePrunedResource{}}
+	response := pruneResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.prune"), Cutoff: cutoff.Format(time.RFC3339Nano), Pruned: []string{}, Skipped: []string{}, DBCleanup: opts.DB, StateCleanup: opts.State, BuildCacheCleanup: opts.BuildCache, Resources: []worktreePrunedResource{}}
 	for _, entry := range entries {
 		if entry.Status != "stopped" && entry.Status != "orphaned" {
 			if opts.DB && entry.Status != "absent" {
@@ -66,14 +66,29 @@ func runWorktreePrune(ctx context.Context, stdout io.Writer, args []string) erro
 			response.Skipped = append(response.Skipped, entry.AppRoot)
 		}
 	}
+	if opts.BuildCache {
+		scope := ""
+		if opts.AppRoot != "" {
+			scope, err = resolveStatusAppRoot(opts.AppRoot)
+			if err != nil {
+				return err
+			}
+		}
+		response.BuildCache, err = pruneBuildCache(ctx, entries, scope, cutoff)
+		if err != nil {
+			return err
+		}
+	}
 	if opts.JSON {
 		return writeCLIJSON(stdout, response)
 	}
 	for _, resource := range response.Resources {
 		_, _ = fmt.Fprintf(stdout, "removed worktree cluster for %s: container %s, volume %s\n", resource.AppRoot, resource.Container, resource.Volume)
 	}
-	_, err = fmt.Fprintf(stdout, "pruned %d disposable session records; skipped %d worktrees\n", len(response.Pruned), len(response.Skipped))
-	return err
+	if _, err := fmt.Fprintf(stdout, "pruned %d disposable session records; skipped %d worktrees\n", len(response.Pruned), len(response.Skipped)); err != nil {
+		return err
+	}
+	return writePruneBuildCacheSummary(stdout, response.BuildCache)
 }
 
 func pruneStoppedWorktree(ctx context.Context, paths localagent.WorktreePaths, cutoff time.Time, opts pruneOptions) ([]string, *worktreePrunedResource, error) {

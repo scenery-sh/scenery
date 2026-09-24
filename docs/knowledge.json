@@ -1200,10 +1200,10 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Current machine-output schema for stale-session pruning with explicit state and managed-database scopes.",
-      "tags": ["schemas", "agent", "prune", "database", "machine-protocol"]
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Current machine-output schema for stale-session pruning with explicit state, managed-database and disposable build-cache scopes, including the development-cache workspaces and app-local framework state each prune considered.",
+      "tags": ["schemas", "agent", "prune", "database", "build-cache", "machine-protocol"]
     },
     {
       "path": "docs/plans/0135-governance-workspace-generation.md",

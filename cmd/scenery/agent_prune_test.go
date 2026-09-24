@@ -43,6 +43,17 @@ func TestParsePruneArgsKeepsDestructiveCleanupExplicit(t *testing.T) {
 	if !state.State || state.DB || state.All {
 		t.Fatalf("state prune options = %+v", state)
 	}
+	if defaults.BuildCache || all.BuildCache || db.BuildCache || state.BuildCache {
+		t.Fatal("build cache cleanup must stay explicit")
+	}
+
+	buildCache, err := parsePruneArgs([]string{"--older-than", "14d", "--build-cache"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !buildCache.BuildCache || buildCache.DB || buildCache.State || buildCache.All {
+		t.Fatalf("build cache prune options = %+v", buildCache)
+	}
 }
 
 // A mistyped or missing age is the caller's mistake, so it must name what to

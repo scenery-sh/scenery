@@ -50,7 +50,7 @@ func verifyPreparedWorkspace(result *Result) error {
 		if entry.Type()&fs.ModeSymlink != 0 || !entry.Type().IsRegular() {
 			return fmt.Errorf("prepared workspace has a non-regular input: %s", relative)
 		}
-		if allowed[relative] || relative == buildStateFile || relative == ".scenery-workspace.lock" || relative == "scenery-app" || isFingerprintBinaryName(relative) {
+		if allowed[relative] || relative == buildStateFile || relative == ".scenery-workspace.lock" || relative == workspaceMarkerFile || relative == "scenery-app" || isFingerprintBinaryName(relative) {
 			return nil
 		}
 		return fmt.Errorf("prepared workspace membership changed: %s", relative)

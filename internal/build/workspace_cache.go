@@ -428,6 +428,9 @@ func prepareCachedWorkspace(ctx context.Context, appRoot string, cfg app.Config,
 		}
 		unlock()
 	}()
+	if err := WriteWorkspaceMarker(result.Dir, appRoot, result.AppName); err != nil {
+		return false, err
+	}
 	var mutation workspaceMutation
 	materializeStarted := time.Now()
 	materializeErr := func() error {

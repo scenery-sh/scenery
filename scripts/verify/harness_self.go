@@ -97,8 +97,13 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	default:
 		return fmt.Errorf("unknown harness self mode %q", opts.Mode)
 	}
-	for _, probe := range selectedHarnessProbes(opts) {
-		runHarnessProbe(ctx, repoRoot, &resp, artifactCtx, probe)
+	if probes := selectedHarnessProbes(opts); len(probes) > 0 {
+		ids := make([]string, 0, len(probes))
+		for _, probe := range probes {
+			runHarnessProbe(ctx, repoRoot, &resp, artifactCtx, probe)
+			ids = append(ids, probe.id)
+		}
+		resp.Steps = append(resp.Steps, runHarnessBuildCacheSweepStep(ctx, repoRoot, ids))
 	}
 	if opts.Mode == harnessSelfModeRelease {
 		resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx))

@@ -11,16 +11,18 @@
     "skipped",
     "db_cleanup",
     "state_cleanup",
+    "build_cache_cleanup",
     "dev_events_pruned",
     "dev_sources_pruned",
-    "resources"
+    "resources",
+    "build_cache"
   ],
   "properties": {
     "kind": {
       "const": "scenery.prune"
     },
     "schema_revision": {
-      "const": "sha256:6fe26efcf2df13a3aae24d45bd064ef8476d7ded23222a2bca89ad083b6380ef"
+      "const": "sha256:70bf94355fc476cbea6610f495a99ebd43a17c8be4a0404d7caa52163942bcb8"
     },
     "cutoff": {
       "type": "string",
@@ -42,6 +44,9 @@
       "type": "boolean"
     },
     "state_cleanup": {
+      "type": "boolean"
+    },
+    "build_cache_cleanup": {
       "type": "boolean"
     },
     "dev_events_pruned": {
@@ -82,6 +87,116 @@
         },
         "additionalProperties": false
       }
+    },
+    "build_cache": {
+      "description": "Disposable build state the prune considered; null unless --build-cache was requested.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "cache_root",
+        "workspaces",
+        "framework",
+        "bytes_reclaimed"
+      ],
+      "properties": {
+        "cache_root": {
+          "type": "string"
+        },
+        "workspaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "updated_at",
+              "bytes",
+              "removed",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "app_root": {
+                "type": "string"
+              },
+              "app_name": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "removed": {
+                "type": "boolean"
+              },
+              "reason": {
+                "enum": [
+                  "app_root_missing",
+                  "stale",
+                  "locked",
+                  "active",
+                  "recent",
+                  "kept"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "framework": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "kind",
+              "bytes",
+              "removed",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "source",
+                  "producer",
+                  "staging"
+                ]
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "removed": {
+                "type": "boolean"
+              },
+              "reason": {
+                "enum": [
+                  "unselected",
+                  "selected",
+                  "runtime",
+                  "interrupted",
+                  "locked"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "bytes_reclaimed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
