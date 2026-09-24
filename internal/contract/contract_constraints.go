@@ -200,6 +200,8 @@ func validateContractStringFormat(value, format string) error {
 		_, err = ParseURL(value)
 	case "relative_path":
 		_, err = ParseRelativePath(value)
+	case "host_path":
+		_, err = ParseHostPath(value)
 	default:
 		return fmt.Errorf("unsupported contract string format %q", format)
 	}

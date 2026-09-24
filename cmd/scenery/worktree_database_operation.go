@@ -12,12 +12,9 @@ import (
 )
 
 func requireManagedDatabaseSelection(root string) error {
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-	if err != nil {
-		return err
-	}
+	env := envpolicy.Environ()
 	if lookupEnvValue(env, appDatabaseURLEnv) != "" {
-		return worktreePostgresPrecondition("DATABASE_URL is external; refusing managed database cleanup")
+		return worktreePostgresPrecondition("the configured sql.database_url is external; refusing managed database cleanup")
 	}
 	return nil
 }
@@ -69,12 +66,9 @@ func beginInactiveDatabaseOperation(ctx context.Context, root string, cfg appcfg
 	if err := checkStorageStartup(ctx, root, cfg); err != nil {
 		return postgresdb.Database{}, nil, err
 	}
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-	if err != nil {
-		return postgresdb.Database{}, nil, err
-	}
+	env := envpolicy.Environ()
 	if lookupEnvValue(env, appDatabaseURLEnv) != "" {
-		return postgresdb.Database{}, nil, worktreePostgresPrecondition("DATABASE_URL is external; refusing managed database mutation")
+		return postgresdb.Database{}, nil, worktreePostgresPrecondition("the configured sql.database_url is external; refusing managed database mutation")
 	}
 	paths, err := commandWorktreePaths(root)
 	if err != nil {

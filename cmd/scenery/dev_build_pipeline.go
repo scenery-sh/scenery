@@ -185,9 +185,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	// the complete authored tree once, immediately before predecessor retirement,
 	// so a concurrently superseded generation may finish private work but can
 	// never become the running application.
-	if err := validateLocalSecretsFiles(s.root, s.cfg, s.env); err != nil {
-		return nil, devBuildError(metadata, apiEncoding, err)
-	}
 	var postgresStart *postgresStartAttempt
 	if initial {
 		postgresStart, err = s.beginRetainedPostgresStart(ctx, snapshot.contract)

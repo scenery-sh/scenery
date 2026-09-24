@@ -55,10 +55,7 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 	if err != nil {
 		return err
 	}
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return err
-	}
+	env := envpolicy.Environ()
 	env, closeOperation, err := beginDatabaseLifecycleEnv(ctx, appRoot, cfg, contract.SQLRequirements, env)
 	if err != nil {
 		return err

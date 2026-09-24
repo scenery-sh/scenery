@@ -109,10 +109,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		"SCENERY_DEV_CACHE_DIR":      filepath.Join(prepared.Paths.AgentDir, "dashboard"),
 	})
 	prepared.Environment = baseEnvironment
-	baseEnv, err := appEnvWithDotEnv(baseEnvironment, root, c.env.DotEnvFiles()...)
-	if err != nil {
-		return prepared, err
-	}
+	baseEnv := baseEnvironment
 	branch := discoverDevGitBranch(root)
 	sessionID := localagent.SessionID(root, branch)
 	_, portText, err := net.SplitHostPort(owner.browser.Addr().String())

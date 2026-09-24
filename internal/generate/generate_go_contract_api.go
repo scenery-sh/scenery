@@ -291,6 +291,8 @@ func goType(value any) string {
 			return "scenery.URL"
 		case "relative_path":
 			return "scenery.RelativePath"
+		case "host_path":
+			return "scenery.HostPath"
 		case "json":
 			return "scenery.JSON"
 		}

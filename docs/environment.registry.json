@@ -25,72 +25,6 @@
       ]
     },
     {
-      "name": "AUTH_COOKIE_DOMAIN",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Canonical standard-auth cookie domain. Scenery injects an empty value for host-only cookies in default local agent development.",
-      "preferred_surface": "app-root `.env` or process environment for operator-supplied auth configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "AUTH_EMAIL_FROM",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Canonical sender address for standard-auth email flows.",
-      "preferred_surface": "app-root `.env` or process environment for operator-supplied auth configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "AUTH_TOKEN_CIPHER_KEY",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "app.services.auth",
-      "stability": "secret",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Base64 32-byte AES-GCM key for encrypted Google connection refresh and access token storage.",
-      "preferred_surface": "app-root `.env` or process environment for app-supplied auth secrets",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "CI",
       "match": "exact",
       "scope": "internal",
@@ -132,7 +66,7 @@
       "name": "DATABASE_URL",
       "match": "exact",
       "scope": "runtime",
-      "direction": "input+injected",
+      "direction": "injected",
       "category": "app.services.database",
       "stability": "beta",
       "secret": true,
@@ -142,52 +76,8 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "App-level Postgres database URL. User-provided values make the app database external; otherwise Scenery injects the managed app database URL.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "GOOGLE_OAUTH_CLIENT_ID",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Canonical Google OAuth client ID for standard auth.",
-      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth credentials",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "GOOGLE_OAUTH_CLIENT_SECRET",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "secret",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Canonical Google OAuth client secret for standard auth.",
-      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth secrets",
+      "rationale": "App-level Postgres database URL that Scenery supplies to app processes: the managed app database or the environment's configured sql.database_url. The CLI ignores an inherited value; standalone generated runtimes read it as their explicit SQL endpoint.",
+      "preferred_surface": "scenery config set sql.database_url --env <env>",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -209,28 +99,6 @@
       "owner": "scenery runtime",
       "rationale": "Host home directory used by browser discovery fallback.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "JWT_SECRET",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "app.services.auth",
-      "stability": "secret",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Canonical standard-auth JWT signing secret.",
-      "preferred_surface": "app-root `.env` or process environment for app-supplied auth secrets",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -2375,6 +2243,160 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_CONFIG_SNAPSHOT_FD",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.identity",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Inherited descriptor number of the process's environment configuration snapshot; read once and unset by the runtime.",
+      "preferred_surface": "scenery config set --env for configuration values; the supervisor allocates this descriptor",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "AUTH_COOKIE_DOMAIN",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "removed",
+      "category": "app.services.auth",
+      "stability": "removed",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Former standard-auth input; standard auth now reads the auth.cookie_domain configuration key and ignores this variable.",
+      "preferred_surface": "scenery config set auth.cookie_domain --env <environment>",
+      "replacement": "auth.cookie_domain",
+      "sunset": "2026-09-24",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "AUTH_EMAIL_FROM",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "removed",
+      "category": "app.services.auth",
+      "stability": "removed",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Former standard-auth input; standard auth now reads the auth.email_from configuration key and ignores this variable.",
+      "preferred_surface": "scenery config set auth.email_from --env <environment>",
+      "replacement": "auth.email_from",
+      "sunset": "2026-09-24",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "AUTH_TOKEN_CIPHER_KEY",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "removed",
+      "category": "app.services.auth",
+      "stability": "removed",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Former standard-auth input; standard auth now reads the auth.token_cipher_key configuration key and ignores this variable.",
+      "preferred_surface": "scenery config set auth.token_cipher_key --env <environment>",
+      "replacement": "auth.token_cipher_key",
+      "sunset": "2026-09-24",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "GOOGLE_OAUTH_CLIENT_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "removed",
+      "category": "app.services.auth",
+      "stability": "removed",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Former standard-auth input; standard auth now reads the auth.google_client_id configuration key and ignores this variable.",
+      "preferred_surface": "scenery config set auth.google_client_id --env <environment>",
+      "replacement": "auth.google_client_id",
+      "sunset": "2026-09-24",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "GOOGLE_OAUTH_CLIENT_SECRET",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "removed",
+      "category": "app.services.auth",
+      "stability": "removed",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Former standard-auth input; standard auth now reads the auth.google_client_secret configuration key and ignores this variable.",
+      "preferred_surface": "scenery config set auth.google_client_secret --env <environment>",
+      "replacement": "auth.google_client_secret",
+      "sunset": "2026-09-24",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "JWT_SECRET",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "removed",
+      "category": "app.services.auth",
+      "stability": "removed",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Former standard-auth input; standard auth now reads the auth.jwt_secret configuration key and ignores this variable.",
+      "preferred_surface": "scenery config set auth.jwt_secret --env <environment>",
+      "replacement": "auth.jwt_secret",
+      "sunset": "2026-09-24",
       "docs": [
         "docs/environment.md"
       ]

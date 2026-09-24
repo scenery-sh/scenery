@@ -13,12 +13,13 @@ import (
 	"syscall"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/appconfig"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devprocess"
 	durablestore "scenery.sh/internal/durable/store"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/postgresname"
 )
 
 type workerOptions struct {
@@ -287,7 +288,7 @@ func runWorker(opts workerOptions) error {
 	if err != nil {
 		return err
 	}
-	return startWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Binary, opts)
+	return startWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Contract.Manifest, result.Binary, opts)
 }
 
 func runWorkerDurable(opts workerDurableOptions) error {
@@ -303,10 +304,10 @@ func runWorkerDurable(opts workerDurableOptions) error {
 	if err != nil {
 		return err
 	}
-	return startDurableWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Binary, opts)
+	return startDurableWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Contract.Manifest, result.Binary, opts)
 }
 
-func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerOptions) (returnErr error) {
+func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, manifest *compiler.Manifest, binary string, opts workerOptions) (returnErr error) {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
@@ -328,10 +329,19 @@ func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = nil
-
-	if err := cmd.Start(); err != nil {
+	configuration, err := applicationConfigInput(ctx, root, cfg, opts.Env, manifest)
+	if err != nil {
 		return err
 	}
+	started, abandon, err := devprocess.AttachPrivateInput(cmd, configuration)
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		abandon()
+		return err
+	}
+	started()
 	err = cmd.Wait()
 	if ctx.Err() != nil {
 		return nil
@@ -342,7 +352,7 @@ func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequir
 	return nil
 }
 
-func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerDurableOptions) (returnErr error) {
+func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, manifest *compiler.Manifest, binary string, opts workerDurableOptions) (returnErr error) {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
@@ -371,10 +381,19 @@ func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQ
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = nil
-
-	if err := cmd.Start(); err != nil {
+	configuration, err := applicationConfigInput(ctx, root, cfg, opts.Env, manifest)
+	if err != nil {
 		return err
 	}
+	started, abandon, err := devprocess.AttachPrivateInput(cmd, configuration)
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		abandon()
+		return err
+	}
+	started()
 	err = cmd.Wait()
 	if ctx.Err() != nil {
 		return nil
@@ -540,10 +559,7 @@ func openWorkerDurableStore(appRoot, serviceName string) (string, app.Config, *d
 }
 
 func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (string, error) {
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-	if err != nil {
-		return "", err
-	}
+	env := envpolicy.Environ()
 	if value := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value), nil
 	}
@@ -553,11 +569,7 @@ func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (stri
 			return registry.URL, nil
 		}
 	}
-	serviceEnv := postgresname.ServiceDatabaseURLEnv(service)
-	if value := lookupEnvValue(env, serviceEnv); strings.TrimSpace(value) != "" {
-		return strings.TrimSpace(value), nil
-	}
-	return "", fmt.Errorf("durable store requires %s for service %s", appDatabaseURLEnv, service)
+	return "", fmt.Errorf("durable store of service %s needs an external database; configure %s for the environment", service, appconfig.SQLDatabaseURLKey)
 }
 
 func durableJobRecordFromStore(job durablestore.JobDetail) durableJobRecord {

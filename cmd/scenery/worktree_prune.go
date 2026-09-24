@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -110,12 +109,9 @@ func pruneStoppedWorktree(ctx context.Context, paths localagent.WorktreePaths, c
 	}
 	var resource *worktreePrunedResource
 	if opts.DB && record.Postgres != nil {
-		env, err := appEnvWithDotEnv(envpolicy.Environ(), paths.AppRoot)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, nil, err
-		}
+		env := envpolicy.Environ()
 		if lookupEnvValue(env, appDatabaseURLEnv) != "" {
-			return nil, nil, worktreePostgresPrecondition("DATABASE_URL is external; refusing database prune")
+			return nil, nil, worktreePostgresPrecondition("the configured sql.database_url is external; refusing database prune")
 		}
 		resolver, err := newWorktreePostgresResolver(ctx, paths.AppRoot, record.AppID)
 		if err != nil {

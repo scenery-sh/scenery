@@ -24,9 +24,9 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/netprobe"
 	"scenery.sh/internal/victoria"
@@ -108,6 +108,23 @@ type devSupervisor struct {
 	// last app build failed). Buffered so requests never block; coalescing
 	// duplicate requests into one pending wake is the desired behavior.
 	rebuildRequests chan struct{}
+
+	// lifecycle serializes generation changes: source rebuilds and
+	// configuration applications.
+	lifecycle sync.Mutex
+	// config tracks the environment configuration the running generation
+	// applied; active is that generation's build, set and child environment,
+	// which a configuration-only change reuses without building.
+	config devConfigState
+	active *devActiveGeneration
+}
+
+// devActiveGeneration is the published generation a configuration change
+// restarts consumers of. Guarded by lifecycle.
+type devActiveGeneration struct {
+	result *build.Result
+	set    *build.DevelopmentProcessSet
+	base   []string
 }
 
 const (
@@ -169,15 +186,15 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		cancel()
 		return nil, fmt.Errorf("assistant token key: %w", keyErr)
 	}
-	assistantAppEnv, envErr := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
+	providerEnv, envErr := assistantProviderEnvFromConfig(supervisorCtx, cfg, env)
 	if envErr != nil {
 		cancel()
-		return nil, fmt.Errorf("assistant provider environment: %w", envErr)
+		return nil, fmt.Errorf("assistant provider credential: %w", envErr)
 	}
 	s.assistants = newAssistantSupervisor(supervisorCtx, assistantSupervisorConfig{
 		Root:          root,
 		StateRoot:     assistantStateRoot,
-		ProviderEnv:   assistantProviderEnv(assistantAppEnv),
+		ProviderEnv:   providerEnv,
 		UseAppGateway: true,
 		OnProcess: func(name string, pid int) {
 			if s == nil {
@@ -221,6 +238,7 @@ func (s *devSupervisor) Close() error {
 		if s.cancel != nil {
 			s.cancel()
 		}
+		s.releaseConfigPin()
 		if s.postgresMonitorDone != nil {
 			<-s.postgresMonitorDone
 		}
@@ -712,7 +730,6 @@ func (s *devSupervisor) sessionAuthEnv() []string {
 	return []string{
 		"SCENERY_API_BASE_URL=" + apiURL,
 		"SCENERY_PUBLIC_APP_URL=" + publicAppURL,
-		"AUTH_COOKIE_DOMAIN=",
 	}
 }
 
@@ -777,17 +794,6 @@ func envWithoutKeys(base []string, keys ...string) []string {
 		env = append(env, item)
 	}
 	return env
-}
-
-func appEnvWithDotEnv(base []string, root string, names ...string) ([]string, error) {
-	if len(names) == 0 {
-		names = []string{".env"}
-	}
-	values, err := envfile.MergeFiles(root, names...)
-	if err != nil {
-		return nil, &codedCLIError{err: err, code: 3}
-	}
-	return envfile.AppendMissing(base, values), nil
 }
 
 func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
@@ -874,30 +880,6 @@ func (a *runningApp) stop() error {
 		return err
 	}
 	return a.waitOrKill(stopTimeout)
-}
-
-func validateLocalSecretsFiles(root string, cfg app.Config, env app.ResolvedEnv) error {
-	values, err := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
-	if err != nil {
-		return err
-	}
-	if env.Deployable() && cfg.Auth.Enabled {
-		var required []string
-		if value := lookupEnvValue(values, "JWT_SECRET"); strings.TrimSpace(value) == "" {
-			required = append(required, "JWT_SECRET")
-		}
-		if cfg.Auth.GoogleOAuth.Enabled {
-			for _, name := range []string{"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "AUTH_TOKEN_CIPHER_KEY"} {
-				if value := lookupEnvValue(values, name); strings.TrimSpace(value) == "" {
-					required = append(required, name)
-				}
-			}
-		}
-		if len(required) > 0 {
-			return &codedCLIError{err: fmt.Errorf("environment %q is missing required secrets: %s", env.Name, strings.Join(required, ", ")), code: 3}
-		}
-	}
-	return nil
 }
 
 func (s *devSupervisor) persistStatus(ctx context.Context) error {

@@ -222,7 +222,7 @@ func setupGoogleDecisionTest(t *testing.T, svc *Service) {
 	secrets.GoogleOAuthClientSecret = "client-secret"
 	secrets.APIBaseURL = "https://api.example.test"
 	secrets.PublicAppURL = "https://app.example.test"
-	t.Setenv("AUTH_TOKEN_CIPHER_KEY", base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")))
+	setConfiguredAuthSecretForTest(t, "auth.token_cipher_key", base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")))
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = normalizeStandardConfig(StandardConfig{Enabled: true, GoogleOAuth: GoogleOAuthConfig{Enabled: true, AllowedScopes: []string{gmailModifyScope}}})
 	standardAuthState.mu.Unlock()
@@ -366,7 +366,7 @@ func TestGoogleConnectionResponseNormalizesContractDateTimesToUTC(t *testing.T) 
 func TestGoogleTokenCipherRoundTrip(t *testing.T) {
 	resetStandardAuthStateForTest(t)
 	key := base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
-	t.Setenv("AUTH_TOKEN_CIPHER_KEY", key)
+	setConfiguredAuthSecretForTest(t, "auth.token_cipher_key", key)
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = normalizeStandardConfig(StandardConfig{Enabled: true, GoogleOAuth: GoogleOAuthConfig{Enabled: true}})
 	standardAuthState.mu.Unlock()
@@ -474,4 +474,18 @@ func writeTestJWKS(t *testing.T, w http.ResponseWriter, keys []testJWK) {
 var googleJWKSFixtureKeys = [2]string{
 	"MIICXAIBAAKBgQDHp9/U22x1AsX1u5oH1JUg2VxwDwq2Osdp4CGiEN1Ux4J7ObrdJ0A0AwhPDqTo4wICAUNoM5dzgHykFTYZDuSWm/Ii5DBN68AHhZqIK5s/V0TucIF+/5eQCN34WahUjAS2JXboiPCZvXknwIMKHJXfqPjbeh48LIBdmbiLMn1DOwIDAQABAoGBAKNTpTuPtI2UEzUOntbBBK22onPZGj4wn2jxPRJDEYyFGSyM8Vxw+4iQ4n8pz6Xj7oSNXAMmEUMfXNctsu+Uy1Em50AqVM/mEAMxPtxmYvp7B1wnU/NdTupi1i+YNdw5qXoXIYODbi2tN4zOjIN0r2bnhQ2VM2o7po6hEzJO+K0hAkEA8N4h9TzJNfPLxAfkVdUvW+r14MWcG0JXhHF1lk0ByiYco36AzrUS4qkGLqTBK8sPv5nL42KwkAdXJ90vo1ietQJBANQy7mrx8QhjMgczzLQaXdgB3ZkmW2h+0o1SY6MvXyLynipNY3HL5mCzFtNRgcIKV2T88BnU5N7077efBedLoC8CQHBjBS87PJs69QGzuPu/rAhUeoN1UOB7NQCsO/R0W/hpjgVPOmS4omY1/Zd38lYvulppNXQUkVOyyRzlnJu39t0CQFyJqXdx8w8ZUyPY7xhLt0kP5zd2hr5XMDL5DwKHEhIHg/omrYtexCS/dODK1q9sGxirRXm+YeDpJ/EHpGdtj3kCQGvi/JY2s/Pm5h00jdxVcFyKMAsBertyyufiijwouhWB+zU0cK+VeySrQ1GDok1EjvyGKXSD9paFAUtHHaOQFpg=",
 	"MIICXAIBAAKBgQDEncX1+qSsfdRezjC8jP3/ZcOiWDdr60je2461RZViT7yJ4L720LZO5xFj0g7CMO0XWSQfnk3ORs0BZcKx45MDs9yb622M+CZdUto+cwleESPpvGK0qK9k9wrayTILfTg/gDr2oWPyFiztkg0mxq8q3dQJJxE3cUBUmdT8NFrNmQIDAQABAoGAQ6eikbSwa2ZU6FZ88LR3RiWnPrqqP2lTxtO39GpAL/cOAkeijl1dDiN2mWmTiIC7ZJhY1MRtM3irXDq+1uVfFYCxnRN9A41qmauh57NFJLR1JnrMU6jUDhAAbq1koXwCqYr356XAU+EZmxlURjYJ0DJEib7Ee4N+GVCAakZh+j0CQQD7IsB/lW9+7+ZcuzKDgAC6YRLy/ERlrrd8/fTBAu4QM2HcvKkts2eQmeS9HUSaBUHQWJUFghrzaVTVrGvyJplbAkEAyGywQncILvrgdvXhXRAaMjKieiGJqnUDwG1tvH8XbLjhV/aPI4WRAqJkPTxD6Xtl+yPt4NmLIP7wEiZrpoqzGwJBAPDklOHM5fZNCBtLNVkOH6SoGRUbBkDDJx6uO2go91Jy9xxVm7JKtLzv4YnF2VgkUs0XK1rtQgzarJWJnsHYZKECQG3MVVdkHGCYYeXp19eC3ccIREiCHQf76N0/VbHBMlUGh7UHxuzf3ExEKIP/gvji+EB4M3ZN11FxOJXI5IqtS2cCQC2NK/4Yv3YVOe2GEkgIYxNwRoQNGhQy5D9mbp6MvpcJKPVOTB08C0HujWXGCtye22ZAuyBO/y97lhjF6zSPt70=",
+}
+
+// setConfiguredAuthSecretForTest stands in for one auth.* secret of the
+// process's configuration snapshot.
+func setConfiguredAuthSecretForTest(t *testing.T, key, value string) {
+	t.Helper()
+	previous := configuredAuthSecret
+	configuredAuthSecret = func(requested string) ([]byte, bool, error) {
+		if requested == key {
+			return []byte(value), true, nil
+		}
+		return previous(requested)
+	}
+	t.Cleanup(func() { configuredAuthSecret = previous })
 }

@@ -317,7 +317,7 @@ func deploymentValueMatchesType(value any, typeName string) bool {
 		return value == nil || deploymentValueMatchesType(value, inner)
 	}
 	switch typeName {
-	case "string", "relative_path", "url", "uuid", "date", "datetime", "duration":
+	case "string", "relative_path", "host_path", "url", "uuid", "date", "datetime", "duration":
 		_, ok := value.(string)
 		return ok
 	case "bool":

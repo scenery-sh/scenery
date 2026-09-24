@@ -224,6 +224,9 @@ func runDeployCommandWithStatusDependencies(stdout io.Writer, args []string, sta
 	if subcommand == "plan" || subcommand == "apply" {
 		return runDeployment(stdout, args)
 	}
+	if subcommand == "receive" {
+		return deployReceiveCommand(stdout, args[1:])
+	}
 	if !isDeploySubcommand(subcommand) {
 		return runDeploySSH(stdout, subcommand, args[1:], deploySSHTools{})
 	}

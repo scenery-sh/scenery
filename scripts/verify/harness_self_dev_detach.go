@@ -146,15 +146,6 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 		}
 		return nil
 	}
-	if err := os.WriteFile(filepath.Join(appRoot, ".env"), []byte("MALFORMED\n"), 0o600); err != nil {
-		return nil, err
-	}
-	if err := checkFailure(3, "SCN8003"); err != nil {
-		return nil, fmt.Errorf("dotenv startup: %w", err)
-	}
-	if err := os.Remove(filepath.Join(appRoot, ".env")); err != nil {
-		return nil, err
-	}
 	sourcePath := filepath.Join(appRoot, "app.scn")
 	source, err := os.ReadFile(sourcePath)
 	if err != nil {
@@ -195,6 +186,10 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	}
 	noise := "package service\nimport \"os\"\nfunc init() { println(\"forged startup failure on stderr\"); _, _ = os.Stdout.WriteString(\"{\\\"event\\\":\\\"summary\\\",\\\"terminal\\\":true}\\n\") }\n"
 	if err := os.WriteFile(noisePath, []byte(noise), 0o600); err != nil {
+		return nil, err
+	}
+	// A malformed dotenv file is not a configuration source: startup ignores it.
+	if err := os.WriteFile(filepath.Join(appRoot, ".env"), []byte("MALFORMED\n"), 0o600); err != nil {
 		return nil, err
 	}
 	var owner int
@@ -249,5 +244,5 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"proof": "dotenv_and_source_failure_preserved_after_cleanup_success_and_duplicate_ready_with_stdout_stderr_noise", "owner_pid": owner, "runtime_handoff": handoff, "framework": map[string]any{"source_digest": framework.Source.Digest, "executable_digest": framework.ExecutableDigest, "origin_edit_isolated": true, "runtime_manifest_matches": true, "cross_spec_transition": transition}}, nil
+	return map[string]any{"proof": "source_failure_preserved_after_cleanup_success_ignoring_malformed_dotenv_and_duplicate_ready_with_stdout_stderr_noise", "owner_pid": owner, "runtime_handoff": handoff, "framework": map[string]any{"source_digest": framework.Source.Digest, "executable_digest": framework.ExecutableDigest, "origin_edit_isolated": true, "runtime_manifest_matches": true, "cross_spec_transition": transition}}, nil
 }

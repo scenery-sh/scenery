@@ -19,9 +19,6 @@ type SQLBinding struct {
 // ConfigureSQLBindings runs before generated constructors. It supplies the
 // existing SQL environment from explicit endpoints without opening a database.
 func ConfigureSQLBindings(bindings []SQLBinding) error {
-	if err := LoadDotEnvIntoEnv(); err != nil {
-		return err
-	}
 	database, err := resolveRuntimeSQLBindings(bindings, envpolicy.Get)
 	if err != nil {
 		return err

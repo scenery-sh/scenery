@@ -21,6 +21,7 @@ type packageInputDeclaration struct {
 	AttributeRanges  map[string]Range
 	Optional         bool
 	Sensitive        bool
+	Public           bool
 	Requires         []string
 	Constraints      map[string]any
 }
@@ -31,17 +32,34 @@ func resolveModuleInstanceInputs(rootResources, packageResources []Resource, pac
 
 func resolveModuleInstanceInputsInScope(rootResources, packageResources []Resource, packageSources []*Source, module *Block, callerModule string) ([]Resource, []Diagnostic) {
 	values, provenance, diagnostics := resolveModuleInputValuesWithProvenance(rootResources, packageResources, packageSources, module, callerModule)
-	resolved, substitutionDiagnostics := substituteResolvedModuleInputsWithProvenance(packageResources, values, provenance)
+	resolved, substitutionDiagnostics := substituteResolvedModuleInputsWithProvenance(packageResources, values, provenance, deferredConfigurationInputs(packageSources, values))
 	diagnostics = append(diagnostics, substitutionDiagnostics...)
 	return resolved, diagnostics
 }
 
-func substituteResolvedModuleInputsWithProvenance(packageResources []Resource, values map[string]any, provenance map[string]FieldProvenance) ([]Resource, []Diagnostic) {
+// substituteResolvedModuleInputsWithProvenance replaces var references with
+// resolved input values. A deferred input is an environment-configurable
+// deployment input without a declared value: a Go service config field that
+// references it is removed, because the runtime snapshot supplies it, and any
+// other reference remains an unresolved-input error.
+func substituteResolvedModuleInputsWithProvenance(packageResources []Resource, values map[string]any, provenance map[string]FieldProvenance, deferred map[string]bool) ([]Resource, []Diagnostic) {
 	var diagnostics []Diagnostic
 	resolved := make([]Resource, len(packageResources))
 	for index, resource := range packageResources {
 		resolved[index] = resource
 		resolved[index].Spec = cloneStringAnyMap(resource.Spec)
+		if resource.Kind == "scenery.service" && len(deferred) > 0 {
+			if config, ok := resolved[index].Spec["config"].(map[string]any); ok {
+				kept := make(map[string]any, len(config))
+				for name, item := range config {
+					if reference := refString(item); strings.HasPrefix(reference, "var.") && deferred[strings.TrimPrefix(reference, "var.")] {
+						continue
+					}
+					kept[name] = item
+				}
+				resolved[index].Spec["config"] = kept
+			}
+		}
 		value, unresolved := substituteModuleInputs(resolved[index].Spec, values)
 		resolved[index].Spec, _ = value.(map[string]any)
 		collectModuleInputFieldProvenance(&resolved[index], resource.Spec, "/spec", provenance)
@@ -81,12 +99,16 @@ func resolveModuleInputValuesWithSourceProvenance(rootResources, packageResource
 		allResources[resource.Address] = resource
 	}
 	for name, declaration := range declarations {
+		if declaration.Public && (declaration.Sensitive || !ConfigurableDeploymentInput(declaration.Phase, declaration.Type, false)) {
+			// Public inputs reach browsers; only non-sensitive deployment values qualify.
+			diagnostics = append(diagnostics, diagnosticForBlock("SCN3408", "input "+name+" is public, so it must be a non-sensitive deployment-phase value", module))
+		}
 		value, exists := provided[name]
 		if !exists {
 			if declaration.Default != nil {
 				value, exists = declaration.Default, true
 				provenance[name] = FieldProvenance{Kind: "package_default", DeclaredAt: declaration.DefaultRange, Input: "var." + name, ProvidedBy: moduleInputProviderAddress(callerModule, module, name), Transformations: []string{"module_input_substitution"}}
-			} else if declaration.Optional {
+			} else if declaration.Optional || ConfigurableDeploymentInput(declaration.Phase, declaration.Type, declaration.Sensitive) {
 				continue
 			}
 		}
@@ -125,6 +147,44 @@ func resolveModuleInputValuesWithSourceProvenance(rootResources, packageResource
 	return values, provenance, diagnostics
 }
 
+// ConfigurableDeploymentInput reports whether an input declaration is an
+// environment-configurable value: a deployment-phase input holding a plain
+// value or, when sensitive, a secret reference. Other resource references are
+// typed wiring that environments never supply.
+func ConfigurableDeploymentInput(phase, typeExpression string, sensitive bool) bool {
+	if strings.TrimSpace(phase) != "deployment" {
+		return false
+	}
+	typeExpression = strings.TrimSpace(typeExpression)
+	if typeExpression == `resource_ref("secret")` {
+		return sensitive
+	}
+	return !strings.Contains(typeExpression, "resource_ref(")
+}
+
+// ConfigurationKey is the environment configuration key of one module
+// instance input, for example designs.weather_pack_root.
+func ConfigurationKey(moduleInstance, input string) string {
+	return strings.ReplaceAll(moduleInstance, "/", ".") + "." + input
+}
+
+// deferredConfigurationInputs names configurable deployment inputs the module
+// instance leaves without a value. Their value comes from the selected
+// environment at runtime; an absent required value fails runtime-candidate
+// validation, not compilation.
+func deferredConfigurationInputs(sources []*Source, values map[string]any) map[string]bool {
+	deferred := map[string]bool{}
+	for name, declaration := range packageInputDeclarations(sources) {
+		if _, exists := values[name]; exists {
+			continue
+		}
+		if ConfigurableDeploymentInput(declaration.Phase, declaration.Type, declaration.Sensitive) {
+			deferred[name] = true
+		}
+	}
+	return deferred
+}
+
 func packageInputDeclarations(sources []*Source) map[string]packageInputDeclaration {
 	declarations := map[string]packageInputDeclaration{}
 	for _, source := range sources {
@@ -153,6 +213,9 @@ func packageInputDeclarations(sources []*Source) map[string]packageInputDeclarat
 			}
 			if expression, ok := block.Attributes["optional"]; ok {
 				declaration.Optional, _ = expression.Value.(bool)
+			}
+			if expression, ok := block.Attributes["public"]; ok {
+				declaration.Public, _ = expression.Value.(bool)
 			}
 			if expression, ok := block.Attributes["requires"]; ok {
 				values, _ := expression.Value.([]any)

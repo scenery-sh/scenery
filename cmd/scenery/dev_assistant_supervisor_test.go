@@ -256,11 +256,9 @@ func TestAssistantHelperEnvProjectsHostCodexLogin(t *testing.T) {
 }
 
 func TestAssistantProviderEnvAllowsOnlyOpenAIKey(t *testing.T) {
-	providerEnv := assistantProviderEnv([]string{
-		"OPENAI_API_KEY=test-openai-key",
-		"SCENERY_DATABASE_URL=postgres://must-not-cross",
-		"GOOGLE_OAUTH_CLIENT_SECRET=must-not-cross",
-	})
+	t.Setenv("SCENERY_DATABASE_URL", "postgres://must-not-cross")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "must-not-cross")
+	providerEnv := assistantProviderEnv([]byte("test-openai-key"))
 	if len(providerEnv) != 1 || providerEnv[0] != "OPENAI_API_KEY=test-openai-key" {
 		t.Fatalf("assistantProviderEnv() = %v", providerEnv)
 	}

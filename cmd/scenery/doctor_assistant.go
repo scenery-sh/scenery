@@ -26,7 +26,6 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/doctor"
-	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/runtimeassets"
 	"scenery.sh/internal/toolchain"
@@ -399,14 +398,7 @@ func doctorAssistantProductionTokenCheck(root string, cfg appcfg.Config, name st
 		return checkOK(id, checkName, "production assistant token key is available", nil)
 	}
 	// A declared production environment is itself an inspectable production
-	// context.  Missing secret files must therefore be reported instead of
-	// being silently downgraded to a skip.
-	values, err := envfile.MergeFiles(root, ".env", ".env.production", ".env.local", ".env.production.local")
-	if err == nil {
-		if validAssistantTokenKeyValue(values[assistantTokenKeyEnv]) || validAssistantTokenKeyFile(values[assistantTokenKeyFileEnv]) {
-			return checkOK(id, checkName, "production assistant token key is available", nil)
-		}
-	}
+	// context, so a missing key is reported instead of downgraded to a skip.
 	return checkError(id, checkName, "production assistant token key is missing", "Provide the framework-owned assistant token key through the production secret mechanism.")
 }
 

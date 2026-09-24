@@ -239,6 +239,55 @@ service "house" {
 
 Generated constructor input carries typed config plus declared `datasource` and `object` capabilities. The package input owns phase, constraints, sensitivity, and provenance. Do not pass plaintext sensitive values.
 
+### Configure A Value Per Environment
+
+A deployment-phase input is configurable per environment. Leave it unset in
+source when it has no safe default; mark optional values with `optional(...)`
+and secrets with `resource_ref("secret")` plus `sensitive = true`:
+
+```hcl
+input "weather_pack_root" {
+  type  = optional(host_path)
+  phase = "deployment"
+}
+
+input "api_token" {
+  type      = resource_ref("secret")
+  phase     = "deployment"
+  sensitive = true
+}
+
+service "designs" {
+  runtime = "go"
+  implementation { constructor = "NewService" }
+  config {
+    weather_pack_root = var.weather_pack_root
+    api_token         = var.api_token
+  }
+}
+```
+
+With `"id"` set in `.scenery.json`, configure values once per application and
+environment; every local worktree shares them, and a running `scenery up`
+restarts only the consuming service:
+
+```sh
+scenery config set designs.weather_pack_root /Volumes/Drive01/PSM --env local
+scenery config set designs.api_token --env local      # hidden prompt
+scenery config show --env local -o json
+scenery config set designs.api_token --env production --stdin < token.txt
+scenery deploy --env production
+```
+
+Browser-facing values such as a maps API key are declared `public = true`
+(never sensitive) and read by the frontend at startup with the generated
+client's `loadPublicConfig(apiBaseUrl)`; do not use `import.meta.env` or
+`VITE_*` variables for application configuration.
+
+The constructor reads `input.Config.WeatherPackRoot` (a
+`scenery.Optional[scenery.HostPath]`) and `input.Config.ApiToken.Reveal()`.
+Never read application values with `os.Getenv` or a dotenv file.
+
 ## Internal Calls
 
 Declare an internal binding and a service client:
@@ -865,8 +914,9 @@ scenery task run billing:reconcile -- --limit 100
 
 Declare SQL through a `data_source` and typed service dependency in `.scn`.
 Its `config.database` chooses the logical schema; use `lifecycle = "managed"`
-for an intentionally Scenery-owned local allocation, or supply `DATABASE_URL`
-for an external database. Do not add `dev.services` to `.scenery.json`.
+for an intentionally Scenery-owned local allocation, or configure
+`sql.database_url` (`scenery config set sql.database_url --env <env>`) for an
+external database of a deployable environment or worker. Do not add `dev.services` to `.scenery.json`.
 Inspect `scenery inspect app -o json` for requirements before changing supply.
 Standard auth and durable execution contribute their framework requirement
 automatically. See [App Config](local-contract.md#app-config) for sharing,

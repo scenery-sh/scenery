@@ -194,7 +194,7 @@ func validateFixtureValue(value any, typeExpression, module string, resources ma
 		if _, ok := fixtureNumber(value); !ok {
 			return fmt.Errorf("value must be numeric")
 		}
-	case "uuid", "date", "datetime", "duration", "size", "url", "relative_path", "bytes":
+	case "uuid", "date", "datetime", "duration", "size", "url", "relative_path", "host_path", "bytes":
 		scalar, _ := value.(map[string]any)
 		if stringValue(scalar["$scalar"]) != typeExpression {
 			return fmt.Errorf("value must be a %s", typeExpression)

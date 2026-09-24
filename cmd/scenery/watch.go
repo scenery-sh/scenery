@@ -490,6 +490,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		defer func() { _ = watcher.Close() }()
 	}
 
+	go supervisor.watchConfiguration(ctx)
 	var failedHandoff build.DesiredFramework
 	for {
 		nextSnapshot, forced, err := waitForStableChange(ctx, root, snapshot, watcher, supervisor.rebuildRequestChan())

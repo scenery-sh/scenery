@@ -13,12 +13,33 @@ import (
 	"testing"
 )
 
+// deploySSHFakeTarget answers deployment requests like a healthy target and
+// records every operation, optionally failing one.
+type deploySSHFakeTarget struct {
+	operations []string
+	fail       string
+	previous   string
+}
+
+func (f *deploySSHFakeTarget) exchange(_ string, request deployRemoteRequest) (deployRemoteResponse, error) {
+	f.operations = append(f.operations, request.Operation)
+	response := deployRemoteResponse{Kind: deployResponseKind, Protocol: deployProtocolVersion, OK: true, SourceRoot: "/home/deploy/.scenery/deployments/basicapp/production/source", ConfigRevision: "cfg-00000000000000000000000000000001", Previous: f.previous}
+	if request.Operation == "begin" {
+		response.StagingPath = ".scenery/deployments/basicapp/production/releases/" + request.DeploymentID + "/source/"
+	}
+	if request.Operation == f.fail {
+		response.OK, response.Error, response.Problems = false, "rejected", []string{"designs.api_token: required input is not configured"}
+	}
+	return response, nil
+}
+
 func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 	t.Parallel()
 
 	root := deploySSHTestApp(t)
 	var recorder deploySSHTestRecorder
-	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", Check: recorder.check, RunCommand: recorder.run}
+	target := &deploySSHFakeTarget{}
+	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", Check: recorder.check, RunCommand: recorder.run, Exchange: target.exchange}
 
 	var stdout bytes.Buffer
 	if err := runDeploySSH(&stdout, "some-id", []string{"--app-root", root}, tools); err != nil {
@@ -29,7 +50,6 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 		"local scenery check",
 		"SSH preflight",
 		"remote scenery down",
-		"$HOME/.scenery/run/agent.sock",
 		"rsync",
 		root,
 		"remote scenery up",
@@ -39,19 +59,24 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 		"--exclude=.scenery/",
 		"--exclude=.env",
 		"--exclude=node_modules/",
-		"--exclude=go.work",
-		"--exclude=go.work.sum",
-		"some-id:.scenery/apps/basicapp/",
+		"some-id:.scenery/deployments/basicapp/production/releases/",
+		`--app-root "/home/deploy/.scenery/deployments/basicapp/production/source"`,
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("command log missing %q:\n%s", want, log)
 		}
 	}
-	if order := recorder.order(); order != "local scenery check\nSSH preflight\nremote scenery down\nrsync\nremote scenery up" {
+	if strings.Contains(log, ".scenery/apps/") {
+		t.Fatalf("deploy synchronized into the configuration store directory:\n%s", log)
+	}
+	if order := recorder.order(); order != "local scenery check\nSSH preflight\nrsync\nremote scenery down\nremote scenery up" {
 		t.Fatalf("command order = %q\n%s", order, log)
 	}
-	if !strings.Contains(stdout.String(), "remote ready") {
-		t.Fatalf("stdout did not stream remote output:\n%s", stdout.String())
+	if got := strings.Join(target.operations, ","); got != "begin,validate,activate,commit" {
+		t.Fatalf("target operations = %s", got)
+	}
+	if !strings.Contains(stdout.String(), "remote ready") || !strings.Contains(stdout.String(), "is active with configuration revision") {
+		t.Fatalf("stdout = %s", stdout.String())
 	}
 }
 
@@ -59,9 +84,9 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	t.Parallel()
 
 	var recorder deploySSHTestRecorder
-	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run}
+	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run, Exchange: (&deploySSHFakeTarget{}).exchange}
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","id":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 
 	err := runDeploySSH(&bytes.Buffer{}, "other-id", []string{"--app-root", root}, tools)
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
@@ -81,18 +106,25 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	}
 }
 
-func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
+// A candidate the target rejects never stops the healthy runtime; a failed
+// activation restores the previous release.
+func TestDeploySSHKeepsOrRestoresTheHealthyRelease(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		failStep  string
-		wantSteps []string
+		name       string
+		failStep   string
+		failTarget string
+		previous   string
+		wantSteps  string
+		wantOps    string
+		wantError  string
 	}{
-		{name: "preflight", failStep: "SSH preflight", wantSteps: []string{"SSH preflight"}},
-		{name: "down", failStep: "remote scenery down", wantSteps: []string{"SSH preflight", "remote scenery down"}},
-		{name: "rsync", failStep: "rsync", wantSteps: []string{"SSH preflight", "remote scenery down", "rsync"}},
-		{name: "up", failStep: "remote scenery up", wantSteps: []string{"SSH preflight", "remote scenery down", "rsync", "remote scenery up"}},
+		{name: "preflight", failStep: "SSH preflight", wantSteps: "SSH preflight", wantOps: "", wantError: "exit status 7"},
+		{name: "rsync", failStep: "rsync", wantSteps: "SSH preflight\nrsync", wantOps: "begin,abort", wantError: "exit status 7"},
+		{name: "invalid candidate", failTarget: "validate", wantSteps: "SSH preflight\nrsync", wantOps: "begin,validate,abort", wantError: "designs.api_token"},
+		{name: "up restores previous", failStep: "remote scenery up", previous: "prev", wantSteps: "SSH preflight\nrsync\nremote scenery down\nremote scenery up\nremote scenery down\nremote scenery up", wantOps: "begin,validate,activate,rollback", wantError: "restored previous release prev"},
+		{name: "first release stops", failStep: "remote scenery up", wantSteps: "SSH preflight\nrsync\nremote scenery down\nremote scenery up\nremote scenery down", wantOps: "begin,validate,activate,rollback", wantError: "first release was not activated"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,28 +133,32 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatal(err)
 			}
+			target := &deploySSHFakeTarget{fail: tt.failTarget, previous: tt.previous}
 			var steps []string
+			failed := false
 			tools := deploySSHTools{
-				SSH:   "/fake/ssh",
-				Rsync: "/fake/rsync",
+				SSH: "/fake/ssh", Rsync: "/fake/rsync", Exchange: target.exchange,
 				RunCommand: func(name string, cmd *exec.Cmd) error {
 					steps = append(steps, name)
 					if cmd.Dir != root {
 						t.Fatalf("%s command dir = %q, want %q", name, cmd.Dir, root)
 					}
-					if name == tt.failStep {
+					if name == tt.failStep && !failed {
+						failed = true
 						return deploySSHTestExitError(7)
 					}
 					return nil
 				},
 			}
 			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", false, tools)
-			var exitErr deploySSHTestExitError
-			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
-				t.Fatalf("error = %v, want child exit 7", err)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %v, want %q", err, tt.wantError)
 			}
-			if got, want := strings.Join(steps, "\n"), strings.Join(tt.wantSteps, "\n"); got != want {
-				t.Fatalf("command steps = %q, want %q", got, want)
+			if got := strings.Join(steps, "\n"); got != tt.wantSteps {
+				t.Fatalf("command steps = %q, want %q", got, tt.wantSteps)
+			}
+			if got := strings.Join(target.operations, ","); got != tt.wantOps {
+				t.Fatalf("target operations = %q, want %q", got, tt.wantOps)
 			}
 		})
 	}
@@ -172,23 +208,27 @@ func TestDeploySSHRunsRemotePublishAfterUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	var recorder deploySSHTestRecorder
-	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run}
+	target := &deploySSHFakeTarget{}
+	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run, Exchange: target.exchange}
 	if err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", true, tools); err != nil {
 		t.Fatalf("runDeploySSHCommands: %v", err)
 	}
 	log := recorder.log()
-	if order := recorder.order(); order != "SSH preflight\nremote scenery down\nrsync\nremote scenery up\nremote scenery deploy publish" {
+	if order := recorder.order(); order != "SSH preflight\nrsync\nremote scenery down\nremote scenery up\nremote scenery deploy publish" {
 		t.Fatalf("command order = %q\n%s", order, log)
 	}
-	if !strings.Contains(log, `scenery deploy publish --env "production" --app-root "$HOME/.scenery/apps/basicapp" -o json`) {
+	if !strings.Contains(log, `scenery deploy publish --env "production" --app-root "/home/deploy/.scenery/deployments/basicapp/production/source" -o json`) {
 		t.Fatalf("publish command missing app root:\n%s", log)
+	}
+	if got := strings.Join(target.operations, ","); got != "begin,validate,activate,commit" {
+		t.Fatalf("target operations = %s", got)
 	}
 }
 
 func deploySSHTestApp(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "app with spaces")
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","id":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 	return root
 }
 

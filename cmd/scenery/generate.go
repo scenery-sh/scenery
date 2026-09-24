@@ -645,10 +645,7 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 
 func runSQLCGeneratorWithHooks(ctx context.Context, stdout io.Writer, appRoot string, plan *sqlcGeneratorPlan, quiet bool, hooks lifecycleHooks) error {
 	hooks = hooks.withDefaults()
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return err
-	}
+	env := envpolicy.Environ()
 	for _, schema := range plan.Schemas {
 		if schema.SQLCSchema == "" || schema.AtlasSource == "" {
 			continue

@@ -19,6 +19,8 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if snapshot == nil {
 		return errors.New("application rebuild requires a captured source snapshot")
 	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
 	if err := refreshBuildCompilerMembership(s.root, snapshot); err != nil {
 		return err
 	}
@@ -211,7 +213,7 @@ func (s *devSupervisor) reloadConfig(snapshot fileSnapshot) (app.Config, error) 
 // process listening on the supervisor's API backend.
 func (s *devSupervisor) appChildEnvironment(result *build.Result, environment *devRuntimeEnvironment) []string {
 	agentSession := s.currentAgentSession()
-	appBaseEnv := s.appDatabaseAuthorityEnv(environment.base, result.Contract.SQLRequirements)
+	appBaseEnv := minimalAppProcessEnv(s.appDatabaseAuthorityEnv(environment.base, result.Contract.SQLRequirements))
 	env := appChildEnv(
 		appBaseEnv,
 		s.console != nil && s.console.palette.Enabled(),
@@ -235,9 +237,8 @@ func (s *devSupervisor) appChildEnvironment(result *build.Result, environment *d
 		env = append(env, "SCENERY_PUBLIC_BASE_URL="+agentSession.RouteManifest.Routes[localagent.RouteAPI].URL)
 	}
 	env = append(env, s.sessionAuthEnv()...)
-	// Framework-owned assistant handoff values are appended last so a dotenv
-	// file or app-managed env map cannot override the private descriptor/key
-	// path with ambient user input.
+	// Framework-owned assistant handoff values are appended last so no
+	// inherited SCENERY_ entry can override the private descriptor/key path.
 	if path := s.assistantRuntimeConfigPath(); path != "" {
 		env = append(env, runtime.AssistantRuntimeConfigEnv+"="+path)
 	}
