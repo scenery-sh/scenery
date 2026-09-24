@@ -88,7 +88,7 @@ func assistantCommand(args []string) error {
 	case "status":
 		return runAssistantStatus(args[1:], os.Stdout)
 	default:
-		return usageErrorf("unknown assistant subcommand %q", args[0])
+		return usageErrorf("unknown assistant command %q", args[0])
 	}
 }
 
