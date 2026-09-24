@@ -64,6 +64,7 @@ Update this section at each meaningful stopping point. Replace planning timestam
 - 2026-09-24: concurrent `os.Root.OpenFile(name, O_CREATE)` of one name fails with ENOENT on darwin (Go 1.27); reproduced in a standalone test. The environment lock file is therefore opened by path with `O_NOFOLLOW` (`internal/appconfig/lock_unix.go`).
 - 2026-09-24: `F_FULLFSYNC` makes each store write ~10 ms on macOS; unit tests replace the store's flush seam, and real durability belongs to the `configuration` probe.
 - 2026-09-24: the three committed fixture apps under `testdata/apps/` carry placeholder `.env` files; they are dead inputs removed in M6.
+- 2026-09-24: the `auth` release probe still configured standard auth through the removed `JWT_SECRET`/`GOOGLE_OAUTH_*`/`AUTH_TOKEN_CIPHER_KEY` variables and failed every case after the merge with main. `scripts/verify/testdata/authprobe` now delivers a configuration snapshot on an inherited pipe, as the supervisor does; `--probe auth` passes.
 
 1. Scenery already derives typed service configuration from package inputs in `internal/compiler/go_config.go`. Sensitive Go configuration is required to use `resource_ref("secret")`; inventing a parallel `secret_string` model would duplicate an existing contract. Reuse and complete that contract. [R3]
 
