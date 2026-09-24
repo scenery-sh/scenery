@@ -1483,6 +1483,15 @@ Transport:
   storage CLI reports.
 - `app_id` is the session route identity from `status.app_id`. `status` may
   omit it and then answers for the worktree's current session.
+- A request is one text message of at most 1 MiB (1,048,576 bytes);
+  `db/query` statements and their params are the largest legitimate requests.
+  The runtime reads no further than the limit. It answers a larger request
+  with WebSocket close code 1009 (message too big) and closes the connection,
+  because the request's `id` was never read and no answer can reach its
+  caller; a client still sending that request may see the connection reset
+  instead (close code 1006). The connection's unfinished calls end
+  unanswered. The generated client refuses such a call before sending it,
+  with code `request_too_large`, so its other calls continue.
 
 Execution bounds:
 
@@ -1575,9 +1584,10 @@ Generated client:
   expected and received kind and revision; a result that is not a
   `scenery.dev-runtime.status` at all (an older Scenery) says to restart
   `scenery up`, and a revision mismatch names both remedies.
-- A call the client rejects before sending it (aborted, `close()`, `dispose()`
-  or a dropped socket) never reaches the runtime; a sent mutation may still
-  complete. `dispose()` also cancels storage transfers and refuses later ones.
+- A call the client rejects before sending it (aborted, over the request
+  limit, `close()`, `dispose()` or a dropped socket) never reaches the
+  runtime; a sent mutation may still complete. `dispose()` also cancels
+  storage transfers and refuses later ones.
   [The client specification](spec/typescript-client.md#dev-runtime-client)
   defines its full lifecycle and error codes.
 

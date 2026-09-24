@@ -254,6 +254,13 @@ func (s *dashboardServer) Close() error {
 	return err
 }
 
+// runtimeRPCMaxRequestBytes bounds one development runtime RPC request
+// message (docs/local-contract.md). db/query statements and their params are
+// the largest legitimate requests. The generated client's
+// DEV_RUNTIME_MAX_REQUEST_BYTES is the same limit; it refuses a larger call
+// before sending it.
+const runtimeRPCMaxRequestBytes = 1 << 20
+
 func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Request) {
 	conn, err := dashboardUpgrader.Upgrade(w, req, nil)
 	if err != nil {
@@ -276,6 +283,10 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 		_ = conn.Close()
 		calls.Wait()
 	}()
+	// A larger request is not read beyond the limit. Its id stays unread, so
+	// no answer can reach its caller: the read fails and the connection closes
+	// with 1009 (message too big), ending every call it still runs.
+	conn.SetReadLimit(runtimeRPCMaxRequestBytes)
 
 	for {
 		var reqMsg rpcRequest

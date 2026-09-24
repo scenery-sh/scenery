@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { createServer, type AddressInfo } from "node:net";
 
 import {
+	DEV_RUNTIME_MAX_REQUEST_BYTES,
 	DevRuntimeClient,
 	DevRuntimeError,
 	storageTarget,
@@ -24,6 +25,8 @@ class FakeSocket {
 
 	readyState = FakeSocket.CONNECTING;
 	readonly sent: SentFrame[] = [];
+	/** UTF-8 size of each sent frame, as a WebSocket transmits it. */
+	readonly sentBytes: number[] = [];
 	readonly #listeners = new Map<string, ((event: unknown) => void)[]>();
 
 	constructor(readonly url: string) {
@@ -37,6 +40,7 @@ class FakeSocket {
 	send(frame: string): void {
 		if (this.readyState !== FakeSocket.OPEN) throw new Error("send on a socket that is not open");
 		this.sent.push(JSON.parse(frame) as SentFrame);
+		this.sentBytes.push(new TextEncoder().encode(frame).byteLength);
 	}
 
 	close(): void {
@@ -319,6 +323,48 @@ describe("DevRuntimeClient cancellation", () => {
 		expect(jest.getTimerCount()).toBe(0);
 		jest.advanceTimersByTime(5000);
 		expect(FakeSocket.created).toHaveLength(1);
+	});
+});
+
+/**
+ * A statement whose db/query request with this id is exactly `bytes` long in
+ * UTF-8. "é" takes two UTF-8 bytes but one UTF-16 code unit, so the frame's
+ * string length stays far below the byte size the runtime counts.
+ */
+function statementForRequestBytes(id: number, bytes: number): string {
+	const frame = JSON.stringify({ jsonrpc: "2.0", id, method: "db/query", params: { app_id: "app", query: "", params: [] } });
+	const room = bytes - new TextEncoder().encode(frame).byteLength;
+	return "é".repeat(Math.floor(room / 2)) + "x".repeat(room % 2);
+}
+
+describe("DevRuntimeClient request limit", () => {
+	test("a call over the limit fails unsent while the connection keeps its other calls", async () => {
+		const client = runtimeClient();
+		const tables = client.postgresTables("app");
+		socket(0).open();
+		const atLimit = client.query("app", { query: statementForRequestBytes(2, DEV_RUNTIME_MAX_REQUEST_BYTES) });
+		const oversized = failure(client.query("app", { query: statementForRequestBytes(3, DEV_RUNTIME_MAX_REQUEST_BYTES + 1) }));
+		// An open socket sends at once, so the request of exactly the limit is
+		// already out and the larger one never goes.
+		expect(sentMethods()).toEqual(["postgres/tables", "db/query"]);
+		expect(socket(0).sentBytes[1]).toBe(DEV_RUNTIME_MAX_REQUEST_BYTES);
+
+		const refused = await oversized;
+		expect(refused.code).toBe("request_too_large");
+		expect(refused.message).toBe(`db/query request is ${DEV_RUNTIME_MAX_REQUEST_BYTES + 1} bytes, over the development runtime's 1 MiB request limit; it was not sent`);
+		expect(refused.details).toEqual({ max_bytes: DEV_RUNTIME_MAX_REQUEST_BYTES, request_bytes: DEV_RUNTIME_MAX_REQUEST_BYTES + 1 });
+		socket(0).reply(socket(0).sent[1], { columns: ["length"], rows: [[DEV_RUNTIME_MAX_REQUEST_BYTES]] });
+		socket(0).reply(socket(0).sent[0], []);
+		expect(await atLimit).toEqual({ columns: ["length"], rows: [[DEV_RUNTIME_MAX_REQUEST_BYTES]] });
+		expect(await tables).toEqual([]);
+		expect(client.connected).toBe(true);
+	});
+
+	test("a call over the limit neither connects nor sends", async () => {
+		const client = runtimeClient();
+		const oversized = failure(client.query("app", { query: "x".repeat(DEV_RUNTIME_MAX_REQUEST_BYTES) }));
+		expect(FakeSocket.created).toHaveLength(0);
+		expect((await oversized).code).toBe("request_too_large");
 	});
 });
 

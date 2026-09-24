@@ -9,6 +9,13 @@
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
 export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:ee021ce07eac7a4039cf295af2f09f29291be54f10fc6ee925fd7eb26df8aef5";
 
+/**
+ * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
+ * closes the connection on a larger request, so the client refuses such a
+ * call before sending it, with code "request_too_large".
+ */
+export const DEV_RUNTIME_MAX_REQUEST_BYTES = 1048576;
+
 export interface DevRuntimeSignal {
 	readonly enabled: boolean;
 	readonly available: boolean;
@@ -242,7 +249,7 @@ export interface StorageUploadOptions {
 	readonly signal?: AbortSignal;
 }
 
-export type DevRuntimeErrorCode = "unavailable" | "closed" | "aborted" | "rpc" | "protocol" | "transfer";
+export type DevRuntimeErrorCode = "unavailable" | "closed" | "aborted" | "rpc" | "protocol" | "transfer" | "request_too_large";
 
 /**
  * A failed development runtime call. An "rpc" failure's `diagnostic` names
@@ -585,6 +592,17 @@ export class DevRuntimeClient {
 		const id = this.#nextId++;
 		return new Promise<T>((resolve, reject) => {
 			const frame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+			// The runtime closes the connection on a larger request, failing every
+			// other call on it; only this call fails, unsent.
+			const oversized = oversizedRequestBytes(frame);
+			if (oversized !== undefined) {
+				reject(new DevRuntimeError(
+					"request_too_large",
+					`${method} request is ${oversized} bytes, over the development runtime's 1 MiB request limit; it was not sent`,
+					{ details: { max_bytes: DEV_RUNTIME_MAX_REQUEST_BYTES, request_bytes: oversized } },
+				));
+				return;
+			}
 			const onAbort = () => {
 				const call = this.#take(id);
 				if (!call) return;
@@ -785,4 +803,15 @@ function runtimeFailureError(code: DevRuntimeErrorCode, failure: RuntimeFailure,
 	if (failure.report_token) extra.reportToken = failure.report_token;
 	if (status !== undefined) extra.status = status;
 	return new DevRuntimeError(code, message, extra);
+}
+
+/**
+ * A request frame's UTF-8 size when it exceeds the runtime's limit. A UTF-16
+ * code unit never takes more than three UTF-8 bytes, so a short frame is
+ * within the limit without being encoded.
+ */
+function oversizedRequestBytes(frame: string): number | undefined {
+	if (frame.length * 3 <= DEV_RUNTIME_MAX_REQUEST_BYTES) return undefined;
+	const size = new TextEncoder().encode(frame).byteLength;
+	return size > DEV_RUNTIME_MAX_REQUEST_BYTES ? size : undefined;
 }
