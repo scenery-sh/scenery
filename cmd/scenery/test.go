@@ -12,6 +12,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/gotarget"
 )
 
 type testOptions struct {
@@ -60,7 +61,7 @@ func runSceneryTestOutput(ctx context.Context, args []string, stdout io.Writer) 
 		return err
 	}
 
-	goArgs := append([]string{"test"}, result.GoBuildFlags...)
+	goArgs := append([]string{"test"}, gotarget.WithTrimpath(result.GoBuildFlags)...)
 	goArgs = append(goArgs, opts.GoArgs...)
 	output, err := runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
 	if err != nil && goTestNeedsWorkspaceTidy(output) {

@@ -124,13 +124,17 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 	if overlay != nil {
 		cfg.Env = gotarget.Hermetic(nil)
 	}
+	// Loading types compiles export data through the go command; trimming
+	// paths like Scenery-owned compilation makes that the same Go build cache
+	// entry the build reuses instead of a second, path-bound copy.
+	cfg.BuildFlags = gotarget.WithTrimpath(nil)
 	if target != nil {
 		cfg.Dir, err = filepath.EvalSymlinks(target.ModuleRoot)
 		if err != nil {
 			return nil, err
 		}
 		cfg.Env = gotarget.Hermetic(target)
-		cfg.BuildFlags = append([]string(nil), target.BuildFlags...)
+		cfg.BuildFlags = gotarget.WithTrimpath(append([]string(nil), target.BuildFlags...))
 		if overlay != nil {
 			modFile, cleanup, err := prepareAnalysisModFile(cfg.Dir)
 			if err != nil {

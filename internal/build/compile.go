@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/gotarget"
 )
 
 func Compile(result *Result) error {
@@ -325,9 +327,10 @@ func normalizeGoBuildFlags(flags []string) []string {
 }
 
 func goBuildArgs(binary string, flags []string) []string {
-	args := make([]string, 0, 5+len(flags))
+	flags = gotarget.WithTrimpath(normalizeGoBuildFlags(flags))
+	args := make([]string, 0, 6+len(flags))
 	args = append(args, "build")
-	args = append(args, normalizeGoBuildFlags(flags)...)
+	args = append(args, flags...)
 	args = append(args, "-buildvcs=false", "-o", binary, "./scenery_internal_main")
 	return args
 }

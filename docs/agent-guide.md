@@ -235,7 +235,7 @@ marker is found; it is not evidence that an app can compile or start.
 - Use `scenery logs --follow` for the current runtime.
 - Test-only Go edits and documentation-only changes do not restart the backend. Runtime source or explicit runtime-embedded data does; metadata-only touches and identical-content rewrites do not. Run the selected tests explicitly to verify changed test code.
 - Initial startup may reuse the graph compiled to discover assistant watch inputs, after rechecking current source membership, bytes and the complete workspace revision. Source scanning may overlap control-plane setup only after acquiring lifetime ownership and passing framework and migration-source checks; startup and cleanup both join it. Changed source still requires a fresh compilation; this does not skip generated-artifact verification or candidate readiness.
-- Development builds link with stock `go build`: `scenery up` links only the process entrypoints whose Go closure changed and reuses every other process executable, and `build --development` links one application executable. Development executables omit DWARF (`-ldflags=-w`), so stack traces and profiles work but a debugger cannot inspect variables; add `-ldflags=-w=false` to `build.go_flags` while debugging. On macOS the supervisor removes an inherited Darwin background policy before each build and reports it as the `process.scheduling` build step; a launcher's QoS clamp still slows compilation and linking and is not reported.
+- Development builds link with stock `go build`: `scenery up` links only the process entrypoints whose Go closure changed and reuses every other process executable, and `build --development` links one application executable. Development executables omit DWARF (`-ldflags=-w`), so stack traces and profiles work but a debugger cannot inspect variables; add `-ldflags=-w=false` to `build.go_flags` while debugging. On macOS the supervisor removes an inherited Darwin background policy before each build and reports it as the `process.scheduling` build step; a launcher's QoS clamp still slows compilation and linking and is not reported. Every Scenery-owned Go build also passes `-trimpath` (framework producers, app processes, `scenery test`), so identical source shares Go build cache entries across worktrees, app roots and framework snapshots; stack traces name module-relative files.
 - Shared executable reuse remains an independent, conservative optimization for single-executable builds. A build consuming framework source, replacements or module dependencies outside its locked private workspace never restores or publishes a shared executable. Go's package cache and the link concurrency budget remain active. Before compilation, Scenery copies each authored non-framework local replacement into an app-owned content generation, rewrites the build workspace to that root, and checks the live origin again before activation. Thus Go cannot consume transient replacement bytes under another captured identity; timestamps are not equivalence. Module-cache and custom tool inputs remain outside this snapshot claim.
 - Initial startup may wake an already initialized, ownership-verified managed PostgreSQL server alongside Go preparation after validating the current graph and endpoint selection. That branch does not allocate or recreate resources, create schemas, migrate or seed; it is joined before fresh post-build database resolution. No-SQL and explicitly external database selections do not start retained managed PostgreSQL.
 - Before replacing a service process, the supervisor runs the candidate's read-only runtime handshake and checks its exact spec, linked contract, implementation, build-input digest, target and ABI. A failed handshake leaves the published generation serving. A candidate starts beside the published generation, which keeps serving requests pinned to it; background work moves to the candidate only after its generation is published, and a candidate that fails to start leaves the published generation serving. Build errors remain visible while that generation keeps its host and session PID. Keep application Go `init` functions and service constructors free of exclusive writes: `init` executes before the generated entrypoint can select preflight mode, and a replacement constructor runs while the previous instance still serves.
@@ -817,6 +817,24 @@ The `ui` probe (also in release) provisions the frozen `tools/typescript`
 dependencies before its TypeScript lanes and reports unavailable dependencies
 explicitly. Default/quick/race do not provision them but do build the local
 product. Scenery embeds no dashboard, so building the CLI needs only Go.
+
+### Go Build Cache Growth
+
+Agent waves fill `$(go env GOCACHE)` quickly. One edit round in `cmd/scenery`
+stores about 50 MB of compiled package and test archives; `go run
+./scripts/verify` and `go run ./cmd/scenery` each cache their linked executable
+(35–45 MB) whenever any input changed; `-race` adds a second set of every
+archive; and each worktree compiles the repository under its own path. Go only
+expires entries unused for five days, so the cache reaches tens of gigabytes
+within days. After the first verifier run, use the worktree-local
+`.scenery/harness/bin/scenery` instead of `go run ./cmd/scenery`, run `-race`
+only when its validation class requires it, and keep the cache under a budget
+with `scripts/go-build-cache-trim.sh`, which removes least-recently-used
+entries until the cache is back under its budget and never touches entries used
+in the last two hours. Its header describes the hourly launchd installation.
+`GOFLAGS=-trimpath` in the developer environment additionally lets worktrees
+share entries; the repository's own tests do not depend on absolute compile
+paths.
 
 ### Self-Harness Timing
 
