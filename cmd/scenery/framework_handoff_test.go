@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -35,6 +36,59 @@ func TestFrameworkSelectionDiffersWithoutReadingSource(t *testing.T) {
 		if got := frameworkSelectionDiffers(root, test.desired, test.producerVersion, producer); got != test.want {
 			t.Errorf("%s: differs = %v, want %v", test.name, got, test.want)
 		}
+	}
+}
+
+func TestFrameworkHandoffRetriesFailedSelectionAfterSwitchingBack(t *testing.T) {
+	originalChanged, originalPrepare := changedAppFrameworkFunc, prepareFrameworkHandoffFunc
+	t.Cleanup(func() { changedAppFrameworkFunc, prepareFrameworkHandoffFunc = originalChanged, originalPrepare })
+	running, next := build.DesiredFramework{Version: "v0.3.7"}, build.DesiredFramework{Version: "v0.3.8"}
+	selected := next
+	changedAppFrameworkFunc = func(string) (build.DesiredFramework, bool) { return selected, selected != running }
+	prepared := 0
+	prepareErr := errors.New("module proxy unavailable")
+	prepareFrameworkHandoffFunc = func(ctx context.Context, _ string) (*frameworkHandoff, error) {
+		prepared++
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		return &frameworkHandoff{Executable: "/app/.scenery/framework/bin/b/scenery", Version: next.Version}, nil
+	}
+	var out bytes.Buffer
+	supervisor := &devSupervisor{root: t.TempDir(), console: newRunConsole(&out, &bytes.Buffer{}, false, true, "demo", "/app")}
+	var failed build.DesiredFramework
+	step := func(ctx context.Context) *frameworkHandoff {
+		t.Helper()
+		return supervisor.frameworkHandoffBeforeBuild(ctx, &failed)
+	}
+
+	// An interrupted preparation is not remembered as a failure.
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if handoff := step(canceled); handoff != nil || failed != (build.DesiredFramework{}) {
+		t.Fatalf("canceled preparation: handoff %v, failed %+v", handoff, failed)
+	}
+	// A failed selection is reported once, not prepared on every rebuild.
+	for range 2 {
+		if handoff := step(context.Background()); handoff != nil {
+			t.Fatalf("failed preparation handed off to %+v", handoff)
+		}
+	}
+	if prepared != 2 || strings.Count(out.String(), `"build.error"`) != 1 {
+		t.Fatalf("prepared %d times, reported:\n%s", prepared, out.String())
+	}
+	// Selecting the running producer again ends that episode.
+	selected = running
+	if handoff := step(context.Background()); handoff != nil {
+		t.Fatalf("running selection handed off to %+v", handoff)
+	}
+	selected, prepareErr = next, nil
+	handoff := step(context.Background())
+	if handoff == nil || handoff.Version != next.Version || prepared != 3 {
+		t.Fatalf("reselected framework: handoff %+v after %d preparations", handoff, prepared)
 	}
 }
 
