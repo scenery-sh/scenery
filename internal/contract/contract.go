@@ -71,10 +71,7 @@ func SetSecretRevealer(reveal func(SecretRef) ([]byte, bool, error)) { secretRev
 // Reveal returns the plaintext of a secret the selected environment
 // configured. The bytes belong to the caller; never log or return them.
 func (ref SecretRef) Reveal() ([]byte, error) {
-	if secretRevealer == nil {
-		return nil, fmt.Errorf("secret %s cannot be revealed outside a Scenery runtime", ref.Address)
-	}
-	value, ok, err := secretRevealer(ref)
+	value, ok, err := ref.Lookup()
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +79,15 @@ func (ref SecretRef) Reveal() ([]byte, error) {
 		return nil, fmt.Errorf("secret %s is not configured for this environment", ref.Address)
 	}
 	return value, nil
+}
+
+// Lookup returns the plaintext of an optional secret and whether the selected
+// environment configured it.
+func (ref SecretRef) Lookup() ([]byte, bool, error) {
+	if secretRevealer == nil {
+		return nil, false, fmt.Errorf("secret %s cannot be revealed outside a Scenery runtime", ref.Address)
+	}
+	return secretRevealer(ref)
 }
 
 type ExecutionReceipt = runtimeapi.ExecutionReceipt
