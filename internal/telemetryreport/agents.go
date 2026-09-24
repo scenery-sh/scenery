@@ -17,30 +17,44 @@ import (
 	"time"
 )
 
-// Agents aggregates the sessions of coding agents that ran Scenery at least
-// once. Only command names, outcome classes and the inputs Scenery itself
-// rejected are reported; no command text, output or file content is kept.
+// Agents aggregates the sessions of coding agents that attempted Scenery at
+// least once. Only command names, outcome classes and the inputs Scenery
+// itself rejected are reported; no command text, output or file content is
+// kept.
+//
+// The unit of evidence is one shell command an agent ran: a Claude Code Bash
+// call, or one command of a Codex script whose per-command exit code is known.
+// A shell command that invokes Scenery more than once has one outcome and one
+// duration for all its invocations, so those invocations are counted but
+// neither failures nor timings are attributed to them.
 type Agents struct {
-	ClaudeSessions int            `json:"claude_sessions"`
-	CodexSessions  int            `json:"codex_sessions"`
-	ToolCalls      int            `json:"tool_calls"`
-	ToolErrors     int            `json:"tool_errors"`
-	ToolErrorKinds []Count        `json:"tool_error_kinds"`
-	SceneryCalls   int            `json:"scenery_calls"`
-	SceneryFailed  int            `json:"scenery_failed"`
-	Commands       []AgentCommand `json:"commands"`
-	FailureClasses []Count        `json:"failure_classes"`
-	RejectedInputs []Count        `json:"rejected_inputs"`
+	ClaudeSessions int     `json:"claude_sessions"`
+	CodexSessions  int     `json:"codex_sessions"`
+	ToolCalls      int     `json:"tool_calls"`
+	ToolErrors     int     `json:"tool_errors"`
+	ToolErrorKinds []Count `json:"tool_error_kinds"`
+	// SceneryInvocations counts attempted invocations, recognized or not.
+	SceneryInvocations int `json:"scenery_invocations"`
+	// SceneryCommands counts the shell commands that attempted Scenery, and
+	// SceneryFailed those that failed.
+	SceneryCommands int            `json:"scenery_commands"`
+	SceneryFailed   int            `json:"scenery_failed"`
+	Commands        []AgentCommand `json:"commands"`
+	FailureClasses  []Count        `json:"failure_classes"`
+	RejectedInputs  []Count        `json:"rejected_inputs"`
 }
 
-// AgentCommand is one Scenery command as agents ran it; wall time is what the
-// agent waited for the tool call that ran it.
+// AgentCommand is one attempted Scenery command: a command `scenery help`
+// advertises, "unknown <word>" for a word it does not, or a root flag such as
+// "--help". Failures, waiting time and p50 cover only the shell commands that
+// invoked Scenery once (Attributable).
 type AgentCommand struct {
 	Command      string `json:"command"`
 	Count        int    `json:"count"`
+	Attributable int    `json:"attributable"`
 	FailureCount int    `json:"failure_count"`
 	WallTimeMS   int64  `json:"wall_time_ms"`
-	P50MS        int64  `json:"p50_ms"`
+	P50MS        *int64 `json:"p50_ms"`
 }
 
 // toolCall is one completed tool call of an agent session.
@@ -58,13 +72,16 @@ type agentSession struct {
 	calls []toolCall
 }
 
-// Commands of every Scenery family the caller knows; a word after "scenery"
-// that is no command, such as a path segment, is not an invocation.
 var (
-	sceneryInvocation = regexp.MustCompile(`(?:^|[\s;&|(` + "`" + `])(?:[^\s;&|(` + "`" + `]*/)?scenery\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?`)
+	// sceneryInvocation matches Scenery where a shell runs a command: at the
+	// start of a line or after ;, &&, ||, |, ( or $(, optionally behind
+	// variable assignments, sudo/env/time/exec/command, a path, or go run.
+	// A mention inside an argument, such as echo "scenery up", is no command.
+	sceneryInvocation = regexp.MustCompile(`(?m)(?:^|&&|\|\||[;|(` + "`" + `]|\$\()[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=\S*[ \t]+)*(?:(?:sudo|env|time|exec|command)[ \t]+)*(?:go[ \t]+run[ \t]+)?(?:[^\s;&|(` + "`" + `]*/)?scenery[ \t]+([^\s;&|)` + "`" + `]+)(?:[ \t]+([a-z][a-z-]*))?`)
+	commandWord       = regexp.MustCompile(`^[a-z][a-z-]{0,31}$`)
 	rejectedInput     = regexp.MustCompile(`unknown (command|flag|subcommand) "([^"]{1,40})"`)
 	claudeExitCode    = regexp.MustCompile(`Exit code (\d+)`)
-	codexExitCode     = regexp.MustCompile(`"exit_code"\s*:\s*(-?\d+)`)
+	codexChunk        = regexp.MustCompile(`"wall_time_seconds"\s*:\s*([0-9.eE+-]+)\s*,\s*"exit_code"\s*:\s*(-?\d+)`)
 	codexCommand      = regexp.MustCompile(`cmd\s*:\s*"((?:[^"\\]|\\.)*)"`)
 	codexScriptError  = regexp.MustCompile(`^(Error|Script error|Script failed)|Uncaught|TypeError|SyntaxError|ReferenceError`)
 	invalidInvocation = regexp.MustCompile(`SCN8001|invalid_request|unknown (command|flag|subcommand) "|flag provided but not defined`)
@@ -74,30 +91,38 @@ var (
 	timedOut          = regexp.MustCompile(`(?i)timed out|deadline exceeded`)
 )
 
-// sceneryCommands returns the Scenery commands a shell command runs, as
-// "command" or "command subcommand" for a family with subcommands.
+// sceneryCommands returns the Scenery commands a shell command attempts: a
+// known command, with its subcommand for a family that has one; a root flag
+// such as "--help"; or "unknown <word>" for a word Scenery has no command for.
 func sceneryCommands(shell string, families map[string][]string) []string {
 	var result []string
-	// "./scripts/scenery", ".scenery/harness/bin/scenery" and "go run
-	// ./cmd/scenery" all end in a path segment named scenery.
 	for _, match := range sceneryInvocation.FindAllStringSubmatch(shell, -1) {
-		subcommands, known := families[match[1]]
-		if !known {
-			continue
-		}
-		command := match[1]
-		for _, sub := range subcommands {
-			if sub == match[2] {
-				command += " " + sub
-				break
+		word := match[1]
+		switch subcommands, known := families[word]; {
+		case known:
+			command := word
+			for _, sub := range subcommands {
+				if sub == match[2] {
+					command += " " + sub
+					break
+				}
 			}
+			result = append(result, command)
+		case strings.HasPrefix(word, "-") && len(word) <= 24:
+			result = append(result, word)
+		case commandWord.MatchString(word):
+			result = append(result, "unknown "+word)
 		}
-		result = append(result, command)
 	}
 	return result
 }
 
+// sceneryFailureClass classifies a failed shell command by what Scenery or the
+// shell reported; a command that succeeded has no class.
 func sceneryFailureClass(call toolCall) string {
+	if !call.errored && call.exit <= 0 {
+		return ""
+	}
 	text := call.output
 	switch {
 	case invalidInvocation.MatchString(text):
@@ -114,10 +139,8 @@ func sceneryFailureClass(call toolCall) string {
 		return "executable not found"
 	case timedOut.MatchString(text):
 		return "timeout"
-	case call.exit > 0 || call.errored:
-		return "other failure"
 	}
-	return ""
+	return "other failure"
 }
 
 var toolErrorKinds = []struct {
@@ -167,9 +190,9 @@ func readAgents(opts Options) (Agents, error) {
 	}
 	kinds, classes, rejected := map[string]int{}, map[string]int{}, map[string]int{}
 	type commandAcc struct {
-		count, failures int
-		wall            int64
-		durations       []int64
+		count, attributable, failures int
+		wall                          int64
+		durations                     []int64
 	}
 	commands := map[string]*commandAcc{}
 	for _, session := range sessions {
@@ -206,6 +229,8 @@ func readAgents(opts Options) (Agents, error) {
 			if len(invoked) == 0 {
 				continue
 			}
+			agents.SceneryCommands++
+			agents.SceneryInvocations += len(invoked)
 			class := sceneryFailureClass(call)
 			if class != "" {
 				agents.SceneryFailed++
@@ -214,28 +239,30 @@ func readAgents(opts Options) (Agents, error) {
 			for _, match := range rejectedInput.FindAllStringSubmatch(call.output, -1) {
 				rejected["unknown "+match[1]+" \""+match[2]+"\""]++
 			}
-			share := call.duration.Milliseconds() / int64(len(invoked))
-			for index, command := range invoked {
-				agents.SceneryCalls++
+			for _, command := range invoked {
 				acc := commands[command]
 				if acc == nil {
 					acc = &commandAcc{}
 					commands[command] = acc
 				}
 				acc.count++
-				acc.wall += share
-				acc.durations = append(acc.durations, share)
-				if class != "" && index == len(invoked)-1 {
+				if len(invoked) != 1 {
+					continue
+				}
+				acc.attributable++
+				acc.wall += call.duration.Milliseconds()
+				acc.durations = append(acc.durations, call.duration.Milliseconds())
+				if class != "" {
 					acc.failures++
 				}
 			}
 		}
 	}
 	for command, acc := range commands {
-		agents.Commands = append(agents.Commands, AgentCommand{Command: command, Count: acc.count, FailureCount: acc.failures, WallTimeMS: acc.wall, P50MS: percentile(acc.durations, 0.5)})
+		agents.Commands = append(agents.Commands, AgentCommand{Command: command, Count: acc.count, Attributable: acc.attributable, FailureCount: acc.failures, WallTimeMS: acc.wall, P50MS: percentile(acc.durations, 50)})
 	}
 	sort.Slice(agents.Commands, func(i, j int) bool {
-		return agents.Commands[i].WallTimeMS > agents.Commands[j].WallTimeMS || agents.Commands[i].WallTimeMS == agents.Commands[j].WallTimeMS && agents.Commands[i].Command < agents.Commands[j].Command
+		return agents.Commands[i].Count > agents.Commands[j].Count || agents.Commands[i].Count == agents.Commands[j].Count && agents.Commands[i].Command < agents.Commands[j].Command
 	})
 	agents.ToolErrorKinds = sortedCounts(kinds, 0)
 	agents.FailureClasses = sortedCounts(classes, 0)
@@ -445,10 +472,22 @@ func readCodexSession(path string) (agentSession, error) {
 			}
 			delete(calls, payload.CallID)
 			output := contentText(payload.Output)
+			// Each command a script ran reports its own chunk: wall time, then
+			// exit code.
 			var exits []int
-			for _, match := range codexExitCode.FindAllStringSubmatch(output, -1) {
-				code, _ := strconv.Atoi(match[1])
+			var walls []time.Duration
+			var outputs []string
+			chunks := codexChunk.FindAllStringSubmatchIndex(output, -1)
+			for index, match := range chunks {
+				seconds, _ := strconv.ParseFloat(output[match[2]:match[3]], 64)
+				code, _ := strconv.Atoi(output[match[4]:match[5]])
+				walls = append(walls, time.Duration(seconds*float64(time.Second)))
 				exits = append(exits, code)
+				end := len(output)
+				if index+1 < len(chunks) {
+					end = chunks[index+1][0]
+				}
+				outputs = append(outputs, output[match[0]:end])
 			}
 			head := output
 			if len(head) > 300 {
@@ -460,14 +499,17 @@ func readCodexSession(path string) (agentSession, error) {
 				session.calls = append(session.calls, toolCall{errored: errored, output: limitText(output), at: started.at, duration: duration, exit: -1})
 				continue
 			}
-			share := duration / time.Duration(len(started.commands))
-			for index, command := range started.commands {
-				exit := -1
-				if len(exits) == len(started.commands) {
-					exit = exits[index]
+			// One exit code per command makes each command its own outcome;
+			// otherwise the script is one call whose outcome covers them all.
+			// Commands of one script share its duration, which is not divided.
+			if len(exits) == len(started.commands) {
+				for index, command := range started.commands {
+					session.calls = append(session.calls, toolCall{commands: []string{command}, exit: exits[index], errored: errored || exits[index] > 0, output: limitText(outputs[index]), at: started.at, duration: walls[index]})
 				}
-				session.calls = append(session.calls, toolCall{commands: []string{command}, exit: exit, errored: errored || exit > 0, output: limitText(output), at: started.at, duration: share})
+				continue
 			}
+			exit := -1
+			session.calls = append(session.calls, toolCall{commands: started.commands, exit: exit, errored: errored || exit > 0, output: limitText(output), at: started.at, duration: duration})
 		}
 	}
 	return session, scanner.Err()

@@ -116,12 +116,16 @@ func (c *runConsole) RebuildDetected(paths []string) {
 func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 	if c.json && err != nil {
 		diagnostic := cliErrorDiagnostic(err)
-		c.Event("build.error", map[string]any{
+		failure := map[string]any{
 			"stage":      "initial",
 			"error":      err.Error(),
 			"diagnostic": diagnostic,
 			"exit_code":  cliExitCode(err),
-		})
+		}
+		if operation := devBuildFailureOperation(err); operation != "" {
+			failure["operation_id"] = operation
+		}
+		c.Event("build.error", failure)
 		data := runURLData(urls, c.verbose)
 		data["stage"] = "initial"
 		data["error"] = err.Error()
@@ -139,10 +143,16 @@ func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 
 func (c *runConsole) RebuildFailed(err error) {
 	if c.json && err != nil {
-		c.Event("build.error", map[string]any{
-			"stage": "rebuild",
-			"error": err.Error(),
-		})
+		failure := map[string]any{
+			"stage":      "rebuild",
+			"error":      err.Error(),
+			"diagnostic": cliErrorDiagnostic(err),
+			"exit_code":  cliExitCode(err),
+		}
+		if operation := devBuildFailureOperation(err); operation != "" {
+			failure["operation_id"] = operation
+		}
+		c.Event("build.error", failure)
 		return
 	}
 	c.printError("rebuild failed", err)

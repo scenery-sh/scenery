@@ -62,12 +62,13 @@ type Finding struct {
 }
 
 // Timing summarizes durations in milliseconds: every attempt is counted, and
-// the nearest-rank percentiles describe the successful ones.
+// the nearest-rank percentiles describe the successful ones. A percentile is
+// null when no attempt succeeded.
 type Timing struct {
-	Count        int   `json:"count"`
-	FailureCount int   `json:"failure_count"`
-	P50MS        int64 `json:"p50_ms"`
-	P95MS        int64 `json:"p95_ms"`
+	Count        int    `json:"count"`
+	FailureCount int    `json:"failure_count"`
+	P50MS        *int64 `json:"p50_ms"`
+	P95MS        *int64 `json:"p95_ms"`
 }
 
 type timingAccumulator struct {
@@ -85,20 +86,31 @@ func (a *timingAccumulator) add(durationMS int64, ok bool) {
 }
 
 func (a *timingAccumulator) timing() Timing {
-	return Timing{Count: a.count, FailureCount: a.failures, P50MS: percentile(a.durations, 0.50), P95MS: percentile(a.durations, 0.95)}
+	return Timing{Count: a.count, FailureCount: a.failures, P50MS: percentile(a.durations, 50), P95MS: percentile(a.durations, 95)}
 }
 
-func percentile(values []int64, q float64) int64 {
+// percentile returns the nearest-rank p-th percentile: the smallest value
+// with at least p percent of the values at or below it, or nil without values.
+func percentile(values []int64, p int) *int64 {
 	if len(values) == 0 {
-		return 0
+		return nil
 	}
 	sorted := append([]int64(nil), values...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	index := int(q * float64(len(sorted)))
-	if index >= len(sorted) {
-		index = len(sorted) - 1
+	rank := (p*len(sorted) + 99) / 100
+	if rank < 1 {
+		rank = 1
 	}
-	return sorted[index]
+	value := sorted[rank-1]
+	return &value
+}
+
+// ms reads an optional percentile, -1 when it is unavailable.
+func ms(value *int64) int64 {
+	if value == nil {
+		return -1
+	}
+	return *value
 }
 
 // Count names a value and how often it occurred.

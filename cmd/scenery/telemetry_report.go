@@ -70,7 +70,8 @@ func telemetryReportBuildOptions(opts telemetryReportOptions, telemetryPath, age
 // with its subcommands, so an agent's shell command counts as a Scenery
 // invocation only when it names a real command.
 func telemetryReportCommandFamilies() map[string][]string {
-	families := map[string][]string{}
+	// help and version answer without a command entry of their own.
+	families := map[string][]string{"help": nil, "version": nil}
 	for _, command := range helpCommands {
 		words := strings.Fields(command.Command)
 		if len(words) == 0 {
@@ -118,14 +119,16 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		}
 		_ = w.Flush()
 	}
-	ms := func(value int64) string {
+	ms := func(value *int64) string {
 		switch {
-		case value >= 10_000:
-			return fmt.Sprintf("%.1fs", float64(value)/1000)
-		case value >= 1000:
-			return fmt.Sprintf("%.2fs", float64(value)/1000)
+		case value == nil:
+			return "-"
+		case *value >= 10_000:
+			return fmt.Sprintf("%.1fs", float64(*value)/1000)
+		case *value >= 1000:
+			return fmt.Sprintf("%.2fs", float64(*value)/1000)
 		}
-		return fmt.Sprintf("%dms", value)
+		return fmt.Sprintf("%dms", *value)
 	}
 	timing := func(name string, t telemetryreport.Timing) []string {
 		return []string{name, fmt.Sprint(t.Count), fmt.Sprintf("failed %d", t.FailureCount), "p50 " + ms(t.P50MS), "p95 " + ms(t.P95MS)}
@@ -175,13 +178,14 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 	table(rows)
 	if agents := report.Agents; agents != nil {
 		line("")
-		line("Agents: %d tool calls, %d errors; %d Scenery calls, %d failed", agents.ToolCalls, agents.ToolErrors, agents.SceneryCalls, agents.SceneryFailed)
+		line("Agents: %d tool calls, %d errors; %d shell commands ran Scenery (%d invocations), %d failed", agents.ToolCalls, agents.ToolErrors, agents.SceneryCommands, agents.SceneryInvocations, agents.SceneryFailed)
 		rows = nil
 		for index, command := range agents.Commands {
 			if index == 10 {
 				break
 			}
-			rows = append(rows, []string{command.Command, fmt.Sprint(command.Count), fmt.Sprintf("failed %d", command.FailureCount), "waited " + ms(command.WallTimeMS), "p50 " + ms(command.P50MS)})
+			wall := command.WallTimeMS
+			rows = append(rows, []string{command.Command, fmt.Sprint(command.Count), fmt.Sprintf("attributable %d", command.Attributable), fmt.Sprintf("failed %d", command.FailureCount), "waited " + ms(&wall), "p50 " + ms(command.P50MS)})
 		}
 		table(rows)
 		for _, class := range agents.FailureClasses {
