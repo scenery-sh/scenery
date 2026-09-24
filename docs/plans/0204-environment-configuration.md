@@ -101,6 +101,8 @@ All decisions below were recorded on 2026-09-24 by the plan author from the agre
 
 **D10 — Explicit mutation context.** `config set`, `config unset`, and deployment require an explicit environment. Reads default to `local`. Existing explicitly selected non-deployable environments remain supported. No `env use`, default write target, `--scope`, or per-write `--target` is introduced.
 
+**D11 — Shared configuration, identical starting fixtures, independent working data.** Removing dotenv changes only how configured values reach a worktree; it does not change how demo data reaches it. Configured environment values are shared across worktrees (D2). Demo projects, scenes and catalog records come from the application's versioned fixture bundle at the checked-out commit, restored into each new worktree's own isolated database and object storage. Edits, captures, simulation results and uploads made afterward belong to that worktree and are never synchronized elsewhere. The application owns which records and assets make up its demo (ONLV: `development/presets/small/` and `development/prepare.ts`); Scenery owns only the generic database/storage restore and isolation mechanisms, and does not learn solar projects or scene registration. No fixture scopes, fixture configuration layers, or copying from the main checkout's live data are introduced. A new demo scene reaches other worktrees only through a deliberately reviewed fixture revision that contains its records and every referenced asset; worktrees prepared afterward from that commit receive it, and existing worktrees keep their data. Content-addressed asset caching with copy-on-write materialization may later reduce disk use behind the same command. It is not a prerequisite for this plan, and writable scene directories are never shared between worktrees.
+
 ## Outcomes & Retrospective
 
 Not yet completed. Record implemented behavior, removed paths, exact checked revisions, acceptance artifacts, operator migrations, and remaining blocked proof here. Do not mark the plan complete merely because tests compile or one local weather-pack example works.
@@ -301,6 +303,8 @@ Migrate every remaining inventory row, including maps/weather/AI/provider client
 
 Remove Just's dotenv setting and all shell sourcing/copying of `.env` from worktree/bootstrap scripts. Worktree setup only prepares the existing runtime fixture and sees shared environment configuration. Do not create config clones or symlinks between checkouts.
 
+Preserve the fixture workflow under D11. `just worktree <name>` remains the complete ONLV setup command: `development/worktree.ts` calls `scenery worktree create`, then runs `development/prepare.ts` in the new checkout. Preparation keeps its current guarantees: it verifies the preset's asset and snapshot checksums, materializes independent filesystem files, restores the coordinated database and object-storage snapshot into the worktree's own resources, starts the runtime, and ensures the development project and scene are registered. It keeps skipping restoration for a `ready` fixture marker, refusing a marker from a different preset revision, and refusing to overwrite filesystem assets or stored objects whose bytes differ from the preset. Migrate only its configuration inputs; do not move fixture content into Scenery configuration or add a fixture-refresh path in this plan. Updating an existing worktree to a newer preset revision stays an explicit, non-destructive operator action outside `prepare.ts`.
+
 For frontends, disable dotenv at every participating layer. Current Vite documents `envDir: false`; current Bun documents `--no-env-file` and `env = false` in `bunfig.toml`. Verify support in the repository's pinned versions before using those forms, and make the narrow required version update if absent. Cover nested `bun run`, direct tests, Vite dev/build, and desktop builds; setting only Vite's option is not sufficient if Bun already populated the process. [E1, E2]
 
 Replace application `VITE_*`/`import.meta.env` settings with a generated typed public configuration projection. Expose only explicitly public, recursively non-sensitive inputs. Serve deployment values through the existing frontend/bootstrap mechanism as a small revision-pinned JSON response or JSON script asset, not compiled string substitutions. This permits config-only deploy without rebuilding bundles. Use safe serialization, existing base paths/CSP behavior, and explicit cache invalidation by revision. Never expose host paths or arbitrary environment entries by default. Built-in compiler constants such as development/production mode may remain toolchain concerns, not application input APIs.
@@ -309,7 +313,7 @@ Shared library code accepts config objects rather than adding global `getConfig(
 
 Update ONLV to the exact approved Scenery change through its established wrapper and pin workflow. During co-development, use the supported local-source selection and do not commit a local module replacement. If the required framework commit is not published, record the dependency blocker; do not invent a version or claim a released pin was tested. Regenerate contracts and declared TypeScript clients rather than hand-editing generated output.
 
-**Exit proof:** two test-owned ONLV worktrees start without dotenv, read the same weather setting, retain distinct data/runtime identities, and expose no secrets to browser assets. All inventory consumers have migrated; existing local/devtools/all selection still works without cross-environment fallback.
+**Exit proof:** two test-owned ONLV worktrees start without dotenv, read the same weather setting, retain distinct data/runtime identities, and expose no secrets to browser assets. All inventory consumers have migrated; existing local/devtools/all selection still works without cross-environment fallback. The fixture scenario in the ONLV integration loop passes.
 
 ### M6 — One-time conversion, deletion, and enforcement
 
@@ -416,6 +420,14 @@ Run the exact selected profiles from that output on final inputs and record any 
 
 Run `just smoke` only inside a prepared test-owned ONLV fixture, after updating that fixture to the new config bootstrap. It must exercise authenticated persistence and restart under the new producer. Do not point it at the personal checkout or production data. [R9]
 
+Prove the D11 fixture rule with the real application, using test-owned worktrees only:
+
+1. Create two fresh worktrees with `just worktree <name>`; neither may receive a copied or symlinked `.env`.
+2. In both, load the `small` preset's development project and scene through the served application (browser or authenticated API), not only through database queries.
+3. In one worktree, edit and delete fixture data: change a project record, delete a scene object, and add an upload. Verify that the other worktree still serves the unchanged fixture and that `development/presets/small/` is byte-identical to the commit (`git status --short` is clean and `snapshot.json` checksums still verify).
+4. Stop and restart the edited worktree's runtime, then rerun `bun development/prepare.ts` there. The rerun must resume without restoring the snapshot or resetting the user's edits, deletions or uploads.
+5. Record the sanitized database, storage, origin and runtime identities of both worktrees in the evidence, and clean only resources whose test ownership was verified.
+
 ### Test-owned behavioral transcript
 
 Create a dedicated fixture application with a unique stable test app ID and two worktrees using the existing fixture/worktree provisioning helper. Do not introduce a product `--scope` or temporary config-home env knob for this test. Invoke the worktree-local harness binary or ONLV wrapper appropriate to the fixture.
@@ -446,6 +458,7 @@ Start the second worktree through its own root. Change the setting once from eit
 | Secret lifecycle | Creation/publication interruption, locked store, denied access, rotation, rollback pins, and collection are correct. |
 | Runtime changes | Only relevant consumers restart; no compiler/linker/generator invocation for value-only changes with a current catalog/build. |
 | Capability ownership | Shared configuration cannot redirect a worktree onto another worktree's retained mutable resources. |
+| Fixtures | Fresh worktrees start from the identical pinned preset; edits in one leave the other and the committed preset unchanged; restart plus rerun of preparation resumes without resetting user changes. |
 | Legacy env | Poisoned old env names and dotenv files do not change configured values or browser content. |
 | Frontend | Bun/Just/Vite/desktop paths cannot load application dotenv; only typed public projection is delivered. |
 | Remote authority | Target outage fails explicitly; no local fallback or secret-cache authority. |
@@ -504,6 +517,8 @@ Reboot and supervisor/framework handoff use active pinned receipts. Keep candida
 For the old remote checkout relocation, require an ownership/data inventory and recoverable backup before any approved move. Record the previous producer and root identity. Restore with the owning migration/runbook mechanisms; never delete registry state, adopt a different database, or fake revision metadata to make startup pass.
 
 Migration can be previewed repeatedly. Applying an already migrated value is either a no-op or an explicit conflict, never a reason to overwrite a newer environment blindly. Old user files remain untouched until separately authorized archival/deletion. The runtime never falls back to them during recovery.
+
+Fixture preparation is idempotent per worktree: a `ready` marker skips restoration, and an interrupted preparation resumes from its marker without overwriting assets or objects whose bytes differ from the preset. Configuration changes never trigger fixture restoration, and fixture restoration never writes configured values.
 
 ## Artifacts and Notes
 
