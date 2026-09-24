@@ -67,7 +67,7 @@ Update this section at each meaningful stopping point. Replace planning timestam
 - 2026-09-24: the three committed fixture apps under `testdata/apps/` carry placeholder `.env` files; they are dead inputs removed in M6.
 - 2026-09-24: after ONLV adopted `93bd4b89d0a5` with a configured `auth.jwt_secret`, every authenticated call returned 401 and Google sign-in reported "not configured": the process-model host, which serves standard authentication, received no snapshot, so it signed tokens with the local default secret while service processes verified them with the configured one. The host is now its own configuration consumer (`host`) carrying the auth and public values; a change it consumes starts a new generation while services with unchanged configuration keep running. Proven on a test-owned ONLV fixture: after `config set` of the JWT secret and Google client, an authenticated project list returned 200 and Google start redirected with the new client id.
 - 2026-09-24: the `auth` release probe still configured standard auth through the removed `JWT_SECRET`/`GOOGLE_OAUTH_*`/`AUTH_TOKEN_CIPHER_KEY` variables and failed every case after the merge with main. `scripts/verify/testdata/authprobe` now delivers a configuration snapshot on an inherited pipe, as the supervisor does; `--probe auth` passes.
-- 2026-09-24: D14 broke worktree probe row A13 without anyone noticing. The row still passed the provider worktree's DSN to two further worktrees as an inherited `DATABASE_URL`, which the CLI now drops at startup, so both started with managed databases of their own and failed `persisted title and borrower`. The failure stayed hidden because `--probe worktree` could not reach A13 on `main`: row A1 fails on the stale `testdata/apps/worktree-postgres` fixture, whose `go.mod` plan 0206 (scenery-sh/scenery#224, still open) repairs and whose committed TypeScript client is also stale for `main`'s specification revision (see Artifacts). A13 now follows D14 (D17).
+- 2026-09-24: D14 broke worktree probe row A13 without anyone noticing. The row still passed the provider worktree's DSN to two further worktrees as an inherited `DATABASE_URL`, which the CLI now drops at startup, so both started with managed databases of their own and failed `persisted title and borrower`. The failure stayed hidden because `--probe worktree` could not reach A13 on `main`: row A1 failed on the stale `testdata/apps/worktree-postgres` fixture, whose `go.mod` and committed TypeScript client plan 0206 (scenery-sh/scenery#224) refreshed. A13 now follows D14 (D17).
 
 1. Scenery already derives typed service configuration from package inputs in `internal/compiler/go_config.go`. Sensitive Go configuration is required to use `resource_ref("secret")`; inventing a parallel `secret_string` model would duplicate an existing contract. Reuse and complete that contract. [R3]
 
@@ -685,6 +685,10 @@ because plan 0206 commits its own regeneration.
 - After both runs no Keychain item of the fixture's configuration service
   remained, and neither run left containers or volumes. The first run's
   failed A1 had allocated no cluster; its retained probe root was removed.
+- After #224 and #229 merged, the branch merged `main` `f699866c` and the
+  same command ran without any local change: the worktree step passed in
+  243 s with all 18 rows (A1–A17 and A19) ok, the same cleanup, and no
+  Keychain item, container or volume left behind.
 
 ### M5 ONLV validation (2026-09-24)
 
