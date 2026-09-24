@@ -3,6 +3,7 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,5 +45,30 @@ func TestFrameworkSnapshotIsContentBoundAndIndependent(t *testing.T) {
 	writeBuildTestFile(t, target, "runtime/contract.json", `{"contract":"tampered"}`)
 	if err := materializeFrameworkSource(before, target); err == nil {
 		t.Fatal("mutated retained snapshot was accepted by its content-addressed path")
+	}
+}
+
+func TestFrameworkProducerLinkerFlagsStampDigestAndSourceRoot(t *testing.T) {
+	t.Parallel()
+	digest := "sha256:" + strings.Repeat("ab", 32)
+	flags, err := FrameworkProducerLinkerFlags(digest, "/opt/app/.scenery/framework/source/abc/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-X=scenery.sh/internal/build.linkedFrameworkDigest=" + digest + " -X=scenery.sh/internal/app.linkedRepoRoot=/opt/app/.scenery/framework/source/abc"
+	if flags != want {
+		t.Fatalf("flags = %q, want %q", flags, want)
+	}
+	spaced, err := FrameworkProducerLinkerFlags(digest, "/Users/dev/My Apps/shop")
+	if err != nil || !strings.HasSuffix(spaced, " '-X=scenery.sh/internal/app.linkedRepoRoot=/Users/dev/My Apps/shop'") {
+		t.Fatalf("root with spaces = %q, %v", spaced, err)
+	}
+	for _, root := range []string{"", "relative/root", "/root\nwith/newline", "/root'quoted", "/root\"quoted"} {
+		if _, err := FrameworkProducerLinkerFlags(digest, root); err == nil {
+			t.Errorf("source root %q was accepted", root)
+		}
+	}
+	if _, err := FrameworkProducerLinkerFlags("sha256:short", "/opt/app"); err == nil {
+		t.Error("invalid digest was accepted")
 	}
 }

@@ -878,7 +878,23 @@ func appendJSONIndex(path []string, index int) []string {
 	return next
 }
 
+// linkedRepoRoot names the Scenery source root a producer was compiled from.
+// Framework producers and the repository harness binary set it through the
+// linker (internal/build.FrameworkProducerLinkerFlags): a -trimpath build
+// reports module-relative runtime.Caller paths, which name no directory.
+var linkedRepoRoot string
+
+// RepoRoot returns the Scenery source root this executable was compiled from:
+// the linked root when the producer recorded one, otherwise the directory
+// derived from this file's absolute compile-time path. It is empty for a
+// -trimpath build that recorded no root.
 func RepoRoot() string {
-	_, file, _, _ := goruntime.Caller(0)
+	if linkedRepoRoot != "" {
+		return filepath.Clean(linkedRepoRoot)
+	}
+	_, file, _, ok := goruntime.Caller(0)
+	if !ok || !filepath.IsAbs(file) {
+		return ""
+	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }

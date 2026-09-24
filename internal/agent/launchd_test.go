@@ -69,6 +69,8 @@ func TestAgentLaunchdPlistPinsSupervisedInvocation(t *testing.T) {
 		"<string>--router-listen</string>",
 		"<string>127.0.0.1:9440</string>",
 		"<string>--router-http</string>",
+		// --supervised enables start failure containment.
+		"<string>--supervised</string>",
 		"<key>RunAtLoad</key>",
 		"<key>KeepAlive</key>",
 		// Interactive + a short throttle keep launchd respawning a killed

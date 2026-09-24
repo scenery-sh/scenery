@@ -68,7 +68,11 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		if err != nil {
 			return nil, err
 		}
-		return newRuntimeStatus(status), nil
+		result := newRuntimeStatus(status)
+		if result.Observability != nil {
+			result.Observability.Export = s.telemetry.counts()
+		}
+		return result, nil
 	case "traces/clear":
 		var params struct {
 			AppID string `json:"app_id"`
@@ -174,11 +178,19 @@ type runtimeServiceProcess struct {
 }
 
 type runtimeObservability struct {
-	Enabled bool          `json:"enabled"`
-	Message string        `json:"message,omitempty"`
-	Metrics runtimeSignal `json:"metrics"`
-	Logs    runtimeSignal `json:"logs"`
-	Traces  runtimeSignal `json:"traces"`
+	Enabled bool                   `json:"enabled"`
+	Message string                 `json:"message,omitempty"`
+	Metrics runtimeSignal          `json:"metrics"`
+	Logs    runtimeSignal          `json:"logs"`
+	Traces  runtimeSignal          `json:"traces"`
+	Export  runtimeTelemetryExport `json:"export"`
+}
+
+// runtimeTelemetryExport counts the telemetry this runtime did not deliver to
+// the observability backend.
+type runtimeTelemetryExport struct {
+	Dropped uint64 `json:"dropped"`
+	Failed  uint64 `json:"failed"`
 }
 
 type runtimeSignal struct {

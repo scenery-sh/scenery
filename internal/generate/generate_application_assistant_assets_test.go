@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"go/ast"
+	"go/build"
 	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -104,10 +106,25 @@ func TestRenderAssistantAssetRegistryGeneratedPackageTypeChecksInProcess(t *test
 	if err != nil {
 		t.Fatalf("parse generated asset package: %v", err)
 	}
-	config := types.Config{Importer: importer.Default()}
+	config := types.Config{Importer: standardLibraryImporter(t)}
 	if _, err := config.Check("clean.tech/internal/scenerygen/assets", fset, []*ast.File{file}, nil); err != nil {
 		t.Fatalf("type-check generated asset package: %v", err)
 	}
+}
+
+// standardLibraryImporter returns the gc importer with a usable GOROOT. A
+// -trimpath test binary records no GOROOT, so the standard library that the
+// generated package imports is located through the go command instead.
+func standardLibraryImporter(t *testing.T) types.Importer {
+	t.Helper()
+	if build.Default.GOROOT == "" {
+		output, err := exec.Command("go", "env", "GOROOT").Output()
+		if err != nil {
+			t.Fatalf("go env GOROOT: %v", err)
+		}
+		build.Default.GOROOT = strings.TrimSpace(string(output))
+	}
+	return importer.Default()
 }
 
 func testAssistantAssetDescriptor(address, target string, node, capsule runtimeassets.Archive) AssistantAssetDescriptor {

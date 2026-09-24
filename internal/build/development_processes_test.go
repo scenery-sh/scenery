@@ -311,3 +311,20 @@ func TestDevelopmentProcessEntrypointsAreFoundThroughALinkedWorkspace(t *testing
 		}
 	}
 }
+
+func TestDevelopmentProcessBuildArgsTrimPathsByDefault(t *testing.T) {
+	pending := []*DevelopmentProcess{
+		{Name: "host", Package: "./scenery_internal_processes/host", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i", BuildInputDigest: "b", GoTarget: "development"}},
+	}
+	args := developmentProcessBuildArgs(nil, "/out", pending)
+	if len(args) < 2 || args[0] != "build" || args[1] != "-trimpath" {
+		t.Fatalf("default build arguments do not trim paths first: %q", args)
+	}
+	if count := strings.Count(" "+strings.Join(args, " ")+" ", " -trimpath "); count != 1 {
+		t.Fatalf("-trimpath appears %d times: %q", count, args)
+	}
+	args = developmentProcessBuildArgs([]string{"-trimpath=false"}, "/out", pending)
+	if slices.Contains(args, "-trimpath") || !slices.Contains(args, "-trimpath=false") {
+		t.Fatalf("configured -trimpath=false was not kept alone: %q", args)
+	}
+}

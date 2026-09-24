@@ -74,11 +74,23 @@ func FrameworkSourceManifest(root string) (FrameworkSource, error) {
 	return FrameworkSource{Root: canonical, Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)), Inputs: manifest}, nil
 }
 
-func FrameworkProducerLinkerFlags(sourceDigest string) (string, error) {
+// FrameworkProducerLinkerFlags stamps a producer with the digest of the
+// framework source it is compiled from and with that source's root. The root
+// lets a -trimpath producer, whose runtime.Caller paths are module-relative,
+// find its own source again; a root containing spaces is quoted for the Go
+// command's -ldflags splitting.
+func FrameworkProducerLinkerFlags(sourceDigest, sourceRoot string) (string, error) {
 	if !validFrameworkDigest(sourceDigest) {
 		return "", fmt.Errorf("framework source digest is invalid")
 	}
-	return "-X=scenery.sh/internal/build.linkedFrameworkDigest=" + sourceDigest, nil
+	if !filepath.IsAbs(sourceRoot) || strings.ContainsAny(sourceRoot, "\t\r\n\"'") {
+		return "", fmt.Errorf("framework source root must be an absolute path without quotes or line breaks: %q", sourceRoot)
+	}
+	root := "-X=scenery.sh/internal/app.linkedRepoRoot=" + filepath.Clean(sourceRoot)
+	if strings.Contains(root, " ") {
+		root = "'" + root + "'"
+	}
+	return "-X=scenery.sh/internal/build.linkedFrameworkDigest=" + sourceDigest + " " + root, nil
 }
 
 func validFrameworkDigest(value string) bool {
@@ -95,7 +107,11 @@ func VerifyFrameworkProducer() (FrameworkSource, error) {
 	if linkedFrameworkDigest == "" {
 		return FrameworkSource{}, fmt.Errorf("scenery CLI has no content-bound framework producer; run scenery framework use to prepare a matching local executable, or build the repository through scripts/verify")
 	}
-	source, err := FrameworkSourceManifest(app.RepoRoot())
+	root := app.RepoRoot()
+	if root == "" {
+		return FrameworkSource{}, fmt.Errorf("scenery CLI records no framework source root; run scenery framework use to prepare a matching local executable, or build the repository through scripts/verify")
+	}
+	source, err := FrameworkSourceManifest(root)
 	if err != nil {
 		return FrameworkSource{}, err
 	}

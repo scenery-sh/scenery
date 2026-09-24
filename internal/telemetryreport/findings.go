@@ -73,9 +73,31 @@ func findings(report Report) []Finding {
 			}
 			add(severityWarning, "agents.invalid_invocations", "Agents ran %d shell commands Scenery refused as malformed (of %d that ran Scenery); most rejected: %s.", invalid, agents.SceneryCommands, emptyAs(strings.Join(inputs, ", "), "not recorded"))
 		}
-		if percent(agents.SceneryFailed, agents.SceneryCommands) >= 10 {
-			add(severityWarning, "agents.scenery_failures", "%d%% of agent shell commands that ran Scenery failed (%d of %d).", percent(agents.SceneryFailed, agents.SceneryCommands), agents.SceneryFailed, agents.SceneryCommands)
+		// Only an attributable shell command's outcome is Scenery's own.
+		if agents.SceneryAttributable >= 20 && percent(agents.SceneryAttributableFailed, agents.SceneryAttributable) >= 10 {
+			add(severityWarning, "agents.scenery_failures", "%d%% of agent Scenery commands whose outcome was their own failed (%d of %d).",
+				percent(agents.SceneryAttributableFailed, agents.SceneryAttributable), agents.SceneryAttributableFailed, agents.SceneryAttributable)
 		}
+		if agents.SceneryAttributable*2 < agents.SceneryCommands {
+			add(severityInfo, "agents.unattributable", "Only %d of %d agent shell commands that ran Scenery recorded Scenery's own outcome; the others piped or chained it with other commands, whose status the shell reported instead, or recorded no outcome (%d), so transcripts cannot tell their Scenery failures or time.",
+				agents.SceneryAttributable, agents.SceneryCommands, agents.SceneryOutcomeUnknown)
+		}
+	}
+	sources := report.Sources
+	incomplete := sources.SupervisorLogsFailed + sources.SupervisorLogsPartial
+	skipped := sources.SupervisorInvalid
+	if transcripts := sources.Transcripts; transcripts != nil {
+		incomplete += transcripts.Failed + transcripts.Partial
+		skipped += transcripts.InvalidRecords + transcripts.OversizedRecords
+	}
+	if incomplete > 0 {
+		add(severityWarning, "sources.incomplete", "%d source files could not be read or were read only in part (see sources); failures they hold are missing from this report.", incomplete)
+	}
+	if skipped > 0 {
+		add(severityInfo, "sources.skipped_records", "%d records of the read sources did not decode or were too long and were skipped.", skipped)
+	}
+	if report.Builds.UnmatchedErrors > 0 {
+		add(severityInfo, "builds.unmatched_errors", "%d build errors name an operation no build request in the window has; they are charged to no build.", report.Builds.UnmatchedErrors)
 	}
 	if rebuilds := report.Builds.Rebuilds; rebuilds.Count > rebuilds.FailureCount {
 		add(severityInfo, "builds.rebuild_latency", "Successful rebuilds took p50 %s, p95 %s from build start to published generation over %d rebuilds; the time from saving a file to the first answer of the new generation is not recorded.",

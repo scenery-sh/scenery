@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0207-telemetry-containment-and-evidence.md",
+      "title": "Telemetry Containment And Trustworthy Evidence",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Makes local agent start failure containment hold after upgrades and storage failures, separates attempts, shell outcomes and Scenery's own outcomes in the telemetry report with source coverage and streaming, and bounds report intake and export with counts in the dev-runtime status.",
+      "tags": ["plans", "execplans", "runtime", "telemetry", "diagnostics"]
+    },
+    {
       "path": "docs/plans/0206-development-runtime-rpc-bounds.md",
       "title": "Bounded Development Runtime RPC Execution",
       "owner": "scenery runtime",

@@ -17,6 +17,10 @@ Own Go syntax, type and package loading for constructor and handler ABI checks.
   nothing.
 - Compiler tests must not import this loader. Preserve the separation between
   graph compilation and implementation analysis.
+- Type loading compiles export data through the go command with the target's
+  hermetic environment and `gotarget.WithTrimpath` build flags, the same flags
+  Scenery-owned compilation passes, so analysis and build share one Go build
+  cache entry per package instead of a path-bound second copy.
 
 ## Work Guidance
 

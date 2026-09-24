@@ -102,24 +102,34 @@ func agentCommand(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	containment := localagent.NewStartContainment(agentIncidentPaths(opts), agentExecutableIdentity())
+	if opts.Supervised {
+		return runSupervisedAgent(ctx, opts, containment, startAgentServer, os.Stderr)
+	}
 	run, err := startAgentServer(ctx, opts)
 	if err != nil {
-		return containAgentStartFailure(ctx, opts, err)
+		// An unsupervised start reports its failure; the incident only
+		// informs doctor and ps.
+		_, _ = containment.Record(err, time.Now())
+		return err
 	}
 	return run()
 }
 
-// startAgentServer starts the agent's listeners and returns the function that
-// serves until ctx ends. A start that succeeded ends the start incident.
+// startAgentServer runs the agent's start phase: it binds the listeners,
+// starts the runtime backend and publishes the agent state, then returns the
+// function that serves until ctx ends. Every failure of the phase, including
+// a state write, returns here, where a supervised agent contains it; only a
+// complete start ends the start incident.
 func startAgentServer(ctx context.Context, opts agentOptions) (func() error, error) {
 	if err := reapStaleAgentRouterOwner(opts); err != nil {
 		return nil, err
 	}
+	paths, err := commandAgentPaths()
+	if err != nil {
+		return nil, err
+	}
 	if opts.JSON {
-		paths, err := commandAgentPaths()
-		if err != nil {
-			return nil, err
-		}
 		if opts.SocketPath != "" {
 			paths.SocketPath = opts.SocketPath
 		}
@@ -135,6 +145,7 @@ func startAgentServer(ctx context.Context, opts agentOptions) (func() error, err
 		return nil, err
 	}
 	server, err := localagent.NewServer(localagent.RunOptions{
+		Home:         paths.Home,
 		SocketPath:   opts.SocketPath,
 		RouterAddr:   opts.RouterAddr,
 		RouterTLS:    opts.effectiveRouterTLS(),
@@ -154,8 +165,13 @@ func startAgentServer(ctx context.Context, opts agentOptions) (func() error, err
 		_ = server.Close()
 		return nil, err
 	}
-	if paths, err := agentIncidentPaths(opts); err == nil {
-		_ = localagent.ClearStartIncident(paths)
+	if err := server.PublishState(); err != nil {
+		_ = dashboard.Close()
+		_ = server.Close()
+		return nil, err
+	}
+	if err := localagent.ClearStartIncident(agentIncidentPaths(opts)); err != nil {
+		fmt.Fprintf(os.Stderr, "scenery agent: started, but could not end the start incident: %v\n", err)
 	}
 	return func() error {
 		defer func() { _ = dashboard.Close() }()
@@ -163,15 +179,18 @@ func startAgentServer(ctx context.Context, opts agentOptions) (func() error, err
 	}, nil
 }
 
-func agentIncidentPaths(opts agentOptions) (localagent.Paths, error) {
+// agentIncidentPaths resolves the agent home that holds the start incident.
+// An unresolvable home yields empty paths: the incident then cannot be
+// recorded, which never weakens containment.
+func agentIncidentPaths(opts agentOptions) localagent.Paths {
 	paths, err := commandAgentPaths()
 	if err != nil {
-		return localagent.Paths{}, err
+		return localagent.Paths{}
 	}
 	if opts.SocketPath != "" {
 		paths.SocketPath = filepath.Clean(opts.SocketPath)
 	}
-	return paths, nil
+	return paths
 }
 
 // agentExecutableIdentity names the executable whose starts form one incident:
@@ -187,41 +206,48 @@ func agentExecutableIdentity() string {
 	return cliBuildIdentity().String() + " " + exe
 }
 
-// containAgentStartFailure records a failed start in the agent's start
-// incident. An unsupervised start reports the failure as before. A supervised
-// start, which launchd or systemd restarts whenever the process ends, must
-// not turn one persistent failure into an endless restart loop: a transient
-// failure waits a growing delay before the process exits for another attempt,
-// and a persistent failure, or a transient one that exhausted its attempts,
-// keeps the process alive idle, holding nothing, until an explicit restart.
-func containAgentStartFailure(ctx context.Context, opts agentOptions, startErr error) error {
-	paths, err := agentIncidentPaths(opts)
-	if err != nil {
-		return startErr
-	}
-	decision, recordErr := localagent.RecordStartFailure(paths, agentExecutableIdentity(), startErr, time.Now())
-	if !opts.Supervised {
-		return startErr
-	}
-	incident := decision.Incident
-	if recordErr != nil {
-		fmt.Fprintf(os.Stderr, "scenery agent: could not record the start incident: %v\n", recordErr)
-	}
-	if decision.Blocked {
-		fmt.Fprintf(os.Stderr, "scenery agent: start blocked after %d attempt(s) since %s (%s): %v; fix the cause, then run scenery system agent restart\n",
-			incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, startErr)
-		<-ctx.Done()
-		return nil
-	}
-	fmt.Fprintf(os.Stderr, "scenery agent: start attempt %d failed (%s); the next attempt follows in %s: %v\n", incident.Attempts, incident.Class, decision.Delay, startErr)
-	timer := time.NewTimer(decision.Delay)
+// agentStartRetryWait waits out a retry delay; false means the agent is
+// stopping.
+var agentStartRetryWait = func(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return nil
+		return false
 	case <-timer.C:
+		return true
 	}
-	return startErr
+}
+
+// runSupervisedAgent starts the agent that launchd or systemd supervises.
+// Those supervisors restart the agent whenever its process ends, so a failed
+// start never ends the process: a transient failure is retried in this
+// process after a growing delay, and a persistent failure, or a transient
+// one that exhausted its attempts, keeps the process alive idle, holding
+// nothing, until an explicit restart. The retry count lives in this process,
+// so containment holds even when the start incident cannot be persisted.
+func runSupervisedAgent(ctx context.Context, opts agentOptions, containment *localagent.StartContainment, start func(context.Context, agentOptions) (func() error, error), stderr io.Writer) error {
+	for {
+		run, err := start(ctx, opts)
+		if err == nil {
+			return run()
+		}
+		decision, recordErr := containment.Record(err, time.Now())
+		if recordErr != nil {
+			_, _ = fmt.Fprintf(stderr, "scenery agent: could not record the start incident; this process still bounds its retries: %v\n", recordErr)
+		}
+		incident := decision.Incident
+		if decision.Blocked {
+			_, _ = fmt.Fprintf(stderr, "scenery agent: start blocked after %d attempt(s) since %s (%s): %v; fix the cause, then run scenery system agent restart\n",
+				incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, err)
+			<-ctx.Done()
+			return nil
+		}
+		_, _ = fmt.Fprintf(stderr, "scenery agent: start attempt %d failed (%s); the next attempt follows in %s: %v\n", incident.Attempts, incident.Class, decision.Delay, err)
+		if !agentStartRetryWait(ctx, decision.Delay) {
+			return nil
+		}
+	}
 }
 
 func reapStaleAgentRouterOwner(opts agentOptions) error {
@@ -245,6 +271,7 @@ var (
 	agentSupervisorReloadFunc       = localagent.ReloadAgentLaunchd
 	agentSupervisorBootstrapFunc    = localagent.BootstrapAgentLaunchd
 	agentSupervisorSpawnFailureFunc = localagent.AgentLaunchdSpawnFailure
+	agentSupervisorReconcileFunc    = localagent.ReconcileAgentLaunchd
 )
 
 func agentRestartCommand(args []string) error {
@@ -267,7 +294,7 @@ func agentRestartCommand(args []string) error {
 	defer cancel()
 
 	oldHealth, running := currentAgentHealth(ctx, client)
-	health, supervised, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
+	health, supervised, supervisorUpdated, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
 	if err != nil {
 		return err
 	}
@@ -302,6 +329,9 @@ func agentRestartCommand(args []string) error {
 			"router_addr":   health.RouterAddr,
 			"router_scheme": health.RouterScheme,
 			"supervised":    supervised,
+			// The restart rewrote the supervisor job, taking up the current
+			// agent invocation.
+			"supervisor_updated": supervisorUpdated,
 		}))
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "restarted scenery agent")
@@ -316,17 +346,27 @@ func agentRestartCommand(args []string) error {
 }
 
 // restartAgentViaSupervisor restarts the agent through launchd when the
-// installed supervised plist manages this socket. A loaded job is registered
-// again rather than kickstarted: registration pins the executable's launch
-// constraints, so only a fresh registration can start a reinstalled binary.
+// installed supervised plist manages this socket. The plist is first brought
+// up to the current template, so a job installed by an earlier Scenery takes
+// up the current agent invocation, including start failure containment. A
+// loaded job is then registered again rather than kickstarted: registration
+// reads the plist and pins the executable's launch constraints, so only a
+// fresh registration starts a reinstalled binary with its current job.
 // Launchd owns the stop and start, so the restart cooperates with KeepAlive
 // instead of racing it; a plist that exists but is not loaded is repaired by
 // bootstrapping it. It returns supervised=false when no supervisor owns the
-// socket, leaving the caller on the unsupervised stop/start path.
-func restartAgentViaSupervisor(ctx context.Context, client *localagent.Client, paths localagent.Paths, oldHealth localagent.HealthResponse, running bool) (localagent.HealthResponse, bool, error) {
+// socket, leaving the caller on the unsupervised stop/start path, and
+// updated=true when it rewrote the plist.
+func restartAgentViaSupervisor(ctx context.Context, client *localagent.Client, paths localagent.Paths, oldHealth localagent.HealthResponse, running bool) (health localagent.HealthResponse, supervised, updated bool, err error) {
 	status := agentSupervisorStatusFunc(paths.SocketPath)
 	if !status.Supported || !status.PlistPresent || !status.SupervisesSocket {
-		return localagent.HealthResponse{}, false, nil
+		return localagent.HealthResponse{}, false, false, nil
+	}
+	// Nothing is stopped yet, so a plist that cannot be updated leaves the
+	// running agent in place.
+	updated, err = agentSupervisorReconcileFunc()
+	if err != nil {
+		return localagent.HealthResponse{}, true, false, preconditionErrorf("update the supervised agent job %s before restarting it: %w", status.PlistPath, err)
 	}
 	logOffset := fileSize(paths.LogPath)
 	// A reachable agent that is not the supervisor's own process (an
@@ -335,10 +375,10 @@ func restartAgentViaSupervisor(ctx context.Context, client *localagent.Client, p
 	// closed; stop it first so launchd's process can take ownership.
 	if running && oldHealth.PID > 0 && oldHealth.PID != status.PID {
 		if err := signalAgentPID(oldHealth.PID); err != nil {
-			return localagent.HealthResponse{}, true, fmt.Errorf("stop scenery agent pid %d: %w", oldHealth.PID, err)
+			return localagent.HealthResponse{}, true, updated, fmt.Errorf("stop scenery agent pid %d: %w", oldHealth.PID, err)
 		}
 		if err := waitForAgentStop(ctx, client, oldHealth.PID); err != nil {
-			return localagent.HealthResponse{}, true, err
+			return localagent.HealthResponse{}, true, updated, err
 		}
 	}
 	start := agentSupervisorReloadFunc
@@ -346,13 +386,13 @@ func restartAgentViaSupervisor(ctx context.Context, client *localagent.Client, p
 		start = agentSupervisorBootstrapFunc
 	}
 	if err := start(); err != nil {
-		return localagent.HealthResponse{}, true, supervisedAgentStartError(err, status.PlistPath)
+		return localagent.HealthResponse{}, true, updated, supervisedAgentStartError(err, status.PlistPath)
 	}
-	health, err := waitForAgentStart(ctx, client, oldHealth.PID, paths.LogPath, logOffset)
+	health, err = waitForAgentStart(ctx, client, oldHealth.PID, paths.LogPath, logOffset)
 	if err != nil {
-		return localagent.HealthResponse{}, true, supervisedAgentStartError(err, status.PlistPath)
+		return localagent.HealthResponse{}, true, updated, supervisedAgentStartError(err, status.PlistPath)
 	}
-	return health, true, nil
+	return health, true, updated, nil
 }
 
 // supervisedAgentStartError reports a launchd spawn failure as the failed

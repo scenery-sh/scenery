@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md)
+  - Status: active
+  - Owner: scenery runtime / telemetry
+  - Created: 2026-09-24
+  - Focus: supervisor job upgrades on restart and in-process bounded start retries for the local agent, telemetry report attribution that separates attempts, shell outcomes and Scenery's own outcomes with source coverage and streaming, and bounded report intake and export with counts in the dev-runtime `status`.
+
 - [0206 Bounded Development Runtime RPC Execution](0206-development-runtime-rpc-bounds.md)
   - Status: active
   - Owner: scenery runtime

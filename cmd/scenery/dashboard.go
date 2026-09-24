@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -45,12 +46,15 @@ func dashboardCheckOrigin(req *http.Request) bool {
 }
 
 type dashboardServer struct {
-	controller   dashboardController
-	supervisor   *devSupervisor
-	http         *http.Server
-	addr         string
-	state        dashboardRunState
+	controller dashboardController
+	supervisor *devSupervisor
+	http       *http.Server
+	addr       string
+	state      dashboardRunState
+	// logExporter, when set, receives log events in place of the
+	// observability backend.
 	logExporter  func(*devdash.LogEvent)
+	telemetry    *telemetryExporter
 	openDatabase func(context.Context, string) (*sql.DB, error)
 	rpc          *runtimeRPC
 	connections  runtimeConnections
@@ -154,9 +158,7 @@ func newDashboardServerWithControllerHooks(controller dashboardController, root,
 		rpc:          newRuntimeRPC(defaultRuntimeRPCLimits),
 	}
 	s.logExporter = hooks.exportLogEvent
-	if s.logExporter == nil {
-		s.logExporter = s.exportVictoriaLogEvent
-	}
+	s.telemetry = newTelemetryExporter(s.exportTelemetryBatch)
 	if s.openDatabase == nil {
 		s.openDatabase = openPostgresDashboardDB
 	}
@@ -248,6 +250,7 @@ func (s *dashboardServer) Close() error {
 	// once every handler has.
 	s.connections.closeAll()
 	s.connections.wait()
+	s.telemetry.close()
 	if stateErr := s.state.remove(); stateErr != nil {
 		return errors.Join(err, stateErr)
 	}
@@ -321,6 +324,15 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 	}
 }
 
+// dashboardReportMaxBytes bounds one report body. A larger report is refused
+// before it is decoded and counted as dropped telemetry.
+const dashboardReportMaxBytes = 1 << 20
+
+// dashboardReportDrainBytes bounds how much of a refused report is read and
+// discarded, so that its sender reads the refusal instead of a reset
+// connection.
+const dashboardReportDrainBytes = 8 << 20
+
 func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -328,7 +340,13 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 	}
 	defer func() { _ = req.Body.Close() }()
 	var report devdash.ReportEnvelope
-	if err := json.NewDecoder(req.Body).Decode(&report); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, dashboardReportMaxBytes)).Decode(&report); err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			s.telemetry.drop()
+			_, _ = io.CopyN(io.Discard, req.Body, dashboardReportDrainBytes)
+			http.Error(w, fmt.Sprintf("report exceeds %d bytes", dashboardReportMaxBytes), http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -353,7 +371,7 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 			}
 			fillTraceSummaryIdentity(report.TraceSummary, report)
 			events := s.drainBufferedTraceEvents(report.TraceSummary)
-			go s.exportVictoriaTraceSummaryWithEvents(context.Background(), report.TraceSummary, events)
+			s.telemetry.enqueue(telemetryExportJob{summary: report.TraceSummary, events: events})
 		}
 	case "trace-event":
 		if report.TraceEvent != nil {
@@ -371,7 +389,7 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 				report.LogEvent.SessionID = report.SessionID
 			}
 			fillLogEventIdentity(report.LogEvent, report)
-			go s.logExporter(report.LogEvent)
+			s.telemetry.enqueue(telemetryExportJob{log: report.LogEvent})
 		}
 	case "internal-failure":
 		// An application process minted a report token; keep its cause where
@@ -401,7 +419,7 @@ func (s *dashboardServer) recordRejectedReport(ctx context.Context, report devda
 		},
 		Timestamp: time.Now().UTC(),
 	}
-	go s.logExporter(event)
+	s.telemetry.enqueue(telemetryExportJob{log: event})
 }
 
 func fillTraceSummaryIdentity(summary *devdash.TraceSummary, report devdash.ReportEnvelope) {

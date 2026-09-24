@@ -216,7 +216,7 @@ func (p *worktreeRuntimeProbe) prepareLegacySources(dir string, s *worktreeLegac
 	if err != nil {
 		return err
 	}
-	flags, err := build.FrameworkProducerLinkerFlags(selectedSource.Digest)
+	flags, err := build.FrameworkProducerLinkerFlags(selectedSource.Digest, "/candidate")
 	if err != nil {
 		return err
 	}

@@ -1,15 +1,17 @@
 package telemetryreport
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 )
+
+// cliLineLimit bounds one CLI telemetry line; longer lines are no record.
+const cliLineLimit = 1 << 20
 
 // burstHourlyFailures is the number of failures of one command and exit code
 // within one hour that marks the hour as part of a failure burst: one a
@@ -90,28 +92,43 @@ func readCLI(opts Options) (CLIReport, error) {
 		command, hour string
 		exit          int
 	}
-	hours := map[hourKey][]time.Time{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), 1<<20)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+	// Each failing hour keeps its count and first and last failure only, so
+	// memory grows with the hours, not with the failures of a restart storm.
+	type hourStats struct {
+		count       int
+		first, last time.Time
+	}
+	hours := map[hourKey]*hourStats{}
+	oversized, err := readLines(file, cliLineLimit, func(raw []byte) {
+		line := bytes.TrimSpace(raw)
+		if len(line) == 0 {
+			return
 		}
 		var record cliRecord
-		if json.Unmarshal([]byte(line), &record) != nil || record.Command == "" || record.At.IsZero() {
+		if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() {
 			report.invalid++
-			continue
+			return
 		}
 		if !opts.inWindow(record.At) {
-			continue
+			return
 		}
 		report.Records++
 		ok := record.ExitCode == 0
 		if !ok {
 			report.Failures++
 			key := hourKey{command: record.Command, hour: record.At.UTC().Format("2006-01-02T15"), exit: record.ExitCode}
-			hours[key] = append(hours[key], record.At)
+			stats := hours[key]
+			if stats == nil {
+				stats = &hourStats{first: record.At, last: record.At}
+				hours[key] = stats
+			}
+			stats.count++
+			if record.At.Before(stats.first) {
+				stats.first = record.At
+			}
+			if record.At.After(stats.last) {
+				stats.last = record.At
+			}
 		}
 		if record.Version == "" || record.Version == "dev" {
 			report.Unversioned++
@@ -126,11 +143,12 @@ func readCLI(opts Options) (CLIReport, error) {
 		}
 		if record.Measurement == "startup" {
 			startup.add(record.DurationMS, ok)
-			continue
+			return
 		}
 		accumulate(commands, record.Command, record.DurationMS, ok)
-	}
-	if err := scanner.Err(); err != nil {
+	})
+	report.invalid += oversized
+	if err != nil {
 		return CLIReport{}, fmt.Errorf("read CLI telemetry: %w", err)
 	}
 	report.Startup = startup.timing()
@@ -152,8 +170,8 @@ func readCLI(opts Options) (CLIReport, error) {
 		exit    int
 	}
 	byHour := map[series][]string{}
-	for key, times := range hours {
-		if len(times) >= burstHourlyFailures {
+	for key, stats := range hours {
+		if stats.count >= burstHourlyFailures {
 			s := series{key.command, key.exit}
 			byHour[s] = append(byHour[s], key.hour)
 		}
@@ -164,7 +182,7 @@ func readCLI(opts Options) (CLIReport, error) {
 		var previous time.Time
 		for _, hour := range hourList {
 			at, _ := time.Parse("2006-01-02T15", hour)
-			times := hours[hourKey{command: s.command, hour: hour, exit: s.exit}]
+			stats := hours[hourKey{command: s.command, hour: hour, exit: s.exit}]
 			if current == nil || at.Sub(previous) > time.Hour {
 				if current != nil {
 					report.Bursts = append(report.Bursts, *current)
@@ -172,15 +190,13 @@ func readCLI(opts Options) (CLIReport, error) {
 				current = &FailureBurst{Command: s.command, ExitCode: s.exit}
 			}
 			previous = at
-			current.Count += len(times)
-			current.PeakPerHour = max(current.PeakPerHour, len(times))
-			for _, t := range times {
-				if current.firstAt.IsZero() || t.Before(current.firstAt) {
-					current.firstAt = t
-				}
-				if t.After(current.lastAt) {
-					current.lastAt = t
-				}
+			current.Count += stats.count
+			current.PeakPerHour = max(current.PeakPerHour, stats.count)
+			if current.firstAt.IsZero() || stats.first.Before(current.firstAt) {
+				current.firstAt = stats.first
+			}
+			if stats.last.After(current.lastAt) {
+				current.lastAt = stats.last
 			}
 		}
 		if current != nil {
