@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -13,6 +14,9 @@ import (
 type worktreeStatusEntry struct {
 	localagent.WorktreeDiscovery
 	Sessions []localagent.Session `json:"sessions"`
+	// BuildBlocks holds the build block of each running session whose
+	// builds are blocked.
+	BuildBlocks []sessionBuildBlock `json:"build_blocks,omitempty"`
 }
 
 func runWorktreeStatus(ctx context.Context, stdout io.Writer, args []string) error {
@@ -25,14 +29,27 @@ func runWorktreeStatus(ctx context.Context, stdout io.Writer, args []string) err
 		if err != nil {
 			return err
 		}
+		// A local agent whose starts keep failing is shown first: routing,
+		// domains and every session behind them depend on it.
+		incident, incidentErr := localAgentStartIncident()
 		if opts.JSON {
-			if err := writeCLIJSON(stdout, withCLIPayloadIdentity("scenery.agent.status", map[string]any{"worktrees": entries})); err != nil {
+			payload := map[string]any{"worktrees": entries}
+			if incidentErr == nil {
+				payload["local_agent_start"] = incident
+			}
+			if err := writeCLIJSON(stdout, withCLIPayloadIdentity("scenery.agent.status", payload)); err != nil {
 				return err
 			}
 		} else {
+			if incidentErr == nil {
+				_, _ = fmt.Fprintf(stdout, "local agent: %s after %d failed start(s) since %s (%s): %s\n", strings.ToUpper(incident.State), incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, incident.Cause)
+			}
 			for _, entry := range entries {
 				_, _ = fmt.Fprintf(stdout, "%s\t%s\n", firstNonEmpty(entry.AppRoot, entry.Key), entry.Status)
 				writeStatusTable(stdout, entry.Sessions, nil)
+				for _, block := range entry.BuildBlocks {
+					_, _ = fmt.Fprintf(stdout, "  %s: builds BLOCKED (%s) since %s, %d build(s) prevented: %s\n", block.SessionID, block.Reason, block.Since.Format(time.RFC3339), block.PreventedBuilds, block.Cause)
+				}
 			}
 		}
 		if !opts.Watch {
@@ -44,6 +61,14 @@ func runWorktreeStatus(ctx context.Context, stdout io.Writer, args []string) err
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+func localAgentStartIncident() (localagent.StartIncident, error) {
+	paths, err := commandAgentPaths()
+	if err != nil {
+		return localagent.StartIncident{}, err
+	}
+	return localagent.LoadStartIncident(paths)
 }
 
 func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEntry, error) {
@@ -105,6 +130,11 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 					entry.Status = "unavailable"
 				} else {
 					entry.Sessions = markInconsistentStatusSessions(entry.Sessions)
+					for _, session := range entry.Sessions {
+						if block, ok := liveSessionBuildBlock(session.StateRoot); ok && strings.TrimSpace(session.StateRoot) != "" {
+							entry.BuildBlocks = append(entry.BuildBlocks, block)
+						}
+					}
 				}
 			}
 		}

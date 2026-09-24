@@ -147,7 +147,7 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 		}
 		for _, result := range results {
 			if result.Status != "current" {
-				return fmt.Errorf("schema migration for %s is pending; the current runtime was retained; run scenery down, scenery db migrate, then scenery up", result.Service)
+				return &pendingMigrationError{Service: result.Service}
 			}
 		}
 	}
@@ -198,4 +198,15 @@ func managedDatabaseSetupEnv(requirements compiler.SQLRequirements, managedEnv [
 		}
 	}
 	return out
+}
+
+// pendingMigrationError reports a schema migration that a running supervisor
+// cannot apply: building again cannot succeed until the migration inputs
+// change or the migration is applied through down, db migrate and up.
+type pendingMigrationError struct {
+	Service string
+}
+
+func (e *pendingMigrationError) Error() string {
+	return fmt.Sprintf("schema migration for %s is pending; the current runtime was retained; run scenery down, scenery db migrate, then scenery up", e.Service)
 }

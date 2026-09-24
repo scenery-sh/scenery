@@ -48,6 +48,11 @@
   HTTP request path.
 - `agent.lock` is held for the control-plane process lifetime. `edge.lock` is inherited by managed Caddy on Unix so a second owner fails before binding.
 - `launchd.go` owns launchd supervision of the agent (`dev.scenery.agent`, KeepAlive). Installation means a bootstrapped job, never just a plist; removal boots the job out first. `StartProcess` must route agent starts through the supervisor whenever the installed plist manages the requested socket (`SupervisesSocket`), so no caller spawns an unsupervised agent that races a KeepAlive respawn. Restart re-registers a loaded job (bootout, bootstrap, kickstart): launchd pins the executable's launch constraints at registration, so `kickstart -k` cannot start a reinstalled binary. Keep launchctl access behind the package hooks so tests never touch real launchd.
+- Supervised agents (`--supervised`, set by the launchd job and systemd unit)
+  record failed starts in `run/agent-start-incident.json` and contain them:
+  persistent classes block at once, transient ones back off and block after
+  eight attempts; a blocked agent idles holding nothing. Never recover by
+  deleting or loosening retained state.
 - `systemd.go` is the Linux mirror: `scenery-agent.service` (Restart=always) and the `scenery-deploy-resume.service` boot oneshot under `/etc/systemd/system`. The same supervision rules apply. Deploy targets and published frontends record the named environment that owns them; missing environment remains readable only as durable pre-cutover state and is never selected for a new deploy.
 
 ## Verification

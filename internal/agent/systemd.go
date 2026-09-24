@@ -49,6 +49,7 @@ func AgentSystemdUnitPath() string {
 // scenery agent, mirroring the macOS launchd job: restart always, start after
 // the network, logs to journald.
 func AgentSystemdUnit(exe string, paths Paths, opts StartOptions) string {
+	opts.Supervised = true
 	args := append([]string{exe}, agentProcessArgs(paths, opts)...)
 	home := filepath.Dir(paths.Home)
 	return fmt.Sprintf(`[Unit]

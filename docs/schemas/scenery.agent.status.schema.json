@@ -13,7 +13,7 @@
       "const": "scenery.agent.status"
     },
     "schema_revision": {
-      "const": "sha256:ea43eb70ac3d2121becb10980dfdb2bcd8dbdbd61575eee60b0e86584332ed1e"
+      "const": "sha256:91f5a51f98fcce1de0b4be034f31394e27699c26e122968c0d9d57f017f7b469"
     },
     "worktrees": {
       "type": "array",
@@ -47,10 +47,133 @@
             "items": {
               "type": "object"
             }
+          },
+          "build_blocks": {
+            "description": "Present while running sessions of the worktree have builds blocked by a cause no ordinary edit resolves; the runtime keeps serving its last good generation.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "schema_revision",
+                "spec_revision",
+                "session_id",
+                "owner",
+                "reason",
+                "cause",
+                "since",
+                "prevented_builds"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "scenery.dev.build-block"
+                },
+                "schema_revision": {
+                  "type": "string"
+                },
+                "spec_revision": {
+                  "type": "string"
+                },
+                "producer": {
+                  "type": "object"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "owner": {
+                  "type": "object"
+                },
+                "reason": {
+                  "enum": [
+                    "framework_mismatch",
+                    "migration_pending"
+                  ]
+                },
+                "cause": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "prevented_builds": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
       }
+    },
+    "local_agent_start": {
+      "description": "Present while the local agent's starts keep failing: one incident of the same executable failing for the same cause.",
+      "type": "object",
+      "required": [
+        "kind",
+        "schema_revision",
+        "spec_revision",
+        "state",
+        "class",
+        "cause",
+        "executable",
+        "attempts",
+        "first_at",
+        "last_at"
+      ],
+      "properties": {
+        "kind": {
+          "const": "scenery.agent.start-incident"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "spec_revision": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "object"
+        },
+        "state": {
+          "enum": [
+            "retrying",
+            "blocked"
+          ]
+        },
+        "class": {
+          "enum": [
+            "state",
+            "owner",
+            "configuration",
+            "unavailable",
+            "other"
+          ]
+        },
+        "cause": {
+          "type": "string"
+        },
+        "executable": {
+          "type": "string"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "first_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "next_delay": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

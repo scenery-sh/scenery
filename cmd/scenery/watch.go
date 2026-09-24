@@ -518,6 +518,16 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		if handoff := supervisor.frameworkHandoffBeforeBuild(ctx, &failedHandoff); handoff != nil {
 			return handoff
 		}
+		// A build blocked by a cause no ordinary edit resolves is not
+		// repeated until the inputs that can resolve it change; an explicit
+		// rebuild request still builds.
+		if !forced {
+			if block, prevented := supervisor.preventBlockedBuild(snapshot); prevented {
+				supervisor.console.BuildBlocked(block)
+				_ = supervisor.persistStatus(ctx)
+				continue
+			}
+		}
 		supervisor.announceRebuild(appPaths)
 		if err := supervisor.RebuildAndRestart(ctx, false, &snapshot); err != nil {
 			snapshot.retryGenerated = true

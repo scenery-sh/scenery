@@ -30,18 +30,20 @@ type Paths struct {
 	AgentLockPath string
 	// AgentOwnerPath records the identity of the process holding
 	// AgentLockPath; empty for agents that record no machine owner.
-	AgentOwnerPath      string
-	EdgeStatePath       string
-	EdgeLockPath        string
-	EdgeTokenPath       string
-	EdgeTargetPath      string
-	EdgeConfigPath      string
-	EdgeLogPath         string
-	DeployPath          string
-	DeployArtifactsDir  string
-	DeployResumeLogPath string
-	RegistryPath        string
-	LogPath             string
+	AgentOwnerPath string
+	// AgentStartIncidentPath records repeated failed starts of the agent.
+	AgentStartIncidentPath string
+	EdgeStatePath          string
+	EdgeLockPath           string
+	EdgeTokenPath          string
+	EdgeTargetPath         string
+	EdgeConfigPath         string
+	EdgeLogPath            string
+	DeployPath             string
+	DeployArtifactsDir     string
+	DeployResumeLogPath    string
+	RegistryPath           string
+	LogPath                string
 }
 
 func DefaultPaths() (Paths, error) {
@@ -72,25 +74,26 @@ func PathsForHome(home string) Paths {
 		}
 	}
 	return Paths{
-		Home:                home,
-		RunDir:              runDir,
-		AgentDir:            agentDir,
-		EdgeDir:             edgeDir,
-		SocketPath:          filepath.Clean(socketPath),
-		StatePath:           filepath.Join(runDir, "agent.json"),
-		AgentLockPath:       filepath.Join(runDir, "agent.lock"),
-		AgentOwnerPath:      filepath.Join(runDir, "agent-owner.json"),
-		EdgeStatePath:       filepath.Join(runDir, "edge.json"),
-		EdgeLockPath:        filepath.Join(runDir, "edge.lock"),
-		EdgeTargetPath:      filepath.Join(runDir, "edge-target.json"),
-		EdgeTokenPath:       filepath.Join(edgeDir, "edge-token"),
-		EdgeConfigPath:      filepath.Join(edgeDir, "Caddyfile"),
-		EdgeLogPath:         filepath.Join(edgeDir, "caddy.log"),
-		DeployPath:          filepath.Join(agentDir, "deploy.json"),
-		DeployArtifactsDir:  filepath.Join(agentDir, "deploy-artifacts"),
-		DeployResumeLogPath: filepath.Join(agentDir, "deploy-resume.log"),
-		RegistryPath:        filepath.Join(agentDir, "sessions.json"),
-		LogPath:             filepath.Join(agentDir, "agent.log"),
+		Home:                   home,
+		RunDir:                 runDir,
+		AgentDir:               agentDir,
+		EdgeDir:                edgeDir,
+		SocketPath:             filepath.Clean(socketPath),
+		StatePath:              filepath.Join(runDir, "agent.json"),
+		AgentLockPath:          filepath.Join(runDir, "agent.lock"),
+		AgentOwnerPath:         filepath.Join(runDir, "agent-owner.json"),
+		AgentStartIncidentPath: filepath.Join(runDir, "agent-start-incident.json"),
+		EdgeStatePath:          filepath.Join(runDir, "edge.json"),
+		EdgeLockPath:           filepath.Join(runDir, "edge.lock"),
+		EdgeTargetPath:         filepath.Join(runDir, "edge-target.json"),
+		EdgeTokenPath:          filepath.Join(edgeDir, "edge-token"),
+		EdgeConfigPath:         filepath.Join(edgeDir, "Caddyfile"),
+		EdgeLogPath:            filepath.Join(edgeDir, "caddy.log"),
+		DeployPath:             filepath.Join(agentDir, "deploy.json"),
+		DeployArtifactsDir:     filepath.Join(agentDir, "deploy-artifacts"),
+		DeployResumeLogPath:    filepath.Join(agentDir, "deploy-resume.log"),
+		RegistryPath:           filepath.Join(agentDir, "sessions.json"),
+		LogPath:                filepath.Join(agentDir, "agent.log"),
 	}
 }
 

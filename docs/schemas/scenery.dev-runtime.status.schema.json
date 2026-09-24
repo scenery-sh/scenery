@@ -19,7 +19,7 @@
       "const": "scenery.dev-runtime.status"
     },
     "schema_revision": {
-      "const": "sha256:f3ddf47476997761c64f4b9c70e82c7e41e016a20571d14ce463419ec5b19da1"
+      "const": "sha256:ee021ce07eac7a4039cf295af2f09f29291be54f10fc6ee925fd7eb26df8aef5"
     },
     "app_id": {
       "type": "string",
@@ -67,6 +67,36 @@
     },
     "observability": {
       "$ref": "#/$defs/observability"
+    },
+    "build_block": {
+      "description": "Present while builds are blocked by a cause no ordinary edit resolves; the runtime keeps serving its last good generation.",
+      "type": "object",
+      "required": [
+        "reason",
+        "cause",
+        "since",
+        "prevented_builds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "framework_mismatch",
+            "migration_pending"
+          ]
+        },
+        "cause": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "prevented_builds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false,
