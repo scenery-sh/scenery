@@ -54,7 +54,7 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 - [x] 2026-09-24: M2 — `scenery config show|set|unset`, macOS Keychain and systemd-creds backends, private SSH receiver (`scenery config receive`) with operation-id replay protection. Real-target SSH and systemd-creds proof is still open (see Outcomes).
 - [x] 2026-09-24: M3 (core) — generated constructors read `sceneryruntime.ResolveDeploymentConfig`; per-service snapshots over an inherited pipe (`SCENERY_CONFIG_SNAPSHOT_FD`); consumer-only restarts; rejected candidates keep the healthy generation; auth, assistant provider key and workers read configuration; all dotenv loaders removed. Completed later the same day: external SQL supply is the typed `sql.database_url` secret (D14); application processes receive a minimal inherited environment (D15); seed and task launchers keep their framework-injected wiring (D16).
 - [x] 2026-09-24: M4 — Staged releases under `~/.scenery/deployments/<app>/<env>/`, captured and pinned configuration revision, target-side validation before stopping, activation into a stable root, commit only after the runtime applied the installed revision, rollback of source and configuration, legacy-root refusal with `docs/runbooks/deploy-root-migration.md`. Rehearsed end to end locally (Artifacts); real Linux/systemd target proof remains open.
-- [x] 2026-09-24: M5 — ONLV branch `feat/environment-configuration` (commit `c61c0511` on `origin/main` `d7e2e0ab`): every inventory row migrated, NextNext public map configuration, Vite/Bun/Just dotenv loading disabled, importers narrowed, companion plan `docs/agent/exec-plans/active/environment-configuration.md`. Pinning the published Scenery revision and the D11 two-worktree proof wait for publication (see Outcomes).
+- [x] 2026-09-24: M5 — ONLV branch `feat/environment-configuration` (commit `c61c0511` on `origin/main` `d7e2e0ab`): every inventory row migrated, NextNext public map configuration, Vite/Bun/Just dotenv loading disabled, importers narrowed, companion plan `docs/agent/exec-plans/active/environment-configuration.md`. Published as scenery-sh/scenery#218 (`93bd4b89d0a5`); ONLV pins it (`8b0d0b19`) and the D11 two-worktree proof passed on the pinned framework.
 - [ ] 2026-09-24: M6 — Code, deletion and guards are complete (dotenv loaders, `internal/envfile`, fixture `.env` files, drift guard, probes, `scripts/config-import`). Open: the operator cutovers and the real Linux/SSH/reboot proofs, which need explicit authorization or unavailable platforms.
 
 Update this section at each meaningful stopping point. Replace planning timestamps with actual completion timestamps when work is executed.
@@ -126,7 +126,7 @@ Implemented: `scenery config show|set|unset|receive`, the typed catalog/resolver
 
 Pending, each requiring the user's explicit authorization:
 
-1. Push and merge this Scenery branch, then pin ONLV's `go.mod` to the published revision (the ONLV commit keeps the published pin; its local `framework use --source` replacement is not committed), regenerate, and run the D11 two-worktree fixture proof, which needs a pinned framework because new worktrees build from the committed `go.mod`.
+1. Done 2026-09-24: merged as scenery-sh/scenery#218 (`93bd4b89d0a5`); ONLV branch `feat/environment-configuration` pins it (`8b0d0b19`, clients regenerated, checks green) and records the D11 proof in its companion plan. Merging that ONLV branch still needs authorization.
 2. Operator cutover of the real `.env` files with `scripts/config-import` (per developer machine and per deployable environment), the one-time production root migration (`docs/runbooks/deploy-root-migration.md`), and any archival or deletion of the old files.
 
 Unverified on this machine: systemd-creds on Linux, a real SSH target, and reboot/resume on a real target; the local deploy rehearsal used a test-double `ssh`. Restored release executables are rebuilt from retained source (equivalent, not byte-identical).
@@ -668,6 +668,17 @@ fails the same 6 WebGL render tests on untouched `origin/main`, so those
 failures predate this change. A temporary `.env.local` proved Vite's
 `envDir: false` ignores it (and loads it without the option); a scratch Bun
 project proved `env = false` stops Bun's automatic `.env` loading.
+
+### D11 fixture proof (2026-09-24)
+
+On ONLV `8b0d0b19` pinned to `93bd4b89d0a5`: two `just worktree` checkouts
+without `.env` each restored the `small` preset into their own database,
+Postgres container and object storage. An API edit of the fixture project, a
+deleted scene object and a new upload in one worktree left the other serving
+the unchanged fixture; the preset files stayed byte-identical. After `down`
+and a rerun of `development/prepare.ts`, the edited worktree resumed without
+restoring the snapshot and kept all three changes. Test-owned databases,
+state, containers, volumes and branches were removed afterwards.
 
 ### M0 value-free input inventory (2026-09-24)
 
