@@ -17,6 +17,7 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		writeTestAppFile(t, root, "internal/example/example.go", "package example\n\nimport \"fmt\"\n\nfunc Format(v string) string { return fmt.Sprintf(\"%s\", v) }\n")
 		writeTestAppFile(t, root, "tools/typescript/node_modules/pkg/README.md", "model context "+"protocol\n")
 		writeTestAppFile(t, root, "docs/current.md", "MCP uses the Model Context Protocol.\n")
+		writeTestAppFile(t, root, "testdata/apps/current/go.mod", "module example.com/current\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => ../../..\n")
 
 		step := runHarnessArchitectureStep(root)
 		if !step.OK {
@@ -24,6 +25,9 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		}
 		if got, _ := step.Summary["source_files"].(int); got == 0 {
 			t.Fatalf("source_files = %v, want > 0", step.Summary["source_files"])
+		}
+		if got, _ := step.Summary["fixture_modules"].(int); got != 1 {
+			t.Fatalf("fixture_modules = %v, want 1", step.Summary["fixture_modules"])
 		}
 	})
 
@@ -41,6 +45,7 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		writeTestAppFile(t, root, "internal/compiler/bad.go", "package compiler\n\nimport _ \"scenery.sh/internal/evolution\"\n")
 		writeTestAppFile(t, root, "runtime/bad.go", "package runtime\n\nimport _ \"scenery.sh/internal/devdash\"\n")
 		writeTestAppFile(t, root, "ui/components/BadControl.tsx", "export function BadControl() { return <button>Bad</button>; }\n")
+		writeTestAppFile(t, root, "testdata/apps/stale/go.mod", "module example.com/stale\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nrequire github.com/example/newdep v0.9.0 // indirect\n\nreplace scenery.sh => ../../..\n")
 
 		step := runHarnessArchitectureStep(root)
 		if step.OK {
@@ -56,6 +61,7 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 			"internal/graph stays below compiler and workflows",
 			"internal/compiler stays below workflows",
 			"UI catalog component contains raw interactive HTML",
+			"fixture module is older than the root go.mod",
 		} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("missing %q diagnostic: %+v", want, step.Diagnostics)

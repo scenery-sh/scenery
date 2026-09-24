@@ -367,10 +367,13 @@ func runHarnessArchitectureStep(repoRoot string) harnessStep {
 	} else {
 		diagnostics = append(diagnostics, sourceDiagnostics...)
 	}
+	fixtureModules, fixtureDiagnostics := checkArchitectureFixtureModules(repoRoot, summary.NestedGoModules)
+	diagnostics = append(diagnostics, fixtureDiagnostics...)
 	diagnostics = append(diagnostics, checkArchitectureGeneratedHygiene(repoRoot)...)
 
 	errorCount, warningCount := countDiagnosticsBySeverity(diagnostics)
 	step.Summary["checked_files"] = summary.CheckedFiles
+	step.Summary["fixture_modules"] = fixtureModules
 	step.Summary["source_files"] = summary.SourceFiles
 	step.Summary["direct_dependencies"] = summary.DirectDependencies
 	step.Summary["indirect_dependencies"] = summary.IndirectDependencies
@@ -389,6 +392,7 @@ type architectureSummary struct {
 	DirectDependencies   int
 	IndirectDependencies int
 	LargeFiles           int
+	NestedGoModules      []string
 }
 
 func checkArchitectureDependencies(repoRoot string, summary *architectureSummary) []checkDiagnostic {
@@ -451,6 +455,9 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 		}
 		if architectureGeneratedOrVendored(rel) {
 			return nil
+		}
+		if rel != "go.mod" && filepath.Base(rel) == "go.mod" {
+			summary.NestedGoModules = append(summary.NestedGoModules, rel)
 		}
 		if strings.HasPrefix(rel, "ui/components/") && filepath.Ext(rel) == ".tsx" {
 			catalogDiagnostics, err := checkUICatalogAstryxComposition(path, rel)

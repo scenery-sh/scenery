@@ -395,6 +395,7 @@ Hard failures:
 - packages outside `cmd/scenery` may not import `scenery.sh/cmd/scenery`
 - required generated/vendored ignore markers must exist in `.gitignore` and `.gitattributes`
 - non-generated source/code files over 2500 lines are rejected; Markdown docs are not subject to line-count size checks
+- a fixture module (a nested `go.mod` that replaces `scenery.sh` with this repository) may not require an older module version or declare an older `go` version than the root `go.mod`; Go would select the root's newer requirement and refuse every read-only command in the fixture with `go: updates to go.mod needed`
 
 Warnings:
 
@@ -402,6 +403,18 @@ Warnings:
 - cgo imports, because they require native build handling
 - `.DS_Store` files found in the working tree
 The dependency allowlist is intentionally small and lives in code next to the check. New direct dependencies should be rare and must include the reason they justify the added maintenance surface.
+
+A root dependency bump must also update every fixture module it makes older.
+Fixtures import generated, ignored packages, so `go mod tidy` fails in
+the repository copy: copy the fixture to a disposable directory, point its
+`replace scenery.sh` at the absolute repository path, run the worktree-local
+`.scenery/harness/bin/scenery generate --app-root <copy>`, run `go mod tidy`,
+and copy `go.mod` and `go.sum` back with the relative `replace` restored. Then
+run the probes that start that fixture. `internal/compiler/testdata/native`
+lists more: the `generation` probe copies it into a provider CRUD workspace
+whose rendered adapters import the whole runtime and runs `go test` there
+read-only. Tidy that workspace instead; the probe keeps it under the reported
+`probe_root` as `provider-private-workspace` when that step fails.
 
 ## Non-Goals
 
