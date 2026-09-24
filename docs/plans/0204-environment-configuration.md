@@ -49,10 +49,10 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 
 - [x] 2026-09-24: Reviewed the two repository baselines and relevant configuration, compiler, deployment, and validation owners.
 - [x] 2026-09-24: Recorded the environment-only product model and the execution order below.
-- [ ] 2026-09-24: M0 — Complete the code inventory, preservation inventory, and contract-first fixtures.
-- [ ] 2026-09-24: M1 — Implement typed input catalog, pure resolver, and authoritative environment store.
-- [ ] 2026-09-24: M2 — Implement CLI, secret storage, and remote configuration transport.
-- [ ] 2026-09-24: M3 — Integrate runtime snapshots, per-service restart, and framework capabilities.
+- [x] 2026-09-24: M0 — Value-free inventory recorded under Artifacts and Notes; CLI grammar frozen in `cmd/scenery/help.go` and `docs/schemas/scenery.config.{show,change}.schema.json`.
+- [x] 2026-09-24: M1 — `host_path` scalar, deferred configurable deployment inputs (`internal/compiler/module_inputs.go`, `go_config.go`), `internal/appconfig` catalog/resolver/store with locks, atomic writes, content-addressed history, pins and pruning.
+- [x] 2026-09-24: M2 — `scenery config show|set|unset`, macOS Keychain and systemd-creds backends, private SSH receiver (`scenery config receive`) with operation-id replay protection. Real-target SSH and systemd-creds proof is still open (see Outcomes).
+- [x] 2026-09-24: M3 (core) — generated constructors read `sceneryruntime.ResolveDeploymentConfig`; per-service snapshots over an inherited pipe (`SCENERY_CONFIG_SNAPSHOT_FD`); consumer-only restarts; rejected candidates keep the healthy generation; auth, assistant provider key and workers read configuration; all dotenv loaders removed. Open in M3: external SQL supply as typed capability, task/seed capability bundle, minimal child environment.
 - [ ] 2026-09-24: M4 — Integrate production activation, recovery, and source/config separation.
 - [ ] 2026-09-24: M5 — Migrate ONLV, frontend tooling, importers, worktree setup, and documentation.
 - [ ] 2026-09-24: M6 — Remove runtime dotenv compatibility and complete acceptance evidence.
@@ -60,6 +60,10 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 Update this section at each meaningful stopping point. Replace planning timestamps with actual completion timestamps when work is executed.
 
 ## Surprises & Discoveries
+
+- 2026-09-24: concurrent `os.Root.OpenFile(name, O_CREATE)` of one name fails with ENOENT on darwin (Go 1.27); reproduced in a standalone test. The environment lock file is therefore opened by path with `O_NOFOLLOW` (`internal/appconfig/lock_unix.go`).
+- 2026-09-24: `F_FULLFSYNC` makes each store write ~10 ms on macOS; unit tests replace the store's flush seam, and real durability belongs to the `configuration` probe.
+- 2026-09-24: the three committed fixture apps under `testdata/apps/` carry placeholder `.env` files; they are dead inputs removed in M6.
 
 1. Scenery already derives typed service configuration from package inputs in `internal/compiler/go_config.go`. Sensitive Go configuration is required to use `resource_ref("secret")`; inventing a parallel `secret_string` model would duplicate an existing contract. Reuse and complete that contract. [R3]
 
@@ -100,6 +104,8 @@ All decisions below were recorded on 2026-09-24 by the plan author from the agre
 **D9 — Platform secret adapters are implementation details.** Use macOS Keychain for the workstation path and encrypted systemd credentials for the existing Linux/systemd deployment path. Verify non-interactive use under the actual runtime owner. Do not silently fall back to plaintext or assume an arbitrary Linux session has a working credential backend. Unsupported secret-storage capability produces a specific readiness failure; schema-only and secret-free workflows remain available.
 
 **D10 — Explicit mutation context.** `config set`, `config unset`, and deployment require an explicit environment. Reads default to `local`. Existing explicitly selected non-deployable environments remain supported. No `env use`, default write target, `--scope`, or per-write `--target` is introduced.
+
+**D12 — Implementation refinements (2026-09-24, Claude).** Keys are `<module instance path with "." separators>.<input>`; framework keys are `auth.*` (from `.scenery.json` auth) and `assistant.openai_api_key` (when assistants exist). The store document carries its own kind/schema identity without the compiler spec revision, because worktrees of one application run different producers and must share it. Revisions are content-addressed (`cfg-` + 128-bit digest), so equal content has equal revision and no-op writes create nothing. A local supervisor polls its single environment document every 500 ms instead of adding a filesystem-notification dependency. Snapshots travel over a pipe allocated by `internal/devprocess` (`SCENERY_CONFIG_SNAPSHOT_FD` names the descriptor); runtime identity covers keys, values and opaque secret versions, never secret bytes. A worktree's applied/rejected observation is its pin on the environment history, which `config show` reads.
 
 **D11 — Shared configuration, identical starting fixtures, independent working data.** Removing dotenv changes only how configured values reach a worktree; it does not change how demo data reaches it. Configured environment values are shared across worktrees (D2). Demo projects, scenes and catalog records come from the application's versioned fixture bundle at the checked-out commit, restored into each new worktree's own isolated database and object storage. Edits, captures, simulation results and uploads made afterward belong to that worktree and are never synchronized elsewhere. The application owns which records and assets make up its demo (ONLV: `development/presets/small/` and `development/prepare.ts`); Scenery owns only the generic database/storage restore and isolation mechanisms, and does not learn solar projects or scene registration. No fixture scopes, fixture configuration layers, or copying from the main checkout's live data are introduced. A new demo scene reaches other worktrees only through a deliberately reviewed fixture revision that contains its records and every referenced asset; worktrees prepared afterward from that commit receive it, and existing worktrees keep their data. Content-addressed asset caching with copy-on-write materialization may later reduce disk use behind the same command. It is not a prerequisite for this plan, and writable scene directories are never shared between worktrees.
 
@@ -521,6 +527,32 @@ Migration can be previewed repeatedly. Applying an already migrated value is eit
 Fixture preparation is idempotent per worktree: a `ready` marker skips restoration, and an interrupted preparation resumes from its marker without overwriting assets or objects whose bytes differ from the preset. Configuration changes never trigger fixture restoration, and fixture restoration never writes configured values.
 
 ## Artifacts and Notes
+
+### M3 live proof (2026-09-24)
+
+Fixture: `testdata/apps/multiservice` copied to the scratchpad with `id:
+"cfgprobe"`, `echo` inputs `prefix` (string, default `echo`) and `repeat`
+(uint32, default 1, minimum 1), isolated `SCENERY_AGENT_HOME`, worktree-local
+`.scenery/harness/bin/scenery` built with framework producer linker flags.
+
+- Baseline `POST /echo` → `{"message":"echo:hi"}`; PIDs greeter 79346, echo
+  79347, host 79357.
+- `config set echo.prefix shout --env local` → `{"message":"shout:hi"}` and
+  `greeter:shout:hello petr`; echo restarted as 79915 with the identical
+  executable `scenery-app-a862dcf2…`; greeter and host PIDs unchanged; the
+  runtime log's only new event is `config.applied` with
+  `restarted_services: ["echo/service/echo"]` (no `build.artifact` or
+  `go.command` step after the change). `config show` → `applied`.
+- A store write of `"many"` for `echo.repeat` (simulated newer branch) plus an
+  unknown `echo.future_flag`: the runtime kept serving `shout:hi` with all PIDs
+  unchanged; `config show` reported `runtime rejected` with the typed problem
+  and `echo.future_flag` as unused.
+- `config set echo.repeat 2` → `shoutshout:hi`; `config unset echo.prefix` →
+  `echoecho:hi` (default restored), each restarting only echo.
+- Second git worktree of the fixture started with the shared values; one `set`
+  from it changed both (`sharedshared:hi` in each); separate API sockets and
+  PIDs; `config show` reported `other_runtimes: {total: 1, applied: 1}`.
+- `scenery down` in both removed every process and both pins.
 
 ### M0 value-free input inventory (2026-09-24)
 
