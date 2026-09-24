@@ -31,9 +31,12 @@ type worktreeRuntimeProbe struct {
 	roots            []string
 	binaries         map[string]string
 	victoriaBinaries map[string]string
-	commands         []map[string]any
-	cases            []map[string]any
-	mu               sync.Mutex
+	// rootEnv adds process inputs for commands of one root, such as the
+	// explicit external SQL supply; never evidence or argv.
+	rootEnv  map[string][]string
+	commands []map[string]any
+	cases    []map[string]any
+	mu       sync.Mutex
 }
 
 func runHarnessWorktreeRuntimeProbeStep(ctx context.Context, repoRoot string) harnessStep {
@@ -251,7 +254,7 @@ func (p *worktreeRuntimeProbe) run(root, program string, args ...string) ([]byte
 func (p *worktreeRuntimeProbe) runWithContext(ctx context.Context, root, program string, args ...string) ([]byte, error) {
 	started := time.Now()
 	command := exec.CommandContext(ctx, program, args...)
-	command.Dir, command.Env = root, p.env
+	command.Dir, command.Env = root, append(append([]string(nil), p.env...), p.rootEnv[root]...)
 	output, err := command.CombinedOutput()
 	entry := map[string]any{"cwd": root, "argv": append([]string{program}, args...), "duration_ms": time.Since(started).Milliseconds(), "ok": err == nil}
 	if err != nil {

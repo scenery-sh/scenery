@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"scenery.sh/internal/postgresname"
@@ -22,11 +21,12 @@ func (p *worktreeRuntimeProbe) externalShared(source, provider string) error {
 				return err
 			}
 			p.roots = append(p.roots, root)
-			// A test-owned dotenv supplies the explicit external capability.
-			// Never put this credential in argv, evidence, or command output.
-			if err := os.WriteFile(filepath.Join(root, ".env"), []byte("DATABASE_URL="+dsn+"\n"), 0o600); err != nil {
-				return err
+			// The root's process environment supplies the explicit external
+			// capability. Never put this credential in argv, evidence, or output.
+			if p.rootEnv == nil {
+				p.rootEnv = map[string][]string{}
 			}
+			p.rootEnv[root] = []string{"DATABASE_URL=" + dsn}
 			runtime, err := p.up(root)
 			if err != nil {
 				return err

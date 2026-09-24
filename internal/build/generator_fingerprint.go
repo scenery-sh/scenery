@@ -102,7 +102,6 @@ func generatorFingerprintPaths() []string {
 		"internal/build",
 		"internal/codegen",
 		"internal/devreport",
-		"internal/envfile",
 		"internal/inspect",
 		"internal/localproxy",
 		"internal/model",
