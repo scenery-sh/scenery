@@ -313,6 +313,12 @@ func evaluatePrimitiveConstructor(expression hclsyntax.Expression) (any, bool) {
 			return nil, false
 		}
 		return scalar("relative_path", string(value))
+	case "host_path":
+		value, err := scenery.ParseHostPath(text)
+		if err != nil {
+			return nil, false
+		}
+		return scalar("host_path", string(value))
 	default:
 		return nil, false
 	}
@@ -347,7 +353,7 @@ func staticExpressionAllowed(expression hclsyntax.Expression) bool {
 	case *hclsyntax.TemplateWrapExpr:
 		return false
 	case *hclsyntax.FunctionCallExpr:
-		allowed := map[string]bool{"optional": true, "nullable": true, "list": true, "set": true, "map": true, "tuple": true, "resource_ref": true, "bytes_base64url": true, "uuid": true, "date": true, "datetime": true, "duration": true, "size": true, "url": true, "relative_path": true}
+		allowed := map[string]bool{"optional": true, "nullable": true, "list": true, "set": true, "map": true, "tuple": true, "resource_ref": true, "bytes_base64url": true, "uuid": true, "date": true, "datetime": true, "duration": true, "size": true, "url": true, "relative_path": true, "host_path": true}
 		if !allowed[typed.Name] {
 			return false
 		}

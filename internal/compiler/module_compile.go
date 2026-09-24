@@ -65,7 +65,7 @@ func compileModuleInstanceWithSource(root, callerDirectory, callerModule string,
 	}
 	inputValues, inputProvenance, inputDiagnostics := resolveModuleInputValuesWithSourceProvenance(callerResources, packageResources, packageSources, module, sourceModule, callerModule)
 	result.Diagnostics = append(result.Diagnostics, inputDiagnostics...)
-	resolvedResources, substitutionDiagnostics := substituteResolvedModuleInputsWithProvenance(packageResources, inputValues, inputProvenance)
+	resolvedResources, substitutionDiagnostics := substituteResolvedModuleInputsWithProvenance(packageResources, inputValues, inputProvenance, deferredConfigurationInputs(packageSources, inputValues))
 	result.Diagnostics = append(result.Diagnostics, substitutionDiagnostics...)
 
 	nestedBlocks := packageModuleBlocks(packageSources)
@@ -278,7 +278,7 @@ func normalizeModuleExportValue(value any, module string) any {
 		if len(typed) == 1 {
 			reference := refString(typed)
 			parts := strings.Split(reference, ".")
-			if len(parts) >= 2 && !strings.Contains(reference, "/") && parts[0] != "std" && parts[0] != "var" && parts[0] != "module" && !primitiveTypes[reference] {
+			if len(parts) >= 2 && !strings.Contains(reference, "/") && parts[0] != "std" && parts[0] != "var" && parts[0] != "module" && !primitiveTypes[reference] && !deploymentOnlyTypes[reference] {
 				address := resourceAddress(module, parts[0], parts[1])
 				if len(parts) > 2 {
 					address += "/" + strings.Join(parts[2:], "/")

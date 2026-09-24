@@ -75,7 +75,7 @@ func contractValidationReflectValue(value reflect.Value, typeValue contractWireT
 		return contractValidationNumber(strconv.FormatFloat(value.Float(), 'g', -1, 64))
 	case "decimal":
 		return contractValidationNumber(fmt.Sprint(value.Interface()))
-	case "string", "uuid", "url", "relative_path":
+	case "string", "uuid", "url", "relative_path", "host_path":
 		return fmt.Sprint(value.Interface()), nil
 	case "bytes":
 		if value.Kind() == reflect.Slice && value.Type().Elem().Kind() == reflect.Uint8 {

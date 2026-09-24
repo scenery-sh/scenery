@@ -25,6 +25,11 @@ type Duration struct{ nanoseconds big.Int }
 type Size struct{ bytes big.Int }
 type URL url.URL
 type RelativePath string
+
+// HostPath is an absolute path on the execution target. It is a
+// deployment-only scalar: it may type package inputs that deployments bind,
+// never wire contracts.
+type HostPath string
 type JSON = json.RawMessage
 
 // Unit is the canonical value for a contract with no semantic fields.
