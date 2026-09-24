@@ -21,6 +21,7 @@ type packageInputDeclaration struct {
 	AttributeRanges  map[string]Range
 	Optional         bool
 	Sensitive        bool
+	Public           bool
 	Requires         []string
 	Constraints      map[string]any
 }
@@ -98,6 +99,10 @@ func resolveModuleInputValuesWithSourceProvenance(rootResources, packageResource
 		allResources[resource.Address] = resource
 	}
 	for name, declaration := range declarations {
+		if declaration.Public && (declaration.Sensitive || !ConfigurableDeploymentInput(declaration.Phase, declaration.Type, false)) {
+			// Public inputs reach browsers; only non-sensitive deployment values qualify.
+			diagnostics = append(diagnostics, diagnosticForBlock("SCN3408", "input "+name+" is public, so it must be a non-sensitive deployment-phase value", module))
+		}
 		value, exists := provided[name]
 		if !exists {
 			if declaration.Default != nil {
@@ -208,6 +213,9 @@ func packageInputDeclarations(sources []*Source) map[string]packageInputDeclarat
 			}
 			if expression, ok := block.Attributes["optional"]; ok {
 				declaration.Optional, _ = expression.Value.(bool)
+			}
+			if expression, ok := block.Attributes["public"]; ok {
+				declaration.Public, _ = expression.Value.(bool)
 			}
 			if expression, ok := block.Attributes["requires"]; ok {
 				values, _ := expression.Value.([]any)

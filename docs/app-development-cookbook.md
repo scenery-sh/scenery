@@ -279,6 +279,11 @@ scenery config set designs.api_token --env production --stdin < token.txt
 scenery deploy --env production
 ```
 
+Browser-facing values such as a maps API key are declared `public = true`
+(never sensitive) and read by the frontend at startup with the generated
+client's `loadPublicConfig(apiBaseUrl)`; do not use `import.meta.env` or
+`VITE_*` variables for application configuration.
+
 The constructor reads `input.Config.WeatherPackRoot` (a
 `scenery.Optional[scenery.HostPath]`) and `input.Config.ApiToken.Reveal()`.
 Never read application values with `os.Getenv` or a dotenv file.

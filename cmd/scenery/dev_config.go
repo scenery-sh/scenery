@@ -149,17 +149,28 @@ func resolveDevConfig(ctx context.Context, manifest *graph.Manifest, cfg app.Con
 	resolution := &devConfigResolution{appID: cfg.AppID(), environment: env.Name, revision: document.Revision, catalogRevision: catalog.Revision, snapshots: map[string]*devConfigSnapshot{}}
 	secrets := map[string][]byte{}
 	var secretBackend appconfig.SecretBackend
+	// The first consumer serves framework routes, including the public
+	// configuration, so it alone carries public values.
+	publicConsumer := ""
+	if len(consumers) > 0 {
+		publicConsumer = consumers[0]
+	}
 	for _, service := range consumers {
 		if service == "" {
 			continue
 		}
-		snapshot := runtime.ConfigSnapshot{Kind: runtime.ConfigSnapshotKind, AppID: resolution.appID, Environment: env.Name, Revision: document.Revision, CatalogRevision: catalog.Revision, Consumer: service, Values: map[string]json.RawMessage{}, Secrets: map[string][]byte{}}
+		snapshot := runtime.ConfigSnapshot{Kind: runtime.ConfigSnapshotKind, AppID: resolution.appID, Environment: env.Name, Revision: document.Revision, CatalogRevision: catalog.Revision, Consumer: service, Values: map[string]json.RawMessage{}, Secrets: map[string][]byte{}, Public: []string{}}
 		identity := sha256.New()
 		_, _ = fmt.Fprintf(identity, "%s\x00%s\x00", resolution.appID, env.Name)
 		for _, entry := range resolved.Entries {
 			input, _ := catalog.Lookup(entry.Key)
-			if !consumes(input, service) {
+			public := input.Public && service == publicConsumer
+			if !consumes(input, service) && !public {
 				continue
+			}
+			if public && entry.Value != nil {
+				snapshot.Public = append(snapshot.Public, entry.Key)
+				_, _ = fmt.Fprintf(identity, "public\x00%s\x00", entry.Key)
 			}
 			switch {
 			case entry.Sensitive && entry.Secret != nil:

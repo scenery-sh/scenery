@@ -325,7 +325,7 @@ var authoredStructuralSchemas = map[string]*authoredBlockSchema{
 	"module":      sourceSchema("scenery.source.module", 1, []string{"source", "inputs"}, []string{"source"}, nil),
 	"package":     sourceSchema("scenery.source.package", 1, nil, nil, map[string]authoredChildSchema{"go_contract": singleton(goContractSourceSchema)}),
 	"input": sourceSchema("scenery.source.input", 1,
-		[]string{"type", "phase", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "optional", "requires", "deployment_bindable"}, []string{"type"}, nil),
+		[]string{"type", "phase", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "optional", "requires", "deployment_bindable", "public"}, []string{"type"}, nil),
 	"export": sourceSchema("scenery.source.export", 1, []string{"value", "patchable"}, []string{"value"}, nil),
 }
 

@@ -1408,6 +1408,13 @@ Runtime delivery:
   `rejected` with the problem. Its pin records the applied revision.
 - A deployable environment's runtime runs the revision of its installed
   release (`active.json`), never newer desired configuration.
+- Inputs declared `public = true` (non-sensitive values only) are served as
+  `GET <api base>/__scenery/public-config` →
+  `{"kind":"scenery.public-config","revision":…,"values":{key: value}}` with
+  `ETag` = revision. A generated TypeScript client of an application with
+  public inputs adds `public-config.ts` (`PublicConfig`,
+  `loadPublicConfig(apiBaseUrl)`); frontends read it at startup instead of
+  build-time variables, so a changed value needs no rebuild.
 
 `config show -o json` emits `scenery.config.show`; `set` and `unset` emit
 `scenery.config.change` (schemas under `docs/schemas/`).

@@ -41,6 +41,9 @@ type ConfigSnapshot struct {
 	Consumer        string                     `json:"consumer"`
 	Values          map[string]json.RawMessage `json:"values"`
 	Secrets         map[string][]byte          `json:"secrets"`
+	// Public names the values this process serves as the application's
+	// public configuration.
+	Public []string `json:"public"`
 }
 
 func init() { contract.SetSecretRevealer(RevealSecret) }
@@ -187,4 +190,34 @@ func CurrentConfigRevision() string {
 		return ""
 	}
 	return snapshot.Revision
+}
+
+// PublicConfigPath serves the application's public configuration: the
+// values of inputs declared public, pinned to the configuration revision the
+// process runs. Frontends read it at startup instead of build-time variables.
+const PublicConfigPath = "/__scenery/public-config"
+
+// PublicConfigKind identifies the public configuration response.
+const PublicConfigKind = "scenery.public-config"
+
+type publicConfigDocument struct {
+	Kind     string                     `json:"kind"`
+	Revision string                     `json:"revision"`
+	Values   map[string]json.RawMessage `json:"values"`
+}
+
+// publicConfiguration returns this process's public values and revision.
+func publicConfiguration() (publicConfigDocument, error) {
+	document := publicConfigDocument{Kind: PublicConfigKind, Values: map[string]json.RawMessage{}}
+	snapshot, err := LoadConfigSnapshot()
+	if err != nil || snapshot == nil {
+		return document, err
+	}
+	document.Revision = snapshot.Revision
+	for _, key := range snapshot.Public {
+		if value, ok := snapshot.Values[key]; ok && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			document.Values[key] = value
+		}
+	}
+	return document, nil
 }

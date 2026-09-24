@@ -41,6 +41,9 @@ type Input struct {
 	Owner     string `json:"owner"`
 	Type      string `json:"type"`
 	Sensitive bool   `json:"sensitive"`
+	// Public inputs are delivered to browsers through the runtime's public
+	// configuration; they are never sensitive.
+	Public bool `json:"public,omitempty"`
 	// Optional inputs may stay absent; an absent optional value reaches its
 	// consumer as an unset Optional.
 	Optional bool `json:"optional"`
@@ -187,7 +190,7 @@ func moduleCatalogInputs(module graph.Resource, consumers map[string][]Consumer)
 			return nil, fmt.Errorf("configuration key %s is not a dotted lower_snake_case name", key)
 		}
 		input := Input{
-			Key: key, Owner: module.Address, Type: typeExpression, Sensitive: sensitive,
+			Key: key, Owner: module.Address, Type: typeExpression, Sensitive: sensitive, Public: declaration["public"] == true && !sensitive,
 			Optional:  declaration["optional"] == true || strings.HasPrefix(typeExpression, "optional("),
 			Consumers: consumers[key],
 		}

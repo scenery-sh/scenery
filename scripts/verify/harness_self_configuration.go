@@ -127,6 +127,13 @@ input "repeat" {
   phase   = "deployment"
   default = 1
   minimum = 1
+}
+
+input "banner" {
+  type    = string
+  phase   = "deployment"
+  default = "hello"
+  public  = true
 }`
 	config := "\n  config {\n    prefix = var.prefix\n    repeat = var.repeat\n"
 	if withSecret {
@@ -252,6 +259,33 @@ func (p *configurationProbe) processes(root string) (map[string]configurationPro
 		result[filepath.Base(fields[1])+fmt.Sprint("#", pid)] = configurationProcess{PID: pid, Executable: filepath.Base(fields[1])}
 	}
 	return result, nil
+}
+
+// publicBanner reads echo.banner from the runtime's public configuration.
+func publicBanner(ctx context.Context, socket string) (string, error) {
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	}}}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://runtime/__scenery/public-config", nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = response.Body.Close() }()
+	var document struct {
+		Kind   string            `json:"kind"`
+		Values map[string]string `json:"values"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&document); err != nil || document.Kind != "scenery.public-config" {
+		return "", fmt.Errorf("public configuration response: %v", err)
+	}
+	if len(document.Values) != 1 {
+		return "", fmt.Errorf("public configuration exposes %d values, want only echo.banner", len(document.Values))
+	}
+	return document.Values["echo.banner"], nil
 }
 
 func echoMessage(ctx context.Context, socket string) (string, error) {
@@ -456,6 +490,21 @@ func runHarnessConfigurationProbe(ctx context.Context, repoRoot string) (summary
 		}
 	}
 	summary["unset_restores_defaults"] = "passed"
+	if banner, err := publicBanner(ctx, a.socket); err != nil || banner != "hello" {
+		return summary, nil, fmt.Errorf("public default = %q %v", banner, err)
+	}
+	if _, err := p.run(rootA, nil, "config", "set", "echo.banner", "welcome", "--env", "local"); err != nil {
+		return summary, nil, err
+	}
+	for _, runtime := range []configurationRuntime{a, b} {
+		if err := configurationWait(func() (bool, error) {
+			banner, err := publicBanner(ctx, runtime.socket)
+			return banner == "welcome", err
+		}); err != nil {
+			return summary, nil, fmt.Errorf("public configuration did not follow its revision: %w", err)
+		}
+	}
+	summary["public_configuration_served_per_revision"] = "passed"
 	return summary, nil, nil
 }
 

@@ -2927,6 +2927,8 @@ The effective value of a key is its declared default — the installing module's
 
 Configured values are runtime inputs, not build inputs: they MUST NOT change generated code, generated types or executable bytes. A runtime receives a validated, revision-bound snapshot containing only what its constructors consume.
 
+An input MAY declare `public = true`. A public input MUST be a non-sensitive, environment-configurable value (SCN3408). Its effective value is served to browsers as the application's public configuration, pinned to the configuration revision the runtime runs; a generated TypeScript client exposes it as a typed `PublicConfig`. No other input reaches a browser.
+
 ### 18.4 No ambient environment access
 
 There is no env function, and application configuration is never read from process environment variables or dotenv files. Environment variables may be consumed only by a deployment or provider adapter whose schema declares the mapping.

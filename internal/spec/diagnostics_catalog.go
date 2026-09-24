@@ -345,6 +345,7 @@ SCN3404|go_config_type|A Go service config field has no stable package input typ
 SCN3405|go_config_key|A Go service config key is not lower snake case
 SCN3406|go_config_phase|A Go service config package input phase is invalid
 SCN3407|go_config_value_type|A Go service config value does not match its package input type
+SCN3408|public_config_input|A public configuration input is sensitive or not an environment-configurable value
 SCN4001|secret_config_sink|Secret configuration lacks a sensitive typed secret reference
 SCN4002|nonsecret_config_flow|A resource or secret reference flows into non-secret configuration
 SCN4003|sensitive_config_reference|Sensitive Go configuration lacks a secret resource reference

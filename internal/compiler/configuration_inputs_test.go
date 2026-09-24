@@ -139,3 +139,24 @@ func TestHostPathDefaultMustBeAbsolute(t *testing.T) {
 		t.Fatalf("relative host_path default compiled: %#v", result.Diagnostics)
 	}
 }
+
+func TestPublicInputsMustBeNonSensitiveDeploymentValues(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
+	for name, declaration := range map[string]string{
+		"sensitive": "input \"banner\" {\n  type      = resource_ref(\"secret\")\n  phase     = \"deployment\"\n  sensitive = true\n  public    = true\n}\n",
+		"contract":  "input \"banner\" {\n  type    = string\n  default = \"x\"\n  public  = true\n}\n",
+	} {
+		result, err := Compile(configurationFixture(t, "", "\n"+declaration))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasDiagnostic(result.Diagnostics, "SCN3408") {
+			t.Fatalf("%s public input compiled: %#v", name, result.Diagnostics)
+		}
+	}
+	result, err := Compile(configurationFixture(t, "", "\ninput \"banner\" {\n  type    = string\n  phase   = \"deployment\"\n  default = \"hello\"\n  public  = true\n}\n"))
+	if err != nil || !result.Valid() {
+		t.Fatalf("public deployment input: %v %#v", err, result.Diagnostics)
+	}
+}

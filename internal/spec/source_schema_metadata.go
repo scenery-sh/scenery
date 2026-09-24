@@ -1218,7 +1218,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	if name == "type" {
 		return typeExpression()
 	}
-	if oneOf(name, "required", "optional", "sensitive", "immutable", "deprecated", "unique_items", "open", "secure", "http_only", "multiple", "retain_filename", "unique", "primary_key", "tenant_key", "verify_by_default", "deployment_bindable") {
+	if oneOf(name, "required", "optional", "sensitive", "immutable", "deprecated", "unique_items", "open", "secure", "http_only", "multiple", "retain_filename", "unique", "primary_key", "tenant_key", "verify_by_default", "deployment_bindable", "public") {
 		return map[string]any{"primitive": "bool"}, "inferred"
 	}
 	if oneOf(name, "position", "status", "exit", "port", "replicas", "revision", "attempts", "limit", "maximum_attempts", "maximum_delay_milliseconds", "max_bytes", "max_parts", "max_age", "version") {

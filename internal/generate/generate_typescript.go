@@ -250,9 +250,19 @@ func renderTypeScriptTargetWithCatalog(result *Result, target Resource, root str
 	if len(assistants) > 0 {
 		indexSource += "export * from \"./assistant.js\";\n"
 	}
+	publicConfig, err := renderTypeScriptPublicConfig(result, root)
+	if err != nil {
+		return nil, err
+	}
+	if publicConfig != nil {
+		indexSource += "export * from \"./public-config.js\";\n"
+	}
 	files := []generatedFile{{Path: filepath.Join(root, "types.ts"), Bytes: []byte(renderTSTypes(reachable, bindings))}, {Path: filepath.Join(root, "runtime.ts"), Bytes: []byte(renderTSRuntime(runtimeCapabilities))}, {Path: filepath.Join(root, "client.ts"), Bytes: []byte(renderTSClient(target, bindings, resources, assistants))}, {Path: filepath.Join(root, "metadata.ts"), Bytes: []byte(renderTSMetadata(target, result.Manifest, bindings, reachable, revision))}, {Path: filepath.Join(root, "index.ts"), Bytes: []byte(indexSource)}}
 	if len(assistants) > 0 {
 		files = append(files, generatedFile{Path: assistantGeneratedPath(root), Bytes: []byte(renderTypeScriptAssistantFile(target, assistants))})
+	}
+	if publicConfig != nil {
+		files = append(files, *publicConfig)
 	}
 	if typeScriptDevRuntimeEnabled(target) {
 		files = append(files, renderTypeScriptDevRuntimeFile(root))
