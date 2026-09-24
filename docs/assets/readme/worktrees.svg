@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Hundreds of worktrees, zero collisions</title>
+  <desc id="desc">Many Git worktrees, such as main, agent/checkout-v2 and agent/fix-refunds, run side by side on one machine. Every worktree gets its own localhost URL, its own PostgreSQL database, its own object storage, and its own logs, traces and metrics.</desc>
+  <style>
+    .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
+    .halo { opacity: 0.18; animation: halo 2.4s ease-in-out infinite; }
+    @keyframes halo { 50% { opacity: 0.5; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A0F26"/>
+      <stop offset="1" stop-color="#151239"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#FFFFFF" fill-opacity="0.06"/>
+    </pattern>
+    <radialGradient id="glow" cx="600" cy="360" r="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE" stop-opacity="0.14"/>
+      <stop offset="0.5" stop-color="#8B5CF6" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mainStroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#F472B6"/>
+    </linearGradient>
+    <linearGradient id="titleText" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.55" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#F472B6"/>
+    </linearGradient>
+    <linearGradient id="fadeGradient" x1="0" y1="498" x2="0" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="fade" maskUnits="userSpaceOnUse" x="0" y="0" width="1200" height="560">
+      <rect width="1200" height="560" fill="url(#fadeGradient)"/>
+    </mask>
+    <clipPath id="card"><rect width="1200" height="560" rx="28"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1200" height="560" fill="url(#bg)"/>
+    <rect width="1200" height="560" fill="url(#dots)"/>
+    <rect width="1200" height="560" fill="url(#glow)"/>
+  </g>
+
+  <text x="600" y="84" text-anchor="middle" class="sans" font-size="30" font-weight="800" letter-spacing="-0.5" fill="#F5F7FF">Hundreds of worktrees.</text>
+  <text x="600" y="122" text-anchor="middle" class="sans" font-size="30" font-weight="800" letter-spacing="-0.5" fill="url(#titleText)">Zero collisions.</text>
+
+  <text x="230.6" y="175" class="sans" font-size="15" fill="#A9B2D6">Every worktree gets its own</text>
+  <rect x="424.4" y="155" width="76.0" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.05" stroke="#33407A"/>
+  <circle cx="445.42857142857144" cy="170" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="445.42857142857144" cy="170" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M439.42857142857144 170 H451.42857142857144" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+  <text x="460.4" y="175" class="sans" font-size="14" fill="#F5F7FF">URL</text>
+  <rect x="510.4" y="155" width="124.0" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.05" stroke="#33407A"/>
+  <ellipse cx="531.4285714285714" cy="166.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M525.43 166.00 V174.00 A6.00 2.24 0 0 0 537.43 174.00 V166.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M525.43 170.00 A6.00 2.24 0 0 0 537.43 170.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <text x="546.4" y="175" class="sans" font-size="14" fill="#F5F7FF">PostgreSQL</text>
+  <rect x="644.4" y="155" width="141.0" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.05" stroke="#33407A"/>
+  <rect x="659.03" y="164.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M660.23 168.00 V175.20 H670.63 V168.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M663.43 171.20 H667.43" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+  <text x="680.4" y="175" class="sans" font-size="14" fill="#F5F7FF">Object storage</text>
+  <rect x="795.4" y="155" width="174.0" height="30" rx="15" fill="#FFFFFF" fill-opacity="0.05" stroke="#33407A"/>
+  <path d="M809.23 170.80 L812.43 170.80 L814.83 165.20 L817.63 175.60 L819.63 168.40 L820.83 170.80 L823.63 170.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="831.4" y="175" class="sans" font-size="14" fill="#F5F7FF">Logs, traces, metrics</text>
+
+  <g>
+    <rect x="40" y="222" width="265" height="118" rx="16" fill="#111836" stroke="url(#mainStroke)" stroke-width="2"/>
+    <circle class="halo" style="animation-delay:-0.00s" cx="68" cy="253" r="9" fill="#34D399"/>
+    <circle cx="68" cy="253" r="4.5" fill="#34D399"/>
+    <text x="84" y="258" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">main</text>
+    <circle cx="68" cy="278" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="68" cy="278" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M62 278 H74" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="84" y="282.5" class="mono" font-size="13" fill="#22D3EE">localhost:4624</text>
+    <circle cx="80" cy="310" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="80" cy="306.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M74.00 306.00 V314.00 A6.00 2.24 0 0 0 86.00 314.00 V306.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M74.00 310.00 A6.00 2.24 0 0 0 86.00 310.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="172.5" cy="310" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="166.10" y="304.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M167.30 308.00 V315.20 H177.70 V308.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M170.50 311.20 H174.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="265" cy="310" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M257.80 310.80 L261.00 310.80 L263.40 305.20 L266.20 315.60 L268.20 308.40 L269.40 310.80 L272.20 310.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="325" y="222" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-0.37s" cx="353" cy="253" r="9" fill="#34D399"/>
+    <circle cx="353" cy="253" r="4.5" fill="#34D399"/>
+    <text x="369" y="258" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/checkout-v2</text>
+    <circle cx="353" cy="278" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="353" cy="278" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M347 278 H359" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="369" y="282.5" class="mono" font-size="13" fill="#22D3EE">localhost:4625</text>
+    <circle cx="365" cy="310" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="365" cy="306.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M359.00 306.00 V314.00 A6.00 2.24 0 0 0 371.00 314.00 V306.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M359.00 310.00 A6.00 2.24 0 0 0 371.00 310.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="457.5" cy="310" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="451.10" y="304.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M452.30 308.00 V315.20 H462.70 V308.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M455.50 311.20 H459.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="550" cy="310" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M542.80 310.80 L546.00 310.80 L548.40 305.20 L551.20 315.60 L553.20 308.40 L554.40 310.80 L557.20 310.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="610" y="222" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-0.74s" cx="638" cy="253" r="9" fill="#34D399"/>
+    <circle cx="638" cy="253" r="4.5" fill="#34D399"/>
+    <text x="654" y="258" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/fix-refunds</text>
+    <circle cx="638" cy="278" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="638" cy="278" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M632 278 H644" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="654" y="282.5" class="mono" font-size="13" fill="#22D3EE">localhost:4626</text>
+    <circle cx="650" cy="310" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="650" cy="306.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M644.00 306.00 V314.00 A6.00 2.24 0 0 0 656.00 314.00 V306.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M644.00 310.00 A6.00 2.24 0 0 0 656.00 310.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="742.5" cy="310" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="736.10" y="304.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M737.30 308.00 V315.20 H747.70 V308.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M740.50 311.20 H744.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="835" cy="310" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M827.80 310.80 L831.00 310.80 L833.40 305.20 L836.20 315.60 L838.20 308.40 L839.40 310.80 L842.20 310.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="895" y="222" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-1.11s" cx="923" cy="253" r="9" fill="#34D399"/>
+    <circle cx="923" cy="253" r="4.5" fill="#34D399"/>
+    <text x="939" y="258" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/search-api</text>
+    <circle cx="923" cy="278" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="923" cy="278" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M917 278 H929" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="939" y="282.5" class="mono" font-size="13" fill="#22D3EE">localhost:4627</text>
+    <circle cx="935" cy="310" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="935" cy="306.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M929.00 306.00 V314.00 A6.00 2.24 0 0 0 941.00 314.00 V306.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M929.00 310.00 A6.00 2.24 0 0 0 941.00 310.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="1027.5" cy="310" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="1021.10" y="304.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M1022.30 308.00 V315.20 H1032.70 V308.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1025.50 311.20 H1029.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="1120" cy="310" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M1112.80 310.80 L1116.00 310.80 L1118.40 305.20 L1121.20 315.60 L1123.20 308.40 L1124.40 310.80 L1127.20 310.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="40" y="360" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-1.48s" cx="68" cy="391" r="9" fill="#34D399"/>
+    <circle cx="68" cy="391" r="4.5" fill="#34D399"/>
+    <text x="84" y="396" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/invoices</text>
+    <circle cx="68" cy="416" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="68" cy="416" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M62 416 H74" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="84" y="420.5" class="mono" font-size="13" fill="#22D3EE">localhost:4628</text>
+    <circle cx="80" cy="448" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="80" cy="444.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M74.00 444.00 V452.00 A6.00 2.24 0 0 0 86.00 452.00 V444.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M74.00 448.00 A6.00 2.24 0 0 0 86.00 448.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="172.5" cy="448" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="166.10" y="442.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M167.30 446.00 V453.20 H177.70 V446.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M170.50 449.20 H174.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="265" cy="448" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M257.80 448.80 L261.00 448.80 L263.40 443.20 L266.20 453.60 L268.20 446.40 L269.40 448.80 L272.20 448.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="325" y="360" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-1.85s" cx="353" cy="391" r="9" fill="#34D399"/>
+    <circle cx="353" cy="391" r="4.5" fill="#34D399"/>
+    <text x="369" y="396" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/onboarding</text>
+    <circle cx="353" cy="416" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="353" cy="416" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M347 416 H359" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="369" y="420.5" class="mono" font-size="13" fill="#22D3EE">localhost:4629</text>
+    <circle cx="365" cy="448" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="365" cy="444.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M359.00 444.00 V452.00 A6.00 2.24 0 0 0 371.00 452.00 V444.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M359.00 448.00 A6.00 2.24 0 0 0 371.00 448.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="457.5" cy="448" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="451.10" y="442.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M452.30 446.00 V453.20 H462.70 V446.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M455.50 449.20 H459.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="550" cy="448" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M542.80 448.80 L546.00 448.80 L548.40 443.20 L551.20 453.60 L553.20 446.40 L554.40 448.80 L557.20 448.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="610" y="360" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-2.22s" cx="638" cy="391" r="9" fill="#34D399"/>
+    <circle cx="638" cy="391" r="4.5" fill="#34D399"/>
+    <text x="654" y="396" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/rate-limits</text>
+    <circle cx="638" cy="416" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="638" cy="416" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M632 416 H644" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="654" y="420.5" class="mono" font-size="13" fill="#22D3EE">localhost:4630</text>
+    <circle cx="650" cy="448" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="650" cy="444.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M644.00 444.00 V452.00 A6.00 2.24 0 0 0 656.00 452.00 V444.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M644.00 448.00 A6.00 2.24 0 0 0 656.00 448.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="742.5" cy="448" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="736.10" y="442.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M737.30 446.00 V453.20 H747.70 V446.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M740.50 449.20 H744.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="835" cy="448" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M827.80 448.80 L831.00 448.80 L833.40 443.20 L836.20 453.60 L838.20 446.40 L839.40 448.80 L842.20 448.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="895" y="360" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-0.19s" cx="923" cy="391" r="9" fill="#34D399"/>
+    <circle cx="923" cy="391" r="4.5" fill="#34D399"/>
+    <text x="939" y="396" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/audit-log</text>
+    <circle cx="923" cy="416" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="923" cy="416" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M917 416 H929" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="939" y="420.5" class="mono" font-size="13" fill="#22D3EE">localhost:4631</text>
+    <circle cx="935" cy="448" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="935" cy="444.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M929.00 444.00 V452.00 A6.00 2.24 0 0 0 941.00 452.00 V444.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M929.00 448.00 A6.00 2.24 0 0 0 941.00 448.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="1027.5" cy="448" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="1021.10" y="442.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M1022.30 446.00 V453.20 H1032.70 V446.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1025.50 449.20 H1029.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="1120" cy="448" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M1112.80 448.80 L1116.00 448.80 L1118.40 443.20 L1121.20 453.60 L1123.20 446.40 L1124.40 448.80 L1127.20 448.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g clip-path="url(#card)">
+    <g mask="url(#fade)">
+  <g>
+    <rect x="40" y="498" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-0.56s" cx="68" cy="529" r="9" fill="#34D399"/>
+    <circle cx="68" cy="529" r="4.5" fill="#34D399"/>
+    <text x="84" y="534" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/webhooks</text>
+    <circle cx="68" cy="554" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="68" cy="554" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M62 554 H74" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="84" y="558.5" class="mono" font-size="13" fill="#22D3EE">localhost:4632</text>
+    <circle cx="80" cy="586" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="80" cy="582.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M74.00 582.00 V590.00 A6.00 2.24 0 0 0 86.00 590.00 V582.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M74.00 586.00 A6.00 2.24 0 0 0 86.00 586.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="172.5" cy="586" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="166.10" y="580.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M167.30 584.00 V591.20 H177.70 V584.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M170.50 587.20 H174.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="265" cy="586" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M257.80 586.80 L261.00 586.80 L263.40 581.20 L266.20 591.60 L268.20 584.40 L269.40 586.80 L272.20 586.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="325" y="498" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-0.93s" cx="353" cy="529" r="9" fill="#34D399"/>
+    <circle cx="353" cy="529" r="4.5" fill="#34D399"/>
+    <text x="369" y="534" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/exports</text>
+    <circle cx="353" cy="554" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="353" cy="554" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M347 554 H359" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="369" y="558.5" class="mono" font-size="13" fill="#22D3EE">localhost:4633</text>
+    <circle cx="365" cy="586" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="365" cy="582.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M359.00 582.00 V590.00 A6.00 2.24 0 0 0 371.00 590.00 V582.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M359.00 586.00 A6.00 2.24 0 0 0 371.00 586.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="457.5" cy="586" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="451.10" y="580.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M452.30 584.00 V591.20 H462.70 V584.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M455.50 587.20 H459.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="550" cy="586" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M542.80 586.80 L546.00 586.80 L548.40 581.20 L551.20 591.60 L553.20 584.40 L554.40 586.80 L557.20 586.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="610" y="498" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-1.30s" cx="638" cy="529" r="9" fill="#34D399"/>
+    <circle cx="638" cy="529" r="4.5" fill="#34D399"/>
+    <text x="654" y="534" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/billing</text>
+    <circle cx="638" cy="554" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="638" cy="554" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M632 554 H644" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="654" y="558.5" class="mono" font-size="13" fill="#22D3EE">localhost:4634</text>
+    <circle cx="650" cy="586" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="650" cy="582.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M644.00 582.00 V590.00 A6.00 2.24 0 0 0 656.00 590.00 V582.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M644.00 586.00 A6.00 2.24 0 0 0 656.00 586.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="742.5" cy="586" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="736.10" y="580.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M737.30 584.00 V591.20 H747.70 V584.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M740.50 587.20 H744.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="835" cy="586" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M827.80 586.80 L831.00 586.80 L833.40 581.20 L836.20 591.60 L838.20 584.40 L839.40 586.80 L842.20 586.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <rect x="895" y="498" width="265" height="118" rx="16" fill="#111836" stroke="#27305C"/>
+    <circle class="halo" style="animation-delay:-1.67s" cx="923" cy="529" r="9" fill="#34D399"/>
+    <circle cx="923" cy="529" r="4.5" fill="#34D399"/>
+    <text x="939" y="534" class="mono" font-size="15" font-weight="700" fill="#F5F7FF">agent/i18n</text>
+    <circle cx="923" cy="554" r="6" stroke="#22D3EE" stroke-width="1.8" fill="none"/><ellipse cx="923" cy="554" rx="2.52" ry="6" stroke="#22D3EE" stroke-width="1.5" fill="none"/><path d="M917 554 H929" stroke="#22D3EE" stroke-width="1.5" fill="none"/>
+    <text x="939" y="558.5" class="mono" font-size="13" fill="#22D3EE">localhost:4635</text>
+    <circle cx="935" cy="586" r="15" fill="#38BDF8" fill-opacity="0.14" stroke="#38BDF8" stroke-opacity="0.55"/><ellipse cx="935" cy="582.00" rx="6.00" ry="2.24" stroke="#38BDF8" stroke-width="2" fill="none"/><path d="M929.00 582.00 V590.00 A6.00 2.24 0 0 0 941.00 590.00 V582.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M929.00 586.00 A6.00 2.24 0 0 0 941.00 586.00" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <circle cx="1027.5" cy="586" r="15" fill="#F472B6" fill-opacity="0.14" stroke="#F472B6" stroke-opacity="0.55"/><rect x="1021.10" y="580.40" width="12.80" height="3.60" rx="1.20" stroke="#F472B6" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M1022.30 584.00 V591.20 H1032.70 V584.00" stroke="#F472B6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M1025.50 587.20 H1029.50" stroke="#F472B6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="1120" cy="586" r="15" fill="#34D399" fill-opacity="0.14" stroke="#34D399" stroke-opacity="0.55"/><path d="M1112.80 586.80 L1116.00 586.80 L1118.40 581.20 L1121.20 591.60 L1123.20 584.40 L1124.40 586.80 L1127.20 586.80" stroke="#34D399" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+    </g>
+  </g>
+</svg>
