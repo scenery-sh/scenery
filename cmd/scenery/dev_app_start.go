@@ -27,8 +27,12 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	captured := *snapshot
 	operationID := newDevBuildOperationID()
 	// Registered first so it runs last: a failure names the build operation
-	// whose build.step records it belongs to.
+	// whose build.step records it belongs to, and starts, keeps or ends a
+	// build block, which the persisted status then reports.
 	defer func() {
+		if s.recordBuildOutcome(captured, returnErr) {
+			_ = s.persistStatus(context.WithoutCancel(ctx))
+		}
 		if returnErr != nil {
 			returnErr = devBuildOperationError{operationID: operationID, err: returnErr}
 		}

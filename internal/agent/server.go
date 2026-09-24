@@ -80,6 +80,9 @@ func NewServer(opts RunOptions) (*Server, error) {
 	}
 	processLock, err := AcquireProcessLock(paths.AgentLockPath)
 	if err != nil {
+		if errors.Is(err, ErrProcessLocked) {
+			return nil, startFailure(StartClassOwner, fmt.Errorf("scenery agent already running for %s: %w", paths.Home, err))
+		}
 		return nil, fmt.Errorf("scenery agent already running for %s: %w", paths.Home, err)
 	}
 	releaseLock := true
@@ -103,7 +106,7 @@ func NewServer(opts RunOptions) (*Server, error) {
 	installTrust := opts.InstallTrust || TrustFromEnv()
 	routerLn, actualRouterAddr, err := listenRouter(routerAddr)
 	if err != nil {
-		return nil, err
+		return nil, startFailure(StartClassUnavailable, err)
 	}
 	var tlsCA localproxy.LocalCA
 	if routerTLS {
@@ -142,12 +145,20 @@ func NewServer(opts RunOptions) (*Server, error) {
 	registry, err := OpenRegistry(paths.RegistryPath, publicRouterAddr, routeScheme)
 	if err != nil {
 		_ = routerLn.Close()
-		return nil, err
+		// The retained registry decides which sessions this agent owns; an
+		// unreadable one stays unreadable until it is migrated or the
+		// producer changes, so retrying cannot help.
+		return nil, startFailure(StartClassState, fmt.Errorf("read agent session registry %s: %w", paths.RegistryPath, err))
 	}
 	controlLn, err := listenUnixSocket(paths.SocketPath)
 	if err != nil {
 		_ = routerLn.Close()
-		return nil, err
+		class := StartClassUnavailable
+		var pathErr *SocketPathError
+		if errors.As(err, &pathErr) || strings.TrimSpace(paths.SocketPath) == "" {
+			class = StartClassConfiguration
+		}
+		return nil, startFailure(class, err)
 	}
 	server := &Server{
 		paths:                paths,

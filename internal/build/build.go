@@ -204,15 +204,20 @@ type LatestBuildManifestRecord struct {
 	GeneratedFileCount    int    `json:"generated_file_count"`
 }
 
-func AppForTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
-	return appForTarget(appRoot, cfg, targetName, defaultRole, false)
+// AppForTarget prepares and compiles one host-executable app binary from the
+// named go_target, or from the target with role "development" when targetName
+// is empty. Runtime process roles such as SCENERY_ROLE=worker select behavior
+// inside that binary; they are not go_target roles.
+func AppForTarget(appRoot string, cfg app.Config, targetName string) (*Result, error) {
+	return appForTarget(appRoot, cfg, targetName, "development", false)
 }
 
-// BuildArtifactForTarget prepares and compiles one production app binary.
-// Unlike the development/worker AppForTarget path, it materializes the
-// platform-matched assistant runtime assets before linking the Go binary.
-func BuildArtifactForTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
-	return appForTarget(appRoot, cfg, targetName, defaultRole, true)
+// BuildArtifactForTarget prepares and compiles one production app binary from
+// the named go_target, or from the target with role "artifact" when targetName
+// is empty. Unlike AppForTarget, it materializes the platform-matched
+// assistant runtime assets before linking the Go binary.
+func BuildArtifactForTarget(appRoot string, cfg app.Config, targetName string) (*Result, error) {
+	return appForTarget(appRoot, cfg, targetName, "artifact", true)
 }
 
 func appForTarget(appRoot string, cfg app.Config, targetName, defaultRole string, productionAssets bool) (*Result, error) {

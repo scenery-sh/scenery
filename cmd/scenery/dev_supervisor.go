@@ -102,6 +102,9 @@ type devSupervisor struct {
 	victoriaStarted    bool
 	dbSetupFingerprint string
 	buildFailed        bool
+	// buildBlock is set while builds fail for a cause no ordinary edit
+	// resolves (see dev_build_block.go).
+	buildBlock *devBuildBlock
 
 	// rebuildRequests wakes the watch loop for a rebuild that no watched
 	// file change would trigger (e.g. a ui catalog sync succeeding after the
@@ -1224,6 +1227,7 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 		Aliases:       s.statusDashboardAliasesLocked(s.status.SessionID),
 		Compiling:     s.status.Compiling,
 		CompileError:  s.status.CompileError,
+		BuildBlock:    s.status.BuildBlock,
 	}
 	s.mu.RUnlock()
 	status.ServiceProcesses = s.serviceProcessStatuses()
@@ -1278,6 +1282,7 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 		Aliases:       aliases,
 		Compiling:     app.Compiling,
 		CompileError:  app.CompileError,
+		BuildBlock:    app.BuildBlock,
 	}
 	applySessionStatusToAppStatus(&status, session)
 	status.Meta = s.metadataWithRuntimePostgresDatabases(status.Meta, status.AppRoot)

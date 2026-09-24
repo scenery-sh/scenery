@@ -284,7 +284,7 @@ func runWorker(opts workerOptions) error {
 	if err != nil {
 		return err
 	}
-	result, err := build.AppForTarget(root, cfg, "", "worker")
+	result, err := build.AppForTarget(root, cfg, "")
 	if err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func runWorkerDurable(opts workerDurableOptions) error {
 	if err != nil {
 		return err
 	}
-	result, err := build.AppForTarget(root, cfg, "", "worker")
+	result, err := build.AppForTarget(root, cfg, "")
 	if err != nil {
 		return err
 	}

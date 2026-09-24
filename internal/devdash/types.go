@@ -40,6 +40,7 @@ type AppRecord struct {
 	SessionStatusReason string
 	Compiling           bool
 	CompileError        string
+	BuildBlock          *BuildBlock
 	PID                 string
 	UpdatedAt           time.Time
 }
@@ -65,6 +66,18 @@ type AppStatus struct {
 	// ServiceProcesses reports the service processes of a process-model
 	// session; it is absent when the application runs as one process.
 	ServiceProcesses []ServiceProcess `json:"serviceProcesses,omitempty"`
+	// BuildBlock is present while builds are blocked by a cause no ordinary
+	// edit resolves; the runtime keeps serving its last good generation.
+	BuildBlock *BuildBlock `json:"buildBlock,omitempty"`
+}
+
+// BuildBlock describes blocked builds: why, since when, and how many
+// requested rebuilds were not attempted because they would fail the same way.
+type BuildBlock struct {
+	Reason          string `json:"reason"`
+	Cause           string `json:"cause"`
+	Since           string `json:"since"`
+	PreventedBuilds int    `json:"preventedBuilds"`
 }
 
 // ServiceProcess is one service process of the published generation.

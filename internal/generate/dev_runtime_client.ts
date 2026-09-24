@@ -51,6 +51,21 @@ export interface DevRuntimeStatus {
 	readonly routes: Readonly<Record<string, string>>;
 	readonly service_processes: readonly DevRuntimeServiceProcess[];
 	readonly observability?: DevRuntimeObservability;
+	/**
+	 * Present while builds are blocked by a cause no ordinary edit resolves:
+	 * the runtime keeps serving its last good generation, and requested
+	 * changes are not applied until the cause is resolved.
+	 */
+	readonly build_block?: DevRuntimeBuildBlock;
+}
+
+export interface DevRuntimeBuildBlock {
+	/** framework_mismatch or migration_pending. */
+	readonly reason: string;
+	readonly cause: string;
+	readonly since: string;
+	/** Rebuilds not attempted because they would fail the same way. */
+	readonly prevented_builds: number;
 }
 
 export interface PostgresTable {

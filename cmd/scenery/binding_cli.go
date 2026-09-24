@@ -64,7 +64,7 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 	if err != nil {
 		return true, err
 	}
-	built, err := build.AppForTarget(root, cfg, "", "development")
+	built, err := build.AppForTarget(root, cfg, "")
 	if err != nil {
 		return true, err
 	}

@@ -158,6 +158,21 @@ func (c *runConsole) RebuildFailed(err error) {
 	c.printError("rebuild failed", err)
 }
 
+// BuildBlocked reports a rebuild that was not attempted because it would fail
+// for the cause that blocked the last build.
+func (c *runConsole) BuildBlocked(block devBuildBlock) {
+	if c.json {
+		c.Event("build.blocked", map[string]any{
+			"reason": block.Reason, "cause": block.Cause,
+			"since": block.Since.Format(time.RFC3339), "prevented_builds": block.Prevented,
+		})
+		return
+	}
+	c.printf(c.err, "\n  %s\n  %s\n\n",
+		c.palette.Bold(fmt.Sprintf("Build blocked (%s): changes are not applied; the runtime keeps serving the last good build.", block.Reason)),
+		c.palette.Dim(fmt.Sprintf("%s (%d rebuild(s) not attempted since %s)", block.Cause, block.Prevented, block.Since.Format(time.Kitchen))))
+}
+
 // FrameworkHandoff announces that the runtime stops so the prepared producer
 // of the app's newly selected Scenery continues this `scenery up`.
 func (c *runConsole) FrameworkHandoff(handoff *frameworkHandoff) {

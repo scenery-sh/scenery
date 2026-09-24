@@ -208,6 +208,7 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		SessionStatusReason: app.SessionStatusReason,
 		Compiling:           app.Compiling,
 		CompileError:        app.CompileError,
+		BuildBlock:          app.BuildBlock,
 	}
 	applySessionStatusToAppStatus(&status, nil)
 	return status
