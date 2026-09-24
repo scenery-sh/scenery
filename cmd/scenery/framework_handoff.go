@@ -55,6 +55,11 @@ var execFrameworkHandoff = func(executable string, args, environment []string) e
 	return execProcess(executable, append([]string{executable}, args...), environment)
 }
 
+var (
+	changedAppFrameworkFunc     = changedAppFramework
+	prepareFrameworkHandoffFunc = prepareFrameworkHandoff
+)
+
 // changedAppFramework reports the framework the application now selects when
 // this process is a producer `scenery framework use` prepared for root and the
 // selection names another one.
@@ -134,18 +139,24 @@ func startupFrameworkHandoff(appRootOption string) *frameworkHandoff {
 }
 
 // frameworkHandoffBeforeBuild prepares the framework the app now selects while
-// the current runtime keeps serving. A preparation failure is reported once per
-// selection; the build's framework verification keeps reporting the mismatch.
+// the current runtime keeps serving. A preparation failure is reported once
+// while that selection stays; the build's framework verification keeps
+// reporting the mismatch. Selecting this producer again ends the episode, so a
+// later selection of the failed framework is prepared anew.
 func (s *devSupervisor) frameworkHandoffBeforeBuild(ctx context.Context, failed *build.DesiredFramework) *frameworkHandoff {
-	desired, changed := changedAppFramework(s.root)
-	if !changed || desired == *failed {
+	desired, changed := changedAppFrameworkFunc(s.root)
+	if !changed {
+		*failed = build.DesiredFramework{}
+		return nil
+	}
+	if desired == *failed {
 		return nil
 	}
 	label := desiredFrameworkLabel(desired, s.root)
 	var handoff *frameworkHandoff
 	err := s.console.Phase("Preparing Scenery "+label+" for handoff", func() error {
 		var err error
-		handoff, err = prepareFrameworkHandoff(ctx, s.root)
+		handoff, err = prepareFrameworkHandoffFunc(ctx, s.root)
 		return err
 	})
 	if err != nil {

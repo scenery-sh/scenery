@@ -188,7 +188,7 @@ release certification. Failed steps identify their focused rerun command.
 |---|---|
 | `parallel-runtime` | Parallel runtime/session isolation |
 | `postgres` | Full PostgreSQL service, durable, reset and snapshot proof |
-| `ui` | `tools/typescript` dependencies, TypeScript client conformance, generated-client and UI catalog typechecks |
+| `ui` | `tools/typescript` dependencies, TypeScript client conformance and generated `dev-runtime.ts` behavior, generated-client and UI catalog typechecks |
 | `fixtures` | Fixture generation/compilation matrix |
 | `storage` | Storage CLI, routes, restart persistence and a fresh tagged 260-entry disk-pressure reclamation/resume integration test |
 | `core-separation` | Product/verifier dependency and source-only boundaries |

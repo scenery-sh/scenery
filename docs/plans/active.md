@@ -7,7 +7,7 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0204 Environment-Only Application Configuration](0204-environment-configuration.md)
+- [0205 Environment-Only Application Configuration](0205-environment-configuration.md)
   - Status: active
   - Owner: scenery runtime / compiler / deploy
   - Created: 2026-09-24

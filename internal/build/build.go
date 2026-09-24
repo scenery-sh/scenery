@@ -57,6 +57,30 @@ type Result struct {
 	// executable.
 	DevelopmentProcessBinaries []string
 	verification               *preparedVerification
+	// workspaceHold is the workspace lock a held preparation kept after it
+	// established the workspace's membership and bytes; the next process build
+	// consumes it instead of locking and verifying them again.
+	workspaceHold func()
+}
+
+// ReleaseWorkspace releases a workspace lock that a held preparation kept and
+// no compilation consumed. It is safe to call more than once.
+func (r *Result) ReleaseWorkspace() {
+	if r == nil || r.workspaceHold == nil {
+		return
+	}
+	release := r.workspaceHold
+	r.workspaceHold = nil
+	release()
+}
+
+func (r *Result) takeWorkspaceHold() func() {
+	if r == nil {
+		return nil
+	}
+	hold := r.workspaceHold
+	r.workspaceHold = nil
+	return hold
 }
 
 // SourceStamp records the size/mtime/permissions of an app source file as

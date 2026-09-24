@@ -1,7 +1,7 @@
 package build
 
 import (
-	"fmt"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,58 +10,76 @@ import (
 	"time"
 )
 
-func TestCachedFrameworkFingerprintChangesWhenFrameworkSourceChanges(t *testing.T) {
+func TestWorkspaceFrameworkFingerprintChangesWhenFrameworkSourceChanges(t *testing.T) {
 	t.Parallel()
 
 	repo := newFrameworkFingerprintRepo(t)
-	first, err := cachedFrameworkFingerprint(repo)
-	if err != nil {
-		t.Fatalf("cachedFrameworkFingerprint(first) error = %v", err)
+	workspace := newFrameworkReplaceWorkspace(t, repo)
+	first, err := workspaceFrameworkFingerprint(context.Background(), workspace)
+	if err != nil || first == "" {
+		t.Fatalf("workspaceFrameworkFingerprint(first) = %q, %v", first, err)
 	}
 	touchFrameworkFile(t, repo, "auth/standard_dev.go", "package auth\n\nfunc Changed() {}\n")
-	second, err := cachedFrameworkFingerprint(repo)
+	second, err := workspaceFrameworkFingerprint(context.Background(), workspace)
 	if err != nil {
-		t.Fatalf("cachedFrameworkFingerprint(second) error = %v", err)
+		t.Fatalf("workspaceFrameworkFingerprint(second) error = %v", err)
 	}
 	if second == first {
 		t.Fatalf("framework fingerprint did not change after source edit: %q", second)
 	}
+	source, err := FrameworkSourceManifest(repo)
+	if err != nil || source.Digest != second {
+		t.Fatalf("fingerprint %q is not the framework source digest %q (%v)", second, source.Digest, err)
+	}
 }
 
-func TestCurrentFrameworkFingerprintSkipsWorkspaceWithoutLocalReplace(t *testing.T) {
-	old := cachedFrameworkFingerprintFunc
-	called := false
-	cachedFrameworkFingerprintFunc = func(string) (string, error) {
-		called = true
-		return "", fmt.Errorf("unexpected framework scan")
+// A build whose context verified the selected framework source reuses that
+// digest instead of reading the framework tree a second time.
+func TestWorkspaceFrameworkFingerprintReusesTheVerifiedSource(t *testing.T) {
+	t.Parallel()
+
+	repo := newFrameworkFingerprintRepo(t)
+	workspace := newFrameworkReplaceWorkspace(t, repo)
+	canonical, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { cachedFrameworkFingerprintFunc = old })
+	const verified = "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+	ctx := context.WithValue(context.Background(), verifiedFrameworkSourceKey{}, FrameworkSource{Root: canonical, Digest: verified})
+	if got, err := workspaceFrameworkFingerprint(ctx, workspace); err != nil || got != verified {
+		t.Fatalf("workspaceFrameworkFingerprint(verified) = %q, %v; want the verified digest", got, err)
+	}
+}
+
+func TestWorkspaceFrameworkFingerprintIsEmptyWithoutLocalReplace(t *testing.T) {
+	t.Parallel()
 
 	workspace := t.TempDir()
 	writeBuildTestFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26.3\n\nrequire scenery.sh v0.1.0\n")
-	fingerprint, ok, err := currentFrameworkFingerprintFromWorkspace(workspace)
-	if err != nil {
-		t.Fatalf("currentFrameworkFingerprintFromWorkspace() error = %v", err)
-	}
-	if ok || fingerprint != "" {
-		t.Fatalf("fingerprint=%q ok=%v, want no local framework", fingerprint, ok)
-	}
-	if called {
-		t.Fatal("expected no-replace workspace to skip framework scan")
+	fingerprint, err := workspaceFrameworkFingerprint(context.Background(), workspace)
+	if err != nil || fingerprint != "" {
+		t.Fatalf("fingerprint=%q err=%v, want no local framework", fingerprint, err)
 	}
 }
 
-func BenchmarkCachedFrameworkFingerprintWarmPath(b *testing.B) {
+func BenchmarkFrameworkSourceManifestWarmPath(b *testing.B) {
 	repo := repoRootForBenchmark(b)
-	if _, err := cachedFrameworkFingerprint(repo); err != nil {
-		b.Fatalf("prime cachedFrameworkFingerprint: %v", err)
+	if _, err := FrameworkSourceManifest(repo); err != nil {
+		b.Fatalf("prime FrameworkSourceManifest: %v", err)
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := cachedFrameworkFingerprint(repo); err != nil {
+		if _, err := FrameworkSourceManifest(repo); err != nil {
 			b.Fatal(err)
 		}
 	}
+}
+
+func newFrameworkReplaceWorkspace(t *testing.T, repo string) string {
+	t.Helper()
+	workspace := t.TempDir()
+	writeBuildTestFile(t, workspace, "go.mod", "module example.com/app\n\ngo 1.26.3\n\nrequire scenery.sh v0.1.0\n\nreplace scenery.sh => "+repo+"\n")
+	return workspace
 }
 
 func newFrameworkFingerprintRepo(t *testing.T) string {
@@ -114,7 +132,7 @@ func TestFrameworkEmbedPatternsFollowEditsBehindRestoredModificationTimes(t *tes
 	}
 	embedded := func() []string {
 		t.Helper()
-		files, _, err := frameworkFingerprintFiles(root, nil)
+		files, err := frameworkFingerprintFiles(root)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devcache"
-	"scenery.sh/internal/devdash"
 )
 
 type dashboardRunState struct {
@@ -21,6 +21,9 @@ type dashboardRunState struct {
 	StartedAt     time.Time `json:"started_at"`
 	AppRoot       string    `json:"app_root"`
 	DashboardAddr string    `json:"dashboard_addr"`
+	// Owner is the supervisor identity captured when it claimed the address.
+	// Only a process that still verifies against it is ever stopped.
+	Owner localagent.Owner `json:"owner"`
 
 	// cacheRoot overrides the scenery cache root used for the state file.
 	// When empty, sceneryCacheRoot() decides.
@@ -33,6 +36,7 @@ func newDashboardRunState(root, addr string) dashboardRunState {
 		StartedAt:     time.Now().UTC(),
 		AppRoot:       root,
 		DashboardAddr: addr,
+		Owner:         localagent.CurrentOwner("scenery up control listener"),
 	}
 }
 
@@ -96,37 +100,18 @@ func loadDashboardRunState(path string) (dashboardRunState, error) {
 	return state, nil
 }
 
+// ensureDashboardPortAvailable stops the recorded previous owner of addr, if
+// it still verifies, and otherwise leaves whatever holds addr alone: the port
+// number identifies no owner, so an occupied address is a named failure.
 func ensureDashboardPortAvailable(addr string, state dashboardRunState) error {
 	statePath, err := state.path()
 	if err != nil {
 		return err
 	}
-
 	if err := reapOwnedDashboard(statePath, state); err != nil {
 		return err
 	}
-	if err := portAvailable(addr); err == nil {
-		return nil
-	}
-	if addr != devdash.DashboardAddr {
-		return portAvailable(addr)
-	}
-
-	pid, ok := findListeningPID(addr)
-	if !ok {
-		return portAvailable(addr)
-	}
-	info, ok := inspectProcess(pid)
-	if !ok {
-		return portAvailable(addr)
-	}
-	if !looksLikeSceneryDashboardProcess(info) {
-		return portAvailable(addr)
-	}
-	if err := stopProcess(pid); err != nil {
-		return err
-	}
-	return waitForPortRelease(addr, 3*time.Second)
+	return portAvailable(addr)
 }
 
 func reapOwnedDashboard(statePath string, expected dashboardRunState) error {
@@ -142,21 +127,15 @@ func reapOwnedDashboard(statePath string, expected dashboardRunState) error {
 	if strings.TrimSpace(state.AppRoot) != strings.TrimSpace(expected.AppRoot) || state.DashboardAddr != expected.DashboardAddr {
 		return nil
 	}
-
-	info, ok := inspectProcess(state.SupervisorPID)
-	if !ok {
+	if state.SupervisorPID == os.Getpid() {
+		return nil
+	}
+	if state.Owner.PID != state.SupervisorPID || localagent.VerifyOwner(state.Owner) != nil {
 		_ = os.Remove(statePath)
 		return nil
 	}
-	if !looksLikeSceneryDashboardProcess(info) {
-		_ = os.Remove(statePath)
-		return nil
-	}
-	if info.pid == os.Getpid() {
-		return nil
-	}
-	if err := stopProcess(info.pid); err != nil {
-		return fmt.Errorf("stop stale dashboard owner %d: %w", info.pid, err)
+	if err := stopRecordedOwner(state.Owner, 2*time.Second); err != nil {
+		return fmt.Errorf("stop stale control listener owner %d: %w", state.Owner.PID, err)
 	}
 	if err := waitForPortRelease(expected.DashboardAddr, 3*time.Second); err != nil {
 		return err

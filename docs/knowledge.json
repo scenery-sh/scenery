@@ -19,7 +19,7 @@
   },
   "documents": [
     {
-      "path": "docs/plans/0204-environment-configuration.md",
+      "path": "docs/plans/0205-environment-configuration.md",
       "title": "Environment-Only Application Configuration",
       "owner": "scenery runtime / compiler / deploy",
       "status": "active",
@@ -27,8 +27,32 @@
       "freshness": "current",
       "last_reviewed": "2026-09-24",
       "review_after": "2026-10-24",
-      "summary": "Replaces application dotenv files and ambient environment configuration with one typed application + environment model: scenery config show/set/unset over an authoritative per-app store, versioned OS-backed secrets, revision-bound runtime snapshots that restart only consuming services, revision-safe SSH deployment, and the ONLV migration.",
+      "summary": "Replaces application dotenv files and ambient environment configuration with one typed application + environment model: scenery config show/set/unset over an authoritative per-app store, versioned OS-backed secrets, revision-bound runtime snapshots that restart only consuming services, revision-safe SSH deployment, configured external SQL supply, and the ONLV migration.",
       "tags": ["plans", "execplans", "runtime", "compiler", "deploy", "secrets"]
+    },
+    {
+      "path": "docs/schemas/scenery.telemetry.report.schema.json",
+      "title": "scenery.telemetry.report Schema",
+      "owner": "scenery CLI / observability",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Machine output of scenery telemetry report: findings, CLI command and startup timings with failure bursts, detached supervisor rebuild timings, step percentiles, failure causes and streaks, and opt-in aggregates of agent Scenery calls and rejected inputs.",
+      "tags": ["schemas", "telemetry", "machine-protocol"]
+    },
+    {
+      "path": "docs/plans/0204-recorded-ownership-small-sdk-one-snapshot.md",
+      "title": "Recorded Process Ownership, Small SDK Closure And One Input Snapshot",
+      "owner": "scenery runtime / agent / build",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Cleanup signals only recorded, verified process identities (never command lines, ports or parent groups); scenery.sh/db, auth and durable depend on the small request-context layer instead of the runtime implementation; one captured input snapshot per development generation feeds preparation, process identity and pre-activation verification.",
+      "tags": ["plans", "execplans", "runtime", "agent", "build"]
     },
     {
       "path": "docs/plans/0203-framework-handoff.md",
@@ -1139,9 +1163,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Current machine-output schema for fingerprint-verified pre-rebrand agent and state cleanup.",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Current machine-output schema for the report-only pre-rebrand process check and explicit legacy state cleanup.",
       "tags": ["schemas", "agent", "cleanup", "machine-protocol"]
     },
     {

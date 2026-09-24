@@ -139,12 +139,21 @@ func TestRunningStateAndStopProcessControlInProcess(t *testing.T) {
 	}
 	alive := true
 	var signaledPID int
-	if err := stopWithProcessControl(paths, 2*time.Second, func(pid int) bool {
+	aliveFor := func(pid int) bool {
 		if pid != 4242 {
 			t.Fatalf("process liveness PID = %d", pid)
 		}
 		return alive
-	}, func(pid int, signal os.Signal) error {
+	}
+	reused := func(int) (string, error) { return "Wed Aug 26 08:00:00 2026", nil }
+	if err := stopWithProcessControl(paths, 2*time.Second, aliveFor, reused, func(pid int, _ os.Signal) error {
+		t.Fatalf("signaled pid %d whose start time differs from the recorded Caddy", pid)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	recorded := func(int) (string, error) { return "Tue Aug 25 10:30:00 2026", nil }
+	if err := stopWithProcessControl(paths, 2*time.Second, aliveFor, recorded, func(pid int, signal os.Signal) error {
 		signaledPID = pid
 		if signal != syscall.SIGTERM {
 			t.Fatalf("process signal = %v", signal)

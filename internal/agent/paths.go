@@ -21,13 +21,16 @@ const (
 )
 
 type Paths struct {
-	Home                string
-	RunDir              string
-	AgentDir            string
-	EdgeDir             string
-	SocketPath          string
-	StatePath           string
-	AgentLockPath       string
+	Home          string
+	RunDir        string
+	AgentDir      string
+	EdgeDir       string
+	SocketPath    string
+	StatePath     string
+	AgentLockPath string
+	// AgentOwnerPath records the identity of the process holding
+	// AgentLockPath; empty for agents that record no machine owner.
+	AgentOwnerPath      string
 	EdgeStatePath       string
 	EdgeLockPath        string
 	EdgeTokenPath       string
@@ -76,6 +79,7 @@ func PathsForHome(home string) Paths {
 		SocketPath:          filepath.Clean(socketPath),
 		StatePath:           filepath.Join(runDir, "agent.json"),
 		AgentLockPath:       filepath.Join(runDir, "agent.lock"),
+		AgentOwnerPath:      filepath.Join(runDir, "agent-owner.json"),
 		EdgeStatePath:       filepath.Join(runDir, "edge.json"),
 		EdgeLockPath:        filepath.Join(runDir, "edge.lock"),
 		EdgeTargetPath:      filepath.Join(runDir, "edge-target.json"),

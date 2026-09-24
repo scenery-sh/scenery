@@ -71,6 +71,11 @@ without the operator restarting anything.
   indexes; `golangci-lint run ./...` 0 issues; `go run ./scripts/verify
   --summary --write` pass_with_warnings (only pre-existing review-due and
   architecture warnings); both client regenerations idempotent.
+- [x] (2026-09-24) Review follow-up (finding R4 of the 2026-09-24 review): a
+  failed preparation is forgotten once the app selects the running producer
+  again, so A → B (failed) → A → B prepares B anew; an unchanged failed
+  selection is still not retried and an interrupted preparation is not recorded
+  (`TestFrameworkHandoffRetriesFailedSelectionAfterSwitchingBack`).
 - [ ] Observe a pinned-version bump in ONLV hand off a running `scenery up` once
   ONLV pins a Scenery that contains this change. The pinned path (module
   download, version comparison) is covered by unit tests and the existing
@@ -97,6 +102,9 @@ without the operator restarting anything.
   `canonicalPath` now resolves the longest existing prefix.
 - The `native` fixture client has no `dev_runtime` target; only the `house`
   client carries `dev-runtime.ts`. Both regenerations still ran.
+- (2026-09-24 review) The early return for an unchanged selection never cleared
+  the remembered failure, so after switching back to the running producer the
+  repaired failed selection was skipped for the supervisor's lifetime.
 
 ## Decision Log
 
@@ -148,6 +156,10 @@ without the operator restarting anything.
   until `go.mod` selects something else. Rationale: an offline download or a
   broken producer build would otherwise repeat on every save. The rebuild error
   names the manual path. Date/Author: 2026-09-23, Claude.
+- Decision: that suppression lasts one selection episode: selecting the running
+  producer again, or an unreadable selection, forgets the failure. Rationale:
+  reselecting the framework is the developer's retry, while saves that keep the
+  failed selection still do not retry. Date/Author: 2026-09-24, Claude.
 
 ## Outcomes & Retrospective
 

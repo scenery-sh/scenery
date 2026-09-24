@@ -155,7 +155,7 @@ func reapStaleAgentRouterOwner(opts agentOptions) error {
 	if localagent.NewClient(paths.SocketPath).Ping(ctx) == nil {
 		return nil
 	}
-	return stopStaleUserSceneryAgents(paths.SocketPath, firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()), 2*time.Second)
+	return stopRecordedStaleAgent(paths, 2*time.Second)
 }
 
 var (

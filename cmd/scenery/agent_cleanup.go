@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,10 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
-	"time"
-
-	localagent "scenery.sh/internal/agent"
 )
 
 type preRebrandCleanupResult struct {
@@ -21,9 +15,9 @@ type preRebrandCleanupResult struct {
 	Home         string `json:"home"`
 	StatePresent bool   `json:"state_present"`
 	StateRemoved bool   `json:"state_removed"`
-	Matched      []int  `json:"matched_pids,omitempty"`
-	Stopped      []int  `json:"stopped_pids,omitempty"`
-	Skipped      []int  `json:"skipped_unverified_pids,omitempty"`
+	// Running names legacy processes observed using the pre-rebrand paths.
+	// This Scenery did not record them as its own, so it never signals them.
+	Running []int `json:"running_pids,omitempty"`
 }
 
 func agentCleanupCommand(args []string) error {
@@ -84,41 +78,12 @@ func runAgentCleanupWithProcessLister(stdout io.Writer, legacyHome string, opts 
 			return err
 		}
 		for _, process := range preRebrandProcesses(processes, legacyHome, os.Getuid(), os.Getpid()) {
-			result.Matched = append(result.Matched, process.PID)
-			current, ok := currentRuntimeProcess(process.PID)
-			if !ok || current.UID != process.UID || current.Command != process.Command || len(preRebrandProcesses([]runtimeProcess{current}, legacyHome, os.Getuid(), os.Getpid())) != 1 {
-				result.Skipped = append(result.Skipped, process.PID)
-				continue
-			}
-			owner := localagent.CaptureOwner(process.PID, "scenery pre-rebrand cleanup")
-			if err := localagent.VerifyOwner(owner); err != nil {
-				result.Skipped = append(result.Skipped, process.PID)
-				continue
-			}
-			if err := signalPID(process.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
-				return fmt.Errorf("stop verified pre-rebrand process pid %d: %w", process.PID, err)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			for processAliveForEdge(process.PID) && ctx.Err() == nil {
-				time.Sleep(50 * time.Millisecond)
-			}
-			cancel()
-			if processAliveForEdge(process.PID) {
-				// Verify the same fingerprint again before escalating.
-				if err := localagent.VerifyOwner(owner); err != nil {
-					result.Skipped = append(result.Skipped, process.PID)
-					continue
-				}
-				if err := signalPID(process.PID, syscall.SIGKILL); err != nil {
-					return fmt.Errorf("kill verified pre-rebrand process pid %d: %w", process.PID, err)
-				}
-			}
-			result.Stopped = append(result.Stopped, process.PID)
+			result.Running = append(result.Running, process.PID)
 		}
 	}
 	if opts.RemoveState && result.StatePresent {
-		if len(result.Skipped) > 0 {
-			return fmt.Errorf("refusing to remove %s while pre-rebrand processes could not be verified", legacyHome)
+		if len(result.Running) > 0 {
+			return preconditionErrorf("refusing to remove %s while pre-rebrand processes %v still use it; stop them first", legacyHome, result.Running)
 		}
 		if err := removePreRebrandState(legacyHome); err != nil {
 			return err
@@ -129,10 +94,10 @@ func runAgentCleanupWithProcessLister(stdout io.Writer, legacyHome string, opts 
 	if opts.JSON {
 		return writeCLIJSON(stdout, result)
 	}
-	if len(result.Stopped) > 0 {
-		_, _ = fmt.Fprintf(stdout, "stopped %d verified pre-rebrand process(es)\n", len(result.Stopped))
+	if len(result.Running) > 0 {
+		_, _ = fmt.Fprintf(stdout, "pre-rebrand processes still running (stop them yourself; Scenery did not record them): %v\n", result.Running)
 	} else {
-		_, _ = fmt.Fprintln(stdout, "no verified pre-rebrand processes found")
+		_, _ = fmt.Fprintln(stdout, "no pre-rebrand processes found")
 	}
 	if result.StateRemoved {
 		_, _ = fmt.Fprintf(stdout, "removed pre-rebrand state %s\n", legacyHome)
@@ -140,18 +105,6 @@ func runAgentCleanupWithProcessLister(stdout io.Writer, legacyHome string, opts 
 		_, _ = fmt.Fprintf(stdout, "pre-rebrand state remains at %s; rerun with --remove-state to remove it\n", legacyHome)
 	}
 	return nil
-}
-
-func currentRuntimeProcess(pid int) (runtimeProcess, bool) {
-	out, err := exec.Command("ps", "-p", fmt.Sprint(pid), "-o", "pid=,uid=,command=").Output()
-	if err != nil {
-		return runtimeProcess{}, false
-	}
-	processes := parseRuntimeProcesses(string(out))
-	if len(processes) != 1 || processes[0].PID != pid {
-		return runtimeProcess{}, false
-	}
-	return processes[0], true
 }
 
 func preRebrandProcesses(processes []runtimeProcess, legacyHome string, uid, selfPID int) []runtimeProcess {

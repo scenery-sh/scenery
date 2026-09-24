@@ -110,8 +110,8 @@ output capture and process-tree stop mechanics. The CLI still owns application,
 session, frontend, desktop and assistant lifecycle decisions. Process completion
 is exposed as a receive-only signal, not a second mutable runtime record.
 Process observations and named substrate locks live in that same concrete
-process layer. `internal/agent` owns session process-cleanup selection, retaining
-the existing owner and orphan-scope checks. `internal/watchignore` owns the
+process layer. `internal/agent` owns session process-cleanup selection, which
+acts only on recorded, verified owners and registered children. `internal/watchignore` owns the
 shared watch-input path policy and embed-pattern parsing; snapshot caching
 remains in the CLI.
 
@@ -246,9 +246,14 @@ transactional, and reproducible from the canonical graph.
 `internal/appsdk` owns the lightweight process-local metadata, current-request,
 application-span, and SDK stream bridge used by the root `scenery.sh` facade.
 The full runtime binds request/span behavior through the current context and
-goroutine invocation; there is no mutable callback registry. App-facing types
-remain aliases, so the runtime and facade retain identical assignability and
-method sets without making a facade import link runtime orchestration.
+goroutine invocation. App-facing types remain aliases, so the runtime and facade
+retain identical assignability and method sets without making a facade import
+link runtime orchestration. The application SDK packages `scenery.sh/auth`,
+`scenery.sh/db` and `scenery.sh/durable` reach the runtime only through the one
+`appsdk.Host` the runtime registers from its package initialization (current
+authentication, standard-auth endpoint and handler registration, JSON contract
+codecs, durable signals and steps); `.env` loading lives in `appsdk` itself.
+Importing them therefore never links the runtime's implementation closure.
 
 `internal/contract` owns the contract value types, their canonical JSON wire
 form, schema-directed marshalling, constraint validation, composite keys, and
@@ -264,8 +269,9 @@ consumer of `internal/contractpolicy`'s evaluator.
 
 Architecture invariant: compiler-side packages depend on `internal/contract` and
 `internal/contractpolicy` directly, never on the root `scenery.sh` façade or on
-`scenery.sh/runtime`. The facade depends on `internal/appsdk` and other leaves,
-not the full runtime. Source, compiler, generator, and deployment packages must
+`scenery.sh/runtime`. The facade and the application SDK packages depend on
+`internal/appsdk` and other leaves, not the full runtime (enforced by the
+architecture check). Source, compiler, generator, and deployment packages must
 not link the runtime, its orchestration, or the PostgreSQL driver.
 `contract_surface_test.go` pins the facade to the leaf so the app-facing
 spelling cannot silently drift.

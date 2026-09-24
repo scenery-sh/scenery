@@ -125,17 +125,26 @@ func writeRunningEdgeState(config StartConfig, pid int, startedAt string, update
 	return nil
 }
 
-// Stop terminates the Caddy process recorded in paths.
+// Stop terminates the Caddy process recorded in paths. It signals only the
+// recorded PID and only while that process still has the start time recorded
+// when it was started; a PID that now names another process is left alone.
 func Stop(paths localagent.Paths, timeout time.Duration) error {
-	return stopWithProcessControl(paths, timeout, processAlive, signalPID)
+	return stopWithProcessControl(paths, timeout, processAlive, processStartTime, signalPID)
 }
 
-func stopWithProcessControl(paths localagent.Paths, timeout time.Duration, alive func(int) bool, signal func(int, os.Signal) error) error {
+func stopWithProcessControl(paths localagent.Paths, timeout time.Duration, alive func(int) bool, startedAt func(int) (string, error), signal func(int, os.Signal) error) error {
 	state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
 	if err != nil {
 		return err
 	}
 	if state.PID <= 0 || !alive(state.PID) {
+		return nil
+	}
+	target, err := localagent.LoadEdgeTargetState(paths.EdgeTargetPath)
+	if err != nil || target.PID != state.PID || strings.TrimSpace(target.ProcessStart) == "" {
+		return nil
+	}
+	if started, err := startedAt(state.PID); err != nil || started != target.ProcessStart {
 		return nil
 	}
 	if err := signal(state.PID, syscall.SIGTERM); err != nil {

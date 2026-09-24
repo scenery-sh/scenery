@@ -106,9 +106,17 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 		RecordStep(ctx, Step{Name: "process.plan", StartedAt: planStarted, Duration: time.Since(planStarted), Cache: "not_applicable", Reason: "runtime_integration_plan", OK: planErr == nil, Actions: len(plan.Services)})
 	}()
 	defer func() { <-planned }()
-	unlock, err := lockWorkspace(result.Dir)
-	if err != nil {
-		return nil, nil, err
+	// A held preparation established the workspace's membership and bytes
+	// under the lock it hands over, so nothing can have changed them since;
+	// otherwise the lock is taken again and the workspace verified.
+	unlock := result.takeWorkspaceHold()
+	held := unlock != nil
+	if !held {
+		var err error
+		unlock, err = lockWorkspace(result.Dir)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	unlocked := false
 	defer func() {
@@ -117,7 +125,7 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 		}
 	}()
 	verifyWorkspace := result.verification != nil
-	if verifyWorkspace {
+	if verifyWorkspace && !held {
 		if err := observeWorkspaceVerification(ctx, result, "before_compile"); err != nil {
 			return nil, nil, err
 		}
@@ -139,25 +147,17 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	if err != nil {
 		return nil, nil, err
 	}
-	if verifyWorkspace {
-		if err := observeWorkspaceVerification(ctx, result, "after_compile"); err != nil {
-			return nil, nil, errors.Join(err, check())
-		}
-	}
-	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
-		return nil, nil, errors.Join(err, check())
-	}
-	if err := savePrimedWorkspace(result); err != nil {
-		return nil, nil, errors.Join(err, check())
-	}
-	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
-		return nil, nil, errors.Join(err, check())
-	}
-	// The workspace stays locked until the implementation check, which reads it,
-	// has joined.
+	// The linked executables are returned before the workspace is verified
+	// again, so the caller retains and preflights them meanwhile; the join
+	// verifies the workspace and records the build before anything of it is
+	// published. The workspace stays locked until the implementation check,
+	// which reads it, has joined.
 	unlocked = true
 	return set, func() error {
 		defer unlock()
+		if err := completeDevelopmentProcessBuild(ctx, result, verifyWorkspace); err != nil {
+			return errors.Join(err, check())
+		}
 		if err := check(); err != nil {
 			return err
 		}
@@ -165,6 +165,24 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 		// The runtime bundle describes a verified build only.
 		return writeRuntimeBundle(result)
 	}, nil
+}
+
+// completeDevelopmentProcessBuild proves, after linking, that the workspace
+// and owned module sources still hold the bytes the build identity names, and
+// records the compiled workspace.
+func completeDevelopmentProcessBuild(ctx context.Context, result *Result, verifyWorkspace bool) error {
+	if verifyWorkspace {
+		if err := observeWorkspaceVerification(ctx, result, "after_compile"); err != nil {
+			return err
+		}
+	}
+	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
+		return err
+	}
+	if err := savePrimedWorkspace(result); err != nil {
+		return err
+	}
+	return WriteLatestBuildManifest(result, "compiled")
 }
 
 func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func() ([]generateapi.ServiceProcessPlan, error)) (*DevelopmentProcessSet, error) {

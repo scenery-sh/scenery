@@ -71,7 +71,6 @@ func TestRuntimeBundleSchemaCoversAssistantAssetDescriptors(t *testing.T) {
 
 func TestPrivateBuildArtifactDescriptorsCoverTypeShapes(t *testing.T) {
 	assertBuildDescriptorFields(t, generatorFingerprintCacheSchemaDescriptor, generatorFingerprintCache{})
-	assertBuildDescriptorFields(t, frameworkFingerprintCacheSchemaDescriptor, frameworkFingerprintCache{})
 }
 
 func assertBuildDescriptorFields(t *testing.T, descriptor string, value any) {

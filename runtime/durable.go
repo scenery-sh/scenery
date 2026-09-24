@@ -35,13 +35,8 @@ type DurableStartRequest struct {
 	Input          any
 }
 
-type DurableRun struct {
-	ID        string
-	Service   string
-	TaskName  string
-	State     string
-	DedupeKey string
-}
+// DurableRun identifies a started durable task run.
+type DurableRun = shared.DurableRun
 
 type DurableExecutionFailure struct {
 	Service  string

@@ -42,13 +42,24 @@ func FrameworkSourceManifest(root string) (FrameworkSource, error) {
 	if modfile.ModulePath(module) != "scenery.sh" {
 		return FrameworkSource{}, fmt.Errorf("framework source is not the scenery.sh module: %s", canonical)
 	}
-	files, _, err := frameworkFingerprintFiles(canonical, nil)
+	files, infos, err := frameworkSourceFiles(canonical)
 	if err != nil {
 		return FrameworkSource{}, err
 	}
 	entries := make(map[string]string, len(files))
 	for _, relative := range files {
-		if err := addBuildInput(entries, "framework/source/"+relative, filepath.Join(canonical, filepath.FromSlash(relative))); err != nil {
+		path := filepath.Join(canonical, filepath.FromSlash(relative))
+		// The walk already read a Go file's metadata; its digest is the content
+		// that stamp names (read between two equal stamps when not retained).
+		if info := infos[relative]; info != nil && info.Mode().IsRegular() {
+			digest, _, err := cachedBuildInputFileDigest(path, info, os.ReadFile)
+			if err != nil {
+				return FrameworkSource{}, err
+			}
+			entries["framework/source/"+relative] = digest
+			continue
+		}
+		if err := addBuildInput(entries, "framework/source/"+relative, path); err != nil {
 			return FrameworkSource{}, err
 		}
 	}

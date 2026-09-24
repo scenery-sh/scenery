@@ -193,13 +193,19 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		}
 		defer postgresStart.release()
 	}
+	releaseHeldWorkspace := func() {}
+	defer func() { releaseHeldWorkspace() }()
 	if err := s.console.Phase("Generating boilerplate code", func() error {
 		if cached != nil {
-			prepared, refreshErr := build.PrepareCachedWorkspaceWithSnapshotContext(ctx, s.root, s.cfg, result, sourceSnapshot)
+			// A prepared refresh keeps the workspace lock for the process
+			// build, which then need not verify the workspace again.
+			prepared, refreshErr := build.PrepareCachedWorkspaceHeldContext(ctx, s.root, s.cfg, result, sourceSnapshot)
 			if refreshErr != nil {
 				return refreshErr
 			}
 			if prepared {
+				held := result
+				releaseHeldWorkspace = held.ReleaseWorkspace
 				return nil
 			}
 			metadata, apiEncoding = nil, nil

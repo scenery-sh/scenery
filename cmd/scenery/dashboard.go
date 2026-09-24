@@ -11,14 +11,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 )
@@ -202,42 +201,25 @@ type procInfo struct {
 	cmd  string
 }
 
-func looksLikeSceneryDashboardProcess(info procInfo) bool {
-	lower := strings.ToLower(info.cmd)
-	return strings.Contains(lower, "scenery") && strings.Contains(lower, " up")
-}
-
-func findListeningPID(addr string) (int, bool) {
-	cmd := exec.Command("lsof", "-nP", "-iTCP@"+addr, "-sTCP:LISTEN", "-t")
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, false
-	}
-	lines := strings.Fields(string(output))
-	if len(lines) == 0 {
-		return 0, false
-	}
-	pid, err := strconv.Atoi(lines[0])
-	if err != nil {
-		return 0, false
-	}
-	return pid, true
-}
-
-func stopProcess(pid int) error {
-	proc, err := os.FindProcess(pid)
+// stopRecordedOwner interrupts a recorded process and escalates only while
+// the same recorded identity still verifies.
+func stopRecordedOwner(owner localagent.Owner, grace time.Duration) error {
+	proc, err := os.FindProcess(owner.PID)
 	if err != nil {
 		return err
 	}
 	if err := proc.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(grace)
 	for time.Now().Before(deadline) {
-		if _, ok := inspectProcess(pid); !ok {
+		if localagent.VerifyOwner(owner) != nil {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if localagent.VerifyOwner(owner) != nil {
+		return nil
 	}
 	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
