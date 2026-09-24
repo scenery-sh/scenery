@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
@@ -210,6 +211,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 		resp.Checks = append(resp.Checks, doctorAssistantChecks(ctx, resp.App.Root, cfg, runtimeInfo)...)
 	}
 	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
+	resp.Checks = append(resp.Checks, doctorAgentStartCheck(deps))
 	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {
 		resp.Deploy = deployInfo
 		resp.Checks = append(resp.Checks, deployChecks...)
@@ -297,6 +299,52 @@ func doctorContractFilenameChecks(root string) []doctor.Check {
 		checks = append(checks, check)
 	}
 	return checks
+}
+
+// doctorAgentStartCheck reports the local agent's start incident: repeated
+// failed starts of the same executable for the same cause, which a supervised
+// agent contains instead of restarting forever.
+func doctorAgentStartCheck(deps doctor.ProbeDeps) doctor.Check {
+	check := doctor.Check{
+		ID:       "runtime.agent_start",
+		Category: "runtime",
+		Name:     "Local agent start",
+		Status:   doctor.StatusOK,
+		Severity: doctor.SeverityInformational,
+		Message:  "the local agent's last start succeeded or none failed",
+	}
+	home, err := deps.AgentHome()
+	if err != nil {
+		check.Status = doctor.StatusSkipped
+		check.Message = "agent home is unavailable: " + err.Error()
+		return check
+	}
+	incident, err := localagent.LoadStartIncident(localagent.PathsForHome(home))
+	if errors.Is(err, os.ErrNotExist) {
+		return check
+	}
+	if err != nil {
+		check.Status = doctor.StatusWarn
+		check.Severity = doctor.SeverityOptional
+		check.Message = "the local agent's start incident is unreadable: " + err.Error()
+		return check
+	}
+	check.Observed = map[string]any{
+		"state": incident.State, "class": incident.Class, "cause": incident.Cause, "attempts": incident.Attempts,
+		"first_at": incident.FirstAt.Format(time.RFC3339), "last_at": incident.LastAt.Format(time.RFC3339), "executable": incident.Executable,
+	}
+	if incident.State == "blocked" {
+		check.Status = doctor.StatusError
+		check.Severity = doctor.SeverityRequired
+		check.Message = fmt.Sprintf("local agent BLOCKED after %d failed start(s) since %s (%s): %s", incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, incident.Cause)
+		check.SuggestedAction = "Fix the cause without deleting retained agent state, then run `scenery system agent restart`."
+		return check
+	}
+	check.Status = doctor.StatusWarn
+	check.Severity = doctor.SeverityOptional
+	check.Message = fmt.Sprintf("local agent start failed %d time(s) since %s (%s), retrying: %s", incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, incident.Cause)
+	check.SuggestedAction = "Wait for the next start, or fix the cause and run `scenery system agent restart`."
+	return check
 }
 
 // doctorProcessOwnershipCheck stays in cmd/scenery because it depends on

@@ -644,7 +644,7 @@ var helpCommands = []helpCommandEntry{
 		Command:     "system",
 		Group:       "System",
 		Summary:     "Manage agent, edge, trust, and toolchain.",
-		Usage:       []string{"scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]", "scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]", "scenery system agent cleanup [--remove-state] [-o json]", "scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]", "scenery system toolchain list|sync|verify [-o json] [--tool <name>] [--images]", "scenery system toolchain path [-o json] --tool <name>", "scenery system trust [-o json]"},
+		Usage:       []string{"scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--supervised] [-o json]", "scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]", "scenery system agent cleanup [--remove-state] [-o json]", "scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]", "scenery system toolchain list|sync|verify [-o json] [--tool <name>] [--images]", "scenery system toolchain path [-o json] --tool <name>", "scenery system trust [-o json]"},
 		Subcommands: []string{"agent", "edge", "toolchain", "trust"},
 		Flags:       []string{"--socket <path>", "--router-listen <addr>", "--router-tls", "--router-http", "--trust", "--remove-state", "-o", "json", "--tool <name>", "--images"},
 		JSON:        true,

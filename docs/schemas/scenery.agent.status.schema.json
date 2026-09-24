@@ -13,7 +13,7 @@
       "const": "scenery.agent.status"
     },
     "schema_revision": {
-      "const": "sha256:ea43eb70ac3d2121becb10980dfdb2bcd8dbdbd61575eee60b0e86584332ed1e"
+      "const": "sha256:b5f1d0ec472134aaee60d490423e910967d444d1d3cce4d480f26ef93a8eb476"
     },
     "worktrees": {
       "type": "array",
@@ -51,6 +51,73 @@
         },
         "additionalProperties": false
       }
+    },
+    "local_agent_start": {
+      "description": "Present while the local agent's starts keep failing: one incident of the same executable failing for the same cause.",
+      "type": "object",
+      "required": [
+        "kind",
+        "schema_revision",
+        "spec_revision",
+        "state",
+        "class",
+        "cause",
+        "executable",
+        "attempts",
+        "first_at",
+        "last_at"
+      ],
+      "properties": {
+        "kind": {
+          "const": "scenery.agent.start-incident"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "spec_revision": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "object"
+        },
+        "state": {
+          "enum": [
+            "retrying",
+            "blocked"
+          ]
+        },
+        "class": {
+          "enum": [
+            "state",
+            "owner",
+            "configuration",
+            "unavailable",
+            "other"
+          ]
+        },
+        "cause": {
+          "type": "string"
+        },
+        "executable": {
+          "type": "string"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "first_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "next_delay": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
