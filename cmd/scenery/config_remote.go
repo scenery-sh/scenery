@@ -211,6 +211,9 @@ func serveConfigRequest(ctx context.Context, home string, input io.Reader, backe
 	switch request.Operation {
 	case "read":
 	case "set", "unset":
+		if err := (deployLayout{home: home, appID: request.AppID, environment: request.Environment}).legacyDeployRootError(); err != nil {
+			return fail("failed_precondition", "%v", err)
+		}
 		if !configOperationIDPattern.MatchString(request.OperationID) {
 			return fail("invalid_request", "mutation requires an operation id")
 		}

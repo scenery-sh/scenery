@@ -41,6 +41,11 @@ type Store struct {
 	flush func(*os.File) error
 }
 
+// DurableFlush makes one written store file or directory durable. It is the
+// store's durability boundary: in-process tests of callers replace it, and
+// the configuration probe proves the real flush.
+var DurableFlush = (*os.File).Sync
+
 // OpenStore opens the store of appID under a Scenery home. Nothing is created
 // until a mutation.
 func OpenStore(home, appID string) (*Store, error) {
@@ -51,7 +56,7 @@ func OpenStore(home, appID string) (*Store, error) {
 	if !filepath.IsAbs(home) {
 		return nil, fmt.Errorf("scenery home %q is not absolute", home)
 	}
-	return &Store{appID: appID, dir: filepath.Join(home, "apps", appID), flush: (*os.File).Sync}, nil
+	return &Store{appID: appID, dir: filepath.Join(home, "apps", appID), flush: func(file *os.File) error { return DurableFlush(file) }}, nil
 }
 
 // AppID returns the application the store belongs to.

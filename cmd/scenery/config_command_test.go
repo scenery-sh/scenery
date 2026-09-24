@@ -121,7 +121,9 @@ func newConfigTestEnv(t *testing.T) *configTestEnv {
 	configCatalogOverride = configTestCatalog
 	configSecretBackendOverride = func(*appconfig.Store) (appconfig.SecretBackend, error) { return env.local, nil }
 	configRemoteTransportOverride = env.target
+	appconfig.DurableFlush = func(*os.File) error { return nil }
 	t.Cleanup(func() {
+		appconfig.DurableFlush = (*os.File).Sync
 		commandAgentPathsOverride, configCatalogOverride, configSecretBackendOverride, configRemoteTransportOverride = nil, nil, nil, nil
 		configStdin = os.Stdin
 	})

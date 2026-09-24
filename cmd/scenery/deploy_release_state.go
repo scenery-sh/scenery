@@ -14,10 +14,13 @@ import (
 // the successfully activated release and the exact configuration revision it
 // runs. Boot resume and restarts use it, never the desired configuration.
 type deploymentActiveRecord struct {
-	Kind            string `json:"kind"`
-	AppID           string `json:"app_id"`
-	Environment     string `json:"environment"`
-	DeploymentID    string `json:"deployment_id"`
+	Kind         string `json:"kind"`
+	AppID        string `json:"app_id"`
+	Environment  string `json:"environment"`
+	DeploymentID string `json:"deployment_id"`
+	// State is activating until readiness and publication confirm the
+	// release, then active. Both states name the installed pair.
+	State           string `json:"state"`
 	ConfigRevision  string `json:"config_revision"`
 	CatalogRevision string `json:"catalog_revision"`
 	SourceRoot      string `json:"source_root"`
