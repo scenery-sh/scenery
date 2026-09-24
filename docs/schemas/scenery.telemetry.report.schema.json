@@ -18,7 +18,7 @@
       "const": "scenery.telemetry.report"
     },
     "schema_revision": {
-      "const": "sha256:5f23f1c0183b5aa2bbb5ad0ae4be53529d9995f30e8590241644f599994d69bb"
+      "const": "sha256:7e60c7b1d2954a7b127bc56166707dd6d2ab240885990260b7103a8204d6ee36"
     },
     "window": {
       "type": "object",
@@ -190,7 +190,8 @@
         "tool_calls",
         "tool_errors",
         "tool_error_kinds",
-        "scenery_calls",
+        "scenery_invocations",
+        "scenery_commands",
         "scenery_failed",
         "commands",
         "failure_classes",
@@ -220,7 +221,11 @@
             "$ref": "#/$defs/count"
           }
         },
-        "scenery_calls": {
+        "scenery_invocations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenery_commands": {
           "type": "integer",
           "minimum": 0
         },
@@ -269,11 +274,17 @@
           "minimum": 0
         },
         "p50_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "p95_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         }
       }
@@ -342,11 +353,17 @@
           "minimum": 0
         },
         "p50_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "p95_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "command": {
@@ -376,11 +393,17 @@
           "minimum": 0
         },
         "p50_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "p95_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "id": {
@@ -412,11 +435,17 @@
           "minimum": 0
         },
         "p50_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "p95_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "step": {
@@ -534,6 +563,7 @@
       "required": [
         "command",
         "count",
+        "attributable",
         "failure_count",
         "wall_time_ms",
         "p50_ms"
@@ -548,6 +578,10 @@
           "type": "integer",
           "minimum": 1
         },
+        "attributable": {
+          "type": "integer",
+          "minimum": 0
+        },
         "failure_count": {
           "type": "integer",
           "minimum": 0
@@ -557,7 +591,10 @@
           "minimum": 0
         },
         "p50_ms": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         }
       }

@@ -29,9 +29,11 @@ type Builds struct {
 	Initial   Timing           `json:"initial_builds"`
 	Worktrees []WorktreeBuilds `json:"worktrees"`
 	Steps     []StepTiming     `json:"rebuild_steps"`
-	Failures  []Count          `json:"failure_causes"`
-	Streaks   []FailureStreak  `json:"failure_streaks"`
-	logs      int
+	// Failures has one cause for each failed initial build or rebuild; the
+	// least frequent are summed as "other causes".
+	Failures []Count         `json:"failure_causes"`
+	Streaks  []FailureStreak `json:"failure_streaks"`
+	logs     int
 }
 
 type WorktreeBuilds struct {
@@ -80,8 +82,9 @@ type buildStepData struct {
 }
 
 type buildErrorData struct {
-	Error      string `json:"error"`
-	Diagnostic struct {
+	OperationID string `json:"operation_id"`
+	Error       string `json:"error"`
+	Diagnostic  struct {
 		Code string `json:"code"`
 	} `json:"diagnostic"`
 }
@@ -145,9 +148,18 @@ func readBuilds(opts Options) (Builds, error) {
 		builds.Steps = append(builds.Steps, StepTiming{Step: step, Timing: acc.timing()})
 	}
 	sort.Slice(builds.Steps, func(i, j int) bool {
-		return builds.Steps[i].P50MS > builds.Steps[j].P50MS || builds.Steps[i].P50MS == builds.Steps[j].P50MS && builds.Steps[i].Step < builds.Steps[j].Step
+		return ms(builds.Steps[i].P50MS) > ms(builds.Steps[j].P50MS) || ms(builds.Steps[i].P50MS) == ms(builds.Steps[j].P50MS) && builds.Steps[i].Step < builds.Steps[j].Step
 	})
-	builds.Failures = sortedCounts(causes, 15)
+	builds.Failures = sortedCounts(causes, 0)
+	// The fifteen most frequent causes are named; the rest are summed, so
+	// the list still adds up to the failed builds.
+	if len(builds.Failures) > 15 {
+		rest := Count{Name: "other causes"}
+		for _, cause := range builds.Failures[14:] {
+			rest.Count += cause.Count
+		}
+		builds.Failures = append(builds.Failures[:14], rest)
+	}
 	for root, acc := range worktrees {
 		builds.Worktrees = append(builds.Worktrees, WorktreeBuilds{
 			AppRoot: root, AppName: acc.name, Sessions: acc.sessions,
@@ -164,6 +176,12 @@ func readBuilds(opts Options) (Builds, error) {
 
 // readSupervisorLog folds one session log into the aggregates and reports
 // whether the session had events in the window.
+//
+// A supervisor writes a build's build.error after that build's build.request
+// step. An error names its operation (operation_id) since the event carries
+// it; an older log's error belongs to the failed build it immediately follows.
+// Each failed build has exactly one cause, its first error, so the causes add
+// up to the failed builds; an error no failed build precedes is not counted.
 func readSupervisorLog(opts Options, path string, worktree func(root, name string) *worktreeAccumulator, rebuilds, initial *timingAccumulator, steps map[string]*timingAccumulator, causes map[string]int, builds *Builds) (bool, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -173,30 +191,18 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		return false, fmt.Errorf("read supervisor log: %w", err)
 	}
 	defer func() { _ = file.Close() }()
-	type operation struct {
-		steps map[string]float64
+	type outcome struct {
+		at    time.Time
+		ok    bool
+		cause string
 	}
-	operations := map[string]*operation{}
+	var outcomes []outcome
+	byOperation := map[string]int{}
+	awaiting := -1 // the failed build whose error has not arrived yet
+	operationSteps := map[string]map[string]float64{}
 	var acc *worktreeAccumulator
 	var root string
-	inWindow, started := false, false
-	lastCause := ""
-	var streak []time.Time
-	streakCauses := map[string]int{}
-	closeStreak := func() {
-		if len(streak) >= failureStreakMinimum {
-			cause := ""
-			if top := sortedCounts(streakCauses, 1); len(top) == 1 {
-				cause = top[0].Name
-			}
-			builds.Streaks = append(builds.Streaks, FailureStreak{AppRoot: root, Cause: cause, Count: len(streak),
-				First: streak[0].UTC().Format(time.RFC3339), Last: streak[len(streak)-1].UTC().Format(time.RFC3339)})
-		}
-		if acc != nil && len(streak) > acc.longest {
-			acc.longest = len(streak)
-		}
-		streak, streakCauses = nil, map[string]int{}
-	}
+	inWindow := false
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 8<<20)
 	for scanner.Scan() {
@@ -213,33 +219,34 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 			continue
 		}
 		inWindow = true
-		if !started {
-			started = true
-			acc.sessions++
-			builds.Sessions++
-		}
 		switch data.Type {
 		case "build.error":
 			var failure buildErrorData
-			if json.Unmarshal(data.Data, &failure) == nil {
-				lastCause = failureCause(failure.Error, failure.Diagnostic.Code)
-				causes[lastCause]++
+			if json.Unmarshal(data.Data, &failure) != nil {
+				continue
 			}
+			index, named := byOperation[failure.OperationID]
+			if !named || failure.OperationID == "" {
+				index = awaiting
+			}
+			if index >= 0 && !outcomes[index].ok && outcomes[index].cause == "" {
+				outcomes[index].cause = failureCause(failure.Error, failure.Diagnostic.Code)
+			}
+			awaiting = -1
 		case "build.step":
 			var step buildStepData
 			if json.Unmarshal(data.Data, &step) != nil || step.OperationID == "" {
 				continue
 			}
-			op := operations[step.OperationID]
-			if op == nil {
-				op = &operation{steps: map[string]float64{}}
-				operations[step.OperationID] = op
-			}
 			if step.Name != "build.request" {
-				op.steps[step.Name] += step.DurationMS
+				if operationSteps[step.OperationID] == nil {
+					operationSteps[step.OperationID] = map[string]float64{}
+				}
+				operationSteps[step.OperationID][step.Name] += step.DurationMS
 				continue
 			}
-			delete(operations, step.OperationID)
+			stepDurations := operationSteps[step.OperationID]
+			delete(operationSteps, step.OperationID)
 			duration := int64(step.DurationMS)
 			switch step.Reason {
 			case "initial_build":
@@ -249,25 +256,53 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 				rebuilds.add(duration, step.OK)
 				acc.rebuilds.add(duration, step.OK)
 				if step.OK {
-					for name, ms := range op.steps {
+					for name, ms := range stepDurations {
 						accumulate(steps, name, int64(ms), true)
 					}
 				}
 			}
-			if step.OK {
-				closeStreak()
-				continue
-			}
-			streak = append(streak, step.StartedAt)
-			if lastCause != "" {
-				streakCauses[lastCause]++
+			outcomes = append(outcomes, outcome{at: step.StartedAt, ok: step.OK})
+			byOperation[step.OperationID] = len(outcomes) - 1
+			awaiting = -1
+			if !step.OK {
+				awaiting = len(outcomes) - 1
 			}
 		}
 	}
-	closeStreak()
 	if err := scanner.Err(); err != nil {
 		return false, fmt.Errorf("read supervisor log %s: %w", filepath.Base(path), err)
 	}
+	if inWindow {
+		acc.sessions++
+		builds.Sessions++
+	}
+	var streak []outcome
+	closeStreak := func() {
+		if len(streak) >= failureStreakMinimum {
+			streakCauses := map[string]int{}
+			for _, failed := range streak {
+				streakCauses[failed.cause]++
+			}
+			builds.Streaks = append(builds.Streaks, FailureStreak{AppRoot: root, Cause: sortedCounts(streakCauses, 1)[0].Name, Count: len(streak),
+				First: streak[0].at.UTC().Format(time.RFC3339), Last: streak[len(streak)-1].at.UTC().Format(time.RFC3339)})
+		}
+		if acc != nil && len(streak) > acc.longest {
+			acc.longest = len(streak)
+		}
+		streak = nil
+	}
+	for _, build := range outcomes {
+		if build.ok {
+			closeStreak()
+			continue
+		}
+		if build.cause == "" {
+			build.cause = "no error recorded"
+		}
+		causes[build.cause]++
+		streak = append(streak, build)
+	}
+	closeStreak()
 	return inWindow, nil
 }
 

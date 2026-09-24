@@ -26,6 +26,13 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	}
 	captured := *snapshot
 	operationID := newDevBuildOperationID()
+	// Registered first so it runs last: a failure names the build operation
+	// whose build.step records it belongs to.
+	defer func() {
+		if returnErr != nil {
+			returnErr = devBuildOperationError{operationID: operationID, err: returnErr}
+		}
+	}()
 	ctx = build.WithTraceOperation(ctx, operationID, s.emitBuildStep)
 	requestStarted := time.Now()
 	recordDevScheduling(ctx, clearInheritedBackgroundPolicy)

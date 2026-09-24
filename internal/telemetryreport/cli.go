@@ -16,7 +16,9 @@ import (
 // minute, which no person or agent produces by retrying by hand.
 const burstHourlyFailures = 60
 
-// CLIReport aggregates the CLI telemetry records in the window.
+// CLIReport aggregates the CLI telemetry records in the window. Records,
+// Failures, Unattributed, Unversioned and Apps count every record; Commands
+// count command completions and Startup the scenery up startup measurements.
 type CLIReport struct {
 	Records      int `json:"records"`
 	Failures     int `json:"failures"`
@@ -114,17 +116,19 @@ func readCLI(opts Options) (CLIReport, error) {
 		if record.Version == "" || record.Version == "dev" {
 			report.Unversioned++
 		}
+		// Every record counts toward its app, or as unattributed; startup
+		// measurements are timed apart from command completions.
+		if record.App == nil || record.App.ID == "" {
+			report.Unattributed++
+		} else {
+			accumulate(apps, record.App.ID, record.DurationMS, ok)
+			appNames[record.App.ID] = record.App.Name
+		}
 		if record.Measurement == "startup" {
 			startup.add(record.DurationMS, ok)
 			continue
 		}
 		accumulate(commands, record.Command, record.DurationMS, ok)
-		if record.App == nil || record.App.ID == "" {
-			report.Unattributed++
-			continue
-		}
-		accumulate(apps, record.App.ID, record.DurationMS, ok)
-		appNames[record.App.ID] = record.App.Name
 	}
 	if err := scanner.Err(); err != nil {
 		return CLIReport{}, fmt.Errorf("read CLI telemetry: %w", err)

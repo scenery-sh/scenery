@@ -56,7 +56,7 @@ func findings(report Report) []Finding {
 	if len(failing) > 0 {
 		add(severityWarning, "cli.failing_commands", "Commands failing at least a quarter of the time: %s. Records carry exit codes only, so misuse and real failures cannot be told apart.", strings.Join(failing, "; "))
 	}
-	if agents := report.Agents; agents != nil && agents.SceneryCalls > 0 {
+	if agents := report.Agents; agents != nil && agents.SceneryCommands > 0 {
 		invalid := 0
 		for _, class := range agents.FailureClasses {
 			if class.Name == "invalid invocation" {
@@ -71,10 +71,10 @@ func findings(report Report) []Finding {
 				}
 				inputs = append(inputs, fmt.Sprintf("%s ×%d", input.Name, input.Count))
 			}
-			add(severityWarning, "agents.invalid_invocations", "Agents wrote %d Scenery calls Scenery refused as malformed (of %d calls); most rejected: %s.", invalid, agents.SceneryCalls, emptyAs(strings.Join(inputs, ", "), "not recorded"))
+			add(severityWarning, "agents.invalid_invocations", "Agents ran %d shell commands Scenery refused as malformed (of %d that ran Scenery); most rejected: %s.", invalid, agents.SceneryCommands, emptyAs(strings.Join(inputs, ", "), "not recorded"))
 		}
-		if percent(agents.SceneryFailed, agents.SceneryCalls) >= 10 {
-			add(severityWarning, "agents.scenery_failures", "%d%% of agent Scenery calls failed (%d of %d).", percent(agents.SceneryFailed, agents.SceneryCalls), agents.SceneryFailed, agents.SceneryCalls)
+		if percent(agents.SceneryFailed, agents.SceneryCommands) >= 10 {
+			add(severityWarning, "agents.scenery_failures", "%d%% of agent shell commands that ran Scenery failed (%d of %d).", percent(agents.SceneryFailed, agents.SceneryCommands), agents.SceneryFailed, agents.SceneryCommands)
 		}
 	}
 	if rebuilds := report.Builds.Rebuilds; rebuilds.Count > rebuilds.FailureCount {
@@ -107,14 +107,16 @@ func percent(part, whole int) int {
 	return part * 100 / whole
 }
 
-func duration(ms int64) string {
+func duration(value *int64) string {
 	switch {
-	case ms >= 10_000:
-		return fmt.Sprintf("%.1f s", float64(ms)/1000)
-	case ms >= 1000:
-		return fmt.Sprintf("%.2f s", float64(ms)/1000)
+	case value == nil:
+		return "unavailable"
+	case *value >= 10_000:
+		return fmt.Sprintf("%.1f s", float64(*value)/1000)
+	case *value >= 1000:
+		return fmt.Sprintf("%.2f s", float64(*value)/1000)
 	default:
-		return fmt.Sprintf("%d ms", ms)
+		return fmt.Sprintf("%d ms", *value)
 	}
 }
 

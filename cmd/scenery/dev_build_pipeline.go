@@ -15,6 +15,24 @@ import (
 
 var devBuildOperationSequence atomic.Uint64
 
+// devBuildOperationError names the build operation a failure ended, so its
+// build.error event joins that operation's build.step records exactly.
+type devBuildOperationError struct {
+	operationID string
+	err         error
+}
+
+func (e devBuildOperationError) Error() string { return e.err.Error() }
+func (e devBuildOperationError) Unwrap() error { return e.err }
+
+func devBuildFailureOperation(err error) string {
+	var operation devBuildOperationError
+	if errors.As(err, &operation) {
+		return operation.operationID
+	}
+	return ""
+}
+
 func newDevBuildOperationID() string {
 	return fmt.Sprintf("build-%x-%x", time.Now().UnixNano(), devBuildOperationSequence.Add(1))
 }
