@@ -53,6 +53,7 @@ type dashboardServer struct {
 	logExporter  func(*devdash.LogEvent)
 	openDatabase func(context.Context, string) (*sql.DB, error)
 	rpc          *runtimeRPC
+	connections  runtimeConnections
 
 	traces *dashboardTraceEventBuffer
 }
@@ -168,6 +169,8 @@ func newDashboardServerWithControllerHooks(controller dashboardController, root,
 		Addr:    addr,
 		Handler: mux,
 	}
+	// Shutdown, like Close, leaves hijacked RPC WebSockets open.
+	s.http.RegisterOnShutdown(s.connections.closeAll)
 	return s
 }
 
@@ -241,6 +244,10 @@ func (s *dashboardServer) Close() error {
 		return nil
 	}
 	err := s.http.Close()
+	// Closing the hijacked RPC WebSockets cancels their calls; Close returns
+	// once every handler has.
+	s.connections.closeAll()
+	s.connections.wait()
 	if stateErr := s.state.remove(); stateErr != nil {
 		return errors.Join(err, stateErr)
 	}
@@ -252,6 +259,12 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 	if err != nil {
 		return
 	}
+	// A connection upgraded after the backend closed never serves a call.
+	if !s.connections.add(conn) {
+		closeRuntimeConnection(conn)
+		return
+	}
+	defer s.connections.remove(conn)
 	// Closing the connection cancels every call it admitted; the handler
 	// returns only after each of them has finished.
 	ctx, cancel := context.WithCancel(req.Context())

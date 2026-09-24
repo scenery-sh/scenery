@@ -74,6 +74,12 @@ SQL, and browse, upload, download and delete local storage objects, while
   with `protocol`; listener exceptions are reported. Behavior tests import the
   generated `house` module (`internal/generate/testdata/dev_runtime_client.test.ts`)
   and run in the `ui` probe.
+- [x] (2026-09-24 14:59 CEST) Follow-up that plan 0206 (bounded RPC execution)
+  recorded as out of scope: closing the runtime control backend closes its RPC
+  WebSockets. `dashboardServer.Close`, and `http.Server.Shutdown` through
+  `RegisterOnShutdown`, close every tracked connection with close code 1001,
+  which cancels its calls; `Close` returns once every handler has. Proof:
+  `cmd/scenery/dashboard_rpc_connections_test.go`; validation under Artifacts.
 - [ ] Merge both branches; after the Scenery merge, repin ONLV to the merged
   Scenery commit.
 
@@ -127,6 +133,14 @@ SQL, and browse, upload, download and delete local storage objects, while
 - Bun's `fetch` resolves when headers arrive; a later abort or truncated body
   rejected `response.blob()` outside the client's error normalization, as a raw
   `DOMException` or `Error`.
+- (2026-09-24) `http.Server.Close` and `Shutdown` neither close nor wait for
+  hijacked connections, and `RegisterOnShutdown` hooks run only on `Shutdown`
+  (`net/http/server.go`, Go 1.27). The RPC handler's context derives from the
+  upgrade request, which ends only when the handler returns, so a closed
+  backend kept running each connection's statements and storage calls until
+  its client left. Before the fix, the new tests saw all three blocked
+  statements still running after `Close`, and a statement still running 2 s
+  after the listener's context ended.
 
 ## Decision Log
 
@@ -182,6 +196,17 @@ SQL, and browse, upload, download and delete local storage objects, while
   headers (the message says `failed` or `interrupted`), an unreadable
   successful upload answer is `protocol`, and the client never retries an
   upload. Date: 2026-09-24.
+- Decision: the backend tracks its RPC WebSockets and closes them itself, in
+  `Close` and through `http.Server.RegisterOnShutdown`, with close code 1001
+  (going away) under the 1 s write timeout; `Close` then waits until every
+  connection handler has returned, and a connection upgraded after that is
+  closed at once. Rationale: a closed connection cancels its calls exactly as
+  a client disconnect does, and waiting lets owners close the dashboard store
+  and release namespace maintenance leases and the worktree lifetime lock only
+  after no call runs. The shutdown hook does not wait, as `net/http` asks;
+  every owner calls `Close` afterwards. `Close` relies on calls honoring
+  cancellation, which every current method does. Date: 2026-09-24. Author:
+  Claude.
 
 ## Outcomes & Retrospective
 
@@ -194,6 +219,8 @@ top of it. Building and preparing the Scenery CLI no longer needs Bun. The
 2026-09-24 review follow-up made the client's lifecycle deterministic: a call
 rejected before sending is never transmitted, disposal covers transfers, and
 behavior tests exercise the generated module rather than its source text.
+Closing the runtime control backend now also closes its RPC connections and
+returns only after their calls have stopped.
 
 ## Context and Orientation
 
@@ -343,9 +370,43 @@ its preview. ONLV checks: `bun run lint`, `bun run typecheck`, `bun test
 src/features/devRuntime` (8 pass), `bun run i18n:check`, `bun run build` (no
 dev-runtime code in `dist/`), `just repo-harness`.
 
+Backend close follow-up (repository root of this worktree, 2026-09-24): built
+on `c909603c`, then rebased onto `df94d871` (the plan 0206 branch with `main`
+merged), where the tests with `-race`, the full verifier and the linter ran
+again with the same results; timing and the live check ran on `c909603c`.
+
+- `go test ./cmd/scenery -run 'TestRuntimeRPC|TestDashboard'`: pass. Before
+  the change, `TestRuntimeRPCBackendCloseCancelsEveryCallBeforeReturning` saw
+  three statements still running after `Close`, and
+  `TestRuntimeRPCBackendShutdownClosesItsConnections` saw no cancellation 2 s
+  after the listener's context ended. `-race -count=10`: pass. Isolated timing
+  over 20 separate `-test.count=1 -test.parallel=1` processes per root: p95
+  4.0 ms and 3.1 ms.
+- `go run ./scripts/verify --summary --write`: pass with warnings that predate
+  this change (review-due knowledge entries, architecture hotspots, the
+  uncached Go suite over its advisory 5 s budget). Changed-area classes
+  `cli-json-contract`, `go-package`, `release-sensitive-or-runtime`; the
+  recommended `go test ./...` and `go test ./cmd/scenery` ran inside it.
+- `golangci-lint run ./...`: 0 issues.
+- Live check on a disposable copy of `testdata/apps/storage-basic` (isolated
+  `SCENERY_AGENT_HOME`, `SCENERY_AGENT_ROUTER_ADDR=127.0.0.1:0`): a client on
+  the app origin's `/runtime` received `status`, and `scenery down` closed it
+  with 1001 `development runtime closed` before the command returned, served
+  by the worktree-local `.scenery/harness/bin/scenery`. The same scenario with
+  a content-bound build of `c909603c` ended with 1006 (`unexpected EOF`). No
+  process remained after either run.
+- Not run: `--probe worktree`. None of its rows closes the backend under a
+  running statement; row A19 of plan 0206 proves the disconnect cancellation
+  that a backend close reuses. The data volume was 98% full while another
+  session's probe cluster ran, after plan 0206's probe run had filled it.
+  Release certification (`scripts/release-gate.sh`) is explicit only.
+
 ## Interfaces and Dependencies
 
 Contract methods and shapes are specified in `docs/local-contract.md`
 (Development runtime RPC). The generated client exports `DevRuntimeClient`,
 `DevRuntimeError`, and the request/result types; storage transfer helpers are
 `uploadStorageObject` and `downloadStorageObject` methods on the client.
+`runtimeConnections` (`cmd/scenery/dashboard_rpc_connections.go`) tracks a
+backend's live RPC WebSockets for `dashboardServer.Close` and its shutdown
+hook.

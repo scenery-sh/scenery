@@ -1508,6 +1508,12 @@ Execution bounds:
   PostgreSQL already completed.
 - Closing the WebSocket cancels every call of that connection; the runtime
   also cancels their PostgreSQL statements on the server.
+- When the runtime control backend stops, for example because `scenery up`
+  exits, it closes every connection with WebSocket close code 1001 (going
+  away) and cancels their calls as a disconnect does. It finishes stopping only
+  after those calls have returned, so no statement or namespace maintenance
+  lease outlives it. The client sees a closed connection; a call it had sent
+  may still have completed.
 
 | Diagnostic | `error.data.code` | `details` |
 |---|---|---|
