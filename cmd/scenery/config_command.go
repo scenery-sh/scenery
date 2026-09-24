@@ -70,7 +70,7 @@ func configCommand(args []string) error {
 	case "receive":
 		return configReceiveCommand(os.Stdout, args[1:])
 	default:
-		return usageErrorf("unknown config subcommand %q; use show, set or unset", args[0])
+		return usageErrorf("unknown config command %q; use show, set or unset", args[0])
 	}
 }
 

@@ -172,7 +172,7 @@ func telemetryInvocationAppFrom(args []string, start string) *cliTelemetryApp {
 }
 
 func telemetryCommand(args []string) string {
-	if len(args) == 0 {
+	if _, help := helpRequestTopics(args); len(args) == 0 || help {
 		return "help"
 	}
 	switch args[0] {
@@ -185,7 +185,7 @@ func telemetryCommand(args []string) string {
 }
 
 func telemetryMode(args []string) string {
-	if len(args) == 0 {
+	if _, help := helpRequestTopics(args); len(args) == 0 || help {
 		return "oneshot"
 	}
 	switch args[0] {
