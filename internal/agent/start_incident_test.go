@@ -15,8 +15,9 @@ func TestStartIncidentBlocksPersistentFailuresAndBoundsTransientOnes(t *testing.
 	paths := PathsForHome(filepath.Join(t.TempDir(), ".scenery"))
 	now := time.Date(2026, 9, 15, 17, 0, 0, 0, time.UTC)
 	stateErr := startFailure(StartClassState, errors.New("read agent session registry: invalid current artifact identity"))
+	// Each attempt is a new process: the persisted incident carries the count.
 	for attempt := 1; attempt <= 3; attempt++ {
-		decision, err := RecordStartFailure(paths, "producer-a", stateErr, now.Add(time.Duration(attempt)*time.Second))
+		decision, err := NewStartContainment(paths, "producer-a").Record(stateErr, now.Add(time.Duration(attempt)*time.Second))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -30,7 +31,8 @@ func TestStartIncidentBlocksPersistentFailuresAndBoundsTransientOnes(t *testing.
 	}
 
 	// Another producer is a new incident.
-	decision, err := RecordStartFailure(paths, "producer-b", stateErr, now.Add(time.Minute))
+	containment := NewStartContainment(paths, "producer-b")
+	decision, err := containment.Record(stateErr, now.Add(time.Minute))
 	if err != nil || decision.Incident.Attempts != 1 {
 		t.Fatalf("new producer decision = %+v, %v", decision, err)
 	}
@@ -38,7 +40,7 @@ func TestStartIncidentBlocksPersistentFailuresAndBoundsTransientOnes(t *testing.
 	busy := startFailure(StartClassUnavailable, fmt.Errorf("listen tcp 127.0.0.1:9440: address already in use"))
 	var delays []time.Duration
 	for attempt := 1; ; attempt++ {
-		decision, err := RecordStartFailure(paths, "producer-b", busy, now.Add(time.Duration(attempt)*time.Minute))
+		decision, err := containment.Record(busy, now.Add(time.Duration(attempt)*time.Minute))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,5 +61,31 @@ func TestStartIncidentBlocksPersistentFailuresAndBoundsTransientOnes(t *testing.
 	}
 	if _, err := LoadStartIncident(paths); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("incident after a successful start: %v", err)
+	}
+}
+
+// Containment must not depend on persisting its diagnostic record: when the
+// incident cannot be written, the process's own count still grows, still
+// backs off and still blocks at the limit.
+func TestStartContainmentBlocksWhenTheIncidentCannotBePersisted(t *testing.T) {
+	t.Parallel()
+
+	paths := PathsForHome(filepath.Join(t.TempDir(), ".scenery"))
+	// A non-empty directory where the incident belongs defeats both the read
+	// and the atomic rename of every write.
+	if err := os.MkdirAll(filepath.Join(paths.AgentStartIncidentPath, "occupied"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	containment := NewStartContainment(paths, "producer")
+	busy := startFailure(StartClassUnavailable, errors.New("listen tcp 127.0.0.1:9440: address already in use"))
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	for attempt := 1; attempt <= startTransientAttemptLimit; attempt++ {
+		decision, err := containment.Record(busy, now.Add(time.Duration(attempt)*time.Second))
+		if err == nil {
+			t.Fatalf("attempt %d persisted its incident into a directory", attempt)
+		}
+		if decision.Incident.Attempts != attempt || decision.Blocked != (attempt == startTransientAttemptLimit) {
+			t.Fatalf("attempt %d decision = %+v; the in-process count must bound retries", attempt, decision)
+		}
 	}
 }

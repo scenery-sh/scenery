@@ -213,6 +213,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	}
 	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
 	resp.Checks = append(resp.Checks, doctorAgentStartCheck(deps))
+	resp.Checks = append(resp.Checks, doctorAgentSupervisorCheck(deps))
 	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {
 		resp.Deploy = deployInfo
 		resp.Checks = append(resp.Checks, deployChecks...)
@@ -345,6 +346,44 @@ func doctorAgentStartCheck(deps doctor.ProbeDeps) doctor.Check {
 	check.Severity = doctor.SeverityOptional
 	check.Message = fmt.Sprintf("local agent start failed %d time(s) since %s (%s), retrying: %s", incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, incident.Cause)
 	check.SuggestedAction = "Wait for the next start, or fix the cause and run `scenery system agent restart`."
+	return check
+}
+
+// doctorAgentSupervisorJobFunc reads the installed supervisor job of an
+// agent socket; tests replace it to keep the host's jobs out of reach.
+var doctorAgentSupervisorJobFunc = localagent.InstalledSupervisorJob
+
+// doctorAgentSupervisorCheck tells a supervised agent with start failure
+// containment from one whose installed job predates it: launchd or systemd
+// would restart the latter's failing start forever.
+func doctorAgentSupervisorCheck(deps doctor.ProbeDeps) doctor.Check {
+	check := doctor.Check{
+		ID:       "runtime.agent_supervisor",
+		Category: "runtime",
+		Name:     "Local agent supervisor",
+		Status:   doctor.StatusOK,
+		Severity: doctor.SeverityInformational,
+		Message:  "no launchd job or systemd unit supervises the local agent",
+	}
+	home, err := deps.AgentHome()
+	if err != nil {
+		check.Status = doctor.StatusSkipped
+		check.Message = "agent home is unavailable: " + err.Error()
+		return check
+	}
+	job, ok := doctorAgentSupervisorJobFunc(localagent.PathsForHome(home).SocketPath)
+	if !ok {
+		return check
+	}
+	check.Observed = map[string]any{"label": job.Label, "path": job.Path, "failure_containment": job.FailureContainment}
+	if job.FailureContainment {
+		check.Message = fmt.Sprintf("%s supervises the local agent with start failure containment", job.Label)
+		return check
+	}
+	check.Status = doctor.StatusWarn
+	check.Severity = doctor.SeverityOptional
+	check.Message = fmt.Sprintf("%s supervises the local agent without start failure containment: a start that keeps failing would be restarted forever", job.Label)
+	check.SuggestedAction = "Run `scenery system agent restart`, which updates the installed job, or reinstall it with `scenery deploy setup`."
 	return check
 }
 

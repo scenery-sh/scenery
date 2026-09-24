@@ -1,15 +1,14 @@
 package telemetryreport
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,11 +21,13 @@ import (
 // itself rejected are reported; no command text, output or file content is
 // kept.
 //
-// The unit of evidence is one shell command an agent ran: a Claude Code Bash
-// call, or one command of a Codex script whose per-command exit code is known.
-// A shell command that invokes Scenery more than once has one outcome and one
-// duration for all its invocations, so those invocations are counted but
-// neither failures nor timings are attributed to them.
+// A transcript shows the outcome of a shell command, not of the Scenery
+// process inside it. Three things are therefore kept apart: an attempt, a
+// Scenery command at command position of a shell command; the shell
+// command's outcome, which is unknown when the transcript does not record
+// it; and a Scenery command's own outcome, which the report takes only from
+// a shell command that is one simple command running Scenery directly
+// (attributable).
 type Agents struct {
 	ClaudeSessions int     `json:"claude_sessions"`
 	CodexSessions  int     `json:"codex_sessions"`
@@ -35,19 +36,28 @@ type Agents struct {
 	ToolErrorKinds []Count `json:"tool_error_kinds"`
 	// SceneryInvocations counts attempted invocations, recognized or not.
 	SceneryInvocations int `json:"scenery_invocations"`
-	// SceneryCommands counts the shell commands that attempted Scenery, and
-	// SceneryFailed those that failed.
-	SceneryCommands int            `json:"scenery_commands"`
-	SceneryFailed   int            `json:"scenery_failed"`
-	Commands        []AgentCommand `json:"commands"`
-	FailureClasses  []Count        `json:"failure_classes"`
-	RejectedInputs  []Count        `json:"rejected_inputs"`
+	// SceneryCommands counts the shell commands that attempted Scenery;
+	// SceneryOutcomeUnknown those whose outcome the transcript does not
+	// record, and SceneryFailed those whose shell reported a failure, which
+	// may be another command's: a pipe reports its last command's status.
+	SceneryCommands       int `json:"scenery_commands"`
+	SceneryOutcomeUnknown int `json:"scenery_outcome_unknown"`
+	SceneryFailed         int `json:"scenery_failed"`
+	// SceneryAttributable counts the shell commands whose recorded outcome
+	// is Scenery's own, and SceneryAttributableFailed those that failed.
+	SceneryAttributable       int            `json:"scenery_attributable"`
+	SceneryAttributableFailed int            `json:"scenery_attributable_failed"`
+	Commands                  []AgentCommand `json:"commands"`
+	FailureClasses            []Count        `json:"failure_classes"`
+	RejectedInputs            []Count        `json:"rejected_inputs"`
+	sources                   TranscriptSources
 }
 
 // AgentCommand is one attempted Scenery command: a command `scenery help`
 // advertises, "unknown <word>" for a word it does not, or a root flag such as
-// "--help". Failures, waiting time and p50 cover only the shell commands that
-// invoked Scenery once (Attributable).
+// "--help". Failures, waiting time and p50 cover only attributable shell
+// commands: one simple command that ran Scenery directly, with a recorded
+// outcome, whose exit status and duration are therefore the command's own.
 type AgentCommand struct {
 	Command      string `json:"command"`
 	Count        int    `json:"count"`
@@ -57,32 +67,76 @@ type AgentCommand struct {
 	P50MS        *int64 `json:"p50_ms"`
 }
 
-// toolCall is one completed tool call of an agent session.
-type toolCall struct {
-	commands []string // shell commands the call ran; empty for other tools
-	exit     int      // -1 when unknown
-	errored  bool
-	output   string
-	duration time.Duration
-	at       time.Time
+// TranscriptSources tells how completely the transcripts were read, so that
+// no failures found can be told apart from files that were not processed.
+type TranscriptSources struct {
+	// Read counts the files read to the end, Partial those whose reading
+	// stopped at an error after some records, and Failed those that could
+	// not be opened, including unreadable directories.
+	Read    int `json:"read"`
+	Partial int `json:"partial"`
+	Failed  int `json:"failed"`
+	// InvalidRecords counts tool records that did not decode, and
+	// OversizedRecords lines longer than the reader keeps, which are skipped.
+	InvalidRecords   int `json:"invalid_records"`
+	OversizedRecords int `json:"oversized_records"`
+	// UnmatchedResults counts tool results without their call, and
+	// UnansweredCalls calls without their result, such as a call still
+	// running when the transcript was read.
+	UnmatchedResults int `json:"unmatched_results"`
+	UnansweredCalls  int `json:"unanswered_calls"`
 }
 
-type agentSession struct {
-	agent string
-	calls []toolCall
+func (s *TranscriptSources) add(other TranscriptSources) {
+	s.Read += other.Read
+	s.Partial += other.Partial
+	s.Failed += other.Failed
+	s.InvalidRecords += other.InvalidRecords
+	s.OversizedRecords += other.OversizedRecords
+	s.UnmatchedResults += other.UnmatchedResults
+	s.UnansweredCalls += other.UnansweredCalls
+}
+
+// transcriptLineLimit bounds the memory a transcript line may take; longer
+// lines, such as embedded images, are skipped and counted.
+const transcriptLineLimit = 8 << 20
+
+// transcriptWorkers bounds the transcripts read at once.
+const transcriptWorkers = 4
+
+type outcome int
+
+const (
+	outcomeUnknown outcome = iota
+	outcomeSucceeded
+	outcomeFailed
+)
+
+// shellRun is one shell command an agent ran and what the transcript records
+// of it.
+type shellRun struct {
+	command  string
+	outcome  outcome
+	exit     int // the reported exit status, -1 when none was reported
+	duration time.Duration
+	timed    bool
+	output   string
+}
+
+// toolCall is one completed tool call of an agent session.
+type toolCall struct {
+	errored bool
+	output  string
+	at      time.Time
+	shells  []shellRun
 }
 
 var (
-	// sceneryInvocation matches Scenery where a shell runs a command: at the
-	// start of a line or after ;, &&, ||, |, ( or $(, optionally behind
-	// variable assignments, sudo/env/time/exec/command, a path, or go run.
-	// A mention inside an argument, such as echo "scenery up", is no command.
-	sceneryInvocation = regexp.MustCompile(`(?m)(?:^|&&|\|\||[;|(` + "`" + `]|\$\()[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=\S*[ \t]+)*(?:(?:sudo|env|time|exec|command)[ \t]+)*(?:go[ \t]+run[ \t]+)?(?:[^\s;&|(` + "`" + `]*/)?scenery[ \t]+([^\s;&|)` + "`" + `]+)(?:[ \t]+([a-z][a-z-]*))?`)
 	commandWord       = regexp.MustCompile(`^[a-z][a-z-]{0,31}$`)
 	rejectedInput     = regexp.MustCompile(`unknown (command|flag|subcommand) "([^"]{1,40})"`)
 	claudeExitCode    = regexp.MustCompile(`Exit code (\d+)`)
-	codexChunk        = regexp.MustCompile(`"wall_time_seconds"\s*:\s*([0-9.eE+-]+)\s*,\s*"exit_code"\s*:\s*(-?\d+)`)
-	codexCommand      = regexp.MustCompile(`cmd\s*:\s*"((?:[^"\\]|\\.)*)"`)
+	claudeTimedOut    = regexp.MustCompile(`(?i)command timed out`)
+	codexCommand      = regexp.MustCompile(`"?\bcmd"?\s*:\s*"((?:[^"\\]|\\.)*)"`)
 	codexScriptError  = regexp.MustCompile(`^(Error|Script error|Script failed)|Uncaught|TypeError|SyntaxError|ReferenceError`)
 	invalidInvocation = regexp.MustCompile(`SCN8001|invalid_request|unknown (command|flag|subcommand) "|flag provided but not defined`)
 	internalFailure   = regexp.MustCompile(`SCN9\d{3}|internal tooling failure`)
@@ -91,39 +145,10 @@ var (
 	timedOut          = regexp.MustCompile(`(?i)timed out|deadline exceeded`)
 )
 
-// sceneryCommands returns the Scenery commands a shell command attempts: a
-// known command, with its subcommand for a family that has one; a root flag
-// such as "--help"; or "unknown <word>" for a word Scenery has no command for.
-func sceneryCommands(shell string, families map[string][]string) []string {
-	var result []string
-	for _, match := range sceneryInvocation.FindAllStringSubmatch(shell, -1) {
-		word := match[1]
-		switch subcommands, known := families[word]; {
-		case known:
-			command := word
-			for _, sub := range subcommands {
-				if sub == match[2] {
-					command += " " + sub
-					break
-				}
-			}
-			result = append(result, command)
-		case strings.HasPrefix(word, "-") && len(word) <= 24:
-			result = append(result, word)
-		case commandWord.MatchString(word):
-			result = append(result, "unknown "+word)
-		}
-	}
-	return result
-}
-
 // sceneryFailureClass classifies a failed shell command by what Scenery or the
-// shell reported; a command that succeeded has no class.
-func sceneryFailureClass(call toolCall) string {
-	if !call.errored && call.exit <= 0 {
-		return ""
-	}
-	text := call.output
+// shell reported.
+func sceneryFailureClass(run shellRun) string {
+	text := run.output
 	switch {
 	case invalidInvocation.MatchString(text):
 		return "invalid invocation"
@@ -165,118 +190,192 @@ func toolErrorKind(call toolCall) string {
 			return kind.kind
 		}
 	}
-	if call.exit > 0 {
-		return "shell command failed"
+	for _, run := range call.shells {
+		if run.outcome == outcomeFailed {
+			return "shell command failed"
+		}
 	}
 	return "other"
 }
 
-func readAgents(opts Options) (Agents, error) {
-	agents := Agents{ToolErrorKinds: []Count{}, Commands: []AgentCommand{}, FailureClasses: []Count{}, RejectedInputs: []Count{}}
-	var sessions []agentSession
-	if opts.ClaudeProjectsDir != "" {
-		found, err := readTranscripts(opts, opts.ClaudeProjectsDir, readClaudeSession)
-		if err != nil {
-			return Agents{}, err
+type commandTally struct {
+	count, attributable, failures int
+	wall                          int64
+	durations                     []int64
+}
+
+// agentTally accumulates the tool calls of one transcript and, merged, of
+// all of them. It holds counters and per-command durations only; no call is
+// retained once it is counted.
+type agentTally struct {
+	claudeSessions, codexSessions  int
+	toolCalls, toolErrors          int
+	invocations, commands          int
+	failed, unknown                int
+	attributable, attributableFail int
+	kinds, classes, rejected       map[string]int
+	perCommand                     map[string]*commandTally
+	attemptedScenery               bool
+	sources                        TranscriptSources
+}
+
+func newAgentTally() *agentTally {
+	return &agentTally{kinds: map[string]int{}, classes: map[string]int{}, rejected: map[string]int{}, perCommand: map[string]*commandTally{}}
+}
+
+// visit counts one tool call; calls outside the window only tell whether the
+// session attempted Scenery.
+func (t *agentTally) visit(opts Options, call toolCall) {
+	attempts := make([][]string, len(call.shells))
+	attributable := make([]bool, len(call.shells))
+	for index, run := range call.shells {
+		attempts[index], attributable[index] = sceneryAttempts(run.command, opts.CommandFamilies)
+		if len(attempts[index]) > 0 {
+			t.attemptedScenery = true
 		}
-		sessions = append(sessions, found...)
 	}
-	if opts.CodexSessionsDir != "" {
-		found, err := readTranscripts(opts, opts.CodexSessionsDir, readCodexSession)
-		if err != nil {
-			return Agents{}, err
-		}
-		sessions = append(sessions, found...)
+	if !opts.inWindow(call.at) {
+		return
 	}
-	kinds, classes, rejected := map[string]int{}, map[string]int{}, map[string]int{}
-	type commandAcc struct {
-		count, attributable, failures int
-		wall                          int64
-		durations                     []int64
+	t.toolCalls++
+	if call.errored {
+		t.toolErrors++
+		t.kinds[toolErrorKind(call)]++
 	}
-	commands := map[string]*commandAcc{}
-	for _, session := range sessions {
-		ran := false
-		for _, call := range session.calls {
-			for _, shell := range call.commands {
-				if len(sceneryCommands(shell, opts.CommandFamilies)) > 0 {
-					ran = true
-				}
-			}
-		}
-		if !ran {
+	for index, run := range call.shells {
+		invoked := attempts[index]
+		if len(invoked) == 0 {
 			continue
 		}
-		switch session.agent {
-		case "claude":
-			agents.ClaudeSessions++
-		case "codex":
-			agents.CodexSessions++
+		t.commands++
+		t.invocations += len(invoked)
+		for _, match := range rejectedInput.FindAllStringSubmatch(run.output, -1) {
+			t.rejected["unknown "+match[1]+" \""+match[2]+"\""]++
 		}
-		for _, call := range session.calls {
-			if !opts.inWindow(call.at) {
+		switch run.outcome {
+		case outcomeUnknown:
+			t.unknown++
+		case outcomeFailed:
+			t.failed++
+			t.classes[sceneryFailureClass(run)]++
+		}
+		for _, command := range invoked {
+			tally := t.perCommand[command]
+			if tally == nil {
+				tally = &commandTally{}
+				t.perCommand[command] = tally
+			}
+			tally.count++
+			if !attributable[index] || run.outcome == outcomeUnknown {
 				continue
 			}
-			agents.ToolCalls++
-			if call.errored {
-				agents.ToolErrors++
-				kinds[toolErrorKind(call)]++
+			tally.attributable++
+			t.attributable++
+			if run.outcome == outcomeFailed {
+				tally.failures++
+				t.attributableFail++
 			}
-			var invoked []string
-			for _, shell := range call.commands {
-				invoked = append(invoked, sceneryCommands(shell, opts.CommandFamilies)...)
-			}
-			if len(invoked) == 0 {
-				continue
-			}
-			agents.SceneryCommands++
-			agents.SceneryInvocations += len(invoked)
-			class := sceneryFailureClass(call)
-			if class != "" {
-				agents.SceneryFailed++
-				classes[class]++
-			}
-			for _, match := range rejectedInput.FindAllStringSubmatch(call.output, -1) {
-				rejected["unknown "+match[1]+" \""+match[2]+"\""]++
-			}
-			for _, command := range invoked {
-				acc := commands[command]
-				if acc == nil {
-					acc = &commandAcc{}
-					commands[command] = acc
-				}
-				acc.count++
-				if len(invoked) != 1 {
-					continue
-				}
-				acc.attributable++
-				acc.wall += call.duration.Milliseconds()
-				acc.durations = append(acc.durations, call.duration.Milliseconds())
-				if class != "" {
-					acc.failures++
-				}
+			if run.timed {
+				tally.wall += run.duration.Milliseconds()
+				tally.durations = append(tally.durations, run.duration.Milliseconds())
 			}
 		}
 	}
-	for command, acc := range commands {
-		agents.Commands = append(agents.Commands, AgentCommand{Command: command, Count: acc.count, Attributable: acc.attributable, FailureCount: acc.failures, WallTimeMS: acc.wall, P50MS: percentile(acc.durations, 50)})
+}
+
+// merge adds a transcript's tally; a session that never attempted Scenery
+// adds only what its reading covered.
+func (t *agentTally) merge(other *agentTally, agent string) {
+	t.sources.add(other.sources)
+	if !other.attemptedScenery {
+		return
+	}
+	switch agent {
+	case "claude":
+		t.claudeSessions++
+	case "codex":
+		t.codexSessions++
+	}
+	t.toolCalls += other.toolCalls
+	t.toolErrors += other.toolErrors
+	t.invocations += other.invocations
+	t.commands += other.commands
+	t.failed += other.failed
+	t.unknown += other.unknown
+	t.attributable += other.attributable
+	t.attributableFail += other.attributableFail
+	for _, pair := range []struct{ into, from map[string]int }{{t.kinds, other.kinds}, {t.classes, other.classes}, {t.rejected, other.rejected}} {
+		for name, count := range pair.from {
+			pair.into[name] += count
+		}
+	}
+	for command, from := range other.perCommand {
+		into := t.perCommand[command]
+		if into == nil {
+			into = &commandTally{}
+			t.perCommand[command] = into
+		}
+		into.count += from.count
+		into.attributable += from.attributable
+		into.failures += from.failures
+		into.wall += from.wall
+		into.durations = append(into.durations, from.durations...)
+	}
+}
+
+func readAgents(opts Options) (Agents, error) {
+	total := newAgentTally()
+	for _, source := range []struct {
+		root  string
+		agent string
+		read  transcriptReader
+	}{
+		{opts.ClaudeProjectsDir, "claude", readClaudeTranscript},
+		{opts.CodexSessionsDir, "codex", readCodexTranscript},
+	} {
+		if source.root == "" {
+			continue
+		}
+		if err := readTranscripts(opts, source.root, source.agent, source.read, total); err != nil {
+			return Agents{}, err
+		}
+	}
+	agents := Agents{
+		ClaudeSessions: total.claudeSessions, CodexSessions: total.codexSessions,
+		ToolCalls: total.toolCalls, ToolErrors: total.toolErrors,
+		SceneryInvocations: total.invocations, SceneryCommands: total.commands,
+		SceneryOutcomeUnknown: total.unknown, SceneryFailed: total.failed,
+		SceneryAttributable: total.attributable, SceneryAttributableFailed: total.attributableFail,
+		Commands: []AgentCommand{}, sources: total.sources,
+	}
+	for command, tally := range total.perCommand {
+		agents.Commands = append(agents.Commands, AgentCommand{Command: command, Count: tally.count, Attributable: tally.attributable, FailureCount: tally.failures, WallTimeMS: tally.wall, P50MS: percentiles(tally.durations, 50)[0]})
 	}
 	sort.Slice(agents.Commands, func(i, j int) bool {
 		return agents.Commands[i].Count > agents.Commands[j].Count || agents.Commands[i].Count == agents.Commands[j].Count && agents.Commands[i].Command < agents.Commands[j].Command
 	})
-	agents.ToolErrorKinds = sortedCounts(kinds, 0)
-	agents.FailureClasses = sortedCounts(classes, 0)
-	agents.RejectedInputs = sortedCounts(rejected, 20)
+	agents.ToolErrorKinds = sortedCounts(total.kinds, 0)
+	agents.FailureClasses = sortedCounts(total.classes, 0)
+	agents.RejectedInputs = sortedCounts(total.rejected, 20)
 	return agents, nil
 }
 
-// readTranscripts reads, in parallel, every transcript under root modified
-// inside the window and returns the sessions in path order.
-func readTranscripts(opts Options, root string, read func(string) (agentSession, error)) ([]agentSession, error) {
+// transcriptReader reads one transcript, passing each completed tool call to
+// visit as soon as it is paired and recording what it could not read.
+type transcriptReader func(file io.Reader, visit func(toolCall), sources *TranscriptSources) error
+
+// readTranscripts streams every transcript under root modified inside the
+// window through a few workers, each folding one file into a compact tally
+// that is merged as it completes.
+func readTranscripts(opts Options, root, agent string, read transcriptReader, total *agentTally) error {
 	var paths []string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			if errors.Is(err, os.ErrPermission) {
+				total.sources.Failed++
 				return nil
 			}
 			return err
@@ -291,32 +390,47 @@ func readTranscripts(opts Options, root string, read func(string) (agentSession,
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	sessions := make([]agentSession, len(paths))
-	work := make(chan int)
+	work := make(chan string)
+	tallies := make(chan *agentTally, transcriptWorkers)
 	var wg sync.WaitGroup
-	for range min(max(runtime.GOMAXPROCS(0), 1), 8) {
+	for range min(transcriptWorkers, max(len(paths), 1)) {
 		wg.Go(func() {
-			for index := range work {
-				if session, err := read(paths[index]); err == nil {
-					sessions[index] = session
-				}
+			for path := range work {
+				tallies <- readTranscript(opts, path, read)
 			}
 		})
 	}
-	for index := range paths {
-		work <- index
-	}
-	close(work)
-	wg.Wait()
-	found := sessions[:0]
-	for _, session := range sessions {
-		if len(session.calls) > 0 {
-			found = append(found, session)
+	go func() {
+		for _, path := range paths {
+			work <- path
 		}
+		close(work)
+		wg.Wait()
+		close(tallies)
+	}()
+	for tally := range tallies {
+		total.merge(tally, agent)
 	}
-	return found, nil
+	return nil
+}
+
+func readTranscript(opts Options, path string, read transcriptReader) *agentTally {
+	tally := newAgentTally()
+	file, err := os.Open(path)
+	if err != nil {
+		tally.sources.Failed++
+		return tally
+	}
+	defer func() { _ = file.Close() }()
+	if err := read(file, func(call toolCall) { tally.visit(opts, call) }, &tally.sources); err != nil {
+		// What was read before the error still counts.
+		tally.sources.Partial++
+		return tally
+	}
+	tally.sources.Read++
+	return tally
 }
 
 func contentText(raw json.RawMessage) string {
@@ -344,26 +458,22 @@ func limitText(text string) string {
 	return text
 }
 
-// readClaudeSession pairs each tool use of a Claude Code transcript with its
-// result.
-func readClaudeSession(path string) (agentSession, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return agentSession{}, err
-	}
-	defer func() { _ = file.Close() }()
-	session := agentSession{agent: "claude"}
+// readClaudeTranscript pairs each tool use of a Claude Code transcript with its
+// result. A Bash result records the shell's exit status only as an error's
+// "Exit code N"; a command sent to the background, an interrupted one, or an
+// error without an exit status, such as a denied command, has no known
+// outcome.
+func readClaudeTranscript(file io.Reader, visit func(toolCall), sources *TranscriptSources) error {
 	type use struct {
-		command string
-		at      time.Time
+		command    string
+		background bool
+		at         time.Time
 	}
 	uses := map[string]use{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 32<<20)
-	for scanner.Scan() {
+	oversized, err := readLines(file, transcriptLineLimit, func(raw []byte) {
 		// Only tool uses and their results are decoded.
-		if raw := scanner.Bytes(); !bytes.Contains(raw, []byte(`"tool_use"`)) && !bytes.Contains(raw, []byte(`"tool_result"`)) {
-			continue
+		if !bytes.Contains(raw, []byte(`"tool_use"`)) && !bytes.Contains(raw, []byte(`"tool_result"`)) {
+			return
 		}
 		var line struct {
 			Type      string    `json:"type"`
@@ -371,9 +481,14 @@ func readClaudeSession(path string) (agentSession, error) {
 			Message   struct {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
+			ToolUseResult json.RawMessage `json:"toolUseResult"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &line) != nil || (line.Type != "assistant" && line.Type != "user") {
-			continue
+		if json.Unmarshal(raw, &line) != nil {
+			sources.InvalidRecords++
+			return
+		}
+		if line.Type != "assistant" && line.Type != "user" {
+			return
 		}
 		var items []struct {
 			Type      string          `json:"type"`
@@ -385,63 +500,87 @@ func readClaudeSession(path string) (agentSession, error) {
 			Content   json.RawMessage `json:"content"`
 		}
 		if json.Unmarshal(line.Message.Content, &items) != nil {
-			continue
+			// A string message content carries no tool records.
+			return
 		}
+		var result struct {
+			Interrupted bool `json:"interrupted"`
+		}
+		_ = json.Unmarshal(line.ToolUseResult, &result)
 		for _, item := range items {
 			switch item.Type {
 			case "tool_use":
 				var input struct {
-					Command string `json:"command"`
+					Command         string `json:"command"`
+					RunInBackground bool   `json:"run_in_background"`
 				}
 				_ = json.Unmarshal(item.Input, &input)
-				command := ""
+				started := use{at: line.Timestamp}
 				if item.Name == "Bash" {
-					command = input.Command
+					started.command, started.background = input.Command, input.RunInBackground
 				}
-				uses[item.ID] = use{command: command, at: line.Timestamp}
+				uses[item.ID] = started
 			case "tool_result":
 				started, ok := uses[item.ToolUseID]
 				if !ok {
+					sources.UnmatchedResults++
 					continue
 				}
 				delete(uses, item.ToolUseID)
 				output := limitText(contentText(item.Content))
-				call := toolCall{errored: item.IsError, output: output, at: started.at, duration: line.Timestamp.Sub(started.at), exit: -1}
+				call := toolCall{errored: item.IsError, output: output, at: started.at}
 				if started.command != "" {
-					call.commands = []string{started.command}
-					call.exit = 0
-					if match := claudeExitCode.FindStringSubmatch(output); item.IsError && match != nil {
-						call.exit, _ = strconv.Atoi(match[1])
+					run := shellRun{command: started.command, exit: -1, output: output, duration: line.Timestamp.Sub(started.at), timed: !started.at.IsZero() && !line.Timestamp.IsZero()}
+					switch match := claudeExitCode.FindStringSubmatch(output); {
+					case started.background || result.Interrupted:
+						run.timed = false
+					case !item.IsError:
+						run.outcome, run.exit = outcomeSucceeded, 0
+					case match != nil:
+						run.outcome = outcomeFailed
+						run.exit, _ = strconv.Atoi(match[1])
+					case claudeTimedOut.MatchString(output):
+						run.outcome = outcomeFailed
+					default:
+						run.timed = false
 					}
+					call.shells = []shellRun{run}
 				}
-				session.calls = append(session.calls, call)
+				visit(call)
 			}
 		}
-	}
-	return session, scanner.Err()
+	})
+	sources.OversizedRecords += oversized
+	sources.UnansweredCalls += len(uses)
+	return err
 }
 
-// readCodexSession pairs each tool call of a Codex rollout with its output. A
-// script that runs several shell commands reports one exit code per command
-// in order; they are attributed only when the counts agree.
-func readCodexSession(path string) (agentSession, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return agentSession{}, err
-	}
-	defer func() { _ = file.Close() }()
-	session := agentSession{agent: "codex"}
+// codexRun is what a Codex tool output records of one shell command: its exit
+// status, when known, and its output. Codex records no command duration: the
+// wall times it reports time the tool's wait for an output chunk, which reads
+// 0.0000 seconds for a command that had already finished.
+type codexRun struct {
+	exit  int
+	known bool
+	text  string
+}
+
+// readCodexTranscript pairs each tool call of a Codex rollout with its output.
+// exec_command and shell_command outputs begin with a header naming the
+// command's exit status. An exec script reports each exec_command it printed
+// as a JSON object; its commands are attributed their results only when the
+// script names as many commands as it printed results. Codex commands add
+// outcomes, never timings.
+func readCodexTranscript(file io.Reader, visit func(toolCall), sources *TranscriptSources) error {
 	type pending struct {
 		commands []string
 		at       time.Time
 	}
 	calls := map[string]pending{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 32<<20)
-	for scanner.Scan() {
+	oversized, err := readLines(file, transcriptLineLimit, func(raw []byte) {
 		// Only tool calls and their outputs are decoded.
-		if raw := scanner.Bytes(); !bytes.Contains(raw, []byte(`call`)) {
-			continue
+		if !bytes.Contains(raw, []byte(`call`)) {
+			return
 		}
 		var line struct {
 			Timestamp time.Time `json:"timestamp"`
@@ -454,68 +593,67 @@ func readCodexSession(path string) (agentSession, error) {
 				Output    json.RawMessage `json:"output"`
 			} `json:"payload"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &line) != nil {
-			continue
+		if json.Unmarshal(raw, &line) != nil {
+			sources.InvalidRecords++
+			return
 		}
 		payload := line.Payload
 		switch payload.Type {
-		case "custom_tool_call", "function_call":
-			source := payload.Input
-			if payload.Type == "function_call" {
-				source = payload.Arguments
-			}
-			calls[payload.CallID] = pending{commands: codexCommands(source), at: line.Timestamp}
+		case "custom_tool_call":
+			calls[payload.CallID] = pending{commands: codexScriptCommands(payload.Input), at: line.Timestamp}
+		case "function_call":
+			calls[payload.CallID] = pending{commands: codexFunctionCommands(payload.Name, payload.Arguments), at: line.Timestamp}
 		case "custom_tool_call_output", "function_call_output":
 			started, ok := calls[payload.CallID]
 			if !ok {
-				continue
+				sources.UnmatchedResults++
+				return
 			}
 			delete(calls, payload.CallID)
 			output := contentText(payload.Output)
-			// Each command a script ran reports its own chunk: wall time, then
-			// exit code.
-			var exits []int
-			var walls []time.Duration
-			var outputs []string
-			chunks := codexChunk.FindAllStringSubmatchIndex(output, -1)
-			for index, match := range chunks {
-				seconds, _ := strconv.ParseFloat(output[match[2]:match[3]], 64)
-				code, _ := strconv.Atoi(output[match[4]:match[5]])
-				walls = append(walls, time.Duration(seconds*float64(time.Second)))
-				exits = append(exits, code)
-				end := len(output)
-				if index+1 < len(chunks) {
-					end = chunks[index+1][0]
-				}
-				outputs = append(outputs, output[match[0]:end])
-			}
 			head := output
 			if len(head) > 300 {
 				head = head[:300]
 			}
-			errored := codexScriptError.MatchString(head)
-			duration := line.Timestamp.Sub(started.at)
-			if len(started.commands) == 0 {
-				session.calls = append(session.calls, toolCall{errored: errored, output: limitText(output), at: started.at, duration: duration, exit: -1})
-				continue
+			call := toolCall{errored: codexScriptError.MatchString(head), output: limitText(output), at: started.at}
+			var runs []codexRun
+			if payload.Type == "function_call_output" {
+				runs = []codexRun{codexHeaderRun(output)}
+			} else {
+				runs = codexScriptRuns(output)
 			}
-			// One exit code per command makes each command its own outcome;
-			// otherwise the script is one call whose outcome covers them all.
-			// Commands of one script share its duration, which is not divided.
-			if len(exits) == len(started.commands) {
-				for index, command := range started.commands {
-					session.calls = append(session.calls, toolCall{commands: []string{command}, exit: exits[index], errored: errored || exits[index] > 0, output: limitText(outputs[index]), at: started.at, duration: walls[index]})
+			// Without one result per command, no command has a known
+			// outcome.
+			if len(runs) != len(started.commands) {
+				runs = make([]codexRun, len(started.commands))
+				for index := range runs {
+					runs[index].text = output
 				}
-				continue
 			}
-			exit := -1
-			session.calls = append(session.calls, toolCall{commands: started.commands, exit: exit, errored: errored || exit > 0, output: limitText(output), at: started.at, duration: duration})
+			for index, command := range started.commands {
+				result := runs[index]
+				run := shellRun{command: command, exit: -1, output: limitText(result.text)}
+				if result.known {
+					run.exit = result.exit
+					run.outcome = outcomeSucceeded
+					if result.exit != 0 {
+						run.outcome = outcomeFailed
+						call.errored = true
+					}
+				}
+				call.shells = append(call.shells, run)
+			}
+			visit(call)
 		}
-	}
-	return session, scanner.Err()
+	})
+	sources.OversizedRecords += oversized
+	sources.UnansweredCalls += len(calls)
+	return err
 }
 
-func codexCommands(source string) []string {
+// codexScriptCommands returns the literal commands an exec script passes to
+// exec_command.
+func codexScriptCommands(source string) []string {
 	var commands []string
 	for _, match := range codexCommand.FindAllStringSubmatch(source, -1) {
 		if unquoted, err := strconv.Unquote(`"` + match[1] + `"`); err == nil {
@@ -524,25 +662,114 @@ func codexCommands(source string) []string {
 			commands = append(commands, match[1])
 		}
 	}
-	if len(commands) > 0 || source == "" {
-		return commands
-	}
-	var arguments struct {
+	return commands
+}
+
+// codexFunctionCommands returns the shell command of an exec_command,
+// shell_command or shell function call.
+func codexFunctionCommands(name, arguments string) []string {
+	var args struct {
 		Cmd     json.RawMessage `json:"cmd"`
 		Command json.RawMessage `json:"command"`
 	}
-	if json.Unmarshal([]byte(source), &arguments) != nil {
+	if json.Unmarshal([]byte(arguments), &args) != nil {
 		return nil
 	}
-	for _, raw := range []json.RawMessage{arguments.Cmd, arguments.Command} {
-		var text string
-		if json.Unmarshal(raw, &text) == nil && text != "" {
-			return []string{text}
-		}
-		var words []string
-		if json.Unmarshal(raw, &words) == nil && len(words) > 0 {
-			return []string{strings.Join(words, " ")}
+	var raw json.RawMessage
+	switch name {
+	case "exec_command":
+		raw = args.Cmd
+	case "shell_command", "shell":
+		raw = args.Command
+	default:
+		return nil
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil && text != "" {
+		return []string{text}
+	}
+	var words []string
+	if json.Unmarshal(raw, &words) != nil || len(words) == 0 {
+		return nil
+	}
+	// A shell started with -c runs its script argument.
+	if len(words) == 3 && strings.HasPrefix(words[1], "-") && strings.HasSuffix(words[1], "c") {
+		switch filepath.Base(words[0]) {
+		case "sh", "bash", "zsh":
+			return []string{words[2]}
 		}
 	}
-	return nil
+	return []string{strings.Join(words, " ")}
+}
+
+var codexHeaderExit = regexp.MustCompile(`^(?:Process exited with code|Exit code:) (-?\d+)$`)
+
+// codexHeaderRun reads the header Codex writes before a command's output, up
+// to its "Output:" line; a command still running reports no exit status. An
+// older shell call's output is a JSON object whose metadata carries it.
+func codexHeaderRun(output string) codexRun {
+	run := codexRun{text: output}
+	var legacy struct {
+		Output   string `json:"output"`
+		Metadata *struct {
+			ExitCode *int `json:"exit_code"`
+		} `json:"metadata"`
+	}
+	if strings.HasPrefix(output, "{") && json.Unmarshal([]byte(output), &legacy) == nil && legacy.Metadata != nil {
+		run.text = legacy.Output
+		if legacy.Metadata.ExitCode != nil {
+			run.exit, run.known = *legacy.Metadata.ExitCode, true
+		}
+		return run
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "Output:" {
+			break
+		}
+		if match := codexHeaderExit.FindStringSubmatch(line); match != nil {
+			run.exit, _ = strconv.Atoi(match[1])
+			run.known = true
+		}
+	}
+	return run
+}
+
+// codexScriptRuns reads the exec_command results an exec script printed: JSON
+// objects, one per line, that carry a chunk_id, directly or as the value of a
+// settled promise. Fields are read by name, in any order; a result without an
+// exit_code, such as a command still running, has no known outcome.
+func codexScriptRuns(output string) []codexRun {
+	var runs []codexRun
+	for line := range strings.SplitSeq(output, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") || !strings.Contains(line, `"chunk_id"`) {
+			continue
+		}
+		type result struct {
+			ChunkID  *string `json:"chunk_id"`
+			ExitCode *int    `json:"exit_code"`
+			Output   string  `json:"output"`
+		}
+		var object struct {
+			result
+			Value *result `json:"value"`
+		}
+		if json.Unmarshal([]byte(line), &object) != nil {
+			continue
+		}
+		found := object.result
+		if object.Value != nil && object.Value.ChunkID != nil {
+			found = *object.Value
+		}
+		if found.ChunkID == nil {
+			continue
+		}
+		run := codexRun{text: found.Output}
+		if found.ExitCode != nil {
+			run.exit, run.known = *found.ExitCode, true
+		}
+		runs = append(runs, run)
+	}
+	return runs
 }

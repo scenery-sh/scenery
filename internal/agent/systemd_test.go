@@ -11,7 +11,7 @@ func TestAgentSystemdUnitPinsSupervisedInvocation(t *testing.T) {
 	paths := PathsForHome("/root/.scenery")
 	unit := AgentSystemdUnit("/usr/local/bin/scenery", paths, StartOptions{RouterHTTP: true, RouterAddr: "127.0.0.1:9440"})
 	for _, want := range []string{
-		"ExecStart=/usr/local/bin/scenery system agent --socket /root/.scenery/run/agent.sock --router-listen 127.0.0.1:9440 --router-http",
+		"ExecStart=/usr/local/bin/scenery system agent --socket /root/.scenery/run/agent.sock --router-listen 127.0.0.1:9440 --router-http --supervised\n",
 		"Restart=always",
 		"Environment=HOME=/root",
 		"After=network-online.target",

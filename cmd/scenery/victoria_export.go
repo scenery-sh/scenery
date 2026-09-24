@@ -16,42 +16,9 @@ import (
 	"scenery.sh/internal/devdash"
 )
 
-var victoriaExportClient = &http.Client{Timeout: time.Second}
+var victoriaExportClient = &http.Client{Timeout: telemetryExportTimeout}
 
 const sceneryRequestDurationMetricName = "scenery_request_duration_seconds"
-
-func (s *dashboardServer) exportVictoriaTraceSummaryWithEvents(ctx context.Context, summary *devdash.TraceSummary, events []*devdash.TraceEvent) {
-	victoria := s.dashboardVictoria()
-	if s == nil || victoria == nil || summary == nil {
-		return
-	}
-	traceEndpoint := victoria.Endpoint("traces")
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	if traceEndpoint != "" {
-		_ = postVictoriaProtobuf(ctx, traceEndpoint, buildOTLPTraceProto(summary, events))
-	}
-	if metricsEndpoint := victoria.Endpoint("metrics"); metricsEndpoint != "" {
-		_ = postVictoriaProtobuf(ctx, metricsEndpoint, buildOTLPMetricProto(summary))
-	}
-}
-
-func (s *dashboardServer) exportVictoriaLogEvent(event *devdash.LogEvent) {
-	victoria := s.dashboardVictoria()
-	if s == nil || victoria == nil || event == nil {
-		return
-	}
-	endpoint := victoria.Endpoint("logs")
-	if endpoint == "" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_ = postVictoriaProtobuf(ctx, endpoint, buildOTLPLogProto(event))
-}
 
 func postVictoriaProtobuf(ctx context.Context, endpoint string, payload []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))

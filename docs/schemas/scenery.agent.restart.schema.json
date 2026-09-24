@@ -12,14 +12,15 @@
       "const": "scenery.agent.restart"
     },
     "schema_revision": {
-      "const": "sha256:a39bcc3f6c59675582af60bbbcf10d2e7f65c2c66a43088eec60ba4628c16258"
+      "const": "sha256:604b1e57a02c5fd35d6d3a4acea2fe6bf182b5fbe7580e465f93e7f6288c143d"
     },
     "old_pid": {},
     "pid": {},
     "socket_path": {},
     "router_addr": {},
     "router_scheme": {},
-    "supervised": {}
+    "supervised": {},
+    "supervisor_updated": {}
   },
   "additionalProperties": false
 }

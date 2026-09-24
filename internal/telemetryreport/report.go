@@ -6,6 +6,7 @@
 package telemetryreport
 
 import (
+	"slices"
 	"sort"
 	"time"
 )
@@ -45,13 +46,26 @@ type Window struct {
 	Until string `json:"until"`
 }
 
+// Sources tells what the report read and how completely: a source that could
+// not be read, or was read only in part, is counted rather than silently
+// missing from the aggregates.
 type Sources struct {
-	CLIRecords       int  `json:"cli_records"`
-	CLIInvalid       int  `json:"cli_invalid_records"`
-	SupervisorLogs   int  `json:"supervisor_logs"`
-	AgentTranscripts bool `json:"agent_transcripts"`
-	ClaudeSessions   int  `json:"claude_sessions"`
-	CodexSessions    int  `json:"codex_sessions"`
+	CLIRecords int `json:"cli_records"`
+	// CLIInvalid counts CLI telemetry lines that are no record, including
+	// lines longer than the reader keeps.
+	CLIInvalid     int `json:"cli_invalid_records"`
+	SupervisorLogs int `json:"supervisor_logs"`
+	// SupervisorLogsPartial counts supervisor logs whose reading stopped at
+	// an error, SupervisorLogsFailed those that could not be opened, and
+	// SupervisorInvalid their event lines that did not decode or were too
+	// long.
+	SupervisorLogsPartial int                `json:"supervisor_logs_partial"`
+	SupervisorLogsFailed  int                `json:"supervisor_logs_failed"`
+	SupervisorInvalid     int                `json:"supervisor_invalid_records"`
+	AgentTranscripts      bool               `json:"agent_transcripts"`
+	ClaudeSessions        int                `json:"claude_sessions"`
+	CodexSessions         int                `json:"codex_sessions"`
+	Transcripts           *TranscriptSources `json:"transcripts,omitempty"`
 }
 
 // Finding is one conclusion worth acting on, derived from the aggregates.
@@ -86,23 +100,26 @@ func (a *timingAccumulator) add(durationMS int64, ok bool) {
 }
 
 func (a *timingAccumulator) timing() Timing {
-	return Timing{Count: a.count, FailureCount: a.failures, P50MS: percentile(a.durations, 50), P95MS: percentile(a.durations, 95)}
+	p := percentiles(a.durations, 50, 95)
+	return Timing{Count: a.count, FailureCount: a.failures, P50MS: p[0], P95MS: p[1]}
 }
 
-// percentile returns the nearest-rank p-th percentile: the smallest value
-// with at least p percent of the values at or below it, or nil without values.
-func percentile(values []int64, p int) *int64 {
+// percentiles returns nearest-rank percentiles of values from one sorted
+// copy: for each p, the smallest value with at least p percent of the values
+// at or below it, or nil without values.
+func percentiles(values []int64, ps ...int) []*int64 {
+	result := make([]*int64, len(ps))
 	if len(values) == 0 {
-		return nil
+		return result
 	}
 	sorted := append([]int64(nil), values...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	rank := (p*len(sorted) + 99) / 100
-	if rank < 1 {
-		rank = 1
+	slices.Sort(sorted)
+	for index, p := range ps {
+		rank := max((p*len(sorted)+99)/100, 1)
+		value := sorted[rank-1]
+		result[index] = &value
 	}
-	value := sorted[rank-1]
-	return &value
+	return result
 }
 
 // ms reads an optional percentile, -1 when it is unavailable.
@@ -164,6 +181,7 @@ func Build(opts Options) (Report, error) {
 	}
 	report.Builds = builds
 	report.Sources.SupervisorLogs = builds.logs
+	report.Sources.SupervisorLogsPartial, report.Sources.SupervisorLogsFailed, report.Sources.SupervisorInvalid = builds.partialLogs, builds.failedLogs, builds.invalidRecords
 	if opts.AgentTranscripts {
 		agents, err := readAgents(opts)
 		if err != nil {
@@ -172,6 +190,7 @@ func Build(opts Options) (Report, error) {
 		report.Agents = &agents
 		report.Sources.AgentTranscripts = true
 		report.Sources.ClaudeSessions, report.Sources.CodexSessions = agents.ClaudeSessions, agents.CodexSessions
+		report.Sources.Transcripts = &agents.sources
 	}
 	report.Findings = findings(report)
 	return report, nil

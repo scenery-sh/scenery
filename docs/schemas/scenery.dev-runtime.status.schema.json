@@ -19,7 +19,7 @@
       "const": "scenery.dev-runtime.status"
     },
     "schema_revision": {
-      "const": "sha256:ee021ce07eac7a4039cf295af2f09f29291be54f10fc6ee925fd7eb26df8aef5"
+      "const": "sha256:90a0480662bc298bcf9c26e7ad96e475321b38b027c585b3bd46c138b8b96031"
     },
     "app_id": {
       "type": "string",
@@ -136,7 +136,8 @@
         "enabled",
         "metrics",
         "logs",
-        "traces"
+        "traces",
+        "export"
       ],
       "properties": {
         "enabled": {
@@ -153,6 +154,25 @@
         },
         "traces": {
           "$ref": "#/$defs/signal"
+        },
+        "export": {
+          "description": "Telemetry not delivered to the observability backend since the runtime started: reports dropped because they exceeded 1 MiB or the bounded export queue was full, and exports that failed, one for each report and signal.",
+          "type": "object",
+          "required": [
+            "dropped",
+            "failed"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "dropped": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       },
       "additionalProperties": false
