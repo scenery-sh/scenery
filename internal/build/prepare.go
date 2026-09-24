@@ -173,6 +173,9 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		return nil, err
 	}
 	defer unlock()
+	if err := WriteWorkspaceMarker(workspaceDir, appRoot, cfg.Name); err != nil {
+		return nil, err
+	}
 	state, err := loadBuildState(workspaceDir)
 	if err != nil {
 		return nil, err

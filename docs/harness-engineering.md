@@ -232,6 +232,14 @@ Full release selects every functional catalog entry once plus the full race
 suite. Resource benchmarks and all-root timing audits are explicit measurement
 workflows; neither is automatically selected for runtime edits.
 
+Every run that selected at least one probe ends with the `probe build-cache
+sweep` step. Probes build their disposable apps in the shared development cache,
+whose workspaces are named by the app root hash and stay behind once the
+temporary root is removed; the sweep removes the workspaces whose recorded app
+root lies beneath the temporary directory and no longer exists, reports the
+count and bytes reclaimed, and leaves every other workspace, including a probe
+root retained for diagnosis, to an explicit `scenery prune --build-cache`.
+
 ## App Harness Checks
 
 `scenery harness` composes:
