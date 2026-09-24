@@ -7,7 +7,7 @@
 // Deployed origins do not serve it.
 
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
-export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:f3ddf47476997761c64f4b9c70e82c7e41e016a20571d14ce463419ec5b19da1";
+export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:ee021ce07eac7a4039cf295af2f09f29291be54f10fc6ee925fd7eb26df8aef5";
 
 export interface DevRuntimeSignal {
 	readonly enabled: boolean;
@@ -51,6 +51,21 @@ export interface DevRuntimeStatus {
 	readonly routes: Readonly<Record<string, string>>;
 	readonly service_processes: readonly DevRuntimeServiceProcess[];
 	readonly observability?: DevRuntimeObservability;
+	/**
+	 * Present while builds are blocked by a cause no ordinary edit resolves:
+	 * the runtime keeps serving its last good generation, and requested
+	 * changes are not applied until the cause is resolved.
+	 */
+	readonly build_block?: DevRuntimeBuildBlock;
+}
+
+export interface DevRuntimeBuildBlock {
+	/** framework_mismatch or migration_pending. */
+	readonly reason: string;
+	readonly cause: string;
+	readonly since: string;
+	/** Rebuilds not attempted because they would fail the same way. */
+	readonly prevented_builds: number;
 }
 
 export interface PostgresTable {

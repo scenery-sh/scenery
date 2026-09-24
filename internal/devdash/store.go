@@ -114,6 +114,7 @@ type StoredApp struct {
 	SessionStatusReason string            `json:"session_status_reason,omitempty"`
 	Compiling           bool              `json:"compiling,omitempty"`
 	CompileError        string            `json:"compile_error,omitempty"`
+	BuildBlock          *BuildBlock       `json:"build_block,omitempty"`
 	PID                 string            `json:"pid,omitempty"`
 	UpdatedAt           time.Time         `json:"updated_at,omitempty"`
 	MetadataRef         string            `json:"metadata_ref,omitempty"`
@@ -140,6 +141,7 @@ type StoredAppSession struct {
 	SessionStatusReason string            `json:"session_status_reason,omitempty"`
 	Compiling           bool              `json:"compiling,omitempty"`
 	CompileError        string            `json:"compile_error,omitempty"`
+	BuildBlock          *BuildBlock       `json:"build_block,omitempty"`
 	PID                 string            `json:"pid,omitempty"`
 	UpdatedAt           time.Time         `json:"updated_at,omitempty"`
 	MetadataRef         string            `json:"metadata_ref,omitempty"`
@@ -708,6 +710,7 @@ func storedAppFromAppRecord(app AppRecord) StoredApp {
 		SessionStatusReason: app.SessionStatusReason,
 		Compiling:           app.Compiling,
 		CompileError:        app.CompileError,
+		BuildBlock:          app.BuildBlock,
 		PID:                 app.PID,
 		UpdatedAt:           app.UpdatedAt,
 	}
@@ -731,6 +734,7 @@ func storedAppSessionFromAppRecord(app AppRecord) StoredAppSession {
 		SessionStatusReason: app.SessionStatusReason,
 		Compiling:           app.Compiling,
 		CompileError:        app.CompileError,
+		BuildBlock:          app.BuildBlock,
 		PID:                 app.PID,
 		UpdatedAt:           app.UpdatedAt,
 	}
@@ -754,6 +758,7 @@ func (app StoredApp) toAppRecord() AppRecord {
 		SessionStatusReason: app.SessionStatusReason,
 		Compiling:           app.Compiling,
 		CompileError:        app.CompileError,
+		BuildBlock:          app.BuildBlock,
 		PID:                 app.PID,
 		UpdatedAt:           app.UpdatedAt,
 	}
@@ -777,6 +782,7 @@ func (session StoredAppSession) toAppRecord() AppRecord {
 		SessionStatusReason: session.SessionStatusReason,
 		Compiling:           session.Compiling,
 		CompileError:        session.CompileError,
+		BuildBlock:          session.BuildBlock,
 		PID:                 session.PID,
 		UpdatedAt:           session.UpdatedAt,
 	}

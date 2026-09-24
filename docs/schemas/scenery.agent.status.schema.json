@@ -13,7 +13,7 @@
       "const": "scenery.agent.status"
     },
     "schema_revision": {
-      "const": "sha256:b5f1d0ec472134aaee60d490423e910967d444d1d3cce4d480f26ef93a8eb476"
+      "const": "sha256:91f5a51f98fcce1de0b4be034f31394e27699c26e122968c0d9d57f017f7b469"
     },
     "worktrees": {
       "type": "array",
@@ -46,6 +46,62 @@
             "type": "array",
             "items": {
               "type": "object"
+            }
+          },
+          "build_blocks": {
+            "description": "Present while running sessions of the worktree have builds blocked by a cause no ordinary edit resolves; the runtime keeps serving its last good generation.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "schema_revision",
+                "spec_revision",
+                "session_id",
+                "owner",
+                "reason",
+                "cause",
+                "since",
+                "prevented_builds"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "scenery.dev.build-block"
+                },
+                "schema_revision": {
+                  "type": "string"
+                },
+                "spec_revision": {
+                  "type": "string"
+                },
+                "producer": {
+                  "type": "object"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "owner": {
+                  "type": "object"
+                },
+                "reason": {
+                  "enum": [
+                    "framework_mismatch",
+                    "migration_pending"
+                  ]
+                },
+                "cause": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "prevented_builds": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
             }
           }
         },
