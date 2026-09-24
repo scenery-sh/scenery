@@ -507,6 +507,49 @@ Migration can be previewed repeatedly. Applying an already migrated value is eit
 
 ## Artifacts and Notes
 
+### M0 value-free input inventory (2026-09-24)
+
+Collected with `rg`/`git grep` over Scenery `96df6695` (framework and runtime
+code, excluding tests, `scripts/verify` and fixtures) and ONLV `origin/main`
+`d7e2e0ab`; dotenv files were read for variable names only. Classes: **A**
+typed application input, **F** framework-managed runtime capability, **S**
+structural/build setting, **O** OS/toolchain requirement, **D** dead input.
+
+Scenery framework (application-facing):
+
+| Current name | Consumer | Class | Destination |
+|---|---|---|---|
+| `JWT_SECRET` | `auth/standard.go` | A (secret) | `auth.jwt_secret`; local development keeps the established dev-only default |
+| `GOOGLE_OAUTH_CLIENT_ID` | `auth/standard.go`, `cmd/scenery/check.go` | A | `auth.google_client_id` |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | `auth/standard.go`, `cmd/scenery/check.go` | A (secret) | `auth.google_client_secret` |
+| `AUTH_TOKEN_CIPHER_KEY` | `auth/standard_google_cipher.go` | A (secret, base64 32 bytes) | `auth.token_cipher_key`; key bytes preserved |
+| `AUTH_COOKIE_DOMAIN` | `auth/standard.go` (supervisor injects empty locally) | A | `auth.cookie_domain` |
+| `AUTH_EMAIL_FROM` | `auth/standard.go` | A | `auth.email_from` |
+| `SCENERY_CORS_ALLOW_ORIGINS` | `runtime/server.go` | S | stays structural runtime wiring (registry `user_input`); reviewed in M6 guard |
+| `DATABASE_URL`, `*_DATABASE_URL`, `SCENERY_DATABASE_JSON` | `runtime/sql_bindings.go`, `runtime/durable.go`, `db/db.go`, `auth/standard.go` | F | worktree-owned SQL supply injected by the supervisor; ambient external supply is removed (M3) |
+| `SCENERY_ASSISTANT_TOKEN_KEY(_FILE)` | `runtime/assistant_bootstrap.go` | F | supervisor-owned private key file |
+| `SCENERY_STORAGE_CONFIG`, assistant, durable, listen, link, report, session vars | runtime | F | unchanged injected wiring |
+| `.env`, `.env.<env>`, `.env.local`, `.env.<env>.local` | `appEnvWithDotEnv`, `ResolvedEnv.DotEnvFiles`, `runtime.LoadDotEnvIntoEnv` | removed | deleted in M6 |
+
+ONLV (`d7e2e0ab`):
+
+| Current name | Consumer | Class | Destination |
+|---|---|---|---|
+| `NSRDB_PACK_ROOT` | `solar/designs/designer_common.go` | A | `designs.weather_pack_root` (`optional(host_path)`) |
+| `GOOGLE_OAUTH_CLIENT_ID/SECRET`, `JWT_SECRET` | root `.env` → Scenery auth | A | `auth.*` keys above |
+| `UTILITYAPI_TOKENS_JSON` | `solar/consumptionprofiles/api.go` | A (secret) | consumptionprofiles deployment secret input |
+| `SOLAR_API_TOKEN`, `DATABASE_URL`, `UTILITIES_DATABASE_URL` | `utilities/cmd/download.go`, `cmd/*_import`, `solar/*/cmd/import` | A / F | importer capability bundle from the task launcher (M5) |
+| `MAPS3D_FLYOVER_MANIFEST_URL`, `MAPS3D_FLYOVER_TOKEN_P1` | `pkg/maps3dflyover/meshgetter.go` | A | maps deployment inputs, passed explicitly |
+| `MAPS3D_BASISU_PATH`, `MAPS3D_GLTFPACK_PATH` | `pkg/maps3d/meshops` | O | tool locations passed explicitly by the owning service |
+| `MAPS3D_DEBUG_*`, `MAPS3D_DUMP_*` | `pkg/maps3d` | D/S | developer debug switches; removed or made explicit options in M5 |
+| `SCENERY_APP_ID`, `SCENERY_VICTORIA_TRACES_ENDPOINT` | `pkg/pulsetrace/read.go` | F | framework-injected wiring |
+| `SCENERY_BIN` | `internal/repoharness/context.go` | O | harness tool selection |
+| `VITE_GOOGLE_MAPS_API_KEY`, `VITE_GOOGLE_MAPS_MAP_ID`, `VITE_APPLE_MAPS_TOKEN` | `apps/nextnext` via `import.meta.env` | A (public) | typed public frontend projection (M5) |
+| `import.meta.env.DEV`, `BASE_URL`, `NODE_ENV` | frontends | S | toolchain constants, not application inputs |
+| `process.env.*` in Playwright/QA scripts (`CDP_URL`, `PLAYWRIGHT_BASE_URL`, `RESPONSIVE_*`, `STYLE_*`, `BREAKPOINT_*`, `DESIGNER_*`, `ORACLE_*`, `INTERACTION_*`, `SCENE_*`, `OUT`, `DEBUG`) | test/QA tooling | O | test-tool arguments; not application configuration |
+| Root `.env` Encore-era names (`ClerkSecretKey`, `DatabaseURL`, `ENCORE_*`, `LightRabbitMQURL`, `House*`, `Maps*`, `POSTGRES_PORT`, `PULSE_PORT`, `VIEWER_PORT`, `COMPOSE_PROJECT_NAME`, `PublicGoogleMapsAPIKey`, `DisableRoofWorker`) | none | D | ignored; archived only with explicit authorization |
+| `Justfile` `set dotenv-load := true` | Just recipes | removed | M5 |
+
 The implementation handoff must contain: the updated master/ONLV plans; the value-free input migration inventory; strict current CLI/store/snapshot schemas; source and target protocol tests; regenerated clients; the actual Scenery pin in ONLV; sanitized unit/probe receipts; and an explicit list of pending operator actions.
 
 Use existing ignored `.scenery/harness/` locations for evidence, with bounded reports such as `environment-configuration.json`, `environment-configuration-secrets.json`, and `environment-configuration-deploy.json`. Include exact source/build producer identities, chosen app/environment identities, desired/applied revisions, assertions, and cleanup. Do not include raw secret values, secret verification digests, or full process environments.
