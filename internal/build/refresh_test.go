@@ -186,10 +186,11 @@ func TestRefreshCachedWorkspacePreservesTidiedDependencyBytesWithoutTrustingBare
 		t.Fatalf("loadBuildState() error = %v", err)
 	}
 	state.DependencyFingerprint = depFingerprint
-	state.FrameworkFingerprint, err = cachedFrameworkFingerprint(framework)
+	frameworkSource, err := FrameworkSourceManifest(framework)
 	if err != nil {
 		t.Fatal(err)
 	}
+	state.FrameworkFingerprint = frameworkSource.Digest
 	state.BuildFingerprint, err = workspaceBuildFingerprint(result.Dir, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
 	if err != nil {
 		t.Fatal(err)

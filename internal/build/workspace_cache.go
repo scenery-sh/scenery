@@ -53,7 +53,7 @@ func artifactPathStamps(root string, paths []string) (map[string]string, error) 
 			return nil, fmt.Errorf("artifact path escapes root: %s", rel)
 		}
 		path := filepath.Join(root, filepath.FromSlash(rel))
-		info, err := os.Lstat(path)
+		info, err := buildInputLstat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			stamps[rel] = absentArtifactStamp
 			continue
@@ -64,12 +64,13 @@ func artifactPathStamps(root string, paths []string) (map[string]string, error) 
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("artifact path is not a regular file: %s", rel)
 		}
-		data, err := os.ReadFile(path)
+		// Generated artifacts are re-proven every build; a digest retained for
+		// the file's exact stamp names its content without reading it again.
+		digest, _, err := cachedBuildInputFileDigest(path, info, os.ReadFile)
 		if err != nil {
 			return nil, err
 		}
-		sum := sha256.Sum256(data)
-		stamps[rel] = hex.EncodeToString(sum[:])
+		stamps[rel] = strings.TrimPrefix(digest, "sha256:")
 	}
 	return stamps, nil
 }
@@ -80,15 +81,6 @@ func dependencyFingerprintFromWorkspace(root string) (string, error) {
 
 func dependencyFingerprintFromInventory(inventory *workspaceInventory) (string, error) {
 	root := inventory.root
-	h := sha256.New()
-	if data, err := inventory.read("go.mod"); err == nil {
-		_, _ = h.Write([]byte("go.mod\x00"))
-		_, _ = h.Write(data)
-	}
-	if data, err := inventory.read("go.sum"); err == nil {
-		_, _ = h.Write([]byte("go.sum\x00"))
-		_, _ = h.Write(data)
-	}
 	var goFiles []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -113,7 +105,52 @@ func dependencyFingerprintFromInventory(inventory *workspaceInventory) (string, 
 	if err != nil {
 		return "", err
 	}
+	return dependencyFingerprintOfGoFiles(inventory, goFiles)
+}
+
+// dependencyFingerprintForMembership equals dependencyFingerprintFromInventory
+// for a workspace whose membership the caller just established under the
+// workspace lock: the Go files are those of the source and generated lists
+// outside skipped directories, so the workspace is not listed again.
+func dependencyFingerprintForMembership(inventory *workspaceInventory, groups ...[]string) (string, error) {
+	var goFiles []string
+	for _, group := range groups {
+		for _, rel := range group {
+			rel = filepath.ToSlash(rel)
+			if filepath.Ext(rel) == ".go" && !underSkippedDir(rel) {
+				goFiles = append(goFiles, rel)
+			}
+		}
+	}
+	return dependencyFingerprintOfGoFiles(inventory, goFiles)
+}
+
+// underSkippedDir reports whether a walk from the workspace root skips a
+// directory that contains rel.
+func underSkippedDir(rel string) bool {
+	dir := filepath.ToSlash(filepath.Dir(rel))
+	for dir != "." && dir != "/" && dir != "" {
+		if shouldSkipDir(dir) {
+			return true
+		}
+		dir = filepath.ToSlash(filepath.Dir(dir))
+	}
+	return false
+}
+
+func dependencyFingerprintOfGoFiles(inventory *workspaceInventory, goFiles []string) (string, error) {
+	h := sha256.New()
+	if data, err := inventory.read("go.mod"); err == nil {
+		_, _ = h.Write([]byte("go.mod\x00"))
+		_, _ = h.Write(data)
+	}
+	if data, err := inventory.read("go.sum"); err == nil {
+		_, _ = h.Write([]byte("go.sum\x00"))
+		_, _ = h.Write(data)
+	}
+	goFiles = slices.Clone(goFiles)
 	sort.Strings(goFiles)
+	goFiles = slices.Compact(goFiles)
 	for _, rel := range goFiles {
 		imports, err := inventory.goImports(rel)
 		if err != nil {
@@ -293,6 +330,20 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 // belongs exclusively to the identity-bound shared binary cache; a bare old
 // workspace executable has no generation-specific identity to authorize reuse.
 func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, result *Result, snapshot *SourceSnapshot) (prepared bool, err error) {
+	return prepareCachedWorkspace(ctx, appRoot, cfg, result, snapshot, false)
+}
+
+// PrepareCachedWorkspaceHeldContext is PrepareCachedWorkspaceWithSnapshotContext
+// for a caller that compiles the prepared workspace next: a prepared result
+// keeps the workspace lock under which this preparation established the
+// workspace's membership and bytes, so BuildDevelopmentProcessesContext
+// consumes it without locking and verifying them again. The caller releases
+// an unconsumed hold with ReleaseWorkspace.
+func PrepareCachedWorkspaceHeldContext(ctx context.Context, appRoot string, cfg app.Config, result *Result, snapshot *SourceSnapshot) (prepared bool, err error) {
+	return prepareCachedWorkspace(ctx, appRoot, cfg, result, snapshot, true)
+}
+
+func prepareCachedWorkspace(ctx context.Context, appRoot string, cfg app.Config, result *Result, snapshot *SourceSnapshot, hold bool) (prepared bool, err error) {
 	started := time.Now()
 	reason := "projection_changed_or_missing"
 	defer func() {
@@ -370,7 +421,13 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	if err != nil {
 		return false, err
 	}
-	defer unlock()
+	defer func() {
+		if hold && prepared && err == nil {
+			result.workspaceHold = unlock
+			return
+		}
+		unlock()
+	}()
 	var mutation workspaceMutation
 	materializeStarted := time.Now()
 	materializeErr := func() error {
@@ -393,7 +450,7 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	}
 	result.SourceFingerprint = sourceFingerprint
 	previousFrameworkFingerprint := result.FrameworkFingerprint
-	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(result.Dir)
+	frameworkFingerprint, err := workspaceFrameworkFingerprint(ctx, result.Dir)
 	if err != nil {
 		return false, err
 	}
@@ -406,7 +463,7 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 		return false, nil
 	}
 	inventory := newWorkspaceInventory(result.Dir)
-	depFingerprint, err := dependencyFingerprintFromInventory(inventory)
+	depFingerprint, err := dependencyFingerprintForMembership(inventory, result.SourceFiles, result.GeneratedFiles)
 	if err != nil {
 		return false, err
 	}

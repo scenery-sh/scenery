@@ -254,13 +254,12 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		return nil, err
 	}
 	inventory := newWorkspaceInventory(workspaceDir)
-	depFingerprint, err := dependencyFingerprintFromInventory(inventory)
+	depFingerprint, err := dependencyFingerprintForMembership(inventory, sourceFiles, generatedFiles)
 	if err != nil {
 		return nil, err
 	}
 	frameworkFingerprint, err := observeBuild(ctx, "framework.workspace_fingerprint", func() (string, error) {
-		fingerprint, _, err := currentFrameworkFingerprintFromWorkspace(workspaceDir)
-		return fingerprint, err
+		return workspaceFrameworkFingerprint(ctx, workspaceDir)
 	})
 	if err != nil {
 		return nil, err

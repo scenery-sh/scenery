@@ -70,9 +70,55 @@ capture already proved.
   non-test files of the SDK packages. `go test ./...` passed and
   `go run ./scripts/verify --probe capability-authority --summary` passed
   (standard auth dev bootstrap and `/auth/me` through the host).
-- [ ] Milestone 3: one input snapshot per generation.
+- [x] (2026-09-24) Milestone 3 baseline. A scaled copy of
+  `testdata/apps/multiservice` (41 services, 2,446 Go files, 4,000 web files;
+  generator and scripts kept outside the repository) under `scenery up -o
+  jsonl`, ten warm handler-body edits polled every 10 ms: median edit to new
+  response 1,212 ms. Median step timeline of a build request: 200 ms before
+  `go build` (compile-start events 18, `framework.verify` 18,
+  `workspace.cache` 87 of which a second framework walk 15, a workspace walk
+  for the dependency fingerprint 20 and the build fingerprint 11,
+  `workspace.verify before_compile` 25-30, `go.input_fingerprint` 27-33),
+  `go build` 500, then `workspace.verify after_compile` 30 and `process.retain`
+  25 in sequence before the 330 ms preflight. The fresh
+  `supervisor.snapshot_verify` rescan (67 ms) already ran beside the preflight.
+- [x] (2026-09-24) Milestone 3 changes, each proven equivalent by a test:
+  the workspace's framework fingerprint is the source digest
+  `framework.verify` just checked (the persisted metadata fingerprint cache is
+  deleted); the dependency fingerprint uses the workspace membership the
+  preparation just enforced instead of walking it; a cached refresh keeps the
+  workspace lock into the process build, which then skips `before_compile`;
+  `after_compile` verification and build recording moved into the build join
+  so retain and preflight start first; a retained content digest costs one
+  metadata read (the second `lstat` on a hit is gone, discovery observes each
+  consumed file once and each package directory once, the framework walk's
+  metadata is reused, and a preparation reads each workspace file's metadata
+  once); generated artifact stamps use retained digests instead of reading and
+  hashing every generated file; the retained digest bound is 65,536.
+  Result on the same scaled app: median edit to response 1,078 ms (-134 ms,
+  -11 %), 117 ms before `go build` (was 200), `go.input_fingerprint` 12 ms
+  (was 29), projections 1.3 ms (was 10.5). `go run ./scripts/verify --probe
+  process-model` and `--probe dev-process` pass.
 
 ## Surprises & Discoveries
+
+- The estimate that one snapshot would save about 0.8 s on ONLV was wrong for
+  the current code. It summed the 0200 ONLV costs of preparation (376 ms),
+  input fingerprint and identity (210 ms) and the snapshot rescan (200 ms), but
+  the rescan already runs beside the candidate preflight and several walks have
+  been memoized since. On the scaled fixture the whole input rediscovery on the
+  critical path was about 150 ms; the remaining critical path is `go build`
+  (about 500 ms) and the first execution of the new executable (preflight,
+  about 330 ms). Evidence: the median step timelines in Progress.
+- The retained content digest cache held 16,384 entries first-in-first-out. A
+  warm ONLV build consults about ten thousand workspace Go files, their authored
+  copies, generated artifacts, the framework and module dependencies, which can
+  exceed it; then every entry is evicted before its next use and every build
+  rereads everything. The bound is now 65,536.
+- Replacing the per-file existence `stat` of materialization with directory
+  listings did not change `workspace.materialize` (26-27 ms); its cost is the
+  membership walk that removes unexpected files, which stays as the
+  reconciliation against changes made outside Scenery. The change was reverted.
 
 - `devprocess.TerminateTreePID(pid)` signaled `-getpgid(pid)` for any PID. A
   recorded process that had not been started as its own group leader shared
@@ -114,13 +160,41 @@ capture already proved.
   imported from application modules. Without a linked runtime it fails with
   `appsdk.ErrNoHost`; `durable.Step` runs its function directly, as it already
   did outside a durable task. Date: 2026-09-24. Author: Claude.
+- Decision: the process build consumes the lock its cached refresh kept
+  instead of recording a lock epoch. An epoch bumped at every lock acquisition
+  would let the build skip verification when no other acquisition happened,
+  but an older Scenery binary on the same app root locks without bumping it,
+  so the skip would silently adopt its files. A held lock admits no one.
+  Date: 2026-09-24. Author: Claude.
+- Decision: the membership walk that removes unexpected workspace files and the
+  fresh `supervisor.snapshot_verify` rescan stay. They are the reconciliation
+  against changes outside Scenery that the watcher cannot prove absent.
+  Date: 2026-09-24. Author: Claude.
 - Decision: `scenery system agent cleanup` keeps reporting legacy `~/.onlava`
   processes but never signals them, because they were not recorded by this
   Scenery; the operator stops them. Date: 2026-09-24. Author: Claude.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-09-24. Every process signal now comes from a recorded, verified
+owner: no cleanup path selects a process by command line, environment,
+listening port or parent group, and the `dev-cleanup` probe proves that an
+unrecorded look-alike survives while recorded owners and children stop. The
+application SDK packages `db`, `auth` and `durable` no longer link the runtime
+implementation (non-standard closures 68/73/68 -> 41/53/7), guarded by an
+architecture rule. A warm edit captures its inputs once and the preparation,
+identity and verification steps consume what that capture and the held
+workspace lock already established: on a 41-service scaled fixture the median
+edit to response fell from 1,212 to 1,078 ms and the work before `go build`
+from 200 to 117 ms. The expected 0.8 s saving did not exist in the current code
+(see Surprises); the latency target is bounded by `go build` and the first
+execution of the new service executable, which this plan did not change.
+
+Validation: `go test ./...`, `golangci-lint run ./...` (0 issues),
+`go run ./scripts/verify --summary --write` (pass with advisory warnings),
+probes `dev-cleanup`, `capability-authority`, `process-model` and
+`dev-process` passed; each new test root stays below 100 ms in ten isolated
+runs.
 
 ## Context and Orientation
 

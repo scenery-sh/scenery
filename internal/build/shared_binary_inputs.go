@@ -115,8 +115,14 @@ func observeBuildInputPath(observed map[string]buildInputFileStamp, path string)
 	return nil
 }
 
+// observeBuildInputDirectories records the stamps of directory and its parents
+// up to packageRoot. A directory this discovery already observed was observed
+// with its parents, so the walk stops there.
 func observeBuildInputDirectories(observed map[string]buildInputFileStamp, directory, packageRoot string) error {
 	for {
+		if _, seen := observed[filepath.Clean(directory)]; seen {
+			return nil
+		}
 		if err := observeBuildInputPath(observed, directory); err != nil {
 			return err
 		}
