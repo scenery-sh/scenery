@@ -84,8 +84,9 @@ supplied through the existing gate configuration.
 
 The `--probe worktree` acceptance probe (also included in release) creates real Git worktrees
 and tests managed PostgreSQL ownership, typed lending races, lifecycle and crash
-recovery, external sharing, inert restores, optional Victoria recovery, local
-versus public edge exposure, and genuinely different control-protocol binaries.
+recovery, a configured external database that development `up` refuses in every
+worktree, inert restores, optional Victoria recovery, local versus public edge
+exposure, and genuinely different control-protocol binaries.
 Its A16 case also exercises the public same-schema retained-state upgrade,
 including stale-approval refusal, exact metadata backup and unchanged SQL data;
 the storage probe verifies unchanged object payload hashes across that upgrade.
@@ -194,7 +195,7 @@ release certification. Failed steps identify their focused rerun command.
 | `core-separation` | Product/verifier dependency and source-only boundaries |
 | `capability-authority` | Runtime capability authority |
 | `auth` | All 15 database/OAuth lifecycle journeys |
-| `worktree` | Functional A1–A17 worktree runtime/SQL ownership |
+| `worktree` | Functional A1–A17 worktree runtime/SQL ownership; A13 configures `sql.database_url` through `scenery config set --env local --stdin` and requires development `up` to refuse it in every worktree without allocating a managed database, `db reset`, `db drop`, `prune --db` and `down --db` to reject it, an inherited `DATABASE_URL` to select nothing, and no command output or configuration file to reveal the credential |
 | `agent-restart` | Local-agent restart |
 | `assistant-init` | Assistant initialization |
 | `assistant-runtime` | Assistant production runtime |

@@ -56,6 +56,7 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 - [x] 2026-09-24: M4 — Staged releases under `~/.scenery/deployments/<app>/<env>/`, captured and pinned configuration revision, target-side validation before stopping, activation into a stable root, commit only after the runtime applied the installed revision, rollback of source and configuration, legacy-root refusal with `docs/runbooks/deploy-root-migration.md`. Rehearsed end to end locally (Artifacts); real Linux/systemd target proof remains open.
 - [x] 2026-09-24: M5 — ONLV branch `feat/environment-configuration` (commit `c61c0511` on `origin/main` `d7e2e0ab`): every inventory row migrated, NextNext public map configuration, Vite/Bun/Just dotenv loading disabled, importers narrowed, companion plan `docs/agent/exec-plans/active/environment-configuration.md`. Published as scenery-sh/scenery#218 (`93bd4b89d0a5`); ONLV pins it (`8b0d0b19`) and the D11 two-worktree proof passed on the pinned framework.
 - [ ] 2026-09-24: M6 — Code, deletion and guards are complete (dotenv loaders, `internal/envfile`, fixture `.env` files, drift guard, probes, `scripts/config-import`). Open: the operator cutovers and the real Linux/SSH/reboot proofs, which need explicit authorization or unavailable platforms.
+- [x] 2026-09-24: Worktree probe row A13 follows D14 (D17): it configures `sql.database_url` through `scenery config set --env local --stdin` and proves that development `up` refuses it in two worktrees, managed destruction rejects it, an inherited `DATABASE_URL` selects nothing and no output reveals the credential. `--probe worktree` passes (Artifacts).
 
 Update this section at each meaningful stopping point. Replace planning timestamps with actual completion timestamps when work is executed.
 
@@ -66,6 +67,7 @@ Update this section at each meaningful stopping point. Replace planning timestam
 - 2026-09-24: the three committed fixture apps under `testdata/apps/` carry placeholder `.env` files; they are dead inputs removed in M6.
 - 2026-09-24: after ONLV adopted `93bd4b89d0a5` with a configured `auth.jwt_secret`, every authenticated call returned 401 and Google sign-in reported "not configured": the process-model host, which serves standard authentication, received no snapshot, so it signed tokens with the local default secret while service processes verified them with the configured one. The host is now its own configuration consumer (`host`) carrying the auth and public values; a change it consumes starts a new generation while services with unchanged configuration keep running. Proven on a test-owned ONLV fixture: after `config set` of the JWT secret and Google client, an authenticated project list returned 200 and Google start redirected with the new client id.
 - 2026-09-24: the `auth` release probe still configured standard auth through the removed `JWT_SECRET`/`GOOGLE_OAUTH_*`/`AUTH_TOKEN_CIPHER_KEY` variables and failed every case after the merge with main. `scripts/verify/testdata/authprobe` now delivers a configuration snapshot on an inherited pipe, as the supervisor does; `--probe auth` passes.
+- 2026-09-24: D14 broke worktree probe row A13 without anyone noticing. The row still passed the provider worktree's DSN to two further worktrees as an inherited `DATABASE_URL`, which the CLI now drops at startup, so both started with managed databases of their own and failed `persisted title and borrower`. The failure stayed hidden because `--probe worktree` could not reach A13 on `main`: row A1 fails on the stale `testdata/apps/worktree-postgres` fixture, whose `go.mod` plan 0206 (scenery-sh/scenery#224, still open) repairs and whose committed TypeScript client is also stale for `main`'s specification revision (see Artifacts). A13 now follows D14 (D17).
 
 1. Scenery already derives typed service configuration from package inputs in `internal/compiler/go_config.go`. Sensitive Go configuration is required to use `resource_ref("secret")`; inventing a parallel `secret_string` model would duplicate an existing contract. Reuse and complete that contract. [R3]
 
@@ -115,6 +117,8 @@ All decisions below were recorded on 2026-09-24 by the plan author from the agre
 
 **D16 — Seed and task launchers (2026-09-24, Claude).** No separate capability bundle is introduced. `scenery db seed` already supplies each declared seed command its service-scoped `DATABASE_URL`; importers accept that or an explicit `--database-url`, and secrets such as API tokens are read from standard input, never argv or ambient variables.
 
+**D17 — Worktree probe row A13 proves D14 (2026-09-24, Claude).** A13 no longer runs two development runtimes on one shared DSN, which D14 refuses. Two fresh Git worktrees inherit an unroutable look-alike `DATABASE_URL`, and before anything is configured `db server status` still reports the absent managed database. `scenery config set sql.database_url --env local --stdin` in one worktree stores the provider worktree's app-database URL, which travels only on stdin. In both worktrees development `up` then fails with `SCN8003` naming `scenery config unset sql.database_url --env local` and leaves no worktree record; `db server status` reports the same redacted external URL; and `db reset --yes`, `db drop --yes`, `prune --db` and `down --db` fail with `SCN8003`. No output of the row and no file of the configuration store contains the password. `config unset` from the other worktree restores managed supply, the provider's cluster identity and rows stay unchanged, and the row removes every secret version it created from the host's secret store. A host without a usable secret backend fails the row, because the worktree probe never skips an acceptance row.
+
 **D13 — Deployment layout refinement (2026-09-24, Claude).** The runtime root of a deployable environment is one stable directory, `~/.scenery/deployments/<app-id>/<env>/source`, because worktree data ownership is keyed by the root path; per-release directories hold only staged source and receipts. `active.json` names the release installed in that root (state `activating`, then `active`), so a restart or reboot at any point runs a consistent source/configuration pair; `commit` confirms it only after the root's runtime pinned the installed revision. A target that still has the legacy checkout at `~/.scenery/apps/<app-id>` refuses deploys and configuration writes until the operator runs the migration runbook; nothing moves or allocates data implicitly.
 
 **D11 — Shared configuration, identical starting fixtures, independent working data.** Removing dotenv changes only how configured values reach a worktree; it does not change how demo data reaches it. Configured environment values are shared across worktrees (D2). Demo projects, scenes and catalog records come from the application's versioned fixture bundle at the checked-out commit, restored into each new worktree's own isolated database and object storage. Edits, captures, simulation results and uploads made afterward belong to that worktree and are never synchronized elsewhere. The application owns which records and assets make up its demo (ONLV: `development/presets/small/` and `development/prepare.ts`); Scenery owns only the generic database/storage restore and isolation mechanisms, and does not learn solar projects or scene registration. No fixture scopes, fixture configuration layers, or copying from the main checkout's live data are introduced. A new demo scene reaches other worktrees only through a deliberately reviewed fixture revision that contains its records and every referenced asset; worktrees prepared afterward from that commit receive it, and existing worktrees keep their data. Content-addressed asset caching with copy-on-write materialization may later reduce disk use behind the same command. It is not a prerequisite for this plan, and writable scene directories are never shared between worktrees.
@@ -123,7 +127,7 @@ All decisions below were recorded on 2026-09-24 by the plan author from the agre
 
 Implementation is complete in both repositories; the plan stays active for the steps that need authorization or unavailable platforms.
 
-Implemented: `scenery config show|set|unset|receive`, the typed catalog/resolver/store (`internal/appconfig`), Keychain and systemd-creds backends, per-process snapshots with consumer-only restarts, revision-pinned SSH deploys with rollback, public configuration for browsers, `host_path`, `SecretRef.Reveal/Lookup`, `sql.database_url` (D14), the minimal application-process environment (D15), the one-time `scripts/config-import`, and the dotenv drift guard plus `configuration`, `configuration-secrets` and `configuration-deploy` probes. Removed: every dotenv loader and precedence path, `internal/envfile`, `ResolvedEnv.DotEnvFiles`, fixture `.env` files, ambient auth/database/weather/provider/browser variables. ONLV is migrated on its branch.
+Implemented: `scenery config show|set|unset|receive`, the typed catalog/resolver/store (`internal/appconfig`), Keychain and systemd-creds backends, per-process snapshots with consumer-only restarts, revision-pinned SSH deploys with rollback, public configuration for browsers, `host_path`, `SecretRef.Reveal/Lookup`, `sql.database_url` (D14), the minimal application-process environment (D15), the one-time `scripts/config-import`, the dotenv drift guard plus `configuration`, `configuration-secrets` and `configuration-deploy` probes, and worktree probe row A13 for D14 (D17). Removed: every dotenv loader and precedence path, `internal/envfile`, `ResolvedEnv.DotEnvFiles`, fixture `.env` files, ambient auth/database/weather/provider/browser variables. ONLV is migrated on its branch.
 
 Pending, each requiring the user's explicit authorization:
 
@@ -654,6 +658,33 @@ Worktree-local CLI built with producer linker flags; isolated
   snapshot-delivered 21-byte secret.
 - Cleanup: container removed, `scenery down`, every test Keychain item deleted
   (none remain), proof homes removed.
+
+### Worktree probe A13 proof (2026-09-24)
+
+`go run ./scripts/verify --probe worktree --summary --write` on `main`
+`bb67e748` with the D17 change. Plan 0206 (scenery-sh/scenery#224) was still
+open, so its fixture module (`testdata/apps/worktree-postgres/go.mod`,
+`go.sum`) and A9 preparation (`harness_self_worktree_legacy.go`) were applied
+locally and byte-identically, and not committed. A first run then failed A1
+with `SCN6204`: the fixture's committed TypeScript client is also stale for
+`main`'s specification revision. It was regenerated locally with
+`go run ./cmd/scenery generate --target typescript_client.public_api
+--app-root testdata/apps/worktree-postgres -o json` and not committed either,
+because plan 0206 commits its own regeneration.
+
+- Second run: the worktree step passed in 249 s with rows A1–A17 ok, cleanup
+  "verified owned worktree clusters removed" and no retained probe root.
+  A13 took 2.2 s: ambient `DATABASE_URL` ignored, development `up` refused in
+  both worktrees, the same external database in both, 0 managed clusters,
+  `db reset`, `db drop`, `prune --db` and `down --db` refused, unset restored
+  managed supply, provider rows verified, 1 secret version removed.
+- The plan 0206 branch head `df94d871` with the D17 change, in a disposable
+  worktree: the worktree step passed in 255 s with all 18 rows (A1–A17 and
+  A19) ok and the same cleanup. A19 recorded status p50 15 ms, max 17 ms, and
+  disconnect cleanup after 51 ms.
+- After both runs no Keychain item of the fixture's configuration service
+  remained, and neither run left containers or volumes. The first run's
+  failed A1 had allocated no cluster; its retained probe root was removed.
 
 ### M5 ONLV validation (2026-09-24)
 
