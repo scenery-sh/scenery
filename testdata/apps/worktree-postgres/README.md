@@ -16,7 +16,7 @@ outcomes, runtime input rejection, ten two-borrower races, and persisted data
 after lifecycle operations. Pass the advertised `api` route URL, not the
 localhost page root: path-mode app endpoints are beneath `/api/`.
 
-Run functional A1–A17 proof (also included in release):
+Run functional A1–A17 and A19 proof (also included in release):
 
 ```sh
 go run ./scripts/verify --probe worktree --summary --write

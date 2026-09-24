@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0205 Bounded Development Runtime RPC Execution](0205-development-runtime-rpc-bounds.md)
+  - Status: active
+  - Owner: scenery runtime
+  - Created: 2026-09-24
+  - Focus: per-connection and per-app admission for the development runtime RPC with immediate `SCN8011` refusals, a reserved control allowance so `status` stays responsive, call deadlines (`SCN8012`), `db/query` and `postgres/rows` row/byte budgets (`SCN8013`), and disconnect cancellation that reaches PostgreSQL; real-PostgreSQL proof in the `worktree` probe.
+
 - [0203 Framework Handoff For Running Development Runtimes](0203-framework-handoff.md)
   - Status: active
   - Owner: scenery runtime / build

@@ -429,6 +429,9 @@ SCN8007|storage_outcome_uncertain|A storage publication may have completed but i
 SCN8008|storage_recovery_required|A recorded storage lifecycle operation must be resumed before ordinary access
 SCN8009|storage_corrupt|Retained storage ownership or referenced object state is corrupt or incomplete
 SCN8010|storage_partial_completion|A bulk storage operation did not fully complete and requires renewed inspection
+SCN8011|capacity_exhausted|A bounded concurrency limit is saturated; retry after in-flight work completes
+SCN8012|deadline_exceeded|A request did not complete within its deadline
+SCN8013|result_too_large|A result exceeds its row or byte budget
 SCN9000|internal_tooling_failure|An unexpected internal tooling failure occurred
 SCN9001|internal_parser_invariant|The parser returned an impossible body implementation
 SCN9002|internal_revision_invariant|Canonical contract revision construction failed internally

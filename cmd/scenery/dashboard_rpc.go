@@ -14,28 +14,41 @@ import (
 // The development runtime RPC is the documented JSON-RPC 2.0 contract served
 // at the app origin's /runtime WebSocket (docs/local-contract.md). Every method
 // here is part of that contract except traces/clear, which only
-// `scenery traces clear` sends.
-func (s *dashboardServer) handleRPC(ctx context.Context, req rpcRequest) rpcResponse {
+// `scenery traces clear` sends. An admitted call runs under its class's
+// deadline, derived from the connection so a disconnect cancels it too.
+func (s *dashboardServer) handleRPC(ctx context.Context, call runtimeCall, req rpcRequest) rpcResponse {
+	ctx, cancel := context.WithTimeoutCause(ctx, call.deadline, errRuntimeCallDeadline)
+	defer cancel()
 	result, err := s.dispatchRPC(ctx, req.Method, req.Params)
+	if err != nil && errors.Is(context.Cause(ctx), errRuntimeCallDeadline) && !runtimeFailureDescribesOutcome(err) {
+		err = deadlineExceeded(req.Method, call.deadline)
+	}
 	if err != nil {
-		var details any
-		if failure, ok := errors.AsType[*dashboardStorageFailure](err); ok {
-			details = failure.Failure
-		}
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Error: &rpcError{
-				Code:    -32000,
-				Message: err.Error(),
-				Data:    details,
-			},
-		}
+		return rpcErrorResponse(req.ID, err)
 	}
 	return rpcResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
 		Result:  result,
+	}
+}
+
+// Documented failures carry their failure object in error.data.
+func rpcErrorResponse(id any, err error) rpcResponse {
+	var details any
+	if failure, ok := errors.AsType[*dashboardStorageFailure](err); ok {
+		details = failure.Failure
+	} else if failure, ok := errors.AsType[*runtimeRPCFailure](err); ok {
+		details = failure
+	}
+	return rpcResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Error: &rpcError{
+			Code:    -32000,
+			Message: err.Error(),
+			Data:    details,
+		},
 	}
 }
 
@@ -118,9 +131,10 @@ type runtimeQueryRequest struct {
 	Params []any  `json:"params"`
 }
 
+// Rows are JSON value arrays, encoded once while the result budget is counted.
 type runtimeQueryResult struct {
-	Columns []string `json:"columns"`
-	Rows    [][]any  `json:"rows"`
+	Columns []string          `json:"columns"`
+	Rows    []json.RawMessage `json:"rows"`
 }
 
 // runtimeStatus is the `status` result: the documented subset of the session

@@ -18,8 +18,8 @@ Own the small authored application used by explicit worktree runtime proof.
 
 From the repository root, use
 `go run ./scripts/verify --probe worktree --summary --write` for functional
-A1–A17 proof; it is also included in release. A18 resource measurement runs only
-when explicitly requested, using
+A1–A17 and A19 proof; it is also included in release. A18 resource
+measurement runs only when explicitly requested, using
 `go run ./scripts/verify --benchmark worktree-cost --summary --write`.
 Keep real process, Docker, HTTP, concurrency and timing proof outside ordinary
 Go unit tests. Every selected row must report its actual result and owned cleanup.

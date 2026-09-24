@@ -58,7 +58,7 @@ CLI invocations best-effort append JSON objects to `~/.scenery/telemetry.jsonl`,
 
 `scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--measurement completion|startup]... [--since <duration>] [--limit <n>] [-o human|json]` streams that file and retains at most the requested recent records (default 100, maximum 10,000) while calculating overall, per-app, per-command, and per-measurement timing summaries. App, command, and measurement filters are repeatable OR filters; supplying different filter classes combines them with AND. App filters exactly match configured ID or name. Every timing summary reports all-history count/average/min/max plus exact p50/p95 over the latest at most 10,000 matching records, with `percentile_sample_count` making that bound explicit. `--command up --measurement startup` therefore excludes historical or ordinary completion/lifetime timings from startup percentiles. Historical records without app identity remain visible as unattributed when no app filter is selected. JSON data uses kind `scenery.telemetry` and the exact checked schema in `docs/schemas/scenery.telemetry.schema.json`.
 
-The checked-in diagnostic registry is publicly inspectable with `schema.get` using either the manifest's digest `diagnostic_catalog` identity or one `SCNxxxx` code. Request failures use `SCN8001` through `SCN8005`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause. The process that mints a token keeps the cause where only its operator can read it: the CLI writes `<agent home>/reports/<report-token>.json` (mode 0600, with credentials in the arguments and the cause redacted, newest 200 retained), and `scenery inspect report <report-token> -o json` returns it as `scenery.failure.report` with the code, time, command, arguments, working directory, cause and producer version. A token that is malformed or not recorded in this agent home is an invalid request. An application process logs the cause beside its token (`internal failure` with `report_token`, `code` and `cause`), which is where the operator of a deployed process finds it; under `scenery up` it also reports the cause to its session, authenticated like every development report, and the same command returns it with `origin` `runtime`, the reporting process, app and session instead of a CLI command. A CLI-minted report has `origin` `cli`. Credentials in a cause are redacted, including the password of a URL quoted inside a message. A request the caller wrote wrongly is never internal: an unknown command, subcommand, flag or argument, a missing or malformed flag value, a flag standing where a subcommand is expected, flags that do not belong together, and a named profile, database service or snapshot archive that does not exist are `invalid_request` (`SCN8001`, exit 2) whose message names the mistake in either output mode. A flag followed by another registered flag is reported as missing its value; write `--flag=value` for a value that looks like a flag. A correct request that the host's state refuses is `failed_precondition` (`SCN8003`, exit 3), including a command that needs local runtime state before `scenery up` created it, a worktree command outside a Git repository, and an agent socket path longer than the platform binds. A command of another platform or a missing external tool is `capability_unavailable` (exit 4). Human output prints the message alone on stderr; the exit code carries the class, and a `-o json` or `-o jsonl` request renders the same message in the diagnostic.
+The checked-in diagnostic registry is publicly inspectable with `schema.get` using either the manifest's digest `diagnostic_catalog` identity or one `SCNxxxx` code. Request failures use the request-protocol range `SCN8001` through `SCN8099`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause. The process that mints a token keeps the cause where only its operator can read it: the CLI writes `<agent home>/reports/<report-token>.json` (mode 0600, with credentials in the arguments and the cause redacted, newest 200 retained), and `scenery inspect report <report-token> -o json` returns it as `scenery.failure.report` with the code, time, command, arguments, working directory, cause and producer version. A token that is malformed or not recorded in this agent home is an invalid request. An application process logs the cause beside its token (`internal failure` with `report_token`, `code` and `cause`), which is where the operator of a deployed process finds it; under `scenery up` it also reports the cause to its session, authenticated like every development report, and the same command returns it with `origin` `runtime`, the reporting process, app and session instead of a CLI command. A CLI-minted report has `origin` `cli`. Credentials in a cause are redacted, including the password of a URL quoted inside a message. A request the caller wrote wrongly is never internal: an unknown command, subcommand, flag or argument, a missing or malformed flag value, a flag standing where a subcommand is expected, flags that do not belong together, and a named profile, database service or snapshot archive that does not exist are `invalid_request` (`SCN8001`, exit 2) whose message names the mistake in either output mode. A flag followed by another registered flag is reported as missing its value; write `--flag=value` for a value that looks like a flag. A correct request that the host's state refuses is `failed_precondition` (`SCN8003`, exit 3), including a command that needs local runtime state before `scenery up` created it, a worktree command outside a Git repository, and an agent socket path longer than the platform binds. A command of another platform or a missing external tool is `capability_unavailable` (exit 4). Human output prints the message alone on stderr; the exit code carries the class, and a `-o json` or `-o jsonl` request renders the same message in the diagnostic.
 
 The current specification includes compilation, Go generation, HTTP and typed path tails, durable execution, events, data, deployment, inspection, agent mutation, patches, UI, semantic evolution, and TypeScript clients. Its `spec_revision` covers resource schemas, structural application/workspace/package/module/input/export schemas, stable diagnostic rules, and explicit revisions for source composition, defaults, expansion, reference resolution, contract projection, evolution, Go generation, and TypeScript generation. Applications cannot select a language version or feature set; resource use determines required behavior. Unavailable future behavior fails explicitly; `extension` and generic `resource` declarations emit `SCN7001 feature_unavailable`, while genuinely unknown syntax remains `SCN1002`.
 
@@ -1228,7 +1228,7 @@ go run ./scripts/verify -o json --write
 - it validates the scenery repo itself instead of a target app
 - every mode runs docs knowledge validation, `scenery inspect docs --all -o json`, architecture/drift/schema checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks. Default adds the complete cached Go suite and vet; quick uses affected packages; race adds the race shortlist. These modes do not run live runtime, database, UI, or fixture probes.
 - `--probe <id>` selects only named external probes after common checks, without repeating the full Go suite. Repeated selectors form a union in catalog order. The sole functional catalog and each ID's boundary are listed in [Harness Engineering](harness-engineering.md#explicit-probe-catalog); release selects every entry exactly once and the full race suite.
-- `--benchmark worktree-cost` selects only the existing A18 resource measurement with authored fixture preparation, real Victoria binaries, 1/5/10-worktree cohorts, three repetitions and verified owned cleanup. Functional `--probe worktree` and release run A1–A17 without A18. Benchmarks and all-root timing audits require an explicit human measurement request.
+- `--benchmark worktree-cost` selects only the existing A18 resource measurement with authored fixture preparation, real Victoria binaries, 1/5/10-worktree cohorts, three repetitions and verified owned cleanup. Functional `--probe worktree` and release run A1–A17 and A19 without A18. Benchmarks and all-root timing audits require an explicit human measurement request.
 - Repository-only `--benchmark native-reload --workload-root <path>` selects the Plan 0181 real ONLV implementation-island experiment. The source repository is read-only; an owned detached worktree supplies the pinned workload. The workload selector is required for this benchmark and rejected with other modes. Passing selected checks does not imply passing the separately reported feasibility gate. This command adds no application CLI/runtime mode; see [Harness Engineering](harness-engineering.md#command) for its identity, activation, measurement and cleanup boundaries.
 - Repository-only `--benchmark native-reload-plugin --workload-root <path>` selects the Plan 0187 stable-host/Go-plugin feasibility experiment against the same pinned real ONLV implementation. It uses unique plugin artifacts, reports build/open/activation/typed-response timing and non-unloadable retention separately, and adds no application CLI/runtime mode. The workload selector and feasibility semantics match the native-reload experiment; see [Harness Engineering](harness-engineering.md#command).
 - Repository-only `--benchmark native-reload-attribution --workload-root <path>` selects Plan 0189's macOS attribution experiment on the same pinned ONLV island. Two excluded warmup pairs precede 30 first/repeated-artifact pairs and five separate fresh-artifact diagnostic pairs. First execution retains exact identity, constructor-ready and new typed behavior; repeated execution never replaces it. The report distinguishes unresolved attribution from invalid evidence and does not certify production latency or Linux behavior. This selector never joins default, quick, race or release.
@@ -1347,15 +1347,52 @@ Transport:
 - `GET /runtime` with a WebSocket upgrade opens one JSON-RPC 2.0 connection to
   the worktree's runtime control backend. A browser `Origin` must match the
   request host. Requests carry numeric or string `id`s; calls on one connection
-  run concurrently and answer in completion order. The server sends no
-  notifications; clients poll `status`.
+  run concurrently, within the execution bounds below, and answer in
+  completion order. The server sends no notifications; clients poll `status`.
 - Every method accepts one params object and rejects unknown params
   (`invalid params`); unknown methods answer `method not found`. Failures are
-  JSON-RPC errors with code `-32000` and a message. Storage failures add
-  `error.data` with `code`, `diagnostic`, `message`, optional `report_token` and
-  `details`, the same failure object the storage CLI reports.
+  JSON-RPC errors with code `-32000` and a message. Storage failures and the
+  execution-bound failures below add `error.data` with `code`, `diagnostic`,
+  `message`, optional `report_token` and `details`, the same failure object the
+  storage CLI reports.
 - `app_id` is the session route identity from `status.app_id`. `status` may
   omit it and then answers for the worktree's current session.
+
+Execution bounds:
+
+- Work calls are `postgres/tables`, `postgres/schema`, `postgres/rows`,
+  `db/query` and every `storage/` method; they open the app's database or
+  storage. Every other call, including `status`, is a control call.
+- A connection runs at most 6 work calls at once and, in a separate allowance
+  that work calls never use, 4 control calls, so `status` answers while slow
+  statements run. The runtime runs at most 12 work calls per `app_id` across
+  all its connections; an omitted `app_id` counts as the worktree's current
+  session. A call holds its slot until its answer is written.
+- Admission never waits. A call beyond a limit is refused at once with
+  `SCN8011`; nothing is queued, and a client retries after one of its calls
+  completes.
+- Control calls have a 5 s deadline and work calls a 30 s deadline, counted
+  from admission. An expired call is cancelled and answers `SCN8012`, except
+  that a storage failure describing a partial outcome, such as `SCN8010` with
+  its progress, keeps its identity. Long-running statements belong in
+  `scenery db shell`.
+- `db/query` answers at most 5,000 rows and `postgres/rows` at most its page;
+  both answer at most 4 MiB (4,194,304 bytes) of JSON-encoded `rows`. A larger
+  result fails with `SCN8013` instead of being truncated: the runtime stops
+  reading and cancels the statement. Cancellation cannot undo a statement
+  PostgreSQL already completed.
+- Closing the WebSocket cancels every call of that connection; the runtime
+  also cancels their PostgreSQL statements on the server.
+
+| Diagnostic | `error.data.code` | `details` |
+|---|---|---|
+| `SCN8011` | `capacity_exhausted` | `class` (`work` or `control`), `scope` (`connection` or `app`) and the `limit` that applied |
+| `SCN8012` | `deadline_exceeded` | `deadline_ms` |
+| `SCN8013` | `result_too_large` | `max_rows`, `max_bytes` and `rows_within_budget`, the number of leading rows that fit |
+
+```json
+{"jsonrpc":"2.0","id":7,"error":{"code":-32000,"message":"SCN8011: the development runtime is already running 6 database or storage calls on this connection; retry after one completes","data":{"code":"capacity_exhausted","diagnostic":"SCN8011","message":"the development runtime is already running 6 database or storage calls on this connection; retry after one completes","details":{"class":"work","scope":"connection","limit":6}}}}
+```
 
 Methods:
 
@@ -1364,8 +1401,8 @@ Methods:
 | `status` | `app_id?` | `scenery.dev-runtime.status` ([schema](schemas/scenery.dev-runtime.status.schema.json)): session identity, `running`, `session_status`, `session_status_reason`, `compiling`, `compile_error`, `pid`, `routes`, `service_processes` and optional `observability` readiness per signal. It never contains the app model or substrate endpoints. |
 | `postgres/tables` | `app_id` | Array of `{schema, name, type, row_count?}`; `name` is `schema.table`, `type` is `table`, `view` or `materialized_view`, `row_count` is PostgreSQL's estimate. Lists non-system schemas and `scenery`, excluding `public`. |
 | `postgres/schema` | `app_id`, `schema?`, `table` | Array of `{name, type, not_null, primary_key}` in column order. A qualified `table` supplies the schema; the default schema is `scenery`. |
-| `postgres/rows` | `app_id`, `schema?`, `table`, `limit?`, `offset?` | `{columns, rows, limit, offset}`; `rows` is an array of value arrays in `columns` order. `limit` defaults to 100 and is capped at 500. |
-| `db/query` | `app_id`, `query`, `params?` | `{columns, rows}`: the statement's columns in select order and every row as a value array; `params` bind `$1`, `$2`, …. The statement runs unrestricted, outside an explicit transaction, against the app's development database. |
+| `postgres/rows` | `app_id`, `schema?`, `table`, `limit?`, `offset?` | `{columns, rows, limit, offset}`; `rows` is an array of value arrays in `columns` order. `limit` defaults to 100 and is capped at 500; a page over 4 MiB fails with `SCN8013`. |
+| `db/query` | `app_id`, `query`, `params?` | `{columns, rows}`: the statement's columns in select order and every row as a value array; `params` bind `$1`, `$2`, …. The statement runs unrestricted, outside an explicit transaction, against the app's development database, within the work deadline and the 5,000-row, 4 MiB result budget. |
 | `storage/inspect` | `app_id`, `stats?` | The `scenery.storage.inspect` payload. |
 | `storage/list` | pinned scope, `prefix?`, `cursor?`, `limit?` | The `scenery.storage.list` payload. |
 | `storage/stat` | pinned scope, `key` | The `scenery.storage.object` payload. |

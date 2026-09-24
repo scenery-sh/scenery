@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0205-development-runtime-rpc-bounds.md",
+      "title": "Bounded Development Runtime RPC Execution",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Bounds the development runtime RPC: per-connection and per-app work admission with immediate SCN8011 refusals, a reserved control allowance for status, call deadlines (SCN8012), db/query and postgres/rows row and byte budgets (SCN8013), and disconnect cancellation that reaches PostgreSQL through pgx cancel requests.",
+      "tags": ["plans", "execplans", "runtime", "postgres", "diagnostics"]
+    },
+    {
       "path": "docs/plans/0204-recorded-ownership-small-sdk-one-snapshot.md",
       "title": "Recorded Process Ownership, Small SDK Closure And One Input Snapshot",
       "owner": "scenery runtime / agent / build",
