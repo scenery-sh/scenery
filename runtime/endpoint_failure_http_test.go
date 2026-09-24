@@ -89,6 +89,67 @@ func TestAuthEndpointWithoutAuthHandlerUsesStandardProblemOutcome(t *testing.T) 
 	}
 }
 
+// An authentication failure's response and its finished request trace carry
+// the same status, whether it comes from a binding's admission statuses, their
+// defaults, the standard system.internal problem or a raw endpoint's errs
+// rendering.
+func TestAuthenticationFailureResponseAndTraceStatusesMatch(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	logged := captureRequestLogs(t)
+	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 32)}
+	restoreReporter := setTestReporter(reporter)
+	defer restoreReporter()
+
+	failures := map[string]error{
+		"expired":   errs.B().Code(errs.Unauthenticated).Msg("session expired").Err(),
+		"denied":    errs.B().Code(errs.PermissionDenied).Msg("session lacks the admin role").Err(),
+		"throttled": errs.B().Code(errs.ResourceExhausted).Msg("session quota spent").Err(),
+		"database":  errors.New("query sessions: dial tcp 10.0.0.5:5432: connection refused"),
+	}
+	RegisterAuthHandler(&AuthHandler{Service: "auth", Name: "AuthHandler", Authenticate: func(_ context.Context, token string) (AuthInfo, error) {
+		return AuthInfo{}, failures[token]
+	}})
+	registerAuthenticatedEndpoints(t)
+	if err := RegisterEndpointChecked(authenticatedTypedEndpoint("Custom", "/custom", map[string]int{
+		"admission.unauthenticated": http.StatusForbidden,
+		"admission.forbidden":       http.StatusNotFound,
+		"admission.rate_limited":    http.StatusServiceUnavailable,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []struct {
+		path, token, contentType, body string
+		status                         int
+	}{
+		{"/typed", "expired", "application/problem+json", "{\"code\":\"admission.unauthenticated\",\"message\":\"session expired\"}\n", http.StatusUnauthorized},
+		{"/typed", "denied", "application/problem+json", "{\"code\":\"admission.forbidden\",\"message\":\"session lacks the admin role\"}\n", http.StatusForbidden},
+		{"/typed", "throttled", "application/problem+json", "{\"code\":\"admission.rate_limited\",\"message\":\"session quota spent\"}\n", http.StatusTooManyRequests},
+		{"/custom", "expired", "application/problem+json", "{\"code\":\"admission.unauthenticated\",\"message\":\"session expired\"}\n", http.StatusForbidden},
+		{"/custom", "denied", "application/problem+json", "{\"code\":\"admission.forbidden\",\"message\":\"session lacks the admin role\"}\n", http.StatusNotFound},
+		{"/custom", "throttled", "application/problem+json", "{\"code\":\"admission.rate_limited\",\"message\":\"session quota spent\"}\n", http.StatusServiceUnavailable},
+		{"/custom", "database", "application/problem+json", standardSystemProblem, http.StatusInternalServerError},
+		{"/raw", "denied", "application/json", "{\"code\":\"permission_denied\",\"message\":\"session lacks the admin role\"}\n", http.StatusForbidden},
+	} {
+		t.Run(strings.TrimPrefix(want.path, "/")+"/"+want.token, func(t *testing.T) {
+			logged.Reset()
+			recorder := serveWithToken(server.Handler, want.path, want.token)
+			if recorder.Code != want.status || recorder.Header().Get("Content-Type") != want.contentType || recorder.Body.String() != want.body {
+				t.Errorf("response = %d %q %q, want %d %q %q", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body.String(), want.status, want.contentType, want.body)
+			}
+			traceID := assertFailureObserved(t, reporter, logged, failures[want.token].Error(), want.status)
+			if got := recorder.Header().Get(traceIDHeader); got != traceID {
+				t.Errorf("response %s = %q, want the finished trace %q", traceIDHeader, got, traceID)
+			}
+		})
+	}
+}
+
 func TestRawEndpointPanicUsesStandardProblemOutcome(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
@@ -133,17 +194,7 @@ func TestRawEndpointPanicUsesStandardProblemOutcome(t *testing.T) {
 func registerAuthenticatedEndpoints(t *testing.T) {
 	t.Helper()
 	endpoints := []*Endpoint{
-		{
-			Service: "contract", Name: "Typed", Access: Auth, Path: "/typed", Methods: []string{http.MethodGet},
-			ContractPolicy: &ContractHTTPPolicy{AuthorizationStrategy: "public"},
-			DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
-				return ContractDecodedRequest{}, nil
-			},
-			Invoke: func(context.Context, []any, any) (any, error) { return nil, nil },
-			EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) {
-				return ContractHTTPResponse{Status: http.StatusNoContent}, nil
-			},
-		},
+		authenticatedTypedEndpoint("Typed", "/typed", nil),
 		{
 			Service: "contract", Name: "Raw", Access: Auth, Raw: true, Path: "/raw", Methods: []string{http.MethodGet},
 			RawHandler: func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
@@ -153,6 +204,23 @@ func registerAuthenticatedEndpoints(t *testing.T) {
 		if err := RegisterEndpointChecked(endpoint); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// authenticatedTypedEndpoint returns a typed endpoint that requires
+// authentication, answers admission failures with the given statuses or their
+// defaults, and succeeds once authentication passes.
+func authenticatedTypedEndpoint(name, path string, admissionStatuses map[string]int) *Endpoint {
+	return &Endpoint{
+		Service: "contract", Name: name, Access: Auth, Path: path, Methods: []string{http.MethodGet},
+		ContractPolicy: &ContractHTTPPolicy{AuthorizationStrategy: "public", TransportStatuses: admissionStatuses},
+		DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
+			return ContractDecodedRequest{}, nil
+		},
+		Invoke: func(context.Context, []any, any) (any, error) { return nil, nil },
+		EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) {
+			return ContractHTTPResponse{Status: http.StatusNoContent}, nil
+		},
 	}
 }
 
@@ -185,6 +253,14 @@ func assertStandardSystemProblem(t *testing.T, recorder *httptest.ResponseRecord
 // root trace span both carry the cause the caller never receives.
 func assertCauseObserved(t *testing.T, reporter *devReporter, logged *bytes.Buffer, cause string) {
 	t.Helper()
+	assertFailureObserved(t, reporter, logged, cause, http.StatusInternalServerError)
+}
+
+// assertFailureObserved checks that the request's failure log and the end of
+// its root trace span both carry the failure's cause and that the span ended
+// with the answered status. It returns the span's trace ID.
+func assertFailureObserved(t *testing.T, reporter *devReporter, logged *bytes.Buffer, cause string, status int) string {
+	t.Helper()
 	var failureLog string
 	for line := range strings.Lines(logged.String()) {
 		if strings.Contains(line, `msg="request failed"`) {
@@ -194,6 +270,7 @@ func assertCauseObserved(t *testing.T, reporter *devReporter, logged *bytes.Buff
 	if !strings.Contains(failureLog, cause) {
 		t.Errorf("request failure log = %q, want cause %q", failureLog, cause)
 	}
+	var traceID string
 	var spanEnd map[string]any
 	for drained := false; !drained; {
 		select {
@@ -202,7 +279,7 @@ func assertCauseObserved(t *testing.T, reporter *devReporter, logged *bytes.Buff
 				continue
 			}
 			if end, ok := envelope.TraceEvent.Event["span_end"].(map[string]any); ok && end["request"] != nil {
-				spanEnd = end
+				traceID, spanEnd = envelope.TraceEvent.TraceID, end
 			}
 		default:
 			drained = true
@@ -215,7 +292,8 @@ func assertCauseObserved(t *testing.T, reporter *devReporter, logged *bytes.Buff
 	if message, _ := traced["msg"].(string); message != cause {
 		t.Errorf("traced error = %#v, want %q", spanEnd["error"], cause)
 	}
-	if status := spanEnd["request"].(map[string]any)["http_status_code"]; status != http.StatusInternalServerError {
-		t.Errorf("traced status = %#v, want 500", status)
+	if tracedStatus := spanEnd["request"].(map[string]any)["http_status_code"]; tracedStatus != status {
+		t.Errorf("traced status = %#v, want %d", tracedStatus, status)
 	}
+	return traceID
 }
