@@ -11,10 +11,7 @@ import (
 // Snapshot access observes the selected actual resource. It deliberately does
 // not compile desired source, so removal or invalidation cannot strand data.
 func resolveSnapshotDatabase(ctx context.Context, root string, cfg appcfg.Config) (postgresdb.Database, error) {
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-	if err != nil {
-		return postgresdb.Database{}, err
-	}
+	env := envpolicy.Environ()
 	if value := lookupEnvValue(env, appDatabaseURLEnv); value != "" {
 		if err := validateAppPostgresURL(value); err != nil {
 			return postgresdb.Database{}, err

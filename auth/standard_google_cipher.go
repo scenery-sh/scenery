@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"scenery.sh/internal/envpolicy"
 )
 
 const googleTokenCipherVersion byte = 1
@@ -70,14 +68,18 @@ func googleTokenGCM() (cipher.AEAD, error) {
 }
 
 func googleTokenCipherKey() ([]byte, error) {
-	const envName = "AUTH_TOKEN_CIPHER_KEY"
-	if value := strings.TrimSpace(envpolicy.Get(envName)); value != "" {
+	const configKey = "auth.token_cipher_key"
+	configured, _, err := configuredAuthSecret(configKey)
+	if err != nil {
+		return nil, err
+	}
+	if value := strings.TrimSpace(string(configured)); value != "" {
 		key, err := base64.StdEncoding.DecodeString(value)
 		if err != nil {
-			return nil, fmt.Errorf("%s must be base64-encoded", envName)
+			return nil, fmt.Errorf("%s must be base64-encoded", configKey)
 		}
 		if len(key) != 32 {
-			return nil, fmt.Errorf("%s must decode to 32 bytes", envName)
+			return nil, fmt.Errorf("%s must decode to 32 bytes", configKey)
 		}
 		return key, nil
 	}
@@ -89,5 +91,5 @@ func googleTokenCipherKey() ([]byte, error) {
 		sum := sha256.Sum256([]byte("scenery-google-token:" + seed))
 		return sum[:], nil
 	}
-	return nil, fmt.Errorf("%s is required for encrypted Google token storage", envName)
+	return nil, fmt.Errorf("%s is required for encrypted Google token storage", configKey)
 }

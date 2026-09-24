@@ -22,6 +22,8 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/app"
+	"scenery.sh/internal/appconfig"
 	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/assistantruntime"
 	"scenery.sh/internal/compiler"
@@ -31,12 +33,12 @@ import (
 )
 
 const (
-	assistantStartupTimeout  = 30 * time.Second
-	assistantProbeInterval   = 100 * time.Millisecond
-	assistantRestartBase     = 250 * time.Millisecond
-	assistantRestartMax      = 10 * time.Second
-	assistantRestartWindow   = time.Minute
-	assistantRestartLimit    = 5
+	assistantStartupTimeout = 30 * time.Second
+	assistantProbeInterval  = 100 * time.Millisecond
+	assistantRestartBase    = 250 * time.Millisecond
+	assistantRestartMax     = 10 * time.Second
+	assistantRestartWindow  = time.Minute
+	assistantRestartLimit   = 5
 )
 
 // AssistantStatusRecord is the provider-neutral live status consumed by
@@ -560,12 +562,41 @@ func envHasKey(values []string, key string) bool {
 // assistantProviderEnv projects the smallest supported provider credential
 // surface from the selected app environment. Additions require an explicit
 // provider integration and focused non-leakage tests.
-func assistantProviderEnv(appEnv []string) []string {
-	value := lookupEnvValue(appEnv, "OPENAI_API_KEY")
-	if value == "" {
+func assistantProviderEnv(value []byte) []string {
+	if len(value) == 0 {
 		return nil
 	}
-	return []string{"OPENAI_API_KEY=" + value}
+	return []string{"OPENAI_API_KEY=" + string(value)}
+}
+
+// assistantProviderEnvFromConfig resolves assistant.openai_api_key from the
+// environment the runtime runs; an unconfigured key leaves helpers without a
+// provider credential.
+func assistantProviderEnvFromConfig(ctx context.Context, cfg app.Config, env app.ResolvedEnv) ([]string, error) {
+	store, err := devConfigStore(cfg)
+	if err != nil || store == nil {
+		return nil, err
+	}
+	document, err := devConfigDocument(store, cfg, env)
+	if err != nil {
+		return nil, err
+	}
+	version, ok := document.Secrets[appconfig.AssistantProviderKey]
+	if !ok {
+		return nil, nil
+	}
+	backend, err := appconfig.DefaultSecretBackend(store)
+	if configSecretBackendOverride != nil {
+		backend, err = configSecretBackendOverride(store)
+	}
+	if err != nil {
+		return nil, err
+	}
+	value, err := backend.Resolve(ctx, env.Name, appconfig.AssistantProviderKey, version)
+	if err != nil {
+		return nil, err
+	}
+	return assistantProviderEnv([]byte(strings.TrimSpace(string(value)))), nil
 }
 
 // execCommandContext is a seam for tests that need to assert the managed npm

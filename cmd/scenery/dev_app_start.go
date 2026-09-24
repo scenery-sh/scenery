@@ -19,6 +19,8 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if snapshot == nil {
 		return errors.New("application rebuild requires a captured source snapshot")
 	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
 	if err := refreshBuildCompilerMembership(s.root, snapshot); err != nil {
 		return err
 	}

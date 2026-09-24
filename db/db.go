@@ -10,15 +10,13 @@ import (
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/postgresname"
-	sceneryruntime "scenery.sh/runtime"
 )
 
 var (
 	poolsMu sync.Mutex
 	pools   = map[string]*sql.DB{}
 
-	loadDotEnv = sceneryruntime.LoadDotEnvIntoEnv
-	getEnv     = envpolicy.Get
+	getEnv = envpolicy.Get
 )
 
 func Get(ctx context.Context, service ...string) (*sql.DB, error) {
@@ -78,9 +76,6 @@ type resolvedDatabaseURL struct {
 }
 
 func resolveDatabaseURL(service ...string) (resolvedDatabaseURL, error) {
-	if err := loadDotEnv(); err != nil {
-		return resolvedDatabaseURL{}, fmt.Errorf("scenery db: load .env: %w", err)
-	}
 	database, err := postgresdb.DecodeRegistry(getEnv(postgresdb.RegistryEnv))
 	if err != nil {
 		return resolvedDatabaseURL{}, fmt.Errorf("scenery db: invalid %s SQL supply", postgresdb.RegistryEnv)

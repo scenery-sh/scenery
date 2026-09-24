@@ -70,10 +70,7 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 	}
 	command := exec.CommandContext(context.Background(), built.Binary, "--scenery-contract-cli-request", requestPath)
 	command.Dir = root
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), root, ".env", ".env.local")
-	if err != nil {
-		return true, err
-	}
+	baseEnv := envpolicy.Environ()
 	storageEnv, err := storageCapabilityEnv(context.Background(), root, cfg, nil, baseEnv, "")
 	if err != nil {
 		return true, err

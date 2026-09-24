@@ -168,11 +168,7 @@ func parseDBSeedArgs(args []string) (dbSeedOptions, error) {
 }
 
 func buildDBSeedResultWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, hooks dbSeedHooks) (dbSeedResult, error) {
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		result := emptyDBSeedResult(appRoot, cfg, opts)
-		return result, err
-	}
+	baseEnv := envpolicy.Environ()
 	return buildDBSeedResultWithEnvHooks(ctx, appRoot, cfg, opts, baseEnv, true, hooks)
 }
 

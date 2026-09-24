@@ -47,7 +47,7 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 			if phase != "contract" && phase != "implementation" && phase != "deployment" {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3406", Severity: "error", Message: "Go service config " + name + " uses an invalid package input phase", Address: service.Address, Path: "/spec/config/" + name})
 			}
-			field := map[string]any{"name": name, "input": inputName, "type": declaration.Type, "phase": phase, "sensitive": declaration.Sensitive}
+			field := map[string]any{"name": name, "input": inputName, "type": declaration.Type, "phase": phase, "sensitive": declaration.Sensitive, "optional": declaration.Optional}
 			for constraint, value := range declaration.Constraints {
 				field[constraint] = cloneSemanticValue(value)
 			}

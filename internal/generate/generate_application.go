@@ -446,6 +446,22 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	for _, field := range namedChildren(service.Spec, "config_schema") {
 		name, typeExpression := stringValue(field["name"]), stringValue(field["type"])
 		value, exists := config[name]
+		// Environment-configurable deployment inputs come from the process's
+		// runtime configuration snapshot, so a configured value never changes
+		// generated code or the executable.
+		if compiler.ConfigurableDeploymentInput(stringValue(field["phase"]), typeExpression, field["sensitive"] == true) && stringValue(field["input"]) != "" {
+			key := compiler.ConfigurationKey(service.Module, stringValue(field["input"]))
+			if typeExpression == `resource_ref("secret")` {
+				if !exists {
+					fmt.Fprintf(&b, "\t\t\t\tinput.Config.%s = sceneryruntime.ConfigSecretRef(%q)\n", goName(name), key)
+					continue
+				}
+			} else {
+				optional := field["optional"] == true || strings.HasPrefix(strings.TrimSpace(typeExpression), "optional(")
+				fmt.Fprintf(&b, "\t\t\t\tif err := sceneryruntime.ResolveDeploymentConfig(%q, &input.Config.%s, %q, %t); err != nil { return fmt.Errorf(\"resolve config %s: %%w\", err) }\n", key, goName(name), typeExpression, optional, name)
+				continue
+			}
+		}
 		if !exists {
 			return nil, fmt.Errorf("native service %s config %s has no resolved value", service.Address, name)
 		}

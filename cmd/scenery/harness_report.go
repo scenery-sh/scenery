@@ -18,6 +18,7 @@ type harnessStep = harnessreport.Step
 type harnessTestTiming = harnessreport.TestTiming
 type harnessTestTimingBudgets = harnessreport.TestTimingBudgets
 type harnessTestTimingReport = harnessreport.TestTimingReport
+
 const harnessSelfSummaryKind = harnessreport.SummaryKind
 
 const (

@@ -16,10 +16,7 @@ func appProcessEnv(root string, cfg app.Config, requirements compiler.SQLRequire
 	if err != nil {
 		return nil, &codedCLIError{err: err, code: 3}
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), root, resolved.DotEnvFiles()...)
-	if err != nil {
-		return nil, err
-	}
+	baseEnv := envpolicy.Environ()
 	overrides := []string{
 		"SCENERY_APP_ID=" + cfg.AppID(),
 		"SCENERY_APP_ROOT=" + root,

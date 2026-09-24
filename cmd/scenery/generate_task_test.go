@@ -384,8 +384,6 @@ func TestDBApplyReportsMissingConfiguration(t *testing.T) {
 }
 
 func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
 	hooks := seedStoreHooks(t, store)
@@ -446,8 +444,6 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 }
 
 func TestDBSeedDisabledDiscoversNoSeeds(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp","database":{"seed":{"enabled":false}}}`)
 	store := newFakeSeedStore()
@@ -467,8 +463,6 @@ func TestDBSeedDisabledDiscoversNoSeeds(t *testing.T) {
 }
 
 func TestDBSeedAppliesThenSkipsUnchangedSeed(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
 	hooks := seedStoreHooks(t, store)
@@ -499,8 +493,6 @@ func TestDBSeedAppliesThenSkipsUnchangedSeed(t *testing.T) {
 }
 
 func TestDBSeedChangedSeedFailsClosed(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
 	store.ledger["seedapp|auth/db/seed.sql"] = "old-hash"
@@ -521,8 +513,6 @@ func TestDBSeedChangedSeedFailsClosed(t *testing.T) {
 }
 
 func TestDBSeedApplyFailureReportsFailed(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
 	store.applyErr = errors.New("boom")
@@ -543,8 +533,6 @@ func TestDBSeedApplyFailureReportsFailed(t *testing.T) {
 }
 
 func TestDBSeedSafetyAllowsIdempotentInsertsAndUpserts(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 insert into scenery_auth.users(id) values ('dev-user') on conflict (id) do update set id = excluded.id;
@@ -567,8 +555,6 @@ delete from scenery_auth.temp_users where id = 'dev-user';
 }
 
 func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name    string
 		sql     string
@@ -582,8 +568,7 @@ func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
+		
 			root := writeSeedCommandFixture(t)
 			writeTestAppFile(t, root, "auth/db/seed.sql", tt.sql)
 			store := newFakeSeedStore()
@@ -612,8 +597,6 @@ func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
 }
 
 func TestDBSeedSafetyIgnoresCommentsAndStrings(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, "auth/db/seed.sql", `-- drop table scenery_auth.users;
 /* truncate table scenery_auth.users; */
@@ -648,8 +631,6 @@ func TestDBSeedSafetyHasNoForceEscapeHatch(t *testing.T) {
 }
 
 func TestDBSetupRunsApplyThenSeed(t *testing.T) {
-	t.Parallel()
-
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
 	var events []string
@@ -677,8 +658,6 @@ func TestDBSetupRunsApplyThenSeed(t *testing.T) {
 }
 
 func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
-	t.Parallel()
-
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
 	seedHooks := seedStoreHooks(t, store)
@@ -706,7 +685,7 @@ func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
 func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
 	root := t.TempDir()
 	baseURL := "postgres://user:secret@localhost/managedsetup"
-	writeTestAppFile(t, root, ".env", "DATABASE_URL="+baseURL+"\n")
+	t.Setenv("DATABASE_URL", baseURL)
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "managedsetup",
   "database": {
@@ -731,8 +710,6 @@ func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
 }
 
 func TestDBSetupStopsWhenApplyFails(t *testing.T) {
-	t.Parallel()
-
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
 	seedHooks := seedStoreHooks(t, store)
@@ -755,8 +732,6 @@ func TestDBSetupStopsWhenApplyFails(t *testing.T) {
 }
 
 func TestDBSetupReportsSeedFailure(t *testing.T) {
-	t.Parallel()
-
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
 	store.applyErr = errors.New("seed failed")
@@ -780,8 +755,6 @@ func TestDBSetupReportsSeedFailure(t *testing.T) {
 }
 
 func TestDBSetupRepeatedRunSkipsUnchangedSeed(t *testing.T) {
-	t.Parallel()
-
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
 	seedHooks := seedStoreHooks(t, store)
@@ -856,7 +829,8 @@ func writeSeedCommandFixture(t *testing.T) string {
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp"}`)
 	writeSQLTestDeclarations(t, root, "main")
-	writeTestAppFile(t, root, ".env", "DATABASE_URL=postgres://user:secret@localhost/seedapp\n")
+	// External SQL supply is ambient process input, never a dotenv file.
+	t.Setenv("DATABASE_URL", "postgres://user:secret@localhost/seedapp")
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 `)
 	return root

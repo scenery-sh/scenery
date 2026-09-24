@@ -83,11 +83,14 @@ input "provider_token" {
 	var keys []string
 	for _, input := range catalog.Inputs {
 		keys = append(keys, input.Key)
+		if input.Key == AssistantProviderKey {
+			continue
+		}
 		if len(input.Consumers) != 1 || input.Consumers[0].Service != "house/service/house" {
 			t.Fatalf("%s consumers = %#v", input.Key, input.Consumers)
 		}
 	}
-	if strings.Join(keys, ",") != "house.process_concurrency,house.provider_token,house.weather_pack_root" {
+	if strings.Join(keys, ",") != "assistant.openai_api_key,house.process_concurrency,house.provider_token,house.weather_pack_root" {
 		t.Fatalf("keys = %v", keys)
 	}
 	if concurrency, _ := catalog.Lookup("house.process_concurrency"); string(concurrency.Default) != "4" {

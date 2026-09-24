@@ -30,6 +30,7 @@ var configureDetachedChildProcess = devprocess.ConfigureDetachedChild
 type devManagedProcess = devprocess.ManagedProcess
 type devProcessReadyRequest = devprocess.ReadyRequest
 type devProcessStartRequest = devprocess.StartRequest
+
 var interruptProcessTree = devprocess.InterruptTree
 var isExpectedExit = devprocess.IsExpectedExit
 var killProcessTree = devprocess.KillTree
@@ -41,4 +42,3 @@ type safeLineTail = devprocess.LineTail
 var startDevManagedProcess = devprocess.Start
 
 const stopTimeout = devprocess.DefaultStopTimeout
-

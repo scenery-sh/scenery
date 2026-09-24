@@ -16,10 +16,7 @@ func (s *devSupervisor) beginRetainedPostgresStart(ctx context.Context, contract
 	if s.worktreeRootPaths == nil || contract == nil || !contract.Valid() || len(contract.SQLRequirements) == 0 {
 		return nil, nil
 	}
-	base, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
-	if err != nil {
-		return nil, err
-	}
+	base := s.processEnvironment()
 	supply, err := resolveSQLSupply(contract.SQLRequirements, base, true)
 	if err != nil {
 		return nil, err

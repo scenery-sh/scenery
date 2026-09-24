@@ -9,7 +9,7 @@ type PayloadIdentity struct {
 
 var payloadSchemaRevisions = map[string]string{
 	"scenery.db.migrate":                  "sha256:0f400279c74205778e4d2656af9295ce659ce08b93a7502e8dcfb41dd79d81c4",
-	"scenery.config.show":                 "sha256:ff99752de3bf47d4f0f03d9beae1f1fff937af3e33a5dd7241dff7c392519d95",
+	"scenery.config.show":                 "sha256:52b252daaa4cc3fcf2ef9b6b6eed654db6ad81e641536d78e98a81ea7469dc22",
 	"scenery.config.change":               "sha256:afafdcbcaedca8b4692cf4cac475af54c6ffccd7bd3da09d83d627de771ae887",
 	"scenery.framework":                   "sha256:98e5bcf96f297588150432f7e2eb3e1ea6f784e2333d870b589112df8b18cf4b",
 	"scenery.help":                        "sha256:dd5d2e7b08e3ac88e7722ec62c1068ebcb8b1878b5a5269676ad940a1589e5f2",

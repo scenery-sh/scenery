@@ -3,10 +3,12 @@ package contract
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/url"
-	"scenery.sh/internal/runtimeapi"
 	"time"
+
+	"scenery.sh/internal/runtimeapi"
 )
 
 // Int is the arbitrary-precision integer used by Scenery contracts.
@@ -58,6 +60,28 @@ type Set[T any] []T
 
 type SecretRef struct {
 	Address string
+}
+
+var secretRevealer func(SecretRef) ([]byte, bool, error)
+
+// SetSecretRevealer installs the runtime's secret resolution. Only the
+// runtime calls it.
+func SetSecretRevealer(reveal func(SecretRef) ([]byte, bool, error)) { secretRevealer = reveal }
+
+// Reveal returns the plaintext of a secret the selected environment
+// configured. The bytes belong to the caller; never log or return them.
+func (ref SecretRef) Reveal() ([]byte, error) {
+	if secretRevealer == nil {
+		return nil, fmt.Errorf("secret %s cannot be revealed outside a Scenery runtime", ref.Address)
+	}
+	value, ok, err := secretRevealer(ref)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("secret %s is not configured for this environment", ref.Address)
+	}
+	return value, nil
 }
 
 type ExecutionReceipt = runtimeapi.ExecutionReceipt

@@ -163,10 +163,7 @@ func (s *devSupervisor) restartManagedFrontend(ctx context.Context, name string,
 		s.clearManagedFrontend(name, previous)
 		return s.updateManagedFrontendSession(ctx, name, localagent.Backend{Network: "tcp", Addr: override}, nil)
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
-	if err != nil {
-		return err
-	}
+	baseEnv := envpolicy.Environ()
 	result := startManagedFrontend(ctx, s.root, s.activeAppID(), 0, frontend, baseEnv, *session)
 	if result.err != nil {
 		return result.err

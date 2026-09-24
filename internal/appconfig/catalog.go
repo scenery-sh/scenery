@@ -19,6 +19,9 @@ import (
 // SecretType is the declared type of every sensitive configuration input.
 const SecretType = `resource_ref("secret")`
 
+// AssistantProviderKey is the OpenAI credential of application assistants.
+const AssistantProviderKey = "assistant.openai_api_key"
+
 // FrameworkConsumer identifies framework-owned consumers that every
 // application process hosts, such as standard authentication.
 const FrameworkConsumer = "framework"
@@ -85,7 +88,13 @@ type FrameworkOptions struct {
 // needs no secrets, services or network.
 func BuildCatalog(manifest *graph.Manifest, framework FrameworkOptions) (Catalog, error) {
 	var inputs []Input
+	assistants := false
 	if manifest != nil {
+		for _, resource := range manifest.Resources {
+			if resource.Kind == "scenery.assistant" {
+				assistants = true
+			}
+		}
 		consumers := map[string][]Consumer{}
 		for _, resource := range manifest.Resources {
 			if resource.Kind != "scenery.service" {
@@ -114,6 +123,11 @@ func BuildCatalog(manifest *graph.Manifest, framework FrameworkOptions) (Catalog
 		}
 	}
 	inputs = append(inputs, frameworkInputs(framework)...)
+	if assistants {
+		// Assistant helpers are third-party subprocesses; their provider
+		// credential reaches them only through the supervisor's narrow adapter.
+		inputs = append(inputs, Input{Key: AssistantProviderKey, Owner: FrameworkConsumer + "/assistants", Type: SecretType, Sensitive: true, Optional: true, Consumers: []Consumer{{Service: FrameworkConsumer + "/assistants"}}})
+	}
 	sort.Slice(inputs, func(i, j int) bool { return inputs[i].Key < inputs[j].Key })
 	for index := 1; index < len(inputs); index++ {
 		if inputs[index].Key == inputs[index-1].Key {

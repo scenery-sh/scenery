@@ -78,11 +78,10 @@ func RegisterStandard(config StandardConfig) error {
 	if !config.Enabled {
 		return nil
 	}
-	if err := runtime.LoadDotEnvIntoEnv(); err != nil {
+	config = normalizeStandardConfig(config)
+	if err := applyStandardSecrets(); err != nil {
 		return err
 	}
-	config = normalizeStandardConfig(config)
-	applyStandardSecrets()
 
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = config
@@ -116,17 +115,39 @@ func normalizeStandardConfig(config StandardConfig) StandardConfig {
 	return config
 }
 
-func applyStandardSecrets() {
-	secrets.JWTSecret = strings.TrimSpace(envpolicy.Get("JWT_SECRET"))
-	if strings.TrimSpace(secrets.JWTSecret) == "" && isLocalRuntime() {
+// Standard authentication reads its configured values from the process's
+// environment configuration snapshot (auth.* keys); tests replace these.
+var (
+	configuredAuthSecret = runtime.FrameworkConfigSecret
+	configuredAuthString = runtime.FrameworkConfigString
+)
+
+// applyStandardSecrets loads auth.* configuration. The public URLs are
+// runtime-managed capabilities the supervisor supplies, not configuration.
+func applyStandardSecrets() error {
+	jwt, _, err := configuredAuthSecret("auth.jwt_secret")
+	if err != nil {
+		return err
+	}
+	secrets.JWTSecret = strings.TrimSpace(string(jwt))
+	if secrets.JWTSecret == "" && isLocalRuntime() {
 		secrets.JWTSecret = "scenery-local-development-secret"
 	}
-	secrets.GoogleOAuthClientID = strings.TrimSpace(envpolicy.Get("GOOGLE_OAUTH_CLIENT_ID"))
-	secrets.GoogleOAuthClientSecret = strings.TrimSpace(envpolicy.Get("GOOGLE_OAUTH_CLIENT_SECRET"))
+	clientSecret, _, err := configuredAuthSecret("auth.google_client_secret")
+	if err != nil {
+		return err
+	}
+	secrets.GoogleOAuthClientSecret = strings.TrimSpace(string(clientSecret))
+	for key, target := range map[string]*string{"auth.google_client_id": &secrets.GoogleOAuthClientID, "auth.cookie_domain": &secrets.AuthCookieDomain, "auth.email_from": &secrets.AuthEmailFrom} {
+		value, _, err := configuredAuthString(key)
+		if err != nil {
+			return err
+		}
+		*target = strings.TrimSpace(value)
+	}
 	secrets.PublicAppURL = strings.TrimSpace(envpolicy.Get("SCENERY_PUBLIC_APP_URL"))
 	secrets.APIBaseURL = strings.TrimSpace(envpolicy.Get("SCENERY_API_BASE_URL"))
-	secrets.AuthCookieDomain = strings.TrimSpace(envpolicy.Get("AUTH_COOKIE_DOMAIN"))
-	secrets.AuthEmailFrom = strings.TrimSpace(envpolicy.Get("AUTH_EMAIL_FROM"))
+	return nil
 }
 
 func standardAuthService(ctx context.Context) (*Service, error) {

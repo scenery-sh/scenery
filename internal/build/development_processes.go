@@ -36,7 +36,10 @@ type DevelopmentProcessIdentity struct {
 
 // DevelopmentProcess is one executable of a process-model generation.
 type DevelopmentProcess struct {
-	Name           string
+	Name string
+	// Service is the service address a service process hosts; empty for the
+	// host process.
+	Service        string
 	Package        string
 	Binary         string
 	ArtifactDigest string
@@ -235,7 +238,11 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 	var pending []*DevelopmentProcess
 	processes := make([]*DevelopmentProcess, 0, len(names))
 	for index, name := range names {
-		process := &DevelopmentProcess{Name: name, Package: mains[index], Identity: DevelopmentProcessIdentity{
+		serviceAddress := ""
+		if index > 0 {
+			serviceAddress = services[index-1].Address
+		}
+		process := &DevelopmentProcess{Name: name, Service: serviceAddress, Package: mains[index], Identity: DevelopmentProcessIdentity{
 			ContractRevision: identities[index].ContractRevision, ImplementationRevision: identities[index].ImplementationRevision,
 			BuildInputDigest: digests[index], GoTarget: result.Target.Name,
 		}}

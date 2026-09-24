@@ -317,14 +317,28 @@ func (s *Store) writeAtomic(root *os.Root, name string, data []byte) error {
 	return nil
 }
 
+// Pin is one holder's use of a revision. A running local generation also
+// records the desired revision it last considered and whether it applied it.
+type Pin struct {
+	Revision string `json:"revision"`
+	Desired  string `json:"desired,omitempty"`
+	State    string `json:"state,omitempty"`
+	Problem  string `json:"problem,omitempty"`
+}
+
 // Pin records that holder (a running generation, an active or rollback
 // deployment) uses revision, which keeps it and its secret versions retained.
 func (s *Store) Pin(environment, holder, revision string) error {
+	return s.PinRecord(environment, holder, Pin{Revision: revision})
+}
+
+// PinRecord writes holder's complete pin.
+func (s *Store) PinRecord(environment, holder string, pin Pin) error {
 	if err := checkEnvironment(environment); err != nil {
 		return err
 	}
-	if !ValidIdentifier(holder) || !ValidRevision(revision) {
-		return fmt.Errorf("configuration pin %q/%q is malformed", holder, revision)
+	if !ValidIdentifier(holder) || !ValidRevision(pin.Revision) || (pin.Desired != "" && !ValidRevision(pin.Desired)) || len(pin.Problem) > 4096 {
+		return fmt.Errorf("configuration pin %q is malformed", holder)
 	}
 	root, err := s.root(true)
 	if err != nil {
@@ -335,7 +349,7 @@ func (s *Store) Pin(environment, holder, revision string) error {
 	if err := mkdirs(root, pins); err != nil {
 		return err
 	}
-	encoded, err := json.Marshal(map[string]string{"revision": revision})
+	encoded, err := json.Marshal(pin)
 	if err != nil {
 		return err
 	}
@@ -367,12 +381,25 @@ func (s *Store) Unpin(environment, holder string) error {
 
 // Pins returns every holder's pinned revision.
 func (s *Store) Pins(environment string) (map[string]string, error) {
+	records, err := s.PinRecords(environment)
+	if err != nil {
+		return nil, err
+	}
+	pins := make(map[string]string, len(records))
+	for holder, record := range records {
+		pins[holder] = record.Revision
+	}
+	return pins, nil
+}
+
+// PinRecords returns every holder's complete pin.
+func (s *Store) PinRecords(environment string) (map[string]Pin, error) {
 	if err := checkEnvironment(environment); err != nil {
 		return nil, err
 	}
 	root, err := s.root(false)
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]string{}, nil
+		return map[string]Pin{}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -381,8 +408,8 @@ func (s *Store) Pins(environment string) (map[string]string, error) {
 	return readPins(root, environment)
 }
 
-func readPins(root *os.Root, environment string) (map[string]string, error) {
-	pins := map[string]string{}
+func readPins(root *os.Root, environment string) (map[string]Pin, error) {
+	pins := map[string]Pin{}
 	directory := path.Join("environment-history", environment, "pins")
 	entries, err := fs.ReadDir(root.FS(), directory)
 	if errors.Is(err, os.ErrNotExist) {
@@ -400,13 +427,11 @@ func readPins(root *os.Root, environment string) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		var pin struct {
-			Revision string `json:"revision"`
-		}
+		var pin Pin
 		if err := json.Unmarshal(data, &pin); err != nil || !ValidRevision(pin.Revision) {
 			return nil, fmt.Errorf("configuration pin %s is malformed", holder)
 		}
-		pins[holder] = pin.Revision
+		pins[holder] = pin
 	}
 	return pins, nil
 }
@@ -451,8 +476,8 @@ func (s *Store) Prune(ctx context.Context, environment string, known map[string]
 		return result, err
 	}
 	keep := map[string]bool{desired.Revision: true}
-	for _, revision := range pins {
-		keep[revision] = true
+	for _, pin := range pins {
+		keep[pin.Revision] = true
 	}
 	directory := path.Join("environment-history", environment)
 	entries, err := fs.ReadDir(root.FS(), directory)

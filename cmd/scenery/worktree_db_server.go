@@ -35,10 +35,7 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 	// External capability selection takes precedence over retained managed data.
 	// Status remains read-only and does not require a working Docker daemon.
 	if _, _, discoverErr := discoverConfiguredApp(root); discoverErr == nil {
-		env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-		if err != nil {
-			return err
-		}
+		env := envpolicy.Environ()
 		if value := lookupEnvValue(env, appDatabaseURLEnv); value != "" {
 			if err := validateAppPostgresURL(value); err != nil {
 				return err
@@ -76,10 +73,7 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 			return err
 		}
 		appID = cfg.AppID()
-		env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-		if err != nil {
-			return err
-		}
+		env := envpolicy.Environ()
 		if lookupEnvValue(env, appDatabaseURLEnv) != "" {
 			return worktreePostgresPrecondition("DATABASE_URL is externally owned; db server does not provision or control it")
 		}

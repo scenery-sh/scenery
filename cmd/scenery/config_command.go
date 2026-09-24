@@ -234,10 +234,18 @@ type configShowResult struct {
 // configApplied is the observed runtime adoption of a revision. An
 // unavailable observation is never reported as applied.
 type configApplied struct {
-	State           string `json:"state"`
-	Revision        string `json:"revision,omitempty"`
-	CatalogRevision string `json:"catalog_revision,omitempty"`
-	Problem         string `json:"problem,omitempty"`
+	State           string               `json:"state"`
+	Revision        string               `json:"revision,omitempty"`
+	CatalogRevision string               `json:"catalog_revision,omitempty"`
+	Problem         string               `json:"problem,omitempty"`
+	Others          *configOtherRuntimes `json:"other_runtimes,omitempty"`
+}
+
+// configOtherRuntimes summarizes the application's other running local
+// runtimes of the environment.
+type configOtherRuntimes struct {
+	Total   int `json:"total"`
+	Applied int `json:"applied"`
 }
 
 func configShowCommand(stdout io.Writer, args []string) error {
@@ -275,7 +283,7 @@ func configShowCommand(stdout io.Writer, args []string) error {
 			result.Applied = configApplied{State: "active", Revision: active.Revision, CatalogRevision: active.CatalogRevision}
 		}
 	} else {
-		result.Applied = observeLocalConfigApplication(ctx, session.root, session.env.Name)
+		result.Applied = observeLocalConfigApplication(ctx, session.store, session.root, session.env.Name, document.Revision)
 	}
 	for _, entry := range resolution.Entries {
 		if len(positionals) == 1 && entry.Key != positionals[0] {
