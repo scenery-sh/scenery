@@ -95,7 +95,8 @@ without a host Docker socket or source bind mount. No global developer cluster
 is used. The same lane rehearses the
 [native migration runbook](runbooks/worktree-postgres-migration.md).
 
-Functional worktree proof runs A1–A17. A18 is separate:
+Functional worktree proof runs A1–A17 and A19, the development runtime RPC
+bounds against real PostgreSQL (plan 0206). A18 is separate:
 `go run ./scripts/verify --benchmark worktree-cost --summary --write` runs only
 on an explicit human measurement request, never as part of default or release.
 The resource-cost lane runs three repetitions each of 1, 5 and 10 SQL-backed
@@ -194,7 +195,7 @@ release certification. Failed steps identify their focused rerun command.
 | `core-separation` | Product/verifier dependency and source-only boundaries |
 | `capability-authority` | Runtime capability authority |
 | `auth` | All 15 database/OAuth lifecycle journeys |
-| `worktree` | Functional A1–A17 worktree runtime/SQL ownership |
+| `worktree` | Functional A1–A17 worktree runtime/SQL ownership and A19 development runtime RPC bounds: refused admission beyond the connection and app limits, `status` under saturation, a result budget, and statements cancelled in PostgreSQL on disconnect |
 | `agent-restart` | Local-agent restart |
 | `assistant-init` | Assistant initialization |
 | `assistant-runtime` | Assistant production runtime |

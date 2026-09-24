@@ -187,6 +187,9 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 	}); err != nil {
 		return summary, err.Error()
 	}
+	if err := p.rpcBounds(rootA, a); err != nil {
+		return summary, err.Error()
+	}
 	if err := p.outage(rootA, rootB, a, b); err != nil {
 		return summary, err.Error()
 	}
@@ -231,7 +234,7 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 	}
 	// Rows are added only once their complete required evidence is available.
 	// An unfinished matrix is a failure, never a silently skipped acceptance.
-	summary["acceptance_rows"] = 17
+	summary["acceptance_rows"] = 18
 	return summary, ""
 }
 
