@@ -141,6 +141,13 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		sources += "; agent transcripts not read (--agent-transcripts)"
 	}
 	line("%s.", sources)
+	if incomplete := report.Sources.SupervisorLogsFailed + report.Sources.SupervisorLogsPartial; incomplete > 0 {
+		line("  %d supervisor logs unreadable or read in part; %d invalid event records skipped.", incomplete, report.Sources.SupervisorInvalid)
+	}
+	if transcripts := report.Sources.Transcripts; transcripts != nil {
+		line("  Transcripts: %d read, %d read in part, %d unreadable; %d invalid and %d oversized records skipped, %d results without a call, %d calls without a result.",
+			transcripts.Read, transcripts.Partial, transcripts.Failed, transcripts.InvalidRecords, transcripts.OversizedRecords, transcripts.UnmatchedResults, transcripts.UnansweredCalls)
+	}
 	line("")
 	line("Findings")
 	if len(report.Findings) == 0 {
@@ -178,7 +185,8 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 	table(rows)
 	if agents := report.Agents; agents != nil {
 		line("")
-		line("Agents: %d tool calls, %d errors; %d shell commands ran Scenery (%d invocations), %d failed", agents.ToolCalls, agents.ToolErrors, agents.SceneryCommands, agents.SceneryInvocations, agents.SceneryFailed)
+		line("Agents: %d tool calls, %d errors; %d shell commands ran Scenery (%d invocations): %d recorded Scenery's own outcome (%d failed); as shell commands %d failed and %d recorded no outcome",
+			agents.ToolCalls, agents.ToolErrors, agents.SceneryCommands, agents.SceneryInvocations, agents.SceneryAttributable, agents.SceneryAttributableFailed, agents.SceneryFailed, agents.SceneryOutcomeUnknown)
 		rows = nil
 		for index, command := range agents.Commands {
 			if index == 10 {

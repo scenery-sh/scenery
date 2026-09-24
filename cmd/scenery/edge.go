@@ -995,7 +995,7 @@ func ensureEdgeAgent(routerAddr string, force bool) error {
 	// Under launchd supervision a SIGTERM respawn immediately rebinds the
 	// router port, so the stop/wait-for-free dance below would race the
 	// supervisor; restart through launchd instead.
-	if started, supervised, err := restartAgentViaSupervisor(ctx, client, paths, health, running); supervised {
+	if started, supervised, _, err := restartAgentViaSupervisor(ctx, client, paths, health, running); supervised {
 		if err != nil {
 			return err
 		}

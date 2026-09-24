@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/redact"
 )
@@ -14,9 +15,10 @@ import (
 // Start failure classes. A persistent class keeps failing until something
 // outside the agent changes, so a supervised agent blocks at once; a transient
 // class is retried with growing delays and blocks after a bounded number of
-// attempts. A blocked supervised agent stays alive idle, holding no lock,
-// address or socket, so its supervisor (launchd KeepAlive, systemd
-// Restart=always) has nothing to restart until an explicit restart.
+// attempts. A supervised agent retries inside its own process, so its
+// supervisor (launchd KeepAlive, systemd Restart=always) never sees it exit
+// for a failed start; a blocked one stays alive idle, holding no lock,
+// address or socket, until an explicit restart.
 const (
 	// StartClassState: durable agent state cannot be read, for example an
 	// artifact written by another Scenery version.
@@ -78,7 +80,7 @@ func persistentStartClass(class string) bool {
 // every restart adds to one incident instead of starting over.
 type StartIncident struct {
 	machine.ArtifactIdentity
-	// State is "retrying" while a supervisor should start the agent again, and
+	// State is "retrying" while the agent will try to start again, and
 	// "blocked" once further automatic starts cannot succeed.
 	State string `json:"state"`
 	Class string `json:"class"`
@@ -96,7 +98,7 @@ type StartIncident struct {
 type StartDecision struct {
 	Incident StartIncident
 	// Blocked means the agent must stay alive idle so its supervisor stops
-	// restarting it; otherwise it waits Delay and exits with the failure.
+	// restarting it; otherwise it waits Delay and tries to start again.
 	Blocked bool
 	Delay   time.Duration
 }
@@ -105,18 +107,44 @@ func agentStartIncidentIdentity() machine.ArtifactIdentity {
 	return machine.NewArtifactIdentity(agentStartIncidentKind, agentStartIncidentSchemaDescriptor)
 }
 
-// RecordStartFailure adds a failed start to the current incident, or begins a
-// new one when the executable or cause differs, and decides whether a
-// supervisor may start the agent again.
-func RecordStartFailure(paths Paths, executable string, err error, now time.Time) (StartDecision, error) {
+// StartContainment counts the failed starts of one agent process. The
+// persisted incident continues the count across processes and is what doctor
+// and ps report, but containment never depends on it: when the incident
+// cannot be read or written, the count this process keeps still bounds its
+// retries and still blocks.
+type StartContainment struct {
+	paths      Paths
+	executable string
+	last       *StartIncident
+}
+
+// NewStartContainment begins counting the failed starts of executable, which
+// identifies the agent executable: a rebuilt one begins a new incident.
+func NewStartContainment(paths Paths, executable string) *StartContainment {
+	return &StartContainment{paths: paths, executable: executable}
+}
+
+// Record adds a failed start to the current incident, or begins a new one when
+// the executable or cause differs, and decides whether the agent may try
+// again. The decision holds even when the incident could not be persisted,
+// which the returned error reports.
+func (c *StartContainment) Record(err error, now time.Time) (StartDecision, error) {
 	class := StartFailureClass(err)
 	cause := redact.String(strings.TrimSpace(err.Error()))
 	if len(cause) > startIncidentCauseLimit {
 		cause = cause[:startIncidentCauseLimit]
 	}
-	incident, loadErr := LoadStartIncident(paths)
-	if loadErr != nil || incident.Executable != executable || incident.Class != class || incident.Cause != cause {
-		incident = StartIncident{Class: class, Cause: cause, Executable: executable, FirstAt: now.UTC()}
+	same := func(incident StartIncident) bool {
+		return incident.Executable == c.executable && incident.Class == class && incident.Cause == cause
+	}
+	var incident StartIncident
+	switch loaded, loadErr := LoadStartIncident(c.paths); {
+	case c.last != nil && same(*c.last):
+		incident = *c.last
+	case loadErr == nil && same(loaded):
+		incident = loaded
+	default:
+		incident = StartIncident{Class: class, Cause: cause, Executable: c.executable, FirstAt: now.UTC()}
 	}
 	incident.ArtifactIdentity = agentStartIncidentIdentity()
 	incident.Attempts++
@@ -135,14 +163,21 @@ func RecordStartFailure(paths Paths, executable string, err error, now time.Time
 		incident.NextDelay = decision.Delay.String()
 	}
 	decision.Incident = incident
-	data, marshalErr := json.MarshalIndent(incident, "", "  ")
-	if marshalErr != nil {
-		return decision, marshalErr
+	c.last = &incident
+	return decision, writeStartIncident(c.paths, incident)
+}
+
+func writeStartIncident(paths Paths, incident StartIncident) error {
+	if paths.AgentStartIncidentPath == "" {
+		return errors.New("the agent home has no start incident path")
 	}
-	if err := os.MkdirAll(paths.RunDir, 0o700); err != nil {
-		return decision, err
+	data, err := json.MarshalIndent(incident, "", "  ")
+	if err != nil {
+		return err
 	}
-	return decision, atomicWriteFile(paths.AgentStartIncidentPath, append(data, '\n'), 0o600)
+	// The record is diagnostic: containment never reads it back within a
+	// process, so it is replaced atomically without waiting for the disk.
+	return atomicfile.Write(paths.AgentStartIncidentPath, append(data, '\n'), 0o600, atomicfile.Options{})
 }
 
 // LoadStartIncident reads the current start incident; os.ErrNotExist means the

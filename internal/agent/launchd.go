@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -207,6 +210,147 @@ func ReloadAgentLaunchd() error {
 	// reports any real launchd failure.
 	_, _ = launchctlRunFunc("bootout", launchdGUITarget())
 	return bootstrapAndStartAgentLaunchd(plistPath)
+}
+
+// ReconcileAgentLaunchd rewrites the installed supervised agent plist from the
+// current template, keeping the executable, socket, router and log settings
+// it names, and reports whether it changed. A plist written by an earlier
+// Scenery can lack an invocation the current agent relies on, such as
+// --supervised, which enables start failure containment; registering such a
+// job again unchanged would keep it missing. Call it before the job is
+// registered again; a plist Scenery cannot read is left untouched.
+func ReconcileAgentLaunchd() (bool, error) {
+	plistPath, err := AgentLaunchdPlistPath()
+	if err != nil {
+		return false, err
+	}
+	data, err := os.ReadFile(plistPath)
+	if err != nil {
+		return false, err
+	}
+	exe, paths, opts, err := parseAgentLaunchdPlist(data)
+	if err != nil {
+		return false, fmt.Errorf("the installed supervised agent plist %s is not one Scenery renders (%w); reinstall it with scenery deploy setup", plistPath, err)
+	}
+	rendered := AgentLaunchdPlist(exe, paths, opts)
+	if rendered == string(data) {
+		return false, nil
+	}
+	if err := atomicWriteFile(plistPath, []byte(rendered), 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// parseAgentLaunchdPlist reads the agent invocation and log path of a
+// supervised agent plist.
+func parseAgentLaunchdPlist(data []byte) (string, Paths, StartOptions, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder.Strict = true
+	var args []string
+	var logPath string
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", Paths{}, StartOptions{}, err
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Local != "key" {
+			continue
+		}
+		// Each key of a dictionary is followed by its value, which is
+		// consumed whole, so keys of nested dictionaries are never read.
+		var key string
+		if err := decoder.DecodeElement(&key, &start); err != nil {
+			return "", Paths{}, StartOptions{}, err
+		}
+		value, err := nextStartElement(decoder)
+		if err != nil {
+			return "", Paths{}, StartOptions{}, err
+		}
+		switch {
+		case key == "ProgramArguments" && value.Name.Local == "array":
+			var array struct {
+				Strings []string `xml:"string"`
+			}
+			if err := decoder.DecodeElement(&array, &value); err != nil {
+				return "", Paths{}, StartOptions{}, err
+			}
+			args = array.Strings
+		case key == "StandardOutPath" && value.Name.Local == "string":
+			if err := decoder.DecodeElement(&logPath, &value); err != nil {
+				return "", Paths{}, StartOptions{}, err
+			}
+		default:
+			if err := decoder.Skip(); err != nil {
+				return "", Paths{}, StartOptions{}, err
+			}
+		}
+	}
+	exe, socketPath, opts, err := parseAgentInvocation(args)
+	if err != nil {
+		return "", Paths{}, StartOptions{}, err
+	}
+	if logPath == "" {
+		return "", Paths{}, StartOptions{}, errors.New("no StandardOutPath")
+	}
+	return exe, Paths{SocketPath: socketPath, LogPath: logPath}, opts, nil
+}
+
+func nextStartElement(decoder *xml.Decoder) (xml.StartElement, error) {
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return xml.StartElement{}, err
+		}
+		switch token := token.(type) {
+		case xml.StartElement:
+			return token, nil
+		case xml.EndElement:
+			return xml.StartElement{}, fmt.Errorf("key without a value before </%s>", token.Name.Local)
+		}
+	}
+}
+
+// parseAgentInvocation reads an agent invocation that agentProcessArgs
+// renders, preceded by its executable.
+func parseAgentInvocation(args []string) (string, string, StartOptions, error) {
+	if len(args) < 3 || args[1] != "system" || args[2] != "agent" {
+		return "", "", StartOptions{}, fmt.Errorf("the job does not run `scenery system agent`: %q", args)
+	}
+	var socketPath string
+	var opts StartOptions
+	for index := 3; index < len(args); index++ {
+		switch arg := args[index]; arg {
+		case "--socket", "--router-listen":
+			if index+1 >= len(args) {
+				return "", "", StartOptions{}, fmt.Errorf("%s has no value", arg)
+			}
+			index++
+			if arg == "--socket" {
+				socketPath = args[index]
+			} else {
+				opts.RouterAddr = args[index]
+			}
+		case "--router-http":
+			opts.RouterHTTP = true
+		case "--router-tls":
+			opts.RouterTLS = true
+		case "--trust":
+			opts.Trust = true
+		case "--supervised":
+			opts.Supervised = true
+		default:
+			return "", "", StartOptions{}, fmt.Errorf("unknown agent argument %q", arg)
+		}
+	}
+	if args[0] == "" || socketPath == "" || opts.RouterAddr == "" {
+		return "", "", StartOptions{}, errors.New("the job names no executable, --socket or --router-listen")
+	}
+	return args[0], socketPath, opts, nil
 }
 
 // RemoveAgentLaunchd boots the supervised agent job out of launchd before

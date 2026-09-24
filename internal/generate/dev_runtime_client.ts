@@ -29,6 +29,17 @@ export interface DevRuntimeObservability {
 	readonly metrics: DevRuntimeSignal;
 	readonly logs: DevRuntimeSignal;
 	readonly traces: DevRuntimeSignal;
+	readonly export: DevRuntimeTelemetryExport;
+}
+
+/**
+ * Telemetry the runtime did not deliver to the observability backend since
+ * it started: reports dropped because they were too large or its bounded
+ * export queue was full, and exports that failed.
+ */
+export interface DevRuntimeTelemetryExport {
+	readonly dropped: number;
+	readonly failed: number;
 }
 
 export interface DevRuntimeServiceProcess {
