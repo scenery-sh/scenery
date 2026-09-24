@@ -149,11 +149,14 @@ func resolveDevConfig(ctx context.Context, manifest *graph.Manifest, cfg app.Con
 	resolution := &devConfigResolution{appID: cfg.AppID(), environment: env.Name, revision: document.Revision, catalogRevision: catalog.Revision, snapshots: map[string]*devConfigSnapshot{}}
 	secrets := map[string][]byte{}
 	var secretBackend appconfig.SecretBackend
-	// The first consumer serves framework routes, including the public
-	// configuration, so it alone carries public values.
-	publicConsumer := ""
-	if len(consumers) > 0 {
-		publicConsumer = consumers[0]
+	// The host and the first service process may serve framework routes,
+	// including the public configuration, so they carry public values.
+	publicConsumers := map[string]bool{hostConsumer: true}
+	for _, service := range consumers {
+		if service != "" && service != hostConsumer {
+			publicConsumers[service] = true
+			break
+		}
 	}
 	for _, service := range consumers {
 		if service == "" {
@@ -164,7 +167,7 @@ func resolveDevConfig(ctx context.Context, manifest *graph.Manifest, cfg app.Con
 		_, _ = fmt.Fprintf(identity, "%s\x00%s\x00", resolution.appID, env.Name)
 		for _, entry := range resolved.Entries {
 			input, _ := catalog.Lookup(entry.Key)
-			public := input.Public && service == publicConsumer
+			public := input.Public && publicConsumers[service]
 			if !consumes(input, service) && !public {
 				continue
 			}
@@ -206,6 +209,10 @@ func resolveDevConfig(ctx context.Context, manifest *graph.Manifest, cfg app.Con
 // applicationConsumer is the consumer of a single-process application
 // executable, which hosts every service.
 const applicationConsumer = "application"
+
+// hostConsumer is the consumer of a process-model generation's host, which
+// serves framework routes such as standard authentication.
+const hostConsumer = "host"
 
 func consumes(input appconfig.Input, service string) bool {
 	for _, consumer := range input.Consumers {
@@ -253,7 +260,7 @@ func (s *devSupervisor) resolveGenerationConfig(ctx context.Context, result *bui
 	if err != nil {
 		return nil, preconditionErrorf("read %s configuration: %v", s.env.Name, err)
 	}
-	resolution, err := resolveDevConfig(ctx, result.Contract.Manifest, s.cfg, s.env, store, document, processServices(set.Services), func() (appconfig.SecretBackend, error) {
+	resolution, err := resolveDevConfig(ctx, result.Contract.Manifest, s.cfg, s.env, store, document, generationConsumers(set), func() (appconfig.SecretBackend, error) {
 		if configSecretBackendOverride != nil {
 			return configSecretBackendOverride(store)
 		}
@@ -298,6 +305,12 @@ func (s *devSupervisor) releaseConfigPin() {
 	if store, err := devConfigStore(s.cfg); err == nil && store != nil {
 		_ = store.Unpin(s.env.Name, devConfigHolder(s.root))
 	}
+}
+
+// generationConsumers are the configuration consumers of a process set: its
+// host, then each service process.
+func generationConsumers(set *build.DevelopmentProcessSet) []string {
+	return append([]string{hostConsumer}, processServices(set.Services)...)
 }
 
 func processServices(processes []build.DevelopmentProcess) []string {
