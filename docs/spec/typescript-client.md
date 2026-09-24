@@ -130,6 +130,10 @@ of `connected` (`true` when the socket opens, `false` when an open socket
 closes, including through `close()` and `dispose()`); a listener's exception is
 reported and MUST NOT interrupt sending or rejection. A frame that is not a
 JSON-RPC response fails the connection's unfinished calls with `protocol`.
+A call whose request exceeds `DEV_RUNTIME_MAX_REQUEST_BYTES`, the runtime's
+1 MiB request limit in UTF-8 bytes, MUST be rejected with `request_too_large`
+before it is sent, leaving the connection and its other calls untouched; the
+runtime would close the connection instead of answering it.
 Storage transfers MUST reject only with `DevRuntimeError`, including while the
 response body is read: `aborted` for the caller's signal, `closed` after
 disposal, `unavailable` for a network failure, `transfer` for a runtime failure
