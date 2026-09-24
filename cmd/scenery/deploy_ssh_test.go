@@ -89,8 +89,11 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","id":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 
 	err := runDeploySSH(&bytes.Buffer{}, "other-id", []string{"--app-root", root}, tools)
-	if err == nil || !strings.Contains(err.Error(), "not configured") {
-		t.Fatalf("unlisted target error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not configured") || cliExitCode(err) != 2 {
+		t.Fatalf("unlisted target error = %v (exit %d)", err, cliExitCode(err))
+	}
+	if targets := configuredDeployTargets([]string{"--app-root", root}); len(targets) != 1 || targets[0] != "some-id" {
+		t.Fatalf("configured targets = %q", targets)
 	}
 	if log := recorder.log(); log != "" {
 		t.Fatalf("unlisted target ran commands:\n%s", log)

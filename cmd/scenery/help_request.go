@@ -131,6 +131,21 @@ func unknownWordHint(word string, candidates []string, help string) string {
 // question, or returns "" when none is close. A suggestion is only printed,
 // never run.
 func didYouMean(word string, candidates []string) string {
+	matches := closestNames(word, candidates, true)
+	if len(matches) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(matches))
+	for index, name := range matches {
+		quoted[index] = fmt.Sprintf("%q", name)
+	}
+	return "did you mean " + strings.Join(quoted, " or ") + "?"
+}
+
+// closestNames returns at most three candidates within a small edit distance
+// of word, nearest first; with prefixes, a candidate that word begins also
+// counts as close.
+func closestNames(word string, candidates []string, prefixes bool) []string {
 	type match struct {
 		name     string
 		distance int
@@ -142,22 +157,19 @@ func didYouMean(word string, candidates []string) string {
 	}
 	for _, candidate := range candidates {
 		distance := editDistance(word, candidate)
-		if distance <= limit || (len(word) >= 3 && strings.HasPrefix(candidate, word)) {
+		if distance <= limit || (prefixes && len(word) >= 3 && strings.HasPrefix(candidate, word)) {
 			matches = append(matches, match{candidate, distance})
 		}
-	}
-	if len(matches) == 0 {
-		return ""
 	}
 	sort.SliceStable(matches, func(i, j int) bool { return matches[i].distance < matches[j].distance })
 	if len(matches) > 3 {
 		matches = matches[:3]
 	}
-	quoted := make([]string, len(matches))
+	names := make([]string, len(matches))
 	for index, candidate := range matches {
-		quoted[index] = fmt.Sprintf("%q", candidate.name)
+		names[index] = candidate.name
 	}
-	return "did you mean " + strings.Join(quoted, " or ") + "?"
+	return names
 }
 
 // editDistance is the optimal string alignment distance: insertions,
