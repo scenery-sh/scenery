@@ -484,7 +484,10 @@ the app origin's `/runtime` WebSocket and `/runtime/storage` transfers
 ([contract](local-contract.md#development-runtime-rpc)); `status().app_id` is the
 `appId` for the other calls, and storage calls need a `storageTarget` pinned
 from a fresh `storageInspect`. Regenerate whenever the app's Scenery producer
-changes; a revision mismatch fails `status()` with code `protocol`.
+changes; a revision mismatch fails `status()` with code `protocol`. Bound or
+cancel calls with an `AbortSignal` and `dispose()` a client the tooling no
+longer uses: unsent calls are then dropped, but a mutation already sent may
+have completed, so inspect before retrying it.
 
 For UI cleanup triage, run `scenery inspect ui --frontend <name>` and start with
 the highest-score file while reading both axes independently. Replace raw

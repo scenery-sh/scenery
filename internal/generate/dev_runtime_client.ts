@@ -237,9 +237,9 @@ export class DevRuntimeError extends Error {
 	constructor(
 		code: DevRuntimeErrorCode,
 		message: string,
-		extra: { diagnostic?: string; reportToken?: string; details?: unknown; status?: number } = {},
+		extra: { diagnostic?: string; reportToken?: string; details?: unknown; status?: number; cause?: unknown } = {},
 	) {
-		super(message);
+		super(message, extra.cause === undefined ? undefined : { cause: extra.cause });
 		this.name = "DevRuntimeError";
 		this.code = code;
 		this.diagnostic = extra.diagnostic;
@@ -266,16 +266,20 @@ interface RuntimeFailure {
 	readonly details?: unknown;
 }
 
-interface PendingCall {
+interface RuntimeCall {
+	readonly frame: string;
 	readonly resolve: (value: unknown) => void;
 	readonly reject: (error: DevRuntimeError) => void;
+	/** Removes the abort listener. */
 	readonly release: () => void;
+	/** Written to the current socket. Until then, abort and close drop it unsent. */
+	sent: boolean;
 }
 
-type WireMessage = {
-	readonly id?: number;
+type WireResponse = {
+	readonly id: number;
 	readonly result?: unknown;
-	readonly error?: { readonly message?: string; readonly data?: RuntimeFailure };
+	readonly error?: { readonly message?: string; readonly data?: RuntimeFailure | null };
 };
 
 function originURL(path: string): URL {
@@ -302,22 +306,31 @@ function encodeMetadata(metadata: Readonly<Record<string, string>>): string {
 	return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
+function disposedError(cause?: unknown): DevRuntimeError {
+	return new DevRuntimeError("closed", "development runtime client is disposed", { cause });
+}
+
 /**
  * One multiplexed connection to the development runtime. Calls issued while
- * the socket is connecting are queued; a dropped socket rejects its pending
- * calls with code "closed" and reconnects on the next call.
+ * the socket connects are queued and sent in call order once it opens. A
+ * dropped socket rejects every unfinished call with code "closed"; the next
+ * call reconnects, after `reconnectDelayMs`. A call rejected before it was
+ * sent never reaches the runtime; a sent call may still complete there.
  */
 export class DevRuntimeClient {
 	readonly #url: string;
 	readonly #storageUrl: string | URL | undefined;
 	readonly #reconnectDelayMs: number;
-	readonly #pending = new Map<number, PendingCall>();
-	readonly #queue: string[] = [];
+	/** Unfinished calls by request id, in call order; unsent ones form the queue. */
+	readonly #calls = new Map<number, RuntimeCall>();
+	readonly #transfers = new Set<AbortController>();
 	readonly #listeners = new Set<(connected: boolean) => void>();
 	#socket: WebSocket | null = null;
+	#notified = false;
 	#nextId = 1;
 	#retryAt = 0;
-	#closed = false;
+	#retryTimer: ReturnType<typeof setTimeout> | undefined;
+	#disposed = false;
 
 	constructor(options: DevRuntimeClientOptions = {}) {
 		this.#url = socketURL(options.url);
@@ -329,24 +342,37 @@ export class DevRuntimeClient {
 		return this.#socket?.readyState === WebSocket.OPEN;
 	}
 
-	/** Observe connection changes; returns an unsubscribe function. */
+	/**
+	 * Observe changes of `connected`: `true` when the socket opens, `false` when
+	 * an open socket closes, including through `close()` and `dispose()`.
+	 * Returns an unsubscribe function.
+	 */
 	onConnectionChange(listener: (connected: boolean) => void): () => void {
 		this.#listeners.add(listener);
 		return () => this.#listeners.delete(listener);
 	}
 
-	/** Close the socket and reject every pending call. The client stays usable. */
+	/**
+	 * Close the socket and reject every unfinished call with code "closed";
+	 * queued calls are dropped unsent. Storage transfers continue, and the
+	 * client stays usable: the next call reconnects.
+	 */
 	close(): void {
-		const socket = this.#socket;
-		this.#socket = null;
-		socket?.close();
-		this.#failPending(new DevRuntimeError("closed", "development runtime connection closed"));
+		this.#cancelRetry();
+		this.#disconnect(new DevRuntimeError("closed", "development runtime connection closed"));
 	}
 
-	/** Close permanently; later calls fail immediately. */
+	/**
+	 * Close permanently and cancel in-flight storage transfers; everything
+	 * unfinished and every later call or transfer fails with code "closed"
+	 * without contacting the runtime.
+	 */
 	dispose(): void {
-		this.#closed = true;
-		this.close();
+		if (this.#disposed) return;
+		this.#disposed = true;
+		for (const transfer of this.#transfers) transfer.abort();
+		this.#cancelRetry();
+		this.#disconnect(disposedError());
 		this.#listeners.clear();
 	}
 
@@ -442,7 +468,11 @@ export class DevRuntimeClient {
 		return this.#call("storage/delete-selection", { ...storageParams(target), prefix, selection_revision: selectionRevision }, signal);
 	}
 
-	/** Stream one object into the pinned store; create-only unless `ifMatch` names the replaced version. */
+	/**
+	 * Stream one object into the pinned store; create-only unless `ifMatch` names
+	 * the replaced version. A failure after the body was sent does not prove the
+	 * upload was refused: inspect the object before retrying.
+	 */
 	async uploadStorageObject(target: StorageTarget, key: string, body: Blob, options: StorageUploadOptions = {}): Promise<StorageObject> {
 		const headers: Record<string, string> = {
 			"X-Scenery-Storage-Request": "1",
@@ -453,116 +483,159 @@ export class DevRuntimeClient {
 		}
 		if (options.ifMatch) headers["If-Match"] = options.ifMatch;
 		else headers["If-None-Match"] = "*";
-		const response = await this.#transfer(target, key, { method: "PUT", headers, body, signal: options.signal ?? null });
-		const payload = (await response.json()) as { data?: StorageObjectResult };
-		if (!payload.data?.object) {
-			throw new DevRuntimeError("protocol", "storage upload returned no object");
-		}
-		return payload.data.object;
+		return this.#transfer(target, key, { method: "PUT", headers, body }, options.signal, async (response) => {
+			const text = await response.text();
+			let payload: { data?: { object?: StorageObject } } | null;
+			try {
+				payload = JSON.parse(text);
+			} catch (error) {
+				throw new DevRuntimeError("protocol", "storage upload answered with invalid JSON", { cause: error });
+			}
+			const object = payload?.data?.object;
+			if (typeof object !== "object" || object === null) {
+				throw new DevRuntimeError("protocol", "storage upload returned no object");
+			}
+			return object;
+		});
 	}
 
 	/** Download the displayed version of one object; a changed object is refused. */
 	async downloadStorageObject(target: StorageTarget, object: Pick<StorageObject, "key" | "etag">, signal?: AbortSignal): Promise<Blob> {
-		const response = await this.#transfer(target, object.key, {
-			headers: { "X-Scenery-Storage-Request": "1", "If-Match": object.etag },
-			signal: signal ?? null,
-		});
-		return response.blob();
+		const headers = { "X-Scenery-Storage-Request": "1", "If-Match": object.etag };
+		return this.#transfer(target, object.key, { headers }, signal, (response) => response.blob());
 	}
 
-	async #transfer(target: StorageTarget, key: string, init: RequestInit): Promise<Response> {
+	/**
+	 * Run one storage request and read its response. Every failure, including
+	 * one while the body is read, rejects with a DevRuntimeError: "aborted" for
+	 * the caller's signal and "closed" once the client is disposed.
+	 */
+	async #transfer<T>(
+		target: StorageTarget,
+		key: string,
+		init: RequestInit,
+		signal: AbortSignal | undefined,
+		read: (response: Response) => Promise<T>,
+	): Promise<T> {
+		if (this.#disposed) throw disposedError();
+		if (signal?.aborted) throw new DevRuntimeError("aborted", "storage transfer aborted");
 		const url = this.#storageUrl === undefined ? originURL("/runtime/storage") : new URL(this.#storageUrl, typeof location === "undefined" ? undefined : location.href);
 		for (const [name, value] of Object.entries({ ...storageParams(target), key })) {
 			url.searchParams.set(name, value);
 		}
-		let response: Response;
+		// Owned, so that dispose() cancels it; the caller's signal cancels it too.
+		const controller = new AbortController();
+		const abort = () => controller.abort();
+		signal?.addEventListener("abort", abort, { once: true });
+		this.#transfers.add(controller);
+		let response: Response | undefined;
 		try {
-			response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin" });
+			response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store", credentials: "same-origin" });
+			if (!response.ok) throw await transferFailure(response);
+			return await read(response);
 		} catch (error) {
-			if (init.signal?.aborted) throw new DevRuntimeError("aborted", "storage transfer aborted");
-			throw new DevRuntimeError("unavailable", `storage transfer failed: ${String(error)}`);
+			if (controller.signal.aborted) {
+				throw signal?.aborted ? new DevRuntimeError("aborted", "storage transfer aborted", { cause: error }) : disposedError(error);
+			}
+			if (error instanceof DevRuntimeError) throw error;
+			const message = response === undefined ? `storage transfer failed: ${String(error)}` : `storage transfer interrupted: ${String(error)}`;
+			throw new DevRuntimeError("unavailable", message, { cause: error });
+		} finally {
+			signal?.removeEventListener("abort", abort);
+			this.#transfers.delete(controller);
 		}
-		if (response.ok) return response;
-		let failure: RuntimeFailure = {};
-		try {
-			failure = (await response.json()) as RuntimeFailure;
-		} catch {
-			// An interrupted or non-JSON failure keeps the HTTP status.
-		}
-		throw runtimeFailureError("transfer", failure, `storage transfer failed (HTTP ${response.status})`, response.status);
 	}
 
 	#call<T>(method: string, params: object, signal: AbortSignal | undefined): Promise<T> {
-		if (this.#closed) {
-			return Promise.reject(new DevRuntimeError("closed", "development runtime client is disposed"));
-		}
+		if (this.#disposed) return Promise.reject(disposedError());
 		if (signal?.aborted) {
 			return Promise.reject(new DevRuntimeError("aborted", `${method} aborted`));
 		}
 		const id = this.#nextId++;
 		return new Promise<T>((resolve, reject) => {
+			const frame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
 			const onAbort = () => {
-				this.#pending.delete(id);
-				reject(new DevRuntimeError("aborted", `${method} aborted`));
+				const call = this.#take(id);
+				if (!call) return;
+				// An unsent call is dropped here; a sent one may still complete in
+				// the runtime, whose answer is then ignored.
+				if (!call.sent && !this.#hasUnsentCalls()) this.#cancelRetry();
+				call.reject(new DevRuntimeError("aborted", `${method} aborted`));
 			};
 			signal?.addEventListener("abort", onAbort, { once: true });
-			this.#pending.set(id, {
+			this.#calls.set(id, {
+				frame,
 				resolve: (value) => resolve(value as T),
 				reject,
 				release: () => signal?.removeEventListener("abort", onAbort),
+				sent: false,
 			});
-			this.#send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+			this.#flush();
 		});
 	}
 
-	#send(frame: string): void {
+	/** Send queued calls in call order once the socket is open, connecting first when needed. */
+	#flush(): void {
 		const socket = this.#connect();
-		if (socket?.readyState === WebSocket.OPEN) socket.send(frame);
-		else this.#queue.push(frame);
+		if (socket?.readyState !== WebSocket.OPEN) return;
+		for (const call of this.#calls.values()) {
+			if (call.sent) continue;
+			call.sent = true;
+			socket.send(call.frame);
+		}
 	}
 
 	#connect(): WebSocket | null {
+		if (this.#disposed) return null;
 		if (this.#socket) return this.#socket;
 		const wait = this.#retryAt - Date.now();
 		if (wait > 0) {
-			setTimeout(() => {
-				if (this.#queue.length > 0) this.#connect();
+			// One timer serves every call queued during the reconnect delay.
+			this.#retryTimer ??= setTimeout(() => {
+				this.#retryTimer = undefined;
+				if (this.#hasUnsentCalls()) this.#flush();
 			}, wait);
 			return null;
 		}
-		const socket = new WebSocket(this.#url);
+		let socket: WebSocket;
+		try {
+			socket = new WebSocket(this.#url);
+		} catch (error) {
+			this.#retryAt = Date.now() + this.#reconnectDelayMs;
+			this.#failCalls(new DevRuntimeError("unavailable", `development runtime connection failed: ${String(error)}`, { cause: error }));
+			return null;
+		}
 		this.#socket = socket;
 		socket.addEventListener("open", () => {
-			if (this.#socket !== socket) return;
-			this.#emit(true);
-			for (const frame of this.#queue.splice(0)) socket.send(frame);
+			if (this.#socket !== socket) {
+				socket.close();
+				return;
+			}
+			this.#flush();
+			this.#notify(true);
 		});
 		socket.addEventListener("message", (event: MessageEvent) => {
-			if (this.#socket === socket && typeof event.data === "string") this.#receive(event.data);
+			if (this.#socket === socket) this.#receive(event.data);
 		});
 		socket.addEventListener("close", () => {
 			if (this.#socket !== socket) return;
-			this.#socket = null;
 			this.#retryAt = Date.now() + this.#reconnectDelayMs;
-			this.#queue.length = 0;
-			this.#emit(false);
-			this.#failPending(new DevRuntimeError("closed", "development runtime connection closed"));
+			this.#disconnect(new DevRuntimeError("closed", "development runtime connection closed"));
 		});
 		return socket;
 	}
 
-	#receive(data: string): void {
-		let message: WireMessage;
-		try {
-			message = JSON.parse(data) as WireMessage;
-		} catch {
+	#receive(data: unknown): void {
+		const message = parseResponse(data);
+		if (!message) {
+			// Nothing matches a malformed frame to its call: failing the connection
+			// beats leaving that caller waiting for an answer that never comes.
+			this.#retryAt = Date.now() + this.#reconnectDelayMs;
+			this.#disconnect(new DevRuntimeError("protocol", "the development runtime sent a malformed response"));
 			return;
 		}
-		if (typeof message.id !== "number") return;
-		const call = this.#pending.get(message.id);
+		const call = this.#take(message.id);
 		if (!call) return;
-		this.#pending.delete(message.id);
-		call.release();
 		if (message.error) {
 			call.reject(runtimeFailureError("rpc", message.error.data ?? {}, message.error.message ?? "development runtime call failed"));
 			return;
@@ -570,17 +643,97 @@ export class DevRuntimeClient {
 		call.resolve(message.result);
 	}
 
-	#failPending(error: DevRuntimeError): void {
-		for (const call of this.#pending.values()) {
+	/** Detach the socket and reject every unfinished call, queued ones unsent. */
+	#disconnect(error: DevRuntimeError): void {
+		const socket = this.#socket;
+		this.#socket = null;
+		socket?.close();
+		this.#failCalls(error);
+		this.#notify(false);
+	}
+
+	#take(id: number): RuntimeCall | undefined {
+		const call = this.#calls.get(id);
+		if (!call) return undefined;
+		this.#calls.delete(id);
+		call.release();
+		return call;
+	}
+
+	#hasUnsentCalls(): boolean {
+		for (const call of this.#calls.values()) {
+			if (!call.sent) return true;
+		}
+		return false;
+	}
+
+	#failCalls(error: DevRuntimeError): void {
+		const calls = [...this.#calls.values()];
+		this.#calls.clear();
+		for (const call of calls) {
 			call.release();
 			call.reject(error);
 		}
-		this.#pending.clear();
 	}
 
-	#emit(connected: boolean): void {
-		for (const listener of this.#listeners) listener(connected);
+	#cancelRetry(): void {
+		if (this.#retryTimer === undefined) return;
+		clearTimeout(this.#retryTimer);
+		this.#retryTimer = undefined;
 	}
+
+	/** Runs last in every transition, so a listener sees settled client state. */
+	#notify(connected: boolean): void {
+		if (this.#notified === connected) return;
+		this.#notified = connected;
+		for (const listener of [...this.#listeners]) {
+			// A listener may reconnect, close or unsubscribe another listener.
+			if (this.#notified !== connected) return;
+			if (!this.#listeners.has(listener)) continue;
+			try {
+				listener(connected);
+			} catch (error) {
+				reportListenerError(error);
+			}
+		}
+	}
+}
+
+/** Decode one JSON-RPC response frame; undefined when the frame is not one. */
+function parseResponse(data: unknown): WireResponse | undefined {
+	if (typeof data !== "string") return undefined;
+	let message: WireResponse | null;
+	try {
+		message = JSON.parse(data);
+	} catch {
+		return undefined;
+	}
+	if (typeof message !== "object" || message === null || typeof message.id !== "number") return undefined;
+	const error: unknown = message.error;
+	if (error === undefined) return message;
+	if (typeof error !== "object" || error === null) return undefined;
+	const { message: text, data: failure } = error as { message?: unknown; data?: unknown };
+	if (text !== undefined && typeof text !== "string") return undefined;
+	if (failure !== undefined && failure !== null && typeof failure !== "object") return undefined;
+	return message;
+}
+
+/** The runtime's failure object for a refused transfer; an unreadable one keeps the HTTP status. */
+async function transferFailure(response: Response): Promise<DevRuntimeError> {
+	let failure: RuntimeFailure = {};
+	try {
+		const body = (await response.json()) as RuntimeFailure | null;
+		if (typeof body === "object" && body !== null) failure = body;
+	} catch {
+		// An interrupted or non-JSON failure keeps the HTTP status.
+	}
+	return runtimeFailureError("transfer", failure, `storage transfer failed (HTTP ${response.status})`, response.status);
+}
+
+/** Report a listener's exception as the platform reports one from an event listener. */
+function reportListenerError(error: unknown): void {
+	if (typeof reportError === "function") reportError(error);
+	else console.error(error);
 }
 
 function storageParams(target: StorageTarget): Record<string, string> {

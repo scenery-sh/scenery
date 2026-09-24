@@ -1406,6 +1406,11 @@ Generated client:
   expected and received kind and revision; a result that is not a
   `scenery.dev-runtime.status` at all (an older Scenery) says to restart
   `scenery up`, and a revision mismatch names both remedies.
+- A call the client rejects before sending it (aborted, `close()`, `dispose()`
+  or a dropped socket) never reaches the runtime; a sent mutation may still
+  complete. `dispose()` also cancels storage transfers and refuses later ones.
+  [The client specification](spec/typescript-client.md#dev-runtime-client)
+  defines its full lifecycle and error codes.
 
 ## Artifact Locations
 
