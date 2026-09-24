@@ -88,6 +88,9 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("victoria", runHarnessVictoriaProcessProbeStep),
 		harnessSingleProbe("desktop", runHarnessDesktopProcessProbeStep),
 		harnessSingleProbe("deploy-ssh", runHarnessDeploySSHProcessProbeStep),
+		harnessSingleProbe("configuration", configurationProbeStep("environment configuration probe", runHarnessConfigurationProbe)),
+		harnessSingleProbe("configuration-secrets", configurationProbeStep("environment configuration secrets probe", runHarnessConfigurationSecretsProbe)),
+		harnessSingleProbe("configuration-deploy", configurationProbeStep("environment configuration deploy probe", runHarnessConfigurationDeployProbe)),
 		harnessSingleProbe("validation-git", runHarnessValidationGitProbeStep),
 		harnessSingleProbe("test-cache", runHarnessTestsuiteCacheProbeStep),
 	}

@@ -58,7 +58,7 @@ func runHarnessDeploySSHProcessProbeCheck(ctx context.Context, repoRoot string) 
 	if err := copyHarnessNativeContractFixture(repoRoot, appRoot); err != nil {
 		return nil, nil, err
 	}
-	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(`{"name":"nativeapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["probe.invalid"]}}}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(`{"name":"nativeapp","id":"nativeapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["probe.invalid"]}}}}`), 0o600); err != nil {
 		return nil, nil, err
 	}
 	var generated map[string]any
