@@ -15,7 +15,7 @@
       "const": "scenery.agent.cleanup"
     },
     "schema_revision": {
-      "const": "sha256:5f295f5a076621018f2fef478b19d82d4c8d248647ab81af362224d9664e04e1"
+      "const": "sha256:f492c59d30d760784ced2ed3f67e0e69992b3f699d7cbe0f3cae0d6b15a3f2b7"
     },
     "home": {
       "type": "string"
@@ -26,15 +26,7 @@
     "state_removed": {
       "type": "boolean"
     },
-    "matched_pids": {
-      "type": "array",
-      "items": {"type": "integer", "minimum": 1}
-    },
-    "stopped_pids": {
-      "type": "array",
-      "items": {"type": "integer", "minimum": 1}
-    },
-    "skipped_unverified_pids": {
+    "running_pids": {
       "type": "array",
       "items": {"type": "integer", "minimum": 1}
     }

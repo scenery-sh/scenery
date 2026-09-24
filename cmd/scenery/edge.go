@@ -192,9 +192,6 @@ func edgeRestart(opts edgeOptions) error {
 	if err := stopEdge(paths, 2*time.Second); err != nil {
 		return err
 	}
-	if err := stopStaleUserCaddyEdges(paths, 2*time.Second); err != nil {
-		return err
-	}
 	if err := startCaddyEdge(caddyBin, paths, publicAddr, targetAddr, httpTargetAddr, adminSocket, upstreamAddr); err != nil {
 		_ = localagent.WriteEdgeState(paths.EdgeStatePath, localagent.EdgeState{
 			Kind:         localagent.EdgeKindCaddy,
@@ -1012,7 +1009,7 @@ func ensureEdgeAgent(routerAddr string, force bool) error {
 			return err
 		}
 	}
-	if err := stopStaleEdgeAgentProcesses(paths.SocketPath, routerAddr, health.PID, 2*time.Second); err != nil {
+	if err := stopRecordedStaleAgent(paths, 2*time.Second); err != nil {
 		return err
 	}
 	if err := waitForTCPAddrFree(ctx, routerAddr); err != nil {
@@ -1035,50 +1032,6 @@ func ensureEdgeAgent(routerAddr string, force bool) error {
 func validateEdgeAgentHealth(health localagent.HealthResponse, routerAddr string) error {
 	if health.RouterAddr != routerAddr {
 		return fmt.Errorf("restarted scenery agent listened on %s, want %s for edge upstream; free %s and rerun `scenery system edge install`", health.RouterAddr, routerAddr, routerAddr)
-	}
-	return nil
-}
-
-func stopStaleEdgeAgentProcesses(socketPath, routerAddr string, skipPID int, timeout time.Duration) error {
-	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
-	if err != nil {
-		return err
-	}
-	var pids []int
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		pid, pidErr := strconv.Atoi(fields[0])
-		uid, uidErr := strconv.Atoi(fields[1])
-		command := strings.Join(fields[2:], " ")
-		if pidErr != nil || uidErr != nil || uid != os.Getuid() || pid <= 0 || pid == skipPID {
-			continue
-		}
-		if edgeAgentCommandMatches(command, routerAddr) {
-			pids = append(pids, pid)
-		}
-	}
-	for _, pid := range pids {
-		if err := signalPID(pid, syscall.SIGTERM); err != nil {
-			return fmt.Errorf("stop stale scenery system edge agent pid %d: %w", pid, err)
-		}
-	}
-	deadline := time.Now().Add(timeout)
-	for _, pid := range pids {
-		for processAliveForEdge(pid) && time.Now().Before(deadline) {
-			time.Sleep(50 * time.Millisecond)
-		}
-		if processAliveForEdge(pid) {
-			if err := signalPID(pid, syscall.SIGKILL); err != nil {
-				return fmt.Errorf("kill stale scenery system edge agent pid %d: %w", pid, err)
-			}
-		}
 	}
 	return nil
 }

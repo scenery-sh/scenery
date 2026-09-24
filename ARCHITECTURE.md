@@ -110,8 +110,8 @@ output capture and process-tree stop mechanics. The CLI still owns application,
 session, frontend, desktop and assistant lifecycle decisions. Process completion
 is exposed as a receive-only signal, not a second mutable runtime record.
 Process observations and named substrate locks live in that same concrete
-process layer. `internal/agent` owns session process-cleanup selection, retaining
-the existing owner and orphan-scope checks. `internal/watchignore` owns the
+process layer. `internal/agent` owns session process-cleanup selection, which
+acts only on recorded, verified owners and registered children. `internal/watchignore` owns the
 shared watch-input path policy and embed-pattern parsing; snapshot caching
 remains in the CLI.
 

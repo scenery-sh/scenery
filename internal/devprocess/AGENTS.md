@@ -13,6 +13,8 @@ observation, and the existing concrete named substrate locks.
 - Repeated stop must retain an unconfirmed-shutdown error until `Done` confirms exit.
 - Preserve Linux parent-death behavior and detached-child distinctions.
 - Preserve current default deadlines and process-tree cancellation semantics.
+- Tree signals reach a process group only when the signaled PID leads it
+  (`ConfigureChild` children do); otherwise only that PID is signaled.
 - Process-table rows are observations, never ownership credentials. Session
   selection and ownership-checked cleanup belong to `internal/agent`.
 - Lock options are call-local; zero durations retain the original production

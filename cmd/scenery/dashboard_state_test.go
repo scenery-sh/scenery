@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devdash"
 )
 
@@ -91,5 +92,32 @@ func TestReapOwnedDashboardKeepsDifferentAppState(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("different-app state file should remain, got err=%v", err)
+	}
+}
+
+func TestReapOwnedDashboardNeverStopsAnUnverifiedLiveProcess(t *testing.T) {
+	t.Parallel()
+
+	// PID 1 is live but its identity differs from the record, so the record
+	// names a process that ended and the address holder belongs to someone else.
+	state := dashboardRunState{
+		SupervisorPID: 1,
+		AppRoot:       "/tmp/app",
+		DashboardAddr: devdash.DashboardAddr,
+		Owner:         localagent.Owner{PID: 1, StartedAt: "Thu Jan  1 00:00:00 1970"},
+		cacheRoot:     t.TempDir(),
+	}
+	if err := state.write(); err != nil {
+		t.Fatalf("write() error = %v", err)
+	}
+	path, err := state.path()
+	if err != nil {
+		t.Fatalf("path() error = %v", err)
+	}
+	if err := reapOwnedDashboard(path, state); err != nil {
+		t.Fatalf("reapOwnedDashboard(%q) error = %v, want the unverified record dropped", path, err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unverified state file still exists: %v", err)
 	}
 }

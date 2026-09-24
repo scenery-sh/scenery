@@ -49,7 +49,11 @@ func signalProcessIDTree(pid int, sig syscall.Signal) error {
 	if pid <= 0 {
 		return nil
 	}
-	if pgid, err := syscall.Getpgid(pid); err == nil && pgid > 1 {
+	// Signal a process group only when pid leads it, as every child started
+	// through ConfigureChild does. A process that joined another group shares
+	// it with its parent; signaling that group would reach processes by
+	// relationship rather than by the identity the caller recorded.
+	if pgid, err := syscall.Getpgid(pid); err == nil && pgid == pid {
 		if err := syscall.Kill(-pgid, sig); err == nil || errors.Is(err, syscall.ESRCH) {
 			return nil
 		} else {

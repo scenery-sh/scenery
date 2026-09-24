@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0204-recorded-ownership-small-sdk-one-snapshot.md",
+      "title": "Recorded Process Ownership, Small SDK Closure And One Input Snapshot",
+      "owner": "scenery runtime / agent / build",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Cleanup signals only recorded, verified process identities (never command lines, ports or parent groups); scenery.sh/db, auth and durable depend on the small request-context layer instead of the runtime implementation; one captured input snapshot per development generation feeds preparation, process identity and pre-activation verification.",
+      "tags": ["plans", "execplans", "runtime", "agent", "build"]
+    },
+    {
       "path": "docs/plans/0203-framework-handoff.md",
       "title": "Framework Handoff For Running Development Runtimes",
       "owner": "scenery runtime / build",
@@ -1127,9 +1139,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Current machine-output schema for fingerprint-verified pre-rebrand agent and state cleanup.",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Current machine-output schema for the report-only pre-rebrand process check and explicit legacy state cleanup.",
       "tags": ["schemas", "agent", "cleanup", "machine-protocol"]
     },
     {

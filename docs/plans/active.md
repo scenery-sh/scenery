@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0204 Recorded Process Ownership, Small SDK Closure And One Input Snapshot](0204-recorded-ownership-small-sdk-one-snapshot.md)
+  - Status: active
+  - Owner: scenery runtime / agent / build
+  - Created: 2026-09-24
+  - Focus: stop only recorded, verified processes (no command-line, port or parent selection); cut `scenery.sh/db`, `auth` and `durable` loose from the runtime implementation; capture one input snapshot per development generation for preparation, identity and verification.
+
 - [0203 Framework Handoff For Running Development Runtimes](0203-framework-handoff.md)
   - Status: active
   - Owner: scenery runtime / build

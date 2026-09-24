@@ -126,12 +126,6 @@ func edgePrivilegedHelperInstall(opts edgeHelperOptions) error {
 	if err := copyRootHelperBinary(exe, edgeHelperBinaryPath); err != nil {
 		return err
 	}
-	if err := stopStaleRootCaddyEdge(opts.OwnerHome, 2*time.Second); err != nil {
-		return err
-	}
-	if err := stopStaleRootSceneryEdgeAgent(opts.RouterAddr, 2*time.Second); err != nil {
-		return err
-	}
 	plist := edgeHelperPlist(opts)
 	if err := os.WriteFile(edgeHelperPlistPath, []byte(plist), 0o644); err != nil {
 		return err

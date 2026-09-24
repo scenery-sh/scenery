@@ -43,7 +43,7 @@ func runHarnessDevSessionCleanupProbeStepWithCheck(ctx context.Context, repoRoot
 
 func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
 	if runtime.GOOS == "windows" {
-		return map[string]any{"proof": "not_applicable_on_windows", "reason": "process discovery uses ps and Unix process groups"}, nil, nil
+		return map[string]any{"proof": "not_applicable_on_windows", "reason": "recorded ownership uses Unix process identities and groups"}, nil, nil
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
@@ -52,51 +52,34 @@ func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (ma
 		return nil, nil, err
 	}
 	defer func() { _ = os.RemoveAll(root) }()
-	stateRoot := filepath.Join(root, "app", ".scenery", "sessions", "review-a")
-	otherStateRoot := filepath.Join(root, "app", ".scenery", "sessions", "review-b")
-	stale, err := startHarnessStateRootAppProcess(ctx, stateRoot)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer reapHarnessCommand(stale)
-	other, err := startHarnessStateRootAppProcess(ctx, otherStateRoot)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer reapHarnessCommand(other)
 
-	session := localagent.Session{SessionID: "review-a", AppRoot: filepath.Join(root, "app"), StateRoot: stateRoot}
-	if err := stopDeletedSessionProcesses(ctx, session); err != nil {
-		return nil, nil, err
-	}
-	if !waitForPIDExit(ctx, stale.Process.Pid, 2*time.Second) {
-		return nil, nil, fmt.Errorf("matched state-root process %d survived cleanup", stale.Process.Pid)
-	}
-	if _, alive := inspectProcess(other.Process.Pid); !alive {
-		return nil, nil, fmt.Errorf("unrelated state-root process %d was stopped", other.Process.Pid)
-	}
-	cleanupStateRoot := filepath.Join(root, "app", ".scenery", "sessions", "cleanup-current")
-	cleanupStale, err := startHarnessStateRootAppProcess(ctx, cleanupStateRoot)
+	// A process that looks exactly like a session child (its executable lives
+	// under the session state root and is named scenery-app-*) but that no
+	// session recorded belongs to someone else and must survive every cleanup.
+	stateRoot := filepath.Join(root, "app", ".scenery", "sessions", "review-a")
+	lookalike, err := startHarnessStateRootAppProcess(ctx, stateRoot)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer reapHarnessCommand(cleanupStale)
+	defer reapHarnessCommand(lookalike)
+	unrecorded := localagent.Session{SessionID: "review-a", AppRoot: filepath.Join(root, "app"), StateRoot: stateRoot}
+	if err := stopDeletedSessionProcesses(ctx, unrecorded); err != nil {
+		return nil, nil, err
+	}
 	current := localagent.Session{
-		SessionID: "cleanup-current",
+		SessionID: "review-a",
 		AppRoot:   filepath.Join(root, "app"),
-		StateRoot: cleanupStateRoot,
+		StateRoot: stateRoot,
 		OwnerPID:  os.Getpid(),
 		Owner:     localagent.CurrentOwner("harness cleanup"),
 	}
-	if err := cleanupStaleDevSessionProcesses(ctx, current, nil); err != nil {
+	if err := cleanupStaleDevSessionProcesses(ctx, current, []localagent.Session{unrecorded}); err != nil {
 		return nil, nil, err
 	}
-	if !waitForPIDExit(ctx, cleanupStale.Process.Pid, 2*time.Second) {
-		return nil, nil, fmt.Errorf("stale-session state-root process %d survived cleanup", cleanupStale.Process.Pid)
+	if _, alive := inspectProcess(lookalike.Process.Pid); !alive {
+		return nil, nil, fmt.Errorf("unrecorded look-alike session process %d was stopped", lookalike.Process.Pid)
 	}
-	if _, alive := inspectProcess(other.Process.Pid); !alive {
-		return nil, nil, fmt.Errorf("stale-session cleanup stopped unrelated state-root process %d", other.Process.Pid)
-	}
+
 	registeredStale, registeredStaleOwner, err := startHarnessOwnedSleepProcess(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -107,6 +90,14 @@ func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (ma
 		return nil, nil, err
 	}
 	defer reapHarnessCommand(registeredOther)
+	changed, changedOwner, err := startHarnessOwnedSleepProcess(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer reapHarnessCommand(changed)
+	// A record whose identity no longer matches the live process names a
+	// process that ended; the PID now belongs to another process.
+	changedOwner.StartedAt = "Thu Jan  1 00:00:00 1970"
 	registeredRoot := filepath.Join(root, "registered-app")
 	registeredCurrent := localagent.Session{
 		SessionID: "registered-a",
@@ -119,7 +110,8 @@ func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (ma
 		AppRoot:   registeredRoot,
 		OwnerPID:  os.Getpid(),
 		Processes: map[string]localagent.Process{
-			"worker": {PID: registeredStale.Process.Pid, Owner: registeredStaleOwner},
+			"worker":  {PID: registeredStale.Process.Pid, Owner: registeredStaleOwner},
+			"changed": {PID: changed.Process.Pid, Owner: changedOwner},
 		},
 	}
 	registeredUnrelated := localagent.Session{
@@ -140,6 +132,9 @@ func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (ma
 	if _, alive := inspectProcess(registeredOther.Process.Pid); !alive {
 		return nil, nil, fmt.Errorf("different-session registered child %d was stopped", registeredOther.Process.Pid)
 	}
+	if _, alive := inspectProcess(changed.Process.Pid); !alive {
+		return nil, nil, fmt.Errorf("process %d whose recorded identity no longer verifies was stopped", changed.Process.Pid)
+	}
 	owner, ownerIdentity, err := startHarnessOwnedSleepProcess(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -158,13 +153,13 @@ func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (ma
 		return nil, nil, fmt.Errorf("verified session owner %d survived cleanup", owner.Process.Pid)
 	}
 	return map[string]any{
-		"proof":                      "real_owner_and_ps_discovered_orphan_processes_signaled_and_reaped",
-		"matched_process_pid":        stale.Process.Pid,
-		"stale_cleanup_process_pid":  cleanupStale.Process.Pid,
-		"unrelated_process_pid":      other.Process.Pid,
-		"unrelated_process_alive":    true,
+		"proof":                      "only_verified_recorded_processes_signaled",
+		"lookalike_process_pid":      lookalike.Process.Pid,
+		"lookalike_process_alive":    true,
 		"registered_child_pid":       registeredStale.Process.Pid,
 		"unrelated_registered_alive": true,
+		"changed_identity_pid":       changed.Process.Pid,
+		"changed_identity_alive":     true,
 		"owner_process_pid":          owner.Process.Pid,
 	}, nil, nil
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -41,105 +39,33 @@ func parseRuntimeProcesses(output string) []runtimeProcess {
 	return processes
 }
 
-func stopStaleUserCaddyEdges(paths localagent.Paths, timeout time.Duration) error {
-	if runtime.GOOS == "windows" {
+// stopRecordedStaleAgent stops the agent recorded as holding this home's
+// agent lock when it no longer answers on its socket. It acts only on that
+// record and only while the live process still verifies against it; a process
+// that merely looks like an agent, or shares the router address, belongs to
+// someone else.
+func stopRecordedStaleAgent(paths localagent.Paths, timeout time.Duration) error {
+	record, err := localagent.LoadAgentOwner(paths)
+	if err != nil {
 		return nil
 	}
-	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
-	if err != nil {
-		return err
+	owner := record.Owner
+	if owner.PID == os.Getpid() || localagent.VerifyOwner(owner) != nil {
+		return nil
 	}
-	configs := []string{filepath.Clean(paths.EdgeConfigPath)}
-	if home, err := os.UserHomeDir(); err == nil {
-		configs = append(configs, filepath.Join(home, ".onlava", "agent", "edge", "Caddyfile"))
+	if err := signalPID(owner.PID, syscall.SIGTERM); err != nil {
+		return fmt.Errorf("stop stale scenery agent pid %d: %w", owner.PID, err)
 	}
-	for _, process := range parseRuntimeProcesses(string(out)) {
-		if process.UID != os.Getuid() || !managedCaddyCommandMatches(process.Command, configs) {
-			continue
-		}
-		owner := localagent.CaptureOwner(process.PID, "stale scenery edge")
-		if err := localagent.VerifyOwner(owner); err != nil {
-			return fmt.Errorf("verify stale Caddy edge pid %d: %w", process.PID, err)
-		}
-		if err := signalPID(process.PID, syscall.SIGTERM); err != nil {
-			return fmt.Errorf("stop stale Caddy edge pid %d: %w", process.PID, err)
-		}
-		deadline := time.Now().Add(timeout)
-		for processAliveForEdge(process.PID) && time.Now().Before(deadline) {
-			time.Sleep(50 * time.Millisecond)
-		}
-		if processAliveForEdge(process.PID) {
-			if err := signalPID(process.PID, syscall.SIGKILL); err != nil {
-				return fmt.Errorf("kill stale Caddy edge pid %d: %w", process.PID, err)
-			}
+	deadline := time.Now().Add(timeout)
+	for localagent.VerifyOwner(owner) == nil && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if localagent.VerifyOwner(owner) == nil {
+		if err := signalPID(owner.PID, syscall.SIGKILL); err != nil {
+			return fmt.Errorf("kill stale scenery agent pid %d: %w", owner.PID, err)
 		}
 	}
 	return nil
-}
-
-func stopStaleUserSceneryAgents(socketPath, routerAddr string, timeout time.Duration) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
-	if err != nil {
-		return err
-	}
-	for _, process := range parseRuntimeProcesses(string(out)) {
-		if process.UID != os.Getuid() || process.PID == os.Getpid() || !edgeAgentCommandMatches(process.Command, routerAddr) {
-			continue
-		}
-		// A same-router-address agent serving a different control socket
-		// that still answers health on it is not stale: it is another agent
-		// home's live agent — typically the machine's supervised agent seen
-		// from a test, harness, or worktree agent start that uses the
-		// default router address. Killing it takes down real routing; the
-		// new agent falls back to another router port instead.
-		if isLiveForeignSceneryAgent(process.Command, socketPath) {
-			continue
-		}
-		owner := localagent.CaptureOwner(process.PID, "stale scenery agent")
-		if err := localagent.VerifyOwner(owner); err != nil {
-			return fmt.Errorf("verify stale scenery agent pid %d: %w", process.PID, err)
-		}
-		if err := signalPID(process.PID, syscall.SIGTERM); err != nil {
-			return fmt.Errorf("stop stale scenery agent pid %d: %w", process.PID, err)
-		}
-		deadline := time.Now().Add(timeout)
-		for processAliveForEdge(process.PID) && time.Now().Before(deadline) {
-			time.Sleep(50 * time.Millisecond)
-		}
-		if processAliveForEdge(process.PID) {
-			if err := signalPID(process.PID, syscall.SIGKILL); err != nil {
-				return fmt.Errorf("kill stale scenery agent pid %d: %w", process.PID, err)
-			}
-		}
-	}
-	return nil
-}
-
-func isLiveForeignSceneryAgent(command, socketPath string) bool {
-	otherSocket := agentCommandSocketPath(command)
-	if otherSocket == "" || filepath.Clean(otherSocket) == filepath.Clean(socketPath) {
-		return false
-	}
-	return agentSocketHealthy(otherSocket)
-}
-
-func agentCommandSocketPath(command string) string {
-	fields := strings.Fields(command)
-	for i, field := range fields {
-		if field == "--socket" && i+1 < len(fields) {
-			return fields[i+1]
-		}
-	}
-	return ""
-}
-
-func agentSocketHealthy(socketPath string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	return localagent.NewClient(socketPath).Ping(ctx) == nil
 }
 
 func managedCaddyCommandMatches(command string, configPaths []string) bool {
@@ -152,97 +78,6 @@ func managedCaddyCommandMatches(command string, configPaths []string) bool {
 		}
 	}
 	return false
-}
-
-func stopStaleRootCaddyEdge(ownerHome string, timeout time.Duration) error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("stale root Caddy cleanup must run as root")
-	}
-	configPath := filepath.Join(ownerHome, "agent", "edge", "Caddyfile")
-	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
-	if err != nil {
-		return err
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		pid, pidErr := strconv.Atoi(fields[0])
-		uid, uidErr := strconv.Atoi(fields[1])
-		command := strings.Join(fields[2:], " ")
-		if pidErr != nil || uidErr != nil || uid != 0 || pid <= 0 {
-			continue
-		}
-		if !strings.Contains(command, "caddy run") || !strings.Contains(command, "--config "+configPath) {
-			continue
-		}
-		if err := signalPID(pid, syscall.SIGTERM); err != nil {
-			return fmt.Errorf("stop stale root Caddy edge pid %d: %w", pid, err)
-		}
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if !processAliveForEdge(pid) {
-				return nil
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-		if err := signalPID(pid, syscall.SIGKILL); err != nil {
-			return fmt.Errorf("kill stale root Caddy edge pid %d: %w", pid, err)
-		}
-		return nil
-	}
-	return nil
-}
-
-func stopStaleRootSceneryEdgeAgent(routerAddr string, timeout time.Duration) error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("stale root agent cleanup must run as root")
-	}
-	routerAddr = strings.TrimSpace(routerAddr)
-	if routerAddr == "" {
-		routerAddr = localagent.RouterAddrFromEnv()
-	}
-	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
-	if err != nil {
-		return err
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		pid, pidErr := strconv.Atoi(fields[0])
-		uid, uidErr := strconv.Atoi(fields[1])
-		command := strings.Join(fields[2:], " ")
-		if pidErr != nil || uidErr != nil || uid != 0 || pid <= 0 {
-			continue
-		}
-		if !edgeAgentCommandMatches(command, routerAddr) {
-			continue
-		}
-		if err := signalPID(pid, syscall.SIGTERM); err != nil {
-			return fmt.Errorf("stop stale root scenery system edge agent pid %d: %w", pid, err)
-		}
-		deadline := time.Now().Add(timeout)
-		for processAliveForEdge(pid) && time.Now().Before(deadline) {
-			time.Sleep(50 * time.Millisecond)
-		}
-		if processAliveForEdge(pid) {
-			if err := signalPID(pid, syscall.SIGKILL); err != nil {
-				return fmt.Errorf("kill stale root scenery system edge agent pid %d: %w", pid, err)
-			}
-		}
-	}
-	return nil
 }
 
 func stopEdge(paths localagent.Paths, timeout time.Duration) error {

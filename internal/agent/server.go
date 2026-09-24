@@ -88,6 +88,9 @@ func NewServer(opts RunOptions) (*Server, error) {
 			_ = processLock.Release()
 		}
 	}()
+	if err := WriteAgentOwner(paths); err != nil {
+		return nil, fmt.Errorf("record scenery agent owner: %w", err)
+	}
 	routerAddr := strings.TrimSpace(opts.RouterAddr)
 	if routerAddr == "" {
 		routerAddr = RouterAddrFromEnv()

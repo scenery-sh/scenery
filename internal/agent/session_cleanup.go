@@ -5,46 +5,38 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"scenery.sh/internal/devprocess"
-	"strconv"
+	"sort"
 	"strings"
+	"syscall"
 	"time"
+
+	"scenery.sh/internal/devprocess"
 )
+
+// Session cleanup signals only processes a session recorded as its own: the
+// supervisor owner and each registered child, each verified against the
+// identity captured when it was registered. A process that merely resembles a
+// session process by its command line, environment, listening port or parent
+// belongs to someone else and is never selected. A recorded child stays owned
+// after its supervisor is gone, so a stale session's children are still
+// stopped through its record.
 
 const staleSessionCleanupGrace = 2 * time.Second
 
+// CleanupStaleSessionProcesses stops the recorded processes of every previous
+// session in current's cleanup scope.
 func CleanupStaleSessionProcesses(ctx context.Context, current Session, previous []Session) error {
-	return cleanupStaleDevSessionProcessesWithDependencies(ctx, current, previous, staleDevSessionCleanupDependencies{
-		sameScope:       SameSessionCleanupScope,
-		stopRegistered:  StopStaleRegisteredSessionProcesses,
-		stopCommands:    stopSessionCommandProcesses,
-		stopEnvironment: stopSessionEnvProcesses,
-	})
-}
-
-type staleDevSessionCleanupDependencies struct {
-	sameScope       func(Session, Session) bool
-	stopRegistered  func(context.Context, Session, Session, map[int]bool) error
-	stopCommands    func(context.Context, Session, map[int]bool) error
-	stopEnvironment func(context.Context, Session, map[int]bool) error
-}
-
-func cleanupStaleDevSessionProcessesWithDependencies(ctx context.Context, current Session, previous []Session, deps staleDevSessionCleanupDependencies) error {
 	if strings.TrimSpace(current.AppRoot) == "" || strings.TrimSpace(current.SessionID) == "" {
 		return nil
 	}
 	var errs []error
 	seen := map[int]bool{}
 	for _, session := range previous {
-		if !deps.sameScope(current, session) {
+		if !SameSessionCleanupScope(current, session) {
 			continue
 		}
-		errs = append(errs, deps.stopRegistered(ctx, current, session, seen))
+		errs = append(errs, StopStaleRegisteredSessionProcesses(ctx, current, session, seen))
 	}
-	errs = append(errs, deps.stopCommands(ctx, current, seen))
-	errs = append(errs, deps.stopEnvironment(ctx, current, seen))
 	return errors.Join(errs...)
 }
 
@@ -64,174 +56,104 @@ func SameSessionCleanupScope(current, previous Session) bool {
 	return !live
 }
 
+// StopStaleRegisteredSessionProcesses stops previous's verified owner and
+// children, never current's owner or this process.
 func StopStaleRegisteredSessionProcesses(ctx context.Context, current, previous Session, seen map[int]bool) error {
-	var errs []error
-	currentOwnerPID := firstPositiveInt(current.OwnerPID, current.Owner.PID)
-	previousOwnerPID := firstPositiveInt(previous.OwnerPID, previous.Owner.PID)
-	if previousOwnerPID > 0 && previousOwnerPID != os.Getpid() && previousOwnerPID != currentOwnerPID {
-		if shouldSignalSessionOwner(previous) {
-			errs = append(errs, stopSessionOwnerPID(ctx, previousOwnerPID))
-			seen[previousOwnerPID] = true
-		}
+	keep := map[int]bool{os.Getpid(): true}
+	if pid := firstPositiveInt(current.OwnerPID, current.Owner.PID); pid > 0 {
+		keep[pid] = true
 	}
-	for _, pid := range sessionProcessPIDs(previous) {
-		if pid <= 0 || pid == os.Getpid() || pid == currentOwnerPID || seen[pid] {
+	return stopRecordedSessionProcesses(ctx, previous, keep, seen, VerifyOwner, stopRecordedSessionOwner, stopRecordedSessionChild)
+}
+
+// StopDeletedSessionProcesses stops the verified owner and children a deleted
+// session recorded.
+func StopDeletedSessionProcesses(ctx context.Context, session Session) error {
+	return stopRecordedSessionProcesses(ctx, session, map[int]bool{os.Getpid(): true}, map[int]bool{}, VerifyOwner, stopRecordedSessionOwner, stopRecordedSessionChild)
+}
+
+type recordedProcessStop func(context.Context, Owner) error
+
+func stopRecordedSessionProcesses(ctx context.Context, session Session, keep, seen map[int]bool, verify func(Owner) error, stopOwner, stopChild recordedProcessStop) error {
+	var errs []error
+	if owner, ok := recordedSessionOwner(session, verify); ok && !keep[owner.PID] && !seen[owner.PID] {
+		errs = append(errs, stopOwner(ctx, owner))
+		seen[owner.PID] = true
+	}
+	for _, owner := range recordedSessionChildren(session, verify) {
+		if keep[owner.PID] || seen[owner.PID] {
 			continue
 		}
-		if err := stopStaleSessionChildPID(ctx, pid); err != nil {
-			errs = append(errs, err)
-		}
-		seen[pid] = true
+		errs = append(errs, stopChild(ctx, owner))
+		seen[owner.PID] = true
 	}
 	return errors.Join(errs...)
 }
 
-func shouldSignalSessionOwner(session Session) bool {
+// recordedSessionOwner returns the session's supervisor owner when its record
+// names the effective owner PID and the live process still verifies.
+func recordedSessionOwner(session Session, verify func(Owner) error) (Owner, bool) {
 	owner := session.Owner
-	effectivePID := firstPositiveInt(session.OwnerPID, owner.PID)
-	if owner.PID != effectivePID {
-		owner = Owner{}
+	pid := firstPositiveInt(session.OwnerPID, owner.PID)
+	if pid <= 0 || owner.PID != pid || verify(owner) != nil {
+		return Owner{}, false
 	}
-	if owner.PID <= 0 {
-		owner.PID = session.OwnerPID
-	}
-	if owner.PID <= 0 {
-		return false
-	}
-	if err := VerifyOwner(owner); err == nil {
-		return true
-	}
-	info, ok := devprocess.Inspect(owner.PID)
-	return ok && looksLikeSceneryDashboardProcess(info)
+	return owner, true
 }
 
-func stopSessionOwnerPID(ctx context.Context, pid int) error {
+// recordedSessionChildren returns, in PID order, the registered children whose
+// recorded owner names their PID and still verifies.
+func recordedSessionChildren(session Session, verify func(Owner) error) []Owner {
+	var owners []Owner
+	selected := map[int]bool{}
+	for _, process := range session.Processes {
+		if process.PID <= 0 || process.Owner.PID != process.PID || selected[process.PID] || verify(process.Owner) != nil {
+			continue
+		}
+		selected[process.PID] = true
+		owners = append(owners, process.Owner)
+	}
+	sort.Slice(owners, func(i, j int) bool { return owners[i].PID < owners[j].PID })
+	return owners
+}
+
+func stopRecordedSessionOwner(ctx context.Context, owner Owner) error {
+	return stopRecordedProcess(ctx, owner, "stale scenery up owner",
+		func(pid int) error { return signalRecordedPID(pid, os.Interrupt) },
+		func(pid int) error { return signalRecordedPID(pid, syscall.SIGKILL) })
+}
+
+func stopRecordedSessionChild(ctx context.Context, owner Owner) error {
+	return stopRecordedProcess(ctx, owner, "stale scenery session child", devprocess.TerminateTreePID, devprocess.KillTreePID)
+}
+
+// stopRecordedProcess asks the recorded process to stop and escalates only
+// while the same recorded identity still verifies.
+func stopRecordedProcess(ctx context.Context, owner Owner, label string, terminate, kill func(int) error) error {
+	if err := terminate(owner.PID); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	if devprocess.WaitForExit(ctx, owner.PID, staleSessionCleanupGrace) {
+		return nil
+	}
+	if VerifyOwner(owner) != nil {
+		return nil
+	}
+	if err := kill(owner.PID); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	if devprocess.WaitForExit(ctx, owner.PID, time.Second) {
+		return nil
+	}
+	return fmt.Errorf("%s process %d did not exit after SIGKILL", label, owner.PID)
+}
+
+func signalRecordedPID(pid int, signal os.Signal) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return nil
 	}
-	if err := proc.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	if devprocess.WaitForExit(ctx, pid, staleSessionCleanupGrace) {
-		return nil
-	}
-	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	if devprocess.WaitForExit(ctx, pid, time.Second) {
-		return nil
-	}
-	return fmt.Errorf("stale scenery up owner process %d did not exit after SIGKILL", pid)
-}
-
-func stopStaleSessionChildPID(ctx context.Context, pid int) error {
-	if err := devprocess.TerminateTreePID(pid); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	if devprocess.WaitForExit(ctx, pid, staleSessionCleanupGrace) {
-		return nil
-	}
-	if err := devprocess.KillTreePID(pid); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	if devprocess.WaitForExit(ctx, pid, time.Second) {
-		return nil
-	}
-	return fmt.Errorf("stale scenery session child process %d did not exit after SIGKILL", pid)
-}
-
-func sessionProcessPIDs(session Session) []int {
-	seen := map[int]bool{}
-	var pids []int
-	if pid := atoiPID(session.AppPID); pid > 0 {
-		process := session.Processes[RouteAPI]
-		process.PID = pid
-		if shouldSignalSessionProcess(process) {
-			seen[pid] = true
-			pids = append(pids, pid)
-		}
-	}
-	for _, process := range session.Processes {
-		if process.PID > 0 && !seen[process.PID] && shouldSignalSessionProcess(process) {
-			seen[process.PID] = true
-			pids = append(pids, process.PID)
-		}
-	}
-	return pids
-}
-
-func shouldSignalSessionProcess(process Process) bool {
-	if process.PID <= 0 {
-		return false
-	}
-	if process.Owner.PID <= 0 {
-		info, ok := devprocess.Inspect(process.PID)
-		return ok && looksLikeScenerySessionChildProcess(info)
-	}
-	return process.Owner.PID == process.PID && VerifyOwner(process.Owner) == nil
-}
-
-func looksLikeScenerySessionChildProcess(info devprocess.ProcessInfo) bool {
-	command := strings.ToLower(filepath.ToSlash(strings.TrimSpace(info.Command)))
-	return strings.Contains(command, "/.scenery/") ||
-		strings.Contains(command, "scenery-app-") ||
-		strings.Contains(command, "worker.ts")
-}
-
-func stopSessionCommandProcesses(ctx context.Context, current Session, seen map[int]bool) error {
-	output, err := exec.Command("ps", "-axo", "pid=,stat=,command=").Output()
-	if err != nil {
-		return nil
-	}
-	return stopSessionCommandProcessesFromPS(ctx, current, seen, string(output), stopStaleSessionChildPID)
-}
-
-func stopSessionCommandProcessesFromPS(ctx context.Context, current Session, seen map[int]bool, output string, stopPID func(context.Context, int) error) error {
-	stateRoot := filepath.ToSlash(cleanAbsPath(current.StateRoot))
-	if stateRoot == "" {
-		return nil
-	}
-	var errs []error
-	for _, line := range strings.Split(output, "\n") {
-		pid, stat, command, ok := parsePSCommandLine(line)
-		if !ok || pid <= 0 || pid == os.Getpid() || strings.Contains(stat, "Z") || seen[pid] {
-			continue
-		}
-		if !commandMatchesSessionStateRoot(command, stateRoot) {
-			continue
-		}
-		if err := stopPID(ctx, pid); err != nil {
-			errs = append(errs, err)
-		}
-		seen[pid] = true
-	}
-	return errors.Join(errs...)
-}
-
-func parsePSCommandLine(line string) (int, string, string, bool) {
-	fields := strings.Fields(strings.TrimSpace(line))
-	if len(fields) < 3 {
-		return 0, "", "", false
-	}
-	pid, err := strconv.Atoi(fields[0])
-	if err != nil {
-		return 0, "", "", false
-	}
-	return pid, fields[1], strings.Join(fields[2:], " "), true
-}
-
-func commandMatchesSessionStateRoot(command, stateRoot string) bool {
-	command = filepath.ToSlash(strings.TrimSpace(command))
-	return strings.Contains(command, stateRoot+"/") && strings.Contains(command, "scenery-app")
-}
-
-func atoiPID(value string) int {
-	pid, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil {
-		return 0
-	}
-	return pid
+	return proc.Signal(signal)
 }
 
 func firstPositiveInt(values ...int) int {
