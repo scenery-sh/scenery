@@ -93,9 +93,9 @@ func buildCommand(out io.Writer, args []string) error {
 	}
 	var result *build.Result
 	if development {
-		result, err = build.AppForTarget(appRoot, cfg, targetName, "development")
+		result, err = build.AppForTarget(appRoot, cfg, targetName)
 	} else {
-		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName, "artifact")
+		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName)
 	}
 	if err != nil {
 		if _, ok := errors.AsType[*compiler.GoTargetSelectionError](err); ok {

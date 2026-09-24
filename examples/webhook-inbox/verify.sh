@@ -75,9 +75,10 @@ api_pid=""
 start_api
 [[ "$(sql 'SELECT state FROM scenery.durable_jobs')" == queued ]]
 [[ "$(sql 'SELECT count(*) FROM inbox.processed_events')" == 0 ]]
-SCENERY_ROLE=worker "$proof_root/webhook" > "$proof_root/worker.log" 2>&1 &
+# The CLI worker path builds the development target and runs SCENERY_ROLE=worker.
+"$scenery_cli" worker > "$proof_root/worker.log" 2>&1 &
 worker_pid=$!
-for ((attempt=0; attempt<100; attempt++)); do
+for ((attempt=0; attempt<600; attempt++)); do
   kill -0 "$worker_pid"
   [[ "$(sql 'SELECT state FROM scenery.durable_jobs')" == succeeded ]] && break
   sleep 0.1

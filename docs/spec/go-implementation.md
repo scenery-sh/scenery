@@ -207,7 +207,7 @@ Package patterns are interpreted by the declared Go toolchain in the explicit mo
 
 ### 5.3 Command selection and inheritance
 
-`serve` selects a development target executable on the current host. `test` selects a host-executable test target. `build` selects one or more artifact targets. `check` may validate a contract target, verify one implementation target, or verify every target marked `verify_by_default`; contract package generation is target-independent.
+`serve` selects a development target executable on the current host. `worker` selects the same development target and runs it in the worker process role; process roles are runtime selections inside one binary, not target roles. `test` selects a host-executable test target. `build` selects one or more artifact targets. `check` may validate a contract target, verify one implementation target, or verify every target marked `verify_by_default`; contract package generation is target-independent.
 
 `platform = "host"` resolves through the toolchain adapter and records exact resolved GOOS, GOARCH, architecture features, CGO, and native tool identities. It cannot be used as a reproducible production deployment target. Fixed artifact targets are reproducible but need not be locally executable.
 
