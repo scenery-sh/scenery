@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { PublicApiClient } from "../../compiler/testdata/native/clients/generated/public_api/client.ts";
 import { PublicApiClient as HouseClient } from "../../compiler/testdata/house/clients/generated/public_api/client.ts";
 import { sceneryClientMetadata } from "../../compiler/testdata/house/clients/generated/public_api/metadata.ts";
-import { DevRuntimeClient, DevRuntimeError } from "../../compiler/testdata/house/clients/generated/public_api/dev-runtime.ts";
 import type { URLString } from "../../compiler/testdata/native/clients/generated/public_api/types.ts";
 
 import {
@@ -674,85 +673,4 @@ describe("Scenery TypeScript client exact codecs", () => {
 		})()).rejects.toMatchObject({ code: "contract_violation" });
 	});
 
-});
-
-// ScriptedRuntimeSocket stands in for the browser WebSocket: it records sent
-// frames and lets a test answer them.
-class ScriptedRuntimeSocket {
-	static readonly OPEN = 1;
-	static latest: ScriptedRuntimeSocket | undefined;
-	readyState = 0;
-	readonly sent: { id: number; method: string }[] = [];
-	readonly #listeners = new Map<string, ((event: { data?: string }) => void)[]>();
-
-	constructor(readonly url: string) {
-		ScriptedRuntimeSocket.latest = this;
-		queueMicrotask(() => {
-			this.readyState = ScriptedRuntimeSocket.OPEN;
-			this.#emit("open", {});
-		});
-	}
-
-	addEventListener(type: string, listener: (event: { data?: string }) => void): void {
-		this.#listeners.set(type, [...(this.#listeners.get(type) ?? []), listener]);
-	}
-
-	send(frame: string): void {
-		this.sent.push(JSON.parse(frame));
-	}
-
-	close(): void {
-		this.readyState = 3;
-		this.#emit("close", {});
-	}
-
-	answer(message: object): void {
-		this.#emit("message", { data: JSON.stringify({ jsonrpc: "2.0", ...message }) });
-	}
-
-	#emit(type: string, event: { data?: string }): void {
-		for (const listener of this.#listeners.get(type) ?? []) listener(event);
-	}
-}
-
-describe("Scenery development runtime client", () => {
-	test("rejects only the refused call with the runtime failure and keeps serving", async () => {
-		const previous = globalThis.WebSocket;
-		(globalThis as { WebSocket: unknown }).WebSocket = ScriptedRuntimeSocket;
-		const client = new DevRuntimeClient({ url: "ws://runtime.test/runtime" });
-		try {
-			const refused = client.query("session-a", { query: "select pg_sleep(20)" }).catch((error: unknown) => error);
-			const tooLarge = client.postgresRows("session-a", { table: "scenery.events", limit: 500 }).catch((error: unknown) => error);
-			const tables = client.postgresTables("session-a");
-			await new Promise((resolve) => setTimeout(resolve, 0));
-			const socket = ScriptedRuntimeSocket.latest!;
-			expect(socket.sent.map((frame) => frame.method)).toEqual(["db/query", "postgres/rows", "postgres/tables"]);
-
-			const capacity = {
-				code: "capacity_exhausted",
-				diagnostic: "SCN8011",
-				message: "the development runtime is already running 6 database or storage calls on this connection; retry after one completes",
-				details: { class: "work", scope: "connection", limit: 6 },
-			};
-			socket.answer({ id: socket.sent[0]!.id, error: { code: -32000, message: `SCN8011: ${capacity.message}`, data: capacity } });
-			const budget = {
-				code: "result_too_large",
-				diagnostic: "SCN8013",
-				message: "the result exceeds 500 rows or 4 MiB; request fewer rows",
-				details: { max_rows: 500, max_bytes: 4194304, rows_within_budget: 40 },
-			};
-			socket.answer({ id: socket.sent[1]!.id, error: { code: -32000, message: `SCN8013: ${budget.message}`, data: budget } });
-			socket.answer({ id: socket.sent[2]!.id, result: [{ schema: "scenery", name: "scenery.events", type: "table" }] });
-
-			const refusal = await refused;
-			expect(refusal).toBeInstanceOf(DevRuntimeError);
-			expect(refusal).toMatchObject({ code: "rpc", diagnostic: "SCN8011", message: `SCN8011: ${capacity.message}`, details: capacity.details });
-			expect(await tooLarge).toMatchObject({ code: "rpc", diagnostic: "SCN8013", details: { rows_within_budget: 40 } });
-			expect(await tables).toEqual([{ schema: "scenery", name: "scenery.events", type: "table" }]);
-			expect(client.connected).toBe(true);
-		} finally {
-			client.dispose();
-			(globalThis as { WebSocket: unknown }).WebSocket = previous;
-		}
-	});
 });

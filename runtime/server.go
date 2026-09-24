@@ -187,6 +187,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 		s.registerProcessLinkRoutes()
 		s.registerProcessServiceRoutes()
 	}
+	s.registerPublicConfiguration()
 	if devEndpointsEnabled() {
 		s.registerSceneryConfig()
 		s.registerPlatformStats()
@@ -226,6 +227,27 @@ type publicConfigResponse struct {
 	RuntimeAppID string `json:"runtimeAppID,omitempty"`
 	SessionID    string `json:"sessionID,omitempty"`
 	APIBaseURL   string `json:"apiBaseURL"`
+}
+
+func (s *server) registerPublicConfiguration() {
+	registerRoute(s.public, PublicConfigPath, []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
+		document, err := publicConfiguration()
+		if err != nil {
+			errs.HTTPError(w, errs.B().Code(errs.Unavailable).Msg("public configuration is unavailable").Err())
+			return
+		}
+		etag := `"` + document.Revision + `"`
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", etag)
+		if req.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(document); err != nil {
+			errs.HTTPError(w, errs.Wrap(err, "encode public configuration"))
+		}
+	})
 }
 
 func (s *server) registerSceneryConfig() {
@@ -735,13 +757,17 @@ func authenticateRequest(req *http.Request, ep *Endpoint) (AuthInfo, error) {
 // answer HTTP 500 with its own text, such as an auth handler's database error
 // or a missing auth handler, answers the standard system.internal problem, and
 // logs and traces keep its cause. Admission and other typed errs failures keep
-// their own rendering.
+// their own rendering. The traced status follows the same precedence as the
+// response: transport outcome, then the endpoint's admission mapping, then the
+// errs code.
 func writeAuthenticationFailure(writer http.ResponseWriter, state *requestState, endpoint *Endpoint, err error) {
 	err = classifyContractFailure(err)
 	logRequestStart(state)
 	status := errs.HTTPStatus(err)
 	if transportStatus, ok := contractTransportHTTPStatus(err); ok {
 		status = transportStatus
+	} else if admissionStatus, ok := contractAdmissionHTTPStatus(endpoint, err); ok {
+		status = admissionStatus
 	}
 	finishRequestTrace(state, status, err)
 	if writeContractTransportError(writer, err) || writeContractAdmissionError(writer, endpoint, err) {

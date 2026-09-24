@@ -47,7 +47,7 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 			if phase != "contract" && phase != "implementation" && phase != "deployment" {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3406", Severity: "error", Message: "Go service config " + name + " uses an invalid package input phase", Address: service.Address, Path: "/spec/config/" + name})
 			}
-			field := map[string]any{"name": name, "type": declaration.Type, "phase": phase, "sensitive": declaration.Sensitive}
+			field := map[string]any{"name": name, "input": inputName, "type": declaration.Type, "phase": phase, "sensitive": declaration.Sensitive, "optional": declaration.Optional}
 			for constraint, value := range declaration.Constraints {
 				field[constraint] = cloneSemanticValue(value)
 			}
@@ -102,7 +102,11 @@ func validateGoServiceConfiguration(resources []Resource) []Diagnostic {
 			declared[name] = true
 			value, exists := config[name]
 			if !exists {
-				diagnostics = append(diagnostics, goConfigDiagnostic("SCN3403", "Go service config has no resolved value", service, name))
+				// A configurable deployment input without a declared value is
+				// supplied by the selected environment's runtime snapshot.
+				if !ConfigurableDeploymentInput(stringValue(field["phase"]), typeExpression, field["sensitive"] == true) {
+					diagnostics = append(diagnostics, goConfigDiagnostic("SCN3403", "Go service config has no resolved value", service, name))
+				}
 				continue
 			}
 			reference := refString(value)

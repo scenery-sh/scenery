@@ -168,6 +168,26 @@ The CLI resolves app-authored files and verified stopped worktree authority;
 this package executes SQL and ledger publication in one transaction. It does
 not infer migrations, reset populated schemas or adopt unknown schema shapes.
 
+### `internal/appconfig`
+
+Follow [environment configuration instructions](internal/appconfig/AGENTS.md)
+for this boundary.
+
+`internal/appconfig` owns environment configuration: the catalog of
+environment-configurable deployment inputs and framework inputs derived from a
+compiled manifest, pure two-layer resolution (declared default, then the
+selected environment's value), the authoritative per-application store under
+`<agent home>/apps/<app-id>/` and the OS secret-backend adapters.
+
+Architecture invariant: configuration is selected by application and
+environment only, and configured values are runtime inputs. They reach
+processes as revision-bound snapshots over inherited pipes
+(`runtime/deployment_config.go`) and never change generated code or
+executables. Local supervisors restart only the service processes whose
+snapshot changed; deployable environments change only through `scenery
+deploy`, whose staged releases pin one configuration revision
+(`cmd/scenery/deploy_release.go`).
+
 ### `internal/desktop`
 
 `internal/desktop` owns the Tauri-specific project contract: resolving a

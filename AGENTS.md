@@ -55,6 +55,7 @@ Guidance, Verification and Child Agent Index as useful section headings.
 
 - `examples/webhook-inbox/AGENTS.md` owns the independent durable webhook example and its isolated native proof.
 - `internal/app/AGENTS.md` owns app discovery, configuration and pure SQL requirement supply.
+- `internal/appconfig/AGENTS.md` owns the environment configuration catalog, resolution, store and secret adapters.
 - `internal/parse/AGENTS.md` owns Go package analysis and model-owned ABI data.
 - `internal/agent/AGENTS.md` owns local agent protocol state, machine ownership records, and their durable identity migrations.
 - `internal/compiler/AGENTS.md` owns source loading, validation, expansion, and immutable compiler results.

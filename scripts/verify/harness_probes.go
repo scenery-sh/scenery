@@ -88,6 +88,9 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("victoria", runHarnessVictoriaProcessProbeStep),
 		harnessSingleProbe("desktop", runHarnessDesktopProcessProbeStep),
 		harnessSingleProbe("deploy-ssh", runHarnessDeploySSHProcessProbeStep),
+		harnessSingleProbe("configuration", configurationProbeStep("environment configuration probe", runHarnessConfigurationProbe)),
+		harnessSingleProbe("configuration-secrets", configurationProbeStep("environment configuration secrets probe", runHarnessConfigurationSecretsProbe)),
+		harnessSingleProbe("configuration-deploy", configurationProbeStep("environment configuration deploy probe", runHarnessConfigurationDeployProbe)),
 		harnessSingleProbe("validation-git", runHarnessValidationGitProbeStep),
 		harnessSingleProbe("test-cache", runHarnessTestsuiteCacheProbeStep),
 	}
@@ -129,7 +132,7 @@ func runHarnessUIProbe(ctx context.Context, repoRoot string, resp *harnessSelfRe
 	}
 	tsc := filepath.Join(toolingRoot, "node_modules", ".bin", "tsc")
 	resp.Steps = append(resp.Steps,
-		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
+		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts", "internal/generate/testdata/dev_runtime_client.test.ts"}, artifactCtx),
 		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{tsc, "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
 		runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{tsc, "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
 	)

@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
+
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/storageconfig"
-	"strings"
 )
 
 func storageCapabilityEnv(ctx context.Context, appRoot string, cfg appcfg.Config, session *localagent.Session, baseEnv []string, agentHome string) ([]string, error) {

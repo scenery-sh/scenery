@@ -190,13 +190,10 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 		requirements, err := compileSQLRequirements(resp.App.Root)
 		sqlErr = err
 		if sqlErr == nil {
-			env, envErr := appEnvWithDotEnv(envpolicy.Environ(), resp.App.Root)
-			sqlErr = envErr
-			if sqlErr == nil {
-				bindings, supplyErr := resolveSQLSupply(requirements, env, true)
-				sqlErr = supplyErr
-				managedSQL = supplyErr == nil && len(bindings) > 0 && lookupEnvValue(env, appDatabaseURLEnv) == ""
-			}
+			env := envpolicy.Environ()
+			bindings, supplyErr := resolveSQLSupply(requirements, env, true)
+			sqlErr = supplyErr
+			managedSQL = supplyErr == nil && len(bindings) > 0 && lookupEnvValue(env, appDatabaseURLEnv) == ""
 		}
 		if sqlErr != nil {
 			resp.Checks = append(resp.Checks, doctor.Check{ID: "app.sql_requirements", Category: "database", Name: "SQL requirements", Status: doctor.StatusError, Severity: doctor.SeverityRequired,

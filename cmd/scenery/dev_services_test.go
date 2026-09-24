@@ -74,7 +74,7 @@ func TestValidateHeadlessPostgresEnvRequiresExplicitDSN(t *testing.T) {
 
 	requirements := testSQLRequirements(t, "reports")
 	err := validateHeadlessPostgresEnv(requirements, nil)
-	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") || !strings.Contains(err.Error(), "scenery up") {
+	if err == nil || !strings.Contains(err.Error(), "sql.database_url") || !strings.Contains(err.Error(), "scenery up") {
 		t.Fatalf("validateHeadlessPostgresEnv error = %v", err)
 	}
 	if err := validateHeadlessPostgresEnv(requirements, []string{"DATABASE_URL=postgres://user:secret@localhost/reports"}); err != nil {

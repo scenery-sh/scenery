@@ -171,6 +171,7 @@ SCN1209|open_union_preservation|An open union has no unknown variant preservatio
 SCN1210|union_payload|A union variant payload is not a record
 SCN1211|union_discriminator_collision|A union discriminator collides with a payload field
 SCN1212|contextual_scalar|A contextual exact scalar is invalid
+SCN1213|deployment_only_type|A deployment-only type such as host_path appears outside a deployment-phase input
 SCN1220|unknown_record_fields_policy|A record unknown-fields policy is invalid
 SCN1221|record_field_identity|Record field names are empty or duplicated
 SCN1222|record_field_attribute|A record field constraint attribute is unknown
@@ -344,6 +345,7 @@ SCN3404|go_config_type|A Go service config field has no stable package input typ
 SCN3405|go_config_key|A Go service config key is not lower snake case
 SCN3406|go_config_phase|A Go service config package input phase is invalid
 SCN3407|go_config_value_type|A Go service config value does not match its package input type
+SCN3408|public_config_input|A public configuration input is sensitive or not an environment-configurable value
 SCN4001|secret_config_sink|Secret configuration lacks a sensitive typed secret reference
 SCN4002|nonsecret_config_flow|A resource or secret reference flows into non-secret configuration
 SCN4003|sensitive_config_reference|Sensitive Go configuration lacks a secret resource reference

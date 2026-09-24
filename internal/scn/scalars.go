@@ -8,7 +8,7 @@ import (
 	scenery "scenery.sh/internal/contract"
 )
 
-var contextualPrimitiveTypes = map[string]bool{"bytes": true, "uuid": true, "date": true, "datetime": true, "duration": true, "size": true, "url": true, "relative_path": true}
+var contextualPrimitiveTypes = map[string]bool{"bytes": true, "uuid": true, "date": true, "datetime": true, "duration": true, "size": true, "url": true, "relative_path": true, "host_path": true}
 
 // IsContextualPrimitive reports whether a type is normalized from source text.
 func IsContextualPrimitive(typeExpression string) bool {
@@ -70,6 +70,12 @@ func ContextualizePrimitive(value, typeExpression string) (any, error) {
 			return nil, err
 		}
 		return scalar("relative_path", string(parsed)), nil
+	case "host_path":
+		parsed, err := scenery.ParseHostPath(value)
+		if err != nil {
+			return nil, err
+		}
+		return scalar("host_path", string(parsed)), nil
 	default:
 		return value, nil
 	}

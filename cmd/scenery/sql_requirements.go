@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"scenery.sh/internal/appconfig"
 	"scenery.sh/internal/compiler"
 )
 
@@ -47,14 +48,14 @@ func resolveSQLSupply(requirements compiler.SQLRequirements, env []string, allow
 		return bindings, nil
 	}
 	if !allowManaged {
-		return nil, &codedCLIError{code: 3, err: fmt.Errorf("app SQL requirements need DATABASE_URL for scenery worker; supply it through the selected environment; managed PostgreSQL is a scenery up development capability")}
+		return nil, &codedCLIError{code: 3, err: fmt.Errorf("app SQL requirements need an external database for scenery worker; configure %s for the selected environment; managed PostgreSQL is a scenery up development capability", appconfig.SQLDatabaseURLKey)}
 	}
 	for _, requirement := range requirements {
 		if remoteDurable && requirement.Kind == compiler.SQLDurable {
 			continue
 		}
 		if requirement.Lifecycle != "managed" {
-			return nil, &codedCLIError{code: 3, err: fmt.Errorf("SQL requirement %s has lifecycle %q, which does not authorize managed provisioning; supply an explicit DATABASE_URL or intentionally declare managed lifecycle in source", requirement.Address, requirement.Lifecycle)}
+			return nil, &codedCLIError{code: 3, err: fmt.Errorf("SQL requirement %s has lifecycle %q, which does not authorize managed provisioning; configure %s for the environment or intentionally declare managed lifecycle in source", requirement.Address, requirement.Lifecycle, appconfig.SQLDatabaseURLKey)}
 		}
 	}
 	return bindings, nil

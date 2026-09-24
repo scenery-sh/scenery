@@ -723,10 +723,6 @@ prepare_runtime_app() {
     cp -R "$APP_ROOT/assistants" "$runtime_root/assistants"
     cp -R "$APP_ROOT/clients" "$runtime_root/clients"
   fi
-  # `scenery up` requires an app-local dotenv file even when the fixture has
-  # no credentials.  Keep this isolated copy empty and outside authored source.
-  : > "$runtime_root/.env"
-  chmod 600 "$runtime_root/.env"
   # The copied fixture's original replace path points at its former checkout.
   # Keep module resolution in the real Scenery repository without touching the
   # authored app.  The fake MCP address is loopback-only and credential-free.

@@ -97,7 +97,7 @@ func TestConfigRootFrontend(t *testing.T) {
 	}
 }
 
-func TestResolveEnvAppliesFrontendModesAndDotenvStack(t *testing.T) {
+func TestResolveEnvAppliesFrontendModes(t *testing.T) {
 	cfg := Config{
 		Frontends: map[string]FrontendConfig{"web": {Root: "web"}},
 		Envs: map[string]EnvConfig{
@@ -106,11 +106,11 @@ func TestResolveEnvAppliesFrontendModesAndDotenvStack(t *testing.T) {
 		},
 	}
 	local, err := cfg.ResolveEnv("")
-	if err != nil || local.Name != "local" || local.Frontends["web"].Serve != "development" || strings.Join(local.DotEnvFiles(), ",") != ".env,.env.local" {
+	if err != nil || local.Name != "local" || local.Frontends["web"].Serve != "development" {
 		t.Fatalf("local = %+v, err = %v", local, err)
 	}
 	production, err := cfg.EnvForSSHTarget("prod")
-	if err != nil || production.Name != "production" || production.Frontends["web"].Serve != "production" || strings.Join(production.DotEnvFiles(), ",") != ".env,.env.production,.env.local,.env.production.local" {
+	if err != nil || production.Name != "production" || production.Frontends["web"].Serve != "production" {
 		t.Fatalf("production = %+v, err = %v", production, err)
 	}
 }

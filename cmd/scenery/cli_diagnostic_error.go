@@ -2,8 +2,9 @@ package main
 
 import (
 	"errors"
-	"scenery.sh/internal/app"
 	"strings"
+
+	"scenery.sh/internal/app"
 
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"

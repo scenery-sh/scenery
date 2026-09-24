@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -174,6 +175,7 @@ func buildHarnessDriftReportWithReaders(ctx context.Context, repoRoot string,
 	report.CLI, report.Diagnostics = cli(repoRoot, report.Diagnostics)
 	report.Env, report.Diagnostics = buildHarnessEnvVarReport(repoRoot, report.Diagnostics)
 	report.Diagnostics = appendDirectOSEnvDiagnostics(repoRoot, report.Diagnostics)
+	report.Diagnostics = appendDotenvReintroductionDiagnostics(repoRoot, report.Diagnostics)
 	report.Artifacts, report.Diagnostics = artifacts(ctx, repoRoot, report.Diagnostics)
 	report.Embeds, report.Diagnostics = buildHarnessEmbedReport(repoRoot, report.Diagnostics)
 	return report
@@ -341,6 +343,52 @@ func appendDirectOSEnvDiagnostics(repoRoot string, diagnostics []checkDiagnostic
 	return diagnostics
 }
 
+// dotenvAllowedFiles only exclude dotenv files from builds, watches and
+// deployed sources; none reads one.
+var dotenvAllowedFiles = map[string]bool{
+	"internal/build/source.go":       true,
+	"internal/watchignore/inputs.go": true,
+}
+
+var dotenvSourcePattern = regexp.MustCompile(`"\.env(\.[A-Za-z0-9_.-]*)?"|godotenv|joho/|internal/envfile|LoadDotEnv|DotEnvFiles`)
+
+// appendDotenvReintroductionDiagnostics keeps application configuration out
+// of dotenv files: product Go code may not name, parse or load them.
+func appendDotenvReintroductionDiagnostics(repoRoot string, diagnostics []checkDiagnostic) []checkDiagnostic {
+	_ = filepath.WalkDir(repoRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			if rel != "." && (architectureSkipDir(rel) || rel == "scripts" || rel == "testdata" || rel == "benchmarks") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(rel) != ".go" || strings.HasSuffix(rel, "_test.go") || dotenvAllowedFiles[rel] || isIgnoredHarnessLocalArtifact(rel) {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || !dotenvSourcePattern.Match(data) {
+			return nil
+		}
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "contract drift checks",
+			Severity:        "error",
+			File:            filepath.ToSlash(path),
+			Message:         "production code names or loads a dotenv file: " + rel,
+			SuggestedAction: "Application configuration comes from `scenery config` and the runtime snapshot; declare a deployment-phase package input instead of reading a dotenv file.",
+		})
+		return nil
+	})
+	return diagnostics
+}
+
 func directOSEnvUsages(repoRoot string) []string {
 	var findings []string
 	needles := []string{
@@ -445,7 +493,13 @@ func forbiddenTrackedArtifact(path string) bool {
 	if strings.Contains(path, "/oracle/") || strings.HasPrefix(path, "oracle/") {
 		return true
 	}
-	return filepath.Base(path) == ".DS_Store" || strings.HasPrefix(path, ".codex-tmp/")
+	base := filepath.Base(path)
+	if base == ".env" || strings.HasPrefix(base, ".env.") {
+		// Configuration lives in the environment store; a tracked dotenv file,
+		// including an example, reintroduces a second source.
+		return true
+	}
+	return base == ".DS_Store" || strings.HasPrefix(path, ".codex-tmp/")
 }
 
 func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (harnessEmbedReport, []checkDiagnostic) {

@@ -15,6 +15,24 @@ import (
 
 var devBuildOperationSequence atomic.Uint64
 
+// devBuildOperationError names the build operation a failure ended, so its
+// build.error event joins that operation's build.step records exactly.
+type devBuildOperationError struct {
+	operationID string
+	err         error
+}
+
+func (e devBuildOperationError) Error() string { return e.err.Error() }
+func (e devBuildOperationError) Unwrap() error { return e.err }
+
+func devBuildFailureOperation(err error) string {
+	var operation devBuildOperationError
+	if errors.As(err, &operation) {
+		return operation.operationID
+	}
+	return ""
+}
+
 func newDevBuildOperationID() string {
 	return fmt.Sprintf("build-%x-%x", time.Now().UnixNano(), devBuildOperationSequence.Add(1))
 }
@@ -185,9 +203,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	// the complete authored tree once, immediately before predecessor retirement,
 	// so a concurrently superseded generation may finish private work but can
 	// never become the running application.
-	if err := validateLocalSecretsFiles(s.root, s.cfg, s.env); err != nil {
-		return nil, devBuildError(metadata, apiEncoding, err)
-	}
 	var postgresStart *postgresStartAttempt
 	if initial {
 		postgresStart, err = s.beginRetainedPostgresStart(ctx, snapshot.contract)

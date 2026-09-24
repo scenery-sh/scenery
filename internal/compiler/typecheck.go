@@ -17,6 +17,11 @@ var primitiveTypes = map[string]bool{
 	"url": true, "relative_path": true, "json": true,
 }
 
+// deploymentOnlyTypes are scalars that only deployment-phase package inputs
+// may declare. They describe the execution target, so they never enter a wire
+// contract, a structural position or a build input.
+var deploymentOnlyTypes = map[string]bool{"host_path": true}
+
 func validateTypeSystem(resources []Resource) []Diagnostic {
 	types := map[string]bool{}
 	byAddress := map[string]Resource{}
@@ -117,7 +122,7 @@ func validateReferences(resources []Resource) []Diagnostic {
 			if resource.Kind == "scenery.module" && (strings.HasPrefix(path, "/spec/exports") || strings.HasPrefix(path, "/spec/export_metadata")) {
 				referenceModule = moduleInstancePath(resource)
 			}
-			if primitiveTypes[reference] || strings.HasPrefix(reference, "std.") {
+			if primitiveTypes[reference] || deploymentOnlyTypes[reference] || strings.HasPrefix(reference, "std.") {
 				return
 			}
 			parts := strings.Split(reference, ".")
@@ -241,6 +246,10 @@ func validateTypeValue(resource Resource, value any, types map[string]bool) []Di
 	var diagnostics []Diagnostic
 	for _, name := range names {
 		if primitiveTypes[name] || name == "std.type.problem" || name == "std.type.unit" {
+			continue
+		}
+		if deploymentOnlyTypes[name] {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN1213", Severity: "error", Message: name + " is deployment-only and cannot appear in a wire contract", Address: resource.Address})
 			continue
 		}
 		if strings.Contains(name, "/") && types[name] {

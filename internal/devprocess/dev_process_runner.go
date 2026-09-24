@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
+
+	"scenery.sh/internal/envpolicy"
 )
 
 type ManagedProcess struct {
@@ -45,6 +48,17 @@ type StartRequest struct {
 	OnOutput  func(pid int, stream string, data []byte)
 	Filter    func(pid int, stream string, data []byte) []byte
 	Configure func(*exec.Cmd)
+	// PrivateInput, when set, reaches the process through an inherited pipe
+	// whose descriptor number is published in its environment. The data never
+	// enters arguments, the environment or a file.
+	PrivateInput *PrivateInput
+}
+
+// PrivateInput is data delivered once to a started process.
+type PrivateInput struct {
+	// Env names the variable that receives the inherited descriptor number.
+	Env  string
+	Data []byte
 }
 
 type ReadinessProbe func(context.Context) error
@@ -67,17 +81,25 @@ func Start(ctx context.Context, req StartRequest) (*ManagedProcess, error) {
 	if req.Configure != nil {
 		req.Configure(cmd)
 	}
+	started, closePrivate, err := AttachPrivateInput(cmd, req.PrivateInput)
+	if err != nil {
+		return nil, err
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		closePrivate()
 		return nil, err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		closePrivate()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		closePrivate()
 		return nil, err
 	}
+	started()
 	tailLines := req.TailLines
 	if tailLines <= 0 {
 		tailLines = 80
@@ -324,4 +346,37 @@ func (p *ManagedProcess) label() string {
 	default:
 		return "dev process"
 	}
+}
+
+// AttachPrivateInput prepares cmd to inherit input through a pipe whose
+// descriptor number it publishes in input.Env. Call started after cmd.Start
+// succeeds, or abandon when it fails. A nil input attaches nothing.
+func AttachPrivateInput(cmd *exec.Cmd, input *PrivateInput) (started, abandon func(), err error) {
+	if input == nil {
+		return func() {}, func() {}, nil
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, reader)
+	if cmd.Env == nil {
+		cmd.Env = envpolicy.Environ()
+	}
+	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%d", input.Env, 2+len(cmd.ExtraFiles)))
+	data := append([]byte(nil), input.Data...)
+	started = func() {
+		// The child holds its own copy of the read end; the writer finishes in
+		// the background so a large input cannot block on the pipe buffer.
+		_ = reader.Close()
+		go func() {
+			_, _ = writer.Write(data)
+			_ = writer.Close()
+		}()
+	}
+	abandon = func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	}
+	return started, abandon, nil
 }

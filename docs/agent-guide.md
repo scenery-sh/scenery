@@ -203,6 +203,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Inspect traces and metrics | `scenery traces list -o json`, `scenery metrics list -o json` |
 | Inspect CLI timing by app | `scenery telemetry [--app <id-or-name>] [--since <duration>] -o json` |
 | Inspect app startup p50/p95 | `scenery telemetry --app <id-or-name> --command up --measurement startup -o json` |
+| Diagnose past runs, build failures and agent misuse | `scenery telemetry report [--since <duration>] [--agent-transcripts] -o json` |
 | Run code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
 | Inspect databases | `scenery db list -o json`, `scenery db shell` |
 | Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
@@ -244,7 +245,8 @@ marker is found; it is not evidence that an app can compile or start.
 - Use `scenery build --desktop --env <name> -o json` to build each
   Tauri-enabled frontend at base `/`, run the app-local Tauri 2 CLI, and receive
   exact installer paths under `data.frontends[].artifacts`.
-- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. The target must belong to exactly one `envs.<name>.deploy.ssh`; `scenery deploy --env <name>` is the equivalent shortcut when that env has one target. Scenery preserves remote `.env*`, `.scenery`, and machine-local user `go.work`, restarts with `--env <name>`, and publishes only that env's production frontends.
+- Use `scenery deploy <ssh-target>` only for configured beta single-server deployment. The target must belong to exactly one `envs.<name>.deploy.ssh`; `scenery deploy --env <name>` is the equivalent shortcut when that env has one target. Deployment stages a release, validates it with the target's pinned configuration while the old runtime serves, activates it into the stable per-environment root and restores the previous release on failure; see [SSH Deployment Layout](local-contract.md#ssh-deployment-layout).
+- Configure values with `scenery config set KEY [VALUE] --env <name>` (secrets through the hidden prompt or `--stdin`) and inspect them with `scenery config show --env <name> -o json`. Never create `.env` files or read application values from the process environment; declare a deployment-phase package input instead. See [Environment Configuration](local-contract.md#environment-configuration).
 - Use `scenery generate` only for file generation. It must not apply database state.
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.
@@ -328,7 +330,7 @@ scenery inspect storage --stats -o json
 scenery storage ls <store> -o json
 ```
 
-An explicit app-level `DATABASE_URL` is external; equal URLs intentionally share data. Otherwise SQL-backed `scenery up` manages a dedicated container and volume per canonical app root, one app database, and service schemas. Non-SQL startup and its console allocate no PostgreSQL. `down` stops the selected worktree and retains SQL data/credentials outside Git; `down --db` drops only the app database. Git removal retains data, discoverable as an orphan through `ps`. Whole-cluster deletion requires `prune --older-than <duration> --app-root <absolute-path> --db` and verified inactive ownership. Use `db apply` for schema/app setup, `db seed` for initial data and declared file-backed imports, and `db setup` for both; managed standalone SQL mutation requires the runtime stopped and holds exclusive ownership throughout. Changed applied SQL seeds and destructive seed SQL fail closed; changed `database.seed.commands` inputs rerun the declared atomic/idempotent importer and advance its ledger hash only after success.
+An environment's configured `sql.database_url` secret is an external database shared by every runtime of that environment; development `scenery up` refuses it, and the CLI never reads `DATABASE_URL` from its own environment. Otherwise SQL-backed `scenery up` manages a dedicated container and volume per canonical app root, one app database, and service schemas. Non-SQL startup and its console allocate no PostgreSQL. `down` stops the selected worktree and retains SQL data/credentials outside Git; `down --db` drops only the app database. Git removal retains data, discoverable as an orphan through `ps`. Whole-cluster deletion requires `prune --older-than <duration> --app-root <absolute-path> --db` and verified inactive ownership. Use `db apply` for schema/app setup, `db seed` for initial data and declared file-backed imports, and `db setup` for both; managed standalone SQL mutation requires the runtime stopped and holds exclusive ownership throughout. Changed applied SQL seeds and destructive seed SQL fail closed; changed `database.seed.commands` inputs rerun the declared atomic/idempotent importer and advance its ledger hash only after success.
 
 For a portable point-in-time copy, explicitly select the data classes. Storage save and load both require the source/target runtime stopped; commands acquire its existing lifetime ownership rather than stopping it automatically. Combined capture requires an already-owned managed database and quiesced external SQL/filesystem writers. Overwrite is destructive and requires `--yes`.
 
@@ -484,11 +486,14 @@ the app origin's `/runtime` WebSocket and `/runtime/storage` transfers
 ([contract](local-contract.md#development-runtime-rpc)); `status().app_id` is the
 `appId` for the other calls, and storage calls need a `storageTarget` pinned
 from a fresh `storageInspect`. Regenerate whenever the app's Scenery producer
-changes; a revision mismatch fails `status()` with code `protocol`. The runtime
-bounds concurrent database and storage calls and refuses the excess at once
-with diagnostic `SCN8011` (retry after a call completes), stops calls at their
-deadline (`SCN8012`) and fails oversized results (`SCN8013`) rather than
-truncating them; `status` keeps its own allowance.
+changes; a revision mismatch fails `status()` with code `protocol`. Bound or
+cancel calls with an `AbortSignal` and `dispose()` a client the tooling no
+longer uses: unsent calls are then dropped, but a mutation already sent may
+have completed, so inspect before retrying it. The runtime bounds concurrent
+database and storage calls and refuses the excess at once with diagnostic
+`SCN8011` (retry after a call completes), stops calls at their deadline
+(`SCN8012`) and fails oversized results (`SCN8013`) rather than truncating
+them; `status` keeps its own allowance.
 
 For UI cleanup triage, run `scenery inspect ui --frontend <name>` and start with
 the highest-score file while reading both axes independently. Replace raw
@@ -646,7 +651,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
 - `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, the development runtime RPC, logs, traces, metrics, managed dev services, and optional frontend routing. Detached `--wait ready` returns only after every advertised route and one declared frontend asset are reachable. Re-running `scenery up` while a verified live owner already runs the same app root succeeds instead of failing: the human foreground form reports that runtime and attaches to its logs (Ctrl+C detaches without stopping it), `-o jsonl` reports and exits `0`, and detached reruns apply the requested wait readiness to the existing owner and set `already_running` in the JSON result. While that supervisor remains live, shared Victoria observability is probed and recovered as one managed stack; failed recovery is always surfaced as a degraded error rather than hidden behind verbose output.
-- `scenery deploy <ssh-target>` is beta single-server source sync: the target belongs to exactly one `envs.<name>.deploy.ssh`; the remote restart and publication use that env name, rsync preserves remote `.env*` and `.scenery`, and status/registry records the environment. `scenery deploy --env <name>` selects the env directly when it has one target.
+- `scenery deploy <ssh-target>` is beta single-server deployment: the target belongs to exactly one `envs.<name>.deploy.ssh`; releases install into `~/.scenery/deployments/<app-id>/<env>/source` with a captured, pinned configuration revision, and status/registry records the environment. `scenery deploy --env <name>` selects the env directly when it has one target.
 - Public deploy hosts have two service managers: launchd on macOS (privileged loopback helper) and systemd on Linux (`scenery deploy setup` as root installs `scenery-agent.service`, `scenery-edge.service` binding public 80/443 directly, and a boot-time deploy resume oneshot). Public-domain TLS uses ACME first and the internal Caddy CA as an origin-certificate fallback for TLS-terminating proxies such as Cloudflare in Full mode. While the edge unit exists, edge restart/reload paths converge through systemd. Public resume uses bounded reacquisition to retain a healthy fingerprinted Caddy/helper/agent chain and restarts it only when unavailable, independently of optional `local.dev` DNS; deploy status is degraded when the loaded one-shot resume job last completed with a nonzero exit.
 - Public edge dispatch reads an immutable in-memory route snapshot. The agent validates candidate public-route owner fingerprints when sessions are restored or registered, republishes on deploy/session changes, and periodically invalidates owners that exit; public requests do not read `deploy.json` or inspect processes. Enabled-but-down hosts and backend dial failures remain fail-closed with `503`.
 - The local agent and managed edge are single-owner processes. Startup fails closed when a verified owner holds the runtime lock, stops only a stale owner its own record names and whose recorded fingerprint still matches, and `scenery doctor` reports duplicate owners or foreign listeners on Scenery-owned ports. On machines configured with `scenery deploy setup`, the agent is continuously supervised by the `dev.scenery.agent` launchd LaunchAgent: LaunchAgent installs bootstrap the job (plist presence alone is not installation), teardown boots it out before removal, every agent start path cooperates with the supervisor instead of racing its KeepAlive respawn, and `scenery deploy status` reports supervision truth under `agent_supervisor` and is not `ready` without a loaded supervisor.
@@ -654,8 +659,8 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Portable snapshots can be verified without a target app or stopped runtime. Scheduled retention, off-machine copy, and restore drills remain operator-owned through `scripts/snapshot-backup.sh` plus the host scheduler.
 - `scenery system agent restart` restarts only the local control plane and router. Registered shared substrate processes survive; destructive shutdown stays with substrate-specific commands and verified lifecycle owners.
 - CLI invocations best-effort append coarse, argument-free timing records to `~/.scenery/telemetry.jsonl`; configured invocations include only stable app ID/name attribution, never paths. Ordinary commands record completion. A newly owned `scenery up` records startup immediately at readiness and never substitutes later supervisor lifetime; detached launchers and already-running acquisition do not duplicate startup. `scenery telemetry` exposes bounded recent records, all-history counters, bounded-sample p50/p95, and overall/per-app/per-command/per-measurement summaries with repeatable filters. Historical app-less records remain unattributed, and telemetry failures never affect the measured command or runtime.
-- `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. Top-level `root` selects one configured frontend for `/` across all envs and surfaces, with a single-frontend default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
-- Dotenv files are optional in every environment, including for local `scenery up` and `scenery worker`. Missing files contribute no values; use process environment or the available dotenv layers without creating placeholders. Existing file errors and validation of required or invalid values still fail. See [Environment Reference](environment.md) for layering and precedence.
+- `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. Top-level `root` selects one configured frontend for `/` across all envs and surfaces, with a single-frontend default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets and its configured values (`scenery config`); deployable envs require their framework secrets. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
+- Scenery reads no dotenv file. Every worktree of an application shares its non-deployable environments' configured values (`scenery config set KEY --env local`) and keeps its own databases, origins, sockets and runtime identity; a new worktree needs no copied files. A required input without a value stops `scenery up` with the key named.
 - A frontend-level `tauri` block marks that frontend as a Tauri 2 web surface.
   Its optional app-root-relative `root` contains `src-tauri`; both dev and build
   require the app-local `node_modules/.bin/tauri` from `@tauri-apps/cli`.
@@ -758,7 +763,13 @@ returns `failed_precondition`, and a denied check returns `false, nil`. Checker
 errors are returned unchanged. `auth.CurrentUser(ctx)` reads and returns the live
 standard-auth `auth.UserProfile`; it does not rotate a session, create a tenant,
 or issue a token. Applications must use that accessor rather than querying
-Scenery-owned `scenery_auth_*` tables.
+Scenery-owned `scenery_auth_*` tables. Likewise `auth.CurrentMembership(ctx)`
+returns the effective user's active organization membership and role
+(`auth.RoleOwner` or `auth.RoleMember`) in the request tenant, and
+`auth.MembershipOf(ctx, userID)` checks that another user is an active member
+of that tenant (not found otherwise). Use them when an application applies
+standard auth's owner rule to its own data or validates a member reference;
+they do not add application roles.
 
 Persist `auth.CurrentAuditIdentity(ctx)` with audited actions. It reports the
 effective subject separately from the real actor, so a normal session has equal

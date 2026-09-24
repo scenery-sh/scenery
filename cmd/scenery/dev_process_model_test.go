@@ -587,7 +587,7 @@ func TestDevProcessTakeoverKeepsOnlyRunningUnchangedInstances(t *testing.T) {
 	greeter := &devProcessInstance{process: process("greeter_greeter", "greeter"), stopped: true}
 	house := &devProcessInstance{process: process("house_house", "house")}
 	kept, starting := devProcessTakeover(map[string]*devProcessInstance{"echo_echo": echo, "greeter_greeter": greeter, "house_house": house},
-		[]build.DevelopmentProcess{process("echo_echo", "echo"), process("greeter_greeter", "greeter"), process("house_house", "house-changed"), process("garden_garden", "garden")})
+		[]build.DevelopmentProcess{process("echo_echo", "echo"), process("greeter_greeter", "greeter"), process("house_house", "house-changed"), process("garden_garden", "garden")}, nil)
 	if len(kept) != 1 || kept["echo_echo"] != echo {
 		t.Fatalf("kept instances = %#v", kept)
 	}
@@ -597,6 +597,19 @@ func TestDevProcessTakeoverKeepsOnlyRunningUnchangedInstances(t *testing.T) {
 	}
 	if !slices.Equal(names, []string{"greeter_greeter", "house_house", "garden_garden"}) {
 		t.Fatalf("starting services = %v", names)
+	}
+	// A changed configuration snapshot restarts its consumer like a changed
+	// build does; an unconsumed change keeps the instance.
+	configured := process("echo_echo", "echo")
+	configured.Service = "echo/service/echo"
+	echo.process, echo.config = configured, &devConfigSnapshot{identity: "before"}
+	kept, _ = devProcessTakeover(map[string]*devProcessInstance{"echo_echo": echo}, []build.DevelopmentProcess{configured}, &devConfigResolution{snapshots: map[string]*devConfigSnapshot{"echo/service/echo": {identity: "after"}}})
+	if len(kept) != 0 {
+		t.Fatalf("instance with a changed configuration was kept: %#v", kept)
+	}
+	kept, _ = devProcessTakeover(map[string]*devProcessInstance{"echo_echo": echo}, []build.DevelopmentProcess{configured}, &devConfigResolution{snapshots: map[string]*devConfigSnapshot{"echo/service/echo": {identity: "before"}}})
+	if kept["echo_echo"] != echo {
+		t.Fatalf("instance with an unchanged configuration restarted: %#v", kept)
 	}
 }
 
@@ -878,8 +891,11 @@ func TestDevProcessPostStopPreparationFailureRestoresThePreviousHost(t *testing.
 			return link.rebindHostState(model.hostStateDir())
 		},
 		abandon: func() error { events = append(events, "abandon-candidates"); return nil },
-		restore: func(context.Context) (bool, error) { events = append(events, "restore-previous-host"); return true, nil },
-		commit:  func(context.Context) { events = append(events, "commit") },
+		restore: func(context.Context) (bool, error) {
+			events = append(events, "restore-previous-host")
+			return true, nil
+		},
+		commit: func(context.Context) { events = append(events, "commit") },
 	}
 	restored, err := replacement.run(context.Background())
 	if !restored || err == nil || !strings.Contains(err.Error(), "process host state epoch") {

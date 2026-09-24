@@ -603,8 +603,7 @@ func copyHarnessAssistantFixture(repoRoot, appRoot string) error {
 	}); err != nil {
 		return err
 	}
-	// `scenery up` requires an app-local dotenv file; the fixture needs no value.
-	return os.WriteFile(filepath.Join(appRoot, ".env"), nil, 0o600)
+	return nil
 }
 
 // harnessAssistantLogTail returns the session log's recent process output

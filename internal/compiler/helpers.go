@@ -416,7 +416,7 @@ func goType(value any) string {
 			"int64": "int64", "uint32": "uint32", "uint64": "uint64", "decimal": "scenery.Decimal",
 			"float32": "float32", "float64": "float64", "bytes": "[]byte", "uuid": "scenery.UUID",
 			"date": "scenery.Date", "datetime": "scenery.DateTime", "duration": "scenery.Duration",
-			"size": "scenery.Size", "url": "scenery.URL", "relative_path": "scenery.RelativePath", "json": "scenery.JSON",
+			"size": "scenery.Size", "url": "scenery.URL", "relative_path": "scenery.RelativePath", "host_path": "scenery.HostPath", "json": "scenery.JSON",
 		}
 		if name := primitive[ref]; name != "" {
 			return name

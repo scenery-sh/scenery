@@ -1,0 +1,603 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.telemetry.report.schema.json",
+  "title": "scenery telemetry report",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "window",
+    "sources",
+    "findings",
+    "cli",
+    "builds"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.telemetry.report"
+    },
+    "schema_revision": {
+      "const": "sha256:7e60c7b1d2954a7b127bc56166707dd6d2ab240885990260b7103a8204d6ee36"
+    },
+    "window": {
+      "type": "object",
+      "required": [
+        "until"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "since": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "required": [
+        "cli_records",
+        "cli_invalid_records",
+        "supervisor_logs",
+        "agent_transcripts",
+        "claude_sessions",
+        "codex_sessions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cli_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cli_invalid_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supervisor_logs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "agent_transcripts": {
+          "type": "boolean"
+        },
+        "claude_sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "codex_sessions": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "cli": {
+      "type": "object",
+      "required": [
+        "records",
+        "failures",
+        "unattributed",
+        "unversioned",
+        "startup",
+        "commands",
+        "apps",
+        "failure_bursts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unattributed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unversioned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "startup": {
+          "$ref": "#/$defs/timing"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/commandTiming"
+          }
+        },
+        "apps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/appTiming"
+          }
+        },
+        "failure_bursts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/failureBurst"
+          }
+        }
+      }
+    },
+    "builds": {
+      "type": "object",
+      "required": [
+        "sessions",
+        "rebuilds",
+        "initial_builds",
+        "worktrees",
+        "rebuild_steps",
+        "failure_causes",
+        "failure_streaks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rebuilds": {
+          "$ref": "#/$defs/timing"
+        },
+        "initial_builds": {
+          "$ref": "#/$defs/timing"
+        },
+        "worktrees": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/worktreeBuilds"
+          }
+        },
+        "rebuild_steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stepTiming"
+          }
+        },
+        "failure_causes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        },
+        "failure_streaks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/failureStreak"
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "required": [
+        "claude_sessions",
+        "codex_sessions",
+        "tool_calls",
+        "tool_errors",
+        "tool_error_kinds",
+        "scenery_invocations",
+        "scenery_commands",
+        "scenery_failed",
+        "commands",
+        "failure_classes",
+        "rejected_inputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "claude_sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "codex_sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_error_kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        },
+        "scenery_invocations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenery_commands": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenery_failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/agentCommand"
+          }
+        },
+        "failure_classes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        },
+        "rejected_inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "timing": {
+      "type": "object",
+      "required": [
+        "count",
+        "failure_count",
+        "p50_ms",
+        "p95_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p50_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "p95_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "count": {
+      "type": "object",
+      "required": [
+        "name",
+        "count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "enum": [
+            "critical",
+            "warning",
+            "info"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "commandTiming": {
+      "type": "object",
+      "required": [
+        "command",
+        "count",
+        "failure_count",
+        "p50_ms",
+        "p95_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p50_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "p95_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "appTiming": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "count",
+        "failure_count",
+        "p50_ms",
+        "p95_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p50_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "p95_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "stepTiming": {
+      "type": "object",
+      "required": [
+        "step",
+        "count",
+        "failure_count",
+        "p50_ms",
+        "p95_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p50_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "p95_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "step": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "failureBurst": {
+      "type": "object",
+      "required": [
+        "command",
+        "exit_code",
+        "count",
+        "first",
+        "last",
+        "peak_per_hour"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "first": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "peak_per_hour": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "worktreeBuilds": {
+      "type": "object",
+      "required": [
+        "app_root",
+        "app_name",
+        "sessions",
+        "rebuilds",
+        "initial_builds",
+        "longest_failure_streak"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "app_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app_name": {
+          "type": "string"
+        },
+        "sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rebuilds": {
+          "$ref": "#/$defs/timing"
+        },
+        "initial_builds": {
+          "$ref": "#/$defs/timing"
+        },
+        "longest_failure_streak": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "failureStreak": {
+      "type": "object",
+      "required": [
+        "app_root",
+        "cause",
+        "count",
+        "first",
+        "last"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "app_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "first": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "agentCommand": {
+      "type": "object",
+      "required": [
+        "command",
+        "count",
+        "attributable",
+        "failure_count",
+        "wall_time_ms",
+        "p50_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attributable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_time_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p50_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

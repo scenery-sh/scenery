@@ -240,8 +240,6 @@ func resetDBForTest(t *testing.T) {
 	pools = map[string]*sql.DB{}
 	poolsMu.Unlock()
 
-	oldLoadDotEnv := loadDotEnv
-	loadDotEnv = func() error { return nil }
 	t.Cleanup(func() {
 		poolsMu.Lock()
 		for _, pool := range pools {
@@ -249,6 +247,5 @@ func resetDBForTest(t *testing.T) {
 		}
 		pools = map[string]*sql.DB{}
 		poolsMu.Unlock()
-		loadDotEnv = oldLoadDotEnv
 	})
 }

@@ -607,10 +607,7 @@ func durableServices(declarations []durableDeclaration) []durableServiceRecord {
 }
 
 func durableDatabaseURLForInspect(appRoot string) string {
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		env = envpolicy.Environ()
-	}
+	env := envpolicy.Environ()
 	if value := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value)
 	}

@@ -116,6 +116,26 @@ error code `protocol` and `details` naming the expected and received kind and
 revision. A result without the status kind MUST be reported as a runtime that
 needs `scenery up` restarted, not as a client to regenerate.
 
+`DevRuntimeClient` multiplexes calls over one WebSocket and MUST send calls
+queued while it connects in call order. A call rejected before it was sent MUST
+never be transmitted afterwards: its aborted signal rejects it with `aborted`,
+and `close()`, `dispose()` or a dropped socket reject every unfinished call with
+`closed`. A sent call may still complete in the runtime; its answer is ignored.
+After a drop, the next call reconnects once `reconnectDelayMs` has passed,
+through a single retry timer. `close()` affects only the socket and leaves the
+client usable. `dispose()` is permanent: it cancels in-flight storage transfers
+and cancels any reconnect, and every later call or transfer MUST fail with
+`closed` without contacting the runtime. Connection listeners hear only changes
+of `connected` (`true` when the socket opens, `false` when an open socket
+closes, including through `close()` and `dispose()`); a listener's exception is
+reported and MUST NOT interrupt sending or rejection. A frame that is not a
+JSON-RPC response fails the connection's unfinished calls with `protocol`.
+Storage transfers MUST reject only with `DevRuntimeError`, including while the
+response body is read: `aborted` for the caller's signal, `closed` after
+disposal, `unavailable` for a network failure, `transfer` for a runtime failure
+with its diagnostic and report token, and `protocol` for an unreadable
+successful answer. A failed upload is never retried by the client.
+
 `index.ts` MUST NOT re-export it, so applications that never import it pay no
 bundle cost. It exports `DevRuntimeClient`, `DevRuntimeError`, `storageTarget`
 and the request/result types. Targets without `dev_runtime` produce no

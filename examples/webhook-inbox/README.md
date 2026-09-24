@@ -60,8 +60,8 @@ needs it before raw Go tooling. The exact output roots are ignored, and no
 editor module or `go.work` is generated. Use the standalone copy to prove
 independent module/dependency resolution.
 
-For the usual managed development loop, create a local `.env` file containing
-any app-specific configuration and run `scenery up --detach --wait ready`.
+For the usual managed development loop, run `scenery up --detach --wait ready`;
+local development needs no configured values (`scenery config show` lists them).
 The declared `inbox` service and `database.apply.command` provide the managed
 database/schema path. The explicit split-process proof instead supplies its own
 `DATABASE_URL`, creates the service schema, runs `go run ./cmd/schema`, and uses

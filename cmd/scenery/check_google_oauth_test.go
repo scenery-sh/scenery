@@ -1,43 +1,34 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/appconfig"
 )
 
-func TestCheckWarningDiagnosticsReportsMissingGoogleOAuthCredentials(t *testing.T) {
-	t.Parallel()
-
-	for _, name := range []string{"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"} {
-		value, exists := os.LookupEnv(name)
-		if err := os.Unsetenv(name); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if exists {
-				_ = os.Setenv(name, value)
-			} else {
-				_ = os.Unsetenv(name)
-			}
-		})
-	}
+func TestCheckWarningDiagnosticsReportsMissingGoogleOAuthConfiguration(t *testing.T) {
+	home := t.TempDir()
+	paths := localagent.PathsForHome(home)
+	commandAgentPathsOverride = &paths
+	t.Cleanup(func() { commandAgentPathsOverride = nil })
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "ambient-client")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "ambient-secret")
 
 	root := persistentTestAppRoot(t, "check-google-oauth")
 	preparePersistentTestApp(t, root, map[string]string{
-		".scenery.json": `{"name":"googlecheck","auth":{"enabled":true,"google_oauth":{"enabled":true}}}`,
+		".scenery.json": `{"name":"googlecheck","id":"googlecheck","auth":{"enabled":true,"google_oauth":{"enabled":true}}}`,
 	})
-	if err := os.Remove(filepath.Join(root, ".env")); err != nil && !os.IsNotExist(err) {
-		t.Fatal(err)
-	}
+	// Neither ambient variables nor a dotenv file configure the environment.
+	writeTestAppFile(t, root, ".env", "GOOGLE_OAUTH_CLIENT_ID=test-client\nGOOGLE_OAUTH_CLIENT_SECRET=test-secret\n")
 	_, cfg, err := appcfg.DiscoverRoot(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	diagnostics, err := checkWarningDiagnostics(root, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -46,16 +37,30 @@ func TestCheckWarningDiagnosticsReportsMissingGoogleOAuthCredentials(t *testing.
 		t.Fatalf("diagnostics = %+v", diagnostics)
 	}
 	diag := diagnostics[0]
-	if diag.Stage != "auth" || diag.Severity != "warning" || !strings.Contains(diag.Message, "GOOGLE_OAUTH_CLIENT_ID") || !strings.Contains(diag.Message, "GOOGLE_OAUTH_CLIENT_SECRET") {
+	if diag.Stage != "auth" || diag.Severity != "warning" || !strings.Contains(diag.Message, "auth.google_client_id") || !strings.Contains(diag.Message, "auth.google_client_secret") {
 		t.Fatalf("diagnostic = %+v", diag)
 	}
 
-	writeTestAppFile(t, root, ".env", "GOOGLE_OAUTH_CLIENT_ID=test-client\nGOOGLE_OAUTH_CLIENT_SECRET=test-secret\n")
+	store, err := appconfig.OpenStore(home, "googlecheck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := appconfig.NewSecretVersion("memory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := store.Mutate(ctx, "local", appconfig.Mutation{Key: "auth.google_client_id", Value: json.RawMessage(`"test-client"`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Mutate(ctx, "local", appconfig.Mutation{Key: "auth.google_client_secret", Secret: &version}); err != nil {
+		t.Fatal(err)
+	}
 	diagnostics, err = checkWarningDiagnostics(root, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(diagnostics) != 0 {
-		t.Fatalf("diagnostics with env = %+v", diagnostics)
+		t.Fatalf("diagnostics with configuration = %+v", diagnostics)
 	}
 }

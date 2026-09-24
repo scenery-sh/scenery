@@ -666,6 +666,8 @@ The core primitive types are:
 
 Public contracts SHOULD prefer specific types over string or json.
 
+host_path is a deployment-only scalar: a clean absolute POSIX path on the execution target. It MAY type only deployment-phase package inputs; a host_path in a record, operation, event, entity, view or any other wire or structural position is an error (SCN1213). Its value is syntax-checked only: it is never expanded, resolved through symlinks, or checked for existence, so an unavailable directory keeps its configured value.
+
 Duration literals are quoted strings using the units ns, us, ms, s, m, h, d, and w. Days and weeks are fixed elapsed-time units, not calendar units. Size literals are quoted strings using decimal or IEC byte units. The canonical IR normalizes both while preserving exact values.
 
 ### 7.2 Composite types
@@ -953,6 +955,8 @@ The default phase is contract. Allowed flows are:
 | deployment | deployment |
 
 For example, a deployment input cannot determine an HTTP path, operation type, public wire name, implementation package, or expansion shape.
+
+A deployment-phase input that holds a value, or a sensitive secret-reference input, is environment-configurable (section 18.3). An installed module MAY leave such an input without a value: compilation, schema extraction and generation succeed, and a required input without a default fails only when a runtime candidate for an environment is validated. Every other missing required input remains a compile error.
 
 Sensitive inputs MUST be marked:
 
@@ -2913,9 +2917,21 @@ Secret plaintext MUST NOT appear in:
 
 The compiler tracks secret taint. A secret flowing into a non-sensitive field is an error.
 
-### 18.3 No ambient environment access
+A sensitive `resource_ref("secret")` input that source leaves unbound is an environment secret: its generated field is a `SecretRef` whose plaintext the selected environment supplies at runtime and the service reads with `Reveal`. Plaintext never enters the graph, generated code, snapshots on disk or diagnostics.
 
-There is no env function. Environment variables may be consumed only by a deployment or provider adapter whose schema declares the mapping.
+### 18.3 Environment configuration
+
+Environment-configurable inputs form the application's configuration catalog. Each has one key, `<module instance path joined with ".">.<input>`; framework-owned inputs (standard authentication, assistant providers) join the same catalog under their own prefixes. Selecting configuration takes exactly an application and an environment.
+
+The effective value of a key is its declared default — the installing module's value, else the package default — overlaid by the environment's configured value. There are no other layers. An optional input configured as null is absent. A stored key the catalog does not declare is unused and never delivered; a stored value of the wrong type makes the candidate invalid.
+
+Configured values are runtime inputs, not build inputs: they MUST NOT change generated code, generated types or executable bytes. A runtime receives a validated, revision-bound snapshot containing only what its constructors consume.
+
+An input MAY declare `public = true`. A public input MUST be a non-sensitive, environment-configurable value (SCN3408). Its effective value is served to browsers as the application's public configuration, pinned to the configuration revision the runtime runs; a generated TypeScript client exposes it as a typed `PublicConfig`. No other input reaches a browser.
+
+### 18.4 No ambient environment access
+
+There is no env function, and application configuration is never read from process environment variables or dotenv files. Environment variables may be consumed only by a deployment or provider adapter whose schema declares the mapping.
 
 This keeps compilation reproducible and makes required configuration discoverable.
 

@@ -50,6 +50,7 @@ scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|mer
 scenery deploy plan <deployment> --out <plan> [-o human|json]
 scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev> [--approval-token <file>] [-o human|json]
 scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--measurement completion|startup]... [--since <duration>] [--limit <n>] [-o human|json]
+scenery telemetry report [--since <duration>] [--agent-transcripts] [-o human|json]
 ```
 
 `-o json` selects the singular `scenery.cli` envelope. It always carries `kind`, digest `schema_revision` and `spec_revision`, `producer`, `ok`, nullable graph revision fields, `data`, and ordered `diagnostics`; command-specific schemas describe `data`. `workspace_revision` and `contract_revision` are a canonical digest or null. `implementation_revision` and `deployment_revision` are a canonical digest, a target-to-digest object, or null; other JSON shapes fail decoding. `-o jsonl` emits `scenery.cli.event` envelopes with the same identity fields, monotonically increasing sequence numbers, an `event` discriminator, and one terminal summary event. Decoders accept only the exact current schema revision, which is the complete self-normalized digest of the matching checked JSON Schema. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
@@ -57,6 +58,8 @@ scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--mea
 CLI invocations best-effort append JSON objects to `~/.scenery/telemetry.jsonl`, with owner-only file permissions. Ordinary records contain UTC `at`, coarse `command`, `duration_ms`, `exit_code`, `version`, and `mode`; omission of `measurement` means command completion. A newly owned `scenery up` runtime instead writes one `measurement: "startup"` record immediately after its existing internal readiness boundary: shared startup dependencies, the application listener, and configured frontend readiness have succeeded. Its later supervisor exit is not recorded, the detached launcher defers to its owner child, and already-running acquisition is not startup. Startup failure that exits before readiness is recorded as a failed startup measurement. When app discovery succeeds records additionally contain configured `app.id` and `app.name`. Mode is `long_running` for `up`, `worker`, `console`, and `logs --follow`, and `oneshot` otherwise. Command classification retains at most the known command and subcommand and never stores flags, filesystem paths, SQL, tokens, storage keys, or task arguments. App attribution is resolved after the measured duration, so discovery overhead is excluded. Telemetry encoding, discovery, directory, open, or write failures are ignored and never change command output or exit status.
 
 `scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--measurement completion|startup]... [--since <duration>] [--limit <n>] [-o human|json]` streams that file and retains at most the requested recent records (default 100, maximum 10,000) while calculating overall, per-app, per-command, and per-measurement timing summaries. App, command, and measurement filters are repeatable OR filters; supplying different filter classes combines them with AND. App filters exactly match configured ID or name. Every timing summary reports all-history count/average/min/max plus exact p50/p95 over the latest at most 10,000 matching records, with `percentile_sample_count` making that bound explicit. `--command up --measurement startup` therefore excludes historical or ordinary completion/lifetime timings from startup percentiles. Historical records without app identity remain visible as unattributed when no app filter is selected. JSON data uses kind `scenery.telemetry` and the exact checked schema in `docs/schemas/scenery.telemetry.schema.json`.
+
+`scenery telemetry report [--since <duration>] [--agent-transcripts] [-o human|json]` reconstructs past runs on this host from what they left behind, over the last 30 days unless `--since` selects another window. It reads the CLI telemetry file; the event logs of detached `scenery up` supervisors under the agent home (`agent/dev/*.log` and `worktrees/*/control/dev/*.log`; foreground sessions keep none), from which it derives initial and rebuild timings, per-step p50/p95 of successful rebuilds, exactly one failure cause per failed build (its first `build.error`, joined by `operation_id`, or in an older log the error that follows the failed build; the diagnostic code and first line with digests, addresses, paths and long numbers replaced and credentials redacted; `no error recorded` otherwise), so the causes add up to the failed builds, and streaks of at least 5 consecutive failed builds per session; and, only with `--agent-transcripts`, the Claude Code transcripts under `~/.claude/projects` and Codex rollouts under `~/.codex/sessions` modified inside the window. Only agent sessions that attempted Scenery are counted: a shell command that runs `scenery` where the shell runs a command (not a mention inside an argument), whether it names a command `scenery help` advertises, a root flag such as `--help`, or an unknown word, reported as `unknown <word>`. For them it reports tool calls and error kinds, and per attempted command the shell commands that attempted it; failures, waiting time and p50 only for shell commands that invoked Scenery once (`attributable`), because a compound shell command has one outcome and one duration for all its invocations; a Codex script's commands keep their own exit codes, output and wall times. It also reports the failure classes of failed shell commands (invalid invocation, failed precondition, capability unavailable, internal failure, application diagnostic, executable not found, timeout, other) and the inputs Scenery rejected as unknown flags or commands. It keeps no command text, output or file content. Percentiles are nearest-rank over successful attempts and null when none succeeded. CLI records are summarized per app over all records (startup measurements included) and per command over command completions, with `scenery up` startups apart, and with failure bursts: consecutive hours in which one command failed with one exit code at least 60 times. Findings order the conclusions critical, warning, then info. The command reads files only and never records, sends or changes anything. JSON data uses kind `scenery.telemetry.report` and the exact checked schema in `docs/schemas/scenery.telemetry.report.schema.json`.
 
 The checked-in diagnostic registry is publicly inspectable with `schema.get` using either the manifest's digest `diagnostic_catalog` identity or one `SCNxxxx` code. Request failures use the request-protocol range `SCN8001` through `SCN8099`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause. The process that mints a token keeps the cause where only its operator can read it: the CLI writes `<agent home>/reports/<report-token>.json` (mode 0600, with credentials in the arguments and the cause redacted, newest 200 retained), and `scenery inspect report <report-token> -o json` returns it as `scenery.failure.report` with the code, time, command, arguments, working directory, cause and producer version. A token that is malformed or not recorded in this agent home is an invalid request. An application process logs the cause beside its token (`internal failure` with `report_token`, `code` and `cause`), which is where the operator of a deployed process finds it; under `scenery up` it also reports the cause to its session, authenticated like every development report, and the same command returns it with `origin` `runtime`, the reporting process, app and session instead of a CLI command. A CLI-minted report has `origin` `cli`. Credentials in a cause are redacted, including the password of a URL quoted inside a message. A request the caller wrote wrongly is never internal: an unknown command, subcommand, flag or argument, a missing or malformed flag value, a flag standing where a subcommand is expected, flags that do not belong together, and a named profile, database service or snapshot archive that does not exist are `invalid_request` (`SCN8001`, exit 2) whose message names the mistake in either output mode. A flag followed by another registered flag is reported as missing its value; write `--flag=value` for a value that looks like a flag. A correct request that the host's state refuses is `failed_precondition` (`SCN8003`, exit 3), including a command that needs local runtime state before `scenery up` created it, a worktree command outside a Git repository, and an agent socket path longer than the platform binds. A command of another platform or a missing external tool is `capability_unavailable` (exit 4). Human output prints the message alone on stderr; the exit code carries the class, and a `-o json` or `-o jsonl` request renders the same message in the diagnostic.
 
@@ -358,6 +361,7 @@ Rules:
 - `name` or `id` must be non-empty.
 - If `name` is empty, scenery falls back to `id`.
 - App identity for runtime environment, runtime RPC status, local logs, and local observability is `id` when present, otherwise `name`. `name` remains the display name and source/build package identity.
+- Environment configuration and SSH deployment require an explicit lowercase path-safe `id`; it names the configuration store, so adopting it must preserve the app's existing effective identity (its former `name`). Without `id`, runtimes use declared defaults only.
 - `frontends` is optional.
 - A configured frontend may declare `"tauri": { "root": "apps/desktop" }`
   to make it the web surface of a Tauri 2 desktop shell. `tauri.root` is
@@ -386,14 +390,15 @@ Rules:
 - Agent dev-runtime sessions include `environment` plus the existing route manifest. Global `frontends` owns invariant roots/upstreams; `envs.<name>.frontends.<frontend>.serve` selects `development` (HMR), `production` (built `dist/` static serving), or `disabled` for that env. Disabled optional frontends have no process, readiness gate or route; the root frontend cannot be disabled. Omitting a selection keeps its existing environment default. Deployable environments require every configured frontend to select `production`.
 - An explicit environment `port` belongs to the primary Git checkout. A linked Git worktree excludes that port and selects its own stable port within `port_start`/`port_end`, reusing its retained available allocation on restart. It does not edit tracked configuration or rebind the original checkout's origin.
 - `storage` declares stores in app config. `kind: "local"` (also the empty-kind default) uses immutable payload files and one bounded atomic reference per `(store, tenant, key)`, with checked file/directory synchronization. Managed namespaces belong to the canonical app root/worktree; a branch switch retains data, another root receives independent data, and equal app/store names grant no cross-root sharing. `default` selects a store; stores accept `kind`, `access`, `tenant_scoped`, and `max_object_bytes`. Access defaults to `auth`; `private` stores are not externally reachable. `storage.cell_id` and `storage.share` are rejected with an explicit migration diagnostic. Unknown fields/kinds fail validation. Legacy cells are never attached automatically; use the [migration runbook](runbooks/worktree-storage-migration.md).
+- Application processes of `scenery up` and `scenery worker` inherit only operating-system/toolchain protocols and `SCENERY_*` wiring from the invoking environment (the exact list is in [the environment reference](environment.md#app-child-identity)); every other variable, including former application settings and SDK credential chains, is dropped before Scenery adds its own.
 - App processes, workers and app-local tasks receive only the strict current `SCENERY_STORAGE_CONFIG` runtime artifact when storage is configured. Its managed descriptor binds canonical root, retained worktree key and incarnation; private proxy calls echo and revalidate that binding. A headless runtime may use an explicitly provided absolute private external root with its own validated format/ownership, or a validated managed binding. Declared storage with missing, empty, stale or invalid runtime config fails closed. Explicit external roots never gain managed purge authority. No cell-ID environment selector or config fallback remains. App code uses `scenery.sh/storage`, never hidden paths or sockets.
 - Stores with `tenant_scoped: true` use an explicit tenant field in the logical tuple, never a caller-visible physical prefix. Standard-auth external routes derive tenant identity solely from verified auth state and ignore caller-supplied tenant headers. Private/internal calls require auth context or `storage.WithTenantID`; CLI calls require `--tenant` for a tenant-scoped store and reject it for an unscoped store. Tenant IDs and keys are case-sensitive UTF-8; ambiguous or conflicting tenant sources fail closed.
 - Content type and case-sensitive string-map metadata are stored atomically with the payload reference. Content hashes describe bytes; opaque ETags identify each committed mutation, including metadata-only rewrites. HTTP transports carry the complete metadata map as bounded base64url JSON in `X-Scenery-Storage-Metadata`, not canonicalized per-key headers. `If-None-Match: *` is create-only, and an exact single strong `If-Match` is conditional overwrite/delete. Conflicts return HTTP 412 / CLI exit 3 without publishing a candidate. Missing unconditional delete is idempotent. Invalid validators, ranges and metadata fail before mutation.
 - Reserved storage HTTP routes are app data-plane runtime routes mounted only when `SCENERY_STORAGE_CONFIG` is present. They are production-supported under the same operator-proxy storage runtime contract as `scenery.sh/storage`. `GET /__scenery/storage/<store>?prefix=<prefix>&delimiter=/&cursor=<cursor>&limit=<n>` lists objects. `PUT /__scenery/storage/<store>/<key>` uploads a streamed object and returns the object metadata as JSON. `GET` and `HEAD /__scenery/storage/<store>/<key>` download object bytes with `Content-Length`, `Content-Type`, `ETag`, `Last-Modified`, `Accept-Ranges`, and byte-range support. `DELETE /__scenery/storage/<store>/<key>` deletes one object, and `DELETE /__scenery/storage/<store>/<prefix>?recursive=1` deletes by prefix. Public routes enforce the store access policy: `auth` requires the app auth handler and `private` returns permission denied on the external HTTP surface. The same reserved storage routes are also registered on the runtime private route table for Scenery-internal, non-external storage work. A store failure answers the storage failure object (`code`, `diagnostic`, `message`, optional `report_token` and `details`) as JSON and, when that JSON is at most 16 KiB, as base64url JSON in `X-Scenery-Storage-Error`. Every storage route failure that maps to HTTP 500, including one outside the store, such as an auth handler error, a missing auth handler, a runtime storage configuration that cannot be loaded or a response that cannot be encoded, answers that object's opaque `internal` form with `SCN9000`, its catalog message and a `report_token`; the process logs the cause beside the token, and the caller never receives it. Other store-selection, authentication and request failures keep their `errs` JSON (`code`, `message`), such as `unauthenticated` (401), `permission_denied` (403) and `not_found` (404).
 - SQL requirements come from the compiled application, never a second config list. `dev` and `dev.services` are rejected. Registered services' typed `data_source` dependencies supply canonical identity, provider/capabilities, declaration provenance, lifecycle, and the logical `config.database` name. Different module instances remain distinct requirements; explicitly shared sources retain all consumers. Logical names normalize to PostgreSQL schemas; reserved names, overlong names, and distinct names colliding on one schema fail compilation before provisioning. Standard auth contributes the reserved `scenery` binding when `auth.enabled`; registered durable executions contribute it through their engine. An explicit `SCENERY_DURABLE_ENDPOINT` supplies durable-only requirements remotely, but does not remove an auth requirement.
 - `scenery inspect app -o json` returns `sql_requirements` (always an array) from the current successful compilation. Each item includes `kind`, canonical `address` (or framework `config_path`), `provider`, `capabilities`, `name`, `schema`, `lifecycle`, `consumers`, and `origin`. Inspection does not connect to or provision SQL. Invalid source remains a compilation failure; retained allocation evidence cannot stand in for a valid current graph.
-- An explicit app/setup `DATABASE_URL` selects external PostgreSQL supply: Scenery does not create/delete its server or database, and equal URLs intentionally share data. Without it, local provisioning requires every selected SQL requirement to declare `lifecycle = "managed"`; external/attached/ephemeral requirements do not authorize allocation. `scenery up` uses the existing dedicated container and volume per canonical app root/worktree, one app database, logical schemas and `scenery`. A no-SQL app starts without PostgreSQL; `db list -o json` succeeds with `database: null` and performs no allocation. Managed names derive from app ID and the canonical app root.
-- App processes and setup receive `DATABASE_URL`, per-binding `<SERVICE>_DATABASE_URL`, and `SCENERY_DATABASE_JSON` describing resolved SQL supply (`managed` or `external`). Generated entrypoints configure those existing bindings before constructors, without database IO; explicit per-binding URLs remain supported in standalone generated runtimes. `db.Get()` selects the single supplied application binding (excluding framework `scenery` when another binding exists); ambiguous calls require a name. `db.Get(name)` consumes supplied bindings, or explicit endpoint supply for a named standalone caller, and never discovers `.scenery.json`. Workers with local SQL requirements require explicit `DATABASE_URL`.
+- An environment's configured `sql.database_url` (a framework secret declared for every application with SQL requirements; `scenery config set sql.database_url --env <env>`) selects external PostgreSQL supply: Scenery does not create/delete its server or database, and every runtime of that environment shares it. The CLI never reads `DATABASE_URL` or `SCENERY_DATABASE_JSON` from its own environment; `up`, `worker`, `db`, `snapshot`, `inspect`, `doctor`, `down` and `prune` resolve the value of the environment they select (`--env`, else the deployable environment whose stable root they run in, else the default) from the revision its runtime runs. `scenery up` of a non-deployable environment refuses a configured external database, because development worktrees each own their database. Without it, local provisioning requires every selected SQL requirement to declare `lifecycle = "managed"`; external/attached/ephemeral requirements do not authorize allocation. `scenery up` uses the existing dedicated container and volume per canonical app root/worktree, one app database, logical schemas and `scenery`. A no-SQL app starts without PostgreSQL; `db list -o json` succeeds with `database: null` and performs no allocation. Managed names derive from app ID and the canonical app root.
+- App processes and setup receive `DATABASE_URL`, per-binding `<SERVICE>_DATABASE_URL`, and `SCENERY_DATABASE_JSON` describing resolved SQL supply (`managed` or `external`). Generated entrypoints configure those existing bindings before constructors, without database IO; explicit per-binding URLs remain supported in standalone generated runtimes. `db.Get()` selects the single supplied application binding (excluding framework `scenery` when another binding exists); ambiguous calls require a name. `db.Get(name)` consumes supplied bindings, or explicit endpoint supply for a named standalone caller, and never discovers `.scenery.json`. `scenery worker` with SQL requirements requires the environment's `sql.database_url`.
 - Retained ownership, not current requirements, controls database stop, cleanup and snapshot recovery. Snapshot schemas come from the selected actual database catalog, not current declarations; invalid or removed `.scn` does not strand owned data. An archive is never proof of target ownership. Existing stopped-owner, verified-allocation and explicit overwrite-approval requirements still apply.
 - Initial `up` source scanning may overlap control-plane setup after lifetime ownership, framework freshness and migration-source checks. The owner joins that invocation-local scan before source consumption and on every failed startup; duplicate acquisition starts no scan. Current generated/workspace validation and readiness remain unchanged.
 - Initial `up` may start an already initialized retained PostgreSQL container during Go preparation, after fresh graph, framework and managed-supply validation. It verifies Docker ownership and authenticated cluster identity under the worktree operation lock, never allocates or recreates resources, and joins before post-build database setup. Database/schema creation, migrations and seeds remain after successful compilation; the consumed endpoint is resolved and verified again. No-SQL or explicit external supply does not trigger this managed-server branch.
@@ -484,6 +489,16 @@ scenery system toolchain verify [-o json] [--all] [--tool <name>] [--platform <g
 scenery system toolchain path [-o json] --tool <name> [--platform <goos/goarch>]
 scenery doctor [--app-root <path>] [-o json]
 ```
+
+### Configuration
+
+```text
+scenery config show [KEY] [--env <name>] [--app-root <path>] [-o json]
+scenery config set KEY [VALUE] --env <name> [--stdin | --null] [--expect-revision <revision>] [--app-root <path>] [-o json]
+scenery config unset KEY --env <name> [--expect-revision <revision>] [--app-root <path>] [-o json]
+```
+
+See [Environment Configuration](#environment-configuration).
 
 ### Deploy
 
@@ -823,6 +838,7 @@ scenery metrics labels -o json [--app-root <path>] [--match <selector>] [--since
 scenery metrics series -o json [--app-root <path>] --match <selector> [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
 scenery traces clear -o json [--app-root <path>]
 scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--measurement completion|startup]... [--since <duration>] [--limit <n>] [-o human|json]
+scenery telemetry report [--since <duration>] [--agent-transcripts] [-o human|json]
 ```
 
 Implemented beta/dev helper grammar:
@@ -970,7 +986,7 @@ DB lifecycle split:
 
 Managed Postgres recovery:
 - Existing container port bindings are checked before reuse or start, including stopped containers. A conflicting binding is SCN8003 / exit 3 with container name and expected/configured ports. No start, removal, volume deletion, credential rewrite, or state adoption is performed on that path. A matching port is a consistency check, not proof of exclusive ownership.
-- Agent home isolates files/control-plane state, not the globally named container/volume in the same Docker daemon. Recovery guidance requires inspecting the Docker context/bindings and using matching agent state/credentials or an externally provisioned `DATABASE_URL`; container deletion or adoption requires explicit ownership verification and operator coordination.
+- Agent home isolates files/control-plane state, not the globally named container/volume in the same Docker daemon. Recovery guidance requires inspecting the Docker context/bindings and using matching agent state/credentials or an externally provisioned `sql.database_url`; container deletion or adoption requires explicit ownership verification and operator coordination.
 - Missing/invalid required environment values, invalid startup routing configuration and Postgres readiness timeout are SCN8003 / exit 3. Unavailable Docker or a required disabled local agent is SCN8004 / exit 4. URL parser errors, Docker arguments/stderr and raw database connection failures are not copied into public diagnostics because they may contain credentials. Unknown internal failures retain the sanitized SCN9000 path.
 - Invalid `.scenery.json` syntax, unknown fields, and configuration validation failures are SCN8003 / exit 3 in machine output, preserving the actionable configuration message. They are not internal failures.
 - Pre-cutover ownership evidence that blocks managed PostgreSQL allocation is also SCN8003 / exit 3, preserving its explicit data-migration guidance without replacing or retiring the old claim.
@@ -985,12 +1001,12 @@ Doctor rules:
 - Required failures currently cover baseline host readiness such as missing/old Go, very low memory, very low disk space, or an explicitly invalid `--app-root`.
 - Doctor reports local state size through informational `storage.scenery_home` checks. `storage.scenery_home` walks the resolved Scenery agent home (`~/.scenery` by default or `SCENERY_AGENT_HOME` when set).
 - Optional missing tools such as `bun`, `atlas`, `sqlc`, `git`, and Postgres client tools warn by default. `psql` and `pg_dump` are relevant only when app config declares Postgres services. App configuration can make messages more specific, but the initial doctor contract does not make optional tools fatal. Doctor reports Docker through `docker.context` and `docker.engine` checks instead of a generic host `tool.docker` line. `docker.context` reports the selected Docker context from `docker context show`. `docker.engine` warns when the Docker CLI is missing or the engine is unreachable, and when reachable it probes with `docker info --format '{{json .}}'` and reports engine details such as server version, OS/type, architecture, CPU/memory, root dir, storage driver, cgroup version, kernel version, and engine name when available. Raw failed or malformed Docker output is omitted.
-- When Postgres services are configured, `db.postgres_server` checks the managed path's Docker prerequisite only. `observed.runtime_verified` is false and `observed.proof` is `none` on failure or `docker_engine_reachability_only` on success. It does not read dotenv sources, validate external database access, connect to Postgres, or verify container ownership/credentials. Guidance uses the canonical app-level `DATABASE_URL`, never removed per-service env selectors. `scenery up` performs actual managed startup and readiness checks.
+- When Postgres services are configured, `db.postgres_server` checks the managed path's Docker prerequisite only. `observed.runtime_verified` is false and `observed.proof` is `none` on failure or `docker_engine_reachability_only` on success. It does not read dotenv sources, validate external database access, connect to Postgres, or verify container ownership/credentials. Guidance names the environment's `sql.database_url`, never process variables. `scenery up` performs actual managed startup and readiness checks.
 - `--app-root` tunes app-sensitive diagnostics from the app config. If omitted, doctor tries current-directory app discovery and silently continues with environment-only checks only when no app marker is found. An unreadable or invalid discovered configuration always produces an `app.root` error and exit 3, including implicit current-directory discovery.
 - When the deploy registry exists, `scenery doctor -o json` includes a `deploy` section summarizing `scenery deploy status` diagnostics. Deploy doctor checks may perform explicit reachability/DNS probes only because `doctor` is an operator-invoked diagnostic command.
 
 Deploy rules:
-- `envs.<name>.deploy.ssh` is an ordered, duplicate-free allowlist; one target may belong to only one env. `scenery deploy <ssh-target>` reverse-resolves that env, while `scenery deploy --env <name>` requires exactly one target. Remote down/up/publish commands carry the env name. Rsync excludes every `.env*` file and preserves remote dotenv state.
+- `envs.<name>.deploy.ssh` is an ordered, duplicate-free allowlist; one target may belong to only one env. `scenery deploy <ssh-target>` reverse-resolves that env, while `scenery deploy --env <name>` requires exactly one target. SSH deployment requires an explicit `"id"` and follows [SSH Deployment Layout](#ssh-deployment-layout). Rsync still excludes every `.env*` file; no dotenv file is a configuration source on the target.
 - Top-level `root` names the configured frontend that owns `/` across local path mode, branded dev domains, agent-proxied deploy targets, and published static edges. A single configured frontend is the default root. The root frontend has no `/<name>/` mount; it is the lowest-precedence SPA catch-all behind Scenery runtime paths, `/api/`, and non-root frontend prefixes. Apps with zero or multiple frontends and no explicit root retain the services index at local `/`.
 - `envs.<name>.domain` is that env's public FQDN. New registry targets, status records, publications, and immutable artifact paths record the environment name.
 - `scenery deploy enable|disable -o json` records intent in the machine deploy registry at `<agent home>/agent/deploy.json` and emits the current `scenery.deploy.target` payload with an exact digest revision. Enabling rejects a domain already enabled for another app root.
@@ -1051,7 +1067,7 @@ Command split:
 - `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths and app config `watch.ignore` paths as outside the watch surface and does not descend into ignored directories. `watch.ignore` also excludes those paths from the rebuild/change fingerprint used by the dev loop, but it does not affect Git tracking. A second live code copy requires a separate Git worktree. Re-running `scenery up` while a verified live owner already runs the same app root is an idempotent success, not an error, and never starts a second supervisor: the human foreground form reports the existing runtime's owner PID, routed URLs, and the log/stop commands, then attaches to the running runtime's structured logs. The attached follower never takes ownership: Ctrl+C detaches with exit code `0` and leaves the runtime running (stopping stays explicit through `scenery down`), and the follower exits on its own once the app root no longer has a live verified owner. `-o jsonl` does not attach; it emits a `run.already_running` event and returns `0`. When the app's `go.mod` selects another framework than the running prepared producer, `scenery up` hands off to it (see Framework handoff with `scenery framework use`) instead of reporting a framework mismatch on every rebuild.
 - After a failed build, changes to declared generated artifacts wake the watcher so regenerating stale clients retries the current contract automatically. Successful builds ignore generated content writes to prevent self-triggered rebuild loops; authored changes made during a build remain pending.
 - `scenery up --detach` starts the same worktree-owning supervisor and embedded private control plane in a background child process. By default (`--wait ready`) it waits up to two minutes until the child session is registered, its status is `running`, the API and configured frontend backends accept connections, every advertised route completes without an infrastructure 5xx response, and one script or stylesheet asset discovered in each frontend HTML shell loads successfully, then prints the app action summary, status/log/stop commands, and registered routes. Application-level 401 or 404 responses prove routing; discovered frontend assets must return below 400. `--wait registered` has a 30-second budget and returns when the child registers as the root's runtime owner, without promising serving readiness. Timeout errors report the actual child PID and last route/asset failure. Supervisor stdout/stderr is retained beneath the worktree's private control directory. A compatible live owner with the same selected environment is reused: the requested readiness check still applies, `scenery.dev.detach.already_running` is true, and `log_path` is omitted because no child was started. A different environment or incompatible identity fails without replacing the owner.
-- Detached startup observes supervisor exit independently of session polling. A private inherited pipe carries one terminal `scenery.cli.event` summary with the current schema/spec/producer identity and a structured diagnostic; stdout/stderr is not parsed as startup authority. Terminal startup failure preserves the original diagnostic fields, exit classification, and internal report token after session cleanup. The public diagnostic adds `details.detached_startup` with `reason`, `owner_pid`, `wait`, and `log_path`, plus a log suggestion when a new child was started. Reasons distinguish `child_failure`, `child_exit` (no result), `protocol_error`, `timeout`, and other `wait_failure`. Exit without a result, malformed protocol, and actual deadline expiration are SCN8003 / exit 3; unknown internal failures remain sanitized SCN9000 / exit 10. The launcher reaps failed children. `--wait registered` intentionally does not promise later readiness or observe failures after it returns. Structured `build.error`, `run.failed`, and failed run summaries include `data.diagnostic` and `data.exit_code`; log text remains non-authoritative context.
+- Detached startup observes supervisor exit independently of session polling. A private inherited pipe carries one terminal `scenery.cli.event` summary with the current schema/spec/producer identity and a structured diagnostic; stdout/stderr is not parsed as startup authority. Terminal startup failure preserves the original diagnostic fields, exit classification, and internal report token after session cleanup. The public diagnostic adds `details.detached_startup` with `reason`, `owner_pid`, `wait`, and `log_path`, plus a log suggestion when a new child was started. Reasons distinguish `child_failure`, `child_exit` (no result), `protocol_error`, `timeout`, and other `wait_failure`. Exit without a result, malformed protocol, and actual deadline expiration are SCN8003 / exit 3; unknown internal failures remain sanitized SCN9000 / exit 10. The launcher reaps failed children. `--wait registered` intentionally does not promise later readiness or observe failures after it returns. Structured `build.error`, `run.failed`, and failed run summaries include `data.diagnostic` and `data.exit_code`, and a `build.error` of a failed build carries the `operation_id` of that build's `build.step` records (a supervisor writes it after the build's `build.request` step); log text remains non-authoritative context.
 - `scenery logs --follow` follows the app root's live runtime logs by default with the same app-root, limit, stream, source, kind, level, grep, since, and JSONL options, and it does not mutate runtime state.
 - `scenery logs`, plain `scenery logs --follow`, and `scenery console` read structured dev events from the Victoria-backed substrate for the selected app root's live runtime.
 - If the backing dev-event substrate is unavailable, structured dev-event read commands fail loudly instead of falling back to the deprecated local process-output cache.
@@ -1143,19 +1159,22 @@ Secrets and environment:
 
 - The human env-var reference is [Environment Reference](environment.md). The machine-readable env contract is [environment.registry.json](environment.registry.json); it is strict current source with `kind: scenery.environment.registry` plus the exact digest `schema_revision`, and `go run ./scripts/verify` fails on identity drift or unregistered production env usage.
 - Do not add a new scenery-owned production env var as a convenience escape hatch. Prefer app config, explicit CLI flags, or checked-in manifests; if env is truly required, add a registry entry with rationale, docs, and tests in the same change.
-- Process environment always wins over values loaded from local files.
-- The stable runtime path reads `.env` from the app root for local secret population when a value is not already present in the process environment.
-- Environment dotenv order is `.env`, `.env.<env>`, `.env.local`, `.env.<env>.local`; parent process values win. `local` degenerates to `.env`, `.env.local`. Every dotenv file is optional in every environment: an absent file contributes no values, and process-only configuration needs no placeholder file. Existing files must be readable and valid dotenv; directories, read errors, and malformed content fail. Missing required values and invalid resolved values still fail their existing validation. Scenery does not create dotenv files automatically. Every `.env*` file should be ignored; `.env.example` may commit names only.
-- `scenery up` passes local file values into the child process before Go package initialization so package-level declarations can read them through `os.Getenv`.
-- Missing declared secrets warn in local development mode.
-- `scenery worker` can use process environment without a `.env` file in every environment; operator-run generated binaries likewise use process environment directly. Production startup still fails if any declared secret is missing.
-- `.env`, `.env.*`, and secret-bearing local files are not copied into build workspaces.
+- Application configuration is never read from the process environment or a dotenv file. Scenery reads no `.env*` file; typed values reach runtimes only through [Environment Configuration](#environment-configuration). Scenery-owned process identity, host inputs and injected wiring remain environment variables as registered.
+- `.env`, `.env.*`, and secret-bearing local files are not copied into build workspaces or deployed sources.
 
 Standard auth:
 
 - Apps may enable the built-in standard auth module from app config; auth handlers are native contract/runtime resources.
 - Auth-protected app code can use `auth.UserID()`, `auth.Data()`, or `auth.CurrentAuthData()` from `scenery.sh/auth`.
 - Audited app code uses `auth.CurrentAuditIdentity(ctx)`. Its `EffectiveUserID` is the user whose permissions and data are exercised, while `ActorUserID` is the real initiator; they are equal for normal sessions and differ during impersonation. The value also carries exact tenant, session, and impersonation IDs. `(*AuthData).AuditIdentity()` is nil-safe; missing current auth returns `unauthenticated`. Scenery does not place application entitlements, roles, business organizations, or business-user IDs in this identity or in JWT claims.
+- App code reads standard auth's organization role through
+  `auth.CurrentMembership(ctx)` (the effective user's active membership in the
+  request tenant) and `auth.MembershipOf(ctx, userID)` (another user's active
+  membership in that tenant; the caller must be an active member). Both read
+  standard auth's own rows: a missing tenant is `unauthenticated`, a disabled or
+  inactive caller is `permission_denied`, and an unknown, disabled or
+  non-member target is `not_found`. `Role` is `auth.RoleOwner` or
+  `auth.RoleMember`; application permissions remain application-owned.
 - Access tokens are HMAC JWTs with required expiration and `tenant_id` claims.
 - Malformed, incorrectly signed, expired, or incomplete access tokens return
   `unauthenticated`; protected contract HTTP bindings map this to their declared
@@ -1334,6 +1353,110 @@ Implemented `traces clear -o json` rules:
 - output conforms to `scenery.traces.clear`
 - trace clearing is dev/admin beta; its existence does not make schedule, trace clearing, or queue deletion semantics stable
 
+## Environment Configuration
+
+Configuration is selected by **application + environment** only. The
+application is `.scenery.json` `"id"` (required for configuration); the
+environment is an `envs` entry. There are no scopes, worktree overrides,
+profiles, a global active environment or per-write target selection.
+
+Catalog:
+
+- Keys are deployment-phase inputs of installed modules that hold values
+  (`<module instance path with "." separators>.<input>`, for example
+  `designs.weather_pack_root`), environment secrets (`resource_ref("secret")`
+  inputs with `sensitive = true` that source leaves unbound) and framework
+  inputs: `auth.jwt_secret`, `auth.cookie_domain`, `auth.email_from`, with
+  Google OAuth `auth.google_client_id`, `auth.google_client_secret`,
+  `auth.token_cipher_key`, and with assistants `assistant.openai_api_key`.
+- A configurable input left without a value compiles; a required one fails
+  runtime-candidate validation, naming the key. `host_path` is a
+  deployment-only absolute path scalar (`SCN1213` rejects it in wire
+  contracts); it is syntax-checked only, never expanded or stat'ed.
+- The effective value is exactly the declared default (the module's `inputs`
+  literal, else the package default), overlaid by the environment's configured
+  value. `--null` configures an optional input as absent; `unset` restores the
+  default. Keys stored by another source revision are reported as `unused` and
+  never delivered.
+
+Authority and storage (`<home>` is the Scenery agent home):
+
+```text
+<home>/apps/<app-id>/
+  environments/<env>.json                      desired document (scenery.app-environment)
+  environment-history/<env>/<revision>.json    retained revisions
+  environment-history/<env>/pins/<holder>.json revisions in use (runtimes, deployments)
+  environment-locks/<env>.lock                 per-environment writer lock
+  secrets/<env>/...                            backend-owned secret data and version index
+```
+
+- A non-deployable environment's authority is the invoking machine's store,
+  shared by every worktree of the application. A deployable environment's
+  authority is its single SSH target: commands send one bounded JSON request to
+  the fixed remote command `scenery config receive`; an unreachable target is an
+  error, never a local fallback.
+- Documents hold canonical contract wire values and secret version references
+  only. Revisions (`cfg-` + 32 hex) are content-addressed; a write changes one
+  key under the environment lock and republishes atomically; `--expect-revision`
+  fails with `SCN8002` without mutation. History keeps the desired and pinned
+  revisions plus the newest 16 others; secret versions are removed only when no
+  retained revision references them.
+- Secrets are read from a hidden prompt or exact `--stdin` bytes, never
+  arguments, and stored as immutable versions in the macOS login Keychain
+  (service `sh.scenery.config.<app-id>.<env>`) or as `systemd-creds`
+  credentials on Linux. `show` reports only `configured` or `not_configured`.
+
+Runtime delivery:
+
+- `scenery up` resolves the environment against the running build's catalog
+  and gives each service process a snapshot with only the values and secrets
+  its constructor consumes, through an inherited pipe named by
+  `SCENERY_CONFIG_SNAPSHOT_FD`. Generated constructors call
+  `sceneryruntime.ResolveDeploymentConfig`; environment secrets arrive as
+  `scenery.SecretRef` values read with `Reveal()`. Configured values never enter
+  generated code or executables.
+- A local supervisor applies a new desired revision by restarting only the
+  service processes whose snapshot changed, without building. An invalid
+  revision leaves the running generation serving; `config show` reports
+  `rejected` with the problem. Its pin records the applied revision.
+- A deployable environment's runtime runs the revision of its installed
+  release (`active.json`), never newer desired configuration.
+- Inputs declared `public = true` (non-sensitive values only) are served as
+  `GET <api base>/__scenery/public-config` →
+  `{"kind":"scenery.public-config","revision":…,"values":{key: value}}` with
+  `ETag` = revision. A generated TypeScript client of an application with
+  public inputs adds `public-config.ts` (`PublicConfig`,
+  `loadPublicConfig(apiBaseUrl)`); frontends read it at startup instead of
+  build-time variables, so a changed value needs no rebuild.
+
+`config show -o json` emits `scenery.config.show`; `set` and `unset` emit
+`scenery.config.change` (schemas under `docs/schemas/`).
+
+## SSH Deployment Layout
+
+```text
+<target home>/deployments/<app-id>/<env>/
+  source/                     stable runtime root (data ownership is keyed by it)
+  releases/<id>/source/       staged release source (the only rsync --delete destination)
+  releases/<id>/receipt.json  release record
+  active.json                 installed release: deployment id, state, configuration revision
+```
+
+`scenery deploy` runs: workstation check; `begin` captures and pins the
+desired configuration revision on the target; rsync into the staged release;
+`validate` compiles the staged source and resolves the pinned revision,
+including every secret, while the healthy runtime serves; only then `down`,
+`activate` (copy into the stable root, preserving its `.scenery/`, and record
+`active.json` as `activating`), `up`, optional frontend publish, and `commit`,
+which requires the stable root's runtime to have applied the installed
+revision. A failed `up` or publish reinstalls the previous release's source and
+configuration revision and restarts it. The deployment receivers are the fixed
+remote commands `scenery deploy receive` and `scenery config receive`.
+
+A target whose legacy checkout still occupies `<target home>/apps/<app-id>`
+refuses deploys and configuration writes until
+[the migration runbook](runbooks/deploy-root-migration.md) moves its data.
+
 ## Development Runtime RPC
 
 While `scenery up` runs, every path-mode app origin (the localhost base URL and
@@ -1443,6 +1566,11 @@ Generated client:
   expected and received kind and revision; a result that is not a
   `scenery.dev-runtime.status` at all (an older Scenery) says to restart
   `scenery up`, and a revision mismatch names both remedies.
+- A call the client rejects before sending it (aborted, `close()`, `dispose()`
+  or a dropped socket) never reaches the runtime; a sent mutation may still
+  complete. `dispose()` also cancels storage transfers and refuses later ones.
+  [The client specification](spec/typescript-client.md#dev-runtime-client)
+  defines its full lifecycle and error codes.
 
 ## Artifact Locations
 
@@ -1584,6 +1712,8 @@ Implemented now:
 - [scenery.assistant.sync.schema.json](schemas/scenery.assistant.sync.schema.json)
 - [scenery.cli.schema.json](schemas/scenery.cli.schema.json)
 - [scenery.cli.event.schema.json](schemas/scenery.cli.event.schema.json)
+- [scenery.config.show.schema.json](schemas/scenery.config.show.schema.json) — `config show` envelope data
+- [scenery.config.change.schema.json](schemas/scenery.config.change.schema.json) — `config set` and `config unset` envelope data
 - [scenery.deployment-plan.schema.json](schemas/scenery.deployment-plan.schema.json)
 - [scenery.deployment-receipt.schema.json](schemas/scenery.deployment-receipt.schema.json)
 - [scenery.generated.schema.json](schemas/scenery.generated.schema.json)

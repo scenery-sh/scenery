@@ -9,6 +9,8 @@ type PayloadIdentity struct {
 
 var payloadSchemaRevisions = map[string]string{
 	"scenery.db.migrate":                  "sha256:0f400279c74205778e4d2656af9295ce659ce08b93a7502e8dcfb41dd79d81c4",
+	"scenery.config.show":                 "sha256:52b252daaa4cc3fcf2ef9b6b6eed654db6ad81e641536d78e98a81ea7469dc22",
+	"scenery.config.change":               "sha256:afafdcbcaedca8b4692cf4cac475af54c6ffccd7bd3da09d83d627de771ae887",
 	"scenery.framework":                   "sha256:98e5bcf96f297588150432f7e2eb3e1ea6f784e2333d870b589112df8b18cf4b",
 	"scenery.help":                        "sha256:dd5d2e7b08e3ac88e7722ec62c1068ebcb8b1878b5a5269676ad940a1589e5f2",
 	"scenery.agent_context":               "sha256:dae5b1c37bc92ff6e30d2a0247c346c953a997f657c07cd8e2a3da0df55802c8",
@@ -57,6 +59,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.metrics.series":              "sha256:ccb53b231affc674aa36da784d17aa57f6ed5d9425127327ddace8983d00bb39",
 	"scenery.failure.report":              "sha256:4d4540496d4ad6467a4d1ff95b00228858e088a6da619310a057ab6ffbd9e273",
 	"scenery.telemetry":                   "sha256:a2cacb0ae5e884f7d8867e875f21b7c93f3ae6086b80d08ea9cc391387e3cc56",
+	"scenery.telemetry.report":            "sha256:7e60c7b1d2954a7b127bc56166707dd6d2ab240885990260b7103a8204d6ee36",
 	"scenery.inspect.harness":             "sha256:f85ff889bd47c12fef97c8f922a235989ad736775207a7cf6c2e24a5d48e4897",
 	"scenery.harness.artifact":            "sha256:5fdbd3fbabd171b9226331c8d821c2a59744e7682943593896c332b8ac69eaa8",
 	"scenery.harness.changed_area":        "sha256:a7240232c8378e835cac0ec4fa6f9a9236b5988ec7692d1988d43edbf5a73b0f",
