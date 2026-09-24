@@ -1167,6 +1167,14 @@ Standard auth:
 - Apps may enable the built-in standard auth module from app config; auth handlers are native contract/runtime resources.
 - Auth-protected app code can use `auth.UserID()`, `auth.Data()`, or `auth.CurrentAuthData()` from `scenery.sh/auth`.
 - Audited app code uses `auth.CurrentAuditIdentity(ctx)`. Its `EffectiveUserID` is the user whose permissions and data are exercised, while `ActorUserID` is the real initiator; they are equal for normal sessions and differ during impersonation. The value also carries exact tenant, session, and impersonation IDs. `(*AuthData).AuditIdentity()` is nil-safe; missing current auth returns `unauthenticated`. Scenery does not place application entitlements, roles, business organizations, or business-user IDs in this identity or in JWT claims.
+- App code reads standard auth's organization role through
+  `auth.CurrentMembership(ctx)` (the effective user's active membership in the
+  request tenant) and `auth.MembershipOf(ctx, userID)` (another user's active
+  membership in that tenant; the caller must be an active member). Both read
+  standard auth's own rows: a missing tenant is `unauthenticated`, a disabled or
+  inactive caller is `permission_denied`, and an unknown, disabled or
+  non-member target is `not_found`. `Role` is `auth.RoleOwner` or
+  `auth.RoleMember`; application permissions remain application-owned.
 - Access tokens are HMAC JWTs with required expiration and `tenant_id` claims.
 - Malformed, incorrectly signed, expired, or incomplete access tokens return
   `unauthenticated`; protected contract HTTP bindings map this to their declared

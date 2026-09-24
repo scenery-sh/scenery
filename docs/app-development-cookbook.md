@@ -461,7 +461,23 @@ administrator. Do not infer app entitlements or business organizations from
 Scenery auth tenants or JWT claims.
 
 Use `auth.CurrentUser(ctx)` to read the live `auth.UserProfile`, including its
-verified-email state, for the authenticated user. Do not query
+verified-email state, for the authenticated user. To restrict an application
+write to organization owners, or to check that a referenced user belongs to the
+workspace, read standard auth's membership instead of trusting request data:
+
+```go
+membership, err := auth.CurrentMembership(ctx)
+if err != nil {
+    return err
+}
+if membership.Role != auth.RoleOwner {
+    return errs.B().Code(errs.PermissionDenied).Msg("only workspace owners manage teams").Err()
+}
+if _, err := auth.MembershipOf(ctx, auth.AuthUserID(memberID)); err != nil {
+    return err // not_found when the user is not an active member here
+}
+```
+ Do not query
 `scenery.scenery_auth_*` tables from
 application code. Missing auth returns `unauthenticated`, a missing checker or
 standard-auth configuration returns `failed_precondition`, denial returns

@@ -759,7 +759,13 @@ returns `failed_precondition`, and a denied check returns `false, nil`. Checker
 errors are returned unchanged. `auth.CurrentUser(ctx)` reads and returns the live
 standard-auth `auth.UserProfile`; it does not rotate a session, create a tenant,
 or issue a token. Applications must use that accessor rather than querying
-Scenery-owned `scenery_auth_*` tables.
+Scenery-owned `scenery_auth_*` tables. Likewise `auth.CurrentMembership(ctx)`
+returns the effective user's active organization membership and role
+(`auth.RoleOwner` or `auth.RoleMember`) in the request tenant, and
+`auth.MembershipOf(ctx, userID)` checks that another user is an active member
+of that tenant (not found otherwise). Use them when an application applies
+standard auth's owner rule to its own data or validates a member reference;
+they do not add application roles.
 
 Persist `auth.CurrentAuditIdentity(ctx)` with audited actions. It reports the
 effective subject separately from the real actor, so a normal session has equal
