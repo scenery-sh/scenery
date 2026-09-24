@@ -24,7 +24,7 @@ func TestMalformedInvocationsAreInvalidRequestsThatNameTheMistake(t *testing.T) 
 		{"logs query --query x -o yaml", `unsupported output "yaml"; use json or jsonl`},
 		{"logs --limit x", `invalid value "x" for --limit`},
 		{"assistant", "missing assistant subcommand"},
-		{"assistant nope", `unknown assistant subcommand "nope"`},
+		{"assistant nope", `unknown assistant command "nope"`},
 		{"assistant -o json status", `expected the assistant subcommand before "-o"; flags follow it`},
 		{"assistant init", "missing assistant name"},
 		{"assistant init -o json", `expected the assistant name before "-o"; flags follow it`},

@@ -30,6 +30,12 @@ func TestCLIGrammarCasesFollowTheAdvertisedUsage(t *testing.T) {
 		"refuse: db migrate --app-root",
 		"refuse: compile --view zz-invalid",
 		"accept: compile -o json",
+		"refuse: zz-unknown-command",
+		"help: logs query -h",
+		"help: logs query --help",
+		"help: db migrate --help -o json",
+		// A help request never runs its command, so host families are asked too.
+		"help: system trust --help",
 	} {
 		if !slices.Contains(got, want) {
 			t.Errorf("missing case %q in %q", want, got)
@@ -38,7 +44,7 @@ func TestCLIGrammarCasesFollowTheAdvertisedUsage(t *testing.T) {
 	for _, testCase := range got {
 		// A bare alternative is no flag value, a free operand is no unknown
 		// subcommand, and a line that forwards arguments refuses nothing.
-		if strings.Contains(testCase, "--status") || testCase == "refuse: validate zz-unknown-subcommand" || strings.Contains(testCase, ": test") || strings.Contains(testCase, "system") {
+		if strings.Contains(testCase, "--status") || testCase == "refuse: validate zz-unknown-subcommand" || strings.Contains(testCase, ": test") || (strings.Contains(testCase, "system") && !strings.HasPrefix(testCase, "help: ")) {
 			t.Errorf("unexpected case %q", testCase)
 		}
 	}
