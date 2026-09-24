@@ -397,7 +397,7 @@ var helpCommands = []helpCommandEntry{
 		Group:       "Storage",
 		Summary:     "Save, verify, and load portable Postgres and storage snapshots.",
 		Usage:       []string{"scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]", "scenery snapshot verify --input <file.zip> [-o json]", "scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]"},
-		Subcommands: []string{"save", "load"},
+		Subcommands: []string{"save", "verify", "load"},
 		Flags:       []string{"--output <file.zip>", "--input <file.zip>", "--db", "--storage", "--mode overwrite|merge", "--on-conflict fail|skip|overwrite", "--yes", "--dry-run", "--app-root <path>", "-o", "json"},
 		JSON:        true,
 		Stability:   "beta",
@@ -653,7 +653,7 @@ var helpCommands = []helpCommandEntry{
 }
 
 func helpCommand(args []string) error {
-	topics, jsonOutput, err := parseHelpCommandArgs(args)
+	topics, jsonOutput, err := parseHelpCommandArgs(withoutHelpFlags(args))
 	if err != nil {
 		return err
 	}
@@ -678,7 +678,7 @@ func helpCommand(args []string) error {
 				return err
 			}
 		}
-		return fmt.Errorf("invalid_request: unknown help topic %q", strings.Join(topics, " "))
+		return fmt.Errorf("invalid_request: unknown help topic %q; %s", strings.Join(topics, " "), unknownWordHint(topics[0], builtinCommandNames(), "scenery help"))
 	}
 	if jsonOutput {
 		return writeScopedHelpJSON(os.Stdout, entry)
@@ -759,6 +759,7 @@ func writeRootHelp(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  scenery <command> [args] [flags]")
 	_, _ = fmt.Fprintln(w, "  scenery help <command> [-o human|json]")
+	_, _ = fmt.Fprintln(w, "  scenery <command> -h|--help")
 	_, _ = fmt.Fprintln(w, "  scenery help all")
 	_, _ = fmt.Fprintln(w, "  scenery help -o json")
 	for _, group := range rootHelpGroups {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -38,10 +39,10 @@ type dashboardPostgresColumn struct {
 }
 
 type dashboardPostgresRows struct {
-	Columns []string `json:"columns"`
-	Rows    [][]any  `json:"rows"`
-	Limit   int      `json:"limit"`
-	Offset  int      `json:"offset"`
+	Columns []string          `json:"columns"`
+	Rows    []json.RawMessage `json:"rows"`
+	Limit   int               `json:"limit"`
+	Offset  int               `json:"offset"`
 }
 
 func (s *dashboardServer) postgresTables(ctx context.Context, req dashboardPostgresRequest) ([]dashboardPostgresTable, error) {
@@ -141,12 +142,8 @@ func (s *dashboardServer) postgresRows(ctx context.Context, req dashboardPostgre
 		return dashboardPostgresRows{}, err
 	}
 	defer func() { _ = db.Close() }()
-	rows, err := db.QueryContext(ctx, `SELECT * FROM `+quotePostgresIdent(schema)+`.`+quotePostgresIdent(table)+` LIMIT $1 OFFSET $2`, limit, offset)
-	if err != nil {
-		return dashboardPostgresRows{}, err
-	}
-	defer func() { _ = rows.Close() }()
-	cols, out, err := scanRuntimeRows(rows)
+	query := `SELECT * FROM ` + quotePostgresIdent(schema) + `.` + quotePostgresIdent(table) + ` LIMIT $1 OFFSET $2`
+	cols, out, err := queryRuntimeRows(ctx, db, s.rpc.limits.pageBudget(limit), query, limit, offset)
 	return dashboardPostgresRows{Columns: cols, Rows: out, Limit: limit, Offset: offset}, err
 }
 
@@ -159,7 +156,7 @@ func (s *dashboardServer) openDashboardPostgres(ctx context.Context, appID strin
 	if root == "" {
 		return nil, fmt.Errorf("dashboard postgres explorer requires an app root")
 	}
-	return openPostgresDashboardDB(ctx, root)
+	return s.openDatabase(ctx, root)
 }
 
 func dashboardPostgresTarget(req dashboardPostgresRequest) (string, string, error) {

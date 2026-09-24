@@ -52,7 +52,7 @@ func runDeploySSH(stdout io.Writer, target string, args []string, tools deploySS
 	} else {
 		env, err = cfg.EnvForSSHTarget(target)
 		if err != nil {
-			return err
+			return usageErrorf("%v; list it in envs.<name>.deploy.ssh of %s", err, appcfg.PrimaryConfigFilename)
 		}
 	}
 	if err := tools.check(context.Background(), stdout, []string{"--app-root", appRoot}); err != nil {

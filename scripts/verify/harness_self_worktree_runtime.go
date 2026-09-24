@@ -31,8 +31,8 @@ type worktreeRuntimeProbe struct {
 	roots            []string
 	binaries         map[string]string
 	victoriaBinaries map[string]string
-	// rootEnv adds process inputs for commands of one root, such as the
-	// explicit external SQL supply; never evidence or argv.
+	// rootEnv adds process inputs for commands of one root, such as an
+	// ambient DATABASE_URL the CLI must ignore; never evidence or argv.
 	rootEnv  map[string][]string
 	commands []map[string]any
 	cases    []map[string]any
@@ -187,6 +187,9 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 	}); err != nil {
 		return summary, err.Error()
 	}
+	if err := p.rpcBounds(rootA, a); err != nil {
+		return summary, err.Error()
+	}
 	if err := p.outage(rootA, rootB, a, b); err != nil {
 		return summary, err.Error()
 	}
@@ -231,7 +234,7 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 	}
 	// Rows are added only once their complete required evidence is available.
 	// An unfinished matrix is a failure, never a silently skipped acceptance.
-	summary["acceptance_rows"] = 17
+	summary["acceptance_rows"] = 18
 	return summary, ""
 }
 
@@ -252,9 +255,18 @@ func (p *worktreeRuntimeProbe) run(root, program string, args ...string) ([]byte
 }
 
 func (p *worktreeRuntimeProbe) runWithContext(ctx context.Context, root, program string, args ...string) ([]byte, error) {
+	return p.runInput(ctx, root, nil, program, args...)
+}
+
+// runInput is runWithContext with standard input, the only channel for a
+// secret value: never argv, evidence or output.
+func (p *worktreeRuntimeProbe) runInput(ctx context.Context, root string, stdin []byte, program string, args ...string) ([]byte, error) {
 	started := time.Now()
 	command := exec.CommandContext(ctx, program, args...)
 	command.Dir, command.Env = root, append(append([]string(nil), p.env...), p.rootEnv[root]...)
+	if stdin != nil {
+		command.Stdin = bytes.NewReader(stdin)
+	}
 	output, err := command.CombinedOutput()
 	entry := map[string]any{"cwd": root, "argv": append([]string{program}, args...), "duration_ms": time.Since(started).Milliseconds(), "ok": err == nil}
 	if err != nil {

@@ -113,7 +113,10 @@ export interface PostgresTableRef {
 }
 
 export interface PostgresRowsRequest extends PostgresTableRef {
-	/** Page size, 1-500; defaults to 100. */
+	/**
+	 * Page size, 1-500; defaults to 100. A page over 4 MiB fails with SCN8013,
+	 * whose `details.rows_within_budget` says how many rows fit.
+	 */
 	readonly limit?: number;
 	readonly offset?: number;
 }
@@ -248,6 +251,13 @@ export interface StorageUploadOptions {
 
 export type DevRuntimeErrorCode = "unavailable" | "closed" | "aborted" | "rpc" | "protocol" | "transfer" | "request_too_large";
 
+/**
+ * A failed development runtime call. An "rpc" failure's `diagnostic` names
+ * the runtime's reason, such as SCN8011 (a concurrency limit is saturated;
+ * retry after a call completes), SCN8012 (the call passed its deadline) or
+ * SCN8013 (the result exceeds its row or byte budget); `details` carries the
+ * limit that applied.
+ */
 export class DevRuntimeError extends Error {
 	readonly code: DevRuntimeErrorCode;
 	/** Scenery diagnostic (for example SCN8xxx) when the runtime reported one. */
@@ -337,7 +347,10 @@ function disposedError(cause?: unknown): DevRuntimeError {
  * the socket connects are queued and sent in call order once it opens. A
  * dropped socket rejects every unfinished call with code "closed"; the next
  * call reconnects, after `reconnectDelayMs`. A call rejected before it was
- * sent never reaches the runtime; a sent call may still complete there.
+ * sent never reaches the runtime; a sent call may still complete there. The
+ * runtime runs a bounded number of database and storage calls per connection
+ * and app and refuses the rest at once (SCN8011); `status` keeps its own
+ * allowance.
  */
 export class DevRuntimeClient {
 	readonly #url: string;
@@ -446,7 +459,10 @@ export class DevRuntimeClient {
 		}, signal);
 	}
 
-	/** Run one SQL statement against the app's development database. */
+	/**
+	 * Run one SQL statement against the app's development database. A result
+	 * over 5,000 rows or 4 MiB fails with SCN8013 instead of being truncated.
+	 */
 	query(appId: string, request: SQLQueryRequest, signal?: AbortSignal): Promise<SQLQueryResult> {
 		return this.#call("db/query", { app_id: appId, query: request.query, params: request.params ?? [] }, signal);
 	}

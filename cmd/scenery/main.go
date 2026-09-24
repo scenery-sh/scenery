@@ -149,6 +149,12 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		writeRootHelp(os.Stdout)
 		return nil
 	}
+	if topics, ok := helpRequestTopics(args); ok {
+		return helpCommand(topics)
+	}
+	if err := unknownSubcommandError(args); err != nil {
+		return err
+	}
 	switch args[0] {
 	case "help":
 		return helpCommand(args[1:])
@@ -241,7 +247,7 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		if handled, err := runBindingCLI(os.Stdout, os.Stderr, args); handled {
 			return err
 		}
-		return usageErrorf("unknown command %q; use `scenery help`", args[0])
+		return usageErrorf("unknown command %q; %s", args[0], unknownWordHint(args[0], builtinCommandNames(), "scenery help"))
 	}
 }
 

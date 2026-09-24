@@ -45,18 +45,22 @@ func dashboardCheckOrigin(req *http.Request) bool {
 }
 
 type dashboardServer struct {
-	controller  dashboardController
-	supervisor  *devSupervisor
-	http        *http.Server
-	addr        string
-	state       dashboardRunState
-	logExporter func(*devdash.LogEvent)
+	controller   dashboardController
+	supervisor   *devSupervisor
+	http         *http.Server
+	addr         string
+	state        dashboardRunState
+	logExporter  func(*devdash.LogEvent)
+	openDatabase func(context.Context, string) (*sql.DB, error)
+	rpc          *runtimeRPC
 
 	traces *dashboardTraceEventBuffer
 }
 
 type dashboardServerHooks struct {
 	exportLogEvent func(*devdash.LogEvent)
+	// openDatabase opens an app root's development database.
+	openDatabase func(context.Context, string) (*sql.DB, error)
 }
 
 type dashboardVictoria interface {
@@ -140,15 +144,20 @@ func newDashboardServerWithController(controller dashboardController, root, addr
 // supervisor control plane. It serves no browser UI.
 func newDashboardServerWithControllerHooks(controller dashboardController, root, addr string, supervisor *devSupervisor, hooks dashboardServerHooks) *dashboardServer {
 	s := &dashboardServer{
-		controller: controller,
-		supervisor: supervisor,
-		addr:       addr,
-		state:      newDashboardRunState(root, addr),
-		traces:     newDashboardTraceEventBuffer(),
+		controller:   controller,
+		supervisor:   supervisor,
+		addr:         addr,
+		state:        newDashboardRunState(root, addr),
+		traces:       newDashboardTraceEventBuffer(),
+		openDatabase: hooks.openDatabase,
+		rpc:          newRuntimeRPC(defaultRuntimeRPCLimits),
 	}
 	s.logExporter = hooks.exportLogEvent
 	if s.logExporter == nil {
 		s.logExporter = s.exportVictoriaLogEvent
+	}
+	if s.openDatabase == nil {
+		s.openDatabase = openPostgresDashboardDB
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(devdash.WebSocketPath, s.handleWebSocket)
@@ -250,8 +259,11 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 	if err != nil {
 		return
 	}
+	// Closing the connection cancels every call it admitted; the handler
+	// returns only after each of them has finished.
 	ctx, cancel := context.WithCancel(req.Context())
 	client := &dashboardClient{conn: conn}
+	slots := s.rpc.connectionSlots()
 	var calls sync.WaitGroup
 	defer func() {
 		cancel()
@@ -268,10 +280,24 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 		if err := conn.ReadJSON(&reqMsg); err != nil {
 			return
 		}
-		// Calls on one connection run concurrently, so a slow query does not
-		// hold back a status poll; responses carry their request id.
+		// A call beyond its connection's or app's allowance is refused before
+		// the next request is read; nothing waits for a slot.
+		call, refusal := s.rpc.admit(slots, reqMsg, s.dashboardActiveAppID)
+		if refusal != nil {
+			if reqMsg.ID == nil {
+				continue
+			}
+			if err := client.writeJSON(rpcErrorResponse(reqMsg.ID, refusal)); err != nil {
+				return
+			}
+			continue
+		}
+		// Admitted calls on one connection run concurrently, so a slow query
+		// does not hold back a status poll; responses carry their request id.
+		// A call keeps its slots until its answer is written.
 		calls.Go(func() {
-			resp := s.handleRPC(ctx, reqMsg)
+			defer call.release()
+			resp := s.handleRPC(ctx, call, reqMsg)
 			if reqMsg.ID == nil {
 				return
 			}
@@ -411,27 +437,20 @@ func fillLogEventIdentity(event *devdash.LogEvent, report devdash.ReportEnvelope
 }
 
 // queryDB runs one statement and answers its columns in select order with
-// every row as a value array, like postgres/rows.
+// every row as a value array, like postgres/rows, within the query budget.
 func (s *dashboardServer) queryDB(ctx context.Context, req runtimeQueryRequest) (runtimeQueryResult, error) {
-	appID := firstNonEmpty(req.AppID, s.dashboardActiveAppID())
-	status, err := s.dashboardStatusFor(ctx, appID)
-	if err != nil {
-		return runtimeQueryResult{}, err
-	}
-	db, err := openPostgresDashboardDB(ctx, status.AppRoot)
+	db, err := s.openDashboardPostgres(ctx, req.AppID)
 	if err != nil {
 		return runtimeQueryResult{}, err
 	}
 	defer func() { _ = db.Close() }()
-	rows, err := db.QueryContext(ctx, req.Query, req.Params...)
-	if err != nil {
-		return runtimeQueryResult{}, err
-	}
-	defer func() { _ = rows.Close() }()
-	columns, values, err := scanRuntimeRows(rows)
-	return runtimeQueryResult{Columns: columns, Rows: values}, err
+	columns, rows, err := queryRuntimeRows(ctx, db, s.rpc.limits.queryBudget(), req.Query, req.Params...)
+	return runtimeQueryResult{Columns: columns, Rows: rows}, err
 }
 
+// A call whose context ends while pgx waits for its statement closes the
+// connection, and pgx then sends PostgreSQL a cancel request: a disconnect or
+// deadline also stops the statement on the server.
 func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) {
 	appRoot, cfg, err := app.DiscoverRoot(root)
 	if err != nil {
@@ -447,19 +466,41 @@ func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) 
 	return openPostgresDatabase(ctx, database.URL)
 }
 
-// scanRuntimeRows reads every row as values in column order; text-like bytes
-// become strings. It never answers a nil row list.
-func scanRuntimeRows(rows *sql.Rows) ([]string, [][]any, error) {
+// queryRuntimeRows runs one statement and scans it within budget. The
+// statement is canceled before its rows close (deferred calls run in reverse),
+// so an exceeded budget stops the result on the server; closing alone would
+// make the driver drain the rest of it.
+func queryRuntimeRows(ctx context.Context, db *sql.DB, budget runtimeResultBudget, query string, args ...any) ([]string, []json.RawMessage, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	defer cancel()
+	return scanRuntimeRows(rows, budget)
+}
+
+// scanRuntimeRows reads rows as JSON value arrays in column order; text-like
+// bytes become strings. It counts the exact encoded size of the rows array
+// and fails at the first row beyond the budget instead of accumulating it.
+// It never answers a nil row list.
+func scanRuntimeRows(rows *sql.Rows, budget runtimeResultBudget) ([]string, []json.RawMessage, error) {
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, nil, err
 	}
-	out := [][]any{}
+	out := []json.RawMessage{}
+	size := len("[]")
+	values := make([]any, len(columns))
+	pointers := make([]any, len(columns))
+	for i := range values {
+		pointers[i] = &values[i]
+	}
 	for rows.Next() {
-		values := make([]any, len(columns))
-		pointers := make([]any, len(columns))
-		for i := range values {
-			pointers[i] = &values[i]
+		if len(out) == budget.maxRows {
+			return nil, nil, resultTooLarge(budget, len(out))
 		}
 		if err := rows.Scan(pointers...); err != nil {
 			return nil, nil, err
@@ -469,7 +510,18 @@ func scanRuntimeRows(rows *sql.Rows) ([]string, [][]any, error) {
 				values[i] = string(bytes)
 			}
 		}
-		out = append(out, values)
+		encoded, err := json.Marshal(values)
+		if err != nil {
+			return nil, nil, err
+		}
+		size += len(encoded)
+		if len(out) > 0 {
+			size++
+		}
+		if size > budget.maxBytes {
+			return nil, nil, resultTooLarge(budget, len(out))
+		}
+		out = append(out, encoded)
 	}
 	return columns, out, rows.Err()
 }

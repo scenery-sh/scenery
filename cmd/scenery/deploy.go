@@ -228,6 +228,9 @@ func runDeployCommandWithStatusDependencies(stdout io.Writer, args []string, sta
 		return deployReceiveCommand(stdout, args[1:])
 	}
 	if !isDeploySubcommand(subcommand) {
+		if err := deployTargetTypoError(subcommand, configuredDeployTargets(args[1:])); err != nil {
+			return err
+		}
 		return runDeploySSH(stdout, subcommand, args[1:], deploySSHTools{})
 	}
 	opts, err := parseDeployOptions(subcommand, args[1:])

@@ -47,7 +47,7 @@ type harnessCLIGrammarCommand struct {
 }
 
 type harnessCLIGrammarCase struct {
-	kind string // "refuse" or "accept"
+	kind string // "refuse", "accept" or "help"
 	args []string
 }
 
@@ -56,6 +56,8 @@ type harnessCLIGrammarOutcome struct {
 	code    string
 	message string
 	json    bool
+	kind    string
+	stdout  string
 }
 
 func runHarnessCLIGrammarProbeStep(ctx context.Context, repoRoot string) harnessStep {
@@ -103,7 +105,7 @@ func runHarnessCLIGrammarProbeCheck(ctx context.Context, repoRoot string) (map[s
 		var stdout, stderr strings.Builder
 		command.Stdout, command.Stderr = &stdout, &stderr
 		runErr := command.Run()
-		outcome := harnessCLIGrammarOutcome{message: strings.TrimSpace(stderr.String())}
+		outcome := harnessCLIGrammarOutcome{message: strings.TrimSpace(stderr.String()), stdout: stdout.String()}
 		if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 			outcome.exit = exitErr.ExitCode()
 		} else if runErr != nil {
@@ -115,12 +117,13 @@ func runHarnessCLIGrammarProbeCheck(ctx context.Context, repoRoot string) (map[s
 		var envelope struct {
 			Diagnostics []struct{ Code, Message string } `json:"diagnostics"`
 			Data        struct {
+				Kind       string                         `json:"kind"`
 				Diagnostic struct{ Code, Message string } `json:"diagnostic"`
 			} `json:"data"`
 		}
 		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 		if json.Unmarshal([]byte(lines[len(lines)-1]), &envelope) == nil {
-			outcome.json = true
+			outcome.json, outcome.kind = true, envelope.Data.Kind
 			if len(envelope.Diagnostics) > 0 {
 				outcome.code, outcome.message = envelope.Diagnostics[0].Code, envelope.Diagnostics[0].Message
 			} else if envelope.Data.Diagnostic.Code != "" {
@@ -168,14 +171,23 @@ func runHarnessCLIGrammarProbeCheck(ctx context.Context, repoRoot string) (map[s
 			report(testCase, outcome, "the advertised grammar is refused as wrongly written")
 		case testCase.kind == "accept" && (outcome.exit == 10 || strings.HasPrefix(outcome.code, "SCN9")):
 			report(testCase, outcome, "the advertised grammar fails internally")
+		case testCase.kind == "help" && outcome.exit != 0:
+			report(testCase, outcome, "a help request on an advertised command is refused")
+		case testCase.kind == "help" && slices.Contains(testCase.args, "json") && outcome.kind != "scenery.help":
+			report(testCase, outcome, "a JSON help request does not answer with the command's help descriptor")
+		case testCase.kind == "help" && !slices.Contains(testCase.args, "json") && !strings.Contains(outcome.stdout, "Usage:"):
+			report(testCase, outcome, "a help request does not print the command's usage")
 		}
 	}
-	return map[string]any{"commands": len(grammar.Data.Commands), "refused": counts["refuse"], "accepted": counts["accept"], "not_executed": skipped}, diagnostics, nil
+	return map[string]any{"commands": len(grammar.Data.Commands), "refused": counts["refuse"], "accepted": counts["accept"], "help_requests": counts["help"], "not_executed": skipped}, diagnostics, nil
 }
 
 // harnessCLIGrammarCases derives the invocations from the advertised usage
-// lines. Every line yields requests that must be refused; a read-only line also
-// yields itself, written with its required parts only, which must be accepted.
+// lines. Every line yields requests that must be refused and help requests
+// (`-h`, `--help`, and `--help -o json`) that must answer with help, including
+// on host families, since a help request never runs its command; a read-only
+// line also yields itself, written with its required parts only, which must be
+// accepted.
 func harnessCLIGrammarCases(commands []harnessCLIGrammarCommand) ([]harnessCLIGrammarCase, []string) {
 	var cases []harnessCLIGrammarCase
 	var skipped []string
@@ -186,7 +198,15 @@ func harnessCLIGrammarCases(commands []harnessCLIGrammarCommand) ([]harnessCLIGr
 			cases = append(cases, harnessCLIGrammarCase{kind: kind, args: args})
 		}
 	}
+	add("refuse", "zz-unknown-command")
 	for _, command := range commands {
+		for _, usage := range command.Usage {
+			for _, path := range harnessCLIGrammarParseUsage(usage).paths {
+				add("help", append(slices.Clone(path), "-h")...)
+				add("help", append(slices.Clone(path), "--help")...)
+				add("help", append(slices.Clone(path), "--help", "-o", "json")...)
+			}
+		}
 		family, _, _ := strings.Cut(command.Command, " ")
 		if slices.Contains(harnessCLIGrammarHostFamilies, family) {
 			skipped = append(skipped, command.Command)
