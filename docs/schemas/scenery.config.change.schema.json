@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.config.change.schema.json",
+  "title": "scenery config set and unset",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app_id",
+    "environment",
+    "authority",
+    "key",
+    "operation",
+    "changed",
+    "previous_revision",
+    "revision",
+    "missing",
+    "application"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.config.change"
+    },
+    "schema_revision": {
+      "const": "sha256:afafdcbcaedca8b4692cf4cac475af54c6ffccd7bd3da09d83d627de771ae887"
+    },
+    "app_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+    },
+    "environment": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+    },
+    "authority": {
+      "enum": [
+        "local",
+        "target"
+      ]
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "operation": {
+      "enum": [
+        "set",
+        "unset"
+      ]
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "previous_revision": {
+      "type": "string",
+      "pattern": "^cfg-[0-9a-f]{32}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^cfg-[0-9a-f]{32}$"
+    },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+      }
+    },
+    "application": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,6 +1,7 @@
 package appconfig
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -222,6 +223,13 @@ func (s *Store) Mutate(ctx context.Context, environment string, mutation Mutatio
 	}
 	if operations != 1 {
 		return MutationResult{}, fmt.Errorf("a mutation sets a value, sets a secret or unsets")
+	}
+	if mutation.Value != nil {
+		var compact bytes.Buffer
+		if len(mutation.Value) > MaxValueBytes || json.Compact(&compact, mutation.Value) != nil {
+			return MutationResult{}, fmt.Errorf("configuration value for %s is not bounded JSON", mutation.Key)
+		}
+		mutation.Value = compact.Bytes()
 	}
 	if mutation.Secret != nil && (!ValidIdentifier(mutation.Secret.Backend) || !versionPattern.MatchString(mutation.Secret.Version)) {
 		return MutationResult{}, fmt.Errorf("secret version reference is malformed")

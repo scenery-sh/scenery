@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.config.show.schema.json",
+  "title": "scenery config show",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app_id",
+    "environment",
+    "authority",
+    "desired_revision",
+    "catalog_revision",
+    "valid",
+    "missing",
+    "unused",
+    "inputs",
+    "applied"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.config.show"
+    },
+    "schema_revision": {
+      "const": "sha256:ff99752de3bf47d4f0f03d9beae1f1fff937af3e33a5dd7241dff7c392519d95"
+    },
+    "app_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+    },
+    "environment": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+    },
+    "authority": {
+      "enum": [
+        "local",
+        "target"
+      ]
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "desired_revision": {
+      "type": "string",
+      "pattern": "^cfg-[0-9a-f]{32}$"
+    },
+    "catalog_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+      }
+    },
+    "unused": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "type",
+          "sensitive",
+          "source",
+          "state",
+          "required",
+          "consumers"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sensitive": {
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "default",
+              "environment",
+              "none"
+            ]
+          },
+          "state": {
+            "enum": [
+              "default",
+              "configured",
+              "absent",
+              "missing",
+              "invalid"
+            ]
+          },
+          "value": {
+            "description": "Effective non-secret contract wire value; never present for secrets."
+          },
+          "default": {
+            "description": "Declared default as contract wire JSON."
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "consumers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "secret": {
+            "enum": [
+              "configured",
+              "not_configured"
+            ]
+          }
+        }
+      }
+    },
+    "applied": {
+      "type": "object",
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "unobserved",
+            "not_running",
+            "applied",
+            "pending",
+            "rejected",
+            "active",
+            "not_deployed"
+          ]
+        },
+        "revision": {
+          "type": "string"
+        },
+        "catalog_revision": {
+          "type": "string"
+        },
+        "problem": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
