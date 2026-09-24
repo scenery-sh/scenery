@@ -735,13 +735,17 @@ func authenticateRequest(req *http.Request, ep *Endpoint) (AuthInfo, error) {
 // answer HTTP 500 with its own text, such as an auth handler's database error
 // or a missing auth handler, answers the standard system.internal problem, and
 // logs and traces keep its cause. Admission and other typed errs failures keep
-// their own rendering.
+// their own rendering. The traced status follows the same precedence as the
+// response: transport outcome, then the endpoint's admission mapping, then the
+// errs code.
 func writeAuthenticationFailure(writer http.ResponseWriter, state *requestState, endpoint *Endpoint, err error) {
 	err = classifyContractFailure(err)
 	logRequestStart(state)
 	status := errs.HTTPStatus(err)
 	if transportStatus, ok := contractTransportHTTPStatus(err); ok {
 		status = transportStatus
+	} else if admissionStatus, ok := contractAdmissionHTTPStatus(endpoint, err); ok {
+		status = admissionStatus
 	}
 	finishRequestTrace(state, status, err)
 	if writeContractTransportError(writer, err) || writeContractAdmissionError(writer, endpoint, err) {
