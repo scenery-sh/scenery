@@ -98,9 +98,20 @@ fast with `SCN8013`, and disconnecting removes the sleeping statements from
   (`SCN8003`, unexpected `scenery.worktree` spec revision), so a binary built
   from the pre-merge commit `6acf618c` did it. Containers, volumes and the
   retained root are gone.
-- [ ] Milestone 6, remaining: a complete `go run ./scripts/verify --probe
-  worktree --summary --write` run on the merged branch with the final fixture
-  module (A9 included).
+- [x] (2026-09-24 15:02 CEST) Fifth run, merged branch: A1–A8, A10, A12,
+  A16 and A19 pass (A19: status p50 15 ms, max 18 ms; `SCN8013` after
+  512 ms; statements gone 52 ms after disconnect); A13 fails on `main`'s
+  external SQL change (see Surprises), so A11, A14, A15, A17, A8 and A9 did
+  not run.
+- [x] (2026-09-24 15:12 CEST) Sixth run (diagnostic, A13 skipped locally):
+  A9 failed at the historical producer's setup step; fixture module and A9
+  preparation reworked and checked by emulation (see Surprises and Decision
+  Log).
+- [x] (2026-09-24 15:17 CEST) Seventh run (diagnostic, A13 skipped locally,
+  never committed) with the final fixture module and A9 preparation: the
+  worktree step passes (255 s), every other row including A9 and A19, owned
+  clusters removed and no probe root retained. Milestone 6 is complete except
+  A13, which fails on `main`'s external SQL change and belongs to plan 0205.
 
 ## Surprises & Discoveries
 
@@ -165,9 +176,32 @@ fast with `SCN8013`, and disconnecting removes the sleeping statements from
   historical source and the current CLI build fetch (go-sdk v1.6.1, x/sys
   v0.46.0 and v0.48.0, …), and the current CLI no longer imports go-sdk. An
   emulation with a fresh `GOMODCACHE` filled the same two ways reproduced that
-  failure exactly and accepted the final module (the tidy set plus
-  `golang.org/x/sys v0.48.0`): offline `go mod tidy` and `go build` against the
-  `c56e3e96` source, with its runtime imported, both exit 0.
+  failure exactly and accepted a tidy set plus `golang.org/x/sys v0.48.0`:
+  offline `go mod tidy` and `go build` against the `c56e3e96` source, with its
+  runtime imported, both exit 0.
+- That emulation tidied in the app root, but the historical producer tidies a
+  staged copy and then runs `go run ./cmd/schema` in the app root. The fifth
+  run (on the merged branch, 15:02 CEST) passed A19 again but stopped at A13
+  (below); a diagnostic sixth run with A13 skipped locally (never committed)
+  reached A9 and failed at that setup step: `missing go.sum entry for module
+  providing package github.com/modelcontextprotocol/go-sdk/mcp`. With those
+  hashes added, the historical graph then needs go-sdk and its dependencies
+  listed in `go.mod` (`updates to go.mod needed`), while listing them at the
+  historical versions breaks the current framework the same way. No single
+  fixture module satisfies both producers against the sandbox's cache, so the
+  A9 preparation now downloads each legacy app copy's requirements (see the
+  Decision Log). Emulated with a fresh `GOMODCACHE` filled like the sandbox:
+  without that download the staged tidy fails exactly as in run 3; with it the
+  staged tidy and build, the app-root `cmd/schema` build and the current
+  framework's read-only build all pass.
+- A13 ("equal explicit external DSNs stay shared and reject managed
+  destruction") fails on the merged branch: the external worktree reads its
+  own managed database. Commit `8dcc8dfe` on `main` (plan 0205, D14–D16) made
+  the CLI drop `DATABASE_URL` at startup, moved external SQL to the
+  environment secret `sql.database_url` and refuses one external database
+  shared by every worktree, while A13 still passes a shared DSN through the
+  process environment. The row could not run on `main` since A1 failed there;
+  it belongs to plan 0205 and was offered as a separate task.
 
 ## Decision Log
 
@@ -236,20 +270,21 @@ fast with `SCN8013`, and disconnecting removes the sleeping statements from
   sends a cancel request when a context interrupts a statement (see Surprises)
   and returns sooner; a second pool constructor would add surface without a
   behavior difference. Date: 2026-09-24. Author: Claude.
-- Decision: `testdata/apps/worktree-postgres/go.mod` lists what `go mod tidy`
-  keeps for the current framework (pgx v5.11.0, x/net v0.58.0, x/sync v0.23.0,
-  x/text v0.42.0 and the pgx helpers) plus `golang.org/x/sys v0.48.0`, and
-  `go.sum` is that tidy result with the x/sys hashes. The current framework
-  selects exactly these versions (`go build -mod=readonly ./...` passes and
-  `go run ./cmd/schema` fails only on the missing database URL). Modules only
-  the historical A9 producer needs (go-sdk, segmentio, oauth2, …) stay
-  unlisted, so its offline tidy selects the versions its own source requires,
-  which its `go mod download all` cached; listing x/sys pins the one module
-  whose selection would otherwise move to an uncached version. Rationale: the
-  requested real-PostgreSQL proof runs through this fixture and cannot start
-  without it; the change touches only the fixture's module requirements. The
-  other stale fixture modules are left to a separate task. Date: 2026-09-24.
-  Author: Claude.
+- Decision: `testdata/apps/worktree-postgres/go.mod` keeps the historical
+  module set (the one the `c56e3e96` producer needs) at the versions the
+  current framework selects (pgx v5.11.0, go-sdk v1.8.0, x/net v0.58.0, x/sync
+  v0.23.0, x/sys v0.48.0, x/text v0.42.0) plus `golang.org/x/time v0.15.0`,
+  which go-sdk v1.8.0 imports; `go.sum` keeps the earlier hashes and adds
+  those of the listed versions. A9's preparation runs `go -C /app-<name> mod
+  download` for the legacy copies inside the sandbox before the historical
+  producer's offline tidy. Rationale: every module the historical graph
+  builds must be listed, and every listed version must equal the current
+  framework's selection, so only the sandbox's cache can make up the
+  difference; the download is test preparation, not a product compatibility
+  path, and the requested real-PostgreSQL proof runs through this fixture.
+  The earlier minimal module (tidy set plus x/sys) failed A9's setup step.
+  The other stale fixture modules are left to a separate task. Date:
+  2026-09-24. Author: Claude.
 - Decision: out of scope, recorded as follow-ups: a WebSocket frame size limit
   (today a request frame is read without a size limit), a cap on concurrent
   RPC connections, closing RPC WebSockets when the backend closes, write
@@ -262,8 +297,9 @@ fast with `SCN8013`, and disconnecting removes the sleeping statements from
 
 ## Outcomes & Retrospective
 
-Not yet completed; open for one complete `--probe worktree` run with the final
-fixture module. Implemented and verified: the development runtime RPC admits
+Not yet completed; open until review and merge. Every acceptance item of this
+plan passed; a complete `--probe worktree` run still fails row A13, which
+`main`'s environment configuration change broke (plan 0205, follow-up task). Implemented and verified: the development runtime RPC admits
 at most 6 work and 4 control calls per connection and 12 work calls per app,
 refusing the excess at once with `SCN8011`; calls stop at their deadline with
 `SCN8012`; `db/query` and `postgres/rows` fail with `SCN8013` instead of
@@ -508,6 +544,12 @@ Validation (repository root of this worktree, 2026-09-24):
   `db/query` answered `SCN8013` after 667 / 1,981 ms with
   `rows_within_budget` 5,000, and all sleeping statements left
   `pg_stat_activity` 53 / 52 ms after the connections closed.
+- After merging `main`: `go run ./scripts/verify --summary --write` passes
+  (pre-existing warnings), `golangci-lint run ./...` reports 0 issues, and
+  `--probe ui` passes. Fifth `--probe worktree` run: A19 passes (status p50
+  15 ms, max 18 ms; `SCN8013` after 512 ms; statements gone 52 ms after the
+  disconnect), A13 fails as described in Surprises. Seventh run, diagnostic
+  with A13 skipped locally: the worktree step passes, A9 included.
 - Scratch PostgreSQL measurements (disposable `postgres:18-alpine`, removed):
   see Surprises.
 

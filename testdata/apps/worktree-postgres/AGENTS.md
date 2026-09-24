@@ -11,6 +11,10 @@ Own the small authored application used by explicit worktree runtime proof.
 - Go implements the declared library contracts. Borrowing uses one conditional
   SQL update so exactly one concurrent borrower wins.
 - Keep Go projections ignored and TypeScript client fixtures current.
+- `go.mod` lists every module the historical A9 producer builds, at the
+  versions the current framework selects; after a framework dependency bump,
+  raise those versions and add their `go.sum` hashes rather than running
+  `go mod tidy`, which drops modules only A9 needs.
 - The release runner owns temporary copies and their resources. Do not start
   this repository fixture against a developer database or installed shared CLI.
 
