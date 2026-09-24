@@ -82,9 +82,21 @@ func verifyFrameworkSession(ctx context.Context, appRoot string) (FrameworkSourc
 		return FrameworkSource{}, err
 	}
 	if selected.Digest != producer.Digest {
-		return FrameworkSource{}, fmt.Errorf("application framework %s does not match this Scenery CLI's source %s; keep the current runtime, run scenery framework use, then restart with its reported executable", selected.Digest, producer.Digest)
+		return FrameworkSource{}, &FrameworkMismatchError{Selected: selected.Digest, Producer: producer.Digest}
 	}
 	return selected, nil
+}
+
+// FrameworkMismatchError reports that the application selects framework
+// source other than the running producer's. Building again cannot succeed
+// until the selection or the producer changes.
+type FrameworkMismatchError struct {
+	Selected string
+	Producer string
+}
+
+func (e *FrameworkMismatchError) Error() string {
+	return fmt.Sprintf("application framework %s does not match this Scenery CLI's source %s; keep the current runtime, run scenery framework use, then restart with its reported executable", e.Selected, e.Producer)
 }
 
 // VerifyFrameworkSelection proves cached preparation against current bytes

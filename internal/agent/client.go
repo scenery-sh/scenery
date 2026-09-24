@@ -51,6 +51,10 @@ type StartOptions struct {
 	RouterTLS  bool
 	RouterHTTP bool
 	Trust      bool
+	// Supervised marks the launchd or systemd job's agent, which contains
+	// repeated start failures instead of letting its supervisor restart it
+	// forever.
+	Supervised bool
 }
 
 func NewClient(socketPath string) *Client {
@@ -188,6 +192,9 @@ func agentProcessArgs(paths Paths, opts StartOptions) []string {
 		args = append(args, "--router-tls")
 	default:
 		args = append(args, "--router-http")
+	}
+	if opts.Supervised {
+		args = append(args, "--supervised")
 	}
 	return args
 }

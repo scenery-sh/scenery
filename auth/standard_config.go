@@ -33,6 +33,6 @@ const (
 )
 
 const (
-	roleOwner  = "owner"
-	roleMember = "member"
+	roleOwner  = RoleOwner
+	roleMember = RoleMember
 )

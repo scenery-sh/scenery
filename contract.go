@@ -27,6 +27,7 @@ type Duration = contract.Duration
 type Size = contract.Size
 type URL = contract.URL
 type RelativePath = contract.RelativePath
+type HostPath = contract.HostPath
 type JSON = json.RawMessage
 
 // Unit is the canonical value for a contract with no semantic fields.
@@ -84,6 +85,7 @@ func ParseDuration(value string) (Duration, error)         { return contract.Par
 func ParseSize(value string) (Size, error)                 { return contract.ParseSize(value) }
 func ParseURL(value string) (URL, error)                   { return contract.ParseURL(value) }
 func ParseRelativePath(value string) (RelativePath, error) { return contract.ParseRelativePath(value) }
+func ParseHostPath(value string) (HostPath, error)         { return contract.ParseHostPath(value) }
 
 func ContractIntConstraint(value int64) *int64      { return new(value) }
 func ContractStringConstraint(value string) *string { return new(value) }

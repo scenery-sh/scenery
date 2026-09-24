@@ -65,10 +65,7 @@ func (s *devSupervisor) startDesktopShells(ctx context.Context) error {
 	if session == nil || s.agent == nil {
 		return preconditionErrorf("scenery up --desktop requires the local scenery agent and a registered dev session")
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
-	if err != nil {
-		return err
-	}
+	baseEnv := envpolicy.Environ()
 	started := make([]*managedDesktopProcess, 0, len(shells))
 	for _, shell := range shells {
 		backend, ok := session.Backends[shell.Name]

@@ -103,6 +103,9 @@ type devProcessModel struct {
 	status   devProcessStatus
 	// proofs are the runtime preflights retained executables passed.
 	proofs devProcessProofs
+	// config is the environment configuration the current or candidate
+	// generation's service instances start with.
+	config *devConfigResolution
 }
 
 // devProcessLink is the wiring of one host incarnation.
@@ -120,6 +123,8 @@ type devProcessLink struct {
 type devProcessInstance struct {
 	process build.DevelopmentProcess
 	socket  string
+	// config is the configuration snapshot the instance runs.
+	config *devConfigSnapshot
 	// request is the retained session executable and exact environment of a
 	// preflighted instance that has not started yet.
 	request *devProcessStartRequest
@@ -343,9 +348,21 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 			return nil, false, err
 		}
 	}
+	configStarted := time.Now()
+	configuration, err := s.resolveGenerationConfig(ctx, result, set)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.configuration", StartedAt: configStarted, Duration: time.Since(configStarted), Cache: "not_applicable", Reason: "environment_revision", OK: err == nil})
+	if err != nil {
+		return nil, false, err
+	}
 	model.mu.Lock()
 	locked := true
+	previousConfig := model.config
+	model.config = configuration
+	activated := false
 	defer func() {
+		if !activated {
+			model.config = previousConfig
+		}
 		if locked {
 			model.unlock()
 		}
@@ -355,12 +372,19 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 	s.mu.RUnlock()
 	contract := result.Contract.Manifest.ContractRevision
 	base := s.appChildEnvironment(result, environment)
+	defer func() {
+		if activated {
+			s.recordAppliedConfig(configuration, &devActiveGeneration{result: result, set: set, base: base})
+		}
+	}()
 	// The host serving the current generation with the processes' current
 	// environment keeps every service instance whose identity is unchanged,
 	// even when a changed contract or host replaces the host.
 	keepServices := host != nil && model.host != nil && model.host.app == host && model.environment == devProcessEnvironmentIdentity(base)
-	if keepServices && model.contract == contract && model.host.process.Identity == set.Host.Identity {
-		return host, true, s.replaceDevServiceProcesses(ctx, model, set, base, plan.Prepared)
+	if keepServices && model.contract == contract && model.host.process.Identity == set.Host.Identity && model.host.config.identityOrEmpty() == configuration.identityFor(hostConsumer) {
+		err := s.replaceDevServiceProcesses(ctx, model, set, base, plan.Prepared)
+		activated = err == nil
+		return host, true, err
 	}
 	var stage, previousStage *assistantStage
 	if s.assistants != nil {
@@ -386,6 +410,7 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 		}
 	}
 	current, startAssistants, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage, plan.Prepared, keepServices)
+	activated = err == nil
 	// Prepared helpers start once the model is released: a helper that starts
 	// reports its process, which registers the session, and a helper start is
 	// external work no reader of the model should wait for. The assistant
@@ -476,10 +501,10 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 	}
 	base := s.appChildEnvironment(result, environment)
 	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, identity: model.identity, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained, unconfirmed: model.unconfirmed}
-	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
+	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr, config: model.config.snapshotFor(hostConsumer)}
 	kept, starting := map[string]*devProcessInstance{}, set.Services
 	if keepServices && previous.link != nil && previous.link.path == link.path {
-		kept, starting = devProcessTakeover(previous.services, set.Services)
+		kept, starting = devProcessTakeover(previous.services, set.Services, model.config)
 	}
 	var started []*devProcessInstance
 	var previousHost *runningApp
@@ -617,11 +642,11 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 // devProcessTakeover splits the services of a complete generation into the
 // running instances a new host takes over, whose identity is unchanged, and
 // the processes that start.
-func devProcessTakeover(previous map[string]*devProcessInstance, services []build.DevelopmentProcess) (map[string]*devProcessInstance, []build.DevelopmentProcess) {
+func devProcessTakeover(previous map[string]*devProcessInstance, services []build.DevelopmentProcess, config *devConfigResolution) (map[string]*devProcessInstance, []build.DevelopmentProcess) {
 	kept := map[string]*devProcessInstance{}
 	var starting []build.DevelopmentProcess
 	for _, process := range services {
-		if current := previous[process.Name]; current != nil && !current.stopped && current.process.Identity == process.Identity {
+		if current := previous[process.Name]; current != nil && !current.stopped && current.process.Identity == process.Identity && current.config.identityOrEmpty() == config.identityFor(process.Service) {
 			kept[process.Name] = current
 			continue
 		}
@@ -676,7 +701,7 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 	var changed []build.DevelopmentProcess
 	for _, process := range set.Services {
 		current := model.services[process.Name]
-		if current == nil || current.stopped || current.process.Identity != process.Identity {
+		if current == nil || current.stopped || current.process.Identity != process.Identity || current.config.identityOrEmpty() != model.config.identityFor(process.Service) {
 			changed = append(changed, process)
 		}
 	}
@@ -726,6 +751,7 @@ func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *dev
 			model.sequence++
 			instance = &devProcessInstance{process: process, socket: filepath.Join(model.socketDir, "s"+strconv.Itoa(model.sequence)+".sock")}
 		}
+		instance.config = model.config.snapshotFor(process.Service)
 		instances[index] = instance
 	}
 	var wg sync.WaitGroup
@@ -797,6 +823,7 @@ func (s *devSupervisor) startDevProcessInstance(ctx context.Context, instance *d
 		}
 	}
 	request := *instance.request
+	request.PrivateInput = instance.config.privateInput()
 	started := time.Now()
 	if backend.Network == "unix" {
 		if err := os.Remove(backend.Addr); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -885,7 +912,7 @@ func (s *devSupervisor) recoverDevServiceInstance(model *devProcessModel, crashe
 		return
 	}
 	model.sequence++
-	replacement := &devProcessInstance{process: crashed.process, socket: filepath.Join(model.socketDir, "s"+strconv.Itoa(model.sequence)+".sock")}
+	replacement := &devProcessInstance{process: crashed.process, socket: filepath.Join(model.socketDir, "s"+strconv.Itoa(model.sequence)+".sock"), config: crashed.config}
 	environment := append(envWithoutKeys(crashed.request.Env, "SCENERY_LISTEN_ADDR"), "SCENERY_LISTEN_ADDR="+replacement.socket)
 	if err := s.startDevProcessInstance(s.ctx, replacement, "service:"+name, environment, devBackend{Network: "unix", Addr: replacement.socket}); err != nil {
 		model.degraded[name] = err.Error()

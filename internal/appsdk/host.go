@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"sync"
 
-	"scenery.sh/internal/envfile"
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/runtimeapi"
 )
 
@@ -26,6 +24,11 @@ type Host interface {
 	EncodeJSON(status int, value any) (Response, error)
 	DurableSignal(ctx context.Context, service, jobID, name, dedupeKey string, payload []byte) error
 	DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) ([]byte, error)
+	// FrameworkConfigSecret and FrameworkConfigString read a framework-owned
+	// input (such as auth.jwt_secret) from the process's configuration
+	// snapshot; the boolean reports whether the environment configured it.
+	FrameworkConfigSecret(key string) ([]byte, bool, error)
+	FrameworkConfigString(key string) (string, bool, error)
 }
 
 // Auth is the authenticated principal of the current request.
@@ -84,28 +87,4 @@ func CurrentHost() Host {
 	host.RLock()
 	defer host.RUnlock()
 	return host.value
-}
-
-var dotEnv struct {
-	once sync.Once
-	data map[string]string
-	err  error
-}
-
-// LoadDotEnv sets each variable of the working directory's .env file that the
-// process environment does not already define. The file is read once.
-func LoadDotEnv() error {
-	dotEnv.once.Do(func() { dotEnv.data, dotEnv.err = envfile.ParseFile(".env") })
-	if dotEnv.err != nil {
-		return dotEnv.err
-	}
-	for key, value := range dotEnv.data {
-		if _, exists := envpolicy.Lookup(key); exists {
-			continue
-		}
-		if err := envpolicy.Set(key, value); err != nil {
-			return err
-		}
-	}
-	return nil
 }

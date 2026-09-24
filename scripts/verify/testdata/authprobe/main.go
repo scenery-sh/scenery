@@ -17,7 +17,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -138,10 +140,7 @@ func (p *probe) run(name string) (returnErr error) {
 	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(state)) }()
 	socket := filepath.Join(state, "api.sock")
 	must(envpolicy.Set("SCENERY_LISTEN_NETWORK", "unix"))
-	must(envpolicy.Set("JWT_SECRET", "owned-auth-release-secret"))
-	must(envpolicy.Set("GOOGLE_OAUTH_CLIENT_ID", "client-id"))
-	must(envpolicy.Set("GOOGLE_OAUTH_CLIENT_SECRET", "client-secret"))
-	must(envpolicy.Set("AUTH_TOKEN_CIPHER_KEY", "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="))
+	must(deliverAuthConfiguration())
 	must(envpolicy.Set("SCENERY_PUBLIC_APP_URL", "https://app.example.test"))
 	must(envpolicy.Set("SCENERY_API_BASE_URL", "https://api.example.test"))
 	config := auth.StandardConfig{Enabled: true, AutoBootstrapDatabase: true, GoogleOAuth: auth.GoogleOAuthConfig{Enabled: true, AllowedScopes: []string{gmailModify, gmailRead}}}
@@ -286,4 +285,37 @@ var journeys = map[string]func(*probe){
 	"token-missing-scope": tokenMissingScopeJourney, "token-disallowed-scope": tokenDisallowedScopeJourney,
 	"impersonation": impersonationJourney, "impersonation-privilege": impersonationPrivilegeJourney,
 	"refresh-replay": refreshReplayJourney, "user-lifecycle": userLifecycleJourney,
+}
+
+// deliverAuthConfiguration hands this process its standard-auth
+// configuration the way the supervisor does: a snapshot on an inherited pipe
+// named by SCENERY_CONFIG_SNAPSHOT_FD, which the runtime reads once and closes.
+func deliverAuthConfiguration() error {
+	snapshot, err := json.Marshal(runtime.ConfigSnapshot{
+		Kind: runtime.ConfigSnapshotKind, AppID: "auth-release-probe", Environment: "production", Revision: "cfg-auth-release-probe", Consumer: "framework",
+		Values: map[string]json.RawMessage{"auth.google_client_id": json.RawMessage(`"client-id"`)},
+		Secrets: map[string][]byte{
+			"auth.jwt_secret":           []byte("owned-auth-release-secret"),
+			"auth.google_client_secret": []byte("client-secret"),
+			"auth.token_cipher_key":     []byte("MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	fds := make([]int, 2)
+	if err := syscall.Pipe(fds); err != nil {
+		return err
+	}
+	for written := 0; written < len(snapshot); {
+		n, err := syscall.Write(fds[1], snapshot[written:])
+		if err != nil {
+			return err
+		}
+		written += n
+	}
+	if err := syscall.Close(fds[1]); err != nil {
+		return err
+	}
+	return envpolicy.Set(runtime.ConfigSnapshotFDEnv, strconv.Itoa(fds[0]))
 }

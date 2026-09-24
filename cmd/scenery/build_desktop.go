@@ -36,10 +36,7 @@ func buildDesktopWithRunner(ctx context.Context, appRoot string, cfg app.Config,
 	if err != nil {
 		return desktopBuildResult{}, err
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot, env.DotEnvFiles()...)
-	if err != nil {
-		return desktopBuildResult{}, err
-	}
+	baseEnv := envpolicy.Environ()
 	overrides := []string{
 		"SCENERY_APP_ROOT=" + appRoot,
 		"SCENERY_ENV=" + env.Name,

@@ -27,6 +27,9 @@ type agentOptions struct {
 	RouterHTTP bool
 	Trust      bool
 	JSON       bool
+	// Supervised is set by the launchd and systemd jobs; see
+	// containAgentStartFailure.
+	Supervised bool
 }
 
 type agentCleanupOptions struct {
@@ -94,15 +97,25 @@ func agentCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := reapStaleAgentRouterOwner(opts); err != nil {
-		return err
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	run, err := startAgentServer(ctx, opts)
+	if err != nil {
+		return containAgentStartFailure(ctx, opts, err)
+	}
+	return run()
+}
+
+// startAgentServer starts the agent's listeners and returns the function that
+// serves until ctx ends. A start that succeeded ends the start incident.
+func startAgentServer(ctx context.Context, opts agentOptions) (func() error, error) {
+	if err := reapStaleAgentRouterOwner(opts); err != nil {
+		return nil, err
+	}
 	if opts.JSON {
 		paths, err := commandAgentPaths()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if opts.SocketPath != "" {
 			paths.SocketPath = opts.SocketPath
@@ -116,7 +129,7 @@ func agentCommand(args []string) error {
 	}
 	dashboardAddr, err := freeLoopbackAddr()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	server, err := localagent.NewServer(localagent.RunOptions{
 		SocketPath:   opts.SocketPath,
@@ -131,15 +144,81 @@ func agentCommand(args []string) error {
 		JSON:     opts.JSON,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dashboard, err := startAgentDashboard(ctx, server, dashboardAddr)
 	if err != nil {
 		_ = server.Close()
-		return err
+		return nil, err
 	}
-	defer func() { _ = dashboard.Close() }()
-	return server.Run(ctx)
+	if paths, err := agentIncidentPaths(opts); err == nil {
+		_ = localagent.ClearStartIncident(paths)
+	}
+	return func() error {
+		defer func() { _ = dashboard.Close() }()
+		return server.Run(ctx)
+	}, nil
+}
+
+func agentIncidentPaths(opts agentOptions) (localagent.Paths, error) {
+	paths, err := commandAgentPaths()
+	if err != nil {
+		return localagent.Paths{}, err
+	}
+	if opts.SocketPath != "" {
+		paths.SocketPath = filepath.Clean(opts.SocketPath)
+	}
+	return paths, nil
+}
+
+// agentExecutableIdentity names the executable whose starts form one incident:
+// a reinstalled or rebuilt executable begins a new one.
+func agentExecutableIdentity() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return cliBuildIdentity().String()
+	}
+	if info, err := os.Stat(exe); err == nil {
+		return fmt.Sprintf("%s %s %d@%d", cliBuildIdentity().String(), exe, info.Size(), info.ModTime().UnixNano())
+	}
+	return cliBuildIdentity().String() + " " + exe
+}
+
+// containAgentStartFailure records a failed start in the agent's start
+// incident. An unsupervised start reports the failure as before. A supervised
+// start, which launchd or systemd restarts whenever the process ends, must
+// not turn one persistent failure into an endless restart loop: a transient
+// failure waits a growing delay before the process exits for another attempt,
+// and a persistent failure, or a transient one that exhausted its attempts,
+// keeps the process alive idle, holding nothing, until an explicit restart.
+func containAgentStartFailure(ctx context.Context, opts agentOptions, startErr error) error {
+	paths, err := agentIncidentPaths(opts)
+	if err != nil {
+		return startErr
+	}
+	decision, recordErr := localagent.RecordStartFailure(paths, agentExecutableIdentity(), startErr, time.Now())
+	if !opts.Supervised {
+		return startErr
+	}
+	incident := decision.Incident
+	if recordErr != nil {
+		fmt.Fprintf(os.Stderr, "scenery agent: could not record the start incident: %v\n", recordErr)
+	}
+	if decision.Blocked {
+		fmt.Fprintf(os.Stderr, "scenery agent: start blocked after %d attempt(s) since %s (%s): %v; fix the cause, then run scenery system agent restart\n",
+			incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, startErr)
+		<-ctx.Done()
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "scenery agent: start attempt %d failed (%s); the next attempt follows in %s: %v\n", incident.Attempts, incident.Class, decision.Delay, startErr)
+	timer := time.NewTimer(decision.Delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-timer.C:
+	}
+	return startErr
 }
 
 func reapStaleAgentRouterOwner(opts agentOptions) error {
@@ -294,6 +373,7 @@ func parseAgentArgs(args []string) (agentOptions, error) {
 	flags.BoolFunc("router-tls", "", func(string) error { opts.RouterTLS, opts.RouterHTTP = true, false; return nil })
 	flags.BoolFunc("router-http", "", func(string) error { opts.RouterHTTP, opts.RouterTLS = true, false; return nil })
 	flags.BoolFunc("trust", "", func(string) error { opts.Trust, opts.RouterTLS, opts.RouterHTTP = true, true, false; return nil })
+	flags.BoolVar(&opts.Supervised, "supervised", false, "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

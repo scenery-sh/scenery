@@ -237,13 +237,6 @@ func (c Config) EnvForSSHTarget(target string) (ResolvedEnv, error) {
 	return ResolvedEnv{}, fmt.Errorf("SSH target %q is not configured in any environment", target)
 }
 
-func (e ResolvedEnv) DotEnvFiles() []string {
-	if e.Name == "local" {
-		return []string{".env", ".env.local"}
-	}
-	return []string{".env", ".env." + e.Name, ".env.local", ".env." + e.Name + ".local"}
-}
-
 func (e ResolvedEnv) Deployable() bool {
 	return e.Deploy != nil
 }

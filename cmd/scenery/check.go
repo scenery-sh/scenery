@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/envpolicy"
 )
 
 func checkCommand(args []string) error {
@@ -27,11 +26,10 @@ func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnost
 	if err != nil {
 		return nil, err
 	}
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot, resolved.DotEnvFiles()...)
+	missing, err := missingGoogleOAuthConfig(cfg, resolved)
 	if err != nil {
 		return nil, err
 	}
-	missing := missingGoogleOAuthEnv(env)
 	if len(missing) == 0 {
 		return diagnostics, nil
 	}
@@ -39,8 +37,8 @@ func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnost
 		Stage:           "auth",
 		Severity:        "warning",
 		File:            cfg.SourcePath(appRoot),
-		Message:         "Google OAuth is enabled but credentials are missing: " + strings.Join(missing, ", "),
-		SuggestedAction: "Set the missing env vars in the app environment or disable auth.google_oauth.enabled.",
+		Message:         "Google OAuth is enabled but the " + resolved.Name + " environment does not configure: " + strings.Join(missing, ", "),
+		SuggestedAction: "Configure them with scenery config set <key> --env " + resolved.Name + " or disable auth.google_oauth.enabled.",
 	})
 	return diagnostics, nil
 }
@@ -66,22 +64,27 @@ func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagn
 	return nil
 }
 
-func missingGoogleOAuthEnv(env []string) []string {
+// missingGoogleOAuthConfig reads which Google OAuth inputs the default local
+// environment leaves unconfigured. A deployable default environment lives on
+// its target and is checked by deployment readiness instead.
+func missingGoogleOAuthConfig(cfg appcfg.Config, env appcfg.ResolvedEnv) ([]string, error) {
+	if env.Deployable() {
+		return nil, nil
+	}
+	store, err := devConfigStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	document, err := devConfigDocument(store, cfg, env)
+	if err != nil {
+		return nil, err
+	}
 	var missing []string
-	if !hasAnyEnvValue(env, "GOOGLE_OAUTH_CLIENT_ID") {
-		missing = append(missing, "GOOGLE_OAUTH_CLIENT_ID")
+	if _, ok := document.Values["auth.google_client_id"]; !ok {
+		missing = append(missing, "auth.google_client_id")
 	}
-	if !hasAnyEnvValue(env, "GOOGLE_OAUTH_CLIENT_SECRET") {
-		missing = append(missing, "GOOGLE_OAUTH_CLIENT_SECRET")
+	if _, ok := document.Secrets["auth.google_client_secret"]; !ok {
+		missing = append(missing, "auth.google_client_secret")
 	}
-	return missing
-}
-
-func hasAnyEnvValue(env []string, names ...string) bool {
-	for _, name := range names {
-		if value := lookupEnvValue(env, name); value != "" {
-			return true
-		}
-	}
-	return false
+	return missing, nil
 }

@@ -14,7 +14,7 @@ or a production signed-webhook receiver.
 - No frontend. Generated fetch client: `client/generated`, declared managed root.
 - `DATABASE_URL` names the isolated app database. No secret values are committed.
   Local proof uses Scenery's existing local JWT default and local dev bootstrap;
-  nonlocal environments require `JWT_SECRET` and must disable dev bootstrap.
+  nonlocal environments configure `auth.jwt_secret` and must disable dev bootstrap.
 - Admission persists the durable job; only the worker creates the processed row.
   The first payload wins, including after queue deduplication expires.
 - Status requires standard auth. Any authenticated demo user can read any row.

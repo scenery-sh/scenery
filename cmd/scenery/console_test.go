@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -191,6 +192,27 @@ func TestRunConsoleAlreadyRunningJSON(t *testing.T) {
 	}
 	data, _ := event["data"].(map[string]any)
 	if event["type"] != "run.already_running" || data["owner_pid"] != float64(74057) || data["status"] != "running" || data["api_url"] != "https://app.localhost/api/" {
+		t.Fatalf("event = %+v", event)
+	}
+}
+
+// A failed build names its operation, so its build.error joins the build.step
+// records of the same build.
+func TestRunConsoleRebuildFailedNamesItsOperation(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	console := newRunConsole(&out, &bytes.Buffer{}, false, true, "demo", t.TempDir())
+	console.RebuildFailed(fmt.Errorf("prepare: %w", devBuildOperationError{operationID: "build-1-2", err: usageErrorf("stale clients")}))
+
+	envelope, err := machine.DecodeEvent[graph.Diagnostic](out.Bytes(), currentMachineSpecRevision())
+	if err != nil {
+		t.Fatalf("DecodeEvent: %v\n%s", err, out.String())
+	}
+	event, _ := envelope.Data.(map[string]any)
+	data, _ := event["data"].(map[string]any)
+	diagnostic, _ := data["diagnostic"].(map[string]any)
+	if event["type"] != "build.error" || data["operation_id"] != "build-1-2" || data["stage"] != "rebuild" || diagnostic["code"] != "SCN8001" || data["exit_code"] != float64(2) {
 		t.Fatalf("event = %+v", event)
 	}
 }

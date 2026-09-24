@@ -116,12 +116,16 @@ func (c *runConsole) RebuildDetected(paths []string) {
 func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 	if c.json && err != nil {
 		diagnostic := cliErrorDiagnostic(err)
-		c.Event("build.error", map[string]any{
+		failure := map[string]any{
 			"stage":      "initial",
 			"error":      err.Error(),
 			"diagnostic": diagnostic,
 			"exit_code":  cliExitCode(err),
-		})
+		}
+		if operation := devBuildFailureOperation(err); operation != "" {
+			failure["operation_id"] = operation
+		}
+		c.Event("build.error", failure)
 		data := runURLData(urls, c.verbose)
 		data["stage"] = "initial"
 		data["error"] = err.Error()
@@ -139,13 +143,34 @@ func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 
 func (c *runConsole) RebuildFailed(err error) {
 	if c.json && err != nil {
-		c.Event("build.error", map[string]any{
-			"stage": "rebuild",
-			"error": err.Error(),
-		})
+		failure := map[string]any{
+			"stage":      "rebuild",
+			"error":      err.Error(),
+			"diagnostic": cliErrorDiagnostic(err),
+			"exit_code":  cliExitCode(err),
+		}
+		if operation := devBuildFailureOperation(err); operation != "" {
+			failure["operation_id"] = operation
+		}
+		c.Event("build.error", failure)
 		return
 	}
 	c.printError("rebuild failed", err)
+}
+
+// BuildBlocked reports a rebuild that was not attempted because it would fail
+// for the cause that blocked the last build.
+func (c *runConsole) BuildBlocked(block devBuildBlock) {
+	if c.json {
+		c.Event("build.blocked", map[string]any{
+			"reason": block.Reason, "cause": block.Cause,
+			"since": block.Since.Format(time.RFC3339), "prevented_builds": block.Prevented,
+		})
+		return
+	}
+	c.printf(c.err, "\n  %s\n  %s\n\n",
+		c.palette.Bold(fmt.Sprintf("Build blocked (%s): changes are not applied; the runtime keeps serving the last good build.", block.Reason)),
+		c.palette.Dim(fmt.Sprintf("%s (%d rebuild(s) not attempted since %s)", block.Cause, block.Prevented, block.Since.Format(time.Kitchen))))
 }
 
 // FrameworkHandoff announces that the runtime stops so the prepared producer

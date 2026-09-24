@@ -14,10 +14,7 @@ type devRuntimeEnvironment struct {
 }
 
 func (s *devSupervisor) prepareRuntimeEnvironment(ctx context.Context, contract *compiler.Result) (*devRuntimeEnvironment, error) {
-	base, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
-	if err != nil {
-		return nil, err
-	}
+	base := s.processEnvironment()
 	managed, err := s.managedAppEnv(ctx, base, contract.SQLRequirements)
 	if err != nil {
 		return nil, err

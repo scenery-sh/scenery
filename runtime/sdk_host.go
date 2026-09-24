@@ -84,6 +84,14 @@ func (sdkHost) DurableSignal(ctx context.Context, service, jobID, name, dedupeKe
 	return DurableSignal(ctx, service, jobID, name, dedupeKey, payload)
 }
 
+func (sdkHost) FrameworkConfigSecret(key string) ([]byte, bool, error) {
+	return FrameworkConfigSecret(key)
+}
+
+func (sdkHost) FrameworkConfigString(key string) (string, bool, error) {
+	return FrameworkConfigString(key)
+}
+
 func (sdkHost) DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) ([]byte, error) {
 	return DurableStep(ctx, key, run)
 }

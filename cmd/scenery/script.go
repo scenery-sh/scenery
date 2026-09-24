@@ -364,10 +364,7 @@ func runScriptProcess(ctx context.Context, root string, cfg app.Config, program 
 	if err != nil {
 		return err
 	}
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), root, resolved.DotEnvFiles()...)
-	if err != nil {
-		return err
-	}
+	env := envpolicy.Environ()
 	env = overlayEnv(env, opts.EnvOverlay)
 	extra := []string{
 		"SCENERY_APP_ID=" + cfg.AppID(),

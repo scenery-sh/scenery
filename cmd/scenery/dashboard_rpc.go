@@ -140,6 +140,14 @@ type runtimeStatus struct {
 	Routes              map[string]string       `json:"routes"`
 	ServiceProcesses    []runtimeServiceProcess `json:"service_processes"`
 	Observability       *runtimeObservability   `json:"observability,omitempty"`
+	BuildBlock          *runtimeBuildBlock      `json:"build_block,omitempty"`
+}
+
+type runtimeBuildBlock struct {
+	Reason          string `json:"reason"`
+	Cause           string `json:"cause"`
+	Since           string `json:"since"`
+	PreventedBuilds int    `json:"prevented_builds"`
 }
 
 type runtimeServiceProcess struct {
@@ -184,6 +192,9 @@ func newRuntimeStatus(status devdash.AppStatus) runtimeStatus {
 	}
 	if out.Routes == nil {
 		out.Routes = map[string]string{}
+	}
+	if block := status.BuildBlock; block != nil {
+		out.BuildBlock = &runtimeBuildBlock{Reason: block.Reason, Cause: block.Cause, Since: block.Since, PreventedBuilds: block.PreventedBuilds}
 	}
 	for _, process := range status.ServiceProcesses {
 		out.ServiceProcesses = append(out.ServiceProcesses, runtimeServiceProcess{

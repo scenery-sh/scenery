@@ -220,6 +220,9 @@ release certification. Failed steps identify their focused rerun command.
 | `victoria` | Victoria process lifecycle |
 | `desktop` | Desktop process |
 | `deploy-ssh` | SSH deployment process |
+| `configuration` | Environment configuration through `scenery up` on two Git worktrees of a disposable `testdata/apps/multiservice` copy with its own agent home, poisoned `.env` files and ambient look-alike variables: one `config set` reaches both runtimes, only the consuming service process restarts with its identical executable and no new link step, a differently typed value and an unknown key written by another revision are reported `rejected` and `unused` while the healthy generation keeps serving, and `unset` restores defaults; cleanup of processes and state |
+| `configuration-secrets` | The host's secret backend (macOS login Keychain or `systemd-creds`) with a unique application namespace: a missing required secret stops `scenery up` naming its key, `--stdin` stores it without plaintext in CLI output, store, logs or process environments, the runtime receives the exact bytes, rotation restarts only the consumer, and every created secret item is removed. The other platform's backend is reported unverified |
+| `configuration-deploy` | `scenery deploy` through a test-double `ssh` that runs remote commands on this host under a separate target home: production values stored only on the target, first release active, restart using the active rather than the desired revision, configuration-only redeploy with identical executables, a failing activation restoring the previous release and configuration, and refusal over a legacy checkout. The systemd service owner, `systemd-creds` and a real reboot are reported unverified |
 | `validation-git` | Changed-file Git validation |
 | `test-cache` | Fresh test-binary cache lifecycle |
 

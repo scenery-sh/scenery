@@ -75,12 +75,15 @@ func AgentLaunchdPlistPath() (string, error) {
 }
 
 // AgentLaunchdPlist renders the supervised agent job. KeepAlive keeps the
-// agent continuously owned by launchd; RunAtLoad starts it at bootstrap and
+// agent continuously owned by launchd; a supervised agent whose start cannot
+// succeed stays alive idle instead of exiting, so launchd has nothing to
+// restart until `scenery system agent restart` requests another start; RunAtLoad starts it at bootstrap and
 // at every login. launchd's default PATH is only the system directories, so
 // the job pins a PATH that includes the standard Homebrew and local prefixes
 // — the agent's dashboard shells out to tools like docker (managed Postgres)
 // that live there.
 func AgentLaunchdPlist(exe string, paths Paths, opts StartOptions) string {
+	opts.Supervised = true
 	args := append([]string{exe}, agentProcessArgs(paths, opts)...)
 	var argLines strings.Builder
 	for _, arg := range args {

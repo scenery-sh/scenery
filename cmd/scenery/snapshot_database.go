@@ -24,10 +24,7 @@ func validateSnapshotSchemas(schemas []snapshotManifestSchema) error {
 }
 
 func configuredSnapshotDatabaseTarget(appRoot string, cfg appcfg.Config) (string, string, error) {
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return "", "", err
-	}
+	env := envpolicy.Environ()
 	if value := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		if _, err := postgresdb.ParseURL(value); err != nil {
 			return "", "", err

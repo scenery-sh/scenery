@@ -11,6 +11,8 @@
   &nbsp;·&nbsp;
   <a href="#built-for-ai-agents"><b>AI agents</b></a>
   &nbsp;·&nbsp;
+  <a href="#built-for-software-factories"><b>Software factories</b></a>
+  &nbsp;·&nbsp;
   <a href="docs/index.md"><b>Docs</b></a>
 </p>
 
@@ -18,17 +20,19 @@
   <a href="go.mod"><img alt="Go 1.27+" src="https://img.shields.io/badge/Go-1.27%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-8B5CF6?style=flat-square"></a>
   <img alt="Runs on your machine" src="https://img.shields.io/badge/runs_on-your_machine-22D3EE?style=flat-square">
+  <img alt="Used in production" src="https://img.shields.io/badge/used_in-production-22C55E?style=flat-square">
   <img alt="Status: active development" src="https://img.shields.io/badge/status-active_development-F59E0B?style=flat-square">
 </p>
 
-**Scenery is a runtime and toolchain for Go backends.** Describe *what your
-app is* (its APIs, background jobs, data and auth) in small `.scn` files, and
-write *what it does* in plain Go. Scenery generates the glue, runs the whole
-app and its frontends with one command, and shows you, and your AI agents,
-exactly what is happening inside.
+**Scenery is a runtime, toolchain and agent harness for Go backends.**
+Describe *what your app is* (its APIs, background jobs, data and auth) in small
+`.scn` files, and write *what it does* in plain Go. Scenery generates the glue,
+runs the whole app and its frontends with one command, and shows you, and your
+AI agents, exactly what is happening inside.
 
-It is open source and runs on your own machine. It is not a hosted service,
-and not an AI app generator: it runs *your* code.
+Scenery is used in production today. It is open source and runs on your own
+machine. It is not a hosted service, and not an AI app generator: it runs
+*your* code. If it does not fit your needs, [fork it](#make-it-yours).
 
 ## Why Scenery?
 
@@ -42,6 +46,9 @@ plumbing into a declaration, so your time goes into the product.
 | 🧰 | Scripts to start Postgres, workers and frontend servers | `scenery up` starts and supervises all of it |
 | 🔍 | Logs in one tool, traces in another, if anywhere | Logs, traces and metrics collected for every run and queried from one CLI |
 | 🤖 | AI agents guess how the project is wired | Agents read the same app graph as JSON |
+| 🪙 | Agents burn tokens choosing tools and re-checking their own work | Agents work inside the rails Scenery sets up, using about 70% fewer tokens |
+| 🏭 | Parallel branches fight over one database and one port | Every Git worktree runs its own isolated copy of the app |
+| 🍴 | A framework that does not fit locks you in | Plain Go under Apache 2.0: fork it and change what you need |
 
 ## How it works
 
@@ -138,6 +145,9 @@ Your port will differ; `scenery ps` lists the URLs of every running app.
 
 ## What you get
 
+Scenery covers about 95% of what a typical production app needs, out of the
+box. The rest is plain Go: your handlers can call any library or service.
+
 <table>
   <tr>
     <td width="33%" valign="top">
@@ -175,10 +185,10 @@ Your port will differ; `scenery ps` lists the URLs of every running app.
   </tr>
   <tr>
     <td valign="top">
-      <b>🔭 Logs, traces and metrics</b><br>
+      <b>🔭 First-class telemetry</b><br>
       Requests, database queries and HTTP calls are traced automatically.
-      Query them with <code>scenery logs</code>, <code>traces</code> and
-      <code>metrics</code>.
+      You and your agents query logs, traces and metrics with
+      <code>scenery logs</code>, <code>traces</code> and <code>metrics</code>.
     </td>
     <td valign="top">
       <b>🔁 Live rebuilds</b><br>
@@ -194,9 +204,9 @@ Your port will differ; `scenery ps` lists the URLs of every running app.
 </table>
 
 **Also included:** a development runtime RPC with a generated `dev-runtime.ts`
-client for building your own dev tools, an isolated runtime and data for every
-Git worktree, branded dev domains, declared AI assistants over MCP, app-local
-code tasks, and beta deployment to your own server.
+client for building your own dev tools, branded dev domains, declared AI
+assistants over MCP, app-local code tasks, and beta deployment to your own
+server.
 
 ## One command, the whole app
 
@@ -217,6 +227,33 @@ code tasks, and beta deployment to your own server.
 
 ## Built for AI agents
 
+Scenery works as the harness your agents run in. Declarations define what
+exists, generated contracts let the Go compiler check every handler against
+them, and the CLI tells an agent which checks its change needs. Agents stop
+deciding which router, queue or migration tool to use, and stop re-reading
+their own code to see whether it fits: Scenery sets up the rails, and they
+work inside them.
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <b>🪙 About 70% fewer tokens</b><br>
+      Agents spend their tokens on the feature, not on picking tools and
+      double-checking their own work.
+    </td>
+    <td width="33%" valign="top">
+      <b>🛤️ Rails, not guesswork</b><br>
+      <code>scenery check</code> catches drift before anything runs, with
+      stable <code>SCN</code> diagnostic codes an agent can act on.
+    </td>
+    <td width="33%" valign="top">
+      <b>🔭 Telemetry agents can read</b><br>
+      An agent reads the logs and traces of the request it just made, as JSON,
+      instead of adding print statements and running it again.
+    </td>
+  </tr>
+</table>
+
 Agents see what you see. The CLI answers in JSON (`-o json`, or `-o jsonl` for
 streams) with exact revisions, producer identity and stable `SCNxxxx`
 diagnostic codes, so an agent can find an endpoint, check a change and debug a
@@ -228,7 +265,9 @@ failure without guessing how the project is wired.
 | find an endpoint | `scenery inspect routes -o json` |
 | check a change | `scenery check -o json` |
 | read what just happened | `scenery logs -o jsonl --limit 200` |
+| see why a request failed | `scenery traces list --status error -o json` |
 | run the checks that matter | `scenery validate changed --base main -o json` |
+| prove the change and keep the evidence | `scenery harness -o json --write` |
 
 For the `echo` app above, `scenery inspect routes -o json` returns (abridged):
 
@@ -261,12 +300,52 @@ npx skills add https://github.com/scenery-sh/scenery
 You do not need an AI agent to use Scenery. Everything works just as well by
 hand.
 
+## Built for software factories
+
+Run one agent or hundreds of them at the same time, each in its own Git
+worktree. Every worktree gets a complete, separate copy of the running app:
+its own URL, PostgreSQL database, object storage, logs, traces and metrics.
+Nothing is shared by accident, so parallel agents never collide on ports, data
+or telemetry.
+
+<p align="center">
+  <img src="docs/assets/readme/worktrees.svg" alt="Many Git worktrees, such as main, agent/checkout-v2 and agent/fix-refunds, run side by side on one machine. Every worktree gets its own localhost URL, its own PostgreSQL database, its own object storage, and its own logs, traces and metrics." width="100%">
+</p>
+
+```sh
+scenery worktree create new-checkout   # new branch in ../myapp-new-checkout
+cd ../myapp-new-checkout
+scenery up --detach                    # a second, fully separate copy of the app
+scenery ps                             # every copy and its URL
+```
+
+The footprint stays small: each copy is a handful of native processes plus,
+when the app uses SQL, one small PostgreSQL container. Stopping a worktree
+never touches another one, and removing a checkout keeps its data until you
+prune it explicitly. It feels like magic, and it is just Git.
+
+## Make it yours
+
+Scenery is plain Go under the Apache 2.0 license, built on the standard
+library with a short list of dependencies. When it does not do what you need,
+fork it and change it. Then point your app at your fork: Scenery builds your
+app and a matching CLI from exactly that source.
+
+```sh
+scenery framework use --source ../my-scenery -o json
+```
+
+The selection is a frozen snapshot of your fork, local to your machine: run
+the command again after you change the fork, and keep the rewritten `go.mod`
+replacement out of your commits.
+
 ## Quick start
 
 > [!IMPORTANT]
-> Scenery is under active development. Its app format and CLI evolve together,
-> so upgrades can require changes to your app. Deployment tooling is in beta,
-> and there are no prebuilt releases yet: install from source.
+> Scenery is used in production today, and it is still under active
+> development. Its app format and CLI evolve together, so upgrades can require
+> changes to your app. Deployment tooling is in beta, and there are no prebuilt
+> releases yet: install from source.
 
 You need **Go 1.27+**. Apps that use managed PostgreSQL also need **Docker**.
 

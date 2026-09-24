@@ -426,6 +426,16 @@ func ParseRelativePath(value string) (RelativePath, error) {
 	return RelativePath(strings.Join(segments, "/")), nil
 }
 
+// ParseHostPath accepts a clean absolute POSIX path. It checks syntax only: it
+// never expands variables, resolves symlinks or inspects the filesystem, so an
+// unavailable directory keeps its configured value.
+func ParseHostPath(value string) (HostPath, error) {
+	if value == "" || !utf8.ValidString(value) || strings.ContainsRune(value, '\x00') || !path.IsAbs(value) || path.Clean(value) != value {
+		return "", fmt.Errorf("invalid host path %q: use a clean absolute path", value)
+	}
+	return HostPath(value), nil
+}
+
 func ParseURL(value string) (URL, error) {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Opaque != "" {
@@ -591,6 +601,20 @@ func (value *URL) UnmarshalJSON(data []byte) error {
 	parsed, err := ParseURL(text)
 	if err != nil || parsed.String() != text {
 		return fmt.Errorf("invalid canonical URL %q", text)
+	}
+	*value = parsed
+	return nil
+}
+
+func (value HostPath) MarshalJSON() ([]byte, error) { return json.Marshal(string(value)) }
+func (value *HostPath) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return err
+	}
+	parsed, err := ParseHostPath(text)
+	if err != nil {
+		return err
 	}
 	*value = parsed
 	return nil

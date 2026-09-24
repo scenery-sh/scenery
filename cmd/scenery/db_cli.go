@@ -159,10 +159,7 @@ func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string,
 	if err != nil {
 		return err
 	}
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return err
-	}
+	env := envpolicy.Environ()
 	env, closeOperation, err := beginDatabaseLifecycleEnv(ctx, appRoot, cfg, requirements, env)
 	if err != nil {
 		return err
@@ -467,10 +464,7 @@ func resolvePostgresDatabaseForCLI(ctx context.Context, appRoot string, cfg appc
 	if err != nil {
 		return postgresdb.Database{}, err
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return postgresdb.Database{}, err
-	}
+	baseEnv := envpolicy.Environ()
 	return resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, requirements, baseEnv)
 }
 

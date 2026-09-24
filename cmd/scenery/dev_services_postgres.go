@@ -43,9 +43,9 @@ func (r execPostgresDockerRunner) Run(ctx context.Context, args ...string) (stri
 // Keep both out of public errors; output is returned separately for object lookup.
 func postgresDockerFailure(err error) error {
 	if errors.Is(err, exec.ErrNotFound) {
-		return &codedCLIError{code: 4, err: fmt.Errorf("docker is unavailable: docker was not found in PATH; install Docker or provide an external DATABASE_URL")}
+		return &codedCLIError{code: 4, err: fmt.Errorf("docker is unavailable: docker was not found in PATH; install Docker or configure an external sql.database_url")}
 	}
-	return &codedCLIError{code: 4, err: fmt.Errorf("docker could not complete the managed Postgres operation; check Docker availability, context and permissions, or provide an external DATABASE_URL")}
+	return &codedCLIError{code: 4, err: fmt.Errorf("docker could not complete the managed Postgres operation; check Docker availability, context and permissions, or configure an external sql.database_url")}
 }
 
 var (

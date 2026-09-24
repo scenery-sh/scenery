@@ -30,13 +30,12 @@ func TestWorktreeCleanupRefusesExternalDSNWithoutRetainedState(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	t.Setenv("DATABASE_URL", "postgres://user:secret@127.0.0.1:5432/demo")
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".env", "DATABASE_URL=postgres://user:secret@127.0.0.1:5432/demo\n")
 	var output bytes.Buffer
 	for _, err := range []error{
 		runWorktreeDown(t.Context(), &output, []string{"--app-root", root, "--db"}),
 		runWorktreePrune(t.Context(), &output, []string{"--app-root", root, "--older-than", "1h", "--db"}),
 	} {
-		if err == nil || !strings.Contains(err.Error(), "DATABASE_URL is external") {
+		if err == nil || !strings.Contains(err.Error(), "sql.database_url is external") {
 			t.Fatalf("cleanup error = %v", err)
 		}
 	}

@@ -35,16 +35,13 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 	// External capability selection takes precedence over retained managed data.
 	// Status remains read-only and does not require a working Docker daemon.
 	if _, _, discoverErr := discoverConfiguredApp(root); discoverErr == nil {
-		env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-		if err != nil {
-			return err
-		}
+		env := envpolicy.Environ()
 		if value := lookupEnvValue(env, appDatabaseURLEnv); value != "" {
 			if err := validateAppPostgresURL(value); err != nil {
 				return err
 			}
 			if opts.Action != "status" {
-				return worktreePostgresPrecondition("DATABASE_URL is externally owned; db server does not control it")
+				return worktreePostgresPrecondition("the configured sql.database_url is externally owned; db server does not control it")
 			}
 			status := dbServerStatusResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.server.status"), AppRoot: root, Scope: "external", Status: "external", URL: postgresdb.RedactURL(value)}
 			if opts.JSON {
@@ -76,12 +73,9 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 			return err
 		}
 		appID = cfg.AppID()
-		env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-		if err != nil {
-			return err
-		}
+		env := envpolicy.Environ()
 		if lookupEnvValue(env, appDatabaseURLEnv) != "" {
-			return worktreePostgresPrecondition("DATABASE_URL is externally owned; db server does not provision or control it")
+			return worktreePostgresPrecondition("the configured sql.database_url is externally owned; db server does not provision or control it")
 		}
 		record, recordErr := paths.LoadRecord(appID)
 		if recordErr != nil && !errors.Is(recordErr, os.ErrNotExist) {

@@ -105,10 +105,7 @@ func runDBMigrate(ctx context.Context, stdout io.Writer, args []string) (returnE
 			}
 		}
 	}
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
-	if err != nil {
-		return err
-	}
+	env := envpolicy.Environ()
 	if opts.Status {
 		database, err := resolvePostgresDatabaseFromEnv(ctx, root, cfg, requirements, env)
 		if err != nil {
