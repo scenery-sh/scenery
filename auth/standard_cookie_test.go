@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/appsdk"
 )
 
 func TestResolveRefreshToken(t *testing.T) {
@@ -93,7 +95,7 @@ func TestRefreshCookieIssuanceStaysCurrentOnly(t *testing.T) {
 	if cookie.Value != "token" {
 		t.Fatalf("issued cookie value = %q, want token", cookie.Value)
 	}
-	response, err := encodeStandardContractOutcome(nil, &AuthSessionResponse{SetCookie: setCookie})
+	response, err := encodeStandardContractOutcome(appsdk.CurrentHost(), &AuthSessionResponse{SetCookie: setCookie})
 	if err != nil {
 		t.Fatalf("encode auth session outcome: %v", err)
 	}
@@ -117,7 +119,7 @@ func TestLogoutClearsRefreshCookie(t *testing.T) {
 		t.Fatal("logout did not clear refresh cookie")
 	}
 
-	encoded, err := encodeStandardContractOutcome(nil, response)
+	encoded, err := encodeStandardContractOutcome(appsdk.CurrentHost(), response)
 	if err != nil {
 		t.Fatalf("encode logout outcome: %v", err)
 	}

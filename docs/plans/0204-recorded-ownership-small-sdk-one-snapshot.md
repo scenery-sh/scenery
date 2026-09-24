@@ -56,7 +56,20 @@ capture already proved.
   `go run ./scripts/verify --probe dev-cleanup --summary` passes: an
   unrecorded look-alike under the session state root survives, a record
   whose identity moved survives, recorded children and owner stop.
-- [ ] Milestone 2: small SDK closure for `db`, `auth`, `durable`.
+- [x] (2026-09-24) Milestone 2: small SDK closure. `internal/appsdk/host.go`
+  defines one `Host` interface the runtime registers from its package
+  initialization (`runtime/sdk_host.go`); `auth` (current authentication,
+  `WithContext`, standard-auth handler and endpoint registration, JSON contract
+  codecs), `durable` (`Signal`, `Step`) and `db` (`.env` loading, now in
+  `appsdk.LoadDotEnv`) no longer import `scenery.sh/runtime`. `DurableRun`
+  moved to `runtime/shared` and `runtime.DurableRun` is an alias, so existing
+  callers compile unchanged. `go list -deps` non-standard closures: `db`
+  68 -> 41, `auth` 73 -> 53, `durable` 68 -> 7 (all packages 289/296/289 ->
+  247/265/203); none contains `scenery.sh/runtime`, assistant, MCP or durable
+  store packages. A new architecture rule forbids `scenery.sh/runtime` in
+  non-test files of the SDK packages. `go test ./...` passed and
+  `go run ./scripts/verify --probe capability-authority --summary` passed
+  (standard auth dev bootstrap and `/auth/me` through the host).
 - [ ] Milestone 3: one input snapshot per generation.
 
 ## Surprises & Discoveries
@@ -95,6 +108,12 @@ capture already proved.
   `agent.json`, because the agent state descriptor also identifies the health
   response and changing it would make every new CLI refuse the running
   machine agent until it restarts. Date: 2026-09-24. Author: Claude.
+- Decision: standard auth keeps its public `auth.RegisterStandard` entry and
+  registers through `appsdk.Host` instead of moving to a new public package,
+  because generated application mains call it and internal packages cannot be
+  imported from application modules. Without a linked runtime it fails with
+  `appsdk.ErrNoHost`; `durable.Step` runs its function directly, as it already
+  did outside a durable task. Date: 2026-09-24. Author: Claude.
 - Decision: `scenery system agent cleanup` keeps reporting legacy `~/.onlava`
   processes but never signals them, because they were not recorded by this
   Scenery; the operator stops them. Date: 2026-09-24. Author: Claude.

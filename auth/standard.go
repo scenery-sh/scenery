@@ -11,9 +11,10 @@ import (
 	"time"
 
 	authdb "scenery.sh/auth/db/gen"
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/runtime"
+	"scenery.sh/internal/runtimeapi"
 )
 
 //go:embed db/gen/schema.sql
@@ -78,7 +79,11 @@ func RegisterStandard(config StandardConfig) error {
 	if !config.Enabled {
 		return nil
 	}
-	if err := runtime.LoadDotEnvIntoEnv(); err != nil {
+	host := appsdk.CurrentHost()
+	if host == nil {
+		return fmt.Errorf("register standard auth: %w", appsdk.ErrNoHost)
+	}
+	if err := appsdk.LoadDotEnv(); err != nil {
 		return err
 	}
 	config = normalizeStandardConfig(config)
@@ -88,18 +93,18 @@ func RegisterStandard(config StandardConfig) error {
 	standardAuthState.cfg = config
 	standardAuthState.mu.Unlock()
 
-	runtime.RegisterAuthHandler(&runtime.AuthHandler{
+	host.RegisterAuthHandler(appsdk.AuthHandler{
 		Service: "auth",
 		Name:    "AuthHandler",
-		Authenticate: func(ctx context.Context, token string) (runtime.AuthInfo, error) {
+		Authenticate: func(ctx context.Context, token string) (appsdk.Auth, error) {
 			uid, data, err := AuthHandler(ctx, token)
 			if err != nil {
-				return runtime.AuthInfo{}, err
+				return appsdk.Auth{}, err
 			}
-			return runtime.AuthInfo{UID: string(uid), Data: data}, nil
+			return appsdk.Auth{UID: string(uid), Data: data}, nil
 		},
 	})
-	registerStandardAuthEndpoints(config)
+	registerStandardAuthEndpoints(host, config)
 	return nil
 }
 
@@ -162,9 +167,11 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 			}
 		}
 		standardAuthState.svc = &Service{db: pool, query: authdb.New(pool), now: time.Now}
-		runtime.MarkServiceInitialized("auth", func(context.Context) {
-			_ = pool.Close()
-		})
+		if host := appsdk.CurrentHost(); host != nil {
+			host.MarkServiceInitialized("auth", func(context.Context) {
+				_ = pool.Close()
+			})
+		}
 	})
 	return standardAuthState.svc, standardAuthState.err
 }
@@ -173,63 +180,61 @@ func standardAuthInitializationContext(requestCtx context.Context) (context.Cont
 	return context.WithTimeout(context.WithoutCancel(requestCtx), standardAuthInitializationTimeout)
 }
 
-func registerStandardAuthEndpoints(config StandardConfig) {
-	registerStandardJSON("auth", "SignupEmail", runtime.Public, "/auth/signup/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailSignupParams) (*EmailSignupResponse, error) {
+func registerStandardAuthEndpoints(host appsdk.Host, config StandardConfig) {
+	registerStandardJSON(host, "auth", "SignupEmail", runtimeapi.Public, "/auth/signup/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailSignupParams) (*EmailSignupResponse, error) {
 		return svc.SignupEmail(ctx, input)
 	})
-	registerStandardJSON("auth", "ConfirmEmailVerification", runtime.Public, "/auth/email-verification/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationConfirmParams) (*AuthSessionResponse, error) {
+	registerStandardJSON(host, "auth", "ConfirmEmailVerification", runtimeapi.Public, "/auth/email-verification/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationConfirmParams) (*AuthSessionResponse, error) {
 		return svc.ConfirmEmailVerification(ctx, input)
 	})
-	registerStandardJSON("auth", "ResendEmailVerification", runtime.Public, "/auth/email-verification/resend", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationResendParams) (*EmailVerificationResendResponse, error) {
+	registerStandardJSON(host, "auth", "ResendEmailVerification", runtimeapi.Public, "/auth/email-verification/resend", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationResendParams) (*EmailVerificationResendResponse, error) {
 		return svc.ResendEmailVerification(ctx, input)
 	})
-	registerStandardJSON("auth", "LoginEmail", runtime.Public, "/auth/login/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailLoginParams) (*AuthSessionResponse, error) {
+	registerStandardJSON(host, "auth", "LoginEmail", runtimeapi.Public, "/auth/login/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailLoginParams) (*AuthSessionResponse, error) {
 		return svc.LoginEmail(ctx, input)
 	})
-	registerStandardCookie("auth", "Refresh", runtime.Public, "/auth/refresh", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*AuthSessionResponse, error) {
+	registerStandardCookie(host, "auth", "Refresh", runtimeapi.Public, "/auth/refresh", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*AuthSessionResponse, error) {
 		return svc.Refresh(ctx, input)
 	})
-	registerStandardCookie("auth", "Logout", runtime.Public, "/auth/logout", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*LogoutResponse, error) {
+	registerStandardCookie(host, "auth", "Logout", runtimeapi.Public, "/auth/logout", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*LogoutResponse, error) {
 		return svc.Logout(ctx, input)
 	})
-	registerStandardEmpty("auth", "Me", runtime.Auth, "/auth/me", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*AuthBootstrapResponse, error) {
+	registerStandardEmpty(host, "auth", "Me", runtimeapi.Auth, "/auth/me", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*AuthBootstrapResponse, error) {
 		return svc.Me(ctx)
 	})
-	registerStandardJSON("auth", "RequestPasswordReset", runtime.Public, "/auth/password-reset/request", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetRequestParams) (*PasswordResetRequestResponse, error) {
+	registerStandardJSON(host, "auth", "RequestPasswordReset", runtimeapi.Public, "/auth/password-reset/request", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetRequestParams) (*PasswordResetRequestResponse, error) {
 		return svc.RequestPasswordReset(ctx, input)
 	})
-	registerStandardJSON("auth", "ConfirmPasswordReset", runtime.Public, "/auth/password-reset/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetConfirmParams) (*AuthSessionResponse, error) {
+	registerStandardJSON(host, "auth", "ConfirmPasswordReset", runtimeapi.Public, "/auth/password-reset/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetConfirmParams) (*AuthSessionResponse, error) {
 		return svc.ConfirmPasswordReset(ctx, input)
 	})
-	registerStandardOrganizations()
-	registerStandardImpersonation()
-	registerStandardJSONNoService("users", "DevBootstrap", runtime.Public, "/users/dev-bootstrap", http.MethodPost, func(ctx context.Context, _ []string, input *DevBootstrapParams) (*AuthSessionResponse, error) {
+	registerStandardOrganizations(host)
+	registerStandardImpersonation(host)
+	registerStandardJSONNoService(host, "users", "DevBootstrap", runtimeapi.Public, "/users/dev-bootstrap", http.MethodPost, func(ctx context.Context, _ []string, input *DevBootstrapParams) (*AuthSessionResponse, error) {
 		return DevBootstrap(ctx, input)
 	})
 	if config.GoogleOAuth.Enabled {
-		registerStandardJSON("auth", "GoogleConnectStart", runtime.Auth, "/auth/google/connect/start", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *GoogleConnectStartParams) (*GoogleConnectStartResponse, error) {
+		registerStandardJSON(host, "auth", "GoogleConnectStart", runtimeapi.Auth, "/auth/google/connect/start", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *GoogleConnectStartParams) (*GoogleConnectStartResponse, error) {
 			return svc.GoogleConnectStart(ctx, input)
 		})
-		registerStandardEmpty("auth", "GetGoogleConnection", runtime.Auth, "/auth/google/connection", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
+		registerStandardEmpty(host, "auth", "GetGoogleConnection", runtimeapi.Auth, "/auth/google/connection", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
 			return svc.GetGoogleConnection(ctx)
 		})
-		registerStandardEmpty("auth", "DisconnectGoogleConnection", runtime.Auth, "/auth/google/connection/disconnect", http.MethodPost, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
+		registerStandardEmpty(host, "auth", "DisconnectGoogleConnection", runtimeapi.Auth, "/auth/google/connection/disconnect", http.MethodPost, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
 			return svc.DisconnectGoogleConnection(ctx)
 		})
-		runtime.RegisterEndpoint(&runtime.Endpoint{
+		host.RegisterEndpoint(appsdk.Endpoint{
 			Service:    "auth",
 			Name:       "GoogleStart",
-			Access:     runtime.Public,
-			Raw:        true,
+			Access:     runtimeapi.Public,
 			Path:       "/auth/google/start",
 			Methods:    []string{http.MethodGet},
 			RawHandler: GoogleStart,
 		})
-		runtime.RegisterEndpoint(&runtime.Endpoint{
+		host.RegisterEndpoint(appsdk.Endpoint{
 			Service:    "auth",
 			Name:       "GoogleCallback",
-			Access:     runtime.Public,
-			Raw:        true,
+			Access:     runtimeapi.Public,
 			Path:       "/auth/google/callback",
 			Methods:    []string{http.MethodGet},
 			RawHandler: GoogleCallback,
@@ -237,10 +242,11 @@ func registerStandardAuthEndpoints(config StandardConfig) {
 	}
 }
 
-func registerStandardJSON[I, O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string, *I) (*O, error)) {
-	registerStandardContract(service, name, access, path, method,
+func registerStandardJSON[I, O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, *Service, []string, *I) (*O, error)) {
+	registerStandardContract(host, service, name, access, path, method,
 		func(request *http.Request) (any, error) {
-			input, err := runtime.DecodeContractJSON[I](request)
+			var input I
+			err := host.DecodeJSON(request, &input)
 			return &input, err
 		},
 		func(ctx context.Context, svc *Service, path []string, input any) (any, error) {
@@ -249,8 +255,8 @@ func registerStandardJSON[I, O any](service, name string, access runtime.Access,
 	)
 }
 
-func registerStandardCookie[O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string, *RefreshParams) (*O, error)) {
-	registerStandardContract(service, name, access, path, method,
+func registerStandardCookie[O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, *Service, []string, *RefreshParams) (*O, error)) {
+	registerStandardContract(host, service, name, access, path, method,
 		func(request *http.Request) (any, error) {
 			return &RefreshParams{RefreshToken: resolveRefreshToken(nil, request.Header)}, nil
 		},
@@ -271,24 +277,25 @@ func resolveRefreshToken(params *RefreshParams, headers http.Header) string {
 	return ""
 }
 
-func registerStandardEmpty[O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string) (*O, error)) {
-	registerStandardContract(service, name, access, path, method, func(*http.Request) (any, error) { return nil, nil }, func(ctx context.Context, svc *Service, path []string, _ any) (any, error) {
+func registerStandardEmpty[O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, *Service, []string) (*O, error)) {
+	registerStandardContract(host, service, name, access, path, method, func(*http.Request) (any, error) { return nil, nil }, func(ctx context.Context, svc *Service, path []string, _ any) (any, error) {
 		return invoke(ctx, svc, path)
 	})
 }
 
-func registerStandardJSONNoService[I, O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, []string, *I) (*O, error)) {
-	registerStandardContractWithInvoke(service, name, access, path, method,
+func registerStandardJSONNoService[I, O any](host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, invoke func(context.Context, []string, *I) (*O, error)) {
+	registerStandardContractWithInvoke(host, service, name, access, path, method,
 		func(request *http.Request) (any, error) {
-			input, err := runtime.DecodeContractJSON[I](request)
+			var input I
+			err := host.DecodeJSON(request, &input)
 			return &input, err
 		},
 		func(ctx context.Context, path []string, input any) (any, error) { return invoke(ctx, path, input.(*I)) },
 	)
 }
 
-func registerStandardContract(service, name string, access runtime.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, *Service, []string, any) (any, error)) {
-	registerStandardContractWithInvoke(service, name, access, path, method, decode, func(ctx context.Context, path []string, input any) (any, error) {
+func registerStandardContract(host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, *Service, []string, any) (any, error)) {
+	registerStandardContractWithInvoke(host, service, name, access, path, method, decode, func(ctx context.Context, path []string, input any) (any, error) {
 		svc, err := standardAuthService(ctx)
 		if err != nil {
 			return nil, clarifyStandardAuthTenantError(err)
@@ -298,17 +305,17 @@ func registerStandardContract(service, name string, access runtime.Access, path,
 	})
 }
 
-func registerStandardContractWithInvoke(service, name string, access runtime.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, []string, any) (any, error)) {
+func registerStandardContractWithInvoke(host appsdk.Host, service, name string, access runtimeapi.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, []string, any) (any, error)) {
 	pathNames := standardPathNames(path)
-	runtime.RegisterEndpoint(&runtime.Endpoint{
+	host.RegisterEndpoint(appsdk.Endpoint{
 		Service: service, Name: name, Access: access, Path: path, Methods: []string{method},
-		DecodeContractRequest: func(request *http.Request, values map[string]string) (runtime.ContractDecodedRequest, error) {
+		Decode: func(request *http.Request, values map[string]string) (any, []any, error) {
 			input, err := decode(request)
 			path := make([]any, len(pathNames))
 			for i, name := range pathNames {
 				path[i] = values[name]
 			}
-			return runtime.ContractDecodedRequest{Payload: input, PathArgs: path}, err
+			return input, path, err
 		},
 		Invoke: func(ctx context.Context, path []any, input any) (any, error) {
 			values := make([]string, len(path))
@@ -317,14 +324,19 @@ func registerStandardContractWithInvoke(service, name string, access runtime.Acc
 			}
 			return invoke(ctx, values, input)
 		},
-		EncodeContractOutcome: encodeStandardContractOutcome,
+		Encode: func(_ *http.Request, outcome any) (appsdk.Response, error) {
+			return encodeStandardContractOutcome(host, outcome)
+		},
 	})
 }
 
-func encodeStandardContractOutcome(_ *http.Request, outcome any) (runtime.ContractHTTPResponse, error) {
-	response, err := runtime.EncodeContractJSON(http.StatusOK, outcome)
+func encodeStandardContractOutcome(host appsdk.Host, outcome any) (appsdk.Response, error) {
+	response, err := host.EncodeJSON(http.StatusOK, outcome)
 	if err != nil {
 		return response, err
+	}
+	if response.Headers == nil {
+		response.Headers = http.Header{}
 	}
 	switch value := outcome.(type) {
 	case *AuthSessionResponse:

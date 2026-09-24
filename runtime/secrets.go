@@ -1,30 +1,9 @@
 package runtime
 
-import (
-	"sync"
+import "scenery.sh/internal/appsdk"
 
-	"scenery.sh/internal/envfile"
-	"scenery.sh/internal/envpolicy"
-)
-
-var (
-	dotEnvOnce sync.Once
-	dotEnvData map[string]string
-	dotEnvErr  error
-)
-
+// LoadDotEnvIntoEnv sets each variable of the working directory's .env file
+// that the process environment does not already define.
 func LoadDotEnvIntoEnv() error {
-	dotEnvOnce.Do(func() { dotEnvData, dotEnvErr = envfile.ParseFile(".env") })
-	if dotEnvErr != nil {
-		return dotEnvErr
-	}
-	for key, value := range dotEnvData {
-		if _, exists := envpolicy.Lookup(key); exists {
-			continue
-		}
-		if err := envpolicy.Set(key, value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return appsdk.LoadDotEnv()
 }

@@ -97,3 +97,12 @@ type Request struct {
 	// CronIdempotencyKey is set when the current request was triggered by a cron job.
 	CronIdempotencyKey string
 }
+
+// DurableRun identifies a started durable task run.
+type DurableRun struct {
+	ID        string
+	Service   string
+	TaskName  string
+	State     string
+	DedupeKey string
+}
