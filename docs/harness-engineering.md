@@ -96,7 +96,8 @@ without a host Docker socket or source bind mount. No global developer cluster
 is used. The same lane rehearses the
 [native migration runbook](runbooks/worktree-postgres-migration.md).
 
-Functional worktree proof runs A1–A17. A18 is separate:
+Functional worktree proof runs A1–A17 and A19, the development runtime RPC
+bounds against real PostgreSQL (plan 0206). A18 is separate:
 `go run ./scripts/verify --benchmark worktree-cost --summary --write` runs only
 on an explicit human measurement request, never as part of default or release.
 The resource-cost lane runs three repetitions each of 1, 5 and 10 SQL-backed
@@ -195,7 +196,7 @@ release certification. Failed steps identify their focused rerun command.
 | `core-separation` | Product/verifier dependency and source-only boundaries |
 | `capability-authority` | Runtime capability authority |
 | `auth` | All 15 database/OAuth lifecycle journeys |
-| `worktree` | Functional A1–A17 worktree runtime/SQL ownership; A13 configures `sql.database_url` through `scenery config set --env local --stdin` and requires development `up` to refuse it in every worktree without allocating a managed database, `db reset`, `db drop`, `prune --db` and `down --db` to reject it, an inherited `DATABASE_URL` to select nothing, and no command output or configuration file to reveal the credential |
+| `worktree` | Functional A1–A17 worktree runtime/SQL ownership, where A13 configures `sql.database_url` through `scenery config set --env local --stdin` and requires development `up` to refuse it in every worktree without allocating a managed database, `db reset`, `db drop`, `prune --db` and `down --db` to reject it, an inherited `DATABASE_URL` to select nothing, and no command output or configuration file to reveal the credential; and A19 development runtime RPC bounds: refused admission beyond the connection and app limits, `status` under saturation, a result budget, and statements cancelled in PostgreSQL on disconnect |
 | `agent-restart` | Local-agent restart |
 | `assistant-init` | Assistant initialization |
 | `assistant-runtime` | Assistant production runtime |
@@ -203,7 +204,7 @@ release certification. Failed steps identify their focused rerun command.
 | `assistant-journey` | `testdata/assistant` with its generated Eve helper and mock model through `scenery up` in a disposable copy with its own agent home: a run parked on approval keeps a later run queued and resumes as itself, overlapping streams read one contiguous history, a durable receipt's status and cancellation reach the durable store after a host replacement that keeps the service, and after the receipt journal of the serving host can be neither written, marked nor removed the host reports its state unavailable, the next host starts a new host state epoch and refuses the earlier receipt |
 | `build-info` | Build identity freshness |
 | `cli-process` | CLI exit and telemetry |
-| `cli-grammar` | The grammar `scenery help -o json` advertises, against the parser, in a disposable home and app copy: every usage line yields requests that must be refused as `invalid_request` (`SCN8001`, exit 2) with a message (an unknown flag, each value flag without its value, an invalid value of each closed choice, an unknown subcommand), and every read-only usage line, written with its required parts and each advertised `-o` mode, must not be refused as wrongly written nor fail internally. `system` and `deploy` act on the host and are read but not executed |
+| `cli-grammar` | The grammar `scenery help -o json` advertises, against the parser, in a disposable home and app copy: every usage line yields requests that must be refused as `invalid_request` (`SCN8001`, exit 2) with a message (an unknown flag, each value flag without its value, an invalid value of each closed choice, an unknown subcommand, an unknown command), every usage path asked with `-h`, `--help` and `--help -o json` must answer with that command's help (exit 0, its usage or its `scenery.help` descriptor), host families included since a help request never runs its command, and every read-only usage line, written with its required parts and each advertised `-o` mode, must not be refused as wrongly written nor fail internally. `system` and `deploy` act on the host and are read but not executed |
 | `dev-follower` | Development follower process |
 | `dev-process` | Managed child-process lifecycle through the process model: every answer attested by the session host with a build verified against the runtime bundle and naming its service process, a rejected preflight and a failing replacement constructor keeping the published generation serving, the final served build equal to the `build --development --verify-generation` candidate, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, a contract edit and its return across failing builds serving the previously compiled contract revision, behavior-preserving cgo/native edit, 20 unique edit-to-exact-response generations, bounded process/FD/RSS/cache settling, and tagged build-cache input mutation/rejection/retry, restored external-source bypass without change time (including temporarily enabled ignored Go files and temporary embeds in initially empty directories), canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
 | `process-model` | `testdata/apps/multiservice` through `scenery up`: three distinct processes, every answer attested by the host with the serving generation's build and naming its service instance; a `greet` request pinned to generation 1 completing against the first `greeter` and `echo` after `greeter` and then `echo` were replaced (generation 2 retires without stopping the first `echo`), with drain before activation on replacement; retirement of the first generation's instances; a failed build and identical restored source keeping the published generation; a shared package edit replacing both services in one generation; a contract-changing generation whose `echo` constructor fails keeping the host and services serving; a service replacement whose publication the host applies while its answer and every confirmation are lost (injected through the host's control faults) reconciled without another edit, the previous echo instance still answering in a later generation; process/socket/link/host-state cleanup; and that every entrypoint of the session was linked by stock Go, with no recipe recorded or used. Before the session starts, a detached start on an address no host can bind answers one internal diagnostic whose report token `scenery inspect report` resolves, from a later invocation, to the command, arguments and cause of that other process |
@@ -399,6 +400,7 @@ Hard failures:
 - packages outside `cmd/scenery` may not import `scenery.sh/cmd/scenery`
 - required generated/vendored ignore markers must exist in `.gitignore` and `.gitattributes`
 - non-generated source/code files over 2500 lines are rejected; Markdown docs are not subject to line-count size checks
+- a fixture module (a nested `go.mod` that replaces `scenery.sh` with this repository) may not require an older module version or declare an older `go` version than the root `go.mod`; Go would select the root's newer requirement and refuse every read-only command in the fixture with `go: updates to go.mod needed`
 
 Warnings:
 
@@ -406,6 +408,18 @@ Warnings:
 - cgo imports, because they require native build handling
 - `.DS_Store` files found in the working tree
 The dependency allowlist is intentionally small and lives in code next to the check. New direct dependencies should be rare and must include the reason they justify the added maintenance surface.
+
+A root dependency bump must also update every fixture module it makes older.
+Fixtures import generated, ignored packages, so `go mod tidy` fails in
+the repository copy: copy the fixture to a disposable directory, point its
+`replace scenery.sh` at the absolute repository path, run the worktree-local
+`.scenery/harness/bin/scenery generate --app-root <copy>`, run `go mod tidy`,
+and copy `go.mod` and `go.sum` back with the relative `replace` restored. Then
+run the probes that start that fixture. `internal/compiler/testdata/native`
+lists more: the `generation` probe copies it into a provider CRUD workspace
+whose rendered adapters import the whole runtime and runs `go test` there
+read-only. Tidy that workspace instead; the probe keeps it under the reported
+`probe_root` as `provider-private-workspace` when that step fails.
 
 ## Non-Goals
 

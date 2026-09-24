@@ -272,6 +272,14 @@ func (p *worktreeRuntimeProbe) prepareLegacySources(dir string, s *worktreeLegac
 		if _, err := p.run(dir, "docker", "cp", fixture, s.container+":/app-"+name); err != nil {
 			return err
 		}
+		if legacy {
+			// The historical producer tidies the app without network access.
+			// The fixture lists the current framework's versions, which can be
+			// newer than the historical source downloaded above; cache them.
+			if _, err := s.run("env", "GOWORK=off", "go", "-C", "/app-"+name, "mod", "download"); err != nil {
+				return err
+			}
+		}
 		if _, err := s.cli(legacy, "/app-"+name, "generate", "--target", "typescript_client.public_api"); err != nil {
 			return err
 		}

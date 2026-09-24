@@ -685,7 +685,9 @@ observability data. `internal/localproxy` owns the local proxy layer. Victoria
 sidecars are supervised from `cmd/scenery` as worktree-owned optional
 companions. The runtime control backend (the internal `dashboard` listener) is
 orchestrated from `cmd/scenery`: `dashboard_rpc.go` serves the documented
-development runtime RPC, `dashboard_postgres.go` its PostgreSQL inspection,
+development runtime RPC, `dashboard_rpc_limits.go` bounds its per-connection
+and per-app admission, call deadlines and result budgets,
+`dashboard_postgres.go` its PostgreSQL inspection,
 `dashboard_storage.go` resolves registered app scopes for storage RPC, and
 `dashboard_storage_http.go` streams file transfers on the same listener under a
 pinned namespace maintenance lease. Scenery serves no dashboard UI; apps build

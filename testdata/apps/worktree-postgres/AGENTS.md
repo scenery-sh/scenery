@@ -11,6 +11,10 @@ Own the small authored application used by explicit worktree runtime proof.
 - Go implements the declared library contracts. Borrowing uses one conditional
   SQL update so exactly one concurrent borrower wins.
 - Keep Go projections ignored and TypeScript client fixtures current.
+- `go.mod` lists every module the historical A9 producer builds, at the
+  versions the current framework selects; after a framework dependency bump,
+  raise those versions and add their `go.sum` hashes rather than running
+  `go mod tidy`, which drops modules only A9 needs.
 - The release runner owns temporary copies and their resources. Do not start
   this repository fixture against a developer database or installed shared CLI.
 
@@ -18,8 +22,8 @@ Own the small authored application used by explicit worktree runtime proof.
 
 From the repository root, use
 `go run ./scripts/verify --probe worktree --summary --write` for functional
-A1–A17 proof; it is also included in release. A18 resource measurement runs only
-when explicitly requested, using
+A1–A17 and A19 proof; it is also included in release. A18 resource
+measurement runs only when explicitly requested, using
 `go run ./scripts/verify --benchmark worktree-cost --summary --write`.
 Keep real process, Docker, HTTP, concurrency and timing proof outside ordinary
 Go unit tests. Every selected row must report its actual result and owned cleanup.

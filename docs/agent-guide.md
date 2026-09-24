@@ -489,7 +489,11 @@ from a fresh `storageInspect`. Regenerate whenever the app's Scenery producer
 changes; a revision mismatch fails `status()` with code `protocol`. Bound or
 cancel calls with an `AbortSignal` and `dispose()` a client the tooling no
 longer uses: unsent calls are then dropped, but a mutation already sent may
-have completed, so inspect before retrying it.
+have completed, so inspect before retrying it. The runtime bounds concurrent
+database and storage calls and refuses the excess at once with diagnostic
+`SCN8011` (retry after a call completes), stops calls at their deadline
+(`SCN8012`) and fails oversized results (`SCN8013`) rather than truncating
+them; `status` keeps its own allowance.
 
 For UI cleanup triage, run `scenery inspect ui --frontend <name>` and start with
 the highest-score file while reading both axes independently. Replace raw

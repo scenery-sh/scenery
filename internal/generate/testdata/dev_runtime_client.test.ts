@@ -432,3 +432,37 @@ describe("DevRuntimeClient storage transfers", () => {
 		}
 	});
 });
+
+describe("DevRuntimeClient runtime failures", () => {
+	test("a refused call rejects alone with the runtime's failure object and the connection keeps serving", async () => {
+		const client = runtimeClient();
+		const refused = failure(client.query("app", { query: "select pg_sleep(20)" }));
+		const tooLarge = failure(client.postgresRows("app", { table: "scenery.events", limit: 500 }));
+		const tables = client.postgresTables("app");
+		socket(0).open();
+		const [queryFrame, rowsFrame, tablesFrame] = socket(0).sent;
+		expect(sentMethods()).toEqual(["db/query", "postgres/rows", "postgres/tables"]);
+
+		const capacity = {
+			code: "capacity_exhausted",
+			diagnostic: "SCN8011",
+			message: "the development runtime is already running 6 database or storage calls on this connection; retry after one completes",
+			details: { class: "work", scope: "connection", limit: 6 },
+		};
+		socket(0).receive(JSON.stringify({ jsonrpc: "2.0", id: queryFrame?.id, error: { code: -32000, message: `SCN8011: ${capacity.message}`, data: capacity } }));
+		const budget = {
+			code: "result_too_large",
+			diagnostic: "SCN8013",
+			message: "the result exceeds 500 rows or 4 MiB; request fewer rows",
+			details: { max_rows: 500, max_bytes: 4194304, rows_within_budget: 40 },
+		};
+		socket(0).receive(JSON.stringify({ jsonrpc: "2.0", id: rowsFrame?.id, error: { code: -32000, message: `SCN8013: ${budget.message}`, data: budget } }));
+		socket(0).reply(tablesFrame, [{ schema: "scenery", name: "scenery.events", type: "table" }]);
+
+		expect(await refused).toMatchObject({ code: "rpc", diagnostic: "SCN8011", message: `SCN8011: ${capacity.message}`, details: capacity.details });
+		expect(await tooLarge).toMatchObject({ code: "rpc", diagnostic: "SCN8013", details: { rows_within_budget: 40 } });
+		expect(await tables).toEqual([{ schema: "scenery", name: "scenery.events", type: "table" }]);
+		expect(client.connected).toBe(true);
+		client.dispose();
+	});
+});
