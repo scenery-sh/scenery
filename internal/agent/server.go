@@ -58,6 +58,7 @@ type Server struct {
 	worktreeAppID        string
 	closeOnce            sync.Once
 	closeErr             error
+	statePublished       bool
 }
 
 func NewServer(opts RunOptions) (*Server, error) {
@@ -185,10 +186,23 @@ func NewServer(opts RunOptions) (*Server, error) {
 	return server, nil
 }
 
-func (s *Server) Run(ctx context.Context) error {
+// PublishState writes the agent state that clients read to find this agent.
+// A start is complete only once its state is published, so a caller that
+// contains start failures publishes before Run; Run publishes otherwise.
+func (s *Server) PublishState() error {
 	if err := s.writeState(); err != nil {
-		_ = s.Close()
-		return err
+		return fmt.Errorf("publish agent state %s: %w", s.paths.StatePath, err)
+	}
+	s.statePublished = true
+	return nil
+}
+
+func (s *Server) Run(ctx context.Context) error {
+	if !s.statePublished {
+		if err := s.PublishState(); err != nil {
+			_ = s.Close()
+			return err
+		}
 	}
 	monitorCtx, cancelMonitor := context.WithCancel(ctx)
 	defer cancelMonitor()

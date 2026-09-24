@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,6 +69,73 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 [Install]
 WantedBy=multi-user.target
 `, systemdEscapeExec(args), home)
+}
+
+// ReconcileAgentSystemd rewrites the installed supervised agent unit from the
+// current template, keeping the executable, socket, router and home it
+// names, and reloads systemd when it changed. Like ReconcileAgentLaunchd, it
+// brings a unit written by an earlier Scenery up to the invocation the
+// current agent relies on before the unit is restarted.
+func ReconcileAgentSystemd() (bool, error) {
+	unitPath := AgentSystemdUnitPath()
+	data, err := os.ReadFile(unitPath)
+	if err != nil {
+		return false, err
+	}
+	exe, paths, opts, err := parseAgentSystemdUnit(string(data))
+	if err != nil {
+		return false, fmt.Errorf("the installed supervised agent unit %s is not one Scenery renders (%w); reinstall it with scenery deploy setup", unitPath, err)
+	}
+	rendered := AgentSystemdUnit(exe, paths, opts)
+	if rendered == string(data) {
+		return false, nil
+	}
+	if err := atomicWriteFile(unitPath, []byte(rendered), 0o644); err != nil {
+		return false, err
+	}
+	if out, err := systemctlRunFunc("daemon-reload"); err != nil {
+		return true, fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return true, nil
+}
+
+// parseAgentSystemdUnit reads the agent invocation and home of a supervised
+// agent unit.
+func parseAgentSystemdUnit(unit string) (string, Paths, StartOptions, error) {
+	var args []string
+	home := ""
+	for line := range strings.SplitSeq(unit, "\n") {
+		if value, ok := strings.CutPrefix(line, "ExecStart="); ok {
+			args = splitSystemdExec(value)
+		}
+		if value, ok := strings.CutPrefix(line, "Environment=HOME="); ok {
+			home = value
+		}
+	}
+	exe, socketPath, opts, err := parseAgentInvocation(args)
+	if err != nil {
+		return "", Paths{}, StartOptions{}, err
+	}
+	if home == "" {
+		return "", Paths{}, StartOptions{}, errors.New("no Environment=HOME")
+	}
+	// The unit names the home's parent; any agent home below it renders it.
+	return exe, Paths{SocketPath: socketPath, Home: filepath.Join(home, ".scenery")}, opts, nil
+}
+
+// splitSystemdExec reverses systemdEscapeExec.
+func splitSystemdExec(line string) []string {
+	var args []string
+	for rest := strings.TrimSpace(line); rest != ""; rest = strings.TrimSpace(rest) {
+		if quoted, ok := strings.CutPrefix(rest, `"`); ok {
+			arg, after, _ := strings.Cut(quoted, `"`)
+			args, rest = append(args, arg), after
+			continue
+		}
+		arg, after, _ := strings.Cut(rest, " ")
+		args, rest = append(args, arg), after
+	}
+	return args
 }
 
 // DeployResumeSystemdUnit renders the boot-time oneshot that restarts every
@@ -242,6 +310,12 @@ func startSystemdSupervisedAgent(paths Paths) bool {
 	status := AgentSystemdStatusForSocket(paths.SocketPath)
 	if !status.PlistPresent || !status.SupervisesSocket {
 		return false
+	}
+	// Restarting is when a unit written by an earlier Scenery takes up the
+	// current invocation; a unit that cannot be reconciled still restarts,
+	// and doctor reports what it lacks.
+	if _, err := ReconcileAgentSystemd(); err != nil {
+		slog.Warn("could not update the supervised scenery agent unit", "err", err)
 	}
 	if _, err := systemctlRunFunc("restart", AgentSystemdUnitName); err != nil {
 		return AgentSystemdStatusForSocket(paths.SocketPath).Running

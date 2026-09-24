@@ -18,7 +18,7 @@
       "const": "scenery.telemetry.report"
     },
     "schema_revision": {
-      "const": "sha256:7e60c7b1d2954a7b127bc56166707dd6d2ab240885990260b7103a8204d6ee36"
+      "const": "sha256:4aa1bae5982c0089a8fdb82e3e3029d1b213a562f84a28ef27b8d15d782defd3"
     },
     "window": {
       "type": "object",
@@ -43,6 +43,9 @@
         "cli_records",
         "cli_invalid_records",
         "supervisor_logs",
+        "supervisor_logs_partial",
+        "supervisor_logs_failed",
+        "supervisor_invalid_records",
         "agent_transcripts",
         "claude_sessions",
         "codex_sessions"
@@ -61,6 +64,18 @@
           "type": "integer",
           "minimum": 0
         },
+        "supervisor_logs_partial": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supervisor_logs_failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supervisor_invalid_records": {
+          "type": "integer",
+          "minimum": 0
+        },
         "agent_transcripts": {
           "type": "boolean"
         },
@@ -71,6 +86,9 @@
         "codex_sessions": {
           "type": "integer",
           "minimum": 0
+        },
+        "transcripts": {
+          "$ref": "#/$defs/transcriptSources"
         }
       }
     },
@@ -142,6 +160,7 @@
         "worktrees",
         "rebuild_steps",
         "failure_causes",
+        "unmatched_errors",
         "failure_streaks"
       ],
       "additionalProperties": false,
@@ -174,6 +193,10 @@
             "$ref": "#/$defs/count"
           }
         },
+        "unmatched_errors": {
+          "type": "integer",
+          "minimum": 0
+        },
         "failure_streaks": {
           "type": "array",
           "items": {
@@ -192,7 +215,10 @@
         "tool_error_kinds",
         "scenery_invocations",
         "scenery_commands",
+        "scenery_outcome_unknown",
         "scenery_failed",
+        "scenery_attributable",
+        "scenery_attributable_failed",
         "commands",
         "failure_classes",
         "rejected_inputs"
@@ -229,7 +255,19 @@
           "type": "integer",
           "minimum": 0
         },
+        "scenery_outcome_unknown": {
+          "type": "integer",
+          "minimum": 0
+        },
         "scenery_failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenery_attributable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenery_attributable_failed": {
           "type": "integer",
           "minimum": 0
         },
@@ -595,6 +633,49 @@
             "integer",
             "null"
           ],
+          "minimum": 0
+        }
+      }
+    },
+    "transcriptSources": {
+      "type": "object",
+      "required": [
+        "read",
+        "partial",
+        "failed",
+        "invalid_records",
+        "oversized_records",
+        "unmatched_results",
+        "unanswered_calls"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "partial": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalid_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "oversized_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unmatched_results": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unanswered_calls": {
+          "type": "integer",
           "minimum": 0
         }
       }

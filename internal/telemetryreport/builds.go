@@ -1,7 +1,6 @@
 package telemetryreport
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,9 +30,15 @@ type Builds struct {
 	Steps     []StepTiming     `json:"rebuild_steps"`
 	// Failures has one cause for each failed initial build or rebuild; the
 	// least frequent are summed as "other causes".
-	Failures []Count         `json:"failure_causes"`
-	Streaks  []FailureStreak `json:"failure_streaks"`
-	logs     int
+	Failures []Count `json:"failure_causes"`
+	// UnmatchedErrors counts build errors that name an operation no build
+	// request in the window has; they are charged to no build.
+	UnmatchedErrors int             `json:"unmatched_errors"`
+	Streaks         []FailureStreak `json:"failure_streaks"`
+	logs            int
+	partialLogs     int
+	failedLogs      int
+	invalidRecords  int
 }
 
 type WorktreeBuilds struct {
@@ -137,7 +142,13 @@ func readBuilds(opts Options) (Builds, error) {
 			return acc
 		}, rebuilds, initial, steps, causes, &builds)
 		if err != nil {
-			return Builds{}, err
+			// A log that cannot be opened, or stops reading part way, is
+			// counted; what it held before the error still counts.
+			if errors.Is(err, errSupervisorLogOpen) {
+				builds.failedLogs++
+				continue
+			}
+			builds.partialLogs++
 		}
 		if inWindow {
 			builds.logs++
@@ -174,21 +185,30 @@ func readBuilds(opts Options) (Builds, error) {
 	return builds, nil
 }
 
+// supervisorLineLimit bounds one supervisor log line; longer lines are
+// skipped and counted.
+const supervisorLineLimit = 8 << 20
+
+var errSupervisorLogOpen = errors.New("open supervisor log")
+
 // readSupervisorLog folds one session log into the aggregates and reports
-// whether the session had events in the window.
+// whether the session had events in the window. A read error after some
+// events is returned with what was folded before it.
 //
 // A supervisor writes a build's build.error after that build's build.request
 // step. An error names its operation (operation_id) since the event carries
-// it; an older log's error belongs to the failed build it immediately follows.
-// Each failed build has exactly one cause, its first error, so the causes add
-// up to the failed builds; an error no failed build precedes is not counted.
+// it; an older log's error, which names none, belongs to the failed build it
+// immediately follows. An error naming an operation that no build request in
+// the window has is unmatched and charged to no build. Each failed build has
+// exactly one cause, its first error, so the causes add up to the failed
+// builds.
 func readSupervisorLog(opts Options, path string, worktree func(root, name string) *worktreeAccumulator, rebuilds, initial *timingAccumulator, steps map[string]*timingAccumulator, causes map[string]int, builds *Builds) (bool, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("read supervisor log: %w", err)
+		return false, fmt.Errorf("%w %s: %w", errSupervisorLogOpen, filepath.Base(path), err)
 	}
 	defer func() { _ = file.Close() }()
 	type outcome struct {
@@ -203,12 +223,18 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 	var acc *worktreeAccumulator
 	var root string
 	inWindow := false
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 8<<20)
-	for scanner.Scan() {
+	oversized, readErr := readLines(file, supervisorLineLimit, func(line []byte) {
+		// The log also holds the plain output of the processes it runs.
+		if len(line) == 0 || line[0] != '{' {
+			return
+		}
 		var event supervisorEvent
-		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Data.Type == "" {
-			continue
+		if json.Unmarshal(line, &event) != nil {
+			builds.invalidRecords++
+			return
+		}
+		if event.Data.Type == "" {
+			return
 		}
 		data := event.Data
 		if acc == nil && data.App.Root != "" {
@@ -216,34 +242,42 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 			acc = worktree(root, data.App.Name)
 		}
 		if acc == nil || !opts.inWindow(data.Time) {
-			continue
+			return
 		}
 		inWindow = true
 		switch data.Type {
 		case "build.error":
 			var failure buildErrorData
 			if json.Unmarshal(data.Data, &failure) != nil {
-				continue
+				builds.invalidRecords++
+				return
 			}
-			index, named := byOperation[failure.OperationID]
-			if !named || failure.OperationID == "" {
-				index = awaiting
+			index := awaiting
+			if failure.OperationID != "" {
+				named, ok := byOperation[failure.OperationID]
+				if !ok {
+					builds.UnmatchedErrors++
+					return
+				}
+				index = named
 			}
 			if index >= 0 && !outcomes[index].ok && outcomes[index].cause == "" {
 				outcomes[index].cause = failureCause(failure.Error, failure.Diagnostic.Code)
 			}
-			awaiting = -1
+			if index == awaiting {
+				awaiting = -1
+			}
 		case "build.step":
 			var step buildStepData
 			if json.Unmarshal(data.Data, &step) != nil || step.OperationID == "" {
-				continue
+				return
 			}
 			if step.Name != "build.request" {
 				if operationSteps[step.OperationID] == nil {
 					operationSteps[step.OperationID] = map[string]float64{}
 				}
 				operationSteps[step.OperationID][step.Name] += step.DurationMS
-				continue
+				return
 			}
 			stepDurations := operationSteps[step.OperationID]
 			delete(operationSteps, step.OperationID)
@@ -268,9 +302,10 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 				awaiting = len(outcomes) - 1
 			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return false, fmt.Errorf("read supervisor log %s: %w", filepath.Base(path), err)
+	})
+	builds.invalidRecords += oversized
+	if readErr != nil {
+		readErr = fmt.Errorf("read supervisor log %s: %w", filepath.Base(path), readErr)
 	}
 	if inWindow {
 		acc.sessions++
@@ -303,7 +338,7 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		streak = append(streak, build)
 	}
 	closeStreak()
-	return inWindow, nil
+	return inWindow, readErr
 }
 
 var (

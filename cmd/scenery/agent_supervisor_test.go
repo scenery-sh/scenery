@@ -16,6 +16,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/deploydiag"
+	"scenery.sh/internal/doctor"
 )
 
 // fakeAgentHealthServer serves /v1/health on the agent socket with a
@@ -77,14 +78,18 @@ func withAgentSupervisorHooks(t *testing.T, status localagent.LaunchdAgentStatus
 	oldReload := agentSupervisorReloadFunc
 	oldBootstrap := agentSupervisorBootstrapFunc
 	oldSpawnFailure := agentSupervisorSpawnFailureFunc
+	oldReconcile := agentSupervisorReconcileFunc
 	t.Cleanup(func() {
 		agentSupervisorStatusFunc = oldStatus
 		agentSupervisorReloadFunc = oldReload
 		agentSupervisorBootstrapFunc = oldBootstrap
 		agentSupervisorSpawnFailureFunc = oldSpawnFailure
+		agentSupervisorReconcileFunc = oldReconcile
 	})
 	agentSupervisorStatusFunc = func(socketPath string) localagent.LaunchdAgentStatus { return status }
 	agentSupervisorSpawnFailureFunc = func() string { return "" }
+	// The host's real LaunchAgents plist is never rewritten by a test.
+	agentSupervisorReconcileFunc = func() (bool, error) { return false, nil }
 	if reload != nil {
 		agentSupervisorReloadFunc = reload
 	}
@@ -153,12 +158,76 @@ func TestRestartAgentViaSupervisorReloadsLoadedJob(t *testing.T) {
 	if !running || oldHealth.PID != 111 {
 		t.Fatalf("old health = %+v, running=%v", oldHealth, running)
 	}
-	health, supervised, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
+	health, supervised, _, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
 	if err != nil || !supervised || !reloaded {
 		t.Fatalf("supervised restart = %+v, supervised=%v, reloaded=%v, err=%v", health, supervised, reloaded, err)
 	}
 	if health.PID != 222 {
 		t.Fatalf("restarted pid = %d, want 222", health.PID)
+	}
+}
+
+// A restart after an upgrade updates the installed job before launchd reads
+// it again, so the reloaded agent runs the current invocation; a job that
+// cannot be updated leaves the running agent alone.
+func TestRestartAgentViaSupervisorUpdatesTheJobBeforeRegisteringIt(t *testing.T) {
+	paths := localagent.PathsForHome(t.TempDir())
+	if err := localagent.EnsureDirs(paths); err != nil {
+		t.Fatal(err)
+	}
+	fake := startFakeAgentHealthServer(t, paths.SocketPath, 111)
+	var steps []string
+	withAgentSupervisorHooks(t, localagent.LaunchdAgentStatus{
+		Supported: true, PlistPresent: true, SupervisesSocket: true, Loaded: true, Running: true, PID: 111,
+	}, func() error {
+		steps = append(steps, "reload")
+		fake.setPID(222)
+		return nil
+	}, nil)
+	agentSupervisorReconcileFunc = func() (bool, error) {
+		steps = append(steps, "reconcile")
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := localagent.NewClient(paths.SocketPath)
+	oldHealth, running := currentAgentHealth(ctx, client)
+	health, supervised, updated, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
+	if err != nil || !supervised || !updated || health.PID != 222 || strings.Join(steps, ",") != "reconcile,reload" {
+		t.Fatalf("restart = %+v supervised=%v updated=%v err=%v steps=%v", health, supervised, updated, err, steps)
+	}
+
+	steps = nil
+	agentSupervisorReconcileFunc = func() (bool, error) {
+		return false, errors.New("failed_precondition: the installed supervised agent plist is not one Scenery renders")
+	}
+	_, supervised, updated, err = restartAgentViaSupervisor(ctx, client, paths, localagent.HealthResponse{PID: 222}, true)
+	if err == nil || !supervised || updated || len(steps) != 0 || cliExitCode(err) != 3 {
+		t.Fatalf("restart with an unreadable job: supervised=%v updated=%v err=%v steps=%v", supervised, updated, err, steps)
+	}
+}
+
+func TestDoctorAgentSupervisorCheckNamesMissingContainment(t *testing.T) {
+	old := doctorAgentSupervisorJobFunc
+	t.Cleanup(func() { doctorAgentSupervisorJobFunc = old })
+	deps := doctor.ProbeDeps{AgentHome: func() (string, error) { return "/home/example/.scenery", nil }}
+	for _, tc := range []struct {
+		job    localagent.SupervisorJob
+		ok     bool
+		status string
+	}{
+		{ok: false, status: doctor.StatusOK},
+		{job: localagent.SupervisorJob{Label: localagent.AgentLaunchdLabel, FailureContainment: true}, ok: true, status: doctor.StatusOK},
+		{job: localagent.SupervisorJob{Label: localagent.AgentLaunchdLabel}, ok: true, status: doctor.StatusWarn},
+	} {
+		doctorAgentSupervisorJobFunc = func(string) (localagent.SupervisorJob, bool) { return tc.job, tc.ok }
+		check := doctorAgentSupervisorCheck(deps)
+		if check.ID != "runtime.agent_supervisor" || check.Status != tc.status {
+			t.Fatalf("job %+v (%v): check = %+v", tc.job, tc.ok, check)
+		}
+		if tc.status == doctor.StatusWarn && (!strings.Contains(check.Message, "without start failure containment") || !strings.Contains(check.SuggestedAction, "scenery system agent restart")) {
+			t.Fatalf("check = %+v", check)
+		}
 	}
 }
 
@@ -188,7 +257,7 @@ func TestRestartAgentViaSupervisorRepairsUnloadedJob(t *testing.T) {
 	defer cancel()
 	client := localagent.NewClient(paths.SocketPath)
 	oldHealth, running := currentAgentHealth(ctx, client)
-	health, supervised, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
+	health, supervised, _, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
 	if err != nil || !supervised || !bootstrapped {
 		t.Fatalf("supervised repair = %+v, supervised=%v, bootstrapped=%v, err=%v", health, supervised, bootstrapped, err)
 	}
@@ -210,7 +279,7 @@ func TestRestartAgentViaSupervisorSkipsForeignPlist(t *testing.T) {
 	}, nil)
 	ctx := context.Background()
 	client := localagent.NewClient(paths.SocketPath)
-	_, supervised, err := restartAgentViaSupervisor(ctx, client, paths, localagent.HealthResponse{}, false)
+	_, supervised, _, err := restartAgentViaSupervisor(ctx, client, paths, localagent.HealthResponse{}, false)
 	if err != nil || supervised {
 		t.Fatalf("foreign plist supervised=%v err=%v", supervised, err)
 	}
@@ -232,7 +301,7 @@ func TestRestartAgentViaSupervisorReportsLaunchdSpawnFailure(t *testing.T) {
 		return "job state spawn failed; last exit code 78: EX_CONFIG"
 	}
 	client := localagent.NewClient(paths.SocketPath)
-	_, supervised, err := restartAgentViaSupervisor(context.Background(), client, paths, localagent.HealthResponse{}, false)
+	_, supervised, _, err := restartAgentViaSupervisor(context.Background(), client, paths, localagent.HealthResponse{}, false)
 	if !supervised || err == nil {
 		t.Fatalf("spawn failure supervised=%v err=%v", supervised, err)
 	}
@@ -250,7 +319,7 @@ func TestRestartAgentViaSupervisorReportsLaunchdSpawnFailure(t *testing.T) {
 
 	// Without a launchd spawn failure the start error stays as reported.
 	agentSupervisorSpawnFailureFunc = func() string { return "" }
-	_, _, err = restartAgentViaSupervisor(context.Background(), client, paths, localagent.HealthResponse{}, false)
+	_, _, _, err = restartAgentViaSupervisor(context.Background(), client, paths, localagent.HealthResponse{}, false)
 	if err == nil || strings.HasPrefix(err.Error(), "failed_precondition:") {
 		t.Fatalf("plain start error = %v", err)
 	}
