@@ -176,7 +176,7 @@ func telemetryCommand(args []string) string {
 		return "help"
 	}
 	switch args[0] {
-	case "db", "task", "storage", "validate", "worktree", "harness", "inspect", "logs", "traces", "metrics", "system", "deploy", "changes":
+	case "db", "task", "storage", "validate", "worktree", "harness", "inspect", "logs", "traces", "metrics", "system", "deploy", "changes", "telemetry":
 		if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
 			return args[0] + " " + args[1]
 		}

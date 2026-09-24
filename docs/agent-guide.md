@@ -203,6 +203,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Inspect traces and metrics | `scenery traces list -o json`, `scenery metrics list -o json` |
 | Inspect CLI timing by app | `scenery telemetry [--app <id-or-name>] [--since <duration>] -o json` |
 | Inspect app startup p50/p95 | `scenery telemetry --app <id-or-name> --command up --measurement startup -o json` |
+| Diagnose past runs, build failures and agent misuse | `scenery telemetry report [--since <duration>] [--agent-transcripts] -o json` |
 | Run code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
 | Inspect databases | `scenery db list -o json`, `scenery db shell` |
 | Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
