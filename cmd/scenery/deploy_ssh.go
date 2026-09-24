@@ -206,7 +206,9 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName stri
 		return abort(err)
 	}
 	sourceRoot := begun.SourceRoot
-	down := `if [ -f "` + sourceRoot + `/.scenery.json" ] && [ -S "$HOME/.scenery/run/agent.sock" ]; then scenery down --app-root "` + sourceRoot + `"; fi`
+	// down is idempotent for a stopped root; the agent socket location is
+	// the target's own business, so it is not probed here.
+	down := `if [ -f "` + sourceRoot + `/.scenery.json" ]; then scenery down --app-root "` + sourceRoot + `"; fi`
 	if err := remote("remote scenery down", down); err != nil {
 		return abort(err)
 	}

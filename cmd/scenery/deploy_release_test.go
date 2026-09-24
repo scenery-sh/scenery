@@ -92,12 +92,25 @@ func (target *deployReleaseTestTarget) deploy(id, marker string, succeed bool) d
 	operation := "commit"
 	if !succeed {
 		operation = "rollback"
+	} else {
+		target.runActive()
 	}
 	response := target.request(operation, id)
 	if !response.OK {
 		target.t.Fatalf("%s %s: %+v", operation, id, response)
 	}
 	return response
+}
+
+// runActive stands in for the stable root's runtime applying the installed
+// revision, as its supervisor's pin records.
+func (target *deployReleaseTestTarget) runActive() {
+	target.t.Helper()
+	active := target.active()
+	layout := deployLayout{home: target.home, appID: "clean-tech", environment: "production"}
+	if err := target.store.PinRecord("production", devConfigHolder(layout.sourceRoot()), appconfig.Pin{Revision: active.ConfigRevision, Desired: active.ConfigRevision, State: "applied"}); err != nil {
+		target.t.Fatal(err)
+	}
 }
 
 func (target *deployReleaseTestTarget) active() *deploymentActiveRecord {
@@ -121,10 +134,17 @@ func TestDeployReleasePinsCapturedConfigurationAndRollsBackExactly(t *testing.T)
 	// A desired change after capture does not change what this deployment runs.
 	second := target.set("designs.simulation_concurrency", "9")
 	target.stage(firstID, "first")
-	for _, operation := range []string{"validate", "activate", "commit"} {
+	for _, operation := range []string{"validate", "activate"} {
 		if response := target.request(operation, firstID); !response.OK {
 			t.Fatalf("%s = %+v", operation, response)
 		}
+	}
+	if response := target.request("commit", firstID); response.OK || !strings.Contains(response.Error, "does not run release") {
+		t.Fatalf("commit without a running release = %+v", response)
+	}
+	target.runActive()
+	if response := target.request("commit", firstID); !response.OK {
+		t.Fatalf("commit = %+v", response)
 	}
 	active := target.active()
 	if active.State != "active" || active.ConfigRevision != first || active.DeploymentID != firstID {

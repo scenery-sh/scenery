@@ -210,7 +210,11 @@ func consumes(input appconfig.Input, service string) bool {
 
 // devConfigHolder names this worktree's pin on the environment's history.
 func devConfigHolder(root string) string {
-	sum := sha256.Sum256([]byte(filepath.Clean(root)))
+	root = filepath.Clean(root)
+	if canonical, err := filepath.EvalSymlinks(root); err == nil {
+		root = canonical
+	}
+	sum := sha256.Sum256([]byte(root))
 	return "worktree-" + hex.EncodeToString(sum[:8])
 }
 
@@ -270,9 +274,6 @@ func (s *devSupervisor) recordRejectedConfig(desired string, err error) {
 }
 
 func (s *devSupervisor) pinConfigObservation(pin appconfig.Pin) {
-	if s.env.Deployable() {
-		return
-	}
 	if store, err := devConfigStore(s.cfg); err == nil && store != nil {
 		if len(pin.Problem) > 2048 {
 			pin.Problem = pin.Problem[:2048]
@@ -283,9 +284,6 @@ func (s *devSupervisor) pinConfigObservation(pin appconfig.Pin) {
 
 // releaseConfigPin removes this worktree's pin when its runtime stops.
 func (s *devSupervisor) releaseConfigPin() {
-	if s.env.Deployable() {
-		return
-	}
 	if store, err := devConfigStore(s.cfg); err == nil && store != nil {
 		_ = store.Unpin(s.env.Name, devConfigHolder(s.root))
 	}

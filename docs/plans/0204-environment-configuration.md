@@ -53,7 +53,7 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 - [x] 2026-09-24: M1 — `host_path` scalar, deferred configurable deployment inputs (`internal/compiler/module_inputs.go`, `go_config.go`), `internal/appconfig` catalog/resolver/store with locks, atomic writes, content-addressed history, pins and pruning.
 - [x] 2026-09-24: M2 — `scenery config show|set|unset`, macOS Keychain and systemd-creds backends, private SSH receiver (`scenery config receive`) with operation-id replay protection. Real-target SSH and systemd-creds proof is still open (see Outcomes).
 - [x] 2026-09-24: M3 (core) — generated constructors read `sceneryruntime.ResolveDeploymentConfig`; per-service snapshots over an inherited pipe (`SCENERY_CONFIG_SNAPSHOT_FD`); consumer-only restarts; rejected candidates keep the healthy generation; auth, assistant provider key and workers read configuration; all dotenv loaders removed. Open in M3: external SQL supply as typed capability, task/seed capability bundle, minimal child environment.
-- [ ] 2026-09-24: M4 — Integrate production activation, recovery, and source/config separation.
+- [x] 2026-09-24: M4 — Staged releases under `~/.scenery/deployments/<app>/<env>/`, captured and pinned configuration revision, target-side validation before stopping, activation into a stable root, commit only after the runtime applied the installed revision, rollback of source and configuration, legacy-root refusal with `docs/runbooks/deploy-root-migration.md`. Rehearsed end to end locally (Artifacts); real Linux/systemd target proof remains open.
 - [ ] 2026-09-24: M5 — Migrate ONLV, frontend tooling, importers, worktree setup, and documentation.
 - [ ] 2026-09-24: M6 — Remove runtime dotenv compatibility and complete acceptance evidence.
 
@@ -106,6 +106,8 @@ All decisions below were recorded on 2026-09-24 by the plan author from the agre
 **D10 — Explicit mutation context.** `config set`, `config unset`, and deployment require an explicit environment. Reads default to `local`. Existing explicitly selected non-deployable environments remain supported. No `env use`, default write target, `--scope`, or per-write `--target` is introduced.
 
 **D12 — Implementation refinements (2026-09-24, Claude).** Keys are `<module instance path with "." separators>.<input>`; framework keys are `auth.*` (from `.scenery.json` auth) and `assistant.openai_api_key` (when assistants exist). The store document carries its own kind/schema identity without the compiler spec revision, because worktrees of one application run different producers and must share it. Revisions are content-addressed (`cfg-` + 128-bit digest), so equal content has equal revision and no-op writes create nothing. A local supervisor polls its single environment document every 500 ms instead of adding a filesystem-notification dependency. Snapshots travel over a pipe allocated by `internal/devprocess` (`SCENERY_CONFIG_SNAPSHOT_FD` names the descriptor); runtime identity covers keys, values and opaque secret versions, never secret bytes. A worktree's applied/rejected observation is its pin on the environment history, which `config show` reads.
+
+**D13 — Deployment layout refinement (2026-09-24, Claude).** The runtime root of a deployable environment is one stable directory, `~/.scenery/deployments/<app-id>/<env>/source`, because worktree data ownership is keyed by the root path; per-release directories hold only staged source and receipts. `active.json` names the release installed in that root (state `activating`, then `active`), so a restart or reboot at any point runs a consistent source/configuration pair; `commit` confirms it only after the root's runtime pinned the installed revision. A target that still has the legacy checkout at `~/.scenery/apps/<app-id>` refuses deploys and configuration writes until the operator runs the migration runbook; nothing moves or allocates data implicitly.
 
 **D11 — Shared configuration, identical starting fixtures, independent working data.** Removing dotenv changes only how configured values reach a worktree; it does not change how demo data reaches it. Configured environment values are shared across worktrees (D2). Demo projects, scenes and catalog records come from the application's versioned fixture bundle at the checked-out commit, restored into each new worktree's own isolated database and object storage. Edits, captures, simulation results and uploads made afterward belong to that worktree and are never synchronized elsewhere. The application owns which records and assets make up its demo (ONLV: `development/presets/small/` and `development/prepare.ts`); Scenery owns only the generic database/storage restore and isolation mechanisms, and does not learn solar projects or scene registration. No fixture scopes, fixture configuration layers, or copying from the main checkout's live data are introduced. A new demo scene reaches other worktrees only through a deliberately reviewed fixture revision that contains its records and every referenced asset; worktrees prepared afterward from that commit receive it, and existing worktrees keep their data. Content-addressed asset caching with copy-on-write materialization may later reduce disk use behind the same command. It is not a prerequisite for this plan, and writable scene directories are never shared between worktrees.
 
@@ -553,6 +555,41 @@ Fixture: `testdata/apps/multiservice` copied to the scratchpad with `id:
   from it changed both (`sharedshared:hi` in each); separate API sockets and
   PIDs; `config show` reported `other_runtimes: {total: 1, applied: 1}`.
 - `scenery down` in both removed every process and both pins.
+
+### M4 deploy rehearsal (2026-09-24)
+
+A test-double `ssh` (scratchpad `fakessh/ssh`) ran every remote command on
+this Mac under a separate target `HOME`, so rsync, `scenery config receive`,
+`scenery deploy receive` and the target's `scenery up` ran for real. Fixture
+as in the M3 proof with `envs.production.deploy.ssh = ["fake-target"]`.
+
+- `config set echo.prefix prod --env production` wrote only
+  `target-home/.scenery/apps/cfgprobe/environments/production.json`; the
+  workstation store has no production document.
+- First `scenery deploy --env production` → target served `prod:hi`;
+  `active.json` state `active` with the captured revision.
+- `config set echo.prefix prod2 --env production` left the target serving
+  `prod:hi`; `config show --env production` reported desired and applied
+  revisions separately. A target `down`/`up` (reboot/resume stand-in) still
+  served `prod:hi`.
+- Discovered and fixed: the remote `down` guard probed
+  `$HOME/.scenery/run/agent.sock`, which does not exist when the agent socket
+  path is long, so `down` was skipped, `up` reported "already up" and the old
+  runtime kept serving while the release was confirmed. `down` now always runs
+  for an installed root, and `commit` requires the stable root's runtime pin to
+  have applied the installed revision.
+- Config-only redeploy (`prod3`): served `prod3:hi` with the identical three
+  executables; the target run recorded no `build.artifact` step and
+  `process.reuse: linked_identity_unchanged`.
+- A Go compile error was rejected by the workstation check before any target
+  step. A release whose constructor refuses its configured value failed
+  `up --wait ready`; deploy reinstalled the previous release's source and
+  configuration revision and reported `restored previous release …`; the
+  target served `prod3:hi` and the running echo executable did not contain the
+  failed release's code. Limitation: the restored executable is rebuilt from the
+  retained previous source (equivalent, not byte-identical), because
+  development-process executables are not retained per release.
+- Final `down` left no target processes.
 
 ### M0 value-free input inventory (2026-09-24)
 

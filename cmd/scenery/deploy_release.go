@@ -31,12 +31,11 @@ import (
 // The stable root keeps the runtime's data ownership across releases; only a
 // staged release directory is ever an rsync --delete destination.
 const (
-	deployRequestKind      = "scenery.deploy.request"
-	deployResponseKind     = "scenery.deploy.response"
-	deployProtocolVersion  = 1
-	deployRemoteCommand    = "scenery deploy receive"
-	deployReleaseReceipt   = "scenery.deployment.release"
-	retainedDeployReleases = 2
+	deployRequestKind     = "scenery.deploy.request"
+	deployResponseKind    = "scenery.deploy.response"
+	deployProtocolVersion = 1
+	deployRemoteCommand   = "scenery deploy receive"
+	deployReleaseReceipt  = "scenery.deployment.release"
 )
 
 type deployRemoteRequest struct {
@@ -353,6 +352,16 @@ func (layout deployLayout) commit(store *appconfig.Store, id string, backend fun
 	if err != nil || active == nil || active.DeploymentID != id {
 		return deployRemoteResponse{}, fmt.Errorf("release %s is not the installed release", id)
 	}
+	// The runtime of the stable root pins the revision it applied; a runtime
+	// that kept running an earlier release must not be confirmed.
+	pins, err := store.PinRecords(layout.environment)
+	if err != nil {
+		return deployRemoteResponse{}, err
+	}
+	running := pins[devConfigHolder(layout.sourceRoot())]
+	if running.State != "applied" || running.Revision != active.ConfigRevision {
+		return deployRemoteResponse{}, fmt.Errorf("the runtime of %s does not run release %s: it applied configuration revision %q (%s), not %s", layout.sourceRoot(), id, running.Revision, firstNonEmpty(running.State, "not running"), active.ConfigRevision)
+	}
 	if active.Previous != "" {
 		if previous, err := layout.readRelease(active.Previous); err == nil {
 			if err := store.Pin(layout.environment, "deployment-rollback", previous.ConfigRevision); err != nil {
@@ -391,7 +400,10 @@ func (layout deployLayout) rollback(store *appconfig.Store, id string) (deployRe
 		record.State = "failed"
 		_ = layout.writeRelease(*record)
 	}
-	defer func() { _ = store.Unpin(layout.environment, "deployment-"+id) }()
+	defer func() {
+		_ = store.Unpin(layout.environment, "deployment-"+id)
+		_ = os.RemoveAll(filepath.Join(layout.release(id), "source"))
+	}()
 	if active == nil || active.DeploymentID != id {
 		return deployRemoteResponse{}, nil
 	}
@@ -435,10 +447,14 @@ func (layout deployLayout) pruneReleases(keep ...string) {
 	}
 	sort.Strings(stale)
 	for _, id := range stale {
-		// Receipts stay as history; only source trees are removed.
+		// Receipts stay as history; only source trees are removed, and a
+		// release that can no longer be restored is no longer a rollback.
 		_ = os.RemoveAll(filepath.Join(layout.release(id), "source"))
+		if record, err := layout.readRelease(id); err == nil && (record.State == "rollback" || record.State == "active") {
+			record.State = "superseded"
+			_ = layout.writeRelease(*record)
+		}
 	}
-	_ = retainedDeployReleases
 }
 
 // syncReleaseSource makes target an exact copy of source, except the

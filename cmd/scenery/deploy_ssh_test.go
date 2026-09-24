@@ -50,7 +50,6 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 		"local scenery check",
 		"SSH preflight",
 		"remote scenery down",
-		"$HOME/.scenery/run/agent.sock",
 		"rsync",
 		root,
 		"remote scenery up",
