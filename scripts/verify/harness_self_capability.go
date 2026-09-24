@@ -198,7 +198,7 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 	}); err != nil {
 		return summary, err
 	}
-	if err := segments.run("A9 external DATABASE_URL standalone API and worker retain typed SQL/auth/durable behavior", func() error {
+	if err := segments.run("A9 external standalone API and worker endpoint retain typed SQL/auth/durable behavior", func() error {
 		cmd := commandTreeContext(ctx, "bash", filepath.Join(repoRoot, "examples/webhook-inbox/verify.sh"), harnessLocalSceneryBinaryPath(repoRoot))
 		cmd.Dir, cmd.Env = repoRoot, env
 		output, err := cmd.CombinedOutput()

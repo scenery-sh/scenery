@@ -43,7 +43,7 @@ func TestAppProcessEnvValidatesDatabaseURLWithoutDotenv(t *testing.T) {
 		Name: "demo", Envs: map[string]app.EnvConfig{"local": {Default: true}},
 	}
 	for _, tc := range []struct{ value, want string }{
-		{"", "app SQL requirements need DATABASE_URL"},
+		{"", "app SQL requirements need an external database"},
 		{"not-a-postgres-url", "DATABASE_URL must be a postgres:// or postgresql:// URL"},
 		{"postgres://user:private-password@host/%ZZ", "DATABASE_URL must be a postgres:// or postgresql:// URL"},
 		{"postgres://user:secret@localhost/reports", ""},

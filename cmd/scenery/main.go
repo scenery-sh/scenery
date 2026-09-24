@@ -31,7 +31,7 @@ func main() {
 }
 
 func executeCLI(args []string) int {
-	return executeCLIWith(args, os.Stdout, os.Stderr, time.Now(), runWithCLITelemetry, recordCLITelemetry)
+	return executeCLIWith(args, os.Stdout, os.Stderr, time.Now(), runWithConfiguredSQLSupply, recordCLITelemetry)
 }
 
 type cliRunFunc func([]string, *cliTelemetryInvocation) error

@@ -38,6 +38,7 @@ var defaultMappings = map[string]string{
 	"AUTH_COOKIE_DOMAIN":         "auth.cookie_domain",
 	"AUTH_EMAIL_FROM":            "auth.email_from",
 	"OPENAI_API_KEY":             "assistant.openai_api_key",
+	"DATABASE_URL":               "sql.database_url",
 }
 
 var namePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -319,5 +320,5 @@ func compiledCatalog(appRoot string) (appconfig.Catalog, error) {
 	if !result.Valid() {
 		return appconfig.Catalog{}, errors.New("the application does not compile; run scenery check")
 	}
-	return appconfig.BuildCatalog(result.Manifest, appconfig.FrameworkOptions{StandardAuth: cfg.Auth.Enabled, GoogleOAuth: cfg.Auth.Enabled && cfg.Auth.GoogleOAuth.Enabled})
+	return appconfig.BuildCatalog(result.Manifest, appconfig.FrameworkOptions{StandardAuth: cfg.Auth.Enabled, GoogleOAuth: cfg.Auth.Enabled && cfg.Auth.GoogleOAuth.Enabled, SQL: len(result.SQLRequirements) > 0})
 }

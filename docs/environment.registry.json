@@ -66,7 +66,7 @@
       "name": "DATABASE_URL",
       "match": "exact",
       "scope": "runtime",
-      "direction": "input+injected",
+      "direction": "injected",
       "category": "app.services.database",
       "stability": "beta",
       "secret": true,
@@ -76,8 +76,8 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "App-level Postgres database URL. User-provided values make the app database external; otherwise Scenery injects the managed app database URL.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "rationale": "App-level Postgres database URL that Scenery supplies to app processes: the managed app database or the environment's configured sql.database_url. The CLI ignores an inherited value; standalone generated runtimes read it as their explicit SQL endpoint.",
+      "preferred_surface": "scenery config set sql.database_url --env <env>",
       "replacement": "",
       "sunset": "",
       "docs": [

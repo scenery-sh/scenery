@@ -22,6 +22,10 @@ const SecretType = `resource_ref("secret")`
 // AssistantProviderKey is the OpenAI credential of application assistants.
 const AssistantProviderKey = "assistant.openai_api_key"
 
+// SQLDatabaseURLKey selects an external PostgreSQL server for an
+// environment's SQL requirements. Unset, Scenery manages the database.
+const SQLDatabaseURLKey = "sql.database_url"
+
 // FrameworkConsumer identifies framework-owned consumers that every
 // application process hosts, such as standard authentication.
 const FrameworkConsumer = "framework"
@@ -85,6 +89,9 @@ func (c Catalog) Lookup(key string) (Input, bool) {
 type FrameworkOptions struct {
 	StandardAuth bool
 	GoogleOAuth  bool
+	// SQL reports that the application has SQL requirements, whose supply
+	// an environment may configure as an external server.
+	SQL bool
 }
 
 // BuildCatalog derives the configuration catalog from a compiled manifest. It
@@ -233,16 +240,21 @@ func inputConstraints(declaration map[string]any) map[string]any {
 // authentication keeps local development usable without them; deployable
 // environments must configure the secrets it needs.
 func frameworkInputs(options FrameworkOptions) []Input {
+	var inputs []Input
+	if options.SQL {
+		sql := FrameworkConsumer + "/sql"
+		inputs = append(inputs, Input{Key: SQLDatabaseURLKey, Owner: sql, Type: SecretType, Sensitive: true, Optional: true, Consumers: []Consumer{{Service: sql}}})
+	}
 	if !options.StandardAuth {
-		return nil
+		return inputs
 	}
 	consumer := []Consumer{{Service: FrameworkConsumer + "/auth"}}
 	owner := FrameworkConsumer + "/auth"
-	inputs := []Input{
+	inputs = append(inputs, []Input{
 		{Key: "auth.jwt_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
 		{Key: "auth.cookie_domain", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
 		{Key: "auth.email_from", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
-	}
+	}...)
 	if options.GoogleOAuth {
 		inputs = append(inputs,
 			Input{Key: "auth.google_client_id", Owner: owner, Type: "string", Optional: true, RequiredWhenDeployable: true, Consumers: consumer},

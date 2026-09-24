@@ -13,13 +13,13 @@ import (
 	"syscall"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/appconfig"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devprocess"
 	durablestore "scenery.sh/internal/durable/store"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/postgresname"
 )
 
 type workerOptions struct {
@@ -569,11 +569,7 @@ func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (stri
 			return registry.URL, nil
 		}
 	}
-	serviceEnv := postgresname.ServiceDatabaseURLEnv(service)
-	if value := lookupEnvValue(env, serviceEnv); strings.TrimSpace(value) != "" {
-		return strings.TrimSpace(value), nil
-	}
-	return "", fmt.Errorf("durable store requires %s for service %s", appDatabaseURLEnv, service)
+	return "", fmt.Errorf("durable store of service %s needs an external database; configure %s for the environment", service, appconfig.SQLDatabaseURLKey)
 }
 
 func durableJobRecordFromStore(job durablestore.JobDetail) durableJobRecord {

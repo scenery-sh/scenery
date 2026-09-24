@@ -52,10 +52,10 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 - [x] 2026-09-24: M0 — Value-free inventory recorded under Artifacts and Notes; CLI grammar frozen in `cmd/scenery/help.go` and `docs/schemas/scenery.config.{show,change}.schema.json`.
 - [x] 2026-09-24: M1 — `host_path` scalar, deferred configurable deployment inputs (`internal/compiler/module_inputs.go`, `go_config.go`), `internal/appconfig` catalog/resolver/store with locks, atomic writes, content-addressed history, pins and pruning.
 - [x] 2026-09-24: M2 — `scenery config show|set|unset`, macOS Keychain and systemd-creds backends, private SSH receiver (`scenery config receive`) with operation-id replay protection. Real-target SSH and systemd-creds proof is still open (see Outcomes).
-- [x] 2026-09-24: M3 (core) — generated constructors read `sceneryruntime.ResolveDeploymentConfig`; per-service snapshots over an inherited pipe (`SCENERY_CONFIG_SNAPSHOT_FD`); consumer-only restarts; rejected candidates keep the healthy generation; auth, assistant provider key and workers read configuration; all dotenv loaders removed. Open in M3: external SQL supply as typed capability, task/seed capability bundle, minimal child environment.
+- [x] 2026-09-24: M3 (core) — generated constructors read `sceneryruntime.ResolveDeploymentConfig`; per-service snapshots over an inherited pipe (`SCENERY_CONFIG_SNAPSHOT_FD`); consumer-only restarts; rejected candidates keep the healthy generation; auth, assistant provider key and workers read configuration; all dotenv loaders removed. Completed later the same day: external SQL supply is the typed `sql.database_url` secret (D14); application processes receive a minimal inherited environment (D15); seed and task launchers keep their framework-injected wiring (D16).
 - [x] 2026-09-24: M4 — Staged releases under `~/.scenery/deployments/<app>/<env>/`, captured and pinned configuration revision, target-side validation before stopping, activation into a stable root, commit only after the runtime applied the installed revision, rollback of source and configuration, legacy-root refusal with `docs/runbooks/deploy-root-migration.md`. Rehearsed end to end locally (Artifacts); real Linux/systemd target proof remains open.
-- [ ] 2026-09-24: M5 — Migrate ONLV, frontend tooling, importers, worktree setup, and documentation.
-- [ ] 2026-09-24: M6 — Remove runtime dotenv compatibility and complete acceptance evidence.
+- [x] 2026-09-24: M5 — ONLV branch `feat/environment-configuration` (commit `c61c0511` on `origin/main` `d7e2e0ab`): every inventory row migrated, NextNext public map configuration, Vite/Bun/Just dotenv loading disabled, importers narrowed, companion plan `docs/agent/exec-plans/active/environment-configuration.md`. Pinning the published Scenery revision and the D11 two-worktree proof wait for publication (see Outcomes).
+- [ ] 2026-09-24: M6 — Code, deletion and guards are complete (dotenv loaders, `internal/envfile`, fixture `.env` files, drift guard, probes, `scripts/config-import`). Open: the operator cutovers and the real Linux/SSH/reboot proofs, which need explicit authorization or unavailable platforms.
 
 Update this section at each meaningful stopping point. Replace planning timestamps with actual completion timestamps when work is executed.
 
@@ -107,13 +107,28 @@ All decisions below were recorded on 2026-09-24 by the plan author from the agre
 
 **D12 — Implementation refinements (2026-09-24, Claude).** Keys are `<module instance path with "." separators>.<input>`; framework keys are `auth.*` (from `.scenery.json` auth) and `assistant.openai_api_key` (when assistants exist). The store document carries its own kind/schema identity without the compiler spec revision, because worktrees of one application run different producers and must share it. Revisions are content-addressed (`cfg-` + 128-bit digest), so equal content has equal revision and no-op writes create nothing. A local supervisor polls its single environment document every 500 ms instead of adding a filesystem-notification dependency. Snapshots travel over a pipe allocated by `internal/devprocess` (`SCENERY_CONFIG_SNAPSHOT_FD` names the descriptor); runtime identity covers keys, values and opaque secret versions, never secret bytes. A worktree's applied/rejected observation is its pin on the environment history, which `config show` reads.
 
+**D14 — External SQL supply is configuration (2026-09-24, Claude).** Every application with SQL requirements declares the framework secret `sql.database_url`. When the selected environment configures it, that server is the external SQL supply with the former explicit-`DATABASE_URL` semantics; otherwise supply stays managed. The CLI removes `DATABASE_URL` and `SCENERY_DATABASE_JSON` from its own environment at startup, so an inherited value never selects a database; the SQL-supply commands (`up`, `worker`, `db`, `snapshot`, `inspect`, `doctor`, `down`, `prune`) resolve the environment they select (`--env`, else the deployable environment whose stable root they run in, else the default) from the revision its runtime runs and export the value for the existing supply code. Because a non-deployable environment's configuration is shared by all worktrees, `scenery up` of such an environment refuses a configured external database instead of sharing one mutable database between worktrees. Standalone generated runtimes launched without Scenery still read `DATABASE_URL` as their explicit endpoint (spec 18.4 provider adapter). `scripts/config-import` maps a former `DATABASE_URL` to `sql.database_url`.
+
+**D15 — Minimal inherited environment for application processes (2026-09-24, Claude).** Service processes of `scenery up` and the application process of `scenery worker` inherit only OS/toolchain protocols (paths, user identity, temporary directories, time zone and locale, terminal settings, TLS roots, HTTP proxies, XDG directories, dynamic-loader paths, Go runtime knobs), `SCENERY_*` wiring and the configured `DATABASE_URL` (`cmd/scenery/app_child_env.go`). Frontend dev servers, build toolchains, tests and tasks keep the inherited environment: they are developer tools, and Vite/Bun no longer load dotenv files themselves.
+
+**D16 — Seed and task launchers (2026-09-24, Claude).** No separate capability bundle is introduced. `scenery db seed` already supplies each declared seed command its service-scoped `DATABASE_URL`; importers accept that or an explicit `--database-url`, and secrets such as API tokens are read from standard input, never argv or ambient variables.
+
 **D13 — Deployment layout refinement (2026-09-24, Claude).** The runtime root of a deployable environment is one stable directory, `~/.scenery/deployments/<app-id>/<env>/source`, because worktree data ownership is keyed by the root path; per-release directories hold only staged source and receipts. `active.json` names the release installed in that root (state `activating`, then `active`), so a restart or reboot at any point runs a consistent source/configuration pair; `commit` confirms it only after the root's runtime pinned the installed revision. A target that still has the legacy checkout at `~/.scenery/apps/<app-id>` refuses deploys and configuration writes until the operator runs the migration runbook; nothing moves or allocates data implicitly.
 
 **D11 — Shared configuration, identical starting fixtures, independent working data.** Removing dotenv changes only how configured values reach a worktree; it does not change how demo data reaches it. Configured environment values are shared across worktrees (D2). Demo projects, scenes and catalog records come from the application's versioned fixture bundle at the checked-out commit, restored into each new worktree's own isolated database and object storage. Edits, captures, simulation results and uploads made afterward belong to that worktree and are never synchronized elsewhere. The application owns which records and assets make up its demo (ONLV: `development/presets/small/` and `development/prepare.ts`); Scenery owns only the generic database/storage restore and isolation mechanisms, and does not learn solar projects or scene registration. No fixture scopes, fixture configuration layers, or copying from the main checkout's live data are introduced. A new demo scene reaches other worktrees only through a deliberately reviewed fixture revision that contains its records and every referenced asset; worktrees prepared afterward from that commit receive it, and existing worktrees keep their data. Content-addressed asset caching with copy-on-write materialization may later reduce disk use behind the same command. It is not a prerequisite for this plan, and writable scene directories are never shared between worktrees.
 
 ## Outcomes & Retrospective
 
-Not yet completed. Record implemented behavior, removed paths, exact checked revisions, acceptance artifacts, operator migrations, and remaining blocked proof here. Do not mark the plan complete merely because tests compile or one local weather-pack example works.
+Implementation is complete in both repositories; the plan stays active for the steps that need authorization or unavailable platforms.
+
+Implemented: `scenery config show|set|unset|receive`, the typed catalog/resolver/store (`internal/appconfig`), Keychain and systemd-creds backends, per-process snapshots with consumer-only restarts, revision-pinned SSH deploys with rollback, public configuration for browsers, `host_path`, `SecretRef.Reveal/Lookup`, `sql.database_url` (D14), the minimal application-process environment (D15), the one-time `scripts/config-import`, and the dotenv drift guard plus `configuration`, `configuration-secrets` and `configuration-deploy` probes. Removed: every dotenv loader and precedence path, `internal/envfile`, `ResolvedEnv.DotEnvFiles`, fixture `.env` files, ambient auth/database/weather/provider/browser variables. ONLV is migrated on its branch.
+
+Pending, each requiring the user's explicit authorization:
+
+1. Push and merge this Scenery branch, then pin ONLV's `go.mod` to the published revision (the ONLV commit keeps the published pin; its local `framework use --source` replacement is not committed), regenerate, and run the D11 two-worktree fixture proof, which needs a pinned framework because new worktrees build from the committed `go.mod`.
+2. Operator cutover of the real `.env` files with `scripts/config-import` (per developer machine and per deployable environment), the one-time production root migration (`docs/runbooks/deploy-root-migration.md`), and any archival or deletion of the old files.
+
+Unverified on this machine: systemd-creds on Linux, a real SSH target, and reboot/resume on a real target; the local deploy rehearsal used a test-double `ssh`. Restored release executables are rebuilt from retained source (equivalent, not byte-identical).
 
 ## Context and Orientation
 
@@ -608,6 +623,50 @@ as in the M3 proof with `envs.production.deploy.ssh = ["fake-target"]`.
   retained previous source (equivalent, not byte-identical), because
   development-process executables are not retained per release.
 - Final `down` left no target processes.
+
+### D14/D15 live proof (2026-09-24)
+
+Worktree-local CLI built with producer linker flags; isolated
+`SCENERY_AGENT_HOME` per scenario.
+
+- `examples/webhook-inbox` copy (SQL requirement with `lifecycle = "external"`)
+  and a throwaway `postgres:18-alpine` container. With
+  `DATABASE_URL=postgres://…@203.0.113.9/…` in the shell and nothing
+  configured, `db list` refused with the lifecycle diagnostic naming
+  `sql.database_url`; the inherited URL was not used. `config show` listed
+  `sql.database_url` as an optional framework secret.
+- `printf … | scenery config set sql.database_url --env local --stdin` stored
+  one Keychain item; the password appeared in no CLI output and no store file.
+  `db list` (same bogus shell variable) then reported `source: external`, the
+  container's port, a measured database size and the password redacted.
+- `scenery up` refused: `environment local configures sql.database_url, one
+  external database for every worktree …`, without the URL.
+- `scenery worker` could not be exercised: it needs a `worker`-role go target,
+  which the compiler rejects (SCN6135), independently of this plan; recorded as
+  a separate task. The worker path is covered by unit tests.
+- `testdata/apps/multiservice`-based fixture: `scenery up` with planted
+  `JWT_SECRET`, `AWS_SECRET_ACCESS_KEY`, `NODE_OPTIONS`, `NSRDB_PACK_ROOT` and
+  `DATABASE_URL`. The supervisor carried the planted variables; the three
+  service processes carried none of them (only `PATH`, `HOME`, `SCENERY_*` and
+  `SCENERY_CONFIG_SNAPSHOT_FD`), and `POST /api/echo` answered from the
+  snapshot-delivered 21-byte secret.
+- Cleanup: container removed, `scenery down`, every test Keychain item deleted
+  (none remain), proof homes removed.
+
+### M5 ONLV validation (2026-09-24)
+
+ONLV worktree `feat/environment-configuration` with the local framework
+selected through `framework use --source` (not committed):
+`scenery check` and `generate --check` ok; `GOWORK=off go test ./...` ok (the
+ignored `utilities/data` CSVs had to be copied from the main checkout);
+`go run ./cmd/repoharness` ok; `golangci-lint run --tests=false ./...` 0
+issues; NextNext `typecheck`, `lint`, `i18n:check`, `bun test src` (1080
+pass) and `vite build` ok; viewer typecheck/lint/knip ok; Playwright
+`scene-creation.pw.ts` 2/2 with the public-config fixture. `scene-viewer.pw.ts`
+fails the same 6 WebGL render tests on untouched `origin/main`, so those
+failures predate this change. A temporary `.env.local` proved Vite's
+`envDir: false` ignores it (and loads it without the option); a scratch Bun
+project proved `env = false` stops Bun's automatic `.env` loading.
 
 ### M0 value-free input inventory (2026-09-24)
 

@@ -21,6 +21,8 @@ Prefer `.scenery.json` for structural app settings. Application configuration va
 
 These are injected by scenery into generated app processes. App code may read them, but users normally should not set them.
 
+Application processes started by `scenery up` and `scenery worker` do not inherit the invoking environment wholesale. They receive only operating-system and toolchain protocols (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, temporary directories, `TZ`, `LANG`/`LANGUAGE`/`LC_*`, terminal and color settings, `SSL_CERT_FILE`/`SSL_CERT_DIR`, HTTP proxy variables, `XDG_*` directories, dynamic-loader library paths and Go runtime knobs), `SCENERY_*` wiring, and the variables Scenery sets for them. Former application settings, SDK credential chains and loaders such as `NODE_OPTIONS` never reach them; configuration arrives only through the snapshot.
+
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `SCENERY_APP_ID` | injected | Base app identity from `.scenery.json`. |
@@ -82,7 +84,7 @@ other names in this section are injected handoff values.
 
 | Variable | Direction | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | user input/injected | App-level Postgres database URL. When set, it wins and Scenery manages no server or database; otherwise Scenery injects the managed app database URL. |
+| `DATABASE_URL` | injected | App-level Postgres database URL that Scenery supplies to app processes: the managed app database, or the environment's configured `sql.database_url`. The CLI ignores an inherited value; a standalone generated runtime launched without Scenery reads it as its explicit SQL endpoint. |
 | `<SERVICE>_DATABASE_URL` | injected | Compiled logical binding's Postgres URL with `search_path=<schema>,scenery`; standalone generated runtimes also accept an explicit per-binding endpoint. |
 | `SCENERY_DATABASE_JSON` | injected | Resolved SQL supply (app database, source and logical schemas), configured before generated constructors. Not a requirements or ownership cache. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |

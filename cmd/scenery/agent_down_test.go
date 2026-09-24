@@ -35,7 +35,7 @@ func TestWorktreeCleanupRefusesExternalDSNWithoutRetainedState(t *testing.T) {
 		runWorktreeDown(t.Context(), &output, []string{"--app-root", root, "--db"}),
 		runWorktreePrune(t.Context(), &output, []string{"--app-root", root, "--older-than", "1h", "--db"}),
 	} {
-		if err == nil || !strings.Contains(err.Error(), "DATABASE_URL is external") {
+		if err == nil || !strings.Contains(err.Error(), "sql.database_url is external") {
 			t.Fatalf("cleanup error = %v", err)
 		}
 	}

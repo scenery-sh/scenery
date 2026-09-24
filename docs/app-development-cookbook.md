@@ -914,8 +914,9 @@ scenery task run billing:reconcile -- --limit 100
 
 Declare SQL through a `data_source` and typed service dependency in `.scn`.
 Its `config.database` chooses the logical schema; use `lifecycle = "managed"`
-for an intentionally Scenery-owned local allocation, or supply `DATABASE_URL`
-for an external database. Do not add `dev.services` to `.scenery.json`.
+for an intentionally Scenery-owned local allocation, or configure
+`sql.database_url` (`scenery config set sql.database_url --env <env>`) for an
+external database of a deployable environment or worker. Do not add `dev.services` to `.scenery.json`.
 Inspect `scenery inspect app -o json` for requirements before changing supply.
 Standard auth and durable execution contribute their framework requirement
 automatically. See [App Config](local-contract.md#app-config) for sharing,

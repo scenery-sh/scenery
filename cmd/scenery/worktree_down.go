@@ -213,7 +213,7 @@ func stopVerifiedWorktreeProcess(ctx context.Context, owner localagent.Owner) er
 func dropRetainedWorktreeAppDatabase(ctx context.Context, resolver worktreePostgresResolver) error {
 	env := envpolicy.Environ()
 	if lookupEnvValue(env, appDatabaseURLEnv) != "" {
-		return worktreePostgresPrecondition("DATABASE_URL is external; refusing managed app-database deletion")
+		return worktreePostgresPrecondition("the configured sql.database_url is external; refusing managed app-database deletion")
 	}
 	op, err := resolver.beginOperation()
 	if err != nil {

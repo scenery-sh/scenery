@@ -330,3 +330,21 @@ func TestStorePruneKeepsPinsAndReportsOrphanSecrets(t *testing.T) {
 		t.Fatalf("pins after unpin = %v %v", pins, err)
 	}
 }
+
+func TestCatalogDeclaresExternalSQLSupplyOnlyForSQLApplications(t *testing.T) {
+	without, err := BuildCatalog(nil, FrameworkOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := without.Lookup(SQLDatabaseURLKey); ok {
+		t.Fatal("an application without SQL requirements declares sql.database_url")
+	}
+	with, err := BuildCatalog(nil, FrameworkOptions{SQL: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, ok := with.Lookup(SQLDatabaseURLKey)
+	if !ok || !input.Sensitive || !input.Optional || input.Type != SecretType || input.RequiredWhenDeployable {
+		t.Fatalf("sql.database_url = %+v", input)
+	}
+}

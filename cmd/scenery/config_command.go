@@ -168,7 +168,9 @@ func compileConfigCatalog(root string, cfg app.Config) (appconfig.Catalog, error
 	if !result.Valid() {
 		return appconfig.Catalog{}, preconditionErrorf("the application does not compile; run `scenery check` for its diagnostics")
 	}
-	catalog, err := appconfig.BuildCatalog(result.Manifest, configFrameworkOptions(cfg))
+	options := configFrameworkOptions(cfg)
+	options.SQL = len(result.SQLRequirements) > 0
+	catalog, err := appconfig.BuildCatalog(result.Manifest, options)
 	if err != nil {
 		return appconfig.Catalog{}, preconditionErrorf("%v", err)
 	}
