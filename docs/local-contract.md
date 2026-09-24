@@ -358,6 +358,7 @@ Rules:
 - `name` or `id` must be non-empty.
 - If `name` is empty, scenery falls back to `id`.
 - App identity for runtime environment, runtime RPC status, local logs, and local observability is `id` when present, otherwise `name`. `name` remains the display name and source/build package identity.
+- Environment configuration and SSH deployment require an explicit lowercase path-safe `id`; it names the configuration store, so adopting it must preserve the app's existing effective identity (its former `name`). Without `id`, runtimes use declared defaults only.
 - `frontends` is optional.
 - A configured frontend may declare `"tauri": { "root": "apps/desktop" }`
   to make it the web surface of a Tauri 2 desktop shell. `tauri.root` is
@@ -484,6 +485,16 @@ scenery system toolchain verify [-o json] [--all] [--tool <name>] [--platform <g
 scenery system toolchain path [-o json] --tool <name> [--platform <goos/goarch>]
 scenery doctor [--app-root <path>] [-o json]
 ```
+
+### Configuration
+
+```text
+scenery config show [KEY] [--env <name>] [--app-root <path>] [-o json]
+scenery config set KEY [VALUE] --env <name> [--stdin | --null] [--expect-revision <revision>] [--app-root <path>] [-o json]
+scenery config unset KEY --env <name> [--expect-revision <revision>] [--app-root <path>] [-o json]
+```
+
+See [Environment Configuration](#environment-configuration).
 
 ### Deploy
 
@@ -990,7 +1001,7 @@ Doctor rules:
 - When the deploy registry exists, `scenery doctor -o json` includes a `deploy` section summarizing `scenery deploy status` diagnostics. Deploy doctor checks may perform explicit reachability/DNS probes only because `doctor` is an operator-invoked diagnostic command.
 
 Deploy rules:
-- `envs.<name>.deploy.ssh` is an ordered, duplicate-free allowlist; one target may belong to only one env. `scenery deploy <ssh-target>` reverse-resolves that env, while `scenery deploy --env <name>` requires exactly one target. Remote down/up/publish commands carry the env name. Rsync excludes every `.env*` file and preserves remote dotenv state.
+- `envs.<name>.deploy.ssh` is an ordered, duplicate-free allowlist; one target may belong to only one env. `scenery deploy <ssh-target>` reverse-resolves that env, while `scenery deploy --env <name>` requires exactly one target. SSH deployment requires an explicit `"id"` and follows [SSH Deployment Layout](#ssh-deployment-layout). Rsync still excludes every `.env*` file; no dotenv file is a configuration source on the target.
 - Top-level `root` names the configured frontend that owns `/` across local path mode, branded dev domains, agent-proxied deploy targets, and published static edges. A single configured frontend is the default root. The root frontend has no `/<name>/` mount; it is the lowest-precedence SPA catch-all behind Scenery runtime paths, `/api/`, and non-root frontend prefixes. Apps with zero or multiple frontends and no explicit root retain the services index at local `/`.
 - `envs.<name>.domain` is that env's public FQDN. New registry targets, status records, publications, and immutable artifact paths record the environment name.
 - `scenery deploy enable|disable -o json` records intent in the machine deploy registry at `<agent home>/agent/deploy.json` and emits the current `scenery.deploy.target` payload with an exact digest revision. Enabling rejects a domain already enabled for another app root.
@@ -1143,13 +1154,8 @@ Secrets and environment:
 
 - The human env-var reference is [Environment Reference](environment.md). The machine-readable env contract is [environment.registry.json](environment.registry.json); it is strict current source with `kind: scenery.environment.registry` plus the exact digest `schema_revision`, and `go run ./scripts/verify` fails on identity drift or unregistered production env usage.
 - Do not add a new scenery-owned production env var as a convenience escape hatch. Prefer app config, explicit CLI flags, or checked-in manifests; if env is truly required, add a registry entry with rationale, docs, and tests in the same change.
-- Process environment always wins over values loaded from local files.
-- The stable runtime path reads `.env` from the app root for local secret population when a value is not already present in the process environment.
-- Environment dotenv order is `.env`, `.env.<env>`, `.env.local`, `.env.<env>.local`; parent process values win. `local` degenerates to `.env`, `.env.local`. Every dotenv file is optional in every environment: an absent file contributes no values, and process-only configuration needs no placeholder file. Existing files must be readable and valid dotenv; directories, read errors, and malformed content fail. Missing required values and invalid resolved values still fail their existing validation. Scenery does not create dotenv files automatically. Every `.env*` file should be ignored; `.env.example` may commit names only.
-- `scenery up` passes local file values into the child process before Go package initialization so package-level declarations can read them through `os.Getenv`.
-- Missing declared secrets warn in local development mode.
-- `scenery worker` can use process environment without a `.env` file in every environment; operator-run generated binaries likewise use process environment directly. Production startup still fails if any declared secret is missing.
-- `.env`, `.env.*`, and secret-bearing local files are not copied into build workspaces.
+- Application configuration is never read from the process environment or a dotenv file. Scenery reads no `.env*` file; typed values reach runtimes only through [Environment Configuration](#environment-configuration). Scenery-owned process identity, host inputs and injected wiring remain environment variables as registered.
+- `.env`, `.env.*`, and secret-bearing local files are not copied into build workspaces or deployed sources.
 
 Standard auth:
 
@@ -1333,6 +1339,103 @@ scenery logs -o jsonl
 Implemented `traces clear -o json` rules:
 - output conforms to `scenery.traces.clear`
 - trace clearing is dev/admin beta; its existence does not make schedule, trace clearing, or queue deletion semantics stable
+
+## Environment Configuration
+
+Configuration is selected by **application + environment** only. The
+application is `.scenery.json` `"id"` (required for configuration); the
+environment is an `envs` entry. There are no scopes, worktree overrides,
+profiles, a global active environment or per-write target selection.
+
+Catalog:
+
+- Keys are deployment-phase inputs of installed modules that hold values
+  (`<module instance path with "." separators>.<input>`, for example
+  `designs.weather_pack_root`), environment secrets (`resource_ref("secret")`
+  inputs with `sensitive = true` that source leaves unbound) and framework
+  inputs: `auth.jwt_secret`, `auth.cookie_domain`, `auth.email_from`, with
+  Google OAuth `auth.google_client_id`, `auth.google_client_secret`,
+  `auth.token_cipher_key`, and with assistants `assistant.openai_api_key`.
+- A configurable input left without a value compiles; a required one fails
+  runtime-candidate validation, naming the key. `host_path` is a
+  deployment-only absolute path scalar (`SCN1213` rejects it in wire
+  contracts); it is syntax-checked only, never expanded or stat'ed.
+- The effective value is exactly the declared default (the module's `inputs`
+  literal, else the package default), overlaid by the environment's configured
+  value. `--null` configures an optional input as absent; `unset` restores the
+  default. Keys stored by another source revision are reported as `unused` and
+  never delivered.
+
+Authority and storage (`<home>` is the Scenery agent home):
+
+```text
+<home>/apps/<app-id>/
+  environments/<env>.json                      desired document (scenery.app-environment)
+  environment-history/<env>/<revision>.json    retained revisions
+  environment-history/<env>/pins/<holder>.json revisions in use (runtimes, deployments)
+  environment-locks/<env>.lock                 per-environment writer lock
+  secrets/<env>/...                            backend-owned secret data and version index
+```
+
+- A non-deployable environment's authority is the invoking machine's store,
+  shared by every worktree of the application. A deployable environment's
+  authority is its single SSH target: commands send one bounded JSON request to
+  the fixed remote command `scenery config receive`; an unreachable target is an
+  error, never a local fallback.
+- Documents hold canonical contract wire values and secret version references
+  only. Revisions (`cfg-` + 32 hex) are content-addressed; a write changes one
+  key under the environment lock and republishes atomically; `--expect-revision`
+  fails with `SCN8002` without mutation. History keeps the desired and pinned
+  revisions plus the newest 16 others; secret versions are removed only when no
+  retained revision references them.
+- Secrets are read from a hidden prompt or exact `--stdin` bytes, never
+  arguments, and stored as immutable versions in the macOS login Keychain
+  (service `sh.scenery.config.<app-id>.<env>`) or as `systemd-creds`
+  credentials on Linux. `show` reports only `configured` or `not_configured`.
+
+Runtime delivery:
+
+- `scenery up` resolves the environment against the running build's catalog
+  and gives each service process a snapshot with only the values and secrets
+  its constructor consumes, through an inherited pipe named by
+  `SCENERY_CONFIG_SNAPSHOT_FD`. Generated constructors call
+  `sceneryruntime.ResolveDeploymentConfig`; environment secrets arrive as
+  `scenery.SecretRef` values read with `Reveal()`. Configured values never enter
+  generated code or executables.
+- A local supervisor applies a new desired revision by restarting only the
+  service processes whose snapshot changed, without building. An invalid
+  revision leaves the running generation serving; `config show` reports
+  `rejected` with the problem. Its pin records the applied revision.
+- A deployable environment's runtime runs the revision of its installed
+  release (`active.json`), never newer desired configuration.
+
+`config show -o json` emits `scenery.config.show`; `set` and `unset` emit
+`scenery.config.change` (schemas under `docs/schemas/`).
+
+## SSH Deployment Layout
+
+```text
+<target home>/deployments/<app-id>/<env>/
+  source/                     stable runtime root (data ownership is keyed by it)
+  releases/<id>/source/       staged release source (the only rsync --delete destination)
+  releases/<id>/receipt.json  release record
+  active.json                 installed release: deployment id, state, configuration revision
+```
+
+`scenery deploy` runs: workstation check; `begin` captures and pins the
+desired configuration revision on the target; rsync into the staged release;
+`validate` compiles the staged source and resolves the pinned revision,
+including every secret, while the healthy runtime serves; only then `down`,
+`activate` (copy into the stable root, preserving its `.scenery/`, and record
+`active.json` as `activating`), `up`, optional frontend publish, and `commit`,
+which requires the stable root's runtime to have applied the installed
+revision. A failed `up` or publish reinstalls the previous release's source and
+configuration revision and restarts it. The deployment receivers are the fixed
+remote commands `scenery deploy receive` and `scenery config receive`.
+
+A target whose legacy checkout still occupies `<target home>/apps/<app-id>`
+refuses deploys and configuration writes until
+[the migration runbook](runbooks/deploy-root-migration.md) moves its data.
 
 ## Development Runtime RPC
 
@@ -1547,6 +1650,8 @@ Implemented now:
 - [scenery.assistant.sync.schema.json](schemas/scenery.assistant.sync.schema.json)
 - [scenery.cli.schema.json](schemas/scenery.cli.schema.json)
 - [scenery.cli.event.schema.json](schemas/scenery.cli.event.schema.json)
+- [scenery.config.show.schema.json](schemas/scenery.config.show.schema.json) — `config show` envelope data
+- [scenery.config.change.schema.json](schemas/scenery.config.change.schema.json) — `config set` and `config unset` envelope data
 - [scenery.deployment-plan.schema.json](schemas/scenery.deployment-plan.schema.json)
 - [scenery.deployment-receipt.schema.json](schemas/scenery.deployment-receipt.schema.json)
 - [scenery.generated.schema.json](schemas/scenery.generated.schema.json)

@@ -2,9 +2,7 @@
 
 This page is the human reference for scenery-owned environment variables. The machine-readable source of truth is [environment.registry.json](environment.registry.json), validated by `go run ./scripts/verify`.
 
-Prefer `.scenery.json` for stable app configuration. Use environment variables for local overrides, secrets, process identity, or explicit escape hatches. New production env names must be added to the registry with rationale, docs, and tests; otherwise self-harness fails.
-
-The selected `.scenery.json` environment loads `.env`, `.env.<env>`, `.env.local`, then `.env.<env>.local`; later files win, while the parent process wins over every file. The reserved `local` environment uses only `.env` then `.env.local` (never `.env.local.local`). All dotenv files are optional in every environment: a missing file contributes no values, and process-only configuration needs no placeholder file. Existing files must be readable and valid dotenv; directories, read errors, and malformed content fail. Required-value and resolved-value validation still applies. Scenery does not create dotenv files automatically. Ignore every `.env*` file and commit only an optional `.env.example` containing names, never values.
+Prefer `.scenery.json` for structural app settings. Application configuration values are never environment variables: typed deployment inputs and framework inputs such as `auth.jwt_secret` are set per application and environment with `scenery config set KEY --env NAME` and reach runtimes through a private snapshot (see [Environment Configuration](local-contract.md#environment-configuration)). Scenery reads no dotenv file anywhere; a leftover `.env` in an app root is ignored. The variables below are Scenery's own process identity, host inputs, tooling knobs and injected runtime wiring. New production env names must be added to the registry with rationale, docs, and tests; otherwise self-harness fails.
 
 ## Agent And Dev Routing
 
@@ -56,6 +54,7 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_DEV_REPORT_TOKEN` | injected | Token used by the app child to report logs/traces to the dev dashboard. |
 | `SCENERY_DEV_DETACHED_CHILD` | internal | Marks the background supervisor used by `scenery up --detach`; it receives a private startup-result pipe on inherited descriptor 3, closed before executing application children. Not a user-settable mode. |
 | `SCENERY_PUBLIC_BASE_URL` | injected | Public API base URL advertised to app code. |
+| `SCENERY_CONFIG_SNAPSHOT_FD` | injected | Number of the inherited descriptor carrying the process's environment configuration snapshot. The runtime reads it once, closes it and unsets the name before any application code can start children. Not a user input. |
 
 ## Assistant Runtime Handoff
 
@@ -84,12 +83,6 @@ other names in this section are injected handoff values.
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | user input/injected | App-level Postgres database URL. When set, it wins and Scenery manages no server or database; otherwise Scenery injects the managed app database URL. |
-| `JWT_SECRET` | user input secret | Standard-auth JWT signing secret. |
-| `AUTH_COOKIE_DOMAIN` | user input/injected | Default standard-auth cookie domain; empty in default local agent development. |
-| `AUTH_EMAIL_FROM` | user input/injected | Default sender address for standard-auth email flows. |
-| `AUTH_TOKEN_CIPHER_KEY` | user input secret | Default base64 32-byte AES-GCM key for encrypted Google connection token storage. |
-| `GOOGLE_OAUTH_CLIENT_ID` | user input | Standard-auth Google OAuth client ID. |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | user input secret | Standard-auth Google OAuth client secret. |
 | `<SERVICE>_DATABASE_URL` | injected | Compiled logical binding's Postgres URL with `search_path=<schema>,scenery`; standalone generated runtimes also accept an explicit per-binding endpoint. |
 | `SCENERY_DATABASE_JSON` | injected | Resolved SQL supply (app database, source and logical schemas), configured before generated constructors. Not a requirements or ownership cache. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
@@ -102,9 +95,9 @@ other names in this section are injected handoff values.
 | `VITE_SCENERY_*` | injected | Vite-compatible mirrors of Scenery dev route metadata for managed frontends. |
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
 
-Standard auth reads fixed canonical names directly; app config cannot rename them. Removed selectors map as follows: `database_url_env` to `DATABASE_URL`, `jwt_secret_env` to `JWT_SECRET`, `auth_cookie_domain_env` to `AUTH_COOKIE_DOMAIN`, `public_app_url_env` to `SCENERY_PUBLIC_APP_URL`, `api_base_url_env` to `SCENERY_API_BASE_URL`, `email_from_env` to `AUTH_EMAIL_FROM`, and the Google OAuth client ID, client secret, and token cipher selectors to `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and `AUTH_TOKEN_CIPHER_KEY`. Those removed `*_env` fields are rejected rather than ignored. `refresh_cookie_name` has no configuration or environment replacement: standard auth reads, issues, and clears only `scenery_refresh`.
+Standard auth reads its configuration from the environment configuration snapshot, never the process environment: `auth.jwt_secret`, `auth.google_client_secret` and `auth.token_cipher_key` (base64 of 32 bytes) are secrets; `auth.google_client_id`, `auth.cookie_domain` and `auth.email_from` are strings. The former variables `JWT_SECRET`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `AUTH_TOKEN_CIPHER_KEY`, `AUTH_COOKIE_DOMAIN` and `AUTH_EMAIL_FROM` have no effect. A deployable environment must configure the JWT secret, and with Google OAuth enabled also the client ID, client secret and token cipher key; local development keeps its dev-only defaults. `refresh_cookie_name` has no configuration replacement: standard auth reads, issues, and clears only `scenery_refresh`.
 
-`scenery check -o json` warns when Google OAuth is enabled but the canonical client ID or secret cannot be resolved. Local `scenery up` derives a dev-only Google token cipher key from the local JWT secret if `AUTH_TOKEN_CIPHER_KEY` is absent; production should set a real base64 32-byte key.
+`scenery check -o json` warns when Google OAuth is enabled but the default local environment does not configure `auth.google_client_id` and `auth.google_client_secret`. Local `scenery up` derives a dev-only Google token cipher key from the local JWT secret when `auth.token_cipher_key` is not configured.
 
 ## Toolchain Store
 

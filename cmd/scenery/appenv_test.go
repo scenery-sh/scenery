@@ -14,7 +14,7 @@ import (
 func TestPoisonedDotenvNeverReachesApplicationProcesses(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{".env", ".env.local", ".env.production", ".env.production.local"} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte("POISONED_DOTENV_VALUE=from-file\nJWT_SECRET=from-file\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("POISONED_DOTENV_VALUE=from-file\nPOISONED_SIGNING_VALUE=from-file\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

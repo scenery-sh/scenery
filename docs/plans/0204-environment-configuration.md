@@ -556,6 +556,24 @@ Fixture: `testdata/apps/multiservice` copied to the scratchpad with `id:
   PIDs; `config show` reported `other_runtimes: {total: 1, applied: 1}`.
 - `scenery down` in both removed every process and both pins.
 
+### macOS Keychain proof (2026-09-24)
+
+Same fixture with a required environment secret `echo.token` read through
+`input.Config.Token.Reveal()`:
+
+- `scenery up` refused to start: `echo.token: required input is not
+  configured`, naming the fix.
+- `printf … | scenery config set echo.token --env local --stdin` created one
+  login-Keychain item (service `sh.scenery.config.cfgprobe.local`, account
+  `echo.token/<version>`); the plaintext appeared in no CLI output, no store
+  file and no agent or runtime log, and not in any service process's
+  environment (`ps eww`); service processes carried only
+  `SCENERY_CONFIG_SNAPSHOT_FD=3`.
+- The runtime revealed exactly the configured 20 bytes; rotating to a 32-byte
+  value restarted only echo, which then revealed 32 bytes; the previous version
+  stayed retained for history.
+- Cleanup: `scenery down`, then both test Keychain items deleted; none remain.
+
 ### M4 deploy rehearsal (2026-09-24)
 
 A test-double `ssh` (scratchpad `fakessh/ssh`) ran every remote command on

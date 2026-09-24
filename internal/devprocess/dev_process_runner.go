@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"scenery.sh/internal/envpolicy"
 )
 
 type ManagedProcess struct {
@@ -359,7 +361,7 @@ func AttachPrivateInput(cmd *exec.Cmd, input *PrivateInput) (started, abandon fu
 	}
 	cmd.ExtraFiles = append(cmd.ExtraFiles, reader)
 	if cmd.Env == nil {
-		cmd.Env = os.Environ()
+		cmd.Env = envpolicy.Environ()
 	}
 	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%d", input.Env, 2+len(cmd.ExtraFiles)))
 	data := append([]byte(nil), input.Data...)
