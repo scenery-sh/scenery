@@ -120,7 +120,7 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 			}
 		}
 	}
-	flags, err := FrameworkProducerLinkerFlags(snapshot.Digest)
+	flags, err := FrameworkProducerLinkerFlags(snapshot.Digest, snapshot.Root)
 	if err != nil {
 		return selection, err
 	}
@@ -141,7 +141,11 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
 	binary := filepath.Join(staging, "scenery")
-	args := []string{"build", "-buildvcs=false", "-ldflags=" + flags, "-o", binary, "./cmd/scenery"}
+	// The snapshot directory never names compiled packages: a -trimpath build
+	// shares Go build cache entries for identical source across snapshots and
+	// app roots, so a new digest recompiles only the packages whose inputs
+	// changed. The producer finds its snapshot through the linked root instead.
+	args := []string{"build", "-trimpath", "-buildvcs=false", "-ldflags=" + flags, "-o", binary, "./cmd/scenery"}
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir, command.Env = snapshot.Root, frameworkGoEnvironment()
 	if output, err := command.CombinedOutput(); err != nil {

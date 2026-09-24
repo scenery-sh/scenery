@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -407,11 +406,14 @@ func contractFixtureRoot(t *testing.T) string {
 // compiles, checks, or generates must use a copy.
 func fixtureSourceRoot(t *testing.T, name string) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
+	// Go runs a package's tests in its directory; a -trimpath test binary
+	// reports module-relative runtime.Caller paths, so the fixture is named
+	// relative to that working directory instead.
+	root, err := filepath.Abs(filepath.Join("..", "..", "internal", "compiler", "testdata", name))
+	if err != nil {
+		t.Fatal(err)
 	}
-	return filepath.Join(filepath.Dir(file), "..", "..", "internal", "compiler", "testdata", name)
+	return root
 }
 
 func copyFixtureRoot(t *testing.T, name string) string {

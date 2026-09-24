@@ -480,7 +480,7 @@ func runHarnessLocalSceneryBuildStep(ctx context.Context, repoRoot, binaryPath s
 	if err != nil {
 		return harnessStep{Name: "build scenery binary", Error: err.Error()}
 	}
-	linkerFlags, err := build.FrameworkProducerLinkerFlags(source.Digest)
+	linkerFlags, err := build.FrameworkProducerLinkerFlags(source.Digest, source.Root)
 	if err != nil {
 		return harnessStep{Name: "build scenery binary", Error: err.Error()}
 	}

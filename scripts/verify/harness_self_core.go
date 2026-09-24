@@ -110,7 +110,7 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 		if err != nil {
 			return err
 		}
-		linkerFlags, err := build.FrameworkProducerLinkerFlags(producer.Digest)
+		linkerFlags, err := build.FrameworkProducerLinkerFlags(producer.Digest, producer.Root)
 		if err != nil {
 			return err
 		}

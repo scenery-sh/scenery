@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/compiler"
 	generateapi "scenery.sh/internal/generate/api"
+	"scenery.sh/internal/gotarget"
 )
 
 // developmentProcessBinaryDir holds the linked executables of process-model
@@ -375,7 +376,7 @@ func developmentLinkSlot(ctx context.Context, result *Result) (func(), error) {
 }
 
 func developmentProcessBuildArgs(buildFlags []string, output string, pending []*DevelopmentProcess) []string {
-	flags := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), "", nil)
+	flags := withRuntimeBundleLinkerMetadata(gotarget.WithTrimpath(normalizeGoBuildFlags(buildFlags)), "", nil)
 	args := append([]string{"build"}, flags[:len(flags)-1]...)
 	for _, process := range pending {
 		linker := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), developmentLinkerFlags, map[string]string{

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
 )
 
@@ -412,5 +413,20 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 	buildCommand := strings.Join(goBuildArgs(result.Binary, effectiveGoBuildFlags(result)), " ")
 	if got, want := strings.Join(commands, "|"), initialBuildCommand+"|mod tidy|"+buildCommand; got != want {
 		t.Fatalf("go commands = %q, want %q", got, want)
+	}
+}
+
+func TestGoBuildArgsTrimPathsAheadOfConfiguredFlags(t *testing.T) {
+	t.Parallel()
+	got := strings.Join(goBuildArgs("/out/app", []string{" -tags=native ", ""}), " ")
+	if want := "build -trimpath -tags=native -buildvcs=false -o /out/app ./scenery_internal_main"; got != want {
+		t.Fatalf("build args = %q, want %q", got, want)
+	}
+	got = strings.Join(goBuildArgs("/out/app", []string{"-trimpath=false"}), " ")
+	if want := "build -trimpath=false -buildvcs=false -o /out/app ./scenery_internal_main"; got != want {
+		t.Fatalf("configured -trimpath=false was overridden: %q", got)
+	}
+	if got := gotarget.WithTrimpath([]string{"-trimpath", "-v"}); len(got) != 2 || got[0] != "-trimpath" {
+		t.Fatalf("configured -trimpath was duplicated: %q", got)
 	}
 }

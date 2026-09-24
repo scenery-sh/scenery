@@ -637,3 +637,21 @@ func writeAppTestFile(t *testing.T, root, rel, contents string) {
 		t.Fatalf("write %s: %v", rel, err)
 	}
 }
+
+func TestRepoRootPrefersLinkedRoot(t *testing.T) {
+	previous := linkedRepoRoot
+	t.Cleanup(func() { linkedRepoRoot = previous })
+	linkedRepoRoot = ""
+	if root := RepoRoot(); root != "" {
+		if !filepath.IsAbs(root) {
+			t.Fatalf("derived repo root %q is not absolute", root)
+		}
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+			t.Fatalf("derived repo root %q has no go.mod: %v", root, err)
+		}
+	}
+	linkedRepoRoot = filepath.Join(t.TempDir(), "snapshot") + string(filepath.Separator)
+	if got, want := RepoRoot(), filepath.Clean(linkedRepoRoot); got != want {
+		t.Fatalf("RepoRoot() = %q, want linked root %q", got, want)
+	}
+}
