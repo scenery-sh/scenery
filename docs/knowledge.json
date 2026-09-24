@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0204-environment-configuration.md",
+      "title": "Environment-Only Application Configuration",
+      "owner": "scenery runtime / compiler / deploy",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Replaces application dotenv files and ambient environment configuration with one typed application + environment model: scenery config show/set/unset over an authoritative per-app store, versioned OS-backed secrets, revision-bound runtime snapshots that restart only consuming services, revision-safe SSH deployment, and the ONLV migration.",
+      "tags": ["plans", "execplans", "runtime", "compiler", "deploy", "secrets"]
+    },
+    {
       "path": "docs/plans/0203-framework-handoff.md",
       "title": "Framework Handoff For Running Development Runtimes",
       "owner": "scenery runtime / build",
