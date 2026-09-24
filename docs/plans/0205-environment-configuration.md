@@ -126,8 +126,8 @@ Implemented: `scenery config show|set|unset|receive`, the typed catalog/resolver
 
 Pending, each requiring the user's explicit authorization:
 
-1. Done 2026-09-24: merged as scenery-sh/scenery#218 (`93bd4b89d0a5`); ONLV branch `feat/environment-configuration` pins it (`8b0d0b19`, clients regenerated, checks green) and records the D11 proof in its companion plan. Merging that ONLV branch still needs authorization.
-2. Operator cutover of the real `.env` files with `scripts/config-import` (per developer machine and per deployable environment), the one-time production root migration (`docs/runbooks/deploy-root-migration.md`), and any archival or deletion of the old files.
+1. Done 2026-09-24: merged as scenery-sh/scenery#218 (`93bd4b89d0a5`); ONLV branch `feat/environment-configuration` pins it (`8b0d0b19`, clients regenerated, checks green) and records the D11 proof in its companion plan; merged as pbrazdil/onlv#136 (`42a22ced`).
+2. Done for the workstation's `local` environment on 2026-09-24: `scripts/config-import` moved `auth.google_client_id`, `auth.google_client_secret`, `auth.jwt_secret` and `maps.google_maps_api_key` from the ONLV checkout's `.env` and `apps/nextnext/.env.local` (secrets into the login Keychain, none found in store files); the old files are untouched. Remaining: operator cutover of the other `.env` files with `scripts/config-import` (per developer machine and per deployable environment), the one-time production root migration (`docs/runbooks/deploy-root-migration.md`), and any archival or deletion of the old files.
 
 Unverified on this machine: systemd-creds on Linux, a real SSH target, and reboot/resume on a real target; the local deploy rehearsal used a test-double `ssh`. Restored release executables are rebuilt from retained source (equivalent, not byte-identical).
 
