@@ -100,3 +100,47 @@ func TestSnapshotSourceFilesUseTheCapturedGeneratedPaths(t *testing.T) {
 		t.Fatalf("source files with a captured generated set = %v, %v", captured, err)
 	}
 }
+
+// The dependency fingerprint of an established membership equals the walk of
+// the same workspace, including files under directories a walk skips.
+func TestDependencyFingerprintForMembershipEqualsTheWorkspaceWalk(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	files := map[string]string{
+		"go.mod":                        "module example.test/app\n",
+		"main.go":                       "package main\nimport \"fmt\"\nfunc main() { fmt.Println(1) }\n",
+		"svc/api.go":                    "package svc\nimport \"strings\"\nvar _ = strings.ToUpper\n",
+		"internal/gen/adapter.gen.go":   "package gen\nimport \"context\"\nvar _ context.Context\n",
+		".hidden/skipped.go":            "package hidden\nimport \"os\"\nvar _ = os.Getenv\n",
+		"web/node_modules/pkg/tool.go":  "package tool\n",
+		"svc/testdata/fixture.txt":      "not go\n",
+		"scenery_internal_main/main.go": "package main\n",
+		"svc/nested/.cache/ignored.go":  "package ignored\n",
+		"svc/nested/kept.go":            "package nested\nimport \"errors\"\nvar _ = errors.New\n",
+	}
+	var source, generated []string
+	for rel, data := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		switch rel {
+		case "go.mod":
+		case "internal/gen/adapter.gen.go":
+			generated = append(generated, rel)
+		default:
+			source = append(source, rel)
+		}
+	}
+	walked, err := dependencyFingerprintFromInventory(newWorkspaceInventory(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := dependencyFingerprintForMembership(newWorkspaceInventory(root), source, generated, []string{"main.go"})
+	if err != nil || listed != walked {
+		t.Fatalf("membership fingerprint %s != walk %s (%v)", listed, walked, err)
+	}
+}

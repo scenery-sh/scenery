@@ -1,11 +1,8 @@
 package build
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
+	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,40 +11,26 @@ import (
 	"sync"
 
 	"golang.org/x/mod/modfile"
-
-	"scenery.sh/internal/machine"
 )
 
-const (
-	frameworkFingerprintCacheKind             = "scenery.framework-fingerprint"
-	frameworkFingerprintCacheSchemaDescriptor = `{"fingerprint":"digest","go_files":{"*":{"stamp":{"size":"integer","mtime_unix_nano":"integer","perm":"integer"},"embed_patterns":["string"]}},"kind":"scenery.framework-fingerprint","metadata_fingerprint":"digest","producer":"producer","repo_root":"path","schema_revision":"digest","spec_revision":"digest"}`
-)
-
-type frameworkFingerprintCache struct {
-	machine.ArtifactIdentity
-	RepoRoot            string                          `json:"repo_root"`
-	MetadataFingerprint string                          `json:"metadata_fingerprint"`
-	Fingerprint         string                          `json:"fingerprint"`
-	GoFiles             map[string]frameworkGoFileCache `json:"go_files,omitempty"`
-}
-
-type frameworkGoFileCache struct {
-	Stamp         SourceStamp `json:"stamp"`
-	EmbedPatterns []string    `json:"embed_patterns,omitempty"`
-}
-
-var cachedFrameworkFingerprintFunc = cachedFrameworkFingerprint
-
-func currentFrameworkFingerprintFromWorkspace(workspaceDir string) (string, bool, error) {
+// workspaceFrameworkFingerprint identifies the framework source that a
+// workspace's local scenery.sh replacement selects: the content digest of its
+// source manifest. A build whose context already verified that source reuses
+// the verified digest instead of reading the same tree again; the empty
+// fingerprint means the workspace selects no local framework source.
+func workspaceFrameworkFingerprint(ctx context.Context, workspaceDir string) (string, error) {
 	repoRoot, ok, err := localSceneryReplaceRoot(filepath.Join(workspaceDir, "go.mod"))
 	if err != nil || !ok {
-		return "", false, err
+		return "", err
 	}
-	fingerprint, err := cachedFrameworkFingerprintFunc(repoRoot)
+	if source, verified := verifiedFrameworkSource(ctx, repoRoot); verified {
+		return source.Digest, nil
+	}
+	source, err := FrameworkSourceManifest(repoRoot)
 	if err != nil {
-		return "", true, err
+		return "", err
 	}
-	return fingerprint, true, nil
+	return source.Digest, nil
 }
 
 func localSceneryReplaceRoot(goModPath string) (string, bool, error) {
@@ -78,87 +61,19 @@ func localSceneryReplaceRoot(goModPath string) (string, bool, error) {
 	return "", false, nil
 }
 
-func cachedFrameworkFingerprint(repoRoot string) (string, error) {
-	cachePath, err := frameworkFingerprintCachePath(repoRoot)
-	if err != nil {
-		return "", err
-	}
-	cached, _, err := loadFrameworkFingerprintCache(cachePath)
-	if err != nil {
-		return "", err
-	}
-	files, goFiles, err := frameworkFingerprintFiles(repoRoot, cached.GoFiles)
-	if err != nil {
-		return "", err
-	}
-	metadataFingerprint, err := frameworkMetadataFingerprint(repoRoot, files)
-	if err != nil {
-		return "", err
-	}
-	if cached.Kind == frameworkFingerprintCacheKind &&
-		cached.RepoRoot == repoRoot &&
-		cached.MetadataFingerprint == metadataFingerprint &&
-		cached.Fingerprint != "" {
-		return cached.Fingerprint, nil
-	}
-	fingerprint, err := computeFrameworkFingerprint(repoRoot, files)
-	if err != nil {
-		return "", err
-	}
-	if err := saveFrameworkFingerprintCache(cachePath, frameworkFingerprintCache{
-		ArtifactIdentity:    machine.NewArtifactIdentity(frameworkFingerprintCacheKind, frameworkFingerprintCacheSchemaDescriptor),
-		RepoRoot:            repoRoot,
-		MetadataFingerprint: metadataFingerprint,
-		Fingerprint:         fingerprint,
-		GoFiles:             goFiles,
-	}); err != nil {
-		return "", err
-	}
-	return fingerprint, nil
+// frameworkFingerprintFiles lists the framework source input files: Go and
+// native sources, module files and the files their embed directives select.
+func frameworkFingerprintFiles(repoRoot string) ([]string, error) {
+	files, _, err := frameworkSourceFiles(repoRoot)
+	return files, err
 }
 
-func frameworkFingerprintCachePath(repoRoot string) (string, error) {
-	cacheRoot, err := CacheRoot()
-	if err != nil {
-		return "", err
-	}
-	absRoot, err := filepath.Abs(repoRoot)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256([]byte(absRoot))
-	return filepath.Join(cacheRoot, "build", "framework-fingerprint-"+hex.EncodeToString(sum[:8])+".json"), nil
-}
-
-func loadFrameworkFingerprintCache(path string) (frameworkFingerprintCache, bool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return frameworkFingerprintCache{}, false, nil
-		}
-		return frameworkFingerprintCache{}, false, err
-	}
-	var cached frameworkFingerprintCache
-	if err := machine.DecodeArtifact(data, &cached, &cached.ArtifactIdentity, frameworkFingerprintCacheKind, frameworkFingerprintCacheSchemaDescriptor, "rebuild the framework fingerprint cache"); err != nil {
-		return frameworkFingerprintCache{}, false, nil
-	}
-	return cached, true, nil
-}
-
-func saveFrameworkFingerprintCache(path string, cached frameworkFingerprintCache) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.Marshal(cached)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
-func frameworkFingerprintFiles(repoRoot string, cachedGoFiles map[string]frameworkGoFileCache) ([]string, map[string]frameworkGoFileCache, error) {
+// frameworkSourceFiles is frameworkFingerprintFiles with the metadata the walk
+// read for each Go file, so a caller stamping those files need not read it
+// again.
+func frameworkSourceFiles(repoRoot string) ([]string, map[string]os.FileInfo, error) {
 	files := map[string]struct{}{}
-	nextGoFiles := map[string]frameworkGoFileCache{}
+	infos := map[string]os.FileInfo{}
 	err := filepath.WalkDir(repoRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -187,30 +102,25 @@ func frameworkFingerprintFiles(repoRoot string, cachedGoFiles map[string]framewo
 		if filepath.Ext(rel) != ".go" {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := buildInputLstat(path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return nil
 			}
 			return err
 		}
-		stamp := sourceStampFromInfo(info)
-		entry, ok := cachedGoFiles[rel]
-		if !ok || entry.Stamp != stamp {
-			patterns, retained := retainedFrameworkEmbedPatterns(path, info)
-			if !retained {
-				data, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				patterns = parseGeneratorGoEmbedPatterns(string(data))
-				retainFrameworkEmbedPatterns(path, info, patterns)
+		infos[rel] = info
+		patterns, retained := retainedFrameworkEmbedPatterns(path, info)
+		if !retained {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
 			}
-			entry = frameworkGoFileCache{Stamp: stamp, EmbedPatterns: patterns}
+			patterns = parseGeneratorGoEmbedPatterns(string(data))
+			retainFrameworkEmbedPatterns(path, info, patterns)
 		}
-		nextGoFiles[rel] = entry
 		pkgDir := filepath.Dir(rel)
-		for _, pattern := range entry.EmbedPatterns {
+		for _, pattern := range patterns {
 			if err := addGeneratorEmbeddedPatternFiles(repoRoot, pkgDir, pattern, files); err != nil {
 				return err
 			}
@@ -225,7 +135,7 @@ func frameworkFingerprintFiles(repoRoot string, cachedGoFiles map[string]framewo
 		paths = append(paths, rel)
 	}
 	sort.Strings(paths)
-	return paths, nextGoFiles, nil
+	return paths, infos, nil
 }
 
 func frameworkSourceInputFile(rel string) bool {
@@ -241,42 +151,6 @@ func frameworkSourceInputFile(rel string) bool {
 		return true
 	}
 	return false
-}
-
-func frameworkMetadataFingerprint(repoRoot string, files []string) (string, error) {
-	h := sha256.New()
-	for _, rel := range files {
-		info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(rel)))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return "", err
-		}
-		_, _ = h.Write([]byte(rel))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(fmt.Appendf(nil, "%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode().Perm()))
-		_, _ = h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func computeFrameworkFingerprint(repoRoot string, files []string) (string, error) {
-	h := sha256.New()
-	for _, rel := range files {
-		data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return "", err
-		}
-		_, _ = h.Write([]byte(rel))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(data)
-		_, _ = h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // frameworkEmbedPatterns retains the embed patterns of framework Go files by

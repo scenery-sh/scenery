@@ -1,124 +1,72 @@
 package agent
 
 import (
-	context "context"
-	filepath "path/filepath"
-
-	slices "slices"
-	strings "strings"
-	testing "testing"
+	"context"
+	"errors"
+	"slices"
+	"testing"
 )
 
-func TestCleanupSupersededDevSessionsSelectsSameSessionInProcess(t *testing.T) {
-	t.Parallel()
-
-	current := Session{
-		SessionID: "review-a",
-		AppRoot:   "/app",
+func verifyRecordedStartTime(owner Owner) error {
+	if owner.StartedAt != "recorded" {
+		return errors.New("owner process start time changed")
 	}
-	previous := Session{
-		SessionID: "review-a",
-		AppRoot:   "/app",
-	}
-	unrelated := Session{
-		SessionID: "review-b",
-		AppRoot:   "/app",
-	}
-	var stopped []string
-	err := cleanupStaleDevSessionProcessesWithDependencies(context.Background(), current, []Session{previous, unrelated}, staleDevSessionCleanupDependencies{
-		sameScope: sameAgentSession,
-		stopRegistered: func(_ context.Context, _ Session, session Session, seen map[int]bool) error {
-			stopped = append(stopped, session.SessionID)
-			seen[41001] = true
-			return nil
-		},
-		stopCommands: func(_ context.Context, _ Session, seen map[int]bool) error {
-			if !seen[41001] {
-				t.Fatalf("command cleanup seen = %v", seen)
-			}
-			return nil
-		},
-		stopEnvironment: func(_ context.Context, _ Session, seen map[int]bool) error {
-			if !seen[41001] {
-				t.Fatalf("environment cleanup seen = %v", seen)
-			}
-			return nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(stopped, []string{"review-a"}) {
-		t.Fatalf("stopped sessions = %v", stopped)
-	}
+	return nil
 }
 
-func TestStopDeletedSessionProcessesSelectsOwnerInProcess(t *testing.T) {
+func TestSessionCleanupSelectsOnlyVerifiedRecordedProcesses(t *testing.T) {
 	t.Parallel()
 
 	session := Session{
 		SessionID: "review-a",
 		AppRoot:   "/app",
 		OwnerPID:  41001,
+		Owner:     Owner{PID: 41001, StartedAt: "recorded"},
+		Processes: map[string]Process{
+			"api":             {PID: 41003, Owner: Owner{PID: 41003, StartedAt: "recorded"}},
+			"frontend-web":    {PID: 41002, Owner: Owner{PID: 41002, StartedAt: "recorded"}},
+			"duplicate-api":   {PID: 41003, Owner: Owner{PID: 41003, StartedAt: "recorded"}},
+			"unrecorded":      {PID: 41004},
+			"mismatched":      {PID: 41005, Owner: Owner{PID: 41099, StartedAt: "recorded"}},
+			"reused-pid":      {PID: 41006, Owner: Owner{PID: 41006, StartedAt: "another process"}},
+			"current-owner":   {PID: 42000, Owner: Owner{PID: 42000, StartedAt: "recorded"}},
+			"already-stopped": {PID: 41007, Owner: Owner{PID: 41007, StartedAt: "recorded"}},
+		},
 	}
-	var ownerPIDs, childPIDs []int
-	err := stopDeletedSessionProcessesWithDependencies(context.Background(), session, stopDeletedSessionProcessDependencies{
-		shouldSignalOwner: func(got Session) bool { return got.SessionID == session.SessionID },
-		stopOwner: func(_ context.Context, pid int) error {
-			ownerPIDs = append(ownerPIDs, pid)
+	var owners, children []int
+	record := func(target *[]int) recordedProcessStop {
+		return func(_ context.Context, owner Owner) error {
+			*target = append(*target, owner.PID)
 			return nil
-		},
-		processPIDs: func(Session) []int { return []int{41001, 41002, 41002} },
-		stopChild: func(_ context.Context, pid int) error {
-			childPIDs = append(childPIDs, pid)
-			return nil
-		},
-		stopCommands: func(_ context.Context, _ Session, seen map[int]bool) error {
-			if !seen[41001] || !seen[41002] {
-				t.Fatalf("command cleanup seen = %v", seen)
-			}
-			return nil
-		},
-		stopEnvironment: func(_ context.Context, _ Session, seen map[int]bool) error {
-			if !seen[41001] || !seen[41002] {
-				t.Fatalf("environment cleanup seen = %v", seen)
-			}
-			return nil
-		},
-	})
-	if err != nil {
+		}
+	}
+	seen := map[int]bool{41007: true}
+	if err := stopRecordedSessionProcesses(context.Background(), session, map[int]bool{42000: true}, seen, verifyRecordedStartTime, record(&owners), record(&children)); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(ownerPIDs, []int{41001}) || !slices.Equal(childPIDs, []int{41002}) {
-		t.Fatalf("stopped owner/children = %v/%v", ownerPIDs, childPIDs)
+	if !slices.Equal(owners, []int{41001}) || !slices.Equal(children, []int{41002, 41003}) {
+		t.Fatalf("stopped owner/children = %v/%v, want [41001]/[41002 41003]", owners, children)
+	}
+	for _, pid := range []int{41004, 41005, 41006, 42000} {
+		if seen[pid] {
+			t.Fatalf("unowned or kept pid %d was selected: %v", pid, seen)
+		}
 	}
 }
 
-func TestStopDeletedSessionProcessesSelectsStateRootMatchedOrphanInProcess(t *testing.T) {
+func TestSessionCleanupNeverSignalsAnUnverifiedOwner(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	stateRoot := filepath.Join(root, ".scenery", "sessions", "review-a")
-	otherStateRoot := filepath.Join(root, ".scenery", "sessions", "review-b")
-	session := Session{SessionID: "review-a", AppRoot: root, StateRoot: stateRoot}
-	ps := strings.Join([]string{
-		"41001 S " + filepath.Join(stateRoot, "run", "app", "scenery-app-review-a") + " 30",
-		"41002 S " + filepath.Join(otherStateRoot, "run", "app", "scenery-app-review-b") + " 30",
-		"41003 Z " + filepath.Join(stateRoot, "run", "app", "scenery-app-zombie") + " 30",
-	}, "\n")
-	var stopped []int
-	seen := map[int]bool{}
-	err := stopSessionCommandProcessesFromPS(context.Background(), session, seen, ps, func(_ context.Context, pid int) error {
-		stopped = append(stopped, pid)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
+	for name, session := range map[string]Session{
+		"no record":      {OwnerPID: 41001},
+		"other pid":      {OwnerPID: 41001, Owner: Owner{PID: 41002, StartedAt: "recorded"}},
+		"identity moved": {OwnerPID: 41001, Owner: Owner{PID: 41001, StartedAt: "another process"}},
+	} {
+		if owner, ok := recordedSessionOwner(session, verifyRecordedStartTime); ok {
+			t.Fatalf("%s: selected owner %+v", name, owner)
+		}
 	}
-	if !slices.Equal(stopped, []int{41001}) {
-		t.Fatalf("stopped PIDs = %v, want matched live orphan only", stopped)
-	}
-	if !seen[41001] || seen[41002] || seen[41003] {
-		t.Fatalf("seen PIDs = %v", seen)
+	if owner, ok := recordedSessionOwner(Session{Owner: Owner{PID: 41001, StartedAt: "recorded"}}, verifyRecordedStartTime); !ok || owner.PID != 41001 {
+		t.Fatalf("recorded owner = %+v, %v", owner, ok)
 	}
 }

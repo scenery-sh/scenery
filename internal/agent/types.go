@@ -12,6 +12,7 @@ const (
 	PortLeaseKind      = "scenery.dev.port-lease"
 	SubstrateKind      = "scenery.dev.substrate"
 	AgentStateKind     = "scenery.agent.state"
+	AgentOwnerKind     = "scenery.agent.owner"
 	AgentRegistryKind  = "scenery.agent.registry"
 	DeployRegistryKind = "scenery.deploy.registry"
 	EdgeStateKind      = "scenery.edge.state"

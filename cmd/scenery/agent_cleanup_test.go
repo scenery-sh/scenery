@@ -99,3 +99,35 @@ func TestParseAgentCleanupArgsRequiresExplicitStateRemoval(t *testing.T) {
 		t.Fatalf("cleanup options = %+v", opts)
 	}
 }
+
+func TestRunAgentCleanupReportsLegacyProcessesWithoutSignalingThem(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("legacy process observation is Unix-only")
+	}
+
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".onlava")
+	if err := os.MkdirAll(filepath.Join(legacy, "agent"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// PID 1 stands in for a legacy agent: were it signaled, the permission
+	// error would fail the command.
+	listProcesses := func() ([]runtimeProcess, error) {
+		return []runtimeProcess{{PID: 1, UID: os.Getuid(), Command: "/opt/scenery system agent --socket " + filepath.Join(legacy, "run", "agent.sock")}}, nil
+	}
+	var stdout bytes.Buffer
+	if err := runAgentCleanupWithProcessLister(&stdout, legacy, agentCleanupOptions{JSON: true}, listProcesses); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"running_pids":[1]`)) {
+		t.Fatalf("cleanup did not report the running legacy process: %s", stdout.String())
+	}
+	err := runAgentCleanupWithProcessLister(&bytes.Buffer{}, legacy, agentCleanupOptions{RemoveState: true}, listProcesses)
+	if err == nil {
+		t.Fatal("state removal was allowed while a legacy process still uses it")
+	}
+	if _, statErr := os.Stat(legacy); statErr != nil {
+		t.Fatalf("refused removal still removed state: %v", statErr)
+	}
+}

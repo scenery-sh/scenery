@@ -16,6 +16,12 @@ type workspaceInventory struct {
 	root    string
 	files   map[string]workspaceRead
 	digests map[string]workspaceDigest
+	stats   map[string]workspaceStat
+}
+
+type workspaceStat struct {
+	info os.FileInfo
+	err  error
 }
 
 type workspaceRead struct {
@@ -30,7 +36,19 @@ type workspaceDigest struct {
 }
 
 func newWorkspaceInventory(root string) *workspaceInventory {
-	return &workspaceInventory{root: root, files: make(map[string]workspaceRead), digests: make(map[string]workspaceDigest)}
+	return &workspaceInventory{root: root, files: make(map[string]workspaceRead), digests: make(map[string]workspaceDigest), stats: make(map[string]workspaceStat)}
+}
+
+// lstat returns the metadata of rel, read once per operation: the digest and
+// the import list of one file are both named by the same stamp.
+func (inventory *workspaceInventory) lstat(rel string) (os.FileInfo, error) {
+	rel = filepath.ToSlash(rel)
+	if previous, ok := inventory.stats[rel]; ok {
+		return previous.info, previous.err
+	}
+	info, err := buildInputLstat(filepath.Join(inventory.root, filepath.FromSlash(rel)))
+	inventory.stats[rel] = workspaceStat{info, err}
+	return info, err
 }
 
 func (inventory *workspaceInventory) read(rel string) ([]byte, error) {
@@ -54,7 +72,7 @@ func (inventory *workspaceInventory) digest(rel string) (string, bool, error) {
 	}
 	result := workspaceDigest{}
 	path := filepath.Join(inventory.root, filepath.FromSlash(rel))
-	info, err := buildInputLstat(path)
+	info, err := inventory.lstat(rel)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 	case err != nil:
@@ -74,7 +92,7 @@ func (inventory *workspaceInventory) digest(rel string) (string, bool, error) {
 // including its status-change time, is unchanged.
 func (inventory *workspaceInventory) goImports(rel string) ([]string, error) {
 	path := filepath.Join(inventory.root, filepath.FromSlash(rel))
-	before, err := buildInputLstat(path)
+	before, err := inventory.lstat(rel)
 	if err != nil {
 		return nil, err
 	}

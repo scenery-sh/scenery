@@ -31,7 +31,12 @@ const (
 	buildInputSchemaDescriptor = machine.ExactSchemaRevision("sha256:0b3dbb89ce6779d9102139831f455f792adee4a3c0e332099816a2761c4d9ec2")
 )
 
-const buildInputDigestCacheLimit = 16_384
+// buildInputDigestCacheLimit bounds the retained content digests. One warm
+// build of a large application consults its workspace sources, their
+// authored copies, generated artifacts, the framework and module dependencies,
+// which together exceed 16,384 files; a smaller first-in-first-out bound
+// evicts every entry before its next use. An entry is about 200 bytes.
+const buildInputDigestCacheLimit = 65_536
 
 type buildInputFileStamp struct {
 	Size            int64
@@ -381,13 +386,7 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 	processes := &buildInputProcessGraph{packages: map[string]map[string]string{}, imports: map[string][]string{}, mains: map[string]string{}}
 	addFileTo := func(destination map[string]string, identity, path string) error {
 		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, path)
-		if err := observeBuildInputPath(observed, path); err != nil {
-			return err
-		}
-		if err := addBuildInputObserved(destination, identity, path, stats); err != nil {
-			return err
-		}
-		return observeBuildInputPath(observed, path)
+		return observeBuildInputFile(observed, destination, identity, path, stats)
 	}
 	addFile := func(identity, path string) error { return addFileTo(entries, identity, path) }
 	frameworkRoot := ""
@@ -581,13 +580,7 @@ func readBuildInputPackage(workspace string, pkg goListPackage) (buildInputPacka
 			return read, err
 		}
 		read.workspaceOnly = read.workspaceOnly && sharedBinaryWorkspacePath(workspace, path)
-		if err := observeBuildInputPath(read.observed, path); err != nil {
-			return read, err
-		}
-		if err := addBuildInputObserved(read.entries, identity, path, &read.stats); err != nil {
-			return read, err
-		}
-		if err := observeBuildInputPath(read.observed, path); err != nil {
+		if err := observeBuildInputFile(read.observed, read.entries, identity, path, &read.stats); err != nil {
 			return read, err
 		}
 	}
@@ -618,6 +611,42 @@ func addBuildInput(entries map[string]string, identity, path string) error {
 	return addBuildInputObserved(entries, identity, path, nil)
 }
 
+// observeBuildInputFile adds under identity the digest of the regular file at
+// path and records in observed the stamp that names that content. One metadata
+// read serves the observation and a retained digest; a digest that must be
+// read is read between two equal stamps (cachedBuildInputFileDigest).
+func observeBuildInputFile(observed map[string]buildInputFileStamp, entries map[string]string, identity, path string, stats *buildInputDigestStats) error {
+	info, err := buildInputLstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("go build input is not a regular non-symlink file: %s", path)
+	}
+	stamp := buildInputStamp(info)
+	clean := filepath.Clean(path)
+	if before, ok := observed[clean]; ok && before != stamp {
+		return fmt.Errorf("go build input changed during discovery: %s", path)
+	}
+	digest, hit, err := cachedBuildInputFileDigest(path, info, os.ReadFile)
+	if err != nil {
+		return err
+	}
+	if stats != nil {
+		if hit {
+			stats.hits++
+		} else {
+			stats.misses++
+		}
+	}
+	if previous := entries[identity]; previous != "" && previous != digest {
+		return fmt.Errorf("go build input identity collision: %s", identity)
+	}
+	entries[identity] = digest
+	observed[clean] = stamp
+	return nil
+}
+
 func addBuildInputObserved(entries map[string]string, identity, path string, stats *buildInputDigestStats) error {
 	info, err := buildInputLstat(path)
 	if err != nil {
@@ -644,6 +673,11 @@ func addBuildInputObserved(entries map[string]string, identity, path string, sta
 	return nil
 }
 
+// cachedBuildInputFileDigest returns the digest of the content that the stamp
+// of before names. A digest retained for that exact stamp, which includes the
+// status-change time any write changes, is returned without another metadata
+// read: nothing is read, so there is no window for the content to change
+// under it. Otherwise the content is read between two equal stamps.
 func cachedBuildInputFileDigest(path string, before os.FileInfo, read func(string) ([]byte, error)) (string, bool, error) {
 	stamp := buildInputStamp(before)
 	canonical := filepath.Clean(path)
@@ -652,17 +686,7 @@ func cachedBuildInputFileDigest(path string, before os.FileInfo, read func(strin
 		entry, ok := buildInputDigestCache.entries[canonical]
 		buildInputDigestCache.Unlock()
 		if ok && entry.stamp == stamp {
-			after, err := buildInputLstat(path)
-			if err != nil {
-				return "", false, err
-			}
-			if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() {
-				return "", false, fmt.Errorf("go build input changed type while checking cached digest: %s", path)
-			}
-			if buildInputStamp(after) == stamp {
-				return entry.digest, true, nil
-			}
-			stamp = buildInputStamp(after)
+			return entry.digest, true, nil
 		}
 	}
 	data, err := read(path)

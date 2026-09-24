@@ -152,6 +152,16 @@ type packageLayerRule struct {
 
 var packageLayerRules = []packageLayerRule{
 	{
+		// Application-facing SDK packages reach the runtime only through the
+		// internal/appsdk host the runtime registers, so importing them never
+		// links the runtime's implementation closure (assistant, MCP, durable
+		// store) into application packages and their tests.
+		Name:             "application SDK packages stay free of the runtime implementation",
+		PathPrefixes:     []string{"auth/", "db/", "durable/", "errs/", "object/", "storage/", "datasource/", "internal/appsdk/", "runtime/shared/"},
+		ForbiddenImports: []string{"scenery.sh/runtime"},
+		AllowTestImports: []string{"scenery.sh/runtime"},
+	},
+	{
 		// Compiler-side packages need only the contract value types, so they
 		// depend on internal/contract and
 		// internal/contractpolicy directly and stay runtime-free. Importing the

@@ -1,4 +1,4 @@
-package runtime
+package appsdk
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLoadDotEnvIntoEnvAddsMissingValuesWithoutOverridingEnvironment(t *testing.T) {
+func TestLoadDotEnvAddsMissingValuesWithoutOverridingEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("Present=from-file\nMissing=from-file\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -22,9 +22,9 @@ func TestLoadDotEnvIntoEnvAddsMissingValuesWithoutOverridingEnvironment(t *testi
 	t.Cleanup(func() { _ = os.Chdir(oldwd) })
 	t.Setenv("Present", "from-env")
 	_ = os.Unsetenv("Missing")
-	dotEnvOnce, dotEnvData, dotEnvErr = sync.Once{}, nil, nil
+	dotEnv.once, dotEnv.data, dotEnv.err = sync.Once{}, nil, nil
 
-	if err := LoadDotEnvIntoEnv(); err != nil {
+	if err := LoadDotEnv(); err != nil {
 		t.Fatal(err)
 	}
 	if got := os.Getenv("Present"); got != "from-env" {

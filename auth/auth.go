@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/authbridge"
-	"scenery.sh/runtime"
 )
 
 type UID string
@@ -52,19 +52,27 @@ func init() {
 }
 
 func UserID() (UID, bool) {
-	info := runtime.CurrentAuth()
-	if info == nil || info.UID == "" {
+	info, ok := currentAuth()
+	if !ok || info.UID == "" {
 		return "", false
 	}
 	return UID(info.UID), true
 }
 
 func Data() any {
-	info := runtime.CurrentAuth()
-	if info == nil {
+	info, ok := currentAuth()
+	if !ok {
 		return nil
 	}
 	return info.Data
+}
+
+func currentAuth() (appsdk.Auth, bool) {
+	host := appsdk.CurrentHost()
+	if host == nil {
+		return appsdk.Auth{}, false
+	}
+	return host.CurrentAuth()
 }
 
 func CurrentAuthData() (*AuthData, bool) {
@@ -83,10 +91,12 @@ func CurrentAuditIdentity(ctx context.Context) (AuditIdentity, error) {
 }
 
 func WithContext(ctx context.Context, uid UID, data any) context.Context {
-	ctx = runtime.WithAuthContext(ctx, runtime.AuthInfo{
-		UID:  string(uid),
-		Data: data,
-	})
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if host := appsdk.CurrentHost(); host != nil {
+		ctx = host.WithAuth(ctx, appsdk.Auth{UID: string(uid), Data: data})
+	}
 	if authData, ok := data.(*AuthData); ok && authData != nil {
 		ctx = context.WithValue(ctx, authDataContextKey{}, authData)
 	}

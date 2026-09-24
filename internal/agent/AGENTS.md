@@ -7,10 +7,12 @@
 ## Ownership
 
 - Keep process/session ownership and durable state identity here.
-- Session process cleanup selects verified registered owners and the existing
-  state-root/environment orphan scope here. Process-table reads, tree signals,
-  and exit waits delegate to `internal/devprocess`; the CLI selects lifecycle
-  operations, and ordinary tests never execute the real process boundary.
+- Session process cleanup selects only verified recorded owners and registered
+  children here; never a command line, environment, port or parent. Tree
+  signals and exit waits delegate to `internal/devprocess`; the CLI selects
+  lifecycle operations, and ordinary tests never execute the real process
+  boundary. `agent-owner.json` records the agent lock holder for stale-agent
+  stops.
 - `worktree_*` owns canonical-root identity, retained capability records,
   lifetime/operation locks, observation-only orphan discovery, and the
   supervisor-embedded control server. Machine edge/deploy state remains separate.
