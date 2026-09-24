@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/schemas/scenery.telemetry.report.schema.json",
+      "title": "scenery.telemetry.report Schema",
+      "owner": "scenery CLI / observability",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-24",
+      "review_after": "2026-10-24",
+      "summary": "Machine output of scenery telemetry report: findings, CLI command and startup timings with failure bursts, detached supervisor rebuild timings, step percentiles, failure causes and streaks, and opt-in aggregates of agent Scenery calls and rejected inputs.",
+      "tags": ["schemas", "telemetry", "machine-protocol"]
+    },
+    {
       "path": "docs/plans/0204-recorded-ownership-small-sdk-one-snapshot.md",
       "title": "Recorded Process Ownership, Small SDK Closure And One Input Snapshot",
       "owner": "scenery runtime / agent / build",

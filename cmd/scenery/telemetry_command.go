@@ -83,6 +83,9 @@ type telemetryResponse struct {
 }
 
 func runTelemetryCommand(stdout io.Writer, args []string) error {
+	if len(args) > 0 && args[0] == "report" {
+		return runTelemetryReportCommand(stdout, args[1:])
+	}
 	opts, err := parseTelemetryArgs(args, time.Now().UTC())
 	if err != nil {
 		return err
