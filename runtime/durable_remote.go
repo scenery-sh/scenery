@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -134,11 +133,7 @@ func runDurableRemoteAttempt(ctx context.Context, client *http.Client, cfg durab
 	stopHeartbeat()
 	restore()
 	if err != nil {
-		message := "durable task failed"
-		if errors.Is(err, context.DeadlineExceeded) {
-			message = "durable task timed out"
-		}
-		_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, message)
+		_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, string(durableFailureMessage(err)))
 		return
 	}
 	_ = durableRemoteComplete(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, result)

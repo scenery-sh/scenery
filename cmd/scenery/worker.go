@@ -569,6 +569,15 @@ func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (stri
 			return registry.URL, nil
 		}
 	}
+	// The development runtime keeps its durable rows in the worktree's managed
+	// database; resolve it exactly as the db commands do.
+	database, err := resolvePostgresDatabaseForCLI(context.Background(), root, cfg)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(database.URL) != "" {
+		return database.URL, nil
+	}
 	return "", fmt.Errorf("durable store of service %s needs an external database; configure %s for the environment", service, appconfig.SQLDatabaseURLKey)
 }
 
