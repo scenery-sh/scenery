@@ -338,6 +338,7 @@ func WaitDurableTask(ctx context.Context, run DurableRun) ([]byte, error) {
 		return nil, fmt.Errorf("runtime: durable service %q is not active", service)
 	}
 	for {
+		wake := db.JobWake(run.ID)
 		job, found, err := db.GetJob(ctx, run.ID)
 		if err != nil {
 			return nil, err
@@ -354,17 +355,9 @@ func WaitDurableTask(ctx context.Context, run DurableRun) ([]byte, error) {
 		case "failed", "canceled":
 			return nil, &DurableExecutionFailure{Service: service, ID: run.ID, State: job.State, TaskName: job.TaskName}
 		}
-		timer := time.NewTimer(50 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
+		awaitDurableWake(ctx, wake, durableWaitPoll)
+		if ctx.Err() != nil {
 			return nil, ctx.Err()
-		case <-timer.C:
 		}
 	}
 }
@@ -522,9 +515,19 @@ func startDurableScheduleLoop(parent context.Context, stores []*store.Store, rol
 	}
 }
 
+// durableIdlePoll bounds how long an idle task loop waits for a queued-job
+// notification before it leases again anyway: expired leases and delayed
+// retries become ready without a notification.
+var durableIdlePoll = time.Second
+
+// durableWaitPoll bounds how long a waiting caller waits for a job's
+// finished notification before it reads the job again anyway.
+var durableWaitPoll = time.Second
+
 // runDurableLocalWorker leases and runs one task's jobs. Up to handler.slots
-// attempts run at once; the next job is leased only when a slot is free, so
-// an idle task costs one lease query per poll interval.
+// attempts run at once; the next job is leased only when a slot is free. An
+// idle loop sleeps until Postgres notifies it of a queued or finished job of
+// its task, or until durableIdlePoll passes.
 func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID, taskName string, handler durableRegisteredHandler) {
 	slots := make(chan struct{}, durableTaskSlots(handler.slots))
 	var attempts sync.WaitGroup
@@ -541,10 +544,11 @@ func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID, taskN
 			sleepDurableWorker(ctx)
 			continue
 		}
+		wake := db.TaskWake(taskName)
 		job, ok, err := db.LeaseReadyJob(ctx, workerID, leaseID, taskName)
 		if err != nil || !ok {
 			<-slots
-			sleepDurableWorker(ctx)
+			awaitDurableWake(ctx, wake, durableIdlePoll)
 			continue
 		}
 		attempts.Add(1)
@@ -578,17 +582,45 @@ func runDurableLocalAttempt(ctx context.Context, db *store.Store, workerID, leas
 	restore()
 	release()
 	if err != nil {
-		message := "durable task failed"
-		switch {
-		case errors.Is(err, errProcessAdmissionLost):
-			message = "durable task attempt lost the application generation it was admitted to"
-		case errors.Is(err, context.DeadlineExceeded):
-			message = "durable task timed out"
-		}
-		_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte(message))
+		_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, durableFailureMessage(err))
 		return
 	}
 	_ = db.CompleteLeasedJob(ctx, job.ID, workerID, leaseID, result)
+}
+
+// durableFailureMaxDetail bounds the handler error text kept with a failed
+// attempt; the admin listing shows it as the attempt's reason.
+const durableFailureMaxDetail = 4096
+
+// durableFailureMessage names why an attempt failed, followed by the handler's
+// own error text.
+func durableFailureMessage(err error) []byte {
+	message := "durable task failed"
+	switch {
+	case errors.Is(err, errProcessAdmissionLost):
+		message = "durable task attempt lost the application generation it was admitted to"
+	case errors.Is(err, context.DeadlineExceeded):
+		message = "durable task timed out"
+	}
+	detail := strings.TrimSpace(err.Error())
+	if len(detail) > durableFailureMaxDetail {
+		detail = detail[:durableFailureMaxDetail]
+	}
+	if detail != "" && detail != message {
+		message += ": " + detail
+	}
+	return []byte(message)
+}
+
+// awaitDurableWake returns when wake closes, after fallback, or when ctx ends.
+func awaitDurableWake(ctx context.Context, wake <-chan struct{}, fallback time.Duration) {
+	timer := time.NewTimer(fallback)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-wake:
+	case <-timer.C:
+	}
 }
 
 func runDurableTaskHandler(ctx context.Context, timeout time.Duration, handler func(context.Context, []byte) ([]byte, error), input []byte) (result []byte, err error) {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -23,6 +24,9 @@ type Store struct {
 
 	db    *sql.DB
 	owned bool
+
+	watchOnce sync.Once
+	watch     *watcher
 }
 
 func Open(ctx context.Context, service, databaseURL string, _ Options) (*Store, error) {
@@ -80,7 +84,11 @@ func NormalizeServiceName(name string) (string, error) {
 }
 
 func (s *Store) Close() error {
-	if s == nil || s.db == nil || !s.owned {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	s.stopWatch()
+	if !s.owned {
 		return nil
 	}
 	return s.db.Close()
@@ -436,6 +444,9 @@ VALUES ($1, $2, 'job.created', 'json', '{}'::bytea)
 `, s.Service, req.ID); err != nil {
 		return Job{}, rollback(tx, fmt.Errorf("durable store: append job.created event: %w", err))
 	}
+	if err := notifyTx(ctx, tx, s.Service, notification{Kind: "queued", Task: req.TaskName}); err != nil {
+		return Job{}, rollback(tx, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return Job{}, fmt.Errorf("durable store: commit start job: %w", err)
 	}
@@ -704,7 +715,8 @@ func (s *Store) CancelJob(ctx context.Context, jobID string) error {
 		return fmt.Errorf("durable store: begin cancel job: %w", err)
 	}
 	var attempt int
-	if err := tx.QueryRowContext(ctx, `SELECT attempt FROM scenery.durable_jobs WHERE service = $1 AND id = $2 FOR UPDATE`, s.Service, jobID).Scan(&attempt); err != nil {
+	var taskName string
+	if err := tx.QueryRowContext(ctx, `SELECT attempt, task_name FROM scenery.durable_jobs WHERE service = $1 AND id = $2 FOR UPDATE`, s.Service, jobID).Scan(&attempt, &taskName); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: load job %q: %w", jobID, err))
 	}
 	res, err := tx.ExecContext(ctx, `
@@ -727,6 +739,9 @@ VALUES ($1, $2, $3, 'job.canceled', 'json', '{}'::bytea)
 `, s.Service, jobID, attempt); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: append job.canceled event: %w", err))
 	}
+	if err := notifyTx(ctx, tx, s.Service, notification{Kind: "done", Task: taskName, Job: jobID}); err != nil {
+		return rollback(tx, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("durable store: commit cancel job: %w", err)
 	}
@@ -743,7 +758,8 @@ func (s *Store) RetryJob(ctx context.Context, jobID string) error {
 		return fmt.Errorf("durable store: begin retry job: %w", err)
 	}
 	var attempt int
-	if err := tx.QueryRowContext(ctx, `SELECT attempt FROM scenery.durable_jobs WHERE service = $1 AND id = $2 FOR UPDATE`, s.Service, jobID).Scan(&attempt); err != nil {
+	var taskName string
+	if err := tx.QueryRowContext(ctx, `SELECT attempt, task_name FROM scenery.durable_jobs WHERE service = $1 AND id = $2 FOR UPDATE`, s.Service, jobID).Scan(&attempt, &taskName); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: load job %q: %w", jobID, err))
 	}
 	res, err := tx.ExecContext(ctx, `
@@ -767,6 +783,9 @@ INSERT INTO scenery.durable_job_events (service, job_id, attempt, event_type, pa
 VALUES ($1, $2, $3, 'job.retry_requested', 'json', '{}'::bytea)
 `, s.Service, jobID, attempt); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: append job.retry_requested event: %w", err))
+	}
+	if err := notifyTx(ctx, tx, s.Service, notification{Kind: "queued", Task: taskName}); err != nil {
+		return rollback(tx, err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("durable store: commit retry job: %w", err)
@@ -900,12 +919,13 @@ func (s *Store) finishJob(ctx context.Context, jobID, workerID, leaseID, state, 
 		return fmt.Errorf("durable store: begin finish job: %w", err)
 	}
 	var attempt int
+	var taskName string
 	if err := tx.QueryRowContext(ctx, `
-SELECT attempt FROM scenery.durable_jobs
+SELECT attempt, task_name FROM scenery.durable_jobs
 WHERE service = $1 AND id = $2 AND ($3 = '' OR (state = 'running' AND lease_owner = $3 AND lease_id = $4))
   AND state = 'running'
 FOR UPDATE
-`, s.Service, jobID, workerID, leaseID).Scan(&attempt); err != nil {
+`, s.Service, jobID, workerID, leaseID).Scan(&attempt, &taskName); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: load job %q attempt: %w", jobID, err))
 	}
 	res, err := tx.ExecContext(ctx, `
@@ -931,6 +951,9 @@ VALUES ($1, $2, $3, $4, 'json', '{}'::bytea)
 `, s.Service, jobID, attempt, eventType); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: append %s event: %w", eventType, err))
 	}
+	if err := notifyTx(ctx, tx, s.Service, notification{Kind: "done", Task: taskName, Job: jobID}); err != nil {
+		return rollback(tx, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("durable store: commit finish job: %w", err)
 	}
@@ -950,13 +973,14 @@ func (s *Store) failOrRetryJob(ctx context.Context, jobID, workerID, leaseID str
 	}
 	var attempt, maxAttempts, retryInitialMS, retryMaxMS int
 	var retryBackoff float64
+	var taskName string
 	if err := tx.QueryRowContext(ctx, `
-SELECT j.attempt, j.max_attempts, t.retry_initial_ms, t.retry_max_ms, t.retry_backoff
+SELECT j.attempt, j.max_attempts, t.retry_initial_ms, t.retry_max_ms, t.retry_backoff, j.task_name
 FROM scenery.durable_jobs j
 JOIN scenery.durable_tasks t ON t.service = j.service AND t.name = j.task_name
 WHERE j.service = $1 AND j.id = $2 AND j.state = 'running' AND ($3 = '' OR (j.lease_owner = $3 AND j.lease_id = $4))
 FOR UPDATE OF j
-`, s.Service, jobID, workerID, leaseID).Scan(&attempt, &maxAttempts, &retryInitialMS, &retryMaxMS, &retryBackoff); err != nil {
+`, s.Service, jobID, workerID, leaseID).Scan(&attempt, &maxAttempts, &retryInitialMS, &retryMaxMS, &retryBackoff, &taskName); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: load job %q retry policy: %w", jobID, err))
 	}
 	if attempt < maxAttempts {
@@ -983,6 +1007,10 @@ VALUES ($1, $2, $3, 'job.retry_scheduled', 'json', '{}'::bytea)
 `, s.Service, jobID, attempt); err != nil {
 			return rollback(tx, fmt.Errorf("durable store: append job.retry_scheduled event: %w", err))
 		}
+		// The retry runs later; task loops wake on their fallback timer, waiters see the new attempt.
+		if err := notifyTx(ctx, tx, s.Service, notification{Kind: "requeued", Task: taskName, Job: jobID}); err != nil {
+			return rollback(tx, err)
+		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("durable store: commit retry job: %w", err)
 		}
@@ -1008,6 +1036,9 @@ INSERT INTO scenery.durable_job_events (service, job_id, attempt, event_type, pa
 VALUES ($1, $2, $3, 'job.failed', 'json', '{}'::bytea)
 `, s.Service, jobID, attempt); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: append job.failed event: %w", err))
+	}
+	if err := notifyTx(ctx, tx, s.Service, notification{Kind: "done", Task: taskName, Job: jobID}); err != nil {
+		return rollback(tx, err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("durable store: commit fail job: %w", err)
