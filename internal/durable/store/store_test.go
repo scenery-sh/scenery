@@ -61,6 +61,35 @@ func TestOpenCreatesPostgresSchemaWithExpectedTables(t *testing.T) {
 	defer func() { _ = second.Close() }()
 }
 
+func TestOpenCurrentSchemaDoesNotBlockTaskReconciliation(t *testing.T) {
+	ctx := context.Background()
+	s := openLiveTestStore(t, "maps")
+	defer func() { _ = s.Close() }()
+	tx, err := s.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Reconciliation reads jobs before writing tasks. Reapplying the schema
+	// would take tasks' DDL lock and wait for this jobs lock, making a cycle.
+	if _, err := tx.ExecContext(ctx, `LOCK TABLE scenery.durable_jobs IN ACCESS SHARE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	startupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	second, err := Open(startupCtx, "house", s.DatabaseURL, Options{})
+	if err != nil {
+		t.Fatalf("opening an installed schema blocked on active jobs: %v", err)
+	}
+	defer func() { _ = second.Close() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO scenery.durable_tasks (service,name,handler_ref) VALUES ('maps','maps.echo','maps.Echo')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReconcileTasksAndStartAreIdempotentByDedupeKey(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")

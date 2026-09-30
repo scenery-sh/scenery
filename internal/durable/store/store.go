@@ -95,6 +95,23 @@ func (s *Store) DB() *sql.DB {
 
 func (s *Store) init(ctx context.Context) error {
 	return postgresdb.Migrate(ctx, s.db, "scenery.durable.store", func(ctx context.Context, tx *sql.Tx) error {
+		// Once this version is installed, startup must not acquire DDL locks on
+		// tables that another service is already using for task reconciliation.
+		var ledgerExists bool
+		if err := tx.QueryRowContext(ctx, `SELECT to_regclass('scenery.durable_schema_migrations') IS NOT NULL`).Scan(&ledgerExists); err != nil {
+			return fmt.Errorf("durable store: inspect schema ledger: %w", err)
+		}
+		if ledgerExists {
+			var installed bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+SELECT 1 FROM scenery.durable_schema_migrations WHERE version = $1 AND checksum = $2
+)`, schemaVersion, "durable-postgres-v2").Scan(&installed); err != nil {
+				return fmt.Errorf("durable store: inspect schema version: %w", err)
+			}
+			if installed {
+				return nil
+			}
+		}
 		if _, err := tx.ExecContext(ctx, initSchemaSQL); err != nil {
 			return fmt.Errorf("durable store: apply schema: %w", err)
 		}

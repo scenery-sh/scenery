@@ -835,7 +835,7 @@ func renderRecordMethods(b *strings.Builder, resource Resource, name string) {
 	if resource.Spec["unknown_fields"] == "preserve" {
 		b.WriteString("\tfor key, raw := range value.UnknownFields {\n\t\tif _, exists := object[key]; exists { return nil, fmt.Errorf(\"unknown field %q collides with a declared wire name\", key) }\n\t\tcanonical, err := scenery.MarshalContractValue(raw, \"json\"); if err != nil { return nil, fmt.Errorf(\"encode unknown field %q: %w\", key, err) }\n\t\tobject[key] = append(json.RawMessage(nil), canonical...)\n\t}\n")
 	}
-	b.WriteString("\tencoded, err := json.Marshal(object); if err != nil { return nil, err }; return scenery.MarshalContractValue(scenery.JSON(encoded), \"json\")\n}\n\n")
+	b.WriteString("\treturn json.Marshal(object)\n}\n\n")
 	fmt.Fprintf(b, "func (value *%s) UnmarshalJSON(data []byte) error {\n", name)
 	b.WriteString("\tobject, err := scenery.DecodeJSONObject(data); if err != nil { return err }\n")
 	fmt.Fprintf(b, "\t*value = %s{}\n", name)
@@ -927,7 +927,7 @@ func renderUnion(b *strings.Builder, resource Resource, typeName func(any) strin
 	}
 	fmt.Fprintf(b, "func marshal%sVariant(tag string, payload any, payloadType string) ([]byte, error) {\n", name)
 	b.WriteString("\tif tag == \"\" { return nil, fmt.Errorf(\"union tag is required\") }\n")
-	fmt.Fprintf(b, "\tpayloadBytes, err := scenery.MarshalContractValue(payload, payloadType); if err != nil { return nil, err }; object, err := scenery.DecodeJSONObject(payloadBytes); if err != nil { return nil, fmt.Errorf(\"union payload must be a record: %%w\", err) }; if _, exists := object[%q]; exists { return nil, fmt.Errorf(\"union discriminator collision\") }; tagBytes, err := scenery.MarshalContractValue(tag, \"string\"); if err != nil { return nil, err }; object[%q] = tagBytes; encoded, err := json.Marshal(object); if err != nil { return nil, err }; return scenery.MarshalContractValue(scenery.JSON(encoded), \"json\")\n}\n\n", discriminator, discriminator)
+	fmt.Fprintf(b, "\tpayloadBytes, err := scenery.MarshalContractValue(payload, payloadType); if err != nil { return nil, err }; object, err := scenery.DecodeJSONObject(payloadBytes); if err != nil { return nil, fmt.Errorf(\"union payload must be a record: %%w\", err) }; if _, exists := object[%q]; exists { return nil, fmt.Errorf(\"union discriminator collision\") }; tagBytes, err := scenery.MarshalContractValue(tag, \"string\"); if err != nil { return nil, err }; object[%q] = tagBytes; return json.Marshal(object)\n}\n\n", discriminator, discriminator)
 	fmt.Fprintf(b, "func Marshal%sJSON(value %s) ([]byte, error) {\n\tswitch typed := value.(type) {\n", name, name)
 	for _, variant := range namedChildren(resource.Spec, "variant") {
 		wrapper := name + goName(stringValue(variant["name"]))
@@ -939,7 +939,7 @@ func renderUnion(b *strings.Builder, resource Resource, typeName func(any) strin
 	}
 	b.WriteString("\tdefault: return nil, fmt.Errorf(\"unknown union value %T\", value)\n\t}\n}\n\n")
 	fmt.Fprintf(b, "func Unmarshal%sJSON(data []byte) (%s, error) {\n", name, name)
-	fmt.Fprintf(b, "\tobject, err := scenery.DecodeJSONObject(data); if err != nil { return nil, err }; tagBytes, exists := object[%q]; if !exists { return nil, fmt.Errorf(\"missing union discriminator %s\") }; var tag string; if err := scenery.UnmarshalContractValue(tagBytes, &tag, \"string\"); err != nil { return nil, fmt.Errorf(\"decode union discriminator: %%w\", err) }; delete(object, %q); encoded, err := json.Marshal(object); if err != nil { return nil, err }; payload, err := scenery.MarshalContractValue(scenery.JSON(encoded), \"json\"); if err != nil { return nil, err }; switch tag {\n", discriminator, discriminator, discriminator)
+	fmt.Fprintf(b, "\tobject, err := scenery.DecodeJSONObject(data); if err != nil { return nil, err }; tagBytes, exists := object[%q]; if !exists { return nil, fmt.Errorf(\"missing union discriminator %s\") }; var tag string; if err := scenery.UnmarshalContractValue(tagBytes, &tag, \"string\"); err != nil { return nil, fmt.Errorf(\"decode union discriminator: %%w\", err) }; delete(object, %q); payload, err := json.Marshal(object); if err != nil { return nil, err }; switch tag {\n", discriminator, discriminator, discriminator)
 	for _, variant := range namedChildren(resource.Spec, "variant") {
 		variantName := stringValue(variant["name"])
 		wrapper := name + goName(variantName)
