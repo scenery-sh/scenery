@@ -443,7 +443,7 @@ func runPostgresHarnessDurableRoundTrip(ctx context.Context, databaseURL string)
 	if _, err := s.Start(ctx, durablestore.StartRequest{ID: "harness-job", TaskName: "reports.echo.v1", InputBlob: []byte(`{"ok":true}`)}); err != nil {
 		return err
 	}
-	leased, ok, err := s.LeaseReadyJob(ctx, "harness-worker", "harness-lease")
+	leased, ok, err := s.LeaseReadyJob(ctx, "harness-worker", "harness-lease", "reports.echo.v1")
 	if err != nil {
 		return err
 	}

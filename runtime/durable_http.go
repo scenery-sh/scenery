@@ -10,6 +10,7 @@ import (
 
 type durableLeaseRequest struct {
 	WorkerID string `json:"worker_id"`
+	TaskName string `json:"task_name"`
 	LeaseID  string `json:"lease_id,omitempty"`
 }
 
@@ -66,6 +67,11 @@ func (s *server) handleDurableLease(w http.ResponseWriter, req *http.Request, pa
 		durableHTTPError(w, http.StatusBadRequest, "worker_id is required")
 		return
 	}
+	body.TaskName = strings.TrimSpace(body.TaskName)
+	if body.TaskName == "" {
+		durableHTTPError(w, http.StatusBadRequest, "task_name is required")
+		return
+	}
 	leaseID := strings.TrimSpace(body.LeaseID)
 	if leaseID == "" {
 		var err error
@@ -75,7 +81,7 @@ func (s *server) handleDurableLease(w http.ResponseWriter, req *http.Request, pa
 			return
 		}
 	}
-	job, leased, err := db.LeaseReadyJobWithToken(req.Context(), body.WorkerID, leaseID, token.TokenHash)
+	job, leased, err := db.LeaseReadyJobWithToken(req.Context(), body.WorkerID, leaseID, body.TaskName, token.TokenHash)
 	if err != nil {
 		durableHTTPError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -48,6 +48,15 @@ type DurableExecutionFailure struct {
 type durableRegisteredHandler struct {
 	handler func(context.Context, []byte) ([]byte, error)
 	timeout time.Duration
+	// slots is how many attempts of the task one worker process runs at
+	// once: the declared concurrency limit, or one.
+	slots int
+}
+
+// durableTaskSlots is the number of attempts a worker process runs at once for
+// a task declared with maxConcurrency.
+func durableTaskSlots(maxConcurrency int) int {
+	return max(1, maxConcurrency)
 }
 
 type durableInvocationMetadata struct {
@@ -114,7 +123,7 @@ func openDurableRuntime(ctx context.Context, cfg AppConfig) (*durableRuntime, er
 		if handlers[service] == nil {
 			handlers[service] = make(map[string]durableRegisteredHandler)
 		}
-		handlers[service][task.Name] = durableRegisteredHandler{handler: task.Handler, timeout: task.DefaultTimeout}
+		handlers[service][task.Name] = durableRegisteredHandler{handler: task.Handler, timeout: task.DefaultTimeout, slots: durableTaskSlots(task.MaxConcurrency)}
 	}
 	if remoteCfg := durableRemoteWorkerConfigFromEnv(); remoteCfg.Endpoint != "" {
 		if remoteCfg.Token == "" {
@@ -436,6 +445,8 @@ func enterDurableInvocation(ctx context.Context, service, taskName, executionID 
 	return ctx, enterState(state)
 }
 
+// startDurableLocalWorkers runs one acquisition loop per durable task of every
+// store, so a long attempt of one task never delays another task's jobs.
 func startDurableLocalWorkers(parent context.Context, stores []*store.Store, handlers map[string]map[string]durableRegisteredHandler, role string) func(context.Context) error {
 	if strings.EqualFold(strings.TrimSpace(role), "api") {
 		return func(context.Context) error { return nil }
@@ -444,15 +455,16 @@ func startDurableLocalWorkers(parent context.Context, stores []*store.Store, han
 	var wg sync.WaitGroup
 	workerID := fmt.Sprintf("local-%d", os.Getpid())
 	for _, db := range stores {
-		serviceHandlers := handlers[db.Service]
-		if len(serviceHandlers) == 0 {
-			continue
+		for taskName, handler := range handlers[db.Service] {
+			if handler.handler == nil {
+				continue
+			}
+			wg.Add(1)
+			go func(db *store.Store, taskName string, handler durableRegisteredHandler) {
+				defer wg.Done()
+				runDurableLocalWorker(ctx, db, workerID, taskName, handler)
+			}(db, taskName, handler)
 		}
-		wg.Add(1)
-		go func(db *store.Store, serviceHandlers map[string]durableRegisteredHandler) {
-			defer wg.Done()
-			runDurableLocalWorker(ctx, db, workerID, serviceHandlers)
-		}(db, serviceHandlers)
 	}
 	return func(stopCtx context.Context) error {
 		cancel()
@@ -510,64 +522,73 @@ func startDurableScheduleLoop(parent context.Context, stores []*store.Store, rol
 	}
 }
 
-func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID string, handlers map[string]durableRegisteredHandler) {
+// runDurableLocalWorker leases and runs one task's jobs. Up to handler.slots
+// attempts run at once; the next job is leased only when a slot is free, so
+// an idle task costs one lease query per poll interval.
+func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID, taskName string, handler durableRegisteredHandler) {
+	slots := make(chan struct{}, durableTaskSlots(handler.slots))
+	var attempts sync.WaitGroup
+	defer attempts.Wait()
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return
+		case slots <- struct{}{}:
 		}
 		leaseID, err := newDurableID("lease_")
 		if err != nil {
+			<-slots
 			sleepDurableWorker(ctx)
 			continue
 		}
-		job, ok, err := db.LeaseReadyJob(ctx, workerID, leaseID)
-		if err != nil {
+		job, ok, err := db.LeaseReadyJob(ctx, workerID, leaseID, taskName)
+		if err != nil || !ok {
+			<-slots
 			sleepDurableWorker(ctx)
 			continue
 		}
-		if !ok {
-			sleepDurableWorker(ctx)
-			continue
-		}
-		handler, exists := handlers[job.TaskName]
-		if !exists || handler.handler == nil {
-			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("missing durable task handler"))
-			continue
-		}
-		// An attempt that is not admitted to an application generation fails
-		// as an attempt the process could not run, under the task's retry policy.
-		admitted, generation, release, err := admitProcessGeneration(ctx)
-		if err != nil {
-			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("durable task attempt was not admitted to an application generation"))
-			sleepDurableWorker(ctx)
-			continue
-		}
-		jobCtx := context.WithValue(admitted, durableContextStore, db)
-		jobCtx = context.WithValue(jobCtx, durableContextJobID, job.ID)
-		jobCtx, restore := enterDurableInvocation(jobCtx, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
-		stopHeartbeat := startDurableHeartbeat(jobCtx, time.Duration(job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
-			return db.HeartbeatJob(heartbeatCtx, job.ID, workerID, leaseID)
-		})
-		result, err := runDurableTaskHandler(jobCtx, handler.timeout, handler.handler, job.InputBlob)
-		err = processAdmissionOutcome(admitted, err)
-		stopHeartbeat()
-		restore()
-		release()
-		if err != nil {
-			message := "durable task failed"
-			switch {
-			case errors.Is(err, errProcessAdmissionLost):
-				message = "durable task attempt lost the application generation it was admitted to"
-			case errors.Is(err, context.DeadlineExceeded):
-				message = "durable task timed out"
-			}
-			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte(message))
-			continue
-		}
-		if err := db.CompleteLeasedJob(ctx, job.ID, workerID, leaseID, result); err != nil {
-			sleepDurableWorker(ctx)
-		}
+		attempts.Add(1)
+		go func() {
+			defer attempts.Done()
+			defer func() { <-slots }()
+			runDurableLocalAttempt(ctx, db, workerID, leaseID, job, handler)
+		}()
 	}
+}
+
+// runDurableLocalAttempt runs one leased attempt to completion or failure.
+func runDurableLocalAttempt(ctx context.Context, db *store.Store, workerID, leaseID string, job store.LeasedJob, handler durableRegisteredHandler) {
+	// An attempt that is not admitted to an application generation fails
+	// as an attempt the process could not run, under the task's retry policy.
+	admitted, generation, release, err := admitProcessGeneration(ctx)
+	if err != nil {
+		_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("durable task attempt was not admitted to an application generation"))
+		sleepDurableWorker(ctx)
+		return
+	}
+	jobCtx := context.WithValue(admitted, durableContextStore, db)
+	jobCtx = context.WithValue(jobCtx, durableContextJobID, job.ID)
+	jobCtx, restore := enterDurableInvocation(jobCtx, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
+	stopHeartbeat := startDurableHeartbeat(jobCtx, time.Duration(job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
+		return db.HeartbeatJob(heartbeatCtx, job.ID, workerID, leaseID)
+	})
+	result, err := runDurableTaskHandler(jobCtx, handler.timeout, handler.handler, job.InputBlob)
+	err = processAdmissionOutcome(admitted, err)
+	stopHeartbeat()
+	restore()
+	release()
+	if err != nil {
+		message := "durable task failed"
+		switch {
+		case errors.Is(err, errProcessAdmissionLost):
+			message = "durable task attempt lost the application generation it was admitted to"
+		case errors.Is(err, context.DeadlineExceeded):
+			message = "durable task timed out"
+		}
+		_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte(message))
+		return
+	}
+	_ = db.CompleteLeasedJob(ctx, job.ID, workerID, leaseID, result)
 }
 
 func runDurableTaskHandler(ctx context.Context, timeout time.Duration, handler func(context.Context, []byte) ([]byte, error), input []byte) (result []byte, err error) {

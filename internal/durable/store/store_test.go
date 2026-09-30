@@ -128,7 +128,7 @@ func TestLeaseCompleteAndFailJobs(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-success", TaskName: "maps.detect.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	leased, ok, err := s.LeaseReadyJob(ctx, "worker-1", "lease-1")
+	leased, ok, err := s.LeaseReadyJob(ctx, "worker-1", "lease-1", "maps.detect.v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestLeaseCompleteAndFailJobs(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-fail", TaskName: "maps.detect.v1", InputBlob: []byte(`{"id":"2"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	leased, ok, err = s.LeaseReadyJob(ctx, "worker-1", "lease-2")
+	leased, ok, err = s.LeaseReadyJob(ctx, "worker-1", "lease-2", "maps.detect.v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-remote", TaskName: "maps.remote.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	leased, ok, err := s.LeaseReadyJobWithToken(ctx, "worker-remote", "lease-good", token.TokenHash)
+	leased, ok, err := s.LeaseReadyJobWithToken(ctx, "worker-remote", "lease-good", "maps.remote.v1", token.TokenHash)
 	if err != nil || !ok {
 		t.Fatalf("LeaseReadyJobWithToken = %+v ok=%v err=%v", leased, ok, err)
 	}
@@ -215,7 +215,7 @@ func TestLeaseAndHeartbeatUseTaskLeaseDuration(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-lease", TaskName: "maps.lease.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	leased, ok, err := s.LeaseReadyJob(ctx, "worker-lease", "lease-1")
+	leased, ok, err := s.LeaseReadyJob(ctx, "worker-lease", "lease-1", "maps.lease.v1")
 	if err != nil || !ok {
 		t.Fatalf("LeaseReadyJob = %+v ok=%v err=%v", leased, ok, err)
 	}
@@ -248,7 +248,7 @@ func TestStaleWorkerCannotResurrectCanceledJob(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-cancel", TaskName: "maps.cancel.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	leased, ok, err := s.LeaseReadyJob(ctx, "worker-stale", "lease-stale")
+	leased, ok, err := s.LeaseReadyJob(ctx, "worker-stale", "lease-stale", "maps.cancel.v1")
 	if err != nil || !ok {
 		t.Fatalf("LeaseReadyJob = %+v ok=%v err=%v", leased, ok, err)
 	}
@@ -276,7 +276,7 @@ func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-retry", TaskName: "maps.retry.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	leased, ok, err := s.LeaseReadyJob(ctx, "worker-1", "lease-1")
+	leased, ok, err := s.LeaseReadyJob(ctx, "worker-1", "lease-1", "maps.retry.v1")
 	if err != nil || !ok {
 		t.Fatalf("first lease = %+v ok=%v err=%v", leased, ok, err)
 	}
@@ -285,7 +285,7 @@ func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
 	}
 	assertJobState(t, s, "job-retry", "queued")
 
-	leased = waitLeaseReady(t, s, "lease-2")
+	leased = waitLeaseReady(t, s, "lease-2", "maps.retry.v1")
 	if leased.Attempt != 2 {
 		t.Fatalf("retry attempt = %d, want 2", leased.Attempt)
 	}
@@ -502,12 +502,12 @@ func leaseRemainingMS(t *testing.T, s *Store, jobID string) int {
 	return int(remaining)
 }
 
-func waitLeaseReady(t *testing.T, s *Store, leaseID string) LeasedJob {
+func waitLeaseReady(t *testing.T, s *Store, leaseID, taskName string) LeasedJob {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		job, ok, err := s.LeaseReadyJob(ctx, "worker-1", leaseID)
+		job, ok, err := s.LeaseReadyJob(ctx, "worker-1", leaseID, taskName)
 		if err != nil {
 			t.Fatal(err)
 		}

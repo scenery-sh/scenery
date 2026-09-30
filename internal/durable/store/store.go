@@ -442,18 +442,24 @@ VALUES ($1, $2, 'job.created', 'json', '{}'::bytea)
 	return Job{ID: req.ID, TaskName: req.TaskName, State: "queued", DedupeKey: req.DedupeKey}, nil
 }
 
-func (s *Store) LeaseReadyJob(ctx context.Context, workerID, leaseID string) (LeasedJob, bool, error) {
-	return s.LeaseReadyJobWithToken(ctx, workerID, leaseID, "")
+// LeaseReadyJob leases the next ready job of one task. Each task is leased
+// separately, so a long attempt of one task never delays another task.
+func (s *Store) LeaseReadyJob(ctx context.Context, workerID, leaseID, taskName string) (LeasedJob, bool, error) {
+	return s.LeaseReadyJobWithToken(ctx, workerID, leaseID, taskName, "")
 }
 
-func (s *Store) LeaseReadyJobWithToken(ctx context.Context, workerID, leaseID, tokenHash string) (LeasedJob, bool, error) {
+func (s *Store) LeaseReadyJobWithToken(ctx context.Context, workerID, leaseID, taskName, tokenHash string) (LeasedJob, bool, error) {
 	workerID = strings.TrimSpace(workerID)
 	leaseID = strings.TrimSpace(leaseID)
+	taskName = strings.TrimSpace(taskName)
 	if workerID == "" {
 		return LeasedJob{}, false, fmt.Errorf("durable store: worker id is required")
 	}
 	if leaseID == "" {
 		return LeasedJob{}, false, fmt.Errorf("durable store: lease id is required")
+	}
+	if taskName == "" {
+		return LeasedJob{}, false, fmt.Errorf("durable store: task name is required")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -469,7 +475,7 @@ SELECT j.id, j.task_name, j.attempt + 1, j.input_codec, j.input_blob, j.memo_jso
        CASE WHEN t.default_timeout_ms > 0 THEN t.default_timeout_ms ELSE 60000 END
 FROM scenery.durable_jobs j
 JOIN scenery.durable_tasks t ON t.service = j.service AND t.name = j.task_name AND t.version = j.task_version
-WHERE j.service = $1 AND j.state = 'queued' AND j.run_after <= now() AND t.enabled
+WHERE j.service = $1 AND j.task_name = $2 AND j.state = 'queued' AND j.run_after <= now() AND t.enabled
   AND (t.max_concurrency <= 0 OR (
     SELECT count(*) FROM scenery.durable_jobs running
     WHERE running.service = j.service AND running.task_name = j.task_name AND running.state = 'running'
@@ -478,7 +484,7 @@ WHERE j.service = $1 AND j.state = 'queued' AND j.run_after <= now() AND t.enabl
 ORDER BY j.priority DESC, j.created_at, j.id
 LIMIT 1
 FOR UPDATE OF t, j SKIP LOCKED
-`, s.Service).Scan(&job.ID, &job.TaskName, &job.Attempt, &job.InputCodec, &job.InputBlob, &job.MemoJSON, &job.LeaseMS, &job.TimeoutMS)
+`, s.Service, taskName).Scan(&job.ID, &job.TaskName, &job.Attempt, &job.InputCodec, &job.InputBlob, &job.MemoJSON, &job.LeaseMS, &job.TimeoutMS)
 	if errors.Is(err, sql.ErrNoRows) {
 		if commitErr := tx.Commit(); commitErr != nil {
 			return LeasedJob{}, false, fmt.Errorf("durable store: commit empty lease: %w", commitErr)
