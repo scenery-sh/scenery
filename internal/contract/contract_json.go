@@ -12,11 +12,11 @@ import (
 // DecodeJSONObject is the strict object decoder used by generated contract
 // records.
 func DecodeJSONObject(data []byte) (map[string]json.RawMessage, error) {
-	canonical, err := canonicalizeExactJSON(data)
-	if err != nil {
+	// Validate exact JSON without rewriting schema-directed numeric tokens.
+	// In particular, float fields use a shortest round-trip exponent form.
+	if _, err := canonicalizeExactJSON(data); err != nil {
 		return nil, err
 	}
-	data = canonical
 	if len(data) >= 3 && bytes.Equal(data[:3], []byte{0xef, 0xbb, 0xbf}) {
 		return nil, fmt.Errorf("JSON byte-order mark is forbidden")
 	}

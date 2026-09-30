@@ -48,6 +48,8 @@ func durableRemoteWorkerConfigFromEnv() durableRemoteWorkerConfig {
 	return cfg
 }
 
+// startDurableRemoteWorkers runs one acquisition loop per durable task of every
+// selected service against the endpoint's lease protocol.
 func startDurableRemoteWorkers(parent context.Context, handlers map[string]map[string]durableRegisteredHandler, cfg durableRemoteWorkerConfig) func(context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	client := &http.Client{Timeout: 65 * time.Second}
@@ -60,15 +62,19 @@ func startDurableRemoteWorkers(parent context.Context, handlers map[string]map[s
 	var wg sync.WaitGroup
 	for _, service := range services {
 		service = strings.TrimSpace(service)
-		serviceHandlers := handlers[service]
-		if service == "" || len(serviceHandlers) == 0 {
+		if service == "" {
 			continue
 		}
-		wg.Add(1)
-		go func(service string, serviceHandlers map[string]durableRegisteredHandler) {
-			defer wg.Done()
-			runDurableRemoteWorker(ctx, client, cfg, service, serviceHandlers)
-		}(service, serviceHandlers)
+		for taskName, handler := range handlers[service] {
+			if handler.handler == nil {
+				continue
+			}
+			wg.Add(1)
+			go func(service, taskName string, handler durableRegisteredHandler) {
+				defer wg.Done()
+				runDurableRemoteWorker(ctx, client, cfg, service, taskName, handler)
+			}(service, taskName, handler)
+		}
 	}
 	return func(stopCtx context.Context) error {
 		cancel()
@@ -86,50 +92,61 @@ func startDurableRemoteWorkers(parent context.Context, handlers map[string]map[s
 	}
 }
 
-func runDurableRemoteWorker(ctx context.Context, client *http.Client, cfg durableRemoteWorkerConfig, service string, handlers map[string]durableRegisteredHandler) {
+// runDurableRemoteWorker leases and runs one task's jobs over HTTP, up to
+// handler.slots attempts at once.
+func runDurableRemoteWorker(ctx context.Context, client *http.Client, cfg durableRemoteWorkerConfig, service, taskName string, handler durableRegisteredHandler) {
+	slots := make(chan struct{}, durableTaskSlots(handler.slots))
+	var attempts sync.WaitGroup
+	defer attempts.Wait()
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return
+		case slots <- struct{}{}:
 		}
-		lease, err := durableRemoteLease(ctx, client, cfg, service)
+		lease, err := durableRemoteLease(ctx, client, cfg, service, taskName)
 		if err != nil || !lease.Leased || lease.Job == nil {
+			<-slots
 			sleepDurableWorker(ctx)
 			continue
 		}
-		handler, exists := handlers[lease.Job.TaskName]
-		if !exists || handler.handler == nil {
-			_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, "missing durable task handler")
-			continue
-		}
-		stopHeartbeat := startDurableHeartbeat(ctx, time.Duration(lease.Job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
-			return durableRemoteHeartbeat(heartbeatCtx, client, cfg, service, lease.Job.ID, lease.LeaseID)
-		})
-		timeout := handler.timeout
-		if lease.Job.TimeoutMS > 0 {
-			timeout = time.Duration(lease.Job.TimeoutMS) * time.Millisecond
-		}
-		// A remote worker is never process-linked, so its attempts run unpinned.
-		jobCtx, restore := enterDurableInvocation(ctx, service, lease.Job.TaskName, lease.Job.ID, timeout, lease.Job.Invocation, 0)
-		result, err := runDurableTaskHandler(jobCtx, timeout, handler.handler, []byte(lease.Job.Input))
-		stopHeartbeat()
-		restore()
-		if err != nil {
-			message := "durable task failed"
-			if errors.Is(err, context.DeadlineExceeded) {
-				message = "durable task timed out"
-			}
-			_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, message)
-			continue
-		}
-		if err := durableRemoteComplete(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, result); err != nil {
-			sleepDurableWorker(ctx)
-		}
+		attempts.Add(1)
+		go func() {
+			defer attempts.Done()
+			defer func() { <-slots }()
+			runDurableRemoteAttempt(ctx, client, cfg, service, lease, handler)
+		}()
 	}
 }
 
-func durableRemoteLease(ctx context.Context, client *http.Client, cfg durableRemoteWorkerConfig, service string) (durableLeaseResponse, error) {
+// runDurableRemoteAttempt runs one leased attempt and reports its outcome.
+func runDurableRemoteAttempt(ctx context.Context, client *http.Client, cfg durableRemoteWorkerConfig, service string, lease durableLeaseResponse, handler durableRegisteredHandler) {
+	stopHeartbeat := startDurableHeartbeat(ctx, time.Duration(lease.Job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
+		return durableRemoteHeartbeat(heartbeatCtx, client, cfg, service, lease.Job.ID, lease.LeaseID)
+	})
+	timeout := handler.timeout
+	if lease.Job.TimeoutMS > 0 {
+		timeout = time.Duration(lease.Job.TimeoutMS) * time.Millisecond
+	}
+	// A remote worker is never process-linked, so its attempts run unpinned.
+	jobCtx, restore := enterDurableInvocation(ctx, service, lease.Job.TaskName, lease.Job.ID, timeout, lease.Job.Invocation, 0)
+	result, err := runDurableTaskHandler(jobCtx, timeout, handler.handler, []byte(lease.Job.Input))
+	stopHeartbeat()
+	restore()
+	if err != nil {
+		message := "durable task failed"
+		if errors.Is(err, context.DeadlineExceeded) {
+			message = "durable task timed out"
+		}
+		_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, message)
+		return
+	}
+	_ = durableRemoteComplete(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, result)
+}
+
+func durableRemoteLease(ctx context.Context, client *http.Client, cfg durableRemoteWorkerConfig, service, taskName string) (durableLeaseResponse, error) {
 	var resp durableLeaseResponse
-	err := durableRemotePost(ctx, client, cfg, durableRemotePath(service, "lease"), map[string]string{"worker_id": cfg.WorkerID}, &resp)
+	err := durableRemotePost(ctx, client, cfg, durableRemotePath(service, "lease"), durableLeaseRequest{WorkerID: cfg.WorkerID, TaskName: taskName}, &resp)
 	return resp, err
 }
 

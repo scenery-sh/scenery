@@ -55,6 +55,58 @@ func TestContractWireJSONRejectsAmbiguityAndCanonicalizes(t *testing.T) {
 	}
 }
 
+// Generated records must preserve schema-directed float tokens through nested
+// collections and outcome envelopes, rather than applying the raw JSON codec.
+func TestContractWireNestedFloatsRoundTrip(t *testing.T) {
+	for _, value := range []float64{7.909761734481435e-10, 1e7} {
+		original := contractFloatRecord{Value: value}
+		encoded, err := MarshalContractOutcomeVariant("result", "ok", original, "example/record/float")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, payload, err := DecodeContractOutcomeEnvelope(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded contractFloatRecord
+		if err := UnmarshalContractValue(payload, &decoded, "example/record/float"); err != nil {
+			t.Fatalf("decode record with %g: %v", value, err)
+		}
+		if decoded != original {
+			t.Fatalf("decoded = %#v, want %#v", decoded, original)
+		}
+		list, err := MarshalContractValue([]float64{value}, "list(float64)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decodedList []float64
+		if err := UnmarshalContractValue(list, &decodedList, "list(float64)"); err != nil {
+			t.Fatalf("decode list with %g: %v", value, err)
+		}
+		if !reflect.DeepEqual(decodedList, []float64{value}) {
+			t.Fatalf("decoded list = %v, want [%g]", decodedList, value)
+		}
+	}
+}
+
+type contractFloatRecord struct{ Value float64 }
+
+func (value contractFloatRecord) MarshalJSON() ([]byte, error) {
+	field, err := MarshalContractValue(value.Value, "float64")
+	if err != nil {
+		return nil, err
+	}
+	return joinContractJSONObject(map[string][]byte{"value": field})
+}
+
+func (value *contractFloatRecord) UnmarshalJSON(data []byte) error {
+	object, err := DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	return UnmarshalContractValue(object["value"], &value.Value, "float64")
+}
+
 func TestContractConstraintsValidateExactValues(t *testing.T) {
 	minimum, maximum := "2", "10"
 	minLength, maxLength := int64(2), int64(4)

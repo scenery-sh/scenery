@@ -68,11 +68,10 @@ func exactCanonicalJSONBudget(inputBytes int) int {
 }
 
 func decodeStrictContractJSON(data []byte, target any) error {
-	canonical, err := canonicalizeExactJSON(data)
-	if err != nil {
+	if _, err := canonicalizeExactJSON(data); err != nil {
 		return err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(canonical))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(target); err != nil {
 		return err

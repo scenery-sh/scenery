@@ -285,7 +285,12 @@ func marshalContractReflect(value reflect.Value, typeValue contractWireType) ([]
 		if err != nil {
 			return nil, err
 		}
-		return canonicalizeExactJSON(encoded)
+		// Named generated codecs already apply each field's wire representation.
+		// Raw JSON canonicalization would expand their float exponent tokens.
+		if _, err := canonicalizeExactJSON(encoded); err != nil {
+			return nil, err
+		}
+		return encoded, nil
 	}
 }
 
@@ -431,16 +436,15 @@ func unmarshalContractReflect(data []byte, target reflect.Value, typeValue contr
 			target.Set(decodedValue)
 			return nil
 		}
-		canonical, err := canonicalizeExactJSON(data)
-		if err != nil {
+		if _, err := canonicalizeExactJSON(data); err != nil {
 			return err
 		}
-		if err := json.Unmarshal(canonical, target.Addr().Interface()); err != nil {
+		if err := json.Unmarshal(data, target.Addr().Interface()); err != nil {
 			return err
 		}
 		if typeValue.name == "bytes" {
 			var text string
-			if err := json.Unmarshal(canonical, &text); err != nil {
+			if err := json.Unmarshal(data, &text); err != nil {
 				return err
 			}
 			decoded, err := base64.StdEncoding.DecodeString(text)

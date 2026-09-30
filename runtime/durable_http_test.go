@@ -39,14 +39,14 @@ func TestDurableWorkerHTTPLeaseHeartbeatAndComplete(t *testing.T) {
 	}
 
 	noAuth := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/__scenery/durable/v1/maps/lease", bytes.NewReader([]byte(`{"worker_id":"w1"}`)))
+	req := httptest.NewRequest(http.MethodPost, "/__scenery/durable/v1/maps/lease", bytes.NewReader([]byte(`{"worker_id":"w1","task_name":"maps.remote.v1"}`)))
 	server.Handler.ServeHTTP(noAuth, req)
 	if noAuth.Code != http.StatusUnauthorized {
 		t.Fatalf("no auth status = %d, want %d", noAuth.Code, http.StatusUnauthorized)
 	}
 
 	leaseResp := durableLeaseResponse{}
-	doDurableRequest(t, server, http.MethodPost, "/__scenery/durable/v1/maps/lease", "secret-token", `{"worker_id":"w1","lease_id":"lease-http"}`, http.StatusOK, &leaseResp)
+	doDurableRequest(t, server, http.MethodPost, "/__scenery/durable/v1/maps/lease", "secret-token", `{"worker_id":"w1","task_name":"maps.remote.v1","lease_id":"lease-http"}`, http.StatusOK, &leaseResp)
 	if !leaseResp.Leased || leaseResp.LeaseID != "lease-http" || leaseResp.Job == nil || leaseResp.Job.ID != "job-http" {
 		t.Fatalf("lease response = %+v", leaseResp)
 	}
