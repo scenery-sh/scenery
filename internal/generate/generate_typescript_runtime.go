@@ -319,14 +319,26 @@ export function relativePath(value: string): RelativePathString {
 
 export function parseExactJSON(source: string): JsonValue {
   let offset = 0;
+  const stringSpecial = /["\\\u0000-\u001f\ud800-\udfff]/g;
+  const numberToken = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
   const whitespace = () => {
-    while (offset < source.length && /[\t\n\r ]/.test(source[offset] ?? "")) offset++;
+    while (offset < source.length) {
+      const code = source.charCodeAt(offset);
+      if (code !== 32 && code !== 9 && code !== 10 && code !== 13) break;
+      offset++;
+    }
   };
   const fail = (message: string): never => {
     throw new SceneryClientError("contract_violation", "", message);
   };
   const parseString = (): string => {
     const start = offset;
+    stringSpecial.lastIndex = start + 1;
+    const special = stringSpecial.exec(source);
+    if (special !== null && special[0] === '"') {
+      offset = special.index + 1;
+      return source.slice(start + 1, special.index);
+    }
     offset++;
     let escaped = false;
     while (offset < source.length) {
@@ -401,13 +413,20 @@ export function parseExactJSON(source: string): JsonValue {
         offset++;
       }
     }
-    for (const [token, value] of [["true", true], ["false", false], ["null", null]] as const) {
-      if (source.startsWith(token, offset)) {
-        offset += token.length;
-        return value;
-      }
+    if (character === "t" && source.startsWith("true", offset)) {
+      offset += 4;
+      return true;
     }
-    const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(source.slice(offset));
+    if (character === "f" && source.startsWith("false", offset)) {
+      offset += 5;
+      return false;
+    }
+    if (character === "n" && source.startsWith("null", offset)) {
+      offset += 4;
+      return null;
+    }
+    numberToken.lastIndex = offset;
+    const match = numberToken.exec(source);
     if (match === null) return fail("invalid JSON value");
     offset += match[0].length;
     return jsonNumberFromToken(match[0]);

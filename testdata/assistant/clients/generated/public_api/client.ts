@@ -6,7 +6,7 @@ import { createAssistantClients, type AssistantClients, type AssistantTransportO
 
 export interface PublicApiClientOptions { readonly baseUrl: Types.URLString; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string, string>>; readonly authentication?: Runtime.AuthenticationOptions }
 
-const typeRegistry: Runtime.TypeRegistry = Object.freeze({} as const);
+const typeRegistry: Runtime.TypeRegistry = /* @__PURE__ */ Runtime.freezeMetadata({} as const);
 
 export class PublicApiClient {
   readonly #baseUrl: string;

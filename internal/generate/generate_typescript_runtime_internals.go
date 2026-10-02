@@ -153,6 +153,25 @@ function validateStringFormat(value: string, format: string, path: string): void
   encodePrimitive(value, primitive, path);
 }
 
+// A lookup remains valid only while the descriptor, array and fields are immutable.
+const recordFieldLookups = new WeakMap<TypeDescriptor, ReadonlyMap<string, FieldDescriptor>>();
+
+function recordFieldsByWire(descriptor: Extract<TypeDescriptor, { readonly kind: "record" }>): ReadonlyMap<string, FieldDescriptor> {
+  const cached = recordFieldLookups.get(descriptor);
+  if (cached !== undefined) return cached;
+  const fields = descriptor.fields;
+  const lookup = new Map(fields.map((field) => [field.wire, field] as const));
+  // Frozen accessors can still change; cache only dense, plain data arrays/keys.
+  if (Object.isFrozen(descriptor) && Object.getOwnPropertyDescriptor(descriptor, "fields")?.value === fields
+      && Object.isFrozen(fields) && Object.getPrototypeOf(fields) === Array.prototype
+      && Reflect.ownKeys(fields).length === fields.length + 1
+      && fields.every((field, index) => Object.getOwnPropertyDescriptor(fields, index)?.value === field
+        && Object.isFrozen(field) && typeof Object.getOwnPropertyDescriptor(field, "wire")?.value === "string")) {
+    recordFieldLookups.set(descriptor, lookup);
+  }
+  return lookup;
+}
+
 function decodeTypedValue(
   value: unknown,
   descriptor: TypeDescriptor,
@@ -163,9 +182,12 @@ function decodeTypedValue(
   if (descriptor.kind === "named") {
     const resolved = registry[descriptor.name];
     if (resolved === undefined || resolving.has(descriptor.name)) invalid(path, "invalid named type descriptor");
-    const next = new Set(resolving);
-    next.add(descriptor.name);
-    return decodeTypedValue(value, resolved, registry, path, next);
+    resolving.add(descriptor.name);
+    try {
+      return decodeTypedValue(value, resolved, registry, path, resolving);
+    } finally {
+      resolving.delete(descriptor.name);
+    }
   }
   if (descriptor.kind === "optional") return decodeTypedValue(value, descriptor.value, registry, path, resolving);
   if (descriptor.kind === "nullable") return value === null ? null : decodeTypedValue(value, descriptor.value, registry, path, resolving);
@@ -210,7 +232,7 @@ function decodeTypedValue(
     return Object.freeze({ kind: tag, value: decodeTypedValue(Object.freeze(payload), variant, registry, §${path}.value§, resolving) });
   }
   if (!isObject(value) || Array.isArray(value)) invalid(path, "expected a record");
-  const byWire = new Map(descriptor.fields.map((field) => [field.wire, field] as const));
+  const byWire = recordFieldsByWire(descriptor);
   const decoded = Object.create(null) as Record<string, unknown>;
   const unknown = Object.create(null) as Record<string, JsonValue>;
   for (const [wire, item] of Object.entries(value)) {

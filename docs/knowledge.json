@@ -19,6 +19,24 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0208-exact-json-decode-performance.md",
+      "title": "Exact JSON Decoding Performance",
+      "owner": "scenery TypeScript generator",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-10-01",
+      "review_after": "2026-10-31",
+      "summary": "Conformant exact JSON parser fast paths and immutable record lookup reuse, measured separately and together on existing ONLV snapshots and verified in generated NextNext.",
+      "tags": [
+        "plans",
+        "execplans",
+        "generate",
+        "typescript",
+        "performance"
+      ]
+    },
+    {
       "path": "docs/plans/0207-telemetry-containment-and-evidence.md",
       "title": "Telemetry Containment And Trustworthy Evidence",
       "owner": "scenery runtime",
