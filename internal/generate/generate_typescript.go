@@ -242,7 +242,7 @@ func renderTypeScriptTargetWithCatalog(result *Result, target Resource, root str
 	projectionResources := typescriptProjectionResources(resources, bindings, reachable, target)
 	revision := typescriptRevision(target, projectionResources)
 	runtimeCapabilities := tsRuntimeCapabilitiesFor(target, bindings, resources)
-	indexRuntimeTypes := "AuthenticationOptions, CallOptions"
+	indexRuntimeTypes := "AuthenticationOptions, CallOptions, ClientTraceEvent, ClientTraceObserver"
 	if runtimeCapabilities.retry {
 		indexRuntimeTypes += ", RetryRuntime"
 	}
@@ -769,7 +769,7 @@ func renderTSClient(target Resource, bindings, resources []Resource, assistantSu
 	if len(assistants) > 0 {
 		b.WriteString("import { createAssistantClients, type AssistantClients, type AssistantTransportOptions } from \"./assistant.js\";\n\n")
 	}
-	fmt.Fprintf(&b, "export interface %sOptions { readonly baseUrl: Types.URLString; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string, string>>; readonly authentication?: Runtime.AuthenticationOptions", className)
+	fmt.Fprintf(&b, "export interface %sOptions { readonly baseUrl: Types.URLString; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string, string>>; readonly authentication?: Runtime.AuthenticationOptions; readonly onTrace?: Runtime.ClientTraceObserver", className)
 	if retry.Enabled {
 		b.WriteString("; readonly retryRuntime: Runtime.RetryRuntime")
 	}
@@ -799,7 +799,7 @@ func renderTSClient(target Resource, bindings, resources []Resource, assistantSu
 		b.WriteString("    this.#retryRuntime = options.retryRuntime;\n")
 	}
 	if len(methods) > 0 {
-		b.WriteString("    this.#transport = { baseUrl: this.#baseUrl, fetch: this.#fetch, headers: this.#headers, authentication: this.#authentication")
+		b.WriteString("    this.#transport = { baseUrl: this.#baseUrl, fetch: this.#fetch, headers: this.#headers, authentication: this.#authentication, onTrace: options.onTrace")
 		if retry.Enabled {
 			fmt.Fprintf(&b, ", retryRuntime: this.#retryRuntime, retry: { maximumAttempts: %d, statuses: %s, maximumDelayMilliseconds: %d }", retry.MaximumAttempts, retry.StatusesLiteral, retry.MaximumDelayMilliseconds)
 		}

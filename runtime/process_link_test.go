@@ -129,7 +129,12 @@ func TestProcessLinkedCallMatchesInProcessSemantics(t *testing.T) {
 				DeadlineText: request.Deadline.UTC().Format(time.RFC3339Nano),
 			}
 			if state := stateFromContext(child); state != nil && state.trace != nil {
-				value.SpanTrace, value.SpanParent = state.trace.traceID, state.trace.parentSpanID
+				value.SpanTrace = state.trace.traceID
+				parent := stateFromContext(ctx).trace
+				if state.trace.parentSpanID != parent.spanID || parent.spanType != "INTERNAL" {
+					t.Fatal("work does not descend from internal operation")
+				}
+				value.SpanParent = parent.parentSpanID
 			}
 			observed <- value
 			return "ok", nil

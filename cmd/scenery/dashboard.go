@@ -69,6 +69,7 @@ type dashboardServerHooks struct {
 }
 
 type dashboardVictoria interface {
+	GetTraceDetail(context.Context, devdash.TraceQuery) (*devdash.TraceDetail, error)
 	QueryTraceSummaries(context.Context, devdash.TraceQuery) ([]*devdash.TraceSummary, error)
 	ListDevEvents(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error)
 	MarkCleared(string, time.Time)

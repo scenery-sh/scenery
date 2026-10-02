@@ -198,15 +198,16 @@ func TestTracedRoundTripperRedactsSensitiveURLAndError(t *testing.T) {
 
 	start := <-reporter.queue
 	end := <-reporter.queue
-	if start.TraceEvent.SpanID != "span-2" || end.TraceEvent.SpanID != "span-2" {
+	summary := (<-reporter.queue).TraceSummary
+	if summary.Type != "HTTP" || summary.ParentSpanID == nil || *summary.ParentSpanID != "span-2" || start.TraceEvent.SpanID == "span-2" || end.TraceEvent.SpanID != start.TraceEvent.SpanID {
 		t.Fatalf("HTTP events span IDs = %q, %q; want child span-2", start.TraceEvent.SpanID, end.TraceEvent.SpanID)
 	}
-	startPayload := start.TraceEvent.Event["span_event"].(map[string]any)["http_call_start"].(map[string]any)
+	startPayload := start.TraceEvent.Event["span_start"].(map[string]any)["http"].(map[string]any)
 	if got := startPayload["url"]; got != "https://user:%5Bredacted%5D@example.com/path?token=%5Bredacted%5D&x=1" {
 		t.Fatalf("redacted url = %#v", got)
 	}
-	endPayload := end.TraceEvent.Event["span_event"].(map[string]any)["http_call_end"].(map[string]any)
-	errPayload := endPayload["err"].(map[string]any)
+	endPayload := end.TraceEvent.Event["span_end"].(map[string]any)
+	errPayload := endPayload["error"].(map[string]any)
 	if got := errPayload["msg"]; got != "connection refused" {
 		t.Fatalf("error msg = %#v", got)
 	}

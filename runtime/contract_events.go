@@ -192,7 +192,7 @@ func StartContractEventRuntime(ctx context.Context) (*ContractEventRuntime, erro
 			Address: consumer.Address, BusAddress: consumer.BusAddress, Channel: consumer.Channel,
 			ContractAddress: consumer.ContractAddress, ContractVersion: consumer.ContractVersion,
 			Guarantee: consumer.Guarantee, Attempts: consumer.Attempts, Backoff: consumer.Backoff, DeadLetterChannel: consumer.DeadLetterChannel,
-			Handle: func(callCtx context.Context, message ContractEventMessage) error {
+			Handle: func(callCtx context.Context, message ContractEventMessage) (resultErr error) {
 				if message.BusAddress != consumer.BusAddress || message.Channel != consumer.Channel || message.ContractAddress != consumer.ContractAddress || message.ContractVersion != consumer.ContractVersion {
 					return fmt.Errorf("runtime: event message contradicts subscription %s", consumer.Address)
 				}
@@ -202,7 +202,7 @@ func StartContractEventRuntime(ctx context.Context) (*ContractEventRuntime, erro
 				}
 				defer release()
 				callCtx, restore := enterContractEventInvocation(admitted, consumer, message, generation)
-				defer restore()
+				defer finishOperation(restore, &resultErr)
 				err = processAdmissionOutcome(admitted, consumer.Invoke(callCtx, append([]byte(nil), message.Payload...)))
 				if err != nil && errors.Is(context.Cause(admitted), errProcessAdmissionLost) {
 					return fmt.Errorf("runtime: event delivery to %s: %w", consumer.Address, err)
@@ -265,6 +265,7 @@ func PublishContractOperationOutcome(ctx context.Context, operationAddress strin
 			ID: uuid.NewString(), BusAddress: registration.BusAddress, Channel: registration.Channel,
 			ContractAddress: registration.ContractAddress, ContractVersion: registration.ContractVersion,
 			Guarantee: registration.Guarantee, Attempts: registration.Attempts, Backoff: registration.Backoff,
+			Attributes:        map[string]string{"scenery.traceparent": traceParentForContext(ctx)},
 			DeadLetterChannel: registration.DeadLetterChannel, Payload: append([]byte(nil), payload...),
 		}
 		if registration.OrderingKey != nil {
@@ -279,7 +280,11 @@ func PublishContractOperationOutcome(ctx context.Context, operationAddress strin
 				return fmt.Errorf("runtime: event emission %s deduplication key: %w", registration.Address, err)
 			}
 		}
-		if err := bus.Publish(ctx, message); err != nil {
+		publishCtx, end := beginOperationTrace(ctx, "PUBLISH", "event", registration.Address, map[string]any{"message_id": message.ID, "channel": message.Channel})
+		message.Attributes["scenery.traceparent"] = traceParentForContext(publishCtx)
+		err = bus.Publish(publishCtx, message)
+		end(err)
+		if err != nil {
 			return fmt.Errorf("runtime: publish event emission %s: %w", registration.Address, err)
 		}
 	}
@@ -288,7 +293,7 @@ func PublishContractOperationOutcome(ctx context.Context, operationAddress strin
 
 // enterContractEventInvocation enters one delivery attempt; generation pins its
 // internal calls to the generation the attempt was admitted to.
-func enterContractEventInvocation(ctx context.Context, consumer ContractEventConsumerRegistration, message ContractEventMessage, generation uint64) (context.Context, func()) {
+func enterContractEventInvocation(ctx context.Context, consumer ContractEventConsumerRegistration, message ContractEventMessage, generation uint64) (context.Context, func(error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -303,10 +308,13 @@ func enterContractEventInvocation(ctx context.Context, consumer ContractEventCon
 		auth:        AuthInfo{UID: consumer.Identity, Data: map[string]any{"workload_identity": consumer.Identity, "event_contract": consumer.ContractAddress}},
 		logsEnabled: true, traceEnabled: true, processGeneration: generation,
 	}
-	ctx = withState(ctx, state)
-	ctx = withRuntimeInvocation(ctx, state)
+	state.request.Headers.Set("traceparent", message.Attributes["scenery.traceparent"])
+	service, attributes := operationTraceIdentity(consumer.Policy, "event", map[string]any{"message_id": message.ID, "channel": message.Channel})
+	ctx, end := beginOperationTrace(withState(ctx, state), "EVENT", service, consumer.Address, attributes)
+	state = stateFromContext(ctx)
+	ctx = withNewRuntimeInvocation(ctx, state)
 	restore := enterState(state)
-	return ctx, restore
+	return ctx, func(err error) { end(err); restore() }
 }
 
 func validContractEventGuarantee(value string) bool {

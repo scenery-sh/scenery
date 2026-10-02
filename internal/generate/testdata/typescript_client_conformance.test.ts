@@ -61,6 +61,36 @@ const registry: TypeRegistry = Object.freeze({
 const valueDescriptor: TypeDescriptor = { kind: "named", name: "test/record/value" };
 
 describe("Scenery TypeScript client exact codecs", () => {
+ test("automatically correlates generated calls and isolates observer errors", async () => {
+  const events: import("../../compiler/testdata/house/clients/generated/public_api/runtime.ts").ClientTraceEvent[] = [];
+  const traceId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const client = new HouseClient({
+   baseUrl: "https://example.test" as URLString,
+   fetch: (async () => Response.json({ status: "processed" }, { headers: { "x-trace-id": traceId } })) as typeof fetch,
+   onTrace(event) { events.push(event); throw new Error("observer failure"); },
+  });
+  await expect(client.processScene({ sceneId: "scene-1" })).resolves.toMatchObject({ kind: "result" });
+  expect(events.map(e => e.phase)).toEqual(["start", "attempt", "response", "complete"]);
+  expect(events.at(-1)).toMatchObject({ traceId, attempt: 1, outcome: "success" });
+  expect(new Set(events.map(e => e.callId)).size).toBe(1);
+  expect(events.every(e => e.elapsedMs >= 0)).toBe(true);
+  expect(JSON.stringify(events)).not.toContain("scene-1");
+ });
+ test("keeps backend trace identity on malformed responses and reports cancellation", async () => {
+  const events: import("../../compiler/testdata/house/clients/generated/public_api/runtime.ts").ClientTraceEvent[] = [];
+  const traceId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const client = new HouseClient({ baseUrl: "https://example.test" as URLString,
+   fetch: (async () => new Response("bad-json", { headers: { "content-type": "application/json", "x-trace-id": traceId } })) as typeof fetch,
+   onTrace: async e => { events.push(e); throw new Error("async observer failure"); },
+  });
+  await expect(client.processScene({ sceneId: "scene-1" })).rejects.toMatchObject({ code: "contract_violation", traceId });
+  expect(events.at(-1)).toMatchObject({ phase: "complete", outcome: "error", errorCode: "contract_violation", traceId });
+  events.length = 0;
+  await expect(client.processScene({ sceneId: "scene-1" }, { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: "cancelled" });
+  expect(events.map(e => e.phase)).toEqual(["start", "complete"]);
+  expect(events.at(-1)).toMatchObject({ outcome: "cancelled", attempt: 0 });
+ });
+
 	test("keeps imported metadata frozen and removes unused metadata from barrel imports", async () => {
 		expect(Object.isFrozen(sceneryClientMetadata)).toBe(true);
 		expect(Object.isFrozen(sceneryClientMetadata.bindings)).toBe(true);

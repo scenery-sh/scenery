@@ -20,6 +20,9 @@ import (
 // backend.
 type exportTestVictoria struct{ base string }
 
+func (v exportTestVictoria) GetTraceDetail(context.Context, devdash.TraceQuery) (*devdash.TraceDetail, error) {
+	return nil, nil
+}
 func (v exportTestVictoria) QueryTraceSummaries(context.Context, devdash.TraceQuery) ([]*devdash.TraceSummary, error) {
 	return nil, nil
 }

@@ -16,6 +16,46 @@ export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "{{dev_runtime_status_revision
  */
 export const DEV_RUNTIME_MAX_REQUEST_BYTES = 1048576;
 
+/** A completed span and its causal parent, independent of the telemetry backend. */
+export interface DevRuntimeTraceSpan {
+ readonly trace_id: string;
+ readonly span_id: string;
+ readonly parent_span_id?: string;
+ readonly session_id?: string;
+ readonly app_root_hash?: string;
+ readonly branch?: string;
+ readonly worktree?: string;
+ readonly deployed_commit?: string;
+ readonly type: string;
+ readonly is_root: boolean;
+ readonly is_error: boolean;
+ readonly started_at: string;
+ readonly duration_nanos: number;
+ readonly service_name?: string;
+ readonly endpoint_name?: string;
+ readonly message_id?: string;
+ readonly test_skipped?: boolean;
+ readonly src_file?: string;
+ readonly src_line?: number;
+ readonly caller_event_id?: number;
+}
+export interface DevRuntimeTraceEvent {
+ readonly time: string;
+ readonly name: string;
+ readonly data: Readonly<Record<string, unknown>>;
+}
+export interface DevRuntimeTraceDetail {
+ readonly trace_id: string;
+ readonly spans: readonly (DevRuntimeTraceSpan & { readonly events: readonly DevRuntimeTraceEvent[] })[];
+}
+export interface DevRuntimeTraceQuery {
+ readonly since?: string;
+ readonly limit?: number;
+ readonly service?: string;
+ readonly endpoint?: string;
+ readonly status?: "ok" | "error";
+}
+
 export interface DevRuntimeSignal {
 	readonly enabled: boolean;
 	readonly available: boolean;
@@ -450,6 +490,16 @@ export class DevRuntimeClient {
 		}
 		return result as DevRuntimeStatus;
 	}
+
+	/** Read completed roots from the selected app's current session. */
+ async traces(appId: string, query: DevRuntimeTraceQuery = {}, signal?: AbortSignal): Promise<readonly DevRuntimeTraceSpan[]> {
+  const result = await this.#call<{ traces: readonly DevRuntimeTraceSpan[] }>("traces/list", { ...query, app_id: appId }, signal);
+  return result.traces;
+ }
+ /** Read the span tree and events, including normalized SQL, within that session. */
+ async trace(appId: string, traceId: string, signal?: AbortSignal): Promise<DevRuntimeTraceDetail> {
+  return this.#call<DevRuntimeTraceDetail>("traces/get", { app_id: appId, trace_id: traceId }, signal);
+ }
 
 	async postgresTables(appId: string, signal?: AbortSignal): Promise<readonly PostgresTable[]> {
 		return (await this.#call<PostgresTable[] | null>("postgres/tables", { app_id: appId }, signal)) ?? [];

@@ -87,6 +87,12 @@ func withRuntimeInvocation(ctx context.Context, state *requestState) context.Con
 	if current, ok := runtimeapi.InvocationFromContext(ctx); ok && current.Valid() {
 		return ctx
 	}
+	return withNewRuntimeInvocation(ctx, state)
+}
+
+// A transport or background entrypoint mints its own invocation after tracing
+// assigns the request identity; internal bindings retain the caller token.
+func withNewRuntimeInvocation(ctx context.Context, state *requestState) context.Context {
 	if state == nil {
 		return ctx
 	}

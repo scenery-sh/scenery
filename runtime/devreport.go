@@ -66,6 +66,8 @@ type devReporter struct {
 type reportingHandler struct {
 	base     slog.Handler
 	reporter *devReporter
+	attrs    []slog.Attr
+	groups   []string
 }
 
 var reporterMu sync.RWMutex
@@ -365,6 +367,9 @@ func startRequestTrace(state *requestState) {
 		requestType: state.request.Type,
 		isRoot:      true,
 	}
+	if traceID, parentID, ok := parseTraceParent(state.request.Headers.Get("traceparent")); ok {
+		span.traceID, span.parentSpanID = traceID, parentID
+	}
 	if span.started.IsZero() {
 		span.started = time.Now().UTC()
 		state.request.Started = span.started
@@ -648,12 +653,20 @@ func (r *devReporter) nextEventID() uint64 {
 	return r.eventSeq.Add(1)
 }
 
+func logState(ctx context.Context) *requestState {
+	if state := stateFromContext(ctx); state != nil {
+		return state
+	}
+	return currentState()
+}
+
 func (h *reportingHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.base.Enabled(ctx, level)
 }
 
 func (h *reportingHandler) Handle(ctx context.Context, record slog.Record) error {
-	if state := currentState(); state != nil && !state.logsEnabled {
+	state := logState(ctx)
+	if state != nil && !state.logsEnabled {
 		return nil
 	}
 	if err := h.base.Handle(ctx, record); err != nil {
@@ -663,109 +676,58 @@ func (h *reportingHandler) Handle(ctx context.Context, record slog.Record) error
 		return nil
 	}
 	attrs := make(map[string]any)
-	record.Attrs(func(attr slog.Attr) bool {
-		value := redactedSlogValue(attr.Key, attr.Value.Resolve())
+	add := func(attr slog.Attr) {
+		value := attr.Value
 		attrs[attr.Key] = value.Any()
 		if value.Kind() != slog.KindAny {
 			attrs[attr.Key] = consoleValueString(value)
 		}
+	}
+	for _, attr := range h.attrs {
+		add(attr)
+	}
+	record.Attrs(func(attr slog.Attr) bool {
+		for _, bound := range bindLogAttrs(h.groups, []slog.Attr{attr}) {
+			add(bound)
+		}
 		return true
 	})
-	traceID := ""
-	spanID := ""
-	if state := currentState(); state != nil && state.trace != nil {
-		traceID = state.trace.traceID
-		spanID = state.trace.spanID
+	traceID, spanID := "", ""
+	if state != nil && state.trace != nil {
+		traceID, spanID = state.trace.traceID, state.trace.spanID
 	}
 	h.reporter.enqueue(devreport.ReportEnvelope{
 		Type:  "log",
 		AppID: h.reporter.appID,
 		LogEvent: &devreport.LogEvent{
-			AppID:     h.reporter.appID,
-			TraceID:   traceID,
-			SpanID:    spanID,
-			Level:     record.Level.String(),
-			Message:   record.Message,
-			Attrs:     attrs,
-			Timestamp: record.Time,
+			AppID: h.reporter.appID, TraceID: traceID, SpanID: spanID,
+			Level: record.Level.String(), Message: record.Message,
+			Attrs: attrs, Timestamp: record.Time,
 		},
 	})
 	return nil
 }
 
 func (h *reportingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &reportingHandler{base: h.base.WithAttrs(attrs), reporter: h.reporter}
+	next := *h
+	next.base = h.base.WithAttrs(attrs)
+	next.attrs = append(append([]slog.Attr(nil), h.attrs...), bindLogAttrs(h.groups, attrs)...)
+	return &next
 }
 
 func (h *reportingHandler) WithGroup(name string) slog.Handler {
-	return &reportingHandler{base: h.base.WithGroup(name), reporter: h.reporter}
+	if name == "" {
+		return h
+	}
+	next := *h
+	next.base = h.base.WithGroup(name)
+	next.groups = append(append([]string(nil), h.groups...), name)
+	return &next
 }
 
 type tracedRoundTripper struct {
 	base     http.RoundTripper
 	reporter *devReporter
-}
-
-func (t *tracedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	base := t.base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	state := stateFromContext(req.Context())
-	if state == nil {
-		state = currentState()
-	}
-	var traceID, spanID string
-	var start time.Time
-	if state != nil && state.trace != nil && state.traceEnabled && t.reporter != nil {
-		traceID = state.trace.traceID
-		spanID = state.trace.spanID
-		start = time.Now().UTC()
-		t.reporter.enqueue(devreport.ReportEnvelope{
-			Type:  "trace-event",
-			AppID: t.reporter.appID,
-			TraceEvent: &devreport.TraceEvent{
-				TraceID:   traceID,
-				SpanID:    spanID,
-				EventID:   t.reporter.nextEventID(),
-				EventTime: start,
-				Event: map[string]any{
-					"span_event": map[string]any{
-						"http_call_start": map[string]any{
-							"method": req.Method,
-							"url":    redactURL(req.URL),
-						},
-					},
-				},
-			},
-		})
-	}
-	resp, err := base.RoundTrip(req)
-	if traceID != "" && t.reporter != nil {
-		end := map[string]any{}
-		if resp != nil {
-			end["status_code"] = resp.StatusCode
-		}
-		if err != nil {
-			end["err"] = map[string]any{"msg": redact.String(err.Error())}
-		}
-		t.reporter.enqueue(devreport.ReportEnvelope{
-			Type:  "trace-event",
-			AppID: t.reporter.appID,
-			TraceEvent: &devreport.TraceEvent{
-				TraceID:   traceID,
-				SpanID:    spanID,
-				EventID:   t.reporter.nextEventID(),
-				EventTime: time.Now().UTC(),
-				Event: map[string]any{
-					"span_event": map[string]any{
-						"http_call_end": end,
-					},
-				},
-			},
-		})
-	}
-	return resp, err
 }
 
 func redactURL(value *url.URL) string {

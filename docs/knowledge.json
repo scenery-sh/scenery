@@ -19,6 +19,42 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0209-automatic-operation-tracing.md",
+      "title": "Automatic Operation Tracing",
+      "owner": "scenery runtime / generate",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-02",
+      "review_after": "2026-11-02",
+      "summary": "Automatic non-HTTP, internal, HTTP and storage spans; scoped trace detail RPC and generated client lifecycle correlation.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "observability",
+        "generation"
+      ]
+    },
+    {
+      "path": "docs/plans/0208-observability-query-tracing.md",
+      "title": "Observability And Database Query Tracing",
+      "owner": "scenery runtime",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-02",
+      "review_after": "2026-11-02",
+      "summary": "Restores PostgreSQL query child spans through the pgx adapter and structured log context, with real signal round-trip proof.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "telemetry",
+        "postgres"
+      ]
+    },
+    {
       "path": "docs/plans/0207-telemetry-containment-and-evidence.md",
       "title": "Telemetry Containment And Trustworthy Evidence",
       "owner": "scenery runtime",

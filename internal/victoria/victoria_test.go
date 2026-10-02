@@ -297,6 +297,7 @@ func TestVictoriaQueryTraceSummariesFromJaegerAPI(t *testing.T) {
 							"duration":      int64(25_000),
 							"processID":     "p1",
 							"tags": []any{
+								map[string]any{"key": "scenery.application_id", "type": "string", "value": "app"},
 								map[string]any{"key": "scenery.service", "type": "string", "value": "svc"},
 								map[string]any{"key": "scenery.endpoint", "type": "string", "value": "Hello"},
 								map[string]any{"key": "scenery.session_id", "type": "string", "value": "session-a"},

@@ -740,7 +740,7 @@ When editing source that changes the public app model, confirm the docs and test
 - CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
 - `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
 - generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
-- public packages: `scenery` (`Meta`, `CurrentRequest`, `StartSpan`), `auth`,
+- public packages: `scenery` (`Meta`, `CurrentRequest`, `StartSpan`, `TraceHTTPTransport`), `auth`,
   `errs`, `durable`, `db`, `datasource`, `object`, `storage`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
@@ -861,3 +861,20 @@ cleanup failure cannot produce a passing release result.
 ## Keeping Agent Docs Fresh
 
 When behavior changes, update the current owning layers together: root/child `AGENTS.md`, `SKILL.md`, this guide, `docs/local-contract.md`, app cookbook, schemas, and `docs/knowledge.json` as applicable. Completed ExecPlans are immutable history and have no scheduled review deadline; put current-contract pointers in living guidance or `docs/plans/completed.md`, and use stale knowledge metadata to flag a known contradiction instead of rewriting original decisions.
+
+### Inspect automatic operation traces
+
+Framework-owned entrypoints, internal bindings, durable attempts, events, MCP,
+CLI, SQL, HTTP and storage are instrumented automatically in development. Use
+`StartSpan` for application-specific work inside an operation. Use
+`scenery.TraceHTTPTransport` once for an application-owned custom HTTP transport;
+pass the returned context from `StartSpan` into I/O and goroutines.
+
+Developer tooling can use the generated `dev-runtime.ts` client's
+`traces(appId)` and `trace(appId, traceId)` methods to read the current session's
+span tree and events. Obtain `appId` from `status()`. A generated HTTP client's
+`onTrace` observer provides backend trace IDs, retry attempts and client-side
+completion timing; it does not require hand-written instrumentation per method.
+An empty trace detail means that no retained spans match the selected app and
+session. See the [RPC and tracing contract](local-contract.md#automatic-operation-tracing)
+for budgets, event fields and propagation behavior.

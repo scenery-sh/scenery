@@ -2,11 +2,77 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/devreport"
 	"scenery.sh/runtime/shared"
 )
+
+type sqlValueError struct{}
+
+func (sqlValueError) Error() string    { return `invalid input syntax for integer: "private-argument"` }
+func (sqlValueError) SQLState() string { return "22P02" }
+
+func TestDBTraceErrorsDoNotEchoQueryArguments(t *testing.T) {
+	for _, err := range []error{sqlValueError{}, errors.New("cannot encode private-argument"), context.Canceled, context.DeadlineExceeded} {
+		data, marshalErr := json.Marshal(dbTraceError(err))
+		if marshalErr != nil || strings.Contains(string(data), "private-argument") {
+			t.Fatalf("unsafe DB error: %s (%v)", data, marshalErr)
+		}
+	}
+	data, _ := json.Marshal(dbTraceError(sqlValueError{}))
+	if !strings.Contains(string(data), "22P02") {
+		t.Fatal("database error lost SQLSTATE")
+	}
+}
+
+func TestSQLTraceBridgePreservesApplicationParentAndFailure(t *testing.T) {
+	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 8)}
+	restore := setTestReporter(reporter)
+	defer restore()
+	ctx := withState(context.Background(), &requestState{traceEnabled: true, trace: &traceSpan{traceID: "trace", spanID: "request"}})
+	ctx, end := (applicationSpanStarter{}).StartApplicationSpan(ctx, "database work")
+	work := stateFromContext(ctx).trace
+	host := appsdk.CurrentHost()
+	query := host.TraceDBQueryStart(ctx, "SELECT 1/0", 0)
+	host.TraceDBQueryEnd(query, "", -1, errors.New("division by zero"))
+	end(nil)
+	var found bool
+	for len(reporter.queue) > 0 {
+		report := <-reporter.queue
+		if summary := report.TraceSummary; summary != nil && summary.Type == "DB" {
+			found = true
+			if !summary.IsError || summary.ParentSpanID == nil || *summary.ParentSpanID != work.spanID || summary.TraceID != work.traceID {
+				t.Fatalf("SQL child = %+v", summary)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("runtime host did not emit SQL span")
+	}
+}
+
+func TestNormalizeDBQueryProtectsPostgresLiterals(t *testing.T) {
+	for _, tc := range []struct{ query, want string }{
+		{`SELECT 'private', E'private\'value', $$private$$, $tag$private ' value$tag$`, `SELECT ?, E?, ?, ?`},
+		{`SELECT 'path\', 'private'`, `SELECT ?, ?`},
+		{"-- private\nSELECT /* outer /* private */ private */ 1.2e-3, $12 FROM \"users2\"", `SELECT ?, $12 FROM "users2"`},
+		{"-- name: FindUser :one\nSELECT 'private' -- private", `-- name: FindUser SELECT ?`},
+		{`SELECT 'unterminated-private`, `SELECT ?`},
+	} {
+		if got := normalizeDBQuery(tc.query); got != tc.want {
+			t.Errorf("normalize(%q) = %q, want %q", tc.query, got, tc.want)
+		}
+	}
+	if got := normalizeDBQuery(strings.Repeat("č", maxDBQueryLength)); !utf8.ValidString(got) || len(got) > maxDBQueryLength+3 {
+		t.Fatal("invalid truncated SQL")
+	}
+}
 
 func TestTraceDBQueryRecordsChildSpan(t *testing.T) {
 	reporter := &devReporter{

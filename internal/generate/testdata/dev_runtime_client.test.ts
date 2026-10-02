@@ -122,6 +122,21 @@ async function failure(promise: Promise<unknown>): Promise<DevRuntimeError> {
 }
 
 describe("DevRuntimeClient connection lifecycle", () => {
+ test("reads scoped trace summaries and complete span events", async () => {
+  const client = runtimeClient();
+  const listed = client.traces("app", { limit: 10 });
+  socket(0).open();
+  expect(socket(0).sent[0]).toMatchObject({ method: "traces/list", params: { app_id: "app", limit: 10 } });
+  socket(0).reply(socket(0).sent[0], { traces: [{ trace_id: "trace", span_id: "root" }] });
+  expect(await listed).toEqual([{ trace_id: "trace", span_id: "root" }]);
+  const detail = client.trace("app", "trace");
+  const value = { trace_id: "trace", spans: [{ span_id: "sql", parent_span_id: "root", events: [{ data: { span_start: { db: { query: "SELECT $1" } } } }] }] };
+  expect(socket(0).sent[1]).toMatchObject({ method: "traces/get", params: { app_id: "app", trace_id: "trace" } });
+  socket(0).reply(socket(0).sent[1], value);
+  expect(await detail).toEqual(value);
+  client.dispose();
+ });
+
 	test("close drops queued calls, so a later connection never sends them", async () => {
 		const client = runtimeClient();
 		const deleted = failure(client.query("app", deleteNotes));

@@ -57,6 +57,8 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		return s.storageRPC(ctx, method, raw)
 	}
 	switch method {
+	case "traces/list", "traces/get":
+		return s.tracesRPC(ctx, method, raw)
 	case "status":
 		var params struct {
 			AppID string `json:"app_id"`

@@ -252,7 +252,7 @@ link runtime orchestration. The application SDK packages `scenery.sh/auth`,
 `scenery.sh/db` and `scenery.sh/durable` reach the runtime only through the one
 `appsdk.Host` the runtime registers from its package initialization (current
 authentication, standard-auth endpoint and handler registration, JSON contract
-codecs, durable signals and steps); `.env` loading lives in `appsdk` itself.
+codecs, SQL query tracing, durable signals and steps).
 Importing them therefore never links the runtime's implementation closure.
 
 `internal/contract` owns the contract value types, their canonical JSON wire
@@ -780,6 +780,15 @@ Runtime session metadata lives in a small JSON store under the worktree's
 private control root; the project does not carry an embedded SQL driver for
 that state. Runtime remains decoupled from Victoria server packages;
 the stable boundary is HTTP/OTLP, not Go library imports.
+
+Framework adapters own automatic operation spans; generation supplies stable
+binding identities. `runtime/operation_trace.go` shares lifecycle and propagation
+across non-HTTP entrypoints and internal calls. Storage reaches the runtime
+through `internal/appsdk`, retaining its small application dependency closure.
+`internal/victoria` translates bounded backend results to the `internal/devdash`
+trace read model; the development RPC enforces app/session scope and returns that
+model through the generated client. TypeScript request observation lives in the
+shared invocation helper and does not duplicate per-method implementations.
 
 ### File Size And Placement
 

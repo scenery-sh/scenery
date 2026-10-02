@@ -1144,7 +1144,7 @@ Runtime safety:
 
 Local observability:
 
-- The user-facing observability surface is `scenery logs`, `scenery logs query`, `scenery logs tail`, `scenery traces list -o json`, `scenery metrics list -o json`, `scenery metrics query`, `scenery metrics labels`, `scenery metrics series`, `scenery inspect observability -o json`, and the dashboard. The current backing substrate exports local observability to Victoria sidecars:
+- The user-facing observability surface is `scenery logs`, `scenery logs query`, `scenery logs tail`, `scenery traces list -o json`, `scenery metrics list -o json`, `scenery metrics query`, `scenery metrics labels`, `scenery metrics series`, `scenery inspect observability -o json`, and development-runtime consumers. The current backing substrate exports local observability to Victoria sidecars:
   - VictoriaMetrics: `/opentelemetry/v1/metrics`
   - VictoriaLogs: `/insert/opentelemetry/v1/logs`
   - VictoriaTraces: `/insert/opentelemetry/v1/traces`
@@ -1153,6 +1153,24 @@ Local observability:
 - `scenery.StartSpan` records stable application-owned child spans as type
   `WORK`. Passing its returned context to nested spans, database queries, and
   HTTP requests preserves their parent relationship in trace waterfalls.
+- SQL opened through Scenery's PostgreSQL connector (including `db.Get`,
+  injected `datasource.SQL` and framework SQL) emits `DB` child spans during
+  traced requests. This covers `ExecContext`, `QueryContext`, `QueryRowContext`,
+  prepared executions and transaction statements through the pgx `database/sql`
+  adapter. Pass the request or application-span context to retain parentage;
+  row-query duration ends when rows are exhausted or closed. Span events carry
+  the sqlc query name when present, normalized SQL (bounded to 2,048 bytes plus
+  truncation marker), argument count, command tag, affected rows and errors.
+  Literal values and ordinary comments are redacted; bound argument values are
+  never collected. Database trace errors retain SQLSTATE when available and
+  cancellation/deadline classification; driver/server error text that can echo
+  query values is omitted. Arbitrary application-created database pools are outside
+  this automatic instrumentation. Queries outside a traced request are no-ops.
+- Structured logs honor their explicit context for correlation and endpoint
+  filtering, including work moved to another goroutine. `slog.With` attributes
+  and `WithGroup` scopes survive both console and Victoria export; attributes
+  bind to the group active when they were added. Sensitive attribute keys are
+  redacted before export.
 - Ordinary `scenery up` owns its optional Victoria stack in the worktree's private state root and registry. It never reuses another worktree's stack or provisions a global PostgreSQL server for dashboard state. Sidecar startup does not gate required app serving readiness. Reuse and replacement require verified component ownership; stdout/stderr, `last_exit`, and per-component exit details remain observable. The live supervisor probes the stack, serializes whole-stack recovery, backs off failed attempts, and stops recovery on cancellation. Failures remain visible through foreground errors, detached supervisor events, and dashboard notifications even while Victoria is unavailable. Stopping one worktree does not signal another's sidecars. Standalone Victoria utilities use only their explicitly selected state and are not a fallback owner for an ordinary dev runtime.
 - `SCENERY_DEV_VICTORIA=0` disables Victoria sidecars. `SCENERY_DEV_VICTORIA_DOWNLOAD=0` disables automatic Victoria binary downloads. When enabled, missing Victoria binaries are downloaded into `.scenery/toolchain/` or `SCENERY_TOOLCHAIN_DIR`.
 - Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta substrate details. They are documented so local development is debuggable, but they are hidden during ordinary app work and are not part of the stable runtime contract.
@@ -1545,6 +1563,8 @@ Methods:
 | Method | Params | Result |
 |---|---|---|
 | `status` | `app_id?` | `scenery.dev-runtime.status` ([schema](schemas/scenery.dev-runtime.status.schema.json)): session identity, `running`, `session_status`, `session_status_reason`, `compiling`, `compile_error`, optional `build_block` (`reason`, `cause`, `since`, `prevented_builds`) while builds are blocked, `pid`, `routes`, `service_processes` and optional `observability` readiness per signal with `export` counts of telemetry not delivered to the observability backend since the runtime started (`dropped`: reports over 1 MiB or arriving at a full export queue; `failed`: exports that failed, one per report and signal). It never contains the app model or substrate endpoints. |
+| `traces/list` | `app_id`, `since?` (RFC3339), `limit?` (default 100, maximum 500), `service?`, `endpoint?`, `status?` (`ok` or `error`) | `{traces: [...]}`: completed entrypoint summaries in the selected app's current session, newest first; the default window is 15 minutes. |
+| `traces/get` | `app_id`, `trace_id` (32 hexadecimal characters) | `{trace_id, spans: [...]}`: chronological spans with parent IDs and all recorded events, including normalized SQL. Unknown or out-of-scope traces return an empty `spans` array. |
 | `postgres/tables` | `app_id` | Array of `{schema, name, type, row_count?}`; `name` is `schema.table`, `type` is `table`, `view` or `materialized_view`, `row_count` is PostgreSQL's estimate. Lists non-system schemas and `scenery`, excluding `public`. |
 | `postgres/schema` | `app_id`, `schema?`, `table` | Array of `{name, type, not_null, primary_key}` in column order. A qualified `table` supplies the schema; the default schema is `scenery`. |
 | `postgres/rows` | `app_id`, `schema?`, `table`, `limit?`, `offset?` | `{columns, rows, limit, offset}`; `rows` is an array of value arrays in `columns` order. `limit` defaults to 100 and is capped at 500; a page over 4 MiB fails with `SCN8013`. |
@@ -1555,6 +1575,24 @@ Methods:
 | `storage/delete` | pinned scope, `key`, `if_match` | The `scenery.storage.delete` payload; the displayed version is required. |
 | `storage/delete-preview` | pinned scope, `prefix` | The `scenery.storage.delete` payload with `preview.selection_revision`. |
 | `storage/delete-selection` | pinned scope, `prefix`, `selection_revision` | The `scenery.storage.delete` payload with `result`. |
+
+Trace reads are work calls and share the connection/app admission limits and
+30 s deadline. The runtime resolves the selected registered app to its telemetry
+application ID and current session; callers cannot supply an alternative session,
+backend address or filesystem root. Every returned span is checked against both
+identities, even when a trace crosses applications. Clear cutoffs apply to details
+as well as lists. Responses exceeding 4 MiB, details exceeding 5,000 spans, or
+backend responses exceeding 8 MiB fail with `SCN8013`; details are never silently
+truncated.
+
+A summary contains `trace_id`, `span_id`, optional `parent_span_id`, `session_id`,
+`type`, `is_root`, `is_error`, `started_at` (RFC3339), `duration_nanos`,
+`service_name` and optional `endpoint_name`. `is_root` marks an application
+entrypoint, which may still have a remote parent. Optional provenance includes
+`app_root_hash`, `branch` and `worktree`. A detail span also has `events`, each
+with `time` (RFC3339), `name` and structured `data`. Event data retains the runtime
+report shape (`span_start`, `span_end`, and I/O event objects), not a backend
+query schema. SQL text is normalized and parameter values are not recorded.
 
 `traces/clear` is reserved for `scenery traces clear` and is not part of this
 contract.
@@ -1580,6 +1618,9 @@ Storage scope and transfers:
 
 Generated client:
 
+- `DevRuntimeClient.traces(appId, query?, signal?)` and
+  `trace(appId, traceId, signal?)` return typed trace summaries and details.
+  They use the same connection, cancellation and admission handling as other reads.
 - A `typescript_client` with `dev_runtime = true` also writes `dev-runtime.ts`
   ([TypeScript client](spec/typescript-client.md#dev-runtime-client)). Its
   `DevRuntimeClient` implements this contract, and `status()` fails with code
@@ -2320,3 +2361,42 @@ Example output:
   ]
 }
 ```
+
+### Automatic operation tracing
+
+With development tracing enabled, Scenery automatically emits HTTP request,
+authentication, cron, internal binding, durable attempt, durable step, event
+publication/delivery, MCP tool and CLI operation spans. Generated registrations
+supply binding/service identities; application code needs no tracing calls at
+these boundaries. Internal calls preserve authorization tokens and attach nested
+SQL and logs to the callee span. Durable dispatch stores parent context, and each
+attempt has a fresh span ID. Events carry parent context in the framework-owned
+`scenery.traceparent` attribute. Background entrypoints mint their invocation
+after assigning the trace ID.
+
+Incoming HTTP accepts valid version-00 W3C `traceparent` identifiers. Invalid or
+zero identifiers start a new trace. Development tracing follows the application's
+tracing setting regardless of the incoming sampled flag. Outgoing HTTP creates a
+client span and injects its parent context into a cloned request. `http_headers`
+records status and time to response headers; `http_body` records consumed bytes.
+The span completes on EOF, body close, read error or cancellation. HTTP 4xx/5xx
+responses mark the span as failed. Default Go HTTP transports are wrapped when
+reporting starts; applications using a custom transport can wrap it once with
+`scenery.TraceHTTPTransport`.
+
+Generated storage dependencies and `storage.Named`/`Default` automatically trace
+put/get/head/list/delete/delete-prefix across local and proxy backends. Get spans
+cover streamed reading through EOF, close or cancellation; put/get report bytes.
+Object bodies and keys are not added as span attributes. SQL remains a DB child
+span through the pgx hook; background workers now supply its trace parent.
+
+Generated TypeScript clients accept an optional `onTrace` observer. Shared
+`Runtime.invoke` emits `start`, `attempt`, `response`, `attempt_error` and
+`complete` events for every generated HTTP method. Events include `callId`,
+`bindingAddress`, `elapsedMs`, `attempt`, optional validated backend `traceId`,
+HTTP `status`, terminal `outcome` and `errorCode`. Timings include response
+decoding; each retry attempt reports its own response trace ID. Observer
+exceptions cannot change application outcomes. Request/response bodies, URLs,
+headers and credentials are not included. A `SceneryClientError` after receiving
+a trace ID retains it in `traceId` and `toJSON()`. The observer is a client-side
+integration point; these events are not automatically exported to the server.

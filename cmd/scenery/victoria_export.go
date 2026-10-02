@@ -44,7 +44,7 @@ func buildOTLPTracePayload(summary *devdash.TraceSummary, events []*devdash.Trac
 		"traceId":           validOTLPTraceID(summary.TraceID),
 		"spanId":            validOTLPSpanID(summary.SpanID),
 		"name":              traceSpanName(summary),
-		"kind":              "SPAN_KIND_SERVER",
+		"kind":              traceOTLPKindName(summary.Type),
 		"startTimeUnixNano": start,
 		"endTimeUnixNano":   end,
 		"attributes":        traceSummaryAttributes(summary),
@@ -148,7 +148,7 @@ func buildOTLPTraceProto(summary *devdash.TraceSummary, events []*devdash.TraceE
 		}
 	}
 	span = append(span, protoString(5, traceSpanName(summary))...)
-	span = append(span, protoVarint(6, 2)...) // SPAN_KIND_SERVER
+	span = append(span, protoVarint(6, traceOTLPKind(summary.Type))...)
 	span = append(span, protoFixed64(7, start)...)
 	span = append(span, protoFixed64(8, end)...)
 	for _, attr := range traceSummaryAttributePairs(summary) {
@@ -549,4 +549,22 @@ func protoRawVarint(value uint64) []byte {
 		value >>= 7
 	}
 	return append(out, byte(value))
+}
+
+func traceOTLPKind(kind string) uint64 {
+	switch kind {
+	case "HTTP", "DB", "STORAGE":
+		return 3
+	case "PUBLISH":
+		return 4
+	case "EVENT", "DURABLE":
+		return 5
+	case "INTERNAL", "WORK", "STEP", "AUTH":
+		return 1
+	default:
+		return 2
+	}
+}
+func traceOTLPKindName(kind string) string {
+	return []string{"SPAN_KIND_UNSPECIFIED", "SPAN_KIND_INTERNAL", "SPAN_KIND_SERVER", "SPAN_KIND_CLIENT", "SPAN_KIND_PRODUCER", "SPAN_KIND_CONSUMER"}[traceOTLPKind(kind)]
 }

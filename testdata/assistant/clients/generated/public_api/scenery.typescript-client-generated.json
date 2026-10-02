@@ -1,6 +1,6 @@
 {
   "compatibility_catalog": "scenery.compatibility-core",
-  "content_digest": "sha256:e6dc9568da4b5850ef78f0191752e9866b72fe588f184bc0970d52d053e78e4e",
+  "content_digest": "sha256:97b4dbf32c49d9485868ef3da46a5c4c52d57749c5dc9d72d03667e9ea5ae74d",
   "contract_revision": "sha256:c43b78516907de321806c01bd265c8981d8b1327aa186416458ef47b001dd344",
   "covered_bindings": [],
   "covered_gateways": [

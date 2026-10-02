@@ -131,7 +131,7 @@ func runDurableRemoteAttempt(ctx context.Context, client *http.Client, cfg durab
 	jobCtx, restore := enterDurableInvocation(ctx, service, lease.Job.TaskName, lease.Job.ID, timeout, lease.Job.Invocation, 0)
 	result, err := runDurableTaskHandler(jobCtx, timeout, handler.handler, []byte(lease.Job.Input))
 	stopHeartbeat()
-	restore()
+	restore(err)
 	if err != nil {
 		_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, string(durableFailureMessage(err)))
 		return

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/storageconfig"
 	"scenery.sh/internal/storagefs"
@@ -70,6 +71,9 @@ func newRuntimeStore(name string, cfg storageconfig.RuntimeStoreConfig, namespac
 		store = proxy
 	default:
 		return nil, fmt.Errorf("storage store %q backend %q is not supported by this runtime", name, cfg.Kind)
+	}
+	if appsdk.CurrentHost() != nil {
+		store = &tracedStore{Store: store, name: name}
 	}
 	return store, nil
 }
