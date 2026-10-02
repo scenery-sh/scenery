@@ -302,14 +302,26 @@ export function relativePath(value: string): RelativePathString {
 
 export function parseExactJSON(source: string): JsonValue {
   let offset = 0;
+  const stringSpecial = /["\\\u0000-\u001f\ud800-\udfff]/g;
+  const numberToken = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
   const whitespace = () => {
-    while (offset < source.length && /[\t\n\r ]/.test(source[offset] ?? "")) offset++;
+    while (offset < source.length) {
+      const code = source.charCodeAt(offset);
+      if (code !== 32 && code !== 9 && code !== 10 && code !== 13) break;
+      offset++;
+    }
   };
   const fail = (message: string): never => {
     throw new SceneryClientError("contract_violation", "", message);
   };
   const parseString = (): string => {
     const start = offset;
+    stringSpecial.lastIndex = start + 1;
+    const special = stringSpecial.exec(source);
+    if (special !== null && special[0] === '"') {
+      offset = special.index + 1;
+      return source.slice(start + 1, special.index);
+    }
     offset++;
     let escaped = false;
     while (offset < source.length) {
@@ -384,13 +396,20 @@ export function parseExactJSON(source: string): JsonValue {
         offset++;
       }
     }
-    for (const [token, value] of [["true", true], ["false", false], ["null", null]] as const) {
-      if (source.startsWith(token, offset)) {
-        offset += token.length;
-        return value;
-      }
+    if (character === "t" && source.startsWith("true", offset)) {
+      offset += 4;
+      return true;
     }
-    const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(source.slice(offset));
+    if (character === "f" && source.startsWith("false", offset)) {
+      offset += 5;
+      return false;
+    }
+    if (character === "n" && source.startsWith("null", offset)) {
+      offset += 4;
+      return null;
+    }
+    numberToken.lastIndex = offset;
+    const match = numberToken.exec(source);
     if (match === null) return fail("invalid JSON value");
     offset += match[0].length;
     return jsonNumberFromToken(match[0]);
@@ -1216,6 +1235,25 @@ function validateStringFormat(value: string, format: string, path: string): void
   encodePrimitive(value, primitive, path);
 }
 
+// A lookup remains valid only while the descriptor, array and fields are immutable.
+const recordFieldLookups = new WeakMap<TypeDescriptor, ReadonlyMap<string, FieldDescriptor>>();
+
+function recordFieldsByWire(descriptor: Extract<TypeDescriptor, { readonly kind: "record" }>): ReadonlyMap<string, FieldDescriptor> {
+  const cached = recordFieldLookups.get(descriptor);
+  if (cached !== undefined) return cached;
+  const fields = descriptor.fields;
+  const lookup = new Map(fields.map((field) => [field.wire, field] as const));
+  // Frozen accessors can still change; cache only dense, plain data arrays/keys.
+  if (Object.isFrozen(descriptor) && Object.getOwnPropertyDescriptor(descriptor, "fields")?.value === fields
+      && Object.isFrozen(fields) && Object.getPrototypeOf(fields) === Array.prototype
+      && Reflect.ownKeys(fields).length === fields.length + 1
+      && fields.every((field, index) => Object.getOwnPropertyDescriptor(fields, index)?.value === field
+        && Object.isFrozen(field) && typeof Object.getOwnPropertyDescriptor(field, "wire")?.value === "string")) {
+    recordFieldLookups.set(descriptor, lookup);
+  }
+  return lookup;
+}
+
 function decodeTypedValue(
   value: unknown,
   descriptor: TypeDescriptor,
@@ -1226,9 +1264,12 @@ function decodeTypedValue(
   if (descriptor.kind === "named") {
     const resolved = registry[descriptor.name];
     if (resolved === undefined || resolving.has(descriptor.name)) invalid(path, "invalid named type descriptor");
-    const next = new Set(resolving);
-    next.add(descriptor.name);
-    return decodeTypedValue(value, resolved, registry, path, next);
+    resolving.add(descriptor.name);
+    try {
+      return decodeTypedValue(value, resolved, registry, path, resolving);
+    } finally {
+      resolving.delete(descriptor.name);
+    }
   }
   if (descriptor.kind === "optional") return decodeTypedValue(value, descriptor.value, registry, path, resolving);
   if (descriptor.kind === "nullable") return value === null ? null : decodeTypedValue(value, descriptor.value, registry, path, resolving);
@@ -1273,7 +1314,7 @@ function decodeTypedValue(
     return Object.freeze({ kind: tag, value: decodeTypedValue(Object.freeze(payload), variant, registry, `${path}.value`, resolving) });
   }
   if (!isObject(value) || Array.isArray(value)) invalid(path, "expected a record");
-  const byWire = new Map(descriptor.fields.map((field) => [field.wire, field] as const));
+  const byWire = recordFieldsByWire(descriptor);
   const decoded = Object.create(null) as Record<string, unknown>;
   const unknown = Object.create(null) as Record<string, JsonValue>;
   for (const [wire, item] of Object.entries(value)) {

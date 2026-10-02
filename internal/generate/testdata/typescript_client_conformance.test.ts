@@ -16,6 +16,8 @@ import {
 	encodeMultipartRequestBody,
 	encodeRequestBody,
   encodeTypedJSON,
+  freezeMetadata,
+  isJsonNumber,
 	jsonNumber,
 	matchResponse,
 	mergeResponseValue,
@@ -122,6 +124,57 @@ describe("Scenery TypeScript client exact codecs", () => {
     for (const source of ['{"a":1,"a":2}', '{"__proto__":1}']) {
       expect(() => parseExactJSON(source)).toThrow(SceneryClientError);
     }
+  });
+
+  test("keeps string fast paths and numeric scanning exact", () => {
+    for (const value of ["", "plain field", "Čeština", "\uFEFFdata", "🐦", "a\"b\\c", "\n\t\u0000"]) {
+      expect(parseExactJSON(JSON.stringify(value))).toBe(value);
+    }
+    expect(parseExactJSON('"\\ud83d\\udc26"')).toBe("🐦");
+    for (const source of ["01", "-01", "00.1", "1.", "1e", "+1", "NaN", "1x", "truex", "\uFEFFnull", '"\u0000"', '"\\uD800"', '"\uDC00"', '"\\x00"', '{"a":1,"\\u0061":2}', "[1,]", "{\"a\":1,}"]) {
+      expect(() => parseExactJSON(source)).toThrow(SceneryClientError);
+    }
+    for (const token of ["0", "-0", "1E+3", "-12.50", "9007199254740993123", "1e-100"]) {
+      expect(isJsonNumber(parseExactJSON(` \r\n\t${token} `))).toBe(true);
+    }
+    const parsed = parseExactJSON('{"rows":[{"value":1}]}') as { rows: readonly object[] };
+    expect(Object.isFrozen(parsed)).toBe(true);
+    expect(Object.isFrozen(parsed.rows)).toBe(true);
+    expect(Object.isFrozen(parsed.rows[0])).toBe(true);
+  });
+
+  test("reuses immutable record metadata without caching mutable fields or registry resolutions", async () => {
+    const decode = (source: string, descriptor: TypeDescriptor, types: TypeRegistry = {}) =>
+      decodeResponseBody(new Response(source, { headers: { "content-type": "application/json" } }), "json", ["application/json"], descriptor, types, "test/cache", 1024);
+    const field = { property: "value", wire: "before", value: { kind: "primitive", name: "string" } as TypeDescriptor, optional: false };
+    const mutable: TypeDescriptor = Object.freeze({ kind: "record", fields: Object.freeze([field]), preserveUnknown: false });
+    expect(await decode('{"before":"first"}', mutable)).toEqual({ value: "first" });
+    field.wire = "after";
+    expect(await decode('{"after":"second"}', mutable)).toEqual({ value: "second" });
+    await expect(decode('{"before":"stale"}', mutable)).rejects.toMatchObject({ code: "contract_violation" });
+    let wire = "first";
+    const accessorField = Object.freeze({ property: "value", get wire() { return wire; }, value: field.value, optional: false });
+    const accessorWire: TypeDescriptor = Object.freeze({ kind: "record", fields: Object.freeze([accessorField]), preserveUnknown: false });
+    expect(await decode('{"first":"a"}', accessorWire)).toEqual({ value: "a" });
+    wire = "second";
+    expect(await decode('{"second":"b"}', accessorWire)).toEqual({ value: "b" });
+    let fields = Object.freeze([Object.freeze({ ...field, wire: "first" })]);
+    const accessorFields: TypeDescriptor = Object.freeze({ kind: "record", get fields() { return fields; }, preserveUnknown: false });
+    expect(await decode('{"first":"a"}', accessorFields)).toEqual({ value: "a" });
+    fields = Object.freeze([Object.freeze({ ...field, wire: "second" })]);
+    expect(await decode('{"second":"b"}', accessorFields)).toEqual({ value: "b" });
+    const record = freezeMetadata({ kind: "record", fields: [{ property: "value", wire: "wire", value: { kind: "named", name: "scalar" }, optional: false }], preserveUnknown: false }) as TypeDescriptor;
+    const strings = freezeMetadata({ scalar: { kind: "primitive", name: "string" } }) as TypeRegistry;
+    const integers = freezeMetadata({ scalar: { kind: "primitive", name: "int64" } }) as TypeRegistry;
+    expect(await decode('{"wire":"12"}', record, strings)).toEqual({ value: "12" });
+    expect(await decode('{"wire":"12"}', record, integers)).toEqual({ value: 12n });
+    const rows = await decode('[{"wire":"a"},{"wire":"b"}]', { kind: "list", value: { kind: "named", name: "row" } }, { row: record, ...strings }) as readonly object[];
+    expect(rows).toEqual([{ value: "a" }, { value: "b" }]);
+    expect(Object.isFrozen(rows)).toBe(true);
+    expect(rows.every(Object.isFrozen)).toBe(true);
+    await expect(decode('null', { kind: "named", name: "a" }, { a: { kind: "named", name: "b" }, b: { kind: "named", name: "a" } })).rejects.toMatchObject({ code: "contract_violation" });
+    await expect(decode('{"wire":null}', record, strings)).rejects.toMatchObject({ code: "contract_violation" });
+    await expect(decode('{}', record, strings)).rejects.toMatchObject({ code: "contract_violation" });
   });
 
 	test("preserves optional, nullable, and lossless bigint forms", () => {

@@ -422,8 +422,9 @@ describe("DevRuntimeClient storage transfers", () => {
 			port: 0,
 			fetch(request) {
 				if (new URL(request.url).searchParams.get("key") === "no-headers") return new Promise<Response>(() => undefined);
-				// Headers and one chunk, then a body that never ends.
-				return new Response(new ReadableStream({ start: (body) => body.enqueue(new Uint8Array([1, 2, 3])) }));
+				// Flush headers with a full chunk; tiny chunks can remain buffered in Bun.
+				// The body still never ends, so the second abort occurs during consumption.
+				return new Response(new ReadableStream({ start: (body) => body.enqueue(new Uint8Array(64 * 1024)) }));
 			},
 		});
 		try {
