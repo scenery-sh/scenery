@@ -405,6 +405,14 @@ development cache root. Production honors `SCENERY_DEV_CACHE_DIR`; tests inject
 `SetRoot`. Doctor, build, and CLI resolve the cache here instead of linking
 through `internal/build`.
 
+### `internal/filemeta`
+
+`internal/filemeta` is a stdlib-only leaf that reads physical filesystem
+identity and status-change timestamps. Native macOS/Linux representations use
+typed access; other representations retain field-based observation and report
+missing metadata explicitly. It holds no cache or reuse authority. Watch,
+directory-listing and build-input caches consume the same observation.
+
 ### `internal/dirlisting`
 
 `internal/dirlisting` is the stdlib leaf that reuses directory membership
@@ -418,6 +426,10 @@ files are still checked by their own metadata by each caller. Each walker owns
 a bounded `Tree`: a complete walk evicts directories it did not visit, and a
 fresh walk (pre-activation snapshot verification) reads every directory and
 reconciles the retained listings.
+
+Watched file hash reuse requires a regular file with the same physical device
+and inode, status-change time, size, permissions and modification time. Missing
+identity or change-time information always causes a fresh content read.
 
 ### `internal/build`
 

@@ -9,13 +9,12 @@ import (
 	"testing"
 
 	"scenery.sh/internal/contract"
-	"scenery.sh/internal/devreport"
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/runtimeapi"
 )
 
 func TestMCPToolDispatcherEstablishesAuthInvocationAndMetadata(t *testing.T) {
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 16)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
 	defer setTestReporter(reporter)()
 	defer func() { assertTraceChildren(t, reporter, "MCP", 1) }()
 	restore := replaceGlobalRegistryForTest()

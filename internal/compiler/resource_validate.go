@@ -68,11 +68,11 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateDeploymentDraftSurfaces(resource)...)
 		}
 	}
-	diagnostics = append(diagnostics, validateExecutionBindings(resources)...)
-	diagnostics = append(diagnostics, validateCLIBindings(resources)...)
-	diagnostics = append(diagnostics, validateDurableExecutions(resources)...)
-	diagnostics = append(diagnostics, validateScheduleAndEventSemantics(resources)...)
-	diagnostics = append(diagnostics, validateMCPGraph(resources)...)
+	diagnostics = append(diagnostics, validateExecutionBindings(resources, byAddress)...)
+	diagnostics = append(diagnostics, validateCLIBindings(resources, byAddress)...)
+	diagnostics = append(diagnostics, validateDurableExecutions(resources, byAddress)...)
+	diagnostics = append(diagnostics, validateScheduleAndEventSemantics(resources, byAddress)...)
+	diagnostics = append(diagnostics, validateMCPGraph(resources, byAddress)...)
 	return diagnostics
 }
 
@@ -179,8 +179,7 @@ func validateExecution(resource Resource) []Diagnostic {
 	return diagnostics
 }
 
-func validateExecutionBindings(resources []Resource) []Diagnostic {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+func validateExecutionBindings(resources []Resource, byAddress map[string]Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, binding := range resources {
 		if binding.Kind != "scenery.binding" {
@@ -212,8 +211,7 @@ func validateExecutionBindings(resources []Resource) []Diagnostic {
 	return diagnostics
 }
 
-func validateDurableExecutions(resources []Resource) []Diagnostic {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+func validateDurableExecutions(resources []Resource, byAddress map[string]Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	externalNames := map[string]Resource{}
 	for _, execution := range resources {

@@ -893,7 +893,8 @@ func finishContractRepresentation(status int, mediaType, acceptEncoding string, 
 	}
 	if encoding == "gzip" {
 		var compressed bytes.Buffer
-		writer := gzip.NewWriter(&compressed)
+		writer := acquireGzipWriter(&compressed)
+		defer releaseGzipWriter(writer)
 		if _, err := writer.Write(body); err != nil {
 			return ContractHTTPResponse{}, err
 		}

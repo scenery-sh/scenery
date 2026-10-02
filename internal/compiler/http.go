@@ -17,10 +17,7 @@ var httpPathParameterPattern = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)
 var httpPathTailPattern = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\.\.\.\}`)
 
 func validateHTTPResources(resources []Resource) []Diagnostic {
-	byAddress := map[string]Resource{}
-	for _, resource := range resources {
-		byAddress[resource.Address] = resource
-	}
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	routes := map[string]string{}
 	type routeEntry struct {
 		gateway, method, shape, address string
@@ -84,7 +81,7 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateHTTPInputMappings(byAddress, binding, operation, httpSpec)...)
 			diagnostics = append(diagnostics, validateHTTPResponses(byAddress, binding, operation, httpSpec)...)
 			if stringValue(binding.Spec["delivery"]) == "stream" {
-				diagnostics = append(diagnostics, validateHTTPByteStreamBinding(resources, binding, operation, httpSpec)...)
+				diagnostics = append(diagnostics, validateHTTPByteStreamBinding(resources, byAddress, binding, operation, httpSpec)...)
 			}
 		}
 		basePath, _ := gateway.Spec["base_path"].(string)
@@ -108,7 +105,7 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 	return diagnostics
 }
 
-func validateHTTPByteStreamBinding(resources []Resource, binding, operation Resource, httpSpec map[string]any) []Diagnostic {
+func validateHTTPByteStreamBinding(resources []Resource, byAddress map[string]Resource, binding, operation Resource, httpSpec map[string]any) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, candidate := range resources {
 		if candidate.Kind != "scenery.binding" || candidate.Address == binding.Address {
@@ -127,7 +124,7 @@ func validateHTTPByteStreamBinding(resources []Resource, binding, operation Reso
 			resultBodies++
 			if body == nil || stringValue(body["codec"]) != "bytes" {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "streaming result responses require a bytes body", Address: binding.Address})
-			} else if valueType, _, err := httpOutcomeMappedValueType(resourcesByAddress(&Manifest{Resources: resources}), operation, when, refOrString(body["from"])); err == nil && strings.TrimSpace(typeExpression(valueType)) != "bytes" {
+			} else if valueType, _, err := httpOutcomeMappedValueType(byAddress, operation, when, refOrString(body["from"])); err == nil && strings.TrimSpace(typeExpression(valueType)) != "bytes" {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "streaming result responses require a non-optional bytes value", Address: binding.Address})
 			}
 		} else if body != nil && stringValue(body["codec"]) == "bytes" {

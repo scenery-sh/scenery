@@ -67,6 +67,24 @@ func (h *sceneryConsoleHandler) Handle(ctx context.Context, record slog.Record) 
 	return err
 }
 
+type resolvedLogStateKey struct{}
+type resolvedLogState struct{ state *requestState }
+
+// Context-aware logging carries request identity across goroutines. Ordinary
+// slog calls retain the current-goroutine fallback; a reporting handler passes
+// even a nil resolution to its console handler to avoid repeating the lookup.
+func logState(ctx context.Context) *requestState {
+	if ctx != nil {
+		if resolved, ok := ctx.Value(resolvedLogStateKey{}).(resolvedLogState); ok {
+			return resolved.state
+		}
+		if state := stateFromContext(ctx); state != nil {
+			return state
+		}
+	}
+	return currentState()
+}
+
 func (h *sceneryConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	next := *h
 	next.attrs = append(append([]slog.Attr(nil), h.attrs...), bindLogAttrs(h.groups, attrs)...)

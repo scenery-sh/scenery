@@ -12,7 +12,7 @@ import (
 func TestApplicationSpanRecordsNestedChildSpans(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 12),
+		queue: make(chan []byte, 12),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -35,12 +35,12 @@ func TestApplicationSpanRecordsNestedChildSpans(t *testing.T) {
 	fetchSpan.End(errors.New("provider unavailable"))
 	generateSpan.End(nil)
 
-	generateStart := <-reporter.queue
-	fetchStart := <-reporter.queue
-	fetchEnd := <-reporter.queue
-	fetchSummary := <-reporter.queue
-	generateEnd := <-reporter.queue
-	generateSummary := <-reporter.queue
+	generateStart := decodeQueuedReport(t, <-reporter.queue)
+	fetchStart := decodeQueuedReport(t, <-reporter.queue)
+	fetchEnd := decodeQueuedReport(t, <-reporter.queue)
+	fetchSummary := decodeQueuedReport(t, <-reporter.queue)
+	generateEnd := decodeQueuedReport(t, <-reporter.queue)
+	generateSummary := decodeQueuedReport(t, <-reporter.queue)
 
 	assertApplicationSpanStart(t, generateStart, "trace-1", "GetEarth.generate")
 	assertApplicationSpanStart(t, fetchStart, "trace-1", "GetEarth.fetch_mesh")
@@ -67,7 +67,7 @@ func TestApplicationSpanRecordsNestedChildSpans(t *testing.T) {
 func TestApplicationSpanEndIsIdempotent(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 8),
+		queue: make(chan []byte, 8),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -85,7 +85,8 @@ func TestApplicationSpanEndIsIdempotent(t *testing.T) {
 		<-reporter.queue
 	}
 	select {
-	case report := <-reporter.queue:
+	case queuedBody := <-reporter.queue:
+		report := decodeQueuedReport(t, queuedBody)
 		t.Fatalf("unexpected duplicate report: %#v", report)
 	default:
 	}
@@ -94,7 +95,7 @@ func TestApplicationSpanEndIsIdempotent(t *testing.T) {
 func TestApplicationSpanWithoutRequestIsNoop(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 4),
+		queue: make(chan []byte, 4),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -106,7 +107,8 @@ func TestApplicationSpanWithoutRequestIsNoop(t *testing.T) {
 	span.End(nil)
 
 	select {
-	case report := <-reporter.queue:
+	case queuedBody := <-reporter.queue:
+		report := decodeQueuedReport(t, queuedBody)
 		t.Fatalf("unexpected report: %#v", report)
 	default:
 	}

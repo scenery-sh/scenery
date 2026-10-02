@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"scenery.sh/errs"
-	"scenery.sh/internal/devreport"
 )
 
 const standardSystemProblem = "{\"code\":\"system.internal\",\"message\":\"contract implementation failure\"}\n"
@@ -20,7 +19,7 @@ func TestAuthenticationFailureUsesStandardProblemOutcome(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	logged := captureRequestLogs(t)
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 32)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 32)}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
 
@@ -72,7 +71,7 @@ func TestAuthEndpointWithoutAuthHandlerUsesStandardProblemOutcome(t *testing.T) 
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	logged := captureRequestLogs(t)
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 16)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
 	registerAuthenticatedEndpoints(t)
@@ -97,7 +96,7 @@ func TestAuthenticationFailureResponseAndTraceStatusesMatch(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	logged := captureRequestLogs(t)
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 32)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 32)}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
 
@@ -154,7 +153,7 @@ func TestRawEndpointPanicUsesStandardProblemOutcome(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	logged := captureRequestLogs(t)
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 16)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
 	for path, handler := range map[string]http.HandlerFunc{
@@ -274,7 +273,8 @@ func assertFailureObserved(t *testing.T, reporter *devReporter, logged *bytes.Bu
 	var spanEnd map[string]any
 	for drained := false; !drained; {
 		select {
-		case envelope := <-reporter.queue:
+		case queuedBody := <-reporter.queue:
+			envelope := decodeQueuedReport(t, queuedBody)
 			if envelope.TraceEvent == nil {
 				continue
 			}
@@ -292,7 +292,7 @@ func assertFailureObserved(t *testing.T, reporter *devReporter, logged *bytes.Bu
 	if message, _ := traced["msg"].(string); message != cause {
 		t.Errorf("traced error = %#v, want %q", spanEnd["error"], cause)
 	}
-	if tracedStatus := spanEnd["request"].(map[string]any)["http_status_code"]; tracedStatus != status {
+	if tracedStatus := spanEnd["request"].(map[string]any)["http_status_code"]; tracedStatus != float64(status) {
 		t.Errorf("traced status = %#v, want %d", tracedStatus, status)
 	}
 	return traceID

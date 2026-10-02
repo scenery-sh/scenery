@@ -7,7 +7,7 @@
 // Deployed origins do not serve it.
 
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
-export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:90a0480662bc298bcf9c26e7ad96e475321b38b027c585b3bd46c138b8b96031";
+export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:9f97baaaee9bedbdb6eb131ea1f828934c911d249f34d43925ed41043f4568bb";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime

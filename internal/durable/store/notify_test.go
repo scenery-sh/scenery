@@ -24,14 +24,17 @@ func TestJobTransitionsNotifyTaskAndJobWaiters(t *testing.T) {
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "reports.notify.v1", HandlerRef: "reports.notify.v1", MaxAttempts: 2, RetryInitialMS: 1, RetryMaxMS: 1}}); err != nil {
 		t.Fatal(err)
 	}
-	taskWake := s.TaskWake("reports.notify.v1")
+	taskWake, releaseTask := s.TaskWake("reports.notify.v1")
+	defer releaseTask()
 	if _, err := s.Start(ctx, StartRequest{ID: "job-notify", TaskName: "reports.notify.v1", InputBlob: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
 	awaitWake(t, taskWake, "queued task")
 
-	jobWake := s.JobWake("job-notify")
-	taskWake = s.TaskWake("reports.notify.v1")
+	jobWake, releaseJob := s.JobWake("job-notify")
+	defer releaseJob()
+	taskWake, releaseTask = s.TaskWake("reports.notify.v1")
+	defer releaseTask()
 	leased, ok, err := s.LeaseReadyJob(ctx, "worker-1", "lease-1", "reports.notify.v1")
 	if err != nil || !ok || leased.ID != "job-notify" {
 		t.Fatalf("lease = %+v ok=%v err=%v", leased, ok, err)
@@ -43,7 +46,8 @@ func TestJobTransitionsNotifyTaskAndJobWaiters(t *testing.T) {
 	awaitWake(t, jobWake, "requeued job")
 	awaitWake(t, taskWake, "requeued task")
 
-	jobWake = s.JobWake("job-notify")
+	jobWake, releaseJob = s.JobWake("job-notify")
+	defer releaseJob()
 	leased = waitLeaseReady(t, s, "lease-2", "reports.notify.v1")
 	if err := s.CompleteLeasedJob(ctx, leased.ID, "worker-1", "lease-2", []byte(`{"ok":true}`)); err != nil {
 		t.Fatal(err)
@@ -53,12 +57,14 @@ func TestJobTransitionsNotifyTaskAndJobWaiters(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-cancel", TaskName: "reports.notify.v1", InputBlob: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	jobWake = s.JobWake("job-cancel")
+	jobWake, releaseJob = s.JobWake("job-cancel")
+	defer releaseJob()
 	if err := s.CancelJob(ctx, "job-cancel"); err != nil {
 		t.Fatal(err)
 	}
 	awaitWake(t, jobWake, "canceled job")
-	taskWake = s.TaskWake("reports.notify.v1")
+	taskWake, releaseTask = s.TaskWake("reports.notify.v1")
+	defer releaseTask()
 	if err := s.RetryJob(ctx, "job-cancel"); err != nil {
 		t.Fatal(err)
 	}

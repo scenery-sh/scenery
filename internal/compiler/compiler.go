@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/scn"
@@ -368,7 +369,12 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 	}
 
 	sourceNative := cloneResourceView(sourceResources)
-	preContextNative := cloneResourceView(resources)
+	// Contextual provenance compares specs only; the before-image does not need origins.
+	preContextNative := make([]Resource, len(resources))
+	for index, resource := range resources {
+		preContextNative[index].Address = resource.Address
+		preContextNative[index].Spec, _ = cloneResourceValue(resource.Spec).(map[string]any)
+	}
 	resources, resourceDiagnostics := contextualizeResourceScalars(resources)
 	markContextualScalarProvenance(preContextNative, resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
@@ -718,7 +724,7 @@ func validateResources(root string, resources []Resource) []Diagnostic {
 	diagnostics = append(diagnostics, validateDeploymentSemantics(&Manifest{Resources: resources})...)
 	diagnostics = append(diagnostics, validateUISemantics(root, resources)...)
 	diagnostics = append(diagnostics, validateMCPAssistantPaths(root, resources)...)
-	byAddress := map[string]Resource{}
+	byAddress := make(map[string]Resource, len(resources))
 	for _, resource := range resources {
 		if previous, ok := byAddress[resource.Address]; ok {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN1104", Severity: "error", Message: "duplicate resource address " + resource.Address, Address: resource.Address, Related: []Related{{Address: previous.Address}}})
@@ -786,7 +792,11 @@ func (m globMatcher) matches(value string) bool {
 	if len(m) == 0 {
 		return false
 	}
-	segments := strings.Split(filepath.ToSlash(value), "/")
+	var storage [16]string
+	return m.matchesSegments(splitGlobValue(value, storage[:0]))
+}
+
+func (m globMatcher) matchesSegments(segments []string) bool {
 	for _, pattern := range m {
 		if matchGlobSegments(pattern, segments) {
 			return true
@@ -800,7 +810,11 @@ func (m globMatcher) matches(value string) bool {
 // by segment and ends in `**`. It is deliberately conservative: a pattern of
 // another shape may cover the directory too, and the directory is then walked.
 func (m globMatcher) coversDirectory(directory string) bool {
-	segments := strings.Split(filepath.ToSlash(directory), "/")
+	if len(m) == 0 {
+		return false
+	}
+	var storage [16]string
+	segments := splitGlobValue(directory, storage[:0])
 	for _, pattern := range m {
 		if len(pattern) != len(segments)+1 || pattern[len(segments)] != "**" {
 			continue
@@ -817,6 +831,20 @@ func (m globMatcher) coversDirectory(directory string) bool {
 		}
 	}
 	return false
+}
+
+// Common workspace paths fit on the caller's stack. Deeper paths allocate one
+// correctly sized slice, preserving empty segments and the same glob grammar.
+func splitGlobValue(value string, storage []string) []string {
+	value = filepath.ToSlash(value)
+	count := strings.Count(value, "/") + 1
+	if cap(storage) < count {
+		storage = make([]string, 0, count)
+	}
+	for segment := range strings.SplitSeq(value, "/") {
+		storage = append(storage, segment)
+	}
+	return storage
 }
 
 func matchesAnyGlob(patterns []string, value string) bool {
@@ -841,36 +869,37 @@ func matchGlobSegments(pattern, value []string) bool {
 	return matchGlobSegment(pattern[0], value[0]) && matchGlobSegments(pattern[1:], value[1:])
 }
 
-// matchGlobSegment matches one path segment against a `*`/`?` pattern with
-// rune semantics: `?` is exactly one rune, `*` is any run of runes. It uses
-// iterative star backtracking rather than a memoized recursion so a walk over
-// many files allocates nothing per comparison beyond the two rune slices.
+// matchGlobSegment matches `*`/`?` with rune semantics. Walk UTF-8 byte
+// boundaries directly so even long filenames need no temporary rune slices.
 func matchGlobSegment(pattern, value string) bool {
-	patternRunes, valueRunes := []rune(pattern), []rune(value)
 	patternIndex, valueIndex := 0, 0
 	starPattern, starValue := -1, 0
-	for valueIndex < len(valueRunes) {
-		switch {
-		// `*` is tested before the literal case: a literal `*` in the value must
-		// never be consumed as a character match by a `*` in the pattern.
-		case patternIndex < len(patternRunes) && patternRunes[patternIndex] == '*':
-			// Remember this star so a later mismatch can extend what it consumed.
+	for valueIndex < len(value) {
+		if patternIndex < len(pattern) && pattern[patternIndex] == '*' {
 			starPattern, starValue = patternIndex, valueIndex
 			patternIndex++
-		case patternIndex < len(patternRunes) && (patternRunes[patternIndex] == '?' || patternRunes[patternIndex] == valueRunes[valueIndex]):
-			patternIndex++
-			valueIndex++
-		case starPattern >= 0:
-			starValue++
-			patternIndex, valueIndex = starPattern+1, starValue
-		default:
+			continue
+		}
+		if patternIndex < len(pattern) {
+			patternRune, patternWidth := utf8.DecodeRuneInString(pattern[patternIndex:])
+			valueRune, valueWidth := utf8.DecodeRuneInString(value[valueIndex:])
+			if patternRune == '?' || patternRune == valueRune {
+				patternIndex += patternWidth
+				valueIndex += valueWidth
+				continue
+			}
+		}
+		if starPattern < 0 {
 			return false
 		}
+		_, width := utf8.DecodeRuneInString(value[starValue:])
+		starValue += width
+		patternIndex, valueIndex = starPattern+1, starValue
 	}
-	for patternIndex < len(patternRunes) && patternRunes[patternIndex] == '*' {
+	for patternIndex < len(pattern) && pattern[patternIndex] == '*' {
 		patternIndex++
 	}
-	return patternIndex == len(patternRunes)
+	return patternIndex == len(pattern)
 }
 
 func containsBase(paths []string, base string) bool {

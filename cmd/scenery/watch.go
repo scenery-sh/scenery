@@ -245,6 +245,8 @@ func splitProductionFrontendPaths(root string, paths []string) ([]string, []stri
 type fileStamp struct {
 	modTime    time.Time
 	changeTime int64
+	device     uint64
+	inode      uint64
 	size       int64
 	mode       uint32
 	hash       string

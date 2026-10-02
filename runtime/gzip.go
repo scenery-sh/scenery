@@ -2,10 +2,33 @@ package runtime
 
 import (
 	"compress/gzip"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 )
+
+// Retain at most two idle compressors; bursts cannot leave an unbounded pool.
+// Reset detaches response buffers and reuses the deflate workspace.
+var idleGzipWriters = make(chan *gzip.Writer, 2)
+
+func acquireGzipWriter(dst io.Writer) *gzip.Writer {
+	select {
+	case writer := <-idleGzipWriters:
+		writer.Reset(dst)
+		return writer
+	default:
+		return gzip.NewWriter(dst)
+	}
+}
+
+func releaseGzipWriter(writer *gzip.Writer) {
+	writer.Reset(io.Discard)
+	select {
+	case idleGzipWriters <- writer:
+	default:
+	}
+}
 
 func withGzip(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -71,6 +94,8 @@ func (w *gzipResponseWriter) Unwrap() http.ResponseWriter {
 func (w *gzipResponseWriter) close() {
 	if w.gzip != nil {
 		_ = w.gzip.Close()
+		releaseGzipWriter(w.gzip)
+		w.gzip = nil
 	}
 	if !w.wroteHead {
 		w.Header().Del("X-Scenery-Contract-Compression")
@@ -88,7 +113,7 @@ func (w *gzipResponseWriter) start() {
 		addVary(headers, "Accept-Encoding")
 		headers.Del("Content-Length")
 		headers.Set("Content-Encoding", "gzip")
-		w.gzip = gzip.NewWriter(w.ResponseWriter)
+		w.gzip = acquireGzipWriter(w.ResponseWriter)
 	}
 	w.ResponseWriter.WriteHeader(w.status)
 	w.wroteHead = true

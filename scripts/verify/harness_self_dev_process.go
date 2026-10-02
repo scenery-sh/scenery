@@ -95,8 +95,13 @@ func runHarnessDevManagedProcessProbeCheck(parent context.Context, repoRoot stri
 	if err != nil {
 		return nil, nil, err
 	}
+	router, err := runHarnessLocalRouterRestartProof(parent, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
 		"basic_lifecycle":         basics,
+		"local_router_restart":    router,
 		"shared_build_processes":  sharedBuild,
 		"unready_stop_idempotent": true,
 		"detached_startup":        detached,

@@ -2,9 +2,27 @@ import { expect, test } from "bun:test";
 import {
 	computeTableWindow,
 	precedingGroupHeaderIndex,
+	groupHeaderIndex,
 	tableWindowOverscan,
 	tableWindowRowHeight,
+	tableRowOffset,
+	tableRowAtOffset,
 } from "../../../ui/components/table-window.js";
+
+test("keeps a measured inline detail in a bounded window and exact offsets", () => {
+	const count = 10_001;
+	const expanded = { index: 501, height: 1_200 };
+	for (const scroll of [0, tableRowOffset(500,expanded), tableRowOffset(501,expanded)+600, tableRowOffset(8_500,expanded)]) {
+		const window = computeTableWindow(count,scroll,600,44,8,expanded);
+		expect(window.end-window.start+2).toBeLessThanOrEqual(33);
+		expect(window.topHeight+tableRowOffset(window.end,expanded)-tableRowOffset(window.start,expanded)+window.bottomHeight).toBe(tableRowOffset(count,expanded));
+		const row = tableRowAtOffset(scroll,expanded);
+		expect(row).toBeGreaterThanOrEqual(window.start);
+		expect(row).toBeLessThan(window.end);
+	}
+	expect(tableRowAtOffset(tableRowOffset(501,expanded)+1199,expanded)).toBe(501);
+	expect(tableRowAtOffset(tableRowOffset(502,expanded),expanded)).toBe(502);
+});
 
 for (const count of [1_000, 5_000, 10_000]) {
 	test(`windows ${count.toLocaleString()} rows to a bounded DOM`, () => {
@@ -43,12 +61,31 @@ test("clamps a stale deep scroll position after the result shrinks", () => {
 
 test("retains the preceding group header when a window starts within a section", () => {
 	const rows = ["header:a", "a1", "a2", "header:b", "b1", "b2"];
+	const headers = groupHeaderIndex(rows, (row) => row.startsWith("header:"));
 	expect(
-		precedingGroupHeaderIndex(rows, 5, (row) => row.startsWith("header:")),
+		precedingGroupHeaderIndex(headers, 5),
 	).toBe(3);
 	expect(
-		precedingGroupHeaderIndex(rows, 3, (row) => row.startsWith("header:")),
+		precedingGroupHeaderIndex(headers, 3),
 	).toBeUndefined();
+});
+
+test("uses measured data and group heights with an inline detail", () => {
+	const heights = [37, 49, 1_200, 49, 37, 49, 49];
+	const expanded = {index: 2, height: 1_200};
+	const groups = {indices: [0, 4], height: 37};
+	let offset = 0;
+	for (let index = 0; index < heights.length; index++) {
+		expect(tableRowOffset(index, expanded, 49, groups)).toBe(offset);
+		expect(tableRowAtOffset(offset, expanded, 49, groups)).toBe(index);
+		expect(tableRowAtOffset(offset + heights[index] - 1, expanded, 49, groups)).toBe(index);
+		offset += heights[index];
+	}
+	expect(tableRowOffset(heights.length, expanded, 49, groups)).toBe(offset);
+	const window = computeTableWindow(heights.length, 1_300, 100, 49, 0, expanded, groups);
+	expect(window.start).toBe(3);
+	expect(window.end).toBe(6);
+	expect(window.topHeight + heights.slice(window.start, window.end).reduce((sum, height) => sum + height, 0) + window.bottomHeight).toBe(offset);
 });
 
 test("keeps the memo boundary and stable windowed data path", async () => {

@@ -193,9 +193,17 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		return nil, diagnostics, err
 	}
 	droppedA := false
+	var notificationEvidence map[string]any
 	if full {
 		if err := segments.run("durable_roundtrip", func() error {
 			return runPostgresHarnessDurableRoundTrip(ctx, databaseA.URL)
+		}); err != nil {
+			return nil, diagnostics, err
+		}
+		if err := segments.run("durable_notifications", func() error {
+			var err error
+			notificationEvidence, err = runPostgresHarnessDurableNotifications(ctx, databaseA.URL)
+			return err
 		}); err != nil {
 			return nil, diagnostics, err
 		}
@@ -281,6 +289,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	}
 	if full {
 		summary["durable"] = "roundtrip"
+		summary["durable_notifications"] = notificationEvidence
 		summary["auth"] = "bootstrap"
 		summary["reset"] = "service_schema_only"
 		summary["snapshot"] = "db_storage_roundtrip"

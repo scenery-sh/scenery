@@ -6,13 +6,11 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
-
-	"scenery.sh/internal/devreport"
 )
 
 func TestReportingLogsPreserveContextAndBoundGroups(t *testing.T) {
 	var output bytes.Buffer
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 4)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 4)}
 	logger := slog.New(&reportingHandler{base: newSceneryConsoleHandler(&output), reporter: reporter})
 	logger = logger.With("component", "worker").WithGroup("job").With("id", 7).WithGroup("attempt")
 	ctx := withState(context.Background(), &requestState{logsEnabled: true, trace: &traceSpan{traceID: "trace", spanID: "work"}})
@@ -26,7 +24,7 @@ func TestReportingLogsPreserveContextAndBoundGroups(t *testing.T) {
 	if len(reporter.queue) != 1 {
 		t.Fatalf("reports = %d", len(reporter.queue))
 	}
-	log := (<-reporter.queue).LogEvent
+	log := decodeQueuedReport(t, <-reporter.queue).LogEvent
 	if log.TraceID != "trace" || log.SpanID != "work" {
 		t.Fatalf("log context = %+v", log)
 	}

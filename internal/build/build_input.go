@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"sort"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/codegen"
+	"scenery.sh/internal/filemeta"
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
 )
@@ -725,61 +725,26 @@ func cachedBuildInputFileDigest(path string, before os.FileInfo, read func(strin
 }
 
 func buildInputStamp(info os.FileInfo) buildInputFileStamp {
-	device, inode := buildInputFileIdentity(info)
+	identity, known := filemeta.Read(info)
+	if !known {
+		identity.ChangeTimeNano = 0
+	}
 	return buildInputFileStamp{
-		Size: info.Size(), ModTimeUnixNano: info.ModTime().UnixNano(), Perm: uint32(info.Mode().Perm()), ChangeTimeNano: buildInputFileChangeTime(info), Device: device, Inode: inode,
+		Size: info.Size(), ModTimeUnixNano: info.ModTime().UnixNano(), Perm: uint32(info.Mode().Perm()), ChangeTimeNano: identity.ChangeTimeNano, Device: identity.Device, Inode: identity.Inode,
 	}
 }
 
 func buildInputFileIdentity(info os.FileInfo) (uint64, uint64) {
-	if info == nil || info.Sys() == nil {
-		return 0, 0
-	}
-	value := reflect.ValueOf(info.Sys())
-	if value.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			return 0, 0
-		}
-		value = value.Elem()
-	}
-	if value.Kind() != reflect.Struct {
-		return 0, 0
-	}
-	read := func(name string) uint64 {
-		field := value.FieldByName(name)
-		if field.IsValid() && field.CanUint() {
-			return field.Uint()
-		}
-		return 0
-	}
-	return read("Dev"), read("Ino")
+	identity, _ := filemeta.Read(info)
+	return identity.Device, identity.Inode
 }
 
 func buildInputFileChangeTime(info os.FileInfo) int64 {
-	if info == nil || info.Sys() == nil {
+	identity, known := filemeta.Read(info)
+	if !known {
 		return 0
 	}
-	value := reflect.ValueOf(info.Sys())
-	if value.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			return 0
-		}
-		value = value.Elem()
-	}
-	if value.Kind() != reflect.Struct {
-		return 0
-	}
-	for _, name := range []string{"Ctimespec", "Ctim", "Ctimen"} {
-		stamp := value.FieldByName(name)
-		if !stamp.IsValid() || stamp.Kind() != reflect.Struct {
-			continue
-		}
-		seconds, nanos := stamp.FieldByName("Sec"), stamp.FieldByName("Nsec")
-		if seconds.IsValid() && nanos.IsValid() && seconds.CanInt() && nanos.CanInt() {
-			return seconds.Int()*int64(time.Second) + nanos.Int()
-		}
-	}
-	return 0
+	return identity.ChangeTimeNano
 }
 
 func stringValuesForBuild(value any) []string {

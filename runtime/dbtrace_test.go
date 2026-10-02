@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"scenery.sh/internal/appsdk"
-	"scenery.sh/internal/devreport"
 	"scenery.sh/runtime/shared"
 )
 
@@ -32,7 +31,7 @@ func TestDBTraceErrorsDoNotEchoQueryArguments(t *testing.T) {
 }
 
 func TestSQLTraceBridgePreservesApplicationParentAndFailure(t *testing.T) {
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 8)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 8)}
 	restore := setTestReporter(reporter)
 	defer restore()
 	ctx := withState(context.Background(), &requestState{traceEnabled: true, trace: &traceSpan{traceID: "trace", spanID: "request"}})
@@ -44,7 +43,7 @@ func TestSQLTraceBridgePreservesApplicationParentAndFailure(t *testing.T) {
 	end(nil)
 	var found bool
 	for len(reporter.queue) > 0 {
-		report := <-reporter.queue
+		report := decodeQueuedReport(t, <-reporter.queue)
 		if summary := report.TraceSummary; summary != nil && summary.Type == "DB" {
 			found = true
 			if !summary.IsError || summary.ParentSpanID == nil || *summary.ParentSpanID != work.spanID || summary.TraceID != work.traceID {
@@ -77,7 +76,7 @@ func TestNormalizeDBQueryProtectsPostgresLiterals(t *testing.T) {
 func TestTraceDBQueryRecordsChildSpan(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 8),
+		queue: make(chan []byte, 8),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -98,9 +97,9 @@ func TestTraceDBQueryRecordsChildSpan(t *testing.T) {
 	ctx := TraceDBQueryStart(withState(context.Background(), state), " \n SELECT  *  FROM tenants WHERE id = $1 \n", 1)
 	TraceDBQueryEnd(ctx, "SELECT 1", 1, nil)
 
-	start := <-reporter.queue
-	end := <-reporter.queue
-	summary := <-reporter.queue
+	start := decodeQueuedReport(t, <-reporter.queue)
+	end := decodeQueuedReport(t, <-reporter.queue)
+	summary := decodeQueuedReport(t, <-reporter.queue)
 
 	if start.Type != "trace-event" || start.TraceEvent == nil {
 		t.Fatalf("start report = %#v, want trace event", start)
@@ -116,7 +115,7 @@ func TestTraceDBQueryRecordsChildSpan(t *testing.T) {
 	if got := dbStart["query"]; got != "SELECT * FROM tenants WHERE id = $1" {
 		t.Fatalf("start query = %#v", got)
 	}
-	if got := dbStart["args_count"]; got != 1 {
+	if got := dbStart["args_count"]; got != float64(1) {
 		t.Fatalf("start args_count = %#v, want 1", got)
 	}
 
@@ -128,7 +127,7 @@ func TestTraceDBQueryRecordsChildSpan(t *testing.T) {
 	if got := dbEnd["command_tag"]; got != "SELECT 1" {
 		t.Fatalf("end command_tag = %#v, want %q", got, "SELECT 1")
 	}
-	if got := dbEnd["rows_affected"]; got != int64(1) {
+	if got := dbEnd["rows_affected"]; got != float64(1) {
 		t.Fatalf("end rows_affected = %#v, want 1", got)
 	}
 
@@ -152,7 +151,7 @@ func TestTraceDBQueryRecordsChildSpan(t *testing.T) {
 func TestTraceDBQueryWithoutRequestIsNoop(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 4),
+		queue: make(chan []byte, 4),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -161,7 +160,8 @@ func TestTraceDBQueryWithoutRequestIsNoop(t *testing.T) {
 	TraceDBQueryEnd(ctx, "SELECT 1", 1, nil)
 
 	select {
-	case report := <-reporter.queue:
+	case queuedBody := <-reporter.queue:
+		report := decodeQueuedReport(t, queuedBody)
 		t.Fatalf("unexpected report: %#v", report)
 	default:
 	}
@@ -170,7 +170,7 @@ func TestTraceDBQueryWithoutRequestIsNoop(t *testing.T) {
 func TestTraceDBQueryRedactsInlineLiterals(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 4),
+		queue: make(chan []byte, 4),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -191,7 +191,7 @@ func TestTraceDBQueryRedactsInlineLiterals(t *testing.T) {
 	ctx := TraceDBQueryStart(withState(context.Background(), state), `SELECT * FROM users WHERE email = 'secret@example.com' AND age = 42`, 0)
 	TraceDBQueryEnd(ctx, "", -1, nil)
 
-	start := <-reporter.queue
+	start := decodeQueuedReport(t, <-reporter.queue)
 	startPayload, _ := start.TraceEvent.Event["span_start"].(map[string]any)
 	dbStart, _ := startPayload["db"].(map[string]any)
 	if got := dbStart["query"]; got != "SELECT * FROM users WHERE email = ? AND age = ?" {
@@ -202,7 +202,7 @@ func TestTraceDBQueryRedactsInlineLiterals(t *testing.T) {
 func TestTraceDBQueryUsesSQLCQueryNameAsOperation(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 4),
+		queue: make(chan []byte, 4),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -223,9 +223,9 @@ func TestTraceDBQueryUsesSQLCQueryNameAsOperation(t *testing.T) {
 	ctx := TraceDBQueryStart(withState(context.Background(), state), "-- name: ListLatestJobListings :many\nSELECT * FROM job_listings", 0)
 	TraceDBQueryEnd(ctx, "SELECT 30", 30, nil)
 
-	start := <-reporter.queue
+	start := decodeQueuedReport(t, <-reporter.queue)
 	<-reporter.queue
-	summary := <-reporter.queue
+	summary := decodeQueuedReport(t, <-reporter.queue)
 
 	startPayload, _ := start.TraceEvent.Event["span_start"].(map[string]any)
 	dbStart, _ := startPayload["db"].(map[string]any)

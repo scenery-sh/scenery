@@ -67,7 +67,6 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 	}()
 	type candidate struct {
 		rel, path string
-		entry     fs.DirEntry
 	}
 	var (
 		dirs       []string
@@ -75,7 +74,7 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 	)
 	ignore := watchignore.New(root)
 	walk := watchListings(root).Begin(fresh)
-	walkErr := walkWatchTree(root, ignore, walk, &snapshot.scanStats, func(path string, d fs.DirEntry, err error) error {
+	walkErr := walkWatchTree(root, ignore, walk, &snapshot.scanStats, func(path, rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Tolerate entries vanishing or turning unreadable mid-scan; a
 			// transient walk error must not abort the watch loop.
@@ -88,14 +87,9 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 			return nil
 		}
 
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
+		if rel == "" {
 			return nil
 		}
-		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
 			if shouldIgnoreWatchEntryWithMatcher(rel, true, ignore) || isProductionFrontendOutputDir(root, rel) {
@@ -120,7 +114,7 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 				return nil
 			}
 		}
-		candidates = append(candidates, candidate{rel: rel, path: path, entry: d})
+		candidates = append(candidates, candidate{rel: rel, path: path})
 		return nil
 	})
 	discovered := <-discovering
@@ -150,13 +144,13 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 		}
 	}
 	for _, found := range candidates {
-		rel, path, d := found.rel, found.path, found.entry
+		rel, path := found.rel, found.path
 		if generated[rel] {
 			continue
 		}
 
-		info, err := d.Info()
-		if err != nil {
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
 		var data []byte

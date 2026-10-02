@@ -134,6 +134,26 @@ func snapshotFingerprint(snapshot fileSnapshot) string {
 }
 
 func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
+	// The watcher and compiler maps often name the very same captured buffer.
+	// Clone it once per candidate, while keeping the retained watcher isolated.
+	// Key by backing storage, not an unverified hash that could mask tampering.
+	type capturedBuffer struct {
+		first *byte
+		size  int
+	}
+	cloned := make(map[capturedBuffer][]byte)
+	cloneData := func(data []byte) []byte {
+		if len(data) == 0 {
+			return bytes.Clone(data)
+		}
+		key := capturedBuffer{first: &data[0], size: len(data)}
+		if copy, ok := cloned[key]; ok {
+			return copy
+		}
+		copy := bytes.Clone(data)
+		cloned[key] = copy
+		return copy
+	}
 	convert := func(stamps map[string]fileStamp, implementation map[string]bool) map[string]build.SourceSnapshotFile {
 		files := make(map[string]build.SourceSnapshotFile, len(stamps))
 		for rel, stamp := range stamps {
@@ -144,7 +164,7 @@ func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
 				Hash:           stamp.hash,
 				Embedded:       stamp.embed,
 				Implementation: implementation[rel],
-				Data:           bytes.Clone(stamp.data),
+				Data:           cloneData(stamp.data),
 			}
 		}
 		return files

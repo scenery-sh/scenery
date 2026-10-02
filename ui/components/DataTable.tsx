@@ -39,6 +39,7 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
@@ -47,7 +48,12 @@ import {
 	computeTableWindow,
 	defaultTableWindowThreshold,
 	precedingGroupHeaderIndex,
+	groupHeaderIndex,
 	tableWindowRowHeight,
+	tableRowAtOffset,
+	tableRowOffset,
+	type ExpandedTableRow,
+	type TableGroupRows,
 } from "./table-window.js";
 
 export type Align = "left" | "right" | "center";
@@ -258,27 +264,53 @@ function DataTableInner<T>({
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [viewportHeight, setViewportHeight] = useState(600);
-	const windowed =
-		expandedKey == null && tableRows.length > Math.max(0, windowThreshold);
+	const [rowHeights, setRowHeights] = useState({row: tableWindowRowHeight, group: tableWindowRowHeight});
+	const rowHeight = rowHeights.row;
+	const groupHeaders = useMemo(() => sections ? groupHeaderIndex(tableRows, isGroupHeaderRow) : undefined, [sections, tableRows]);
+	const groupRows = useMemo<TableGroupRows | undefined>(() => groupHeaders ? {indices: groupHeaders, height: rowHeights.group} : undefined, [groupHeaders, rowHeights.group]);
+	const [expandedMeasurement, setExpandedMeasurement] = useState<{key: string; height: number}>();
+	const expandedObserver = useRef<ResizeObserver | null>(null);
+	const measureExpandedRow = useCallback((node: HTMLTableRowElement | null) => {
+		expandedObserver.current?.disconnect();
+		expandedObserver.current = null;
+		if (!node || expandedKey == null) return;
+		const measure = () => {
+			const height = node.getBoundingClientRect().height;
+			if (height <= 0) return;
+			setExpandedMeasurement(previous => previous?.key === expandedKey && previous.height === height ? previous : {key: expandedKey, height});
+		};
+		measure();
+		if (typeof ResizeObserver !== "undefined") {
+			const observer = new ResizeObserver(measure);
+			observer.observe(node);
+			expandedObserver.current = observer;
+		}
+	}, [expandedKey]);
+	useEffect(() => () => expandedObserver.current?.disconnect(), []);
+	const expandedRow = useMemo<ExpandedTableRow | undefined>(() => {
+		const index = tableRows.findIndex(item => item.kind === "expanded");
+		return index < 0 ? undefined : {index, height: expandedMeasurement && expandedMeasurement.key === expandedKey ? expandedMeasurement.height : rowHeight};
+	}, [expandedKey, expandedMeasurement, rowHeight, tableRows]);
+	const windowed = tableRows.length > Math.max(0, windowThreshold);
 	const window = useMemo(
 		() =>
 			windowed
-				? computeTableWindow(tableRows.length, scrollTop, viewportHeight)
+				? computeTableWindow(tableRows.length, scrollTop, viewportHeight, rowHeight, undefined, expandedRow, groupRows)
 				: {
 						start: 0,
 						end: tableRows.length,
 						topHeight: 0,
 						bottomHeight: 0,
 					},
-		[scrollTop, tableRows.length, viewportHeight, windowed],
+		[scrollTop, tableRows.length, viewportHeight, windowed, expandedRow, rowHeight, groupRows],
 	);
 	const renderedRows = useMemo<InternalRow<T>[]>(() => {
 		if (!windowed) return tableRows;
 		const visible = tableRows.slice(window.start, window.end);
 		// If a grouped window starts inside a section, retain that section's
 		// preceding header so the visible rows never lose their group context.
-		const pinnedHeaderIndex = sections
-			? precedingGroupHeaderIndex(tableRows, window.start, isGroupHeaderRow)
+		const pinnedHeaderIndex = groupHeaders
+			? precedingGroupHeaderIndex(groupHeaders, window.start)
 			: undefined;
 		const pinnedHeader =
 			pinnedHeaderIndex === undefined
@@ -286,7 +318,7 @@ function DataTableInner<T>({
 				: tableRows[pinnedHeaderIndex];
 		const topHeight = Math.max(
 			0,
-			window.topHeight - (pinnedHeader ? tableWindowRowHeight : 0),
+			window.topHeight - (pinnedHeader ? rowHeights.group : 0),
 		);
 		return [
 			...(topHeight > 0
@@ -312,7 +344,30 @@ function DataTableInner<T>({
 					]
 				: []),
 		];
-	}, [sections, tableRows, window, windowed]);
+	}, [groupHeaders, rowHeights.group, tableRows, window, windowed]);
+	// One representative row of each fixed-height kind establishes geometry.
+ // Reattach when windowing replaces the observed DOM rows; size changes also
+ // update offsets without requiring a scroll event.
+ useLayoutEffect(() => {
+  if (!windowed) return;
+  const container = scrollContainerRef.current;
+  const data = container?.querySelector<HTMLTableRowElement>("tr[data-scenery-row-key]");
+  const header = container?.querySelector<HTMLTableRowElement>("tr[data-scenery-group-header]");
+  const measure = () => {
+   const row = data?.getBoundingClientRect().height;
+   const group = header?.getBoundingClientRect().height;
+   setRowHeights(previous => {
+    const next = {row: row && row > 0 ? row : previous.row, group: group && group > 0 ? group : previous.group};
+    return next.row === previous.row && next.group === previous.group ? previous : next;
+   });
+  };
+  measure();
+  if (typeof ResizeObserver === "undefined") return;
+  const observer = new ResizeObserver(measure);
+  if (data) observer.observe(data);
+  if (header) observer.observe(header);
+  return () => observer.disconnect();
+ }, [renderedRows, windowed]);
 	const setScrollContainer = useCallback((node: HTMLDivElement | null) => {
 		scrollContainerRef.current = node;
 		if (node) setViewportHeight(node.clientHeight || 600);
@@ -337,13 +392,33 @@ function DataTableInner<T>({
 		);
 		const container = scrollContainerRef.current;
 		if (selectedIndex < 0 || !container) return;
-		if (selectedIndex >= window.start && selectedIndex < window.end) return;
+		const top = tableRowOffset(selectedIndex, expandedRow, rowHeight, groupRows);
+		if (top >= container.scrollTop && top + rowHeight <= container.scrollTop + container.clientHeight) return;
 		container.scrollTop = Math.max(
 			0,
-			selectedIndex * tableWindowRowHeight - container.clientHeight / 2,
+			tableRowOffset(selectedIndex, expandedRow, rowHeight, groupRows) - container.clientHeight / 2,
 		);
 		setScrollTop(container.scrollTop);
-	}, [selectedKey, tableRows, window.end, window.start, windowed]);
+	}, [selectedKey, tableRows, windowed, expandedRow, rowHeight, groupRows]);
+	const previousGeometry = useRef<{groupedRows: InternalRow<T>[]; rows: InternalRow<T>[]; expanded?: ExpandedTableRow; rowHeight: number; groups?: TableGroupRows; scrollTop: number} | undefined>(undefined);
+	useLayoutEffect(() => {
+		const previous = previousGeometry.current;
+		const container = scrollContainerRef.current;
+		if (windowed && container && previous?.groupedRows === groupedRows && (previous.expanded?.index !== expandedRow?.index || previous.expanded?.height !== expandedRow?.height || previous.rowHeight !== rowHeight || previous.groups?.height !== groupRows?.height)) {
+			let index = Math.min(previous.rows.length - 1, tableRowAtOffset(previous.scrollTop, previous.expanded, previous.rowHeight, previous.groups));
+			if (previous.rows[index]?.kind === "expanded" && !expandedRow) index = Math.max(0, index - 1);
+			const anchor = previous.rows[index];
+			const nextIndex = tableRows.findIndex(item => item.rowKey === anchor?.rowKey);
+			if (nextIndex >= 0) {
+				const relative = Math.max(0, previous.scrollTop - tableRowOffset(index, previous.expanded, previous.rowHeight, previous.groups));
+				const offset = tableRowOffset(nextIndex, expandedRow, rowHeight, groupRows) + Math.min(relative, anchor?.kind === "expanded" ? (expandedRow?.height ?? rowHeight) : isGroupHeaderRow(anchor) ? rowHeights.group : rowHeight);
+				container.scrollTop = Math.min(Math.max(0, offset), Math.max(0, container.scrollHeight - container.clientHeight));
+				setScrollTop(container.scrollTop);
+			}
+		}
+		previousGeometry.current = {groupedRows, rows: tableRows, expanded: expandedRow, rowHeight, groups: groupRows, scrollTop: container?.scrollTop ?? scrollTop};
+	}, [expandedRow, groupedRows, scrollTop, tableRows, windowed, rowHeight, groupRows, rowHeights.group]);
+
 	const tableColumns = useMemo<TableColumn<InternalRow<T>>[]>(() => {
 		const result: TableColumn<InternalRow<T>>[] = columns.map((column) => ({
 			key: column.key,
@@ -451,6 +526,7 @@ function DataTableInner<T>({
 				};
 			},
 			transformBodyRow: (props: BodyRowRenderProps, item: InternalRow<T>) => {
+				if (isGroupHeaderRow(item)) return {...props, htmlProps: {...props.htmlProps, "data-scenery-group-header": true}};
 				if (item.kind === "spacer") {
 					return {
 						htmlProps: { "aria-hidden": true },
@@ -466,7 +542,7 @@ function DataTableInner<T>({
 				}
 				if (item.kind === "expanded") {
 					return {
-						htmlProps: {},
+						htmlProps: { ref: measureExpandedRow, "data-scenery-expanded-row": item.rowKey },
 						xstyle: [],
 						children: (
 							<TableCell colSpan={999} xstyle={styles.expandedCell}>
@@ -550,6 +626,7 @@ function DataTableInner<T>({
 		renderExpanded,
 		rowLabel,
 		setScrollContainer,
+		measureExpandedRow,
 		sticky,
 		handleScroll,
 		windowed,
@@ -681,6 +758,7 @@ const styles = stylex.create({
 		width: "100%",
 		scrollbarColor: `${colorVars["--color-text-secondary"]} transparent`,
 		scrollbarWidth: "thin",
+		overflowAnchor: "none",
 	},
 	tableScrollerFill: { flex: 1, minHeight: 0, overflow: "auto" },
 	tableScrollerWindowed: {

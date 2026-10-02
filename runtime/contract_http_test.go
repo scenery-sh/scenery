@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"scenery.sh/errs"
-	"scenery.sh/internal/devreport"
 )
 
 type mappedContractInput struct {
@@ -413,7 +412,7 @@ func TestUnclassifiedDecodeFailureUsesStandardProblemOutcome(t *testing.T) {
 func TestContractTransportResponseAndTraceStatusesMatch(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 16)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
 
@@ -464,13 +463,13 @@ func TestContractTransportResponseAndTraceStatusesMatch(t *testing.T) {
 			if recorder.Code != test.want {
 				t.Fatalf("response status = %d, want %d", recorder.Code, test.want)
 			}
-			start, end, summary := <-reporter.queue, <-reporter.queue, <-reporter.queue
+			start, end, summary := decodeQueuedReport(t, <-reporter.queue), decodeQueuedReport(t, <-reporter.queue), decodeQueuedReport(t, <-reporter.queue)
 			if start.Type != "trace-event" || end.Type != "trace-event" || summary.Type != "trace-summary" {
 				t.Fatalf("reports = %#v %#v %#v", start, end, summary)
 			}
 			spanEnd := end.TraceEvent.Event["span_end"].(map[string]any)
 			tracedRequest := spanEnd["request"].(map[string]any)
-			if tracedRequest["http_status_code"] != test.want {
+			if tracedRequest["http_status_code"] != float64(test.want) {
 				t.Fatalf("trace status = %#v, want %d", tracedRequest["http_status_code"], test.want)
 			}
 		})

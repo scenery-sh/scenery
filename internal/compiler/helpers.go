@@ -14,11 +14,12 @@ import (
 )
 
 func resourcesByAddress(manifest *Manifest) map[string]Resource {
-	resources := map[string]Resource{}
-	if manifest != nil {
-		for _, resource := range manifest.Resources {
-			resources[resource.Address] = resource
-		}
+	if manifest == nil {
+		return map[string]Resource{}
+	}
+	resources := make(map[string]Resource, len(manifest.Resources))
+	for _, resource := range manifest.Resources {
+		resources[resource.Address] = resource
 	}
 	return resources
 }

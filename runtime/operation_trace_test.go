@@ -15,7 +15,7 @@ import (
 )
 
 func TestDurableAttemptsTraceSQLAndKeepDispatchParent(t *testing.T) {
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 32)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 32)}
 	defer setTestReporter(reporter)()
 	parent := &requestState{traceEnabled: true, trace: &traceSpan{traceID: strings.Repeat("a", 32), spanID: strings.Repeat("b", 16)}}
 	source := withRuntimeInvocation(withState(context.Background(), parent), parent)
@@ -40,7 +40,7 @@ func TestDurableAttemptsTraceSQLAndKeepDispatchParent(t *testing.T) {
 
 func TestCLITraceClosesOnPanicAndPreservesRecovery(t *testing.T) {
 	defer replaceGlobalRegistryForTest()()
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 16)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
 	defer setTestReporter(reporter)()
 	if err := RegisterContractCLIBinding(ContractCLIBindingRegistration{Address: "app/binding/cli", Command: []string{"probe"}, Invoke: func(ctx context.Context, _ []byte) (ContractCLIOutcome, error) {
 		TraceDBQueryEnd(TraceDBQueryStart(ctx, "SELECT 1", 0), "SELECT 1", 1, nil)
@@ -61,7 +61,7 @@ func TestCLITraceClosesOnPanicAndPreservesRecovery(t *testing.T) {
 
 func TestEventDeliveryCreatesTraceAndCorrelatesSQL(t *testing.T) {
 	defer replaceGlobalRegistryForTest()()
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 16)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
 	defer setTestReporter(reporter)()
 	bus := &fakeContractEventBus{}
 	if err := RegisterContractEventBus("app/event_bus/events", bus); err != nil {
@@ -94,7 +94,7 @@ func assertTraceChildren(t *testing.T, reporter *devReporter, kind string, count
 	roots := map[string]*devreport.TraceSummary{}
 	var queries []*devreport.TraceSummary
 	for len(reporter.queue) > 0 {
-		report := <-reporter.queue
+		report := decodeQueuedReport(t, <-reporter.queue)
 		if s := report.TraceSummary; s != nil {
 			if s.Type == kind {
 				roots[s.SpanID] = s
@@ -115,7 +115,7 @@ func assertTraceChildren(t *testing.T, reporter *devReporter, kind string, count
 }
 
 func TestHTTPTracePropagationAndStreamingCompletion(t *testing.T) {
-	reporter := &devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 16)}
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
 	defer setTestReporter(reporter)()
 	state := &requestState{request: shared.Request{Service: "app"}, traceEnabled: true, trace: &traceSpan{traceID: strings.Repeat("a", 32), spanID: strings.Repeat("b", 16)}}
 	req, _ := http.NewRequestWithContext(withState(context.Background(), state), "GET", "https://example.test", nil)
@@ -140,7 +140,7 @@ func TestHTTPTracePropagationAndStreamingCompletion(t *testing.T) {
 		t.Fatal("mutated caller request")
 	}
 	for len(reporter.queue) > 0 {
-		if (<-reporter.queue).TraceSummary != nil {
+		if decodeQueuedReport(t, <-reporter.queue).TraceSummary != nil {
 			t.Fatal("finished before reading body")
 		}
 	}
@@ -150,7 +150,7 @@ func TestHTTPTracePropagationAndStreamingCompletion(t *testing.T) {
 	_ = response.Body.Close()
 	var summaries int
 	for len(reporter.queue) > 0 {
-		if s := (<-reporter.queue).TraceSummary; s != nil {
+		if s := decodeQueuedReport(t, <-reporter.queue).TraceSummary; s != nil {
 			summaries++
 			if s.Type != "HTTP" || s.IsError {
 				t.Fatalf("HTTP summary %+v", s)

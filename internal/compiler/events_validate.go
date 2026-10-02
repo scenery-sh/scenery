@@ -10,8 +10,7 @@ import (
 	scenery "scenery.sh/internal/contract"
 )
 
-func validateScheduleAndEventSemantics(resources []Resource) []Diagnostic {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+func validateScheduleAndEventSemantics(resources []Resource, byAddress map[string]Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		switch resource.Kind {

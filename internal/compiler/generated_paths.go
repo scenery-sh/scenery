@@ -63,12 +63,11 @@ func collectGeneratedPaths(root, dir string, walk *dirlisting.Walk, paths map[st
 		return err
 	}
 	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name())
 		if entry.IsDir() {
 			if strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
 				continue
 			}
-			if err := collectGeneratedPaths(root, path, walk, paths); err != nil {
+			if err := collectGeneratedPaths(root, filepath.Join(dir, entry.Name()), walk, paths); err != nil {
 				return err
 			}
 			continue
@@ -82,6 +81,7 @@ func collectGeneratedPaths(root, dir string, walk *dirlisting.Walk, paths map[st
 		if !entry.Type().IsRegular() {
 			continue
 		}
+		path := filepath.Join(dir, entry.Name())
 		data, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue

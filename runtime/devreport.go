@@ -49,10 +49,13 @@ type devReporter struct {
 	url         string
 	token       string
 
-	client *http.Client
-	queue  chan devreport.ReportEnvelope
-	done   chan struct{}
-	stop   chan struct{}
+	client      *http.Client
+	queue       chan []byte
+	admissionMu sync.Mutex
+	queuedBytes atomic.Int64
+	dropped     atomic.Uint64
+	done        chan struct{}
+	stop        chan struct{}
 
 	eventSeq atomic.Uint64
 	disabled atomic.Bool
@@ -113,7 +116,7 @@ func startDevelopmentReporting(cfg AppConfig) func() {
 		url:         url,
 		token:       token,
 		client:      &http.Client{Timeout: 2 * time.Second},
-		queue:       make(chan devreport.ReportEnvelope, 1024),
+		queue:       make(chan []byte, 1024),
 		done:        make(chan struct{}),
 		stop:        make(chan struct{}),
 	}
@@ -164,30 +167,71 @@ func activeReporter() *devReporter {
 	return globalReporter
 }
 
+// loop sends the reports already queued together, without delaying an isolated
+// report to fill a batch. Byte reservations include the one in-flight batch.
 func (r *devReporter) loop() {
 	defer close(r.done)
-	for {
-		select {
-		case <-r.stop:
-			return
-		case env := <-r.queue:
-			if r.disabled.Load() {
-				continue
+	defer func() {
+		r.admissionMu.Lock()
+		defer r.admissionMu.Unlock()
+		r.disabled.Store(true)
+		for {
+			select {
+			case body := <-r.queue:
+				r.queuedBytes.Add(-int64(len(body)))
+			default:
+				return
 			}
-			r.backoffBeforePost()
-			if err := r.post(env); err != nil {
-				failures := r.failures.Add(1)
-				if shouldDisableDevReporting(err) {
-					r.disabled.Store(true)
-					return
-				}
-				if failures == 1 {
-					_, _ = fmt.Fprintf(osStderr(), "scenery: dev report failed, retrying with backoff: %v\n", err)
-				}
-				continue
-			}
-			r.failures.Store(0)
 		}
+	}()
+	var pending []byte
+	defer func() { r.queuedBytes.Add(-int64(len(pending))) }()
+	for {
+		var first []byte
+		if pending != nil {
+			first, pending = pending, nil
+		} else {
+			select {
+			case <-r.stop:
+				return
+			case first = <-r.queue:
+			}
+		}
+		batch := [][]byte{first}
+		size := len(first) + devreport.BatchWrapperBytes
+	drain:
+		for len(batch) < devreport.MaxBatchReports {
+			select {
+			case next := <-r.queue:
+				if size+len(next)+1 > devreport.MaxBatchBytes {
+					pending = next
+					break drain
+				}
+				batch = append(batch, next)
+				size += len(next) + 1
+			default:
+				break drain
+			}
+		}
+		r.backoffBeforePost()
+		dropped := r.dropped.Swap(0)
+		err := r.post(batch, dropped)
+		for _, body := range batch {
+			r.queuedBytes.Add(-int64(len(body)))
+		}
+		if err != nil {
+			r.dropped.Add(dropped + uint64(len(batch)))
+			failures := r.failures.Add(1)
+			if shouldDisableDevReporting(err) {
+				r.disabled.Store(true)
+				return
+			}
+			if failures == 1 {
+				_, _ = fmt.Fprintf(osStderr(), "scenery: dev report failed, retrying with backoff: %v\n", err)
+			}
+			continue
+		}
+		r.failures.Store(0)
 	}
 }
 
@@ -217,11 +261,21 @@ func devReportBackoffDelay(failures uint64) time.Duration {
 	return delay
 }
 
-func (r *devReporter) post(env devreport.ReportEnvelope) error {
-	body, err := json.Marshal(env)
+func (r *devReporter) post(batch [][]byte, dropped uint64) error {
+	// Each record was encoded once at admission, before it entered the byte
+	// budget. RawMessage preserves that encoding in the current wire batch.
+	reports := make([]json.RawMessage, len(batch))
+	for index, body := range batch {
+		reports[index] = body
+	}
+	body, err := json.Marshal(struct {
+		Reports []json.RawMessage `json:"reports"`
+		Dropped uint64            `json:"dropped,omitempty"`
+	}{reports, dropped})
 	if err != nil {
 		return err
 	}
+
 	req, err := http.NewRequest(http.MethodPost, r.url, bytesReader(body))
 	if err != nil {
 		return err
@@ -241,6 +295,18 @@ func (r *devReporter) post(env devreport.ReportEnvelope) error {
 
 func (r *devReporter) enqueue(env devreport.ReportEnvelope) {
 	if r == nil || r.disabled.Load() {
+		return
+	}
+	select {
+	case <-r.stop:
+		return
+	default:
+	}
+	// Reporting is lossy under overload. Refuse already-full queues before
+	// touching caller payloads or allocating their encoding. Admission below
+	// still enforces the exact budget when concurrent producers race this check.
+	if len(r.queue) == cap(r.queue) || r.queuedBytes.Load() >= devreport.MaxQueuedBytes {
+		r.dropped.Add(1)
 		return
 	}
 	if env.AppID == "" {
@@ -312,13 +378,41 @@ func (r *devReporter) enqueue(env devreport.ReportEnvelope) {
 			env.LogEvent.Worktree = env.Worktree
 		}
 	}
+	body, err := json.Marshal(env)
+	if err != nil || len(body) > devreport.MaxEnvelopeBytes {
+		r.dropped.Add(1)
+		return
+	}
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
+	if r.disabled.Load() {
+		return
+	}
 	select {
 	case <-r.stop:
 		return
-	case r.queue <- env:
 	default:
-		// Keep the app responsive if the dashboard falls behind.
 	}
+
+	for {
+		used := r.queuedBytes.Load()
+		if used+int64(len(body)) > devreport.MaxQueuedBytes {
+			r.dropped.Add(1)
+			return
+		}
+		if r.queuedBytes.CompareAndSwap(used, used+int64(len(body))) {
+			break
+		}
+	}
+	select {
+	case <-r.stop:
+		r.queuedBytes.Add(-int64(len(body)))
+	case r.queue <- body:
+	default:
+		r.queuedBytes.Add(-int64(len(body)))
+		r.dropped.Add(1)
+	}
+
 }
 
 func minUint64(a, b uint64) uint64 {
@@ -653,13 +747,6 @@ func (r *devReporter) nextEventID() uint64 {
 	return r.eventSeq.Add(1)
 }
 
-func logState(ctx context.Context) *requestState {
-	if state := stateFromContext(ctx); state != nil {
-		return state
-	}
-	return currentState()
-}
-
 func (h *reportingHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.base.Enabled(ctx, level)
 }
@@ -669,6 +756,10 @@ func (h *reportingHandler) Handle(ctx context.Context, record slog.Record) error
 	if state != nil && !state.logsEnabled {
 		return nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx = context.WithValue(ctx, resolvedLogStateKey{}, resolvedLogState{state})
 	if err := h.base.Handle(ctx, record); err != nil {
 		return err
 	}

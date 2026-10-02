@@ -78,6 +78,7 @@ func canonicalOrderTestWords() []string {
 		"\U00010000", "\U0001F600", "\U0010FFFF",
 		"a", "a\U0001F600", "a", "\U0001F600a",
 		"key", "key2", "Key", "kEy", "key_name", "key-name", "key.name",
+		"invalid-\xff", "invalid-\xef\xbf\xbd", "invalid-\xed\xa0\x80", "\U00010000\x00", "\U00010000\U0001F600",
 	}
 }
 

@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -592,7 +591,8 @@ func writeContractByteStream(writer io.Writer, response ContractHTTPResponse) er
 		_, err := io.CopyN(writer, stream.Reader, stream.Size)
 		return err
 	}
-	compressed := gzip.NewWriter(writer)
+	compressed := acquireGzipWriter(writer)
+	defer releaseGzipWriter(compressed)
 	_, copyErr := io.CopyN(compressed, stream.Reader, stream.Size)
 	if copyErr != nil {
 		return copyErr

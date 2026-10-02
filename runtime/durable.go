@@ -339,24 +339,29 @@ func WaitDurableTask(ctx context.Context, run DurableRun) ([]byte, error) {
 		return nil, fmt.Errorf("runtime: durable service %q is not active", service)
 	}
 	for {
-		wake := db.JobWake(run.ID)
+		wake, release := db.JobWake(run.ID)
 		job, found, err := db.GetJob(ctx, run.ID)
 		if err != nil {
+			release()
 			return nil, err
 		}
 		if !found {
+			release()
 			return nil, fmt.Errorf("runtime: durable execution %s/%s was not found", service, run.ID)
 		}
 		switch job.State {
 		case "succeeded":
+			release()
 			if job.ResultCodec != "json" || len(job.ResultBlob) == 0 {
 				return nil, fmt.Errorf("runtime: durable execution %s/%s has no JSON result", service, run.ID)
 			}
 			return append([]byte(nil), job.ResultBlob...), nil
 		case "failed", "canceled":
+			release()
 			return nil, &DurableExecutionFailure{Service: service, ID: run.ID, State: job.State, TaskName: job.TaskName}
 		}
 		awaitDurableWake(ctx, wake, durableWaitPoll)
+		release()
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -519,9 +524,8 @@ func startDurableScheduleLoop(parent context.Context, stores []*store.Store, rol
 	}
 }
 
-// durableIdlePoll bounds how long an idle task loop waits for a queued-job
-// notification before it leases again anyway: expired leases and delayed
-// retries become ready without a notification.
+// durableIdlePoll retries acquisition errors and stores without deadline
+// guidance. Healthy empty local acquisitions use their next known deadline.
 var durableIdlePoll = time.Second
 
 // durableWaitPoll bounds how long a waiting caller waits for a job's
@@ -531,7 +535,7 @@ var durableWaitPoll = time.Second
 // runDurableLocalWorker leases and runs one task's jobs. Up to handler.slots
 // attempts run at once; the next job is leased only when a slot is free. An
 // idle loop sleeps until Postgres notifies it of a queued or finished job of
-// its task, or until durableIdlePoll passes.
+// its task, its next retry/lease deadline, or bounded reconciliation.
 func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID, taskName string, handler durableRegisteredHandler) {
 	slots := make(chan struct{}, durableTaskSlots(handler.slots))
 	var attempts sync.WaitGroup
@@ -548,13 +552,19 @@ func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID, taskN
 			sleepDurableWorker(ctx)
 			continue
 		}
-		wake := db.TaskWake(taskName)
+		wake, releaseWake := db.TaskWake(taskName)
 		job, ok, err := db.LeaseReadyJob(ctx, workerID, leaseID, taskName)
 		if err != nil || !ok {
 			<-slots
-			awaitDurableWake(ctx, wake, durableIdlePoll)
+			delay := durableIdlePoll
+			if err == nil && job.WakeAfter > 0 {
+				delay = job.WakeAfter
+			}
+			awaitDurableWake(ctx, wake, delay)
+			releaseWake()
 			continue
 		}
+		releaseWake()
 		attempts.Add(1)
 		go func() {
 			defer attempts.Done()

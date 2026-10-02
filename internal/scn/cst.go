@@ -63,6 +63,9 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, positions
 		diagnostics = append(diagnostics, Diagnostic{Code: "SCN1011", Severity: "error", Message: "source must be valid UTF-8"})
 	}
 	tokens, _ := hclsyntax.LexConfig(source, filename, hcl.Pos{Line: 1, Column: 1})
+	if count := concreteTokenCount(tokens, len(source)); count > 0 {
+		tree.Tokens = make([]ConcreteToken, 0, count)
+	}
 	cursor := 0
 	for _, token := range tokens {
 		start := min(max(token.Range.Start.Byte, cursor), len(source))
@@ -95,6 +98,27 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, positions
 		}
 	}
 	return tree, diagnostics
+}
+
+// concreteTokenCount includes the trivia gaps omitted by the lexer. Exact
+// capacity avoids repeatedly copying the large token records and retaining
+// spare records in each source tree. Empty trees keep their nil token slice.
+func concreteTokenCount(tokens hclsyntax.Tokens, sourceLength int) int {
+	count, cursor := 0, 0
+	for _, token := range tokens {
+		start := min(max(token.Range.Start.Byte, cursor), sourceLength)
+		if start > cursor {
+			count++
+		}
+		if len(token.Bytes) > 0 {
+			count++
+		}
+		cursor = min(start+len(token.Bytes), sourceLength)
+	}
+	if cursor < sourceLength {
+		count++
+	}
+	return count
 }
 
 type concreteNode struct {

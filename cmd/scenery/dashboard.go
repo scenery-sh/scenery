@@ -21,6 +21,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/devreport"
 )
 
 var dashboardUpgrader = websocket.Upgrader{
@@ -327,7 +328,7 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 
 // dashboardReportMaxBytes bounds one report body. A larger report is refused
 // before it is decoded and counted as dropped telemetry.
-const dashboardReportMaxBytes = 1 << 20
+const dashboardReportMaxBytes = devreport.MaxBatchBytes
 
 // dashboardReportDrainBytes bounds how much of a refused report is read and
 // discarded, so that its sender reads the refusal instead of a reset
@@ -340,8 +341,20 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	defer func() { _ = req.Body.Close() }()
-	var report devdash.ReportEnvelope
-	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, dashboardReportMaxBytes)).Decode(&report); err != nil {
+	var batch devreport.ReportBatch
+	decoder := json.NewDecoder(http.MaxBytesReader(w, req.Body, dashboardReportMaxBytes))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&batch)
+	if err == nil {
+		var extra any
+		if trailing := decoder.Decode(&extra); !errors.Is(trailing, io.EOF) {
+			if trailing == nil {
+				trailing = fmt.Errorf("multiple report values")
+			}
+			err = trailing
+		}
+	}
+	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			s.telemetry.drop()
 			_, _ = io.CopyN(io.Discard, req.Body, dashboardReportDrainBytes)
@@ -351,12 +364,36 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	auth := s.dashboardAuthorizeReport(req, report)
-	if !auth.Authorized {
-		s.recordRejectedReport(req.Context(), report, auth.Reason)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if len(batch.Reports) == 0 || len(batch.Reports) > devreport.MaxBatchReports {
+		http.Error(w, "invalid report count", http.StatusBadRequest)
 		return
 	}
+	// Authorize every record before admitting any of them. A stale record in
+	// a mixed batch cannot partly publish telemetry under another session.
+	for _, report := range batch.Reports {
+		body, err := json.Marshal(report)
+		if err != nil || len(body) > devreport.MaxEnvelopeBytes {
+			s.telemetry.drop()
+			http.Error(w, "report record too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		auth := s.dashboardAuthorizeReport(req, report)
+		if !auth.Authorized {
+			s.recordRejectedReport(req.Context(), report, auth.Reason)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+	if s.telemetry != nil {
+		s.telemetry.dropped.Add(batch.Dropped)
+	}
+	for _, report := range batch.Reports {
+		s.acceptReport(report)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *dashboardServer) acceptReport(report devdash.ReportEnvelope) {
 	if report.AppID == "" {
 		report.AppID = s.dashboardActiveAppID()
 	}
@@ -397,7 +434,6 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 		// `scenery inspect report` reads it.
 		recordRuntimeFailureReport(report)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *dashboardServer) recordRejectedReport(ctx context.Context, report devdash.ReportEnvelope, reason string) {

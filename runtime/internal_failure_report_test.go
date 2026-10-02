@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"scenery.sh/internal/devreport"
 	"scenery.sh/internal/machine"
 )
 
@@ -14,7 +13,7 @@ func TestAMintedTokensCauseIsLoggedAndSentToTheSupervisor(t *testing.T) {
 	var logged bytes.Buffer
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
-	reporter := &devReporter{appID: "shop", sessionID: "main-1", queue: make(chan devreport.ReportEnvelope, 4)}
+	reporter := &devReporter{appID: "shop", sessionID: "main-1", queue: make(chan []byte, 4)}
 	reporterMu.Lock()
 	globalReporter = reporter
 	reporterMu.Unlock()
@@ -33,7 +32,8 @@ func TestAMintedTokensCauseIsLoggedAndSentToTheSupervisor(t *testing.T) {
 		t.Fatalf("log = %q", text)
 	}
 	select {
-	case envelope := <-reporter.queue:
+	case queuedBody := <-reporter.queue:
+		envelope := decodeQueuedReport(t, queuedBody)
 		failure := envelope.InternalFailure
 		if envelope.Type != "internal-failure" || envelope.AppID != "shop" || envelope.SessionID != "main-1" || envelope.ReporterPID == 0 ||
 			failure == nil || failure.ReportToken != "rpt_abc" || failure.Code != "SCN9000" || strings.Contains(failure.Cause, "hunter2") || failure.Timestamp.IsZero() {

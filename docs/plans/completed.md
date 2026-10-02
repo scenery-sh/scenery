@@ -1,5 +1,15 @@
 # Completed Plans
 
+Plans 0208 and 0209 were allocated independently in the performance and observability worktrees before integration. Their existing filenames and historical IDs are preserved; use the full linked title to identify either plan.
+
+- [0211 Performance Engineering Second Session](0211-performance-engineering-second-session.md) — 2026-10-02: second five-hour native block removes another 8.76 MB per complete ONLV compile and 77 kB per warm watch scan, with paired fixture timings about 2.3% lower. Exact semantic/source parity, current checks and 165,000 successful native requests pass. CPU, HTTP and physical RAM improvement remain unproven; adverse host-loaded HTTP and startup-RSS observations are retained.
+
+- [0210 Performance Engineering First Session](0210-performance-engineering-first-session.md) — 2026-10-01: more than five hours of native measured optimization; paired complete ONLV compilation is 7.48% faster with 13.73% fewer allocated bytes, watcher snapshots allocate 31.95% fewer bytes, and supervisor allocation rate falls 20.35%. Exact outputs, current normal runtime acceptance and required checks pass; whole-application CPU/latency improvement remains unproven, with adverse raw cohorts preserved.
+
+- [0209 Measured Runtime Followup](0209-measured-runtime-followup.md) — 2026-09-30: measured cheap overload report refusal, anchored storage enumeration, UTF-8 watcher matching and correct grouped table geometry; real ONLV and Chrome profiles establish no whole-application CPU, retained-heap or frame-time improvement, and a warmed unchanged-code history control supports a NO-GO for a second persistence format. Cumulative checks and named native boundaries pass with documented warnings and one successful UI conformance rerun.
+
+- [0208 Runtime Resource Efficiency](0208-runtime-resource-efficiency.md) — 2026-09-30: completed all ten reviewed runtime, storage, build, reporting and UI improvements; native before/after samples establish lower operation time and retained payload memory, with explicit allocation tradeoffs, and the full verifier plus PostgreSQL, storage, process-model and UI acceptance pass with repository warnings.
+
 - [0209 Automatic Operation Tracing](0209-automatic-operation-tracing.md) — 2026-10-02: automatic internal, durable, event, MCP, CLI, HTTP and storage spans; scoped trace list/detail RPC and generated TypeScript correlation; 28-span real PostgreSQL/Victoria proof, client retry and owned cleanup.
 
 - [0208 Observability And Database Query Tracing](0208-observability-query-tracing.md) — 2026-10-02: restored PostgreSQL query spans through the pgx adapter, preserved structured-log attributes and context, redacted query/error values, and proved real PostgreSQL/Victoria signal round trips plus scoped query and lifecycle checks.

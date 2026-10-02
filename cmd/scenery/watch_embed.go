@@ -12,12 +12,13 @@ import (
 )
 
 type embedPatternCacheEntry struct {
-	stamp    fileStamp
+	hash     string
 	patterns []string
 }
 
 // embedPatternCache memoizes parsed //go:embed patterns per Go file so repeated
 // watch scans stat files instead of re-reading every .go file in the app.
+// Only the content identity is retained; captured source belongs to snapshots.
 var embedPatternCache sync.Map
 
 func cachedGoEmbedPatterns(path string, stamp fileStamp) ([]string, bool) {
@@ -26,14 +27,14 @@ func cachedGoEmbedPatterns(path string, stamp fileStamp) ([]string, bool) {
 		return nil, false
 	}
 	entry, ok := value.(embedPatternCacheEntry)
-	if !ok || entry.stamp.hash != stamp.hash {
+	if !ok || entry.hash != stamp.hash {
 		return nil, false
 	}
 	return entry.patterns, true
 }
 
 func storeGoEmbedPatterns(path string, stamp fileStamp, patterns []string) {
-	embedPatternCache.Store(path, embedPatternCacheEntry{stamp: stamp, patterns: patterns})
+	embedPatternCache.Store(path, embedPatternCacheEntry{hash: stamp.hash, patterns: patterns})
 }
 
 func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files, previous map[string]fileStamp, ignore *watchignore.Matcher) error {

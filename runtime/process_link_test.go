@@ -16,7 +16,6 @@ import (
 
 	"scenery.sh/errs"
 	"scenery.sh/internal/appsdk"
-	"scenery.sh/internal/devreport"
 	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
 )
@@ -99,7 +98,7 @@ func TestProcessLinkConfigurationRejectsWeakOrMalformedLinks(t *testing.T) {
 
 func TestProcessLinkedCallMatchesInProcessSemantics(t *testing.T) {
 	useProcessLinkRegistryForTest(t)
-	defer setTestReporter(&devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 64)})()
+	defer setTestReporter(&devReporter{appID: "app", queue: make(chan []byte, 64)})()
 	target := serveProcessLinkForTest(t, processLinkOwnerHandler())
 	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: target}
 	useProcessLinkForTest(t, config)
