@@ -24,7 +24,7 @@ func runHarnessSchemaValidationStep(repoRoot string, resp harnessSelfResponse) (
 	report := buildHarnessSchemaValidationReport(repoRoot, resp)
 	step := harnessStep{
 		Name:       "schema validation",
-		Command:    []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
+		Command:    harnessStaticCheckCommand(repoRoot),
 		OK:         !hasErrorDiagnostics(report.Diagnostics),
 		DurationMS: time.Since(started).Milliseconds(),
 		Summary: map[string]any{

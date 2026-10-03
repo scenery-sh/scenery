@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"scenery.sh/internal/harnessreport"
 	"sort"
 	"strings"
 	"time"
@@ -60,6 +61,7 @@ type goTestJSONEvent struct {
 
 type harnessAgentContext struct {
 	cliPayloadIdentity
+	Run                            *harnessreport.ValidationRun `json:"run,omitempty"`
 	GeneratedAt                    string                       `json:"generated_at"`
 	Repo                           harnessAgentContextRepo      `json:"repo"`
 	CurrentBranch                  string                       `json:"current_branch,omitempty"`
@@ -133,7 +135,7 @@ func runHarnessChangedAreaStep(ctx context.Context, repoRoot string) (harnessSte
 	report := buildHarnessChangedAreaReport(ctx, repoRoot)
 	step := harnessStep{
 		Name:       "changed area oracle",
-		Command:    []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
+		Command:    harnessStaticCheckCommand(repoRoot),
 		OK:         !hasErrorDiagnostics(report.Diagnostics),
 		DurationMS: time.Since(started).Milliseconds(),
 		Summary: map[string]any{

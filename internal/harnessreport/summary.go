@@ -15,6 +15,7 @@ func BuildSummary(resp SelfResponse) SelfSummaryResponse {
 	status := classifyHarnessSelfSummaryStatus(resp.OK, attention, architectureDebtWarnings)
 	return SelfSummaryResponse{
 		PayloadIdentity:   newCLIPayloadIdentity(SummaryKind),
+		Run:               resp.Run,
 		OK:                resp.OK,
 		Status:            status,
 		GeneratedAt:       resp.GeneratedAt,

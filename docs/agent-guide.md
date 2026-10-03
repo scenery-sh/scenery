@@ -521,22 +521,25 @@ Do not copy scenery's full skill or repository manual into every app.
 
 ## Application Validation and Completion
 
-For an application change, complete these baseline checks from the app root
-with its selected Scenery executable:
+Select checks from the changed surfaces below, using the app's selected Scenery
+executable. Matches are cumulative; the app's own instructions and configured
+profiles may add checks. Every changed path needs a checked or explicitly exempt
+classification. An unmatched path remains unverified until its owner selects proof.
 
-```sh
-scenery check -o json
-scenery generate --check -o json
-go test ./...
-scenery harness -o json --write
-```
+| Changed surface | Minimum proof |
+|---|---|
+| Documentation only, without executable examples or contract changes | Review the rendered text, links and examples affected; run the app's declared documentation checks. No runtime or Go check solely for prose. |
+| Frontend source, styles or assets | App-declared lint/typecheck/build and the affected browser acceptance scenario. Add generation checks when generated-client inputs or integration change. |
+| `.scn` declarations or generated-client inputs | `scenery fmt --check -o json`, `scenery check -o json`, regenerate the affected target and run `scenery generate --check -o json`; validate its Go/frontend consumers and selected app harness/profile. |
+| Go implementation, dependencies or module configuration | `scenery check -o json`, `scenery generate --check -o json`, affected Go tests and `go test ./...`; `scenery harness -o json --write` and affected app profiles. |
+| Runtime, storage, authorization, deployment or environment behavior | Go/declaration/frontend checks for the affected inputs, `scenery harness -o json --write`, selected domain profiles and live acceptance with verified served identity. Retained-data and external-action authorization still applies. |
 
-Use `scenery fmt --check -o json` for changed `.scn` source. Run `scenery doctor
--o json` when environment readiness is unknown or a prerequisite fails; it is
-not a required prelude to every edit. Reuse successful checks for unchanged
-inputs and scope, keep Go's result cache enabled, and rerun affected checks
-when a correction changes their inputs. Repository-only verification follows
-[the repository workflow](#working-in-the-scenery-repository).
+For Go applications, prepare missing contracts before raw Go tooling as described
+in the [native change loop](#native-change-loop). Use `scenery doctor -o json`
+when environment readiness is unknown or a prerequisite fails. Reuse successful
+checks for unchanged inputs and scope, keep Go's result cache enabled, and rerun
+affected checks after corrections. Repository-only verification follows the
+[repository workflow](#working-in-the-scenery-repository).
 
 Keep app validation in configured profiles: `validate changed --base <ref>
 --dry-run -o json` includes branch, tracked working-tree and untracked changes.
@@ -575,7 +578,7 @@ that full is required. Both modes write the current evidence snapshot:
 go run ./scripts/verify --quick --summary --write
 ```
 
-For full, omit `--quick`. Read `.scenery/harness/agent-context.json` from that
+For full, omit `--quick`. Read `agent-context.json` inside the reported `run.archive_path` bundle from that
 selected run and fulfill the union in `changed_area.recommended_commands`.
 `validation_classification` explains the cumulative matching rows. A successful
 step already executed by the verifier satisfies the same required command for

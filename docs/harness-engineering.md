@@ -31,7 +31,9 @@ Go test root is subject to the root 100ms p95 policy; external-boundary proof
 belongs in explicit probes. The exact lanes, budgets, confirmation algorithm,
 and timing fields are owned by [the Local Contract](local-contract.md#harness-inspection-and-observability).
 
-Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
+Use the selected verifier after editing when an agent needs a machine-readable
+status snapshot. Existing run evidence can orient the work; it does not validate
+new changes.
 
 `ok` and summary `can_proceed` cover the selected checks, not unselected modes
 or skipped proof. Human output preserves the JSON warning classification and
@@ -41,15 +43,11 @@ external-app lane as skipped rather than passed. Doctor is environment
 preflight evidence, not application readiness. Inspect the warning details
 before treating a passing run as sufficient for the current acceptance scope.
 
-Recommended agent loop:
-
-```text
-scenery doctor -o json
-go run ./scripts/verify --quick --summary --write
-cat .scenery/harness/agent-context.json
-# implement
-# refresh agent-context after editing, then run changed_area.recommended_commands
-```
+Select quick or full from the final changed paths and the root matrix; run full
+directly when required. Read `agent-context.json` in that run's reported
+`run.archive_path`, then fulfill checks not already covered for those same inputs.
+An empty change set does not require another verifier. Use doctor only when
+readiness is unknown or a prerequisite fails.
 
 For a missing local binary, follow
 [Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
@@ -301,8 +299,8 @@ The same evidence model is shared by the app harness, self-harness, and release
 gate so agents can inspect failures without scraping terminal
 scrollback.
 
-The self-harness writes `.scenery/harness/agent-context.json` as the default
-handoff file for agents. It includes current failing steps, the first file to
+The self-harness archives `agent-context.json` together with `self.json` and
+`summary.json` under `.scenery/harness/runs/<run-id>/`. It includes current failing steps, the first file to
 read for each failure, exact rerun commands, deterministic validation classes,
 their changed-area command union, relevant active ExecPlans, recent failed
 harness artifacts, docs freshness, and separate risk classification.
@@ -311,9 +309,17 @@ For the scenery repo itself, `go run ./scripts/verify --summary --write` prints 
 compact `scenery.harness.self.summary` decision packet and writes:
 
 ```text
-<repo-root>/.scenery/harness/self-latest.json
-<repo-root>/.scenery/harness/self-summary-latest.json
+<repo-root>/.scenery/harness/runs/<run-id>/self.json
+<repo-root>/.scenery/harness/runs/<run-id>/summary.json
+<repo-root>/.scenery/harness/runs/<run-id>/agent-context.json
 ```
+
+All three files share `run.id` and the before/after input revisions. The verifier
+rejects source drift during validation. Publication is atomic and refuses to
+replace a run; latest copies are refreshed afterward for navigation. Topic
+reports are embedded in `self.json`; latest drilldowns may belong to another run.
+Input identity covers Git-tracked and non-ignored untracked bytes/modes, deletions
+and symlink targets, not external state or changes reverted between boundaries.
 
 Use `go run ./scripts/verify -o json --write` only when stdout must contain the
 full `scenery.harness.self` archive. Agents should prefer artifacts and focused

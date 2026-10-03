@@ -21,7 +21,7 @@ These capabilities exist; their current contracts live in
 [the Local Contract](docs/local-contract.md).
 
 - Typed application, graph, diagnostics, and runtime inspection.
-- App, repository, and browser dashboard harnesses with structured evidence.
+- App and repository harnesses, plus app-owned browser acceptance with structured evidence.
 - Failure artifacts and focused `scenery inspect harness` drill-downs.
 - Schema validation against representative outputs and committed fixtures.
 - Architecture checks for dependency boundaries, generated-file hygiene,
@@ -40,9 +40,9 @@ These capabilities exist; their current contracts live in
 2. **Public runtime reliability.** Complete the outstanding operator
    reboot/login acceptance in [0101](docs/plans/0101-public-deploy-edge.md).
    Existing controlled-resume evidence does not substitute for that observation.
-3. **Useful browser proof.** Extend fixture-backed mutation journeys where
-   [the debt tracker](docs/tech-debt.md#browser-harness-fixture-backed-mutation-depth)
-   identifies a real gap. Keep browser validation explicit.
+3. **Useful browser proof.** Validate affected journeys in consuming applications
+   using the [application acceptance workflow](docs/agent-guide.md#application-validation-and-completion).
+   Keep browser validation explicit.
 4. **Maintainable repository knowledge.** Fix contradictory instructions,
    broken references, obsolete work queues, and duplicated contract prose.
    Review a document before advancing its freshness metadata; preserve

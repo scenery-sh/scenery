@@ -1284,21 +1284,35 @@ go run ./scripts/verify -o json --write
 - architecture checks fail on unapproved direct dependencies, forbidden framework imports, CLI package boundary violations, missing generated/vendored ignore markers, fixture modules that replace `scenery.sh` with this repository but require an older module version or `go` version than the root `go.mod`, and non-generated source/code files over 2500 lines; Markdown docs are not subject to line-count size checks
 - architecture checks warn on non-generated source/code files over 1000 lines, cgo imports, `.DS_Store` artifacts, and compatibility imports outside known migration paths; unchanged warnings outside the changed area are debt summary in compact output, not agent attention
 - local harness/report artifacts matching `.scenery/**`, `coverage/**`, `test-results/**`, `*.harness*.json`, or `scenery-harness-self-*.json` are reported as ignored local artifacts and do not drive changed-area recommended commands
-- `--write` persists the full archive to `.scenery/harness/self-latest.json`, the compact summary to `.scenery/harness/self-summary-latest.json`, and topic artifacts such as `.scenery/harness/test-timing-latest.json`
+- `--write` atomically publishes `.scenery/harness/runs/<run-id>/self.json`,
+  `summary.json` and `agent-context.json` before refreshing the latest navigation
+  copies. A published run directory is never replaced. `wrote` names its `self.json`.
+- All three payloads carry the same `run`: `id`, `input_revision`,
+  `final_input_revision`, `inputs_stable` and (only when writing) `archive_path`.
+  Input revisions hash sorted Git-tracked and non-ignored untracked paths, file
+  modes and contents, deleted markers and symlink targets without following links.
+  The final revision is captured after checks; changed inputs fail verification.
+  These are boundary snapshots, not source isolation or proof of external state;
+  toolchain/probe evidence remains separately recorded. Reuse evidence only when
+  its inputs, scope and prerequisites still match.
+- Latest copies (`self-latest.json`, `self-summary-latest.json`, `agent-context.json`
+  and topic `*-latest.json`) are navigation conveniences and can change independently.
+  Use one run's archive for acceptance; its full report embeds the topic reports.
+  Product drilldown commands still navigate latest snapshots. A failed navigation
+  write leaves the already published archive intact but returns a write error.
 - failed and expensive steps include `evidence` conforming to `scenery.harness.artifact`; Go test JSONL evidence is written as `.scenery/harness/artifacts/<run-id>/go-test.jsonl` when `--write` is present
 - changed-area output classifies paths as `documentation-only`, `go-package`, `cli-json-contract`, `compiler-or-generator`, `ui-catalog`, `release-sensitive-or-runtime`, or `repository-fallback`; multiple classes are cumulative and `recommended_commands` is their exact deduplicated union, with the full self-harness replacing the quick self-harness when both match
 - documentation-only paths select full knowledge/index inspection plus quick self-harness; Go packages select every affected-package test plus `go test ./...`; CLI JSON contracts select command tests, schema validation, and `docs/local-contract.md`; compiler/generator, UI catalog and `tools/typescript` paths select the catalog typecheck and committed consumer regeneration; release-sensitive/runtime paths select the full worktree-local self-harness and its applicable real-process proof
-- `--write` refreshes `.scenery/harness/agent-context.json` as the one-file agent handoff. It includes current failing steps, first files to read, exact rerun commands, `validation_classification`, the changed-area command union, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and separate risk classifications: `runtime`, `CLI contract`, `ui`, `schema`, `release`, and `onlv-impacting`.
+- `--write` archives the one-file agent handoff as `runs/<run-id>/agent-context.json` and refreshes `.scenery/harness/agent-context.json` for navigation. It includes current failing steps, first files to read, exact rerun commands, `validation_classification`, the changed-area command union, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and separate risk classifications: `runtime`, `CLI contract`, `ui`, `schema`, `release`, and `onlv-impacting`.
 
-Default agent loop:
-
-```text
-scenery doctor -o json
-go run ./scripts/verify --quick --summary --write
-cat .scenery/harness/agent-context.json
-# implement
-# run changed_area.recommended_commands
-```
+The generated agent loop uses the shared changed-area classifier. After editing,
+select quick or full from the root validation matrix and fulfill the command union.
+Do not run quick before a required full run. Reuse successful checks for identical
+inputs/scope. An empty changed-path set does not recommend a verifier or doctor;
+use doctor only for unknown environment readiness or failed prerequisites.
+Static knowledge, architecture, schema and changed-area failure reproduction uses
+quick verification; it never selects release probes. Explicit probe failures retain
+their selected `--probe <id>` reproduction commands.
 
 For a changed external boundary, select its named `--probe <id>` and record
 assertions and cleanup. Full release certification is an explicit workflow,
@@ -1581,7 +1595,7 @@ Storage scope and transfers:
 Generated client:
 
 - A `typescript_client` with `dev_runtime = true` also writes `dev-runtime.ts`
-  ([TypeScript client](spec/typescript-client.md#dev-runtime-client)). Its
+  ([TypeScript client](spec/typescript-client.md#51-development-runtime-client)). Its
   `DevRuntimeClient` implements this contract, and `status()` fails with code
   `protocol` when the runtime's `scenery.dev-runtime.status` schema revision
   differs from the client's, so a client generated by another Scenery producer
@@ -1593,7 +1607,7 @@ Generated client:
   limit, `close()`, `dispose()` or a dropped socket) never reaches the
   runtime; a sent mutation may still complete. `dispose()` also cancels
   storage transfers and refuses later ones.
-  [The client specification](spec/typescript-client.md#dev-runtime-client)
+  [The client specification](spec/typescript-client.md#51-development-runtime-client)
   defines its full lifecycle and error codes.
 
 ## Artifact Locations

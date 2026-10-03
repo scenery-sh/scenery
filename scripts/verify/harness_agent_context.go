@@ -37,6 +37,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 	contextPack := harnessAgentContext{
 		cliPayloadIdentity: newCLIPayloadIdentity(harnessAgentContextKind),
 		GeneratedAt:        resp.GeneratedAt,
+		Run:                resp.Run,
 		Repo: harnessAgentContextRepo{
 			Root:       resp.Repo.Root,
 			ModulePath: resp.Repo.ModulePath,
@@ -57,7 +58,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 		RiskClassification:             riskClassification,
 		DocsEntrypoints:                entrypoints,
 		Schemas:                        schemas,
-		KnownFastLoop:                  "scenery doctor -o json\ngo run ./scripts/verify --quick --summary --write\ncat .scenery/harness/agent-context.json\n# implement\n# run changed_area.recommended_commands",
+		KnownFastLoop:                  harnessAgentFastLoop(changedAreaCommands),
 		KnownReleaseLoop:               "scripts/release-gate.sh",
 		ArchitectureRules: []string{
 			"Prefer Go standard library dependencies unless the payoff is concrete.",
@@ -72,9 +73,6 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 		contextPack.RecommendedCommands = appendUniqueSorted(contextPack.RecommendedCommands, resp.ChangedArea.RecommendedCommands...)
 	}
 	contextPack.RecommendedCommands = appendUniqueSorted(contextPack.RecommendedCommands, contextPack.RerunCommands...)
-	if len(contextPack.RecommendedCommands) == 0 {
-		contextPack.RecommendedCommands = []string{"scenery doctor -o json", harnessValidationQuickCommand}
-	}
 	sort.Strings(contextPack.DocsEntrypoints)
 	sort.Strings(contextPack.Schemas)
 	sort.Strings(contextPack.RecentFailures)
@@ -396,4 +394,18 @@ func classifyHarnessAgentRisk(changedArea *harnessChangedAreaReport) []string {
 		}
 	}
 	return sortedStringSet(classes)
+}
+
+// Commands come from the shared classifier; guidance must not invent a preflight.
+func harnessAgentFastLoop(commands []string) string {
+	if len(commands) == 0 {
+		return "No changed paths require validation. After editing, classify the final changed paths using the root validation matrix. Use doctor only for unknown environment readiness or a failed prerequisite."
+	}
+	return "After editing, fulfill this changed-area command union. Run full directly when selected; do not precede it with quick. Reuse successful checks for unchanged inputs and scope; a full verifier covers its successful repository Go suite.\n" + strings.Join(commands, "\n") + "\nRead the agent context from that run's archive. Reclassify after further edits. Use doctor only for unknown environment readiness or a failed prerequisite."
+}
+
+// Static checks are available in quick mode. A failed documentation/schema
+// check never authorizes release probes merely to reproduce its diagnostic.
+func harnessStaticCheckCommand(repoRoot string) []string {
+	return []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--quick", "--summary", "--write"}
 }

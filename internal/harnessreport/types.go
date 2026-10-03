@@ -222,8 +222,19 @@ type SelfRepo struct {
 	GoModPath  string `json:"go_mod_path"`
 }
 
+// ValidationRun binds an observation to the input bytes at its boundaries.
+// It does not assert source isolation or capture external services/environment.
+type ValidationRun struct {
+	ID                 string `json:"id"`
+	InputRevision      string `json:"input_revision"`
+	FinalInputRevision string `json:"final_input_revision"`
+	InputsStable       bool   `json:"inputs_stable"`
+	ArchivePath        string `json:"archive_path,omitempty"`
+}
+
 type SelfResponse struct {
 	PayloadIdentity
+	Run              *ValidationRun          `json:"run,omitempty"`
 	OK               bool                    `json:"ok"`
 	GeneratedAt      string                  `json:"generated_at"`
 	Mode             string                  `json:"mode"`
@@ -276,6 +287,7 @@ type SelfSummaryReports struct {
 
 type SelfSummaryResponse struct {
 	PayloadIdentity
+	Run               *ValidationRun      `json:"run,omitempty"`
 	OK                bool                `json:"ok"`
 	Status            string              `json:"status"`
 	GeneratedAt       string              `json:"generated_at"`

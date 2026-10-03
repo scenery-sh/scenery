@@ -52,7 +52,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...strin
 	root := t.TempDir()
 	writeTestAppFile(t, root, "go.mod", "module scenery.sh\n\ngo 1.27.0\n")
 	writeTestAppFile(t, root, "AGENTS.md", "See [harness](docs/harness-engineering.md).\n")
-	writeTestAppFile(t, root, "SKILL.md", strings.Join(requiredSkillMentions, "\n")+"\n")
+	writeTestAppFile(t, root, "SKILL.md", "[Repository]("+requiredSkillRoutes[0]+")\n[Application]("+requiredSkillRoutes[1]+")\n")
 	writeTestAppFile(t, root, "PLAN.md", "See [docs](docs/index.md).\n")
 	writeTestAppFile(t, root, "PLANS.md", validExecPlanStandardForTest())
 	writeTestAppFile(t, root, "docs/index.md", "See [local](local-contract.md), [plans](plans/active.md), and [debt](tech-debt.md).\n")

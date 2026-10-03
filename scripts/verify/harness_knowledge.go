@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -14,7 +15,7 @@ func runHarnessKnowledgeStep(repoRoot string) harnessStep {
 	knowledge := buildHarnessSelfKnowledge(repoRoot)
 	step := harnessStep{
 		Name:    "knowledge contract",
-		Command: []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
+		Command: harnessStaticCheckCommand(repoRoot),
 		Summary: map[string]any{
 			"entrypoints": len(knowledge.Entrypoints),
 			"schemas":     len(knowledge.Schemas),
@@ -165,6 +166,15 @@ func checkHarnessMarkdownLinks(repoRoot string, files []harnessKnowledgeFile) (i
 					SuggestedAction: "Fix or remove the broken local link, then rerun `go run ./scripts/verify -o json`.",
 				})
 			}
+			if _, fragment, ok := strings.Cut(strings.TrimSpace(raw), "#"); ok && fragment != "" {
+				targetData, err := os.ReadFile(targetPath)
+				if err == nil {
+					if _, exists := markdownHeadingSlugs(string(targetData))[fragment]; !exists {
+						diagnostics = append(diagnostics, checkDiagnostic{Stage: "knowledge contract", Severity: "error", File: filepath.ToSlash(path), Message: "local markdown anchor has no matching heading: " + raw, SuggestedAction: "Fix the workflow link or its target heading."})
+					}
+				}
+			}
+
 		}
 	}
 	return checked, diagnostics
@@ -288,7 +298,7 @@ var repositoryValidationInstructionDocs = []string{
 
 // validateSharedCLIInstallPolicy keeps repository validation instructions from
 // overwriting the shared installed CLI. Every occurrence must state its
-// prohibition or human-only exception on the same line.
+// prohibition or human-only exception in the same Markdown block.
 func validateSharedCLIInstallPolicy(repoRoot string) ([]checkDiagnostic, map[string]any) {
 	summary := map[string]any{}
 	var diagnostics []checkDiagnostic
@@ -313,8 +323,9 @@ func validateSharedCLIInstallPolicy(repoRoot string) ([]checkDiagnostic, map[str
 			continue
 		}
 		checked++
-		lines := strings.Split(string(data), "\n")
-		for index, line := range lines {
+		blocks := instructionMarkdownBlocks(string(data))
+		for _, block := range blocks {
+			line := block.text
 			if !strings.Contains(line, sharedCLIInstallCommand) {
 				continue
 			}
@@ -327,7 +338,7 @@ func validateSharedCLIInstallPolicy(repoRoot string) ([]checkDiagnostic, map[str
 				Stage:           "knowledge contract",
 				Severity:        "error",
 				File:            filepath.ToSlash(path),
-				Line:            index + 1,
+				Line:            block.line,
 				Message:         "repository validation instructions recommend overwriting the shared scenery CLI with `" + sharedCLIInstallCommand + "`",
 				SuggestedAction: "Use the worktree-local `.scenery/harness/bin/scenery` for validation; reserve the shared install command for an explicit human request.",
 			})
@@ -407,14 +418,9 @@ var requiredExecPlanSections = []string{
 	"## Surprises & Discoveries",
 	"## Decision Log",
 	"## Outcomes & Retrospective",
-	"## Context and Orientation",
-	"## Milestones",
 	"## Plan of Work",
-	"## Concrete Steps",
 	"## Validation and Acceptance",
 	"## Idempotence and Recovery",
-	"## Artifacts and Notes",
-	"## Interfaces and Dependencies",
 }
 
 func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]any) {
@@ -472,8 +478,8 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 			continue
 		}
 		planText := string(data)
-		diagnostics = append(diagnostics, validateExecPlanSections(repoRoot, relPath, planText, false)...)
 		if activePlans[relPath] {
+			diagnostics = append(diagnostics, validateExecPlanSections(repoRoot, relPath, planText, false)...)
 			diagnostics = append(diagnostics, validateExecPlanValidationLanguage(repoRoot, relPath, planText, "## Validation and Acceptance")...)
 		}
 	}
@@ -617,13 +623,14 @@ func knowledgeTagsContain(values []string, want string) bool {
 	return false
 }
 
-var requiredSkillMentions = []string{
-	"go run ./scripts/verify --summary --write",
+var requiredSkillRoutes = []string{
+	"docs/agent-guide.md#working-in-the-scenery-repository",
+	"docs/agent-guide.md#application-validation-and-completion",
 }
 
 func validateSkillCoverage(repoRoot string) ([]checkDiagnostic, map[string]any) {
 	summary := map[string]any{
-		"skill_required_mentions": len(requiredSkillMentions),
+		"skill_required_routes": len(requiredSkillRoutes),
 	}
 	path := filepath.Join(repoRoot, "SKILL.md")
 	data, err := os.ReadFile(path)
@@ -639,8 +646,8 @@ func validateSkillCoverage(repoRoot string) ([]checkDiagnostic, map[string]any) 
 	text := string(data)
 	missing := 0
 	var diagnostics []checkDiagnostic
-	for _, mention := range requiredSkillMentions {
-		if strings.Contains(text, mention) {
+	for _, route := range requiredSkillRoutes {
+		if slices.Contains(markdownLinkTargets(text), route) {
 			continue
 		}
 		missing++
@@ -648,11 +655,11 @@ func validateSkillCoverage(repoRoot string) ([]checkDiagnostic, map[string]any) 
 			Stage:           "knowledge contract",
 			Severity:        "error",
 			File:            filepath.ToSlash(path),
-			Message:         "SKILL.md is missing required capability mention: " + mention,
+			Message:         "SKILL.md is missing workflow route: " + route,
 			SuggestedAction: "Update SKILL.md so installed agents learn the current scenery workflow.",
 		})
 	}
-	summary["skill_missing_mentions"] = missing
+	summary["skill_missing_routes"] = missing
 	return diagnostics, summary
 }
 
@@ -671,9 +678,7 @@ func validateExecPlanSections(repoRoot, relPath, text string, standard bool) []c
 		}
 		diagnostics = append(diagnostics, execPlanDiagnostic(repoRoot, relPath, 0, "missing required ExecPlan section: "+section, action))
 	}
-	if !standard && !strings.Contains(text, "This ExecPlan is a living document") {
-		diagnostics = append(diagnostics, execPlanDiagnostic(repoRoot, relPath, 1, "ExecPlan is missing the living-document statement", "Add a short statement near the top saying this ExecPlan is a living document and must be updated as work proceeds."))
-	}
+
 	return diagnostics
 }
 

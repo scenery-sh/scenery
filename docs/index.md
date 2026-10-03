@@ -18,7 +18,8 @@ Build a missing local CLI using [Fresh Worktree Preflight](agent-guide.md#fresh-
 
 ## Agent Entry Points
 
-- [Agent Instruction Evaluation](agent-instruction-evaluation.md): measured context, validation routing, and task acceptance for the current instruction refresh.
+- [Agent Instruction Evaluation — Second Round](agent-instruction-evaluation-0209.md): independent decision evaluation and run-bound evidence.
+- [First-Round Evaluation](agent-instruction-evaluation.md): historical entrypoint counts and documentation/Go/runtime exercises.
 
 - [Repo Agent Instructions](../AGENTS.md): mandatory repo-local operating rules for agents changing scenery itself.
 - [Installable Skill](../SKILL.md): concise portable skill for agents using scenery in target apps.

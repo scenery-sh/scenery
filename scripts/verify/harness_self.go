@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/harnessreport"
 	"scenery.sh/internal/testsuite"
 )
 
@@ -58,6 +59,15 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		Knowledge: buildHarnessSelfKnowledge(repoRoot),
 	}
 	artifactCtx := newHarnessArtifactContext(repoRoot, opts.Write)
+	inputRevision, err := harnessInputRevision(ctx, repoRoot)
+	if err != nil {
+		return err
+	}
+	resp.Run = &harnessreport.ValidationRun{ID: artifactCtx.RunID, InputRevision: inputRevision}
+	if opts.Write {
+		resp.Run.ArchivePath = filepath.ToSlash(filepath.Join(".scenery", "harness", "runs", artifactCtx.RunID))
+	}
+
 	localSceneryPath := harnessLocalSceneryBinaryPath(repoRoot)
 	resp.Steps = append(resp.Steps,
 		runHarnessLocalSceneryBuildStep(ctx, repoRoot, localSceneryPath, artifactCtx),
@@ -123,12 +133,20 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		}
 	}
 	if opts.Write {
-		resp.Wrote = filepath.Join(repoRoot, ".scenery", "harness", "self-latest.json")
+		resp.Wrote = filepath.Join(repoRoot, filepath.FromSlash(resp.Run.ArchivePath), "self.json")
 	}
 	resp.Artifacts = buildHarnessSelfArtifacts(repoRoot, opts.Write, resp)
 	annotateHarnessStepEffects(resp.Steps)
 	annotateHarnessEvidence(resp.Steps, repoRoot)
 
+	resp.Run.FinalInputRevision, err = harnessInputRevision(ctx, repoRoot)
+	if err != nil {
+		return err
+	}
+	resp.Run.InputsStable = resp.Run.InputRevision == resp.Run.FinalInputRevision
+	if !resp.Run.InputsStable {
+		resp.Steps = append(resp.Steps, harnessStep{Name: "validation input identity", OK: false, Error: "repository inputs changed during validation; rerun affected checks against the final inputs"})
+	}
 	schemaValidationStep, schemaValidation := runHarnessSchemaValidationStep(repoRoot, resp)
 	resp.SchemaValidation = schemaValidation
 	resp.Steps = append(resp.Steps, schemaValidationStep)
@@ -142,10 +160,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	resp.NextActions = buildHarnessNextActions(resp.Steps)
 
 	if opts.Write {
-		if err := writeHarnessSelfResult(resp.Wrote, resp); err != nil {
-			return err
-		}
-		if err := writeHarnessSelfOracleArtifacts(repoRoot, resp); err != nil {
+		if err := publishHarnessRun(repoRoot, resp, buildHarnessAgentContext(repoRoot, resp)); err != nil {
 			return err
 		}
 	}
@@ -747,6 +762,15 @@ func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harness
 		newHarnessArtifact("schema-validation", ".scenery/harness/schema-validation-latest.json", harnessSchemaValidationKind, false),
 		newHarnessArtifact("agent-context", ".scenery/harness/agent-context.json", harnessAgentContextKind, false),
 	}
+	if resp.Run != nil && resp.Run.ArchivePath != "" {
+		names := map[string]string{"self-harness": "self.json", "self-summary": "summary.json", "agent-context": "agent-context.json"}
+		for i := range artifacts {
+			if name := names[artifacts[i].Name]; name != "" {
+				artifacts[i].Path = resp.Run.ArchivePath + "/" + name
+			}
+		}
+	}
+
 	reportWillExist := map[string]bool{
 		"self-harness":      selfWillExist,
 		"self-summary":      selfWillExist,
@@ -769,11 +793,7 @@ func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harness
 	return artifacts
 }
 
-func writeHarnessSelfResult(path string, resp harnessSelfResponse) error {
-	return writeHarnessJSONFile(path, resp)
-}
-
-func writeHarnessSelfOracleArtifacts(repoRoot string, resp harnessSelfResponse) error {
+func writeHarnessSelfOracleArtifacts(repoRoot string, resp harnessSelfResponse, contextPack harnessAgentContext) error {
 	harnessRoot := filepath.Join(repoRoot, ".scenery", "harness")
 	if err := writeHarnessCompactJSONFile(filepath.Join(harnessRoot, "self-summary-latest.json"), buildHarnessSelfSummary(resp)); err != nil {
 		return err
@@ -808,7 +828,6 @@ func writeHarnessSelfOracleArtifacts(repoRoot string, resp harnessSelfResponse) 
 			return err
 		}
 	}
-	contextPack := buildHarnessAgentContext(repoRoot, resp)
 	if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "agent-context.json"), contextPack); err != nil {
 		return err
 	}

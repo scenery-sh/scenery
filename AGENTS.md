@@ -173,8 +173,8 @@ index or knowledge metadata. Historical notes are not current contracts.
 
 After editing, select quick or full from the changed areas below. Run full
 instead of quick when any area requires it; do not run quick first merely to
-choose full. The selected `--write` run refreshes
-`.scenery/harness/agent-context.json`; inspect its current
+choose full. The selected `--write` run publishes
+the reported `run.archive_path` bundle. In its `agent-context.json`, inspect
 `changed_area.validation_classes` and fulfill the union in
 `changed_area.recommended_commands`. If new changes add a class, complete its
 additional checks. A pre-edit snapshot cannot prove the final change.
@@ -220,8 +220,11 @@ go run ./cmd/scenery generate --target typescript_client.public_api --app-root i
 go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
 ```
 
-Target-app changes use `scenery check -o json`, `go test ./...`, and
-`scenery harness -o json --write`, plus the app's declared checks and acceptance.
+Target-app changes use the cumulative
+[application changed-surface matrix](docs/agent-guide.md#application-validation-and-completion),
+plus the app's declared checks and acceptance. Documentation-only and frontend-only
+changes do not independently require Go/runtime checks; affected declarations,
+Go consumers and runtime behavior retain their checks.
 Follow `ui/AGENTS.md` for the binary-owned catalog; do not bypass its
 boundaries. Scenery serves no dashboard UI: development tooling consumes the
 documented development runtime RPC through a generated `dev-runtime.ts` client.

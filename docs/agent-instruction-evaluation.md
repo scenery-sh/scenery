@@ -1,5 +1,9 @@
 # Agent Instruction Evaluation
 
+This records the 2026-09-14 first round. See the
+[second-round evaluation](agent-instruction-evaluation-0209.md) for the 2026-10-03
+workflow and run-evidence changes. Counts and results below are historical.
+
 This implements the six accepted recommendations in
 [Plan 0191](plans/0191-task-scoped-agent-instructions.md). Measurements use
 captured before bytes and the current worktree. Task exercises ran in this

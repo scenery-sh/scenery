@@ -19,6 +19,42 @@
   },
   "documents": [
     {
+      "path": "docs/agent-instruction-evaluation-0209.md",
+      "title": "Agent Instruction Evaluation - Second Round",
+      "owner": "scenery verifier / agent workflows",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-03",
+      "review_after": "2026-11-03",
+      "summary": "Six independent sequential instruction-routing evaluations, task-scoped app checks, resilient workflow references, reduced plan structure and immutable input-identified verifier evidence with measured limits.",
+      "tags": [
+        "agents",
+        "instructions",
+        "verification",
+        "evaluation",
+        "harness"
+      ]
+    },
+    {
+      "path": "docs/plans/0209-consistent-agent-workflows.md",
+      "title": "Consistent Agent Workflows and Run-Bound Evidence",
+      "owner": "scenery verifier / agent workflows",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-03",
+      "review_after": "2026-11-03",
+      "summary": "Completed six workflow improvements with immutable run-bound evidence and six independent instruction-routing evaluations; records measured benefits and limits.",
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "harness",
+        "validation"
+      ]
+    },
+    {
       "path": "docs/plans/0208-exact-json-decode-performance.md",
       "title": "Exact JSON Decoding Performance",
       "owner": "scenery TypeScript generator",
@@ -2389,7 +2425,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-14",
       "review_after": "2026-10-14",
-      "summary": "Executable plan contracts with exact acceptance and one selected verification run for current inputs.",
+      "summary": "Eight-section resumable execution plans with exact acceptance and one selected run bundle for current inputs.",
       "tags": [
         "plans",
         "execplans",

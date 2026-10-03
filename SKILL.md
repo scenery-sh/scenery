@@ -29,7 +29,7 @@ references when the task crosses their boundary, not as a startup checklist.
 | Declare or debug an assistant | `scenery inspect assistants -o json` | [Assistant change loop](docs/agent-guide.md#assistant-change-loop) |
 | Change storage, SQL, migrations, or snapshots | Inspect the selected resource and retained owner before mutation | [Storage and databases](docs/agent-guide.md#storage-and-databases) |
 | Plan a semantic mutation | Inspect schemas and capabilities, then review the issued revision-bound plan | [Diagnostics and semantic changes](docs/agent-guide.md#diagnostics-and-semantic-changes) |
-| Build or swap a declared Go library | Use its generated facade | [Declared Go libraries](docs/agent-guide.md#declared-go-libraries) |
+| Generate Go contracts or library facades | Generate into the declared existing module | [Native change loop](docs/agent-guide.md#native-change-loop) |
 | Run an app-local code task | `scenery task list -o json` | [Code tasks](docs/app-development-cookbook.md#app-local-code-tasks) |
 | Deploy an authorized change | Inspect the configured environment and deployment status | [Deployment](docs/agent-guide.md#runtime-command-choice) |
 | Validate app work | Select app-owned profiles and the acceptance scenario | [Application validation](docs/agent-guide.md#application-validation-and-completion) |
@@ -90,8 +90,8 @@ coverage; planned, skipped, or warning-only checks are not successful proof.
 
 Use the app's frontend checks and browser acceptance for its pages. Scenery has
 no dashboard; app-owned developer tooling uses the generated `dev-runtime.ts`
-client for the development runtime RPC. Repository validation
-uses `go run ./scripts/verify --summary --write` or the quick mode selected by
-the root matrix; it is not an installed app command. Reuse successful checks
-for unchanged inputs and keep Go's test cache enabled.
+client for the development runtime RPC. Select repository checks through the
+[repository workflow](docs/agent-guide.md#working-in-the-scenery-repository)
+and app checks through the [changed-surface matrix](docs/agent-guide.md#application-validation-and-completion).
+Reuse successful checks for unchanged inputs and keep Go's test cache enabled.
 Do not run `go install ./cmd/scenery` unless the human explicitly asks.

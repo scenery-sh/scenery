@@ -346,7 +346,7 @@ func runHarnessArchitectureStep(repoRoot string) harnessStep {
 	started := time.Now()
 	step := harnessStep{
 		Name:    "architecture checks",
-		Command: []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
+		Command: harnessStaticCheckCommand(repoRoot),
 		Summary: map[string]any{
 			"max_warning_lines": architectureWarnLines,
 			"max_error_lines":   architectureErrorLines,

@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [0209 Consistent Agent Workflows and Run-Bound Evidence](0209-consistent-agent-workflows.md) — 2026-10-03: aligned generated guidance, made instruction checks resilient, reduced plan structure, scoped app checks, published immutable run bundles, and completed six independent routing evaluations with explicit limits.
+
 - [0208 Exact JSON Decoding Performance](0208-exact-json-decode-performance.md) — 2026-10-02: conformant string/whitespace/number-scanner fast paths, immutable record lookup reuse and balanced named ancestry reduce 100-row ONLV bytes-to-typed CPU medians by 29–33% (0.24–0.44 ms), with about 0.6 ms of one-time deep-registry freezing; three document sessions and real generated NextNext catalog reads passed. Allocation/RSS and app latency are unmeasured.
 
 - [0204 Recorded Process Ownership, Small SDK Closure And One Input Snapshot](0204-recorded-ownership-small-sdk-one-snapshot.md) — 2026-09-24: cleanup signals only recorded, verified process identities (no command-line, environment, port or parent-group selection; `scenery system agent cleanup` reports legacy processes without signaling them); `db`, `auth` and `durable` reach the runtime through `appsdk.Host` and no longer link its implementation; a warm edit reuses its captured inputs, the verified framework digest and the preparation's workspace lock, cutting a 41-service fixture's median edit from 1,212 to 1,078 ms, while the expected 0.8 s saving proved not to exist.

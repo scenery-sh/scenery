@@ -12,14 +12,15 @@
     "repo",
     "knowledge",
     "steps",
-    "artifacts"
+    "artifacts",
+    "run"
   ],
   "properties": {
     "kind": {
       "const": "scenery.harness.self"
     },
     "schema_revision": {
-      "const": "sha256:d4210f5be864b82c94e518c9b4ae1c4045eddb2d1954da516d9e12d4baf691ef"
+      "const": "sha256:0aac8e7f50469bbff43bcaaab0a90396d288762e22b3792309d1ae7b4f5c418b"
     },
     "ok": {
       "type": "boolean"
@@ -120,6 +121,36 @@
     },
     "wrote": {
       "type": "string"
+    },
+    "run": {
+      "type": "object",
+      "required": [
+        "id",
+        "input_revision",
+        "final_input_revision",
+        "inputs_stable"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "final_input_revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "inputs_stable": {
+          "type": "boolean"
+        },
+        "archive_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

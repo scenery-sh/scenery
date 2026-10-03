@@ -30,25 +30,24 @@ Every ExecPlan must be safe to resume. Commands should be idempotent where possi
 
 ## Required Sections
 
-Every ExecPlan file must contain these section headings exactly:
+Use these eight core sections so another agent can find progress, decisions and acceptance:
 
 - `## Purpose / Big Picture`
 - `## Progress`
 - `## Surprises & Discoveries`
 - `## Decision Log`
 - `## Outcomes & Retrospective`
-- `## Context and Orientation`
-- `## Milestones`
 - `## Plan of Work`
-- `## Concrete Steps`
 - `## Validation and Acceptance`
 - `## Idempotence and Recovery`
-- `## Artifacts and Notes`
-- `## Interfaces and Dependencies`
 
 The `Progress` section must use checkboxes and timestamps. Update it at every meaningful stopping point.
 
-The `Decision Log` section must record the decision, rationale, date, and author for every meaningful implementation choice.
+Record decisions that affect contracts, scope, risk, recovery or the next agent's choices, with rationale and date. Routine implementation details belong in code.
+
+Use `Plan of Work` for necessary orientation, ordered milestones, concrete commands
+and interface changes. Add separate sections only when their detail helps execution;
+do not repeat the same work in a milestone list, narrative and command checklist.
 
 The `Surprises & Discoveries` section must record unexpected findings with evidence, such as test output, trace IDs, benchmark output, or the command that exposed the issue.
 
@@ -64,11 +63,11 @@ Prefer additive milestones that keep the repo testable. If a prototype is needed
 
 ## Validation Requirements
 
-Every ExecPlan must include project-specific validation commands. For scenery repo changes, name the expected changed-area classes from the root [Validation Matrix](AGENTS.md#validation-matrix), choose quick or full before execution, refresh `.scenery/harness/agent-context.json` with that selected run, and fulfill the exact union in `changed_area.recommended_commands`. Successful verifier steps satisfy the same checks for unchanged inputs and scope; do not run quick before a required full run. A plan that spans more than one class must carry every matching command.
+Every ExecPlan must include project-specific validation commands. For scenery repo changes, name the expected changed-area classes from the root [Validation Matrix](AGENTS.md#validation-matrix), choose quick or full before execution, publish the run bundle and read its `agent-context.json`, and fulfill the exact union in `changed_area.recommended_commands`. Successful verifier steps satisfy the same checks for unchanged inputs and scope; do not run quick before a required full run. A plan that spans more than one class must carry every matching command.
 
 Every validation item must name its exact command and working directory. A conditional item must state the exact observable condition that permits it to be skipped and the evidence that will record that condition. Do not use phrases such as “when practical,” “as appropriate,” “relevant validation,” or “for substantial changes” as substitutes for a command or skip condition.
 
-Release-sensitive or runtime plans must include `go run ./scripts/verify --summary --write` after the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight). If the change alters an external boundary, name its exact `--probe <id>` command and assertion/cleanup acceptance. Full release certification is explicit and invokes only `scripts/release-gate.sh`, which runs the release verifier once. Benchmarks and all-root timing audits require an explicit human measurement request; record unselected work without calling it passed. Dashboard plans must include the exact lint, typecheck, build, and browser-acceptance commands from the root matrix.
+Release-sensitive or runtime plans must include `go run ./scripts/verify --summary --write` after the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight). If the change alters an external boundary, name its exact `--probe <id>` command and assertion/cleanup acceptance. Full release certification is explicit and invokes only `scripts/release-gate.sh`, which runs the release verifier once. Benchmarks and all-root timing audits require an explicit human measurement request; record unselected work without calling it passed. UI catalog changes use the root matrix; app-owned frontend changes use their declared checks and browser acceptance.
 
 For app-facing runtime changes, include an example command against a fixture app or another read-only scenery app available to the contributor.
 
@@ -77,7 +76,7 @@ For app-facing runtime changes, include an example command against a fixture app
 `go run ./scripts/verify` validates this contract:
 
 - `PLANS.md` must exist and define the required ExecPlan sections.
-- Any Markdown file directly under `docs/plans/` except `active.md` and `completed.md` must contain all required ExecPlan section headings.
+- Active plans must contain the eight core sections. Additional sections are allowed. Completed plans retain their original historical structure.
 - Current ExecPlan validation requirements must not use subjective skip phrases in place of exact commands or conditions.
 - Completed numbered ExecPlans are excluded from scheduled freshness review. Broken completed-index links, stale knowledge metadata that flags a current contradiction, and completed plans linked from the active index remain actionable diagnostics.
 - Missing sections are reported as knowledge-contract diagnostics with file paths and suggested actions.

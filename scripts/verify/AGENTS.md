@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Own verification of Scenery itself, outside the application executable.
+Own repository verification outside the application executable.
 
 ## Ownership
 
@@ -29,7 +29,7 @@ must not import this command or that engine.
   then proves coexistence/native migration in a separate current home inside the
   same disposable daemon. Preserve the old-data and continuous-sibling checks;
   do not add a product compatibility decoder to satisfy the old fixture.
-- Reports use the existing machine envelope and shared report/evidence values.
+- Reports use shared types and exact schemas; archive each run before updating latest.
 - The `--probe auth` step (also mandatory in release) builds
   `testdata/authprobe` and runs all 15 inventoried public-boundary journeys
   in fresh native processes and owned databases. Missing Docker, incomplete

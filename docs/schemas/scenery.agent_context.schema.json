@@ -22,14 +22,15 @@
     "schemas",
     "known_fast_loop",
     "known_release_loop",
-    "architecture_rules"
+    "architecture_rules",
+    "run"
   ],
   "properties": {
     "kind": {
       "const": "scenery.agent_context"
     },
     "schema_revision": {
-      "const": "sha256:dae5b1c37bc92ff6e30d2a0247c346c953a997f657c07cd8e2a3da0df55802c8"
+      "const": "sha256:061aeab809775c884cf58810b69ed7f4fcc5d55753ae810bbc72a362d8a272ff"
     },
     "generated_at": {
       "type": "string"
@@ -166,6 +167,36 @@
       "items": {
         "type": "string"
       }
+    },
+    "run": {
+      "type": "object",
+      "required": [
+        "id",
+        "input_revision",
+        "final_input_revision",
+        "inputs_stable"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "final_input_revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "inputs_stable": {
+          "type": "boolean"
+        },
+        "archive_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

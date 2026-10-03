@@ -61,7 +61,7 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Ongoing Direction
 
-Recurring runtime, dashboard, and contract-maintenance priorities live in
+Recurring runtime, UI catalog, and contract-maintenance priorities live in
 [the roadmap](../../PLAN.md#current-priorities) and
 [the debt tracker](../tech-debt.md). This index lists executable plans rather
 than duplicating those standing principles or their review dates.
