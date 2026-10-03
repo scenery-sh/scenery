@@ -76,6 +76,8 @@ func canonicalOrderTestWords() []string {
 		"中", "日本", "한국",
 		"", "", "", "�", "￿",
 		"\U00010000", "\U0001F600", "\U0010FFFF",
+		"\uD7FF", "\U00010001", "\U000103FF", "\U00010400",
+		"\xff", "\xfe", "\xffa", "�a", "\xff�", "��",
 		"a", "a\U0001F600", "a", "\U0001F600a",
 		"key", "key2", "Key", "kEy", "key_name", "key-name", "key.name",
 		"invalid-\xff", "invalid-\xef\xbf\xbd", "invalid-\xed\xa0\x80", "\U00010000\x00", "\U00010000\U0001F600",

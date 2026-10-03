@@ -593,7 +593,7 @@ func writeContractByteStream(writer io.Writer, response ContractHTTPResponse) er
 	}
 	compressed := acquireGzipWriter(writer)
 	defer releaseGzipWriter(compressed)
-	_, copyErr := io.CopyN(compressed, stream.Reader, stream.Size)
+	_, copyErr := io.CopyN(gzipStreamWriter{compressed}, stream.Reader, stream.Size)
 	if copyErr != nil {
 		return copyErr
 	}

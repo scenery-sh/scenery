@@ -467,8 +467,8 @@ func harnessWatchEvents(path string, offset int64) ([]harnessWatchEvent, error) 
 	return events, nil
 }
 
-// harnessWaitBuildRequest waits for the next completed build request after
-// offset and requires its outcome.
+// harnessWaitBuildRequest waits for a build queued after offset and requires
+// its outcome. A previously serving build can finish logging after the edit.
 func harnessWaitBuildRequest(ctx context.Context, log string, offset int64, ok bool) error {
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
@@ -476,8 +476,15 @@ func harnessWaitBuildRequest(ctx context.Context, log string, offset int64, ok b
 		if err != nil {
 			return err
 		}
+		queued := map[string]bool{}
 		for _, event := range events {
-			if event.Type == "build.step" && event.Data.Name == "build.request" {
+			if event.Type != "build.step" || event.Data.OperationID == "" {
+				continue
+			}
+			if event.Data.Name == "build.queue" {
+				queued[event.Data.OperationID] = true
+			}
+			if event.Data.Name == "build.request" && queued[event.Data.OperationID] {
 				if event.Data.OK != ok {
 					return fmt.Errorf("build request ok=%t, want %t", event.Data.OK, ok)
 				}

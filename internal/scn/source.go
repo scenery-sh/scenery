@@ -487,13 +487,19 @@ func SourceID(relative string) string {
 type PositionIndex struct {
 	source     []byte
 	lineStarts []int
+	ascii      bool
 }
 
+// NewPositionIndex indexes source for range conversion. The source must remain
+// unchanged while the index is in use.
 func NewPositionIndex(source []byte) *PositionIndex {
-	index := &PositionIndex{source: source, lineStarts: []int{0}}
+	index := &PositionIndex{source: source, lineStarts: []int{0}, ascii: true}
 	for offset, value := range source {
 		if value == '\n' {
 			index.lineStarts = append(index.lineStarts, offset+1)
+		}
+		if value >= utf8.RuneSelf {
+			index.ascii = false
 		}
 	}
 	return index
@@ -509,6 +515,10 @@ func (index *PositionIndex) position(offset int) Position {
 		offset = len(index.source)
 	}
 	line := max(sort.Search(len(index.lineStarts), func(candidate int) bool { return index.lineStarts[candidate] > offset })-1, 0)
+	// ASCII byte offsets already count scalar columns, including long lines.
+	if index.ascii {
+		return Position{Line: line, Column: offset - index.lineStarts[line], ByteOffset: offset}
+	}
 	column := 0
 	for cursor := index.lineStarts[line]; cursor < offset; {
 		_, size := utf8.DecodeRune(index.source[cursor:])

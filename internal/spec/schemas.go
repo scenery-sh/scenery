@@ -160,8 +160,8 @@ func buildSourceSchemaCatalogIndex() sourceSchemaCatalogIndex {
 			indexSchema(child.Schema)
 		}
 		public := publicAuthoredBlockSchemaWithIndex(schema, index.revisions, index.dynamicFields)
-		delete(public, "schema_revision")
-		revision := SchemaRevision(public)
+		// The public builder hashes the content before adding its own revision.
+		revision := Revision(public["schema_revision"].(string))
 		index.revisions[schema] = revision
 		index.byRevision[string(revision)] = schema
 		if existing, ok := index.byInternal[schema.Revision]; ok && existing != revision {
@@ -387,7 +387,13 @@ func publicAuthoredBlockSchemaWithIndex(
 	if requirements := authoredConditionalRequirements[schema.Revision]; len(requirements) > 0 {
 		result["conditional_requirements"] = publicConditionalRequirements(requirements)
 	}
-	result["schema_revision"] = string(SchemaRevision(result))
+	// The index already identifies immutable schemas and detached schemas
+	// resolved for this call. During index construction, hash only unseen roots.
+	revision, indexed := revisions[schema]
+	if !indexed {
+		revision = SchemaRevision(result)
+	}
+	result["schema_revision"] = string(revision)
 	return result
 }
 
@@ -427,8 +433,7 @@ func sourceSchemaRevisions(
 			calculate(child.Schema)
 		}
 		public := publicAuthoredBlockSchemaWithIndex(schema, revisions, dynamicFields)
-		delete(public, "schema_revision")
-		revisions[schema] = SchemaRevision(public)
+		revisions[schema] = Revision(public["schema_revision"].(string))
 		delete(visiting, schema)
 		return revisions[schema]
 	}

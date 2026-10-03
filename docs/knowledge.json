@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0208-measured-performance-and-stability.md",
+      "title": "Measured Performance And Stability, First Pass",
+      "owner": "scenery graph / compiler / runtime",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-10-02",
+      "review_after": "2026-11-02",
+      "summary": "Five-hour first pass of measured performance, allocation and stability improvements, preserving exact behavior and separating scoped timings from whole-application claims.",
+      "tags": ["plans", "execplans", "performance", "runtime", "graph"]
+    },
+    {
       "path": "docs/plans/0210-performance-engineering-first-session.md",
       "title": "Performance Engineering First Session",
       "owner": "scenery runtime / compiler / build",

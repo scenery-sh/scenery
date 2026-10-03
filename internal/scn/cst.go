@@ -92,8 +92,10 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, positions
 	}
 	if file != nil {
 		if body, ok := file.Body.(*hclsyntax.Body); ok {
-			nodes := concreteSyntaxNodes(body)
-			attachConcreteComments(source, tree.Comments, nodes)
+			if len(tree.Comments) > 0 {
+				nodes := concreteSyntaxNodes(body)
+				attachConcreteComments(source, tree.Comments, nodes)
+			}
 			diagnostics = append(diagnostics, validateConcreteIdentifiers(sourceID, positions, body)...)
 		}
 	}

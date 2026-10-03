@@ -155,12 +155,14 @@ const (
 	agentMaxBytes     = graph.AgentMaxBytes
 )
 
-func resourcesByAddress(manifest *Manifest) map[string]Resource {
-	result := map[string]Resource{}
-	if manifest != nil {
-		for _, resource := range manifest.Resources {
-			result[resource.Address] = resource
-		}
+func resourcesByAddress(manifest *Manifest) map[string]*Resource {
+	if manifest == nil {
+		return nil
+	}
+	result := make(map[string]*Resource, len(manifest.Resources))
+	for index := range manifest.Resources {
+		resource := &manifest.Resources[index]
+		result[resource.Address] = resource
 	}
 	return result
 }

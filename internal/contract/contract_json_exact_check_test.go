@@ -16,6 +16,7 @@ var canonicalExactJSONFixtures = []string{
 	"\"tab \\t newline \\n return \\r backspace \\b formfeed \\f\"",
 	`"html \u003c\u003e\u0026"`,
 	`"control \u0000\u0001\u000b\u001f"`, `"háček 😀 ✓"`, "\"raw fffd \ufffd\"",
+	`"\\u2028\\u2029"`, `"\\\\u2028"`, "\"\\\\\u2029\"",
 	`{}`, `[]`, `[[]]`, `[{}]`, `["a","b","a"]`, `[1,2,3]`,
 	`{"a":1,"b":2,"z":[true,null]}`,
 	`{"":"empty key","a":null}`,

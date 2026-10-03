@@ -644,11 +644,19 @@ func (session *AgentSession) retain(result *Result) {
 	if session == nil || result == nil || result.Manifest == nil {
 		return
 	}
+	// Repeated reads reuse the retained immutable workspace. Check again after
+	// cloning below because concurrent first readers can reach this point together.
+	session.mu.Lock()
+	retained := session.snapshots[result.WorkspaceRevision] != nil
+	session.mu.Unlock()
+	if retained {
+		return
+	}
 	keys := []string{result.Manifest.ContractRevision, result.WorkspaceRevision}
 	for _, revision := range result.DeploymentRevisions {
 		keys = append(keys, revision)
 	}
-	views := map[string]*Manifest{"expanded": cloneAgentManifest(result.Manifest)}
+	views := map[string]*Manifest{}
 	for view, manifest := range result.ViewManifests {
 		views[view] = cloneAgentManifest(manifest)
 	}
@@ -816,6 +824,20 @@ func agentKindMatches(resource Resource, value string) bool {
 }
 
 func selectedResources(manifest *Manifest, addresses []string) ([]Resource, error) {
+	if len(addresses) == 0 {
+		return []Resource{}, nil
+	}
+	if len(addresses) == 1 {
+		if manifest != nil {
+			// Match the last address entry, as the multi-address index does.
+			for index := len(manifest.Resources) - 1; index >= 0; index-- {
+				if resource := &manifest.Resources[index]; resource.Address == addresses[0] {
+					return []Resource{*resource}, nil
+				}
+			}
+		}
+		return nil, fmt.Errorf("resource %q not found", addresses[0])
+	}
 	byAddress := resourcesByAddress(manifest)
 	addresses = append([]string(nil), addresses...)
 	sort.Strings(addresses)
@@ -825,7 +847,7 @@ func selectedResources(manifest *Manifest, addresses []string) ([]Resource, erro
 		if !ok {
 			return nil, fmt.Errorf("resource %q not found", address)
 		}
-		resources = append(resources, resource)
+		resources = append(resources, *resource)
 	}
 	return resources, nil
 }

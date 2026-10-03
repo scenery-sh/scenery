@@ -45,7 +45,7 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 			output.WriteString("false")
 		}
 	case string:
-		if canonicalUnescapedASCII(typed) {
+		if canonicalStringNeedsNoEscapes(typed) {
 			output.WriteByte('"')
 			output.WriteString(typed)
 			output.WriteByte('"')
@@ -123,10 +123,11 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 	return nil
 }
 
-func canonicalUnescapedASCII(value string) bool {
+// Normalized JSON strings are valid UTF-8, so non-ASCII scalars need no escaping.
+func canonicalStringNeedsNoEscapes(value string) bool {
 	for index := 0; index < len(value); index++ {
 		character := value[index]
-		if character < 0x20 || character >= utf8.RuneSelf {
+		if character < 0x20 {
 			return false
 		}
 		switch character {

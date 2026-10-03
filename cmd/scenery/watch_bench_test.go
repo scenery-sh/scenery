@@ -56,20 +56,38 @@ func BenchmarkScanWatchedFilesReusing(b *testing.B) {
 }
 
 func BenchmarkSnapshotFingerprint(b *testing.B) {
-	snapshot := fileSnapshot{files: make(map[string]fileStamp, 200)}
-	base := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 200; i++ {
-		snapshot.files[fmt.Sprintf("pkg%d/file%d.go", i%8, i)] = fileStamp{
-			modTime: base.Add(time.Duration(i) * time.Second),
-			size:    int64(1000 + i),
-			mode:    0o644,
-			hash:    fmt.Sprintf("%064x", i),
-			embed:   i%7 == 0,
+	for _, size := range []int{8, 200, 4096} {
+		for _, mixed := range []bool{false, true} {
+			b.Run(fmt.Sprintf("files=%d/mixed=%t", size, mixed), func(b *testing.B) {
+				snapshot := fileSnapshot{
+					files:          make(map[string]fileStamp, size),
+					compilerFiles:  make(map[string]fileStamp),
+					compilerAbsent: make(map[string]bool),
+				}
+				base := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+				for i := range size {
+					path := fmt.Sprintf("pkg%d/file%d.go", i%8, i)
+					stamp := fileStamp{
+						modTime: base.Add(time.Duration(i) * time.Second),
+						size:    int64(1000 + i),
+						mode:    0o644,
+						hash:    fmt.Sprintf("%064x", i),
+						embed:   i%7 == 0,
+					}
+					switch {
+					case mixed && i%3 == 0:
+						snapshot.compilerAbsent[path] = false
+					case mixed && i%3 == 1:
+						snapshot.compilerFiles[path] = stamp
+					default:
+						snapshot.files[path] = stamp
+					}
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					_ = snapshotFingerprint(snapshot)
+				}
+			})
 		}
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = snapshotFingerprint(snapshot)
 	}
 }

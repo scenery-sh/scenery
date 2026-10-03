@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
@@ -90,35 +89,39 @@ func revisionListings(root string) *dirlisting.Tree {
 
 func snapshotFingerprint(snapshot fileSnapshot) string {
 	paths := make([]string, 0, len(snapshot.files)+len(snapshot.compilerFiles)+len(snapshot.compilerAbsent))
-	for path := range snapshot.files {
-		paths = append(paths, "source\x00"+path)
-	}
-	for path := range snapshot.compilerFiles {
-		if compilerFileAffectsRuntime(snapshot, snapshot, path) {
-			paths = append(paths, "compiler\x00"+path)
-		}
-	}
 	for path := range snapshot.compilerAbsent {
 		if compilerFileAffectsRuntime(snapshot, snapshot, path) {
-			paths = append(paths, "absent\x00"+path)
+			paths = append(paths, path)
 		}
 	}
-	sort.Strings(paths)
+	absentEnd := len(paths)
+	for path := range snapshot.compilerFiles {
+		if compilerFileAffectsRuntime(snapshot, snapshot, path) {
+			paths = append(paths, path)
+		}
+	}
+	compilerEnd := len(paths)
+	for path := range snapshot.files {
+		paths = append(paths, path)
+	}
+	// Preserve lexicographic namespace order without allocating prefixed paths.
+	sort.Strings(paths[:absentEnd])
+	sort.Strings(paths[absentEnd:compilerEnd])
+	sort.Strings(paths[compilerEnd:])
 	h := sha256.New()
 	var scratch []byte
-	for _, namespacedPath := range paths {
-		namespace, path, _ := strings.Cut(namespacedPath, "\x00")
-		stamp := snapshot.files[path]
-		if namespace == "compiler" {
-			stamp = snapshot.compilerFiles[path]
-		}
+	for index, path := range paths {
 		scratch = append(scratch[:0], path...)
 		scratch = append(scratch, 0)
-		if namespace == "absent" {
+		if index < absentEnd {
 			scratch = append(scratch, "absent"...)
 			scratch = append(scratch, 0)
 			_, _ = h.Write(scratch)
 			continue
+		}
+		stamp := snapshot.files[path]
+		if index < compilerEnd {
+			stamp = snapshot.compilerFiles[path]
 		}
 		scratch = append(scratch, stamp.hash...)
 		scratch = append(scratch, 0)

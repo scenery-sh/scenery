@@ -7,6 +7,29 @@ import (
 	"testing"
 )
 
+func TestSensitiveKeyNormalization(t *testing.T) {
+	for _, key := range []string{
+		"authorization", "Cookie", "Set-Cookie", "TOKEN", " Access.Token ",
+		"refresh_token", "pass word", "secret", "API-Key", "database_url",
+		"JWT", "jwt_token", "\u2003access-token\u2003", "api\u212aey",
+	} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			if !SensitiveKey(key) {
+				t.Errorf("SensitiveKey(%q) = false", key)
+			}
+		})
+	}
+	for _, key := range []string{"", "endpoint", "trace_id", "username", "uživatel", "token_type", "x-token", "api\u00a0key", "pass\tword", "token\xff"} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			if SensitiveKey(key) {
+				t.Errorf("SensitiveKey(%q) = true", key)
+			}
+		})
+	}
+}
+
 // TestValuePreservesErrorMessages proves logged errors keep their message:
 // errors carry no exported fields, so the struct walk used to erase them to
 // an empty map and every `slog.Warn(..., "err", err)` rendered `error=map[]`.

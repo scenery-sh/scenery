@@ -47,6 +47,36 @@ func TestSnapshotFingerprintLayout(t *testing.T) {
 	}
 }
 
+func TestSnapshotFingerprintNamespaceOrderAndMembership(t *testing.T) {
+	t.Parallel()
+	snapshot := fileSnapshot{
+		files: map[string]fileStamp{
+			"a.go":         {hash: "source", size: 6, mode: 0o644},
+			"used_test.go": {hash: "embedded", size: 8, mode: 0o600, embed: true},
+		},
+		compilerFiles: map[string]fileStamp{
+			"a.go":         {hash: "compiler", size: 8, mode: 0o755},
+			"used_test.go": {hash: "embedded", size: 8, mode: 0o600, embed: true},
+			"skip_test.go": {hash: "unused", size: 6},
+		},
+		compilerImpl: map[string]bool{"skip_test.go": true, "used_test.go": true},
+		compilerAbsent: map[string]bool{
+			"z.json":           false,
+			"declared_test.go": false,
+			"unused_test.go":   true,
+		},
+	}
+	// Namespace ordering is absent, compiler, source. A path present in two
+	// namespaces contributes twice; test-only implementation files contribute neither.
+	wire := "declared_test.go\x00absent\x00z.json\x00absent\x00" +
+		"a.go\x00compiler\x008:755:false\x00used_test.go\x00embedded\x008:600:true\x00" +
+		"a.go\x00source\x006:644:false\x00used_test.go\x00embedded\x008:600:true\x00"
+	sum := sha256.Sum256([]byte(wire))
+	if got, want := snapshotFingerprint(snapshot), hex.EncodeToString(sum[:]); got != want {
+		t.Fatalf("mixed fingerprint = %s, want %s", got, want)
+	}
+}
+
 func TestSnapshotFingerprintTracksAbsentCompilerInputAppearance(t *testing.T) {
 	t.Parallel()
 	before := fileSnapshot{

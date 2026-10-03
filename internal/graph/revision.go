@@ -34,7 +34,7 @@ func ContractRevision(resources []Resource, appName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(append([]byte("scenery.contract-revision\x00"), b...))
+	sum := prefixedSHA256("scenery.contract-revision\x00", b)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
@@ -189,8 +189,18 @@ func dependencyContractIdentities(resources []Resource) []map[string]any {
 
 func RevisionHash(prefix string, value any) string {
 	b, _ := spec.MarshalCanonical(value)
-	sum := sha256.Sum256(append([]byte(prefix), b...))
+	sum := prefixedSHA256(prefix, b)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// Hash the exact prefix and content without copying the complete document.
+func prefixedSHA256(prefix string, content []byte) [sha256.Size]byte {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(prefix))
+	_, _ = hash.Write(content)
+	var digest [sha256.Size]byte
+	hash.Sum(digest[:0])
+	return digest
 }
 
 func IsCanonicalSHA256Digest(value string) bool {

@@ -155,13 +155,47 @@ func writeExactCanonicalJSON(output *bytes.Buffer, value any, budget int) error 
 			return write("false")
 		}
 	case string:
+		if exactJSONStringNeedsNoEscapes(typed) {
+			if err := write(`"`); err != nil {
+				return err
+			}
+			if err := write(typed); err != nil {
+				return err
+			}
+			return write(`"`)
+		}
 		encoded, err := json.Marshal(typed)
 		if err != nil {
 			return err
 		}
-		encoded = bytes.ReplaceAll(encoded, []byte(`\u2028`), []byte(" "))
-		encoded = bytes.ReplaceAll(encoded, []byte(`\u2029`), []byte(" "))
-		return write(string(encoded))
+		// Consume escapes as pairs. A literal backslash followed by u2028
+		// or u2029 is string content, not an encoded Unicode separator.
+		start := 0
+		for index := 0; index < len(encoded); index++ {
+			if encoded[index] != '\\' {
+				continue
+			}
+			if index+6 <= len(encoded) {
+				escape := string(encoded[index : index+6])
+				if escape == `\u2028` || escape == `\u2029` {
+					if err := write(string(encoded[start:index])); err != nil {
+						return err
+					}
+					separator := "\u2028"
+					if encoded[index+5] == '9' {
+						separator = "\u2029"
+					}
+					if err := write(separator); err != nil {
+						return err
+					}
+					index += 5
+					start = index + 1
+					continue
+				}
+			}
+			index++
+		}
+		return write(string(encoded[start:]))
 	case json.Number:
 		normalized, err := normalizeExactJSONNumber(typed.String(), budget-output.Len())
 		if err != nil {
@@ -212,6 +246,18 @@ func writeExactCanonicalJSON(output *bytes.Buffer, value any, budget int) error 
 	default:
 		return fmt.Errorf("unsupported exact JSON value %T", value)
 	}
+}
+
+// Values reach the writer only after strict UTF-8 decoding. Non-ASCII scalar
+// values, including U+2028/U+2029, can therefore be copied directly.
+func exactJSONStringNeedsNoEscapes(value string) bool {
+	for index := range len(value) {
+		character := value[index]
+		if character < 0x20 || character == '"' || character == '\\' || character == '<' || character == '>' || character == '&' {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeExactJSONNumber(source string, budget int) (string, error) {
@@ -294,20 +340,30 @@ func joinContractJSONObject(members map[string][]byte) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-// contractUTF16Less orders object keys by UTF-16 code unit. ASCII keys sort
-// identically under a byte compare, so that path avoids the four slice
-// allocations the encoding otherwise costs on every comparison of a key sort.
+// contractUTF16Less orders object keys by UTF-16 code unit without allocating
+// encoded copies. ASCII keys can use the ordinary byte comparison.
 func contractUTF16Less(left, right string) bool {
 	if contractASCIIOnly(left) && contractASCIIOnly(right) {
 		return left < right
 	}
-	a, b := utf16.Encode([]rune(left)), utf16.Encode([]rune(right))
-	for index := 0; index < len(a) && index < len(b); index++ {
-		if a[index] != b[index] {
-			return a[index] < b[index]
+	for len(left) > 0 && len(right) > 0 {
+		a, aSize := utf8.DecodeRuneInString(left)
+		b, bSize := utf8.DecodeRuneInString(right)
+		if a != b {
+			// Scalar order also orders two surrogate pairs. When only one
+			// scalar needs a pair, compare its leading unit with the BMP scalar.
+			if (a >= 0x10000) != (b >= 0x10000) {
+				if a >= 0x10000 {
+					a, _ = utf16.EncodeRune(a)
+				} else {
+					b, _ = utf16.EncodeRune(b)
+				}
+			}
+			return a < b
 		}
+		left, right = left[aSize:], right[bSize:]
 	}
-	return len(a) < len(b)
+	return len(left) < len(right)
 }
 
 func contractASCIIOnly(value string) bool {

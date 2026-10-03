@@ -12,6 +12,35 @@ import (
 // Reset detaches response buffers and reuses the deflate workspace.
 var idleGzipWriters = make(chan *gzip.Writer, 2)
 
+var responseGzipCopyBuffers = make(chan []byte, 1)
+
+// gzipStreamWriter lets io.CopyN retain exact-length and short-read handling
+// while reusing one bounded staging buffer for compressed response streams.
+type gzipStreamWriter struct{ *gzip.Writer }
+
+func (writer gzipStreamWriter) ReadFrom(reader io.Reader) (int64, error) {
+	size := 32 << 10
+	if limited, ok := reader.(*io.LimitedReader); ok {
+		size = int(min(int64(size), max(limited.N, 1)))
+	}
+	var buffer []byte
+	select {
+	case buffer = <-responseGzipCopyBuffers:
+	default:
+	}
+	if cap(buffer) < size {
+		buffer = make([]byte, size)
+	}
+	buffer = buffer[:size]
+	defer func() {
+		select {
+		case responseGzipCopyBuffers <- buffer:
+		default:
+		}
+	}()
+	return io.CopyBuffer(writer.Writer, reader, buffer)
+}
+
 func acquireGzipWriter(dst io.Writer) *gzip.Writer {
 	select {
 	case writer := <-idleGzipWriters:
@@ -22,6 +51,8 @@ func acquireGzipWriter(dst io.Writer) *gzip.Writer {
 	}
 }
 
+// Detach the response without flushing; callers close successful responses.
+// Failed streams must remain incomplete rather than gaining a valid trailer.
 func releaseGzipWriter(writer *gzip.Writer) {
 	writer.Reset(io.Discard)
 	select {

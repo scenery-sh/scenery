@@ -6,90 +6,66 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 )
 
 func negotiateContractEncoding(header string, supported []string) (string, error) {
-	allowed := map[string]bool{"identity": true}
+	gzipAllowed := false
 	for _, encoding := range supported {
 		encoding = strings.ToLower(strings.TrimSpace(encoding))
 		if encoding != "gzip" {
 			return "", fmt.Errorf("unsupported configured response encoding %q", encoding)
 		}
-		allowed[encoding] = true
+		gzipAllowed = true
 	}
 	if strings.TrimSpace(header) == "" {
 		return "identity", nil
 	}
-	type candidate struct {
-		name    string
-		quality float64
-		order   int
-	}
-	quality := map[string]float64{}
-	identityExplicit := false
+	gzipQuality, identityQuality := 0.0, 1.0
+	gzipExplicit, identityExplicit := false, false
 	wildcard, wildcardSet := 0.0, false
 	for raw := range strings.SplitSeq(header, ",") {
-		parts := strings.Split(strings.TrimSpace(raw), ";")
-		name := strings.ToLower(strings.TrimSpace(parts[0]))
-		q := 1.0
-		for _, parameter := range parts[1:] {
-			key, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
-			if key != "q" || !ok {
-				return "", fmt.Errorf("invalid Accept-Encoding parameter")
-			}
-			parsed, err := strconv.ParseFloat(value, 64)
-			if err != nil || parsed < 0 || parsed > 1 {
-				return "", fmt.Errorf("invalid Accept-Encoding quality")
-			}
-			q = parsed
-		}
-		if name == "*" {
-			wildcard, wildcardSet = q, true
-		} else {
-			quality[name] = q
-			if name == "identity" {
-				identityExplicit = true
-			}
-		}
-	}
-	var choices []candidate
-	order := 0
-	for _, name := range supported {
+		name, parameters, hasParameters := strings.Cut(strings.TrimSpace(raw), ";")
 		name = strings.ToLower(strings.TrimSpace(name))
-		q, explicit := quality[name]
-		if !explicit && wildcardSet {
-			q = wildcard
+		q := 1.0
+		if hasParameters {
+			for parameter := range strings.SplitSeq(parameters, ";") {
+				key, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+				if key != "q" || !ok {
+					return "", fmt.Errorf("invalid Accept-Encoding parameter")
+				}
+				parsed, err := strconv.ParseFloat(value, 64)
+				if err != nil || parsed < 0 || parsed > 1 {
+					return "", fmt.Errorf("invalid Accept-Encoding quality")
+				}
+				q = parsed
+			}
 		}
-		if allowed[name] && q > 0 {
-			choices = append(choices, candidate{name: name, quality: q, order: order})
+		switch name {
+		case "*":
+			wildcard, wildcardSet = q, true
+		case "gzip":
+			gzipQuality, gzipExplicit = q, true
+		case "identity":
+			identityQuality, identityExplicit = q, true
 		}
-		order++
 	}
-	identityQuality := 1.0
-	if identityExplicit {
-		identityQuality = quality["identity"]
-	} else if wildcardSet {
+	if !gzipExplicit && wildcardSet {
+		gzipQuality = wildcard
+	}
+	if !identityExplicit && wildcardSet {
 		identityQuality = wildcard
 	}
+	// Gzip is the only configured response encoding. On a quality tie it precedes
+	// the implicit identity fallback in binding order, so no candidate sort is needed.
+	if gzipAllowed && gzipQuality > 0 && (!(identityQuality > 0) || gzipQuality >= identityQuality) {
+		return "gzip", nil
+	}
 	if identityQuality > 0 {
-		choices = append(choices, candidate{name: "identity", quality: identityQuality, order: order})
+		return "identity", nil
 	}
-	if len(choices) == 0 {
-		return "", fmt.Errorf("no acceptable response content encoding")
-	}
-	sort.Slice(choices, func(i, j int) bool {
-		if choices[i].quality != choices[j].quality {
-			return choices[i].quality > choices[j].quality
-		}
-		if choices[i].order != choices[j].order {
-			return choices[i].order < choices[j].order
-		}
-		return choices[i].name < choices[j].name
-	})
-	return choices[0].name, nil
+	return "", fmt.Errorf("no acceptable response content encoding")
 }
 
 func encodeContractJSON(status int, value any, mediaType string, maxBytes int64) (ContractHTTPResponse, error) {
@@ -110,13 +86,18 @@ func negotiateContractMedia(accept string, produced []string) (string, error) {
 	if strings.TrimSpace(accept) == "" {
 		return produced[0], nil
 	}
+	return negotiateContractMediaRanges(accept, produced)
+}
+
+func negotiateContractMediaRanges(accept string, produced []string) (string, error) {
 	type candidate struct {
 		media       string
 		quality     float64
 		specificity int
 		order       int
 	}
-	var best *candidate
+	var best candidate
+	found := false
 	for rawRange := range strings.SplitSeq(accept, ",") {
 		parsedMedia, params, err := mime.ParseMediaType(strings.TrimSpace(rawRange))
 		if err != nil {
@@ -133,14 +114,14 @@ func negotiateContractMedia(accept string, produced []string) (string, error) {
 		if quality == 0 {
 			continue
 		}
-		parts := strings.Split(parsedMedia, "/")
-		if len(parts) != 2 || parts[0] == "*" && parts[1] != "*" {
+		major, minor, validRange := strings.Cut(parsedMedia, "/")
+		if !validRange || strings.Contains(minor, "/") || major == "*" && minor != "*" {
 			return "", fmt.Errorf("invalid Accept media range")
 		}
 		specificity := 2
-		if parts[0] == "*" {
+		if major == "*" {
 			specificity = 0
-		} else if parts[1] == "*" {
+		} else if minor == "*" {
 			specificity = 1
 		}
 		for order, mediaValue := range produced {
@@ -148,17 +129,17 @@ func negotiateContractMedia(accept string, produced []string) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("invalid produced media type")
 			}
-			mediaParts := strings.Split(media, "/")
-			if len(mediaParts) != 2 || parts[0] != "*" && parts[0] != mediaParts[0] || parts[1] != "*" && parts[1] != mediaParts[1] || !contractAcceptedMediaParametersMatch(params, producedParams) {
+			producedMajor, producedMinor, validMedia := strings.Cut(media, "/")
+			if !validMedia || strings.Contains(producedMinor, "/") || major != "*" && major != producedMajor || minor != "*" && minor != producedMinor || !contractAcceptedMediaParametersMatch(params, producedParams) {
 				continue
 			}
-			current := &candidate{media: mediaValue, quality: quality, specificity: specificity, order: order}
-			if best == nil || current.quality > best.quality || current.quality == best.quality && current.specificity > best.specificity || current.quality == best.quality && current.specificity == best.specificity && current.order < best.order || current.quality == best.quality && current.specificity == best.specificity && current.order == best.order && current.media < best.media {
-				best = current
+			current := candidate{media: mediaValue, quality: quality, specificity: specificity, order: order}
+			if !found || current.quality > best.quality || current.quality == best.quality && current.specificity > best.specificity || current.quality == best.quality && current.specificity == best.specificity && current.order < best.order || current.quality == best.quality && current.specificity == best.specificity && current.order == best.order && current.media < best.media {
+				best, found = current, true
 			}
 		}
 	}
-	if best == nil {
+	if !found {
 		return "", fmt.Errorf("no acceptable response media type")
 	}
 	return best.media, nil
@@ -188,6 +169,9 @@ func contractRequestMediaParametersMatch(mediaType string, actual, expected map[
 }
 
 func contractAcceptedMediaParametersMatch(accepted, produced map[string]string) bool {
+	if len(accepted) == 0 {
+		return true
+	}
 	accepted = normalizedContractMediaParameters(accepted)
 	produced = normalizedContractMediaParameters(produced)
 	deleteImplicitUTF8(accepted)

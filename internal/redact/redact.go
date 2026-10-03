@@ -13,6 +13,7 @@ const Placeholder = "[redacted]"
 
 var sensitiveAssignmentRE = regexp.MustCompile(`(?i)\b(authorization|token|access[_-]?token|refresh[_-]?token|password|secret|api[_-]?key|database[_-]?url|jwt)\b(\s*[:=]\s*)([^,\s;]+)`)
 var bearerTokenRE = regexp.MustCompile(`(?i)\bBearer\s+[^\s,;]+`)
+var keySeparators = strings.NewReplacer("-", "", "_", "", " ", "", ".", "")
 
 // embeddedURLPasswordRE finds the password of a URL inside a longer text, such
 // as an error message that quotes the address it could not reach.
@@ -238,6 +239,5 @@ func stringifyMapKey(key reflect.Value) string {
 
 func normalizeKey(key string) string {
 	key = strings.ToLower(strings.TrimSpace(key))
-	replacer := strings.NewReplacer("-", "", "_", "", " ", "", ".", "")
-	return replacer.Replace(key)
+	return keySeparators.Replace(key)
 }
