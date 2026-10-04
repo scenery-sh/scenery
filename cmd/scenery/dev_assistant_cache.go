@@ -157,16 +157,7 @@ func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) err
 	// The build recorded the overlay it was built in. The reusable copy records
 	// the canonical root instead, as a production capsule does, and only a build
 	// whose Scenery connection is resolved at runtime is kept.
-	index := filepath.Join(tree, filepath.FromSlash(eve.ServerModulePath))
-	data, err := os.ReadFile(index)
-	if err != nil {
-		return err
-	}
-	data = eve.CanonicalizeServerModule(data, overlay)
-	if err := eve.ValidateCanonicalServerModule(data); err != nil {
-		return err
-	}
-	if err := os.WriteFile(index, data, 0o644); err != nil {
+	if err := eve.CanonicalizeBuild(tree, overlay); err != nil {
 		return err
 	}
 	descriptor, err := runtimeassets.DescribeTree(tree)
@@ -174,7 +165,7 @@ func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) err
 		return err
 	}
 	record := assistantOverlayCacheRecord{Key: c.key, Tree: descriptor}
-	data, err = json.Marshal(record)
+	data, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}

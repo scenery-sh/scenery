@@ -19,6 +19,24 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0213-eve-071-adapter.md",
+      "title": "Eve 0.71 portable assistant adapter",
+      "owner": "scenery assistant adapter / build",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-10-04",
+      "review_after": "2026-11-03",
+      "summary": "Upgrade the private Eve implementation while preserving canonical portable capsules, dynamic gateway resolution, authenticated control and approvals.",
+      "tags": [
+        "plans",
+        "execplans",
+        "assistants",
+        "runtime",
+        "build"
+      ]
+    },
+    {
       "path": "docs/plans/0212-agent-workflow-main-integration.md",
       "title": "Agent Workflow And Main Integration",
       "owner": "scenery agent workflows / integration",

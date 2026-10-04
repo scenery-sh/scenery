@@ -23,7 +23,7 @@ func assistantCacheTestWrite(t *testing.T, root, path, data string) {
 
 func assistantCacheTestInput(t *testing.T, root string) {
 	t.Helper()
-	assistantCacheTestWrite(t, root, "package.json", `{"dependencies":{"eve":"0.59.1"}}`)
+	assistantCacheTestWrite(t, root, "package.json", `{"dependencies":{"eve":"0.71.0"}}`)
 	assistantCacheTestWrite(t, root, "package-lock.json", `{"lockfileVersion":3}`)
 	assistantCacheTestWrite(t, root, "agent/agent.ts", "authored")
 	assistantCacheTestWrite(t, root, ".scenery/runtime-manifest.json", "runtime-capability-identity")
@@ -55,7 +55,8 @@ func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
 		t.Fatalf("cold cache: %v %v", hit, err)
 	}
 	assistantCacheTestWrite(t, first, "node_modules/eve/index.js", "dependency")
-	assistantCacheTestWrite(t, first, ".output/server/index.mjs", assistantCacheTestIndex(first))
+	assistantCacheTestWrite(t, first, eve.ManifestModulePath, assistantCacheTestIndex(first))
+	assistantCacheTestWrite(t, first, ".output/server/_libs/instrumentation.mjs", "// "+first+"/.eve/builds/Xa1_b2/host\n")
 	assistantCacheTestWrite(t, first, ".output/.eve/discovery/manifest.json", "ephemeral")
 	assistantCacheTestWrite(t, first, ".home/private-token", "private")
 	if err := cache.publish(context.Background(), first); err != nil {
@@ -71,7 +72,7 @@ func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
 	if hit, err := next.restore(context.Background(), second); err != nil || !hit {
 		t.Fatalf("warm cache: %v %v", hit, err)
 	}
-	data, err := os.ReadFile(filepath.Join(second, ".output/server/index.mjs"))
+	data, err := os.ReadFile(filepath.Join(second, eve.ManifestModulePath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +83,10 @@ func TestAssistantPreparedCacheRestoresPrivateVerifiedCopy(t *testing.T) {
 	}
 	if strings.Contains(string(data), "Xa1_b2") {
 		t.Fatal("restored build kept its random build identifier")
+	}
+	chunk, err := os.ReadFile(filepath.Join(second, ".output/server/_libs/instrumentation.mjs"))
+	if err != nil || string(chunk) != "// "+eve.CanonicalRoot+"/.eve/builds/build/host\n" {
+		t.Fatalf("restored chunk was not canonical: %q %v", chunk, err)
 	}
 	for _, path := range []string{".home", ".output/.eve"} {
 		if _, err := os.Lstat(filepath.Join(second, path)); !os.IsNotExist(err) {
@@ -137,7 +142,7 @@ func TestAssistantPreparedCacheRejectsTamperedOutput(t *testing.T) {
 				t.Fatal(err)
 			}
 			assistantCacheTestWrite(t, source, "node_modules/eve/index.js", "dependency")
-			assistantCacheTestWrite(t, source, ".output/server/index.mjs", assistantCacheTestIndex(source))
+			assistantCacheTestWrite(t, source, eve.ManifestModulePath, assistantCacheTestIndex(source))
 			if err := cache.publish(context.Background(), source); err != nil {
 				t.Fatal(err)
 			}
@@ -184,7 +189,7 @@ func TestAssistantPreparedCacheRefusesABuildItCannotReuse(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assistantCacheTestWrite(t, overlay, ".output/server/index.mjs", strings.ReplaceAll(index, "/old", overlay))
+			assistantCacheTestWrite(t, overlay, eve.ManifestModulePath, strings.ReplaceAll(index, "/old", overlay))
 			if err := cache.publish(context.Background(), overlay); err == nil {
 				t.Fatal("a build that cannot be reused was published")
 			}

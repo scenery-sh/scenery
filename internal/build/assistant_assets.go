@@ -522,19 +522,7 @@ func copyDeterministicCapsule(source, destination string) error {
 		if err != nil {
 			return err
 		}
-		// Eve's generated server module contains absolute overlay paths and a
-		// random build identifier; Nitro's metadata contains a wall-clock date.
-		// Restrict canonicalization to these known textual outputs so arbitrary
-		// native modules and other binary dependencies are copied byte-for-byte.
-		switch relativeSlash {
-		case eve.ServerModulePath:
-			data = eve.CanonicalizeServerModule(data, source)
-			// A capsule is started anywhere by anyone, so it must reach the
-			// gateway of each start: its Scenery connection must be dynamic.
-			if err := eve.ValidateCanonicalServerModule(data); err != nil {
-				return err
-			}
-		case ".output/nitro.json":
+		if relativeSlash == ".output/nitro.json" {
 			data = normalizeNitroMetadata(data)
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -547,6 +535,9 @@ func copyDeterministicCapsule(source, destination string) error {
 		return os.WriteFile(target, data, mode)
 	})
 	if err != nil {
+		return err
+	}
+	if err := eve.CanonicalizeBuild(destination, source); err != nil {
 		return err
 	}
 	completed = true

@@ -155,7 +155,7 @@ export type TypeRegistry = Readonly<Record<string, TypeDescriptor>>;
 export interface InvokeTransport {
   readonly onTrace?: ClientTraceObserver;
   readonly baseUrl: string;
-  readonly fetch: typeof globalThis.fetch;
+  readonly fetch: (...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>;
   readonly headers: Readonly<Record<string, string>>;
   readonly authentication?: AuthenticationOptions;
 
@@ -1669,7 +1669,7 @@ export async function invoke(
     } catch { /* Observation never changes the request outcome. */ }
   };
   emit("start");
-  const fetch: typeof globalThis.fetch = async (url, init) => {
+  const fetch: InvokeTransport["fetch"] = async (url, init) => {
     attempt++;
     traceId = undefined;
     emit("attempt");

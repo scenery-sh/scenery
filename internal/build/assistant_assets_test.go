@@ -67,7 +67,7 @@ func TestAssistantAssetAuthoredPackageAndLockAreImmutable(t *testing.T) {
 func TestCopyDeterministicCapsuleNormalizesAbsolutePathsAndBuildMetadata(t *testing.T) {
 	makeSource := func(name string) string {
 		root := filepath.Join(t.TempDir(), name)
-		for _, rel := range []string{".output/server", ".scenery"} {
+		for _, rel := range []string{".output/server/_chunks", ".output/server/_libs", ".scenery"} {
 			if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +88,9 @@ func TestCopyDeterministicCapsuleNormalizesAbsolutePathsAndBuildMetadata(t *test
 		if name == "second" {
 			buildID = "mse4349i-1fc5f786-14b3-412c-a9eb-7479e39329e0"
 		}
-		write(".output/server/index.mjs", `const roots = "/PLACEHOLDER/agent"; const build = ".eve/builds/`+buildID+`/host";`+"\nconst manifest = {\n"+
+		write(".output/server/index.mjs", `const roots = "/PLACEHOLDER/agent"; const build = ".eve/builds/`+buildID+`/host";`)
+		write(".output/server/_libs/instrumentation.mjs", `const source = "/PLACEHOLDER/agent"; // .eve/builds/`+buildID+`/host`)
+		write(".output/server/_chunks/node-server.mjs", "const manifest = {\n"+
 			`"agentRoot":"/PLACEHOLDER/agent","appRoot":"/PLACEHOLDER","connections":[],"dynamicConnections":[{"slug":"scenery"}]`+"\n};\n")
 		write(".output/nitro.json", `{"preset":"node-server","date":"2026-08-04T03:04:46.761Z"}`)
 		writeBytes(".output/server/native.node", []byte{0x00, 0x7f, '.', 'e', 'v', 'e', '/', 'b', 'u', 'i', 'l', 'd', 's', '/', 'b', 'i', 'n', 'a', 'r', 'y', '/', 0xff})
@@ -97,13 +99,17 @@ func TestCopyDeterministicCapsuleNormalizesAbsolutePathsAndBuildMetadata(t *test
 	}
 	firstSource := makeSource("first")
 	secondSource := makeSource("second")
-	firstIndex, _ := os.ReadFile(filepath.Join(firstSource, ".output/server/index.mjs"))
-	if err := os.WriteFile(filepath.Join(firstSource, ".output/server/index.mjs"), bytes.ReplaceAll(firstIndex, []byte("/PLACEHOLDER"), []byte(firstSource)), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	secondIndex, _ := os.ReadFile(filepath.Join(secondSource, ".output/server/index.mjs"))
-	if err := os.WriteFile(filepath.Join(secondSource, ".output/server/index.mjs"), bytes.ReplaceAll(secondIndex, []byte("/PLACEHOLDER"), []byte(secondSource)), 0o644); err != nil {
-		t.Fatal(err)
+	for _, source := range []string{firstSource, secondSource} {
+		for _, rel := range []string{".output/server/index.mjs", ".output/server/_libs/instrumentation.mjs", ".output/server/_chunks/node-server.mjs"} {
+			path := filepath.Join(source, rel)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, bytes.ReplaceAll(data, []byte("/PLACEHOLDER"), []byte(source)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	firstCapsule := filepath.Join(t.TempDir(), "capsule")
 	secondCapsule := filepath.Join(t.TempDir(), "capsule")
@@ -166,6 +172,17 @@ func TestCopyDeterministicCapsuleFailureCleansPartialDestination(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "capsule")
 	if err := copyDeterministicCapsule(source, destination); err == nil {
 		t.Fatal("escaping source symlink should fail")
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("failed capsule destination was not removed: %v", err)
+	}
+}
+
+func TestCopyDeterministicCapsuleRequiresBundledManifest(t *testing.T) {
+	source := t.TempDir()
+	destination := filepath.Join(t.TempDir(), "capsule")
+	if err := copyDeterministicCapsule(source, destination); err == nil {
+		t.Fatal("capsule without a bundled manifest was accepted")
 	}
 	if _, err := os.Stat(destination); !os.IsNotExist(err) {
 		t.Fatalf("failed capsule destination was not removed: %v", err)

@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [0213 Eve 0.71 portable assistant adapter](0213-eve-071-adapter.md) — 2026-10-04: upgraded exact provider/scaffold locks, canonical Nitro chunks and cache publication, same-turn approval waits and concrete MCP event identity. Named assistant probes, default correctness checks, lint and ONLV consumer/build/native Chrome acceptance pass; default Go timing has one advisory warning. Source remains local and uncommitted.
+
 - [0212 Agent Workflow And Main Integration](0212-agent-workflow-main-integration.md) — 2026-10-04: integrated both histories, retained exact-JSON fast paths and tracing, restored retry response cancellation, passed six boundary probes and stable zero-diagnostic full validation, then pushed and installed integration `7b089bda`.
 
 Plans 0208 through 0211 were allocated independently in the agent-workflow, performance and observability worktrees before integration. Their existing filenames and historical IDs are preserved; use the full linked title to identify a plan.

@@ -24,7 +24,7 @@ export async function invoke(
     } catch { /* Observation never changes the request outcome. */ }
   };
   emit("start");
-  const fetch: typeof globalThis.fetch = async (url, init) => {
+  const fetch: InvokeTransport["fetch"] = async (url, init) => {
     attempt++;
     traceId = undefined;
     emit("attempt");

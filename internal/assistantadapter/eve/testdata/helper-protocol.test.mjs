@@ -1,5 +1,5 @@
 // Protocol proof of the generated Scenery channel and connection against a
-// simulated Eve 0.39 runtime. The simulation reproduces the Eve behavior the
+// simulated legacy and Eve 0.71 runtimes. The simulation reproduces the Eve behavior the
 // helper relies on, as observed with the real runtime: a sent message starts a
 // turn whose events all carry its turn ID, a turn that requests approval ends
 // (turn.completed, then session.waiting), an answered approval is resolved and
@@ -92,6 +92,11 @@ class FakeEve {
     const session = this.session(sessionID);
     this.emit(session, { type: "input.requested", data: { requests: [{ kind: "tool-approval", requestId, action: { toolName: "scenery__house__process_scene" } }], turnId } });
     this.end(session, turnId, "turn.completed");
+  }
+  parkHeld(sessionID, turnId, requestId) {
+    const session = this.session(sessionID);
+    this.emit(session, { type: "input.requested", data: { requests: [{ kind: "tool-approval", requestId, action: { toolName: "connection_execute", input: { connection: "scenery", tool: "house__process_scene", input: { scene_id: "scene" } } } }], turnId } });
+    this.emit(session, { type: "turn.waiting", data: { turnId, on: "input" } });
   }
   // resolve settles an approval in its original turn, where the approved tool
   // call runs.
@@ -297,6 +302,41 @@ test("an approval resumes its own run in a new turn while a later run waits, and
   const opened = stream(eve, sessionID);
   eve.complete(sessionID, second);
   assert.deepEqual(terminals(await opened), ["run.completed:run_1", "run.completed:run_2"]);
+});
+
+test("Eve 0.71 holds an approval in its original turn and publishes one concrete capability", async () => {
+  const eve = new FakeEve();
+  const conversation = await created(eve, "first", "run_1", "sha256:conversation-held");
+  const sessionID = conversation.private_session_id;
+  const session = eve.session(sessionID);
+  const first = eve.startTurn(sessionID);
+  eve.emit(session, { type: "actions.requested", data: { turnId: first, actions: [{ kind: "tool-call", callId: "execute", toolName: "connection_execute", input: { connection: "scenery", tool: "house__process_scene", input: { scene_id: "scene" } } }] } });
+  eve.parkHeld(sessionID, first, "held_approval");
+  const parked = await stream(eve, sessionID);
+  assert.deepEqual(terminals(parked), [], "the open waiting turn has not completed");
+  assert.equal(parked.find((event) => event.type === "approval.wait").capability_name, "scenery__house__process_scene");
+  const proposal = parked.find((event) => event.type === "capability.proposal");
+  assert.deepEqual(proposal.capability_proposal.input, { scene_id: "scene" });
+  assert.equal(proposal.capability_name, "scenery__house__process_scene");
+  await turn(eve, conversation, "run_2", "second");
+  assert.equal(session.queue.length, 0, "the later run stays queued");
+  const resolved = await control(eve, "approval.resolve", { private_session_id: sessionID, continuation_token: conversation.continuation_token, run_id: "run_1", approval_id: "held_approval", decision: "allow" });
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.body));
+  eve.resolve(sessionID, "held_approval", first);
+  eve.emit(session, { type: "step.started", data: { turnId: first } });
+  assert.equal(await toolCall(sessionID, first), "run_1", "the same turn resumes its own run");
+  eve.emit(session, { type: "actions.requested", data: { turnId: first, actions: [{ kind: "tool-call", callId: "execute:1", parentCallId: "execute", toolName: "scenery__house__process_scene", input: { scene_id: "scene" } }] } });
+  for (const [callId, toolName] of [["execute:1", "scenery__house__process_scene"], ["execute", "connection_execute"]]) {
+    eve.emit(session, { type: "action.result", data: { turnId: first, status: "completed", result: { callId, toolName } } });
+  }
+  eve.complete(sessionID, first);
+  await until(() => session.queue.length === 1, "the approved run releases the queue");
+  const second = eve.startTurn(sessionID);
+  eve.complete(sessionID, second);
+  const history = await stream(eve, sessionID);
+  assert.deepEqual(terminals(history), ["run.completed:run_1", "run.completed:run_2"]);
+  assert.equal(history.filter((event) => event.type === "capability.proposal").length, 1);
+  assert.deepEqual(history.filter((event) => event.type === "capability.completed").map((event) => event.capability_name), ["scenery__house__process_scene"]);
 });
 
 test("cancelling a queued run never sends it, and cancelling a parked run denies its approvals", async () => {

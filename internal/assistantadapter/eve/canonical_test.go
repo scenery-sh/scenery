@@ -22,11 +22,14 @@ func TestCanonicalServerModuleIsLocationIndependentAndResolvesItsGatewayAtRuntim
 		t.Fatalf("canonical module refused: %v", err)
 	}
 	for name, module := range map[string]string{
-		"not canonicalized":    canonicalTestModule(root, `[]`, dynamic),
-		"static scenery":       string(CanonicalizeServerModule([]byte(canonicalTestModule(root, `[{"connectionName":"scenery","url":"http://127.0.0.1:1"}]`, dynamic)), root)),
-		"no scenery":           string(CanonicalizeServerModule([]byte(canonicalTestModule(root, `[]`, `[]`)), root)),
-		"duplicated scenery":   string(CanonicalizeServerModule([]byte(canonicalTestModule(root, `[]`, `[{"slug":"scenery"},{"slug":"scenery"}]`)), root)),
-		"no embedded manifest": "export {};",
+		"not canonicalized":     canonicalTestModule(root, `[]`, dynamic),
+		"static scenery":        string(CanonicalizeServerModule([]byte(canonicalTestModule(root, `[{"connectionName":"scenery","url":"http://127.0.0.1:1"}]`, dynamic)), root)),
+		"no scenery":            string(CanonicalizeServerModule([]byte(canonicalTestModule(root, `[]`, `[]`)), root)),
+		"duplicated scenery":    string(CanonicalizeServerModule([]byte(canonicalTestModule(root, `[]`, `[{"slug":"scenery"},{"slug":"scenery"}]`)), root)),
+		"no embedded manifest":  "export {};",
+		"duplicate manifests":   string(canonical) + string(canonical),
+		"unterminated manifest": "const manifest = {\n",
+		"invalid manifest":      "const manifest = {\ninvalid\n};",
 	} {
 		if err := ValidateCanonicalServerModule([]byte(module)); err == nil {
 			t.Fatalf("%s: module accepted", name)

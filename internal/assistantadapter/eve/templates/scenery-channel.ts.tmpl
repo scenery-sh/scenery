@@ -79,7 +79,7 @@ function sessionState(sessionID) {
 }
 
 function runLifecycle() {
-  return { turns: new Set(), approvals: new Set(), sawTurn: false, answered: false, cancelling: false, outcome: "completed" };
+  return { turns: new Set(), waitingTurns: new Set(), approvals: new Set(), sawTurn: false, answered: false, cancelling: false, outcome: "completed" };
 }
 
 // cancelRun records that a run must not execute. A run Eve has not started yet
@@ -115,7 +115,7 @@ function cancelRun(state, sessionID, runID, continuationToken, principal) {
 function settled(state) {
   if (state.open === null) return !state.waiting.length;
   const run = state.runs.get(state.open);
-  return !run || (run.sawTurn && !run.turns.size && !run.answered && run.approvals.size > 0);
+  return !run || (run.sawTurn && [...run.turns].every((turn) => run.waitingTurns.has(turn)) && !run.answered && run.approvals.size > 0);
 }
 
 function withdraw(pending, run) {
@@ -229,7 +229,7 @@ function apply(state, sessionID, providerEvent) {
   const turnID = typeof data.turnId === "string" ? data.turnId : "";
   // The session is idle after a boundary (waiting, completed or failed) until
   // its next provider event.
-  state.idle = type === "session.waiting" || type === "session.completed" || type === "session.failed";
+  state.idle = type === "session.waiting" || type === "session.completed" || type === "session.failed" || (type === "turn.waiting" && data.on === "input");
   if (!turnID) {
     if (state.open !== null) {
       const open = state.runs.get(state.open);
@@ -274,6 +274,10 @@ function observe(state, sessionID, providerEvent, runID, turnID) {
   const run = state.runs.get(runID);
   const type = providerEvent?.type;
   const data = providerEvent?.data ?? {};
+  // Eve 0.71 parks human input inside the same open turn. Task waits keep
+  // streaming; only a human wait with a pending approval settles a subscriber.
+  if (type === "turn.waiting" && data.on === "input") run?.waitingTurns.add(turnID);
+  if (type === "step.started" || type === "input.resolved") run?.waitingTurns.delete(turnID);
   if (type === "input.requested") {
     for (const request of data.requests || []) {
       if (!request?.requestId) continue;
@@ -285,11 +289,12 @@ function observe(state, sessionID, providerEvent, runID, turnID) {
     if (run) run.answered = false;
     for (const resolution of data.resolutions || []) run?.approvals.delete(resolution?.requestId);
     // Eve continues the run in a new turn after the approved call.
-    if (run) state.resuming = runID;
+    if (run && !run.turns.has(turnID)) state.resuming = runID;
   }
   if (turnEnds[type]) {
     if (!run) return;
     run.turns.delete(turnID);
+    run.waitingTurns.delete(turnID);
     if (turnEnds[type] !== "completed") run.outcome = turnEnds[type];
     return;
   }
@@ -562,6 +567,16 @@ async function control(request, { from, attachSession, requestIp }) {
   }
 }
 
+// Keep the public capability name/input stable across Eve's generic MCP
+// executor. Its later nested action repeats the same call and is omitted.
+function capabilityAction(action) {
+  const input = action.input;
+  if (action.toolName === "connection_execute" && typeof input?.connection === "string" && typeof input?.tool === "string") {
+    return { ...action, toolName: `${input.connection}__${input.tool}`, input: input.input || {} };
+  }
+  return action;
+}
+
 function normalizeEvent(providerEvent, sessionID, continuationToken, after, fallback, runID) {
   const type = providerEvent?.type;
   const data = providerEvent?.data ?? {};
@@ -587,8 +602,13 @@ function normalizeEvent(providerEvent, sessionID, continuationToken, after, fall
     case "message.completed":
       return { ...base, type: "message.completed", data: { text: data.message || "" } };
     case "actions.requested": {
-      const action = (data.actions || []).find((candidate) => candidate?.kind === "tool-call");
-      if (!action) return null;
+      const raw = (data.actions || []).find((candidate) => candidate?.kind === "tool-call");
+      if (!raw) return null;
+      if (raw.parentCallId && knownCapabilities.get(raw.parentCallId) === raw.toolName) {
+        knownCapabilities.set(raw.callId, null);
+        return null;
+      }
+      const action = capabilityAction(raw);
       knownCapabilities.set(action.callId || action.id, action.toolName);
       return {
         ...base,
@@ -607,7 +627,7 @@ function normalizeEvent(providerEvent, sessionID, continuationToken, after, fall
     case "input.requested": {
       const request = (data.requests || []).find((candidate) => candidate?.kind === "tool-approval");
       if (!request) return null;
-      const action = request.action || {};
+      const action = capabilityAction(request.action || {});
       return {
         ...base,
         type: "approval.wait",
@@ -619,7 +639,9 @@ function normalizeEvent(providerEvent, sessionID, continuationToken, after, fall
     }
     case "action.result": {
       const action = data.result || {};
-      const name = action.toolName || action.name || knownCapabilities.get(action.callId || action.id) || "capability";
+      const known = knownCapabilities.get(action.callId || action.id);
+      if (known === null) return null;
+      const name = known || action.toolName || action.name || "capability";
       return { ...base, type: "capability.completed", capability_name: name, data: { ok: data.status === "completed" } };
     }
     case "turn.completed":
@@ -641,7 +663,6 @@ function normalizeEvents(providerEvent, sessionID, continuationToken, after, fal
     return (data.actions || [])
       .filter((action) => action?.kind === "tool-call")
       .map((action, index) => {
-        knownCapabilities.set(action.callId || action.id, action.toolName);
         return normalizeEvent({ ...providerEvent, data: { ...data, actions: [action] } }, sessionID, continuationToken, after, fallback + index, runID);
       })
       .filter(Boolean);

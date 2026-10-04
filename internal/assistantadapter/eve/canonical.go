@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // A provider build records the absolute root it was built in, and a random
@@ -23,6 +26,9 @@ const (
 	// ServerModulePath is the build's generated server module, relative to its
 	// root.
 	ServerModulePath = ".output/server/index.mjs"
+	// ManifestModulePath is the Nitro node-server chunk containing Eve's
+	// compiled artifact bootstrap and its single embedded agent manifest.
+	ManifestModulePath = ".output/server/_chunks/node-server.mjs"
 )
 
 var buildPathPattern = regexp.MustCompile(`\.eve/builds/[A-Za-z0-9_-]+/`)
@@ -32,6 +38,46 @@ var buildPathPattern = regexp.MustCompile(`\.eve/builds/[A-Za-z0-9_-]+/`)
 func CanonicalizeServerModule(data []byte, root string) []byte {
 	data = bytes.ReplaceAll(data, []byte(filepath.Clean(root)), []byte(CanonicalRoot))
 	return buildPathPattern.ReplaceAll(data, []byte(".eve/builds/build/"))
+}
+
+// CanonicalizeBuild prepares a copied server tree for reuse. Eve splits the
+// manifest and build-path comments across Nitro chunks; all generated modules
+// must be location-independent, while native dependencies retain their bytes.
+func CanonicalizeBuild(root, source string) error {
+	validated := false
+	err := filepath.WalkDir(filepath.Join(root, ".output", "server"), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".mjs") {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("assistant generated module is not a regular file: %s", entry.Name())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		canonical := CanonicalizeServerModule(data, source)
+		if path == filepath.Join(root, filepath.FromSlash(ManifestModulePath)) {
+			if err := ValidateCanonicalServerModule(canonical); err != nil {
+				return err
+			}
+			validated = true
+		}
+		if bytes.Equal(data, canonical) {
+			return nil
+		}
+		return os.WriteFile(path, canonical, 0o644)
+	})
+	if err != nil {
+		return err
+	}
+	if !validated {
+		return errors.New("assistant build manifest module missing")
+	}
+	return nil
 }
 
 // ValidateCanonicalServerModule accepts only the server module shape a reusable

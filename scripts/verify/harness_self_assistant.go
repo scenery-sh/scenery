@@ -82,7 +82,7 @@ func runHarnessAssistantInitProbeCheck(parent context.Context, repoRoot string) 
 	}
 	lockSum := sha256.Sum256(lock)
 	lockDigest := "sha256:" + hex.EncodeToString(lockSum[:])
-	if lockDigest != "sha256:05412849aaf7cb286b2f1227c2149e02b6977c02f68028d3ff8cd7e89c08c9c2" {
+	if lockDigest != "sha256:345473603287eaa1316b77599284e37cb7beb5bae4002bbbc0e3010f57df9031" {
 		return nil, nil, fmt.Errorf("assistant scaffold lock digest = %s", lockDigest)
 	}
 	appSource, err := os.ReadFile(filepath.Join(appRoot, "app.scn"))
