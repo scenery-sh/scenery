@@ -136,17 +136,7 @@ func scanCanonicalExactJSONString(data []byte, offset int) (next int, plainASCII
 				return 0, false, false
 			}
 			switch data[offset] {
-			case '\\':
-				// The full pass rewrites the byte sequence \u2028 (and
-				// \u2029) after re-encoding without seeing the preceding
-				// escape, so a literal backslash followed by the text u2028
-				// or u2029 does not survive it unchanged. Leave those
-				// strings to the full pass.
-				if remainder := data[offset+1:]; len(remainder) >= 5 && remainder[0] == 'u' && remainder[1] == '2' && remainder[2] == '0' && remainder[3] == '2' && (remainder[4] == '8' || remainder[4] == '9') {
-					return 0, false, false
-				}
-				offset++
-			case '"', 'b', 'f', 'n', 'r', 't':
+			case '\\', '"', 'b', 'f', 'n', 'r', 't':
 				offset++
 			case 'u':
 				if !canonicalExactJSONUnicodeEscape(data[offset+1:]) {

@@ -125,7 +125,7 @@ type mcpDurableOwnerStore struct {
 
 var mcpDurableOwners = mcpDurableOwnerStore{values: map[string]mcpDurableOwner{}}
 
-func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, name string, input json.RawMessage) (MCPToolOutcome, error) {
+func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, name string, input json.RawMessage) (result MCPToolOutcome, resultErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -154,7 +154,11 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 	// selected, and so are the internal calls it makes.
 	state.processGeneration, _ = ctx.Value(processGenerationKey{}).(uint64)
 	ctx = withState(ctx, state)
-	ctx = withRuntimeInvocation(ctx, state)
+	service, attributes := operationTraceIdentity(registration.Policy, call.AssistantAddress, map[string]any{"binding_address": registration.ID})
+	ctx, end := beginOperationTrace(ctx, "MCP", service, registration.Name, attributes)
+	defer finishOperation(end, &resultErr)
+	state = stateFromContext(ctx)
+	ctx = withNewRuntimeInvocation(ctx, state)
 	restore := enterState(state)
 	defer restore()
 
@@ -189,7 +193,7 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 	if err != nil {
 		return MCPToolOutcome{}, ContractSystemError(fmt.Errorf("decode MCP tool outcome: %w", err))
 	}
-	result := MCPToolOutcome{Outcome: outcome}
+	result = MCPToolOutcome{Outcome: outcome}
 	switch kind {
 	case "result":
 		result.Value = payload
@@ -384,6 +388,7 @@ func newMCPToolState(call MCPToolCallContext, registration MCPToolRegistration, 
 		}},
 		logsEnabled: true, traceEnabled: true,
 	}
+	state.request.Headers.Set("traceparent", call.TraceContext["traceparent"])
 	return state
 }
 

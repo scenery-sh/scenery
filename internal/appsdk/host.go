@@ -24,6 +24,10 @@ type Host interface {
 	EncodeJSON(status int, value any) (Response, error)
 	DurableSignal(ctx context.Context, service, jobID, name, dedupeKey string, payload []byte) error
 	DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) ([]byte, error)
+	TraceHTTPTransport(http.RoundTripper) http.RoundTripper
+	TraceStorageOperation(ctx context.Context, store, operation string) (context.Context, func(int64, error))
+	TraceDBQueryStart(ctx context.Context, query string, argsCount int) context.Context
+	TraceDBQueryEnd(ctx context.Context, commandTag string, rowsAffected int64, err error)
 	// FrameworkConfigSecret and FrameworkConfigString read a framework-owned
 	// input (such as auth.jwt_secret) from the process's configuration
 	// snapshot; the boolean reports whether the environment configured it.

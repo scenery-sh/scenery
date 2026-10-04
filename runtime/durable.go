@@ -63,6 +63,7 @@ type durableInvocationMetadata struct {
 	Principal     string `json:"principal,omitempty"`
 	TenantID      string `json:"tenant_id,omitempty"`
 	TraceID       string `json:"trace_id,omitempty"`
+	TraceParent   string `json:"traceparent,omitempty"`
 	CallerBinding string `json:"caller_binding,omitempty"`
 	Deployment    string `json:"deployment,omitempty"`
 	Locale        string `json:"locale,omitempty"`
@@ -338,24 +339,29 @@ func WaitDurableTask(ctx context.Context, run DurableRun) ([]byte, error) {
 		return nil, fmt.Errorf("runtime: durable service %q is not active", service)
 	}
 	for {
-		wake := db.JobWake(run.ID)
+		wake, release := db.JobWake(run.ID)
 		job, found, err := db.GetJob(ctx, run.ID)
 		if err != nil {
+			release()
 			return nil, err
 		}
 		if !found {
+			release()
 			return nil, fmt.Errorf("runtime: durable execution %s/%s was not found", service, run.ID)
 		}
 		switch job.State {
 		case "succeeded":
+			release()
 			if job.ResultCodec != "json" || len(job.ResultBlob) == 0 {
 				return nil, fmt.Errorf("runtime: durable execution %s/%s has no JSON result", service, run.ID)
 			}
 			return append([]byte(nil), job.ResultBlob...), nil
 		case "failed", "canceled":
+			release()
 			return nil, &DurableExecutionFailure{Service: service, ID: run.ID, State: job.State, TaskName: job.TaskName}
 		}
 		awaitDurableWake(ctx, wake, durableWaitPoll)
+		release()
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -388,7 +394,7 @@ func durableInvocationMetadataJSON(ctx context.Context) (string, error) {
 	}
 	metadata := durableInvocationMetadata{
 		Principal: invocation.Principal(), TenantID: invocation.TenantID(), TraceID: invocation.TraceID(),
-		CallerBinding: invocation.CallerBinding(), Deployment: invocation.Deployment(), Locale: invocation.Locale(),
+		TraceParent: traceParentForContext(ctx), CallerBinding: invocation.CallerBinding(), Deployment: invocation.Deployment(), Locale: invocation.Locale(),
 	}
 	encoded, err := json.Marshal(metadata)
 	if err != nil {
@@ -411,7 +417,7 @@ func durableInvocationMetadataFromJSON(value string) *durableInvocationMetadata 
 
 // enterDurableInvocation enters one task attempt; generation pins its internal
 // calls to the application generation the attempt was admitted to.
-func enterDurableInvocation(ctx context.Context, service, taskName, executionID string, timeout time.Duration, metadata *durableInvocationMetadata, generation uint64) (context.Context, func()) {
+func enterDurableInvocation(ctx context.Context, service, taskName, executionID string, timeout time.Duration, metadata *durableInvocationMetadata, generation uint64) (context.Context, func(error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -432,10 +438,13 @@ func enterDurableInvocation(ctx context.Context, service, taskName, executionID 
 		state.auth = AuthInfo{UID: metadata.Principal, Data: map[string]any{"tenant_id": metadata.TenantID}}
 		state.request.TraceID, state.request.CallerBinding = metadata.TraceID, metadata.CallerBinding
 		state.request.Deployment, state.request.Locale = metadata.Deployment, metadata.Locale
+		state.request.Headers.Set("traceparent", metadata.TraceParent)
 	}
-	ctx = withState(ctx, state)
-	ctx = withRuntimeInvocation(ctx, state)
-	return ctx, enterState(state)
+	ctx, end := beginOperationTrace(withState(ctx, state), "DURABLE", service, taskName, map[string]any{"execution_id": executionID})
+	state = stateFromContext(ctx)
+	ctx = withNewRuntimeInvocation(ctx, state)
+	restore := enterState(state)
+	return ctx, func(err error) { end(err); restore() }
 }
 
 // startDurableLocalWorkers runs one acquisition loop per durable task of every
@@ -515,9 +524,8 @@ func startDurableScheduleLoop(parent context.Context, stores []*store.Store, rol
 	}
 }
 
-// durableIdlePoll bounds how long an idle task loop waits for a queued-job
-// notification before it leases again anyway: expired leases and delayed
-// retries become ready without a notification.
+// durableIdlePoll retries acquisition errors and stores without deadline
+// guidance. Healthy empty local acquisitions use their next known deadline.
 var durableIdlePoll = time.Second
 
 // durableWaitPoll bounds how long a waiting caller waits for a job's
@@ -527,7 +535,7 @@ var durableWaitPoll = time.Second
 // runDurableLocalWorker leases and runs one task's jobs. Up to handler.slots
 // attempts run at once; the next job is leased only when a slot is free. An
 // idle loop sleeps until Postgres notifies it of a queued or finished job of
-// its task, or until durableIdlePoll passes.
+// its task, its next retry/lease deadline, or bounded reconciliation.
 func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID, taskName string, handler durableRegisteredHandler) {
 	slots := make(chan struct{}, durableTaskSlots(handler.slots))
 	var attempts sync.WaitGroup
@@ -544,13 +552,19 @@ func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID, taskN
 			sleepDurableWorker(ctx)
 			continue
 		}
-		wake := db.TaskWake(taskName)
+		wake, releaseWake := db.TaskWake(taskName)
 		job, ok, err := db.LeaseReadyJob(ctx, workerID, leaseID, taskName)
 		if err != nil || !ok {
 			<-slots
-			awaitDurableWake(ctx, wake, durableIdlePoll)
+			delay := durableIdlePoll
+			if err == nil && job.WakeAfter > 0 {
+				delay = job.WakeAfter
+			}
+			awaitDurableWake(ctx, wake, delay)
+			releaseWake()
 			continue
 		}
+		releaseWake()
 		attempts.Add(1)
 		go func() {
 			defer attempts.Done()
@@ -579,7 +593,7 @@ func runDurableLocalAttempt(ctx context.Context, db *store.Store, workerID, leas
 	result, err := runDurableTaskHandler(jobCtx, handler.timeout, handler.handler, job.InputBlob)
 	err = processAdmissionOutcome(admitted, err)
 	stopHeartbeat()
-	restore()
+	restore(err)
 	release()
 	if err != nil {
 		_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, durableFailureMessage(err))
@@ -754,7 +768,7 @@ func DurableSchedule(ctx context.Context, service, taskName, id string, every ti
 	return db.UpsertSchedule(ctx, id, taskName, every, input)
 }
 
-func DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) ([]byte, error) {
+func DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) (result []byte, resultErr error) {
 	if run == nil {
 		return nil, errors.New("runtime: durable step function is required")
 	}
@@ -763,6 +777,8 @@ func DurableStep(ctx context.Context, key string, run func(context.Context) ([]b
 	if db == nil || strings.TrimSpace(jobID) == "" {
 		return run(ctx)
 	}
+	ctx, end := beginOperationTrace(ctx, "STEP", db.Service, key, map[string]any{"execution_id": jobID})
+	defer finishOperation(end, &resultErr)
 	if step, ok, err := db.GetStep(ctx, jobID, key); err != nil {
 		return nil, err
 	} else if ok && step.State == "succeeded" {

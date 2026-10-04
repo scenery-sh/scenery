@@ -132,6 +132,7 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 		return summary, fmt.Errorf("local storage inspect not ready: %s", strings.TrimSpace(inspectOut))
 	}
 	summary["local_storage_probe"] = "passed"
+	summary["empty_prefix_tenant_isolation_over_proxy"] = "passed"
 	summary["local_storage_agent_home"] = filepath.ToSlash(agentHome)
 	summary["local_storage_response"] = probeBody
 	summary["local_storage_readiness"] = inspect.Storage.Readiness

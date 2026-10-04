@@ -103,7 +103,7 @@ func InvokeContractBinding(ctx context.Context, address string, invocation, inpu
 	return InvokeContractBindingFrom(ctx, address, "", invocation, input)
 }
 
-func InvokeContractBindingFrom(ctx context.Context, address, callerPackage string, invocation, input any) (any, error) {
+func InvokeContractBindingFrom(ctx context.Context, address, callerPackage string, invocation, input any) (result any, resultErr error) {
 	global.mu.RLock()
 	registration := global.contractBindings[address]
 	global.mu.RUnlock()
@@ -121,6 +121,11 @@ func InvokeContractBindingFrom(ctx context.Context, address, callerPackage strin
 	if registration.Visibility == "package" && strings.TrimSpace(callerPackage) != registration.Package {
 		return nil, fmt.Errorf("permission_denied: internal binding %s is visible only to package %s", address, registration.Package)
 	}
+	service, attributes := operationTraceIdentity(registration.Policy, registration.Package, nil)
+	ctx, end := beginOperationTrace(ctx, "INTERNAL", service, address, attributes)
+	defer finishOperation(end, &resultErr)
+	restore := enterState(stateFromContext(ctx))
+	defer restore()
 	return InvokeContractPolicy(ctx, registration.Policy, input, func(callCtx context.Context) (any, error) {
 		return registration.Invoke(callCtx, invocation, input)
 	})

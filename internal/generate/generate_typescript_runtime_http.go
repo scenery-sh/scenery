@@ -317,6 +317,7 @@ export async function fetchWithRetry(
       const response = await fetchImplementation(url, replayableRequestInit(init));
       if (attempt === policy.maximumAttempts || !policy.statuses.includes(response.status)) return response;
       const delay = retryDelay(response.headers.get("retry-after"), runtime.now(), policy.maximumDelayMilliseconds);
+      await response.body?.cancel();
       await runtime.sleep(delay, signal);
     } catch (cause) {
       if (signal?.aborted) throw new SceneryClientError("cancelled", "", "request cancelled", cause);

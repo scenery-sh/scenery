@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -372,13 +373,23 @@ func newRetryHandlerForBackend(t *testing.T, backend *httptest.Server) http.Hand
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Scheduler delay in the loopback request must not consume the synthetic
+	// retry budget; advance it only when the handler waits between attempts.
+	clock := time.Unix(0, 0)
 	return newLocalDialRetryHandler(func(localagent.Backend) *httputil.ReverseProxy {
 		// A fresh transport per attempt so keep-alive pooling never masks the
 		// mid-request failure with net/http's own idempotent retry.
 		proxy := httputil.NewSingleHostReverseProxy(target)
 		proxy.Transport = &http.Transport{}
 		return proxy
-	}, nil, localDialRetryPolicy{Budget: 50 * time.Millisecond, Interval: time.Millisecond})
+	}, nil, localDialRetryPolicy{
+		Budget: 50 * time.Millisecond, Interval: time.Millisecond,
+		now: func() time.Time { return clock },
+		wait: func(ctx context.Context, interval time.Duration) bool {
+			clock = clock.Add(interval)
+			return ctx.Err() == nil
+		},
+	})
 }
 
 func TestLocalDialRetryHandlerNeverReplaysMutationAfterMidRequestFailure(t *testing.T) {

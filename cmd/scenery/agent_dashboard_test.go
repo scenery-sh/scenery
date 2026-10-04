@@ -347,7 +347,7 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 		store: store,
 		agent: agentRegistry,
 	}, t.TempDir(), "127.0.0.1:0", nil)
-	body, err := json.Marshal(devdash.ReportEnvelope{
+	body, err := marshalTestReportBatch(devdash.ReportEnvelope{
 		Type:      "log",
 		AppID:     "demo",
 		SessionID: session.SessionID,
@@ -400,7 +400,7 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 		},
 	})
 
-	body, err := json.Marshal(devdash.ReportEnvelope{
+	body, err := marshalTestReportBatch(devdash.ReportEnvelope{
 		Type:        "trace-event",
 		AppID:       "demo",
 		SessionID:   "missing-session",

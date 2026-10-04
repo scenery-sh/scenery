@@ -95,7 +95,10 @@ func resolveModuleInputValuesWithSourceProvenance(rootResources, packageResource
 		}
 	}
 	allResources := make(map[string]Resource, len(rootResources)+len(packageResources))
-	for _, resource := range append(append([]Resource(nil), rootResources...), packageResources...) {
+	for _, resource := range rootResources {
+		allResources[resource.Address] = resource
+	}
+	for _, resource := range packageResources {
 		allResources[resource.Address] = resource
 	}
 	for name, declaration := range declarations {

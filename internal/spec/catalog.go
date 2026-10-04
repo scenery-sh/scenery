@@ -128,6 +128,10 @@ func revision(domain string, value any) Revision {
 	if err != nil {
 		panic(err)
 	}
-	digest := sha256.Sum256(append([]byte(domain+"\x00"), encoded...))
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(domain + "\x00"))
+	_, _ = hash.Write(encoded)
+	var digest [sha256.Size]byte
+	hash.Sum(digest[:0])
 	return Revision("sha256:" + hex.EncodeToString(digest[:]))
 }

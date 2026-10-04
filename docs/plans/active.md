@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0212 Agent Workflow And Main Integration](0212-agent-workflow-main-integration.md)
+  - Status: active
+  - Owner: scenery agent workflows / integration
+  - Created: 2026-10-04
+  - Focus: merge the authorized agent-context cleanup with current main, validate the combined runtime boundaries, publish main and install the exact pushed CLI.
+
 - [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md)
   - Status: active
   - Owner: scenery runtime / telemetry

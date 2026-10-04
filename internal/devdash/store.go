@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -315,13 +313,13 @@ func (s *Store) saveState(state *storeState) error {
 		return err
 	}
 	if len(data) > softStoreFileBytes {
-		pruneStoreStateToBudget(state, softStoreFileBytes)
+		pruneStoreStateToBudget(state, softStoreFileBytes, len(data))
 		if data, err = json.Marshal(state); err != nil {
 			return err
 		}
 	}
 	if len(data) > hardStoreFileBytes {
-		pruneStoreStateToBudget(state, hardStoreFileBytes)
+		pruneStoreStateToBudget(state, hardStoreFileBytes, len(data))
 		data, err = json.Marshal(state)
 		if err != nil {
 			return err
@@ -343,155 +341,6 @@ func (s *Store) scheduleSaveLocked() {
 		time.Sleep(deferredSaveDelay)
 		_ = s.Flush(context.Background())
 	}()
-}
-
-func pruneStoreState(state *storeState) {
-	if state == nil {
-		return
-	}
-	state.ProcessEvents = tailSlice(state.ProcessEvents, maxStoredProcessEvents)
-	state.ProcessOutput = tailSlice(state.ProcessOutput, maxStoredProcessOutput)
-	state.DevEvents = tailSlice(state.DevEvents, maxStoredDevEvents)
-	truncateOversizedProcessEvents(state.ProcessEvents)
-	pruneOrphanedAppModelRefs(state)
-}
-
-func pruneStoreStateToBudget(state *storeState, targetBytes int) {
-	if state == nil || targetBytes <= 0 {
-		return
-	}
-	for serializedStoreSize(state) > targetBytes {
-		switch {
-		case len(state.ProcessOutput) > 0:
-			state.ProcessOutput = dropOldestBudgetChunk(state.ProcessOutput)
-		case len(state.DevEvents) > 0:
-			state.DevEvents = dropOldestBudgetChunk(state.DevEvents)
-		case len(state.ProcessEvents) > 0:
-			state.ProcessEvents = dropOldestBudgetChunk(state.ProcessEvents)
-		default:
-			return
-		}
-	}
-}
-
-func dropOldestBudgetChunk[T any](items []T) []T {
-	if len(items) <= 1 {
-		return nil
-	}
-	drop := min(max(len(items)/4, 1), 256)
-	return items[drop:]
-}
-
-func serializedStoreSize(state *storeState) int {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return 0
-	}
-	return len(data)
-}
-
-func storeSizeBreakdown(state *storeState) map[string]int {
-	if state == nil {
-		return nil
-	}
-	parts := map[string]any{
-		"apps":                   state.Apps,
-		"app_sessions":           state.AppSessions,
-		"app_model_refs":         state.AppModelRefs,
-		"process_events":         state.ProcessEvents,
-		"process_output":         state.ProcessOutput,
-		"dev_sources":            state.DevSources,
-		"dev_events":             state.DevEvents,
-		"next_process_event_id":  state.NextProcessEventID,
-		"next_process_output_id": state.NextProcessOutputID,
-		"next_dev_event_id":      state.NextDevEventID,
-	}
-	out := make(map[string]int, len(parts))
-	for key, value := range parts {
-		data, err := json.Marshal(value)
-		if err != nil {
-			continue
-		}
-		out[key] = len(data)
-	}
-	return out
-}
-
-func formatStoreSizeBreakdown(state *storeState) string {
-	breakdown := storeSizeBreakdown(state)
-	keys := make([]string, 0, len(breakdown))
-	for key := range breakdown {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if breakdown[keys[i]] == breakdown[keys[j]] {
-			return keys[i] < keys[j]
-		}
-		return breakdown[keys[i]] > breakdown[keys[j]]
-	})
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		if breakdown[key] == 0 || breakdown[key] == 4 {
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("%s=%d", key, breakdown[key]))
-	}
-	return strings.Join(parts, ", ")
-}
-
-// truncateOversizedProcessEvents retroactively applies the payload size cap
-// so stores bloated by older writers shrink on the next load/save instead of
-// keeping multi-megabyte payloads alive until count-based pruning ages them
-// out hundreds of events later.
-func truncateOversizedProcessEvents(events []ProcessEvent) {
-	for i := range events {
-		if len(events[i].PayloadJSON) <= maxProcessEventPayloadBytes {
-			continue
-		}
-		marker, err := json.Marshal(map[string]any{
-			"truncated":      true,
-			"original_bytes": len(events[i].PayloadJSON),
-		})
-		if err != nil {
-			continue
-		}
-		events[i].PayloadJSON = marker
-	}
-}
-
-func pruneOrphanedAppModelRefs(state *storeState) {
-	if state == nil || len(state.AppModelRefs) == 0 {
-		return
-	}
-	live := map[string]bool{}
-	for _, app := range state.Apps {
-		if app.MetadataRef != "" {
-			live[app.MetadataRef] = true
-		}
-		if app.APIEncodingRef != "" {
-			live[app.APIEncodingRef] = true
-		}
-	}
-	for _, session := range state.AppSessions {
-		if session.MetadataRef != "" {
-			live[session.MetadataRef] = true
-		}
-		if session.APIEncodingRef != "" {
-			live[session.APIEncodingRef] = true
-		}
-	}
-	for ref := range state.AppModelRefs {
-		if !live[ref] {
-			delete(state.AppModelRefs, ref)
-		}
-	}
-}
-
-func tailSlice[T any](items []T, max int) []T {
-	if max <= 0 || len(items) <= max {
-		return items
-	}
-	return items[len(items)-max:]
 }
 
 func newStoreState() *storeState {
@@ -573,13 +422,4 @@ func (event storedDevEvent) toDevEvent() DevEvent {
 	item.CreatedAt = event.CreatedAt
 	item.Fields = compactRawMessage(item.Fields)
 	return item
-}
-
-func SortTraceSummariesByDuration(items []*TraceSummary) {
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].DurationNanos == items[j].DurationNanos {
-			return items[i].StartedAt.After(items[j].StartedAt)
-		}
-		return items[i].DurationNanos > items[j].DurationNanos
-	})
 }

@@ -28,6 +28,9 @@ type ContractMultipartPart struct {
 }
 
 type ContractHTTPPolicy struct {
+	// Generated semantic identities are shared by every transport adapter.
+	ServiceName                 string
+	OperationAddress            string
 	BindingAddress              string
 	GatewayAddress              string
 	CORS                        string

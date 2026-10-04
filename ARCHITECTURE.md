@@ -252,7 +252,7 @@ link runtime orchestration. The application SDK packages `scenery.sh/auth`,
 `scenery.sh/db` and `scenery.sh/durable` reach the runtime only through the one
 `appsdk.Host` the runtime registers from its package initialization (current
 authentication, standard-auth endpoint and handler registration, JSON contract
-codecs, durable signals and steps); `.env` loading lives in `appsdk` itself.
+codecs, SQL query tracing, durable signals and steps).
 Importing them therefore never links the runtime's implementation closure.
 
 `internal/contract` owns the contract value types, their canonical JSON wire
@@ -405,6 +405,14 @@ development cache root. Production honors `SCENERY_DEV_CACHE_DIR`; tests inject
 `SetRoot`. Doctor, build, and CLI resolve the cache here instead of linking
 through `internal/build`.
 
+### `internal/filemeta`
+
+`internal/filemeta` is a stdlib-only leaf that reads physical filesystem
+identity and status-change timestamps. Native macOS/Linux representations use
+typed access; other representations retain field-based observation and report
+missing metadata explicitly. It holds no cache or reuse authority. Watch,
+directory-listing and build-input caches consume the same observation.
+
 ### `internal/dirlisting`
 
 `internal/dirlisting` is the stdlib leaf that reuses directory membership
@@ -418,6 +426,10 @@ files are still checked by their own metadata by each caller. Each walker owns
 a bounded `Tree`: a complete walk evicts directories it did not visit, and a
 fresh walk (pre-activation snapshot verification) reads every directory and
 reconciles the retained listings.
+
+Watched file hash reuse requires a regular file with the same physical device
+and inode, status-change time, size, permissions and modification time. Missing
+identity or change-time information always causes a fresh content read.
 
 ### `internal/build`
 
@@ -780,6 +792,15 @@ Runtime session metadata lives in a small JSON store under the worktree's
 private control root; the project does not carry an embedded SQL driver for
 that state. Runtime remains decoupled from Victoria server packages;
 the stable boundary is HTTP/OTLP, not Go library imports.
+
+Framework adapters own automatic operation spans; generation supplies stable
+binding identities. `runtime/operation_trace.go` shares lifecycle and propagation
+across non-HTTP entrypoints and internal calls. Storage reaches the runtime
+through `internal/appsdk`, retaining its small application dependency closure.
+`internal/victoria` translates bounded backend results to the `internal/devdash`
+trace read model; the development RPC enforces app/session scope and returns that
+model through the generated client. TypeScript request observation lives in the
+shared invocation helper and does not duplicate per-method implementations.
 
 ### File Size And Placement
 

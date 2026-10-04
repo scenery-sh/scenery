@@ -133,7 +133,7 @@ func TestMCPReferenceCycleValidation(t *testing.T) {
 	connection := Resource{Address: "app/mcp_connection/docs", Module: "app", Kind: "scenery.mcp-connection", Name: "docs", Spec: map[string]any{
 		"server": map[string]any{"$ref": "mcp_server.support"},
 	}}
-	diagnostics := validateMCPGraph([]Resource{server, connection})
+	diagnostics := validateMCPGraph([]Resource{server, connection}, resourcesByAddress(&Manifest{Resources: []Resource{server, connection}}))
 	if !hasDiagnostic(diagnostics, mcpReferenceCycle) {
 		t.Fatalf("cycle diagnostics = %#v", diagnostics)
 	}

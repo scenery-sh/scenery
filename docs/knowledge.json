@@ -19,6 +19,23 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0212-agent-workflow-main-integration.md",
+      "title": "Agent Workflow And Main Integration",
+      "owner": "scenery agent workflows / integration",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-04",
+      "review_after": "2026-11-03",
+      "summary": "Preserves agent-context and warning cleanup alongside current main performance and tracing, validates the combined boundaries, publishes main and installs the exact source.",
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "integration"
+      ]
+    },
+    {
       "path": "docs/agent-context-evaluation-0211.md",
       "title": "Scoped Agent Context Evaluation",
       "owner": "scenery verifier / agent workflows",
@@ -3624,6 +3641,132 @@
         "parse",
         "go",
         "architecture"
+      ]
+    },
+    {
+      "path": "docs/plans/0208-measured-performance-and-stability.md",
+      "title": "Measured Performance And Stability, First Pass",
+      "owner": "scenery graph / compiler / runtime",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-10-02",
+      "review_after": "2026-11-02",
+      "summary": "Five-hour first pass of measured performance, allocation and stability improvements, preserving exact behavior and separating scoped timings from whole-application claims.",
+      "tags": ["plans", "execplans", "performance", "runtime", "graph"]
+    },
+    {
+      "path": "docs/plans/0210-performance-engineering-first-session.md",
+      "title": "Performance Engineering First Session",
+      "owner": "scenery runtime / compiler / build",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-10-01",
+      "review_after": "2026-10-31",
+      "summary": "Completed first native five-hour performance session: paired complete compilation improves with fewer allocations, watcher and supervisor allocations fall, exact outputs and normal runtime acceptance pass, while whole-application CPU/latency improvement remains unproven with adverse cohorts retained.",
+      "tags": [
+        "plans",
+        "execplans",
+        "performance",
+        "runtime",
+        "compiler",
+        "build"
+      ]
+    },
+    {
+      "path": "docs/plans/0209-measured-runtime-followup.md",
+      "title": "Measured Runtime Followup",
+      "owner": "scenery runtime / storage / UI",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-30",
+      "review_after": "2026-10-30",
+      "summary": "Completed native before/after followup for overload refusal, anchored storage enumeration, UTF-8 watcher matching and grouped table geometry; revision-bound ONLV and Chrome profiles show no whole-application improvement, and an unchanged-code history control rejects a second persistence format.",
+      "tags": [
+        "plans",
+        "execplans",
+        "performance",
+        "runtime",
+        "storage",
+        "ui",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/plans/0208-runtime-resource-efficiency.md",
+      "title": "Runtime Resource Efficiency",
+      "owner": "scenery runtime / build / UI",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-30",
+      "review_after": "2026-10-30",
+      "summary": "Removes durable notification pool starvation and abandoned subscriptions, duplicated idle SQL work and serialization, excess allocations and retained payloads, and adds bounded runtime report batches and windowed inline table expansion with current functional and performance evidence.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "performance",
+        "build",
+        "ui",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/plans/0211-performance-engineering-second-session.md",
+      "title": "Performance Engineering Second Session",
+      "owner": "scenery compiler / runtime / build",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-10-02",
+      "review_after": "2026-11-01",
+      "summary": "Second authorized native five-hour performance block with bounded compiler and watcher work, exact semantic parity, separate performance metrics and required current verification.",
+      "tags": [
+        "plans",
+        "execplans",
+        "performance",
+        "compiler",
+        "runtime",
+        "build"
+      ]
+    },
+    {
+      "path": "docs/plans/0209-automatic-operation-tracing.md",
+      "title": "Automatic Operation Tracing",
+      "owner": "scenery runtime / generate",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-02",
+      "review_after": "2026-11-02",
+      "summary": "Automatic non-HTTP, internal, HTTP and storage spans; scoped trace detail RPC and generated client lifecycle correlation.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "observability",
+        "generation"
+      ]
+    },
+    {
+      "path": "docs/plans/0208-observability-query-tracing.md",
+      "title": "Observability And Database Query Tracing",
+      "owner": "scenery runtime",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-02",
+      "review_after": "2026-11-02",
+      "summary": "Restores PostgreSQL query child spans through the pgx adapter and structured log context, with real signal round-trip proof.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "telemetry",
+        "postgres"
       ]
     }
   ],

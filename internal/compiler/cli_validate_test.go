@@ -28,7 +28,7 @@ func TestCLIBindingRejectsReservedAndNonCanonicalCommands(t *testing.T) {
 					"cli": map[string]any{"command": test.command},
 				},
 			}
-			diagnostics := validateCLIBindings([]Resource{operation, binding})
+			diagnostics := validateCLIBindings([]Resource{operation, binding}, resourcesByAddress(&Manifest{Resources: []Resource{operation, binding}}))
 			found := false
 			for _, diagnostic := range diagnostics {
 				found = found || strings.Contains(diagnostic.Message, test.want)

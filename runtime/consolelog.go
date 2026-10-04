@@ -52,8 +52,8 @@ func (h *sceneryConsoleHandler) Enabled(_ context.Context, level slog.Level) boo
 	return level >= h.minLevel
 }
 
-func (h *sceneryConsoleHandler) Handle(_ context.Context, record slog.Record) error {
-	if state := currentState(); state != nil && !state.logsEnabled {
+func (h *sceneryConsoleHandler) Handle(ctx context.Context, record slog.Record) error {
+	if state := logState(ctx); state != nil && !state.logsEnabled {
 		return nil
 	}
 	attrs := h.collectAttrs(record)
@@ -67,9 +67,27 @@ func (h *sceneryConsoleHandler) Handle(_ context.Context, record slog.Record) er
 	return err
 }
 
+type resolvedLogStateKey struct{}
+type resolvedLogState struct{ state *requestState }
+
+// Context-aware logging carries request identity across goroutines. Ordinary
+// slog calls retain the current-goroutine fallback; a reporting handler passes
+// even a nil resolution to its console handler to avoid repeating the lookup.
+func logState(ctx context.Context) *requestState {
+	if ctx != nil {
+		if resolved, ok := ctx.Value(resolvedLogStateKey{}).(resolvedLogState); ok {
+			return resolved.state
+		}
+		if state := stateFromContext(ctx); state != nil {
+			return state
+		}
+	}
+	return currentState()
+}
+
 func (h *sceneryConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	next := *h
-	next.attrs = append(append([]slog.Attr(nil), h.attrs...), attrs...)
+	next.attrs = append(append([]slog.Attr(nil), h.attrs...), bindLogAttrs(h.groups, attrs)...)
 	return &next
 }
 
@@ -84,47 +102,49 @@ func (h *sceneryConsoleHandler) WithGroup(name string) slog.Handler {
 
 func (h *sceneryConsoleHandler) collectAttrs(record slog.Record) []consoleAttr {
 	attrs := make([]consoleAttr, 0, len(h.attrs)+record.NumAttrs())
+	add := func(attr slog.Attr) {
+		key := attr.Key
+		if key == "err" {
+			key = "error"
+		}
+		attrs = append(attrs, consoleAttr{key: key, value: consoleValueString(attr.Value)})
+	}
 	for _, attr := range h.attrs {
-		h.appendAttr(&attrs, h.groups, attr)
+		add(attr)
 	}
 	record.Attrs(func(attr slog.Attr) bool {
-		h.appendAttr(&attrs, h.groups, attr)
+		for _, bound := range bindLogAttrs(h.groups, []slog.Attr{attr}) {
+			add(bound)
+		}
 		return true
 	})
 	return attrs
 }
 
-func (h *sceneryConsoleHandler) appendAttr(dst *[]consoleAttr, groups []string, attr slog.Attr) {
-	attr.Value = attr.Value.Resolve()
-	if attr.Equal(slog.Attr{}) {
-		return
-	}
-	if attr.Value.Kind() == slog.KindGroup {
-		groupName := strings.TrimSpace(attr.Key)
-		nextGroups := groups
-		if groupName != "" {
-			nextGroups = append(append([]string(nil), groups...), groupName)
+// Bind attributes when With is called, before a later WithGroup changes the
+// scope. Both console and exported logs use the same flattened, redacted keys.
+func bindLogAttrs(groups []string, attrs []slog.Attr) []slog.Attr {
+	var bound []slog.Attr
+	for _, attr := range attrs {
+		attr.Value = attr.Value.Resolve()
+		if attr.Equal(slog.Attr{}) {
+			continue
 		}
-		for _, item := range attr.Value.Group() {
-			h.appendAttr(dst, nextGroups, item)
+		if attr.Value.Kind() == slog.KindGroup {
+			next := groups
+			if attr.Key != "" {
+				next = append(append([]string(nil), groups...), attr.Key)
+			}
+			bound = append(bound, bindLogAttrs(next, attr.Value.Group())...)
+			continue
 		}
-		return
+		key := attr.Key
+		if len(groups) > 0 {
+			key = strings.Join(groups, ".") + "." + key
+		}
+		bound = append(bound, slog.Attr{Key: key, Value: redactedSlogValue(attr.Key, attr.Value)})
 	}
-	key := strings.TrimSpace(attr.Key)
-	if key == "" {
-		return
-	}
-	if len(groups) > 0 {
-		key = strings.Join(append(append([]string(nil), groups...), key), ".")
-	}
-	if key == "err" {
-		key = "error"
-	}
-	value := redactedSlogValue(key, attr.Value)
-	*dst = append(*dst, consoleAttr{
-		key:   key,
-		value: consoleValueString(value),
-	})
+	return bound
 }
 
 func (h *sceneryConsoleHandler) formatRecord(record slog.Record, attrs []consoleAttr) string {
@@ -213,6 +233,9 @@ func consoleValueString(value slog.Value) string {
 }
 
 func redactedSlogValue(key string, value slog.Value) slog.Value {
+	if redact.SensitiveKey(key) {
+		return slog.StringValue(redact.Placeholder)
+	}
 	switch value.Kind() {
 	case slog.KindGroup:
 		items := value.Group()
@@ -227,9 +250,6 @@ func redactedSlogValue(key string, value slog.Value) slog.Value {
 	case slog.KindAny:
 		return slog.AnyValue(redact.Value(value.Any()))
 	default:
-		if redact.SensitiveKey(key) {
-			return slog.StringValue(redact.Placeholder)
-		}
 		return value
 	}
 }

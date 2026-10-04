@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +16,18 @@ import (
 
 	"scenery.sh/internal/devdash"
 )
+
+var errNoTraces = errors.New("VictoriaTraces returned no traces")
+
+// ErrTraceResultTooLarge identifies a bounded backend response refusal.
+var ErrTraceResultTooLarge = errors.New("trace backend result exceeds 8 MiB")
+
+type victoriaQueryFailure struct {
+	statusCode int
+	status     string
+}
+
+func (e *victoriaQueryFailure) Error() string { return "VictoriaTraces query failed: " + e.status }
 
 var exportClient = &http.Client{Timeout: time.Second}
 
@@ -187,7 +200,11 @@ func getVictoriaJaegerTrace(ctx context.Context, baseURL, traceID string) ([]vic
 		return nil, errors.New("trace id is required")
 	}
 	endpoint := strings.TrimRight(baseURL, "/") + "/select/jaeger/api/traces/" + url.PathEscape(traceID)
-	return fetchVictoriaJaeger(ctx, endpoint)
+	traces, err := fetchVictoriaJaeger(ctx, endpoint)
+	if failure, ok := errors.AsType[*victoriaQueryFailure](err); ok && failure.statusCode == http.StatusNotFound {
+		return nil, errNoTraces
+	}
+	return traces, err
 }
 
 func fetchVictoriaJaeger(ctx context.Context, endpoint string) ([]victoriaJaegerTrace, error) {
@@ -203,14 +220,21 @@ func fetchVictoriaJaeger(ctx context.Context, endpoint string) ([]victoriaJaeger
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("VictoriaTraces query failed: %s", resp.Status)
+		return nil, &victoriaQueryFailure{statusCode: resp.StatusCode, status: resp.Status}
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 8<<20 {
+		return nil, ErrTraceResultTooLarge
 	}
 	var payload victoriaJaegerResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, err
 	}
 	if len(payload.Data) == 0 {
-		return nil, errors.New("VictoriaTraces returned no traces")
+		return nil, errNoTraces
 	}
 	return payload.Data, nil
 }
@@ -219,6 +243,9 @@ func summariesFromVictoriaTraces(appID string, traces []victoriaJaegerTrace) []*
 	var items []*devdash.TraceSummary
 	for _, trace := range traces {
 		for _, span := range trace.Spans {
+			if !victoriaSpanAppMatches(appID, trace, span) {
+				continue
+			}
 			summary := traceSummaryFromVictoriaSpan(appID, trace, span)
 			if summary != nil {
 				items = append(items, summary)
@@ -249,7 +276,7 @@ func traceSummaryFromVictoriaSpan(appID string, trace victoriaJaegerTrace, span 
 		TraceID:       traceID,
 		SpanID:        span.SpanID,
 		Type:          firstNonEmpty(stringTag(tags, "scenery.trace.type"), "REQUEST"),
-		IsRoot:        len(span.References) == 0,
+		IsRoot:        boolTag(tags, "scenery.is_root") || len(span.References) == 0,
 		IsError:       boolTag(tags, "scenery.is_error") || boolTag(tags, "error") || stringTag(tags, "otel.status_code") == "ERROR",
 		StartedAt:     time.UnixMicro(span.StartTime).UTC(),
 		DurationNanos: uint64(maxInt64(span.Duration, 0)) * uint64(time.Microsecond),
@@ -263,7 +290,7 @@ func traceSummaryFromVictoriaSpan(appID string, trace victoriaJaegerTrace, span 
 		if ref.SpanID != "" {
 			parent := ref.SpanID
 			summary.ParentSpanID = &parent
-			summary.IsRoot = false
+			summary.IsRoot = boolTag(tags, "scenery.is_root")
 			break
 		}
 	}

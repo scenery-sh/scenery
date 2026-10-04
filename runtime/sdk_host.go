@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"scenery.sh/internal/appsdk"
 )
@@ -15,6 +16,14 @@ func init() {
 }
 
 type sdkHost struct{}
+
+func (sdkHost) TraceDBQueryStart(ctx context.Context, query string, argsCount int) context.Context {
+	return TraceDBQueryStart(ctx, query, argsCount)
+}
+
+func (sdkHost) TraceDBQueryEnd(ctx context.Context, commandTag string, rowsAffected int64, err error) {
+	TraceDBQueryEnd(ctx, commandTag, rowsAffected, err)
+}
 
 func (sdkHost) CurrentAuth() (appsdk.Auth, bool) {
 	info := CurrentAuth()
@@ -94,4 +103,20 @@ func (sdkHost) FrameworkConfigString(key string) (string, bool, error) {
 
 func (sdkHost) DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) ([]byte, error) {
 	return DurableStep(ctx, key, run)
+}
+
+func (sdkHost) TraceStorageOperation(ctx context.Context, store, operation string) (context.Context, func(int64, error)) {
+	ctx, end := beginOperationTrace(ctx, "STORAGE", store, operation, map[string]any{"store": store})
+	return ctx, func(size int64, err error) {
+		if state := stateFromContext(ctx); state != nil && state.trace != nil && state.traceEnabled {
+			if reporter := activeReporter(); reporter != nil {
+				emitOperationEvent(reporter, state.trace, time.Now().UTC(), map[string]any{"storage_result": map[string]any{"bytes": size}})
+			}
+		}
+		end(err)
+	}
+}
+
+func (sdkHost) TraceHTTPTransport(base http.RoundTripper) http.RoundTripper {
+	return traceHTTPTransport(base)
 }

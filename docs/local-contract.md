@@ -377,7 +377,7 @@ Rules:
 - A failed assistant preparation step (`assistant.dependencies`, `assistant.build`, `assistant.cache_restore`, `assistant.cache_publish`, `assistant.stage`) reports `ok: false` at level `error` with `error`, its redacted and bounded cause, and `detail_path`, a private record (`0600`) in the session's assistant state directory that outlives the failed helper overlay. The record (`kind: scenery.assistant.preparation-failure`) names the assistant, the step and the error and keeps a bounded, redacted tail of the provider command's own output (`provider_output_tail`), including a last line without a newline. It describes the step's latest attempt: a step that succeeds removes it, a cancelled attempt leaves it, and a completed preparation of the assistant, by any path, removes all of its records. The assistant's status and its retry are unchanged.
 - Each development build request records `watch.scan` for the scan that captured its source snapshot: `actions` counts the watched files, `cache_hits` the directory listings reused from an earlier scan, `cache_misses` the directories read, and `files_hashed`/`bytes_hashed` the files whose content was read because their metadata changed. A directory listing is reused only while the directory's identity, size, modification time and status-change time are those observed immediately before and after it was read, and only when neither time was within two seconds of that read; restoring a directory's modification time changes its status-change time, so it cannot hide an added, removed or renamed entry. A listing records entry names and types only, and every watched file is still checked by its own current metadata, so a body edit reads no directory and hashes only the edited file. The snapshot verification before activation (`supervisor.snapshot_verify`) reads every directory again instead of reusing listings and replaces the listings it reads; a watcher error discards them. A complete scan evicts the listings of directories it no longer visits, and retained listings are bounded. A scan discovers generated paths beside its walk of the watched tree. Build requests also record `process.plan` (runtime integration plan, made while the workspace is verified and its build inputs are read), `supervisor.database_setup_check` (migration and seed inputs; a rebuild reads them while Go compiles and reads them again when the checked contract differs in revision or SQL requirements), `workspace.verify` (`before_compile` and `after_compile` membership and content checks of the private workspace; a file's content digest, like its Go imports and a framework file's embed directives, is reused within a supervisor only while its stamp, including the status-change time any write changes, is unchanged, and a reused digest costs one metadata read per file. A rebuild whose cached preparation refreshed the workspace keeps the workspace lock from that refresh into the process build and records no `before_compile` check, because the refresh established membership and bytes under the same lock; `after_compile` runs while the linked service executables are retained and preflighted, and always before publication. The workspace's framework fingerprint is the framework source digest that `framework.verify` just checked) and `supervisor.publish` (status, dashboard and session publication after activation).
 - On macOS every development build request first records a `process.scheduling` build step. Its `reason` is `darwin_background_absent`, `darwin_background_cleared` or `darwin_background_clear_failed` (`ok: false`). The supervisor removes an inherited or self-applied process-level Darwin background policy, such as `taskpolicy -b`, before building, so compiler, linker and application children do not inherit throttled scheduling. A launcher's QoS clamp, such as `taskpolicy -c background`, is not observable without cgo and is not changed. Other platforms emit no `process.scheduling` step.
-- `watch.ignore` is an optional array of app-root-relative exclusion patterns for `scenery up`. Directory patterns such as `reference/` skip that subtree during watcher setup and rebuild fingerprint scans while leaving Git tracking untouched. `watch.ignore` is exclusion-only; use `.gitignore` for Git behavior.
+- `watch.ignore` is an optional array of app-root-relative exclusion patterns for `scenery up`. Directory patterns such as `reference/` skip that subtree during watcher setup and rebuild fingerprint scans while leaving Git tracking untouched. `watch.ignore` is exclusion-only; use `.gitignore` for Git behavior. Parsed configuration and `.gitignore` rules are reused only while their physical identity, status-change time, size, modification time and parsing base remain unchanged. Missing identity prevents reuse, and a same-size edit with restored modification time still refreshes the rules.
 - Runtime watch snapshots exclude `_test.go` and their test-only embed inputs; ordinary test execution still reads the current test sources. Files explicitly embedded by runtime code remain runtime inputs regardless of their filename. Metadata-only touches or identical-content rewrites do not restart the backend: mtimes decide whether to refresh a content hash, while content, path, permissions and embed ownership decide rebuild identity.
 - A replacement service process is preflighted before it starts: its exact spec, runtime ABI and linked contract/implementation/build-input/target identity must match the supervisor's prepared build. The generated entrypoint's private `--scenery-runtime-preflight` handshake uses inherited file descriptor 3, separate from stdout/stderr, and exits before SQL/auth initialization, composition registration, listeners or workers. Go package `init` functions run earlier and must not perform application writes. A candidate starts while the published generation keeps serving the requests pinned to it, so a service constructor must not take an exclusive resource its previous instance holds; background work never overlaps, because the previous instance is drained before the candidate is activated. A candidate that fails its preflight or its start leaves the published generation, its host PID and its metadata serving while the build error remains reported.
 - `auth` is optional. When `auth.enabled` is true, scenery registers the built-in standard auth handler and standard auth endpoints. Google OAuth endpoints are registered only when `auth.google_oauth.enabled` is true.
@@ -443,7 +443,7 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 - Standard auth endpoints appear in `scenery inspect routes|services|endpoints -o json` and in generated TypeScript clients. Disabled Google OAuth endpoints are absent from inspect output and generated clients. When Google OAuth is enabled but `GOOGLE_OAUTH_CLIENT_ID` or `GOOGLE_OAUTH_CLIENT_SECRET` is missing, `scenery check -o json` returns an `auth` warning. `auth.google_oauth.allowed_scopes` declares the Google API scopes an app may request through the connection flow. `POST /auth/google/connect/start` returns a Google authorize URL whose `redirect_uri` is the shared `/auth/google/callback`; the callback dispatches connection states by OAuth state purpose so apps can reuse the sign-in redirect URI registered in Google Cloud. `AUTH_TOKEN_CIPHER_KEY` is the canonical base64 32-byte AES-GCM key used to encrypt stored Google refresh/access tokens; local development derives a dev key from the local JWT secret when this env is absent.
 - `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
 - Generated binaries accept `SCENERY_ROLE=all|api|worker`. `scenery up` uses the default combined role. `scenery worker` uses `worker`.
-- Native durable executions and schedules are declared in package `.scn` files and register through the generated application composition. Runtime startup requires `DATABASE_URL` and reconciles those declarations into the app Postgres database's `scenery` schema. Generated `all` and `worker` roles run one local acquisition loop per durable task, each running up to the task's `concurrency.limit` attempts at once (one without a limit), so a long attempt of one task never delays another task; the `api` role does not execute durable jobs; an idle loop and a caller waiting for a result sleep until the store's Postgres notification (`scenery_durable_<service>`, sent when a job is queued, requeued or finished) or a one-second fallback, so a queued job starts within milliseconds. A failed attempt records its reason with the handler's error text (at most 4 KiB), which `scenery worker durable jobs list|inspect` show; those commands and `token create` resolve the worktree's managed database like the `db` commands when no `sql.database_url` is configured. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. Remote-worker endpoints require bearer tokens stored only as hashes; a lease names its `task_name` and `worker_id`, and heartbeat/complete/fail are fenced with `worker_id` plus `lease_id`. `scenery inspect durable -o json` emits `scenery.inspect.durable` with native declarations, service schemas, and redacted app database metadata.
+- Native durable executions and schedules are declared in package `.scn` files and register through the generated application composition. Runtime startup requires `DATABASE_URL` and reconciles those declarations into the app Postgres database's `scenery` schema. Generated `all` and `worker` roles run one local acquisition loop per durable task, each running up to the task's `concurrency.limit` attempts at once (one without a limit), so a long attempt of one task never delays another task; the `api` role does not execute durable jobs; service views share one dedicated notification connection outside the ten-connection SQL query pool. An idle local acquisition loop sleeps until the store's Postgres notification (`scenery_durable_<service>`, sent when a job is queued, requeued or finished), the next known delayed retry/lease/timeout deadline, or a ten-second reconciliation fallback. Acquisition recovers expired jobs only for its task, retaining atomic SQL concurrency admission. A notification connection becoming ready wakes current observers to recheck transitions missed during setup/reconnect. A caller waiting for a result retains a one-second fallback. Observers release their subscription on every exit; notification delivery is a latency hint, not durable authority. A failed attempt records its reason with the handler's error text (at most 4 KiB), which `scenery worker durable jobs list|inspect` show; those commands and `token create` resolve the worktree's managed database like the `db` commands when no `sql.database_url` is configured. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. Remote-worker endpoints require bearer tokens stored only as hashes; a lease names its `task_name` and `worker_id`, and heartbeat/complete/fail are fenced with `worker_id` plus `lease_id`. `scenery inspect durable -o json` emits `scenery.inspect.durable` with native declarations, service schemas, and redacted app database metadata.
 
 ## CLI Grammar
 
@@ -1103,7 +1103,7 @@ Command split:
 - The direct agent router serves HTTP by default. Path-mode local dev uses the per-runtime localhost listener; only the selected env's successfully validated `domain` causes public app paths to redirect. Edge unreadiness leaves localhost content in place. Host mode (`envs.<name>.mode = "host"`) uses the managed `local.dev` edge/DNS path. Route and alias ownership, trusted edge headers, TLS issuance, and duplicate-session behavior remain exact-registry and fingerprint verified.
 - Reverse proxies rebuild forwarding headers after removing hop-by-hop headers. The agent preserves an incoming `X-Forwarded-For` chain only from an authenticated loopback edge request; other requests derive it from the connecting peer. Local backend proxies discard incoming forwarding chains. Backend URL, original request host, and route-prefix behavior are preserved.
 - Path-mode route manifests contain no dashboard route; `/runtime` and `/runtime/storage` reach the owning worktree's runtime control backend. There is no agent-disabled fallback runtime or global control backend owner for ordinary `up`.
-- `scenery up` exposes worktree-local observability through optional VictoriaMetrics, VictoriaLogs, and VictoriaTraces. Managed lifecycle checks verified owners, component reachability and exits, and serializes bounded recovery. The runtime control backend owns compact JSON runtime metadata and content-addressed app-model blobs; its runtime components submit mutations through the internal control endpoint. Read-only inspection does not create, migrate, or flush that state. App summaries expose `sessionStatus` and `sessionStatusReason` instead of treating stale/degraded ownership as running. Trace/report histories are exported to Victoria rather than duplicated in `devdash.json`. The runtime control backend refuses a report body over 1 MiB with HTTP 413 before decoding it, and exports accepted reports through a bounded queue of 1,024 reports served by two workers, each sending the reports queued together as one OTLP request per signal with a 2 s deadline; a report arriving at a full queue is dropped, and drops and failed exports are counted in the dev-runtime `status`. Telemetry export never delays report intake or runtime control. Optional observability failure is visible but does not gate required serving readiness.
+- `scenery up` exposes worktree-local observability through optional VictoriaMetrics, VictoriaLogs, and VictoriaTraces. Managed lifecycle checks verified owners, component reachability and exits, and serializes bounded recovery. The runtime control backend owns compact JSON runtime metadata and content-addressed app-model blobs; its runtime components submit mutations through the internal control endpoint. Read-only inspection does not create, migrate, or flush that state. App summaries expose `sessionStatus` and `sessionStatusReason` instead of treating stale/degraded ownership as running. Trace/report histories are exported to Victoria rather than duplicated in `devdash.json`. The current runtime report body is `{ "reports": [ReportEnvelope, ...], "dropped"?: uint64 }`, with 1–64 envelopes in array order and no legacy single-envelope decoder. The runtime cheaply refuses an already-full queue before touching or encoding the envelope. Otherwise it encodes each envelope before admission, limits it to 64 KiB, and bounds queued plus in-flight envelope bytes at 4 MiB and queued records at 1,024. It sends already queued envelopes together immediately, without a batching timer, within a 1 MiB request limit. Over-budget or full-queue admission drops are nonblocking; the next successful authenticated batch carries the dropped count (including failed batch records), so a process that never reports again cannot deliver its final drops. The runtime control backend authorizes every record before admitting any record, rejects unknown fields/trailing JSON and oversized records, refuses a batch body over 1 MiB with HTTP 413, and exports accepted reports through a bounded queue of 1,024 reports served by two workers, each sending the reports queued together as one OTLP request per signal with a 2 s deadline; a report arriving at a full queue is dropped, and drops and failed exports are counted in the dev-runtime `status`. Telemetry export never delays report intake or runtime control. Optional observability failure is visible but does not gate required serving readiness.
 - The state home defaults to `~/.scenery` unless `SCENERY_AGENT_HOME` is set. `SCENERY_DEV_CACHE_DIR` does not relocate durable worktree ownership, credentials, or its private runtime metadata.
 - Managed frontend services start on runtime-private hidden loopback ports and are restarted by the dev supervisor if their process exits unexpectedly. A manual `SCENERY_FRONTEND_<NAME>_ADDR` override is accepted, but configured frontend upstreams are ignored unless that frontend sets `"allow_shared_upstream": true`.
 - `scenery up --desktop` waits for configured frontend readiness and launches
@@ -1144,7 +1144,7 @@ Runtime safety:
 
 Local observability:
 
-- The user-facing observability surface is `scenery logs`, `scenery logs query`, `scenery logs tail`, `scenery traces list -o json`, `scenery metrics list -o json`, `scenery metrics query`, `scenery metrics labels`, `scenery metrics series`, `scenery inspect observability -o json`, and the dashboard. The current backing substrate exports local observability to Victoria sidecars:
+- The user-facing observability surface is `scenery logs`, `scenery logs query`, `scenery logs tail`, `scenery traces list -o json`, `scenery metrics list -o json`, `scenery metrics query`, `scenery metrics labels`, `scenery metrics series`, `scenery inspect observability -o json`, and development-runtime consumers. The current backing substrate exports local observability to Victoria sidecars:
   - VictoriaMetrics: `/opentelemetry/v1/metrics`
   - VictoriaLogs: `/insert/opentelemetry/v1/logs`
   - VictoriaTraces: `/insert/opentelemetry/v1/traces`
@@ -1153,6 +1153,24 @@ Local observability:
 - `scenery.StartSpan` records stable application-owned child spans as type
   `WORK`. Passing its returned context to nested spans, database queries, and
   HTTP requests preserves their parent relationship in trace waterfalls.
+- SQL opened through Scenery's PostgreSQL connector (including `db.Get`,
+  injected `datasource.SQL` and framework SQL) emits `DB` child spans during
+  traced requests. This covers `ExecContext`, `QueryContext`, `QueryRowContext`,
+  prepared executions and transaction statements through the pgx `database/sql`
+  adapter. Pass the request or application-span context to retain parentage;
+  row-query duration ends when rows are exhausted or closed. Span events carry
+  the sqlc query name when present, normalized SQL (bounded to 2,048 bytes plus
+  truncation marker), argument count, command tag, affected rows and errors.
+  Literal values and ordinary comments are redacted; bound argument values are
+  never collected. Database trace errors retain SQLSTATE when available and
+  cancellation/deadline classification; driver/server error text that can echo
+  query values is omitted. Arbitrary application-created database pools are outside
+  this automatic instrumentation. Queries outside a traced request are no-ops.
+- Structured logs honor their explicit context for correlation and endpoint
+  filtering, including work moved to another goroutine. `slog.With` attributes
+  and `WithGroup` scopes survive both console and Victoria export; attributes
+  bind to the group active when they were added. Sensitive attribute keys are
+  redacted before export.
 - Ordinary `scenery up` owns its optional Victoria stack in the worktree's private state root and registry. It never reuses another worktree's stack or provisions a global PostgreSQL server for dashboard state. Sidecar startup does not gate required app serving readiness. Reuse and replacement require verified component ownership; stdout/stderr, `last_exit`, and per-component exit details remain observable. The live supervisor probes the stack, serializes whole-stack recovery, backs off failed attempts, and stops recovery on cancellation. Failures remain visible through foreground errors, detached supervisor events, and dashboard notifications even while Victoria is unavailable. Stopping one worktree does not signal another's sidecars. Standalone Victoria utilities use only their explicitly selected state and are not a fallback owner for an ordinary dev runtime.
 - `SCENERY_DEV_VICTORIA=0` disables Victoria sidecars. `SCENERY_DEV_VICTORIA_DOWNLOAD=0` disables automatic Victoria binary downloads. When enabled, missing Victoria binaries are downloaded into `.scenery/toolchain/` or `SCENERY_TOOLCHAIN_DIR`.
 - Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta substrate details. They are documented so local development is debuggable, but they are hidden during ordinary app work and are not part of the stable runtime contract.
@@ -1560,7 +1578,9 @@ Methods:
 
 | Method | Params | Result |
 |---|---|---|
-| `status` | `app_id?` | `scenery.dev-runtime.status` ([schema](schemas/scenery.dev-runtime.status.schema.json)): session identity, `running`, `session_status`, `session_status_reason`, `compiling`, `compile_error`, optional `build_block` (`reason`, `cause`, `since`, `prevented_builds`) while builds are blocked, `pid`, `routes`, `service_processes` and optional `observability` readiness per signal with `export` counts of telemetry not delivered to the observability backend since the runtime started (`dropped`: reports over 1 MiB or arriving at a full export queue; `failed`: exports that failed, one per report and signal). It never contains the app model or substrate endpoints. |
+| `status` | `app_id?` | `scenery.dev-runtime.status` ([schema](schemas/scenery.dev-runtime.status.schema.json)): session identity, `running`, `session_status`, `session_status_reason`, `compiling`, `compile_error`, optional `build_block` (`reason`, `cause`, `since`, `prevented_builds`) while builds are blocked, `pid`, `routes`, `service_processes` and optional `observability` readiness per signal with `export` counts of telemetry not delivered to the observability backend since the runtime started (`dropped`: runtime admission/failed-batch drops reported by a later successful batch, reports rejected by intake byte limits, or reports arriving at a full export queue; `failed`: exports that failed, one per report and signal). It never contains the app model or substrate endpoints. |
+| `traces/list` | `app_id`, `since?` (RFC3339), `limit?` (default 100, maximum 500), `service?`, `endpoint?`, `status?` (`ok` or `error`) | `{traces: [...]}`: completed entrypoint summaries in the selected app's current session, newest first; the default window is 15 minutes. |
+| `traces/get` | `app_id`, `trace_id` (32 hexadecimal characters) | `{trace_id, spans: [...]}`: chronological spans with parent IDs and all recorded events, including normalized SQL. Unknown or out-of-scope traces return an empty `spans` array. |
 | `postgres/tables` | `app_id` | Array of `{schema, name, type, row_count?}`; `name` is `schema.table`, `type` is `table`, `view` or `materialized_view`, `row_count` is PostgreSQL's estimate. Lists non-system schemas and `scenery`, excluding `public`. |
 | `postgres/schema` | `app_id`, `schema?`, `table` | Array of `{name, type, not_null, primary_key}` in column order. A qualified `table` supplies the schema; the default schema is `scenery`. |
 | `postgres/rows` | `app_id`, `schema?`, `table`, `limit?`, `offset?` | `{columns, rows, limit, offset}`; `rows` is an array of value arrays in `columns` order. `limit` defaults to 100 and is capped at 500; a page over 4 MiB fails with `SCN8013`. |
@@ -1571,6 +1591,24 @@ Methods:
 | `storage/delete` | pinned scope, `key`, `if_match` | The `scenery.storage.delete` payload; the displayed version is required. |
 | `storage/delete-preview` | pinned scope, `prefix` | The `scenery.storage.delete` payload with `preview.selection_revision`. |
 | `storage/delete-selection` | pinned scope, `prefix`, `selection_revision` | The `scenery.storage.delete` payload with `result`. |
+
+Trace reads are work calls and share the connection/app admission limits and
+30 s deadline. The runtime resolves the selected registered app to its telemetry
+application ID and current session; callers cannot supply an alternative session,
+backend address or filesystem root. Every returned span is checked against both
+identities, even when a trace crosses applications. Clear cutoffs apply to details
+as well as lists. Responses exceeding 4 MiB, details exceeding 5,000 spans, or
+backend responses exceeding 8 MiB fail with `SCN8013`; details are never silently
+truncated.
+
+A summary contains `trace_id`, `span_id`, optional `parent_span_id`, `session_id`,
+`type`, `is_root`, `is_error`, `started_at` (RFC3339), `duration_nanos`,
+`service_name` and optional `endpoint_name`. `is_root` marks an application
+entrypoint, which may still have a remote parent. Optional provenance includes
+`app_root_hash`, `branch` and `worktree`. A detail span also has `events`, each
+with `time` (RFC3339), `name` and structured `data`. Event data retains the runtime
+report shape (`span_start`, `span_end`, and I/O event objects), not a backend
+query schema. SQL text is normalized and parameter values are not recorded.
 
 `traces/clear` is reserved for `scenery traces clear` and is not part of this
 contract.
@@ -1596,6 +1634,9 @@ Storage scope and transfers:
 
 Generated client:
 
+- `DevRuntimeClient.traces(appId, query?, signal?)` and
+  `trace(appId, traceId, signal?)` return typed trace summaries and details.
+  They use the same connection, cancellation and admission handling as other reads.
 - A `typescript_client` with `dev_runtime = true` also writes `dev-runtime.ts`
   ([TypeScript client](spec/typescript-client.md#51-development-runtime-client)). Its
   `DevRuntimeClient` implements this contract, and `status()` fails with code
@@ -2338,3 +2379,42 @@ Example output:
   ]
 }
 ```
+
+### Automatic operation tracing
+
+With development tracing enabled, Scenery automatically emits HTTP request,
+authentication, cron, internal binding, durable attempt, durable step, event
+publication/delivery, MCP tool and CLI operation spans. Generated registrations
+supply binding/service identities; application code needs no tracing calls at
+these boundaries. Internal calls preserve authorization tokens and attach nested
+SQL and logs to the callee span. Durable dispatch stores parent context, and each
+attempt has a fresh span ID. Events carry parent context in the framework-owned
+`scenery.traceparent` attribute. Background entrypoints mint their invocation
+after assigning the trace ID.
+
+Incoming HTTP accepts valid version-00 W3C `traceparent` identifiers. Invalid or
+zero identifiers start a new trace. Development tracing follows the application's
+tracing setting regardless of the incoming sampled flag. Outgoing HTTP creates a
+client span and injects its parent context into a cloned request. `http_headers`
+records status and time to response headers; `http_body` records consumed bytes.
+The span completes on EOF, body close, read error or cancellation. HTTP 4xx/5xx
+responses mark the span as failed. Default Go HTTP transports are wrapped when
+reporting starts; applications using a custom transport can wrap it once with
+`scenery.TraceHTTPTransport`.
+
+Generated storage dependencies and `storage.Named`/`Default` automatically trace
+put/get/head/list/delete/delete-prefix across local and proxy backends. Get spans
+cover streamed reading through EOF, close or cancellation; put/get report bytes.
+Object bodies and keys are not added as span attributes. SQL remains a DB child
+span through the pgx hook; background workers now supply its trace parent.
+
+Generated TypeScript clients accept an optional `onTrace` observer. Shared
+`Runtime.invoke` emits `start`, `attempt`, `response`, `attempt_error` and
+`complete` events for every generated HTTP method. Events include `callId`,
+`bindingAddress`, `elapsedMs`, `attempt`, optional validated backend `traceId`,
+HTTP `status`, terminal `outcome` and `errorCode`. Timings include response
+decoding; each retry attempt reports its own response trace ID. Observer
+exceptions cannot change application outcomes. Request/response bodies, URLs,
+headers and credentials are not included. A `SceneryClientError` after receiving
+a trace ID retains it in `traceId` and `toJSON()`. The observer is a client-side
+integration point; these events are not automatically exported to the server.

@@ -44,7 +44,7 @@ const (
 
 func runtimeCallClassOf(method string) runtimeCallClass {
 	switch method {
-	case "postgres/tables", "postgres/schema", "postgres/rows", "db/query":
+	case "traces/list", "traces/get", "postgres/tables", "postgres/schema", "postgres/rows", "db/query":
 		return runtimeWorkCall
 	}
 	if strings.HasPrefix(method, "storage/") {
@@ -163,10 +163,11 @@ var errRuntimeCallDeadline = errors.New("development runtime call deadline")
 // runtimeRPCFailure is a documented runtime failure. It is the failure object
 // error.data carries, the same shape storage failures use.
 type runtimeRPCFailure struct {
-	Code       string `json:"code"`
-	Diagnostic string `json:"diagnostic"`
-	Message    string `json:"message"`
-	Details    any    `json:"details,omitempty"`
+	Code        string `json:"code"`
+	Diagnostic  string `json:"diagnostic"`
+	Message     string `json:"message"`
+	Details     any    `json:"details,omitempty"`
+	ReportToken string `json:"report_token,omitempty"`
 }
 
 func (f *runtimeRPCFailure) Error() string { return f.Diagnostic + ": " + f.Message }

@@ -4,7 +4,7 @@ import type * as Types from "./types.js";
 
 import { createAssistantClients, type AssistantClients, type AssistantTransportOptions } from "./assistant.js";
 
-export interface PublicApiClientOptions { readonly baseUrl: Types.URLString; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string, string>>; readonly authentication?: Runtime.AuthenticationOptions }
+export interface PublicApiClientOptions { readonly baseUrl: Types.URLString; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string, string>>; readonly authentication?: Runtime.AuthenticationOptions; readonly onTrace?: Runtime.ClientTraceObserver }
 
 const typeRegistry: Runtime.TypeRegistry = /* @__PURE__ */ Runtime.freezeMetadata({} as const);
 

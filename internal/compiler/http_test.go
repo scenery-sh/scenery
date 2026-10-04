@@ -72,7 +72,7 @@ func TestHTTPValidationAcceptsDirectTypedByteStream(t *testing.T) {
 			t.Fatalf("typed byte stream was rejected: %#v", diagnostics)
 		}
 	}
-	if diagnostics := validateExecutionBindings(resources); hasDiagnostic(diagnostics, "SCN2404") {
+	if diagnostics := validateExecutionBindings(resources, resourcesByAddress(&Manifest{Resources: resources})); hasDiagnostic(diagnostics, "SCN2404") {
 		t.Fatalf("direct stream execution was rejected: %#v", diagnostics)
 	}
 }
@@ -81,7 +81,8 @@ func TestHTTPValidationRejectsMixedStreamHandlerABI(t *testing.T) {
 	operation := Resource{Address: "house/operation/download", Module: "house", Kind: "scenery.operation"}
 	binding := Resource{Address: "house/binding/download", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "http", "delivery": "stream"}}
 	internal := Resource{Address: "house/binding/download_internal", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "internal", "delivery": "call"}}
-	diagnostics := validateHTTPByteStreamBinding([]Resource{operation, binding, internal}, binding, operation, map[string]any{})
+	resources := []Resource{operation, binding, internal}
+	diagnostics := validateHTTPByteStreamBinding(resources, resourcesByAddress(&Manifest{Resources: resources}), binding, operation, map[string]any{})
 	if !hasDiagnostic(diagnostics, "SCN2404") {
 		t.Fatalf("mixed streaming handler ABI was accepted: %#v", diagnostics)
 	}
@@ -91,7 +92,8 @@ func TestHTTPValidationAllowsMCPCompatibilityBindingForStreamOperation(t *testin
 	operation := Resource{Address: "house/operation/download", Module: "house", Kind: "scenery.operation"}
 	binding := Resource{Address: "house/binding/download", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "http", "delivery": "stream"}}
 	mcp := Resource{Address: "house/binding/download_mcp", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "mcp", "delivery": "call"}}
-	diagnostics := validateHTTPByteStreamBinding([]Resource{operation, binding, mcp}, binding, operation, map[string]any{})
+	resources := []Resource{operation, binding, mcp}
+	diagnostics := validateHTTPByteStreamBinding(resources, resourcesByAddress(&Manifest{Resources: resources}), binding, operation, map[string]any{})
 	if hasDiagnostic(diagnostics, "SCN2404") {
 		t.Fatalf("MCP compatibility binding was rejected: %#v", diagnostics)
 	}

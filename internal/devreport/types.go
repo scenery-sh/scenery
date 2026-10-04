@@ -5,6 +5,22 @@ import (
 	"time"
 )
 
+const (
+	MaxBatchReports  = 64
+	MaxBatchBytes    = 1 << 20
+	MaxEnvelopeBytes = 64 << 10
+	MaxQueuedBytes   = 4 << 20
+	// Includes the batch wrapper and the largest uint64 dropped count.
+	BatchWrapperBytes = 64
+)
+
+// ReportBatch is the current runtime-to-supervisor protocol. Admission bounds
+// both record count and encoded bytes; reports are processed in array order.
+type ReportBatch struct {
+	Reports []ReportEnvelope `json:"reports"`
+	Dropped uint64           `json:"dropped,omitempty"`
+}
+
 type TraceSummary struct {
 	TraceID        string    `json:"trace_id"`
 	SpanID         string    `json:"span_id"`

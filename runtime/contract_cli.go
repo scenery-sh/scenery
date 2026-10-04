@@ -88,7 +88,7 @@ func RegisterContractCLIBinding(registration ContractCLIBindingRegistration) err
 	return nil
 }
 
-func InvokeContractCLIBinding(ctx context.Context, address string, input []byte) (ContractCLIOutcome, error) {
+func InvokeContractCLIBinding(ctx context.Context, address string, input []byte) (result ContractCLIOutcome, resultErr error) {
 	global.mu.RLock()
 	registration := global.contractCLIBindings[address]
 	global.mu.RUnlock()
@@ -107,7 +107,11 @@ func InvokeContractCLIBinding(ctx context.Context, address string, input []byte)
 		auth:        AuthInfo{UID: "local:" + identity.Uid, Data: map[string]any{"local_developer": true, "username": identity.Username}},
 		logsEnabled: true, traceEnabled: true,
 	}
-	ctx = withRuntimeInvocation(withState(ctx, state), state)
+	service, attributes := operationTraceIdentity(registration.Policy, "cli", nil)
+	ctx, end := beginOperationTrace(withState(ctx, state), "CLI", service, address, attributes)
+	defer finishOperation(end, &resultErr)
+	state = stateFromContext(ctx)
+	ctx = withNewRuntimeInvocation(ctx, state)
 	restore := enterState(state)
 	defer restore()
 	return registration.Invoke(ctx, input)

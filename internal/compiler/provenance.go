@@ -230,7 +230,7 @@ func markResolvedReferenceProvenance(resource *Resource, before, after any, path
 }
 
 func markContextualScalarProvenance(before, after []Resource) {
-	beforeByAddress := map[string]Resource{}
+	beforeByAddress := make(map[string]Resource, len(before))
 	for _, resource := range before {
 		beforeByAddress[resource.Address] = resource
 	}

@@ -83,7 +83,7 @@ func TestRuntimeRPCRejectsUndocumentedMethodsAndParams(t *testing.T) {
 	t.Parallel()
 
 	server := newDashboardServerWithController(runtimeRPCTestController{}, t.TempDir(), "127.0.0.1:0", nil)
-	for _, method := range []string{"list-apps", "logs/list", "process/output/list", "traces/list", "api-call", "stored-requests/list"} {
+	for _, method := range []string{"list-apps", "logs/list", "process/output/list", "api-call", "stored-requests/list"} {
 		if _, err := server.dispatchRPC(context.Background(), method, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "method not found") {
 			t.Fatalf("%s error = %v, want method not found", method, err)
 		}

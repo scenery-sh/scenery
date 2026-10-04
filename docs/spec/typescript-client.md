@@ -427,6 +427,18 @@ matched descriptor.
 
 The generated client does not retry by default. A target may enable only a versioned retry policy that respects operation idempotency, request replay safety, `Retry-After`, deadline, and cancellation. `RetryRuntime`, its `index.ts` type export, and retry implementation are emitted only for a target that enables retry. Retry configuration participates in the client revision.
 
+Every generated HTTP client accepts an optional `onTrace: ClientTraceObserver`.
+The shared invocation runtime MUST observe each fetch attempt, its validated
+`X-Trace-Id`, and the terminal result after decoding. `ClientTraceEvent` carries
+only call/binding identities, timings, attempt number, status and outcome; it
+MUST NOT contain bodies, credentials or arbitrary headers. Observer exceptions
+MUST NOT change the request result. Network failures, cancellation, contract
+violations and declared failures remain distinct. Errors after a response retain
+its trace ID. Retry responses are cancelled before another attempt begins.
+Client observations are not automatically exported; consumers choose how to
+present or retain them. Monotonic elapsed time is observational and never changes
+contract decisions.
+
 The client never reads ambient clock, random, locale, or environment state for contract decisions. Runtime request IDs or retry jitter use injected runtime capabilities and do not affect generated artifacts.
 
 ## 15. Metadata
@@ -506,3 +518,8 @@ A conforming generator/runtime passes fixtures for:
 ## Appendix A: Deliberate exclusions
 
 The current TypeScript client contract does not define React hooks, framework-specific caches, Node-only internal clients, generic streaming, WebSockets, raw responses, automatic credential storage, implicit retries, CommonJS output, or publishing to a package registry. The shared request/response helper is not a React hook and is not exported from `index.ts`. The dedicated assistant event stream in Section 13.2 is the sole streaming-shaped projection and does not make arbitrary binding streaming available.
+
+The generated development runtime client exposes `traces(appId, query?, signal?)`
+and `trace(appId, traceId, signal?)` with typed summaries, parent IDs and events.
+The server resolves and enforces the current application/session scope and
+bounds trace reads as documented in the local RPC contract.

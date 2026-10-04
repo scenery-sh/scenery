@@ -271,6 +271,11 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home, sceneryCache,
 		return nil, fmt.Errorf("an implementation edit kept service process %s", initialService)
 	}
 	updatedResponseLatency := lastVerifiedResponseLatency
+	// Serving readiness can precede the terminal build event in the owner log.
+	// Bind evidence to that completed operation before inspecting its link steps.
+	if err := harnessWaitBuildRequest(ctx, started.LogPath, implementationEditLogOffset, true); err != nil {
+		return nil, fmt.Errorf("implementation edit did not complete its build: %w", err)
+	}
 	incremental, err := harnessIncrementalPreparationEvidence(started.LogPath, implementationEditLogOffset)
 	if err != nil {
 		return nil, err

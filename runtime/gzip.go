@@ -2,10 +2,64 @@ package runtime
 
 import (
 	"compress/gzip"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 )
+
+// Retain at most two idle compressors; bursts cannot leave an unbounded pool.
+// Reset detaches response buffers and reuses the deflate workspace.
+var idleGzipWriters = make(chan *gzip.Writer, 2)
+
+var responseGzipCopyBuffers = make(chan []byte, 1)
+
+// gzipStreamWriter lets io.CopyN retain exact-length and short-read handling
+// while reusing one bounded staging buffer for compressed response streams.
+type gzipStreamWriter struct{ *gzip.Writer }
+
+func (writer gzipStreamWriter) ReadFrom(reader io.Reader) (int64, error) {
+	size := 32 << 10
+	if limited, ok := reader.(*io.LimitedReader); ok {
+		size = int(min(int64(size), max(limited.N, 1)))
+	}
+	var buffer []byte
+	select {
+	case buffer = <-responseGzipCopyBuffers:
+	default:
+	}
+	if cap(buffer) < size {
+		buffer = make([]byte, size)
+	}
+	buffer = buffer[:size]
+	defer func() {
+		select {
+		case responseGzipCopyBuffers <- buffer:
+		default:
+		}
+	}()
+	return io.CopyBuffer(writer.Writer, reader, buffer)
+}
+
+func acquireGzipWriter(dst io.Writer) *gzip.Writer {
+	select {
+	case writer := <-idleGzipWriters:
+		writer.Reset(dst)
+		return writer
+	default:
+		return gzip.NewWriter(dst)
+	}
+}
+
+// Detach the response without flushing; callers close successful responses.
+// Failed streams must remain incomplete rather than gaining a valid trailer.
+func releaseGzipWriter(writer *gzip.Writer) {
+	writer.Reset(io.Discard)
+	select {
+	case idleGzipWriters <- writer:
+	default:
+	}
+}
 
 func withGzip(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -71,6 +125,8 @@ func (w *gzipResponseWriter) Unwrap() http.ResponseWriter {
 func (w *gzipResponseWriter) close() {
 	if w.gzip != nil {
 		_ = w.gzip.Close()
+		releaseGzipWriter(w.gzip)
+		w.gzip = nil
 	}
 	if !w.wroteHead {
 		w.Header().Del("X-Scenery-Contract-Compression")
@@ -88,7 +144,7 @@ func (w *gzipResponseWriter) start() {
 		addVary(headers, "Accept-Encoding")
 		headers.Del("Content-Length")
 		headers.Set("Content-Encoding", "gzip")
-		w.gzip = gzip.NewWriter(w.ResponseWriter)
+		w.gzip = acquireGzipWriter(w.ResponseWriter)
 	}
 	w.ResponseWriter.WriteHeader(w.status)
 	w.wroteHead = true

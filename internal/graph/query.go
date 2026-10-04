@@ -2,7 +2,6 @@ package graph
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -76,10 +75,6 @@ type ContextBundle struct {
 }
 
 func Graph(manifest *Manifest, focus string, options GraphOptions) (ResourceGraph, error) {
-	return graph(manifest, focus, options, true)
-}
-
-func graph(manifest *Manifest, focus string, options GraphOptions, enforceTransportLimits bool) (ResourceGraph, error) {
 	if manifest == nil {
 		return ResourceGraph{}, fmt.Errorf("manifest is required")
 	}
@@ -92,43 +87,21 @@ func graph(manifest *Manifest, focus string, options GraphOptions, enforceTransp
 	if options.Depth == 0 {
 		options.Depth = 1
 	}
-	if enforceTransportLimits && options.Depth > AgentMaxDepth {
+	if options.Depth > AgentMaxDepth {
 		return ResourceGraph{}, fmt.Errorf("depth exceeds transport limit %d", AgentMaxDepth)
 	}
 	if options.MaxResources <= 0 {
 		options.MaxResources = 100
 	}
-	if enforceTransportLimits && options.MaxResources > AgentMaxResources {
+	if options.MaxResources > AgentMaxResources {
 		return ResourceGraph{}, fmt.Errorf("max_resources exceeds transport limit %d", AgentMaxResources)
 	}
 	if options.Direction != "dependencies" && options.Direction != "dependents" && options.Direction != "both" {
 		return ResourceGraph{}, fmt.Errorf("direction must be dependencies, dependents, or both")
 	}
-	byAddress := resourcesByAddress(manifest)
-	if _, ok := byAddress[focus]; !ok {
-		return ResourceGraph{}, fmt.Errorf("resource %q not found", focus)
-	}
-	allEdges := ResourceEdges(manifest.Resources)
-	selected := map[string]bool{focus: true}
-	frontier := []string{focus}
-	for depth := 0; depth < options.Depth && len(frontier) > 0; depth++ {
-		next := map[string]bool{}
-		for _, address := range frontier {
-			for _, edge := range allEdges {
-				if (options.Direction == "dependencies" || options.Direction == "both") && edge.From == address && !selected[edge.To] {
-					next[edge.To] = true
-				}
-				if (options.Direction == "dependents" || options.Direction == "both") && edge.To == address && !selected[edge.From] {
-					next[edge.From] = true
-				}
-			}
-		}
-		frontier = frontier[:0]
-		for address := range next {
-			selected[address] = true
-			frontier = append(frontier, address)
-		}
-		sort.Strings(frontier)
+	selected, allEdges, err := selectGraphResources(manifest, []string{focus}, options.Direction, options.Depth)
+	if err != nil {
+		return ResourceGraph{}, err
 	}
 	addresses := make([]string, 0, len(selected))
 	for address := range selected {
@@ -143,7 +116,7 @@ func graph(manifest *Manifest, focus string, options GraphOptions, enforceTransp
 	included := map[string]bool{}
 	for _, address := range addresses {
 		included[address] = true
-		graph.Resources = append(graph.Resources, byAddress[address])
+		graph.Resources = append(graph.Resources, *selected[address])
 	}
 	for _, edge := range allEdges {
 		if included[edge.From] && included[edge.To] {
@@ -151,6 +124,49 @@ func graph(manifest *Manifest, focus string, options GraphOptions, enforceTransp
 		}
 	}
 	return graph, nil
+}
+
+// selectGraphResources computes the union of depth-limited closures in one
+// breadth-first traversal. Each depth scans the edges once, regardless of the
+// frontier size; indexes and edges belong only to this immutable query snapshot.
+func selectGraphResources(manifest *Manifest, focuses []string, direction string, depth int) (map[string]*Resource, []GraphEdge, error) {
+	if len(focuses) == 0 {
+		return nil, nil, nil
+	}
+	byAddress := resourcesByAddress(manifest)
+	capacity := min(len(focuses), len(manifest.Resources))
+	selected := make(map[string]*Resource, capacity)
+	frontier := make(map[string]bool, capacity)
+	for _, focus := range focuses {
+		resource, ok := byAddress[focus]
+		if !ok {
+			return nil, nil, fmt.Errorf("resource %q not found", focus)
+		}
+		selected[focus] = resource
+		frontier[focus] = true
+	}
+	edges := resourceEdges(manifest.Resources, byAddress)
+	dependencies := direction == "dependencies" || direction == "both"
+	dependents := direction == "dependents" || direction == "both"
+	for remaining := max(depth, 1); remaining > 0 && len(frontier) > 0; remaining-- {
+		next := map[string]bool{}
+		add := func(address string) {
+			if _, exists := selected[address]; !exists {
+				selected[address] = byAddress[address]
+				next[address] = true
+			}
+		}
+		for _, edge := range edges {
+			if dependencies && frontier[edge.From] {
+				add(edge.To)
+			}
+			if dependents && frontier[edge.To] {
+				add(edge.From)
+			}
+		}
+		frontier = next
+	}
+	return selected, edges, nil
 }
 
 func Context(manifest *Manifest, options ContextOptions) (ContextBundle, error) {
@@ -215,16 +231,9 @@ func ContextAt(manifest *Manifest, workspaceRevision string, diagnostics []Diagn
 		}
 		offset = payload.Offset
 	}
-	selected := map[string]Resource{}
-	for _, focus := range options.Focus {
-		direction := contextDirection(options.Include)
-		graph, err := graph(manifest, focus, GraphOptions{Direction: direction, Depth: options.Depth, MaxResources: len(manifest.Resources)}, false)
-		if err != nil {
-			return ContextBundle{}, err
-		}
-		for _, resource := range graph.Resources {
-			selected[resource.Address] = resource
-		}
+	selected, _, err := selectGraphResources(manifest, options.Focus, contextDirection(options.Include), options.Depth)
+	if err != nil {
+		return ContextBundle{}, err
 	}
 	addresses := make([]string, 0, len(selected))
 	for address := range selected {
@@ -238,11 +247,11 @@ func ContextAt(manifest *Manifest, workspaceRevision string, diagnostics []Diagn
 	populateContextIncludes(&bundle, options.Include, diagnostics)
 	budget := newContextByteBudget(bundle, options.Include, diagnostics)
 	for _, address := range addresses[offset:] {
-		if !budget.add(selected[address], options.MaxResources, options.MaxBytes) {
+		if !budget.add(*selected[address], options.MaxResources, options.MaxBytes) {
 			bundle.Truncated = true
 			break
 		}
-		bundle.Resources = append(bundle.Resources, selected[address])
+		bundle.Resources = append(bundle.Resources, *selected[address])
 	}
 	populateContextIncludes(&bundle, options.Include, diagnostics)
 	for {
@@ -317,6 +326,9 @@ func newContextByteBudget(bundle ContextBundle, include []string, diagnostics []
 }
 
 func (b *contextByteBudget) add(resource Resource, maxResources, maxBytes int) bool {
+	if b.resourceCount >= maxResources {
+		return false
+	}
 	encodedResource, _ := json.Marshal(resource)
 	cost := len(encodedResource)
 	if b.resourceCount > 0 {
@@ -355,7 +367,7 @@ func (b *contextByteBudget) add(resource Resource, maxResources, maxBytes int) b
 		}
 		cost += size
 	}
-	if b.resourceCount+1 > maxResources || b.total+cost > maxBytes {
+	if b.total+cost > maxBytes {
 		return false
 	}
 	b.total += cost
@@ -373,7 +385,6 @@ func populateContextIncludes(bundle *ContextBundle, include []string, diagnostic
 	for _, value := range include {
 		wants[value] = true
 	}
-	selected := map[string]bool{}
 	if wants["schemas"] {
 		bundle.Schemas = map[string]map[string]any{}
 	} else {
@@ -384,9 +395,18 @@ func populateContextIncludes(bundle *ContextBundle, include []string, diagnostic
 	} else {
 		bundle.Provenance = nil
 	}
+	if !wants["schemas"] && !wants["provenance"] && !wants["diagnostics"] {
+		return
+	}
+	var selected map[string]bool
+	if wants["diagnostics"] {
+		selected = make(map[string]bool, len(bundle.Resources))
+	}
 	for _, resource := range bundle.Resources {
-		selected[resource.Address] = true
-		if wants["schemas"] {
+		if selected != nil {
+			selected[resource.Address] = true
+		}
+		if wants["schemas"] && bundle.Schemas[resource.Kind] == nil {
 			if schema, ok := spec.CoreSchema(resource.Kind); ok {
 				bundle.Schemas[resource.Kind] = schema
 			}
@@ -407,11 +427,15 @@ func populateContextIncludes(bundle *ContextBundle, include []string, diagnostic
 
 func ResourceEdges(resources []Resource) []GraphEdge {
 	known := resourcesByAddress(&Manifest{Resources: resources})
+	return resourceEdges(resources, known)
+}
+
+func resourceEdges(resources []Resource, known map[string]*Resource) []GraphEdge {
 	var edges []GraphEdge
 	for _, resource := range resources {
 		WalkReferences(resource.Spec, "/spec", func(path, reference string) {
 			address := resolveGraphReference(resource, reference)
-			if known[address].Address != "" {
+			if target := known[address]; target != nil && target.Address != "" {
 				edges = append(edges, GraphEdge{From: resource.Address, To: address, Path: path})
 			}
 		})
@@ -498,13 +522,13 @@ func contextQueryDigest(options ContextOptions) string {
 		MaxBytes     int      `json:"max_bytes"`
 		View         string   `json:"view"`
 	}{options.Focus, options.Include, options.Depth, options.MaxResources, options.MaxBytes, options.View})
-	sum := sha256.Sum256(append([]byte("scenery.context-query\x00"), b...))
+	sum := prefixedSHA256("scenery.context-query\x00", b)
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 func makeContextToken(payload ContextToken) string {
 	b, _ := json.Marshal(payload)
-	sum := sha256.Sum256(append([]byte("scenery.context-continuation\x00"), b...))
+	sum := prefixedSHA256("scenery.context-continuation\x00", b)
 	return base64.RawURLEncoding.EncodeToString(b) + "." + base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
@@ -521,7 +545,7 @@ func ParseContextToken(token string) (ContextToken, error) {
 	if err != nil {
 		return ContextToken{}, err
 	}
-	want := sha256.Sum256(append([]byte("scenery.context-continuation\x00"), b...))
+	want := prefixedSHA256("scenery.context-continuation\x00", b)
 	if !bytes.Equal(signature, want[:]) {
 		return ContextToken{}, fmt.Errorf("invalid token checksum")
 	}

@@ -18,7 +18,7 @@ import (
 
 func TestDurableInvocationMetadataSurvivesDispatchBoundary(t *testing.T) {
 	base := runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{
-		ID: "http-1", Principal: "user-1", TenantID: "tenant-1", TraceID: "trace-1",
+		ID: "http-1", Principal: "user-1", TenantID: "tenant-1", TraceID: "11111111111111111111111111111111",
 		CallerBinding: "house/binding/process", Deployment: "app/deployment/preview", Locale: "en-GB",
 	})
 	encoded, err := durableInvocationMetadataJSON(runtimeapi.WithInvocation(context.Background(), base))
@@ -26,13 +26,13 @@ func TestDurableInvocationMetadataSurvivesDispatchBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, restore := enterDurableInvocation(context.Background(), "house", "house/execution/process", "job-1", time.Minute, durableInvocationMetadataFromJSON(encoded), 0)
-	defer restore()
+	defer func() { restore(err) }()
 	_, err = runDurableTaskHandler(ctx, time.Minute, func(handlerCtx context.Context, _ []byte) ([]byte, error) {
 		invocation, ok := runtimeapi.InvocationFromContext(handlerCtx)
 		if !ok {
 			t.Fatal("durable handler has no invocation")
 		}
-		if invocation.ID() != "job-1" || invocation.ExecutionID() != "job-1" || invocation.Principal() != "user-1" || invocation.TenantID() != "tenant-1" || invocation.TraceID() != "trace-1" || invocation.CallerBinding() != "house/binding/process" || invocation.Deployment() != "app/deployment/preview" || invocation.Locale() != "en-GB" {
+		if invocation.ID() != "job-1" || invocation.ExecutionID() != "job-1" || invocation.Principal() != "user-1" || invocation.TenantID() != "tenant-1" || invocation.TraceID() != "11111111111111111111111111111111" || invocation.CallerBinding() != "house/binding/process" || invocation.Deployment() != "app/deployment/preview" || invocation.Locale() != "en-GB" {
 			t.Fatalf("durable invocation = %#v", invocation)
 		}
 		if request := CurrentRequest(); request.Type != "durable-call" || request.ExecutionID != "job-1" {

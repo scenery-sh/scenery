@@ -68,3 +68,30 @@ func TestPostgresStartAttemptPreservesFailure(t *testing.T) {
 		t.Fatalf("startup failure = %v", err)
 	}
 }
+
+func TestRetainedPostgresStartJoinsStorageAllocation(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		contract := &compiler.Result{Manifest: &compiler.Manifest{}, ContractStatus: "valid", SQLRequirements: compiler.SQLRequirements{{Kind: compiler.SQLDataSource, Name: "books", Schema: "books", Lifecycle: "managed"}}}
+		storageDone := make(chan struct{})
+		storageErr := errors.New("storage allocation failed")
+		s := &devSupervisor{root: t.TempDir(), worktreeRootPaths: &localagent.WorktreePaths{}, invocationEnvironment: []string{}, storageStartupDone: storageDone, storageStartupErr: storageErr}
+		ctx, cancel := context.WithCancel(context.Background())
+		attempt, err := s.beginRetainedPostgresStart(ctx, contract)
+		if err != nil || attempt == nil {
+			cancel()
+			t.Fatalf("attempt %v %v", attempt, err)
+		}
+		want := storageErr
+		if cancelled {
+			cancel()
+			want = context.Canceled
+		} else {
+			close(storageDone)
+		}
+		if err := attempt.wait(); !errors.Is(err, want) {
+			t.Fatalf("Postgres did not join storage: %v", err)
+		}
+		attempt.release()
+		cancel()
+	}
+}

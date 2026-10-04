@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
-	"time"
+
+	"scenery.sh/internal/filemeta"
 )
 
 // reusableStamp uses the filesystem change timestamp in addition to ordinary
@@ -18,55 +17,34 @@ import (
 // mtime alone are never content identity.
 func reusableStamp(previous map[string]fileStamp, rel string, info fs.FileInfo, embedded bool) (fileStamp, bool) {
 	prev, ok := previous[rel]
-	changeTime := fileChangeTime(info)
-	if !ok || changeTime == 0 || prev.changeTime != changeTime || prev.embed != embedded || prev.size != info.Size() || prev.mode != uint32(info.Mode().Perm()) || !prev.modTime.Equal(info.ModTime().UTC().Round(0)) {
+	identity, known := filemeta.Read(info)
+	if !ok || !known || !info.Mode().IsRegular() || identity.ChangeTimeNano == 0 || prev.changeTime != identity.ChangeTimeNano || prev.device != identity.Device || prev.inode != identity.Inode || prev.embed != embedded || prev.size != info.Size() || prev.mode != uint32(info.Mode().Perm()) || !prev.modTime.Equal(info.ModTime().UTC().Round(0)) {
 		return fileStamp{}, false
 	}
 	return prev, true
 }
 
 func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, []byte, error) {
+	if info == nil || !info.Mode().IsRegular() {
+		return fileStamp{}, nil, &fs.PathError{Op: "read", Path: path, Err: fs.ErrInvalid}
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fileStamp{}, nil, err
 	}
 	sum := sha256.Sum256(data)
+	identity, _ := filemeta.Read(info)
 	return fileStamp{
 		modTime:    info.ModTime().UTC().Round(0),
-		changeTime: fileChangeTime(info),
+		changeTime: identity.ChangeTimeNano,
+		device:     identity.Device,
+		inode:      identity.Inode,
 		size:       info.Size(),
 		mode:       uint32(info.Mode().Perm()),
 		hash:       hex.EncodeToString(sum[:]),
 		embed:      embedded,
-		data:       bytes.Clone(data),
+		data:       data,
 	}, data, nil
-}
-
-func fileChangeTime(info fs.FileInfo) int64 {
-	if info == nil || info.Sys() == nil {
-		return 0
-	}
-	value := reflect.ValueOf(info.Sys())
-	if value.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			return 0
-		}
-		value = value.Elem()
-	}
-	if value.Kind() != reflect.Struct {
-		return 0
-	}
-	for _, name := range []string{"Ctimespec", "Ctim", "Ctimen"} {
-		stamp := value.FieldByName(name)
-		if !stamp.IsValid() || stamp.Kind() != reflect.Struct {
-			continue
-		}
-		seconds, nanos := stamp.FieldByName("Sec"), stamp.FieldByName("Nsec")
-		if seconds.IsValid() && nanos.IsValid() && seconds.CanInt() && nanos.CanInt() {
-			return seconds.Int()*int64(time.Second) + nanos.Int()
-		}
-	}
-	return 0
 }
 
 func snapshotsEqual(a, b fileSnapshot) bool {

@@ -2,7 +2,56 @@ package generate
 
 func renderTSRuntimeInvoke() string {
 	return `
+let clientCallSequence = 0;
+
+// The shared invocation path instruments every generated method and each fetch
+// attempt. A failing observer cannot turn a successful application call into an error.
 export async function invoke(
+  transport: InvokeTransport,
+  binding: BindingCall,
+  input: unknown,
+  options: CallOptions,
+  registry: TypeRegistry,
+): Promise<unknown> {
+  const started = performance.now();
+  const callId = String(++clientCallSequence);
+  let attempt = 0;
+  let traceId: string | undefined;
+  const emit = (phase: ClientTraceEvent["phase"], extra: Partial<ClientTraceEvent> = {}): void => {
+    try {
+      const observation: unknown = transport.onTrace?.(Object.freeze({ callId, bindingAddress: binding.address, phase, elapsedMs: Math.max(0, performance.now() - started), attempt, ...(traceId ? { traceId } : {}), ...extra }));
+      if (observation !== undefined) void Promise.resolve(observation).catch(() => {});
+    } catch { /* Observation never changes the request outcome. */ }
+  };
+  emit("start");
+  const fetch: typeof globalThis.fetch = async (url, init) => {
+    attempt++;
+    traceId = undefined;
+    emit("attempt");
+    try {
+      const response = await transport.fetch(url, init);
+      const received = response.headers.get("x-trace-id");
+      if (received && /^[0-9a-f]{32}$/.test(received) && !/^0+$/.test(received)) traceId = received;
+      emit("response", { status: response.status });
+      return response;
+    } catch (cause) {
+      emit("attempt_error", { errorCode: options.signal?.aborted ? "cancelled" : "network" });
+      throw cause;
+    }
+  };
+  try {
+    const result = await invokeRequest({ ...transport, fetch }, binding, input, options, registry);
+    const kind = typeof result === "object" && result !== null && "kind" in result ? result.kind : undefined;
+    emit("complete", { outcome: kind === "failure" || kind === "error" ? "failure" : "success" });
+    return result;
+  } catch (cause) {
+    if (cause instanceof SceneryClientError && traceId) cause.traceId = traceId;
+    emit("complete", { outcome: options.signal?.aborted ? "cancelled" : "error", errorCode: cause instanceof SceneryClientError ? cause.code : "unknown" });
+    throw cause;
+  }
+}
+
+async function invokeRequest(
   transport: InvokeTransport,
   binding: BindingCall,
   input: unknown,

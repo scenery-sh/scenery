@@ -11,21 +11,6 @@ import (
 	"time"
 )
 
-type WorkerTokenRequest struct {
-	ID         string
-	Name       string
-	Secret     string
-	ScopesJSON string
-	ExpiresAt  time.Time
-}
-
-type WorkerToken struct {
-	ID         string
-	Name       string
-	TokenHash  string
-	ScopesJSON string
-}
-
 func (s *Store) UpsertSchedule(ctx context.Context, id, taskName string, every time.Duration, input []byte) error {
 	id = strings.TrimSpace(id)
 	taskName = strings.TrimSpace(taskName)
@@ -177,4 +162,19 @@ UPDATE scenery.durable_worker_tokens SET last_used_at = now() WHERE service = $1
 		return WorkerToken{}, false, fmt.Errorf("durable store: update worker token last used: %w", err)
 	}
 	return token, true, nil
+}
+
+type WorkerTokenRequest struct {
+	ID         string
+	Name       string
+	Secret     string
+	ScopesJSON string
+	ExpiresAt  time.Time
+}
+
+type WorkerToken struct {
+	ID         string
+	Name       string
+	TokenHash  string
+	ScopesJSON string
 }

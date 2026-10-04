@@ -14,6 +14,9 @@ import (
 )
 
 func TestMCPToolDispatcherEstablishesAuthInvocationAndMetadata(t *testing.T) {
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
+	defer setTestReporter(reporter)()
+	defer func() { assertTraceChildren(t, reporter, "MCP", 1) }()
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	if err := RegisterMCPTool(MCPToolRegistration{
@@ -33,16 +36,17 @@ func TestMCPToolDispatcherEstablishesAuthInvocationAndMetadata(t *testing.T) {
 				t.Fatalf("CurrentAuth = %#v", auth)
 			}
 			traceContext, _ := auth.Data.(map[string]any)["trace_context"].(map[string]string)
-			if traceContext["trace_id"] != "trace-1" {
+			if traceContext["trace_id"] != "11111111111111111111111111111111" {
 				t.Fatalf("trace context = %#v", traceContext)
 			}
 			invocation, ok := runtimeapi.InvocationFromContext(ctx)
-			if !ok || invocation.Principal() != "principal-1" || invocation.ID() != "request-1" || invocation.TraceID() != "trace-1" {
+			if !ok || invocation.Principal() != "principal-1" || invocation.ID() != "request-1" || invocation.TraceID() != "11111111111111111111111111111111" {
 				t.Fatalf("invocation = %#v, ok=%t", invocation, ok)
 			}
 			if call.IdempotencyKey != "idem-1" || call.ConversationDigest != "conv-1" {
 				t.Fatalf("tool context = %#v", call)
 			}
+			TraceDBQueryEnd(TraceDBQueryStart(ctx, "SELECT 1", 0), "SELECT 1", 1, nil)
 			return map[string]any{"ok": true, "input": input}, nil
 		},
 	}); err != nil {
@@ -50,7 +54,7 @@ func TestMCPToolDispatcherEstablishesAuthInvocationAndMetadata(t *testing.T) {
 	}
 	result, err := (MCPToolDispatcher{}).CallTool(context.Background(), MCPToolCallContext{
 		Principal: "principal-1", AssistantAddress: "app/assistant/support", ConversationDigest: "conv-1",
-		CapabilityRevision: "sha256:contract", RequestID: "request-1", TraceContext: map[string]string{"trace_id": "trace-1"}, IdempotencyKey: "idem-1",
+		CapabilityRevision: "sha256:contract", RequestID: "request-1", TraceContext: map[string]string{"trace_id": "11111111111111111111111111111111"}, IdempotencyKey: "idem-1",
 	}, "process_scene", json.RawMessage(`{"value":"ok"}`))
 	if err != nil {
 		t.Fatal(err)

@@ -15,8 +15,7 @@ var reservedCLICommands = map[string]bool{
 	"up": true, "upgrade": true, "validate": true, "version": true, "worker": true, "worktree": true,
 }
 
-func validateCLIBindings(resources []Resource) []Diagnostic {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+func validateCLIBindings(resources []Resource, byAddress map[string]Resource) []Diagnostic {
 	commands := map[string]string{}
 	var diagnostics []Diagnostic
 	for _, binding := range resources {

@@ -61,6 +61,8 @@ func TestContractUTF16LessMatchesReference(t *testing.T) {
 		"é", "ü", "ß", "中", "日本",
 		"\uE000", "\uF8FF", "\uFFFD", "\uFFFF",
 		"\U00010000", "\U0001F600", "\U0010FFFF",
+		"\U00010001", "\U000103FF", "\U00010400", "\uD7FF",
+		"\xff", "\xff\xfe", "a\xe2\x80", "a\uFFFD", "a\uFFFD\uFFFD",
 		"a\uE000", "a\U0001F600", "\U0001F600a",
 		"id", "name", "value", "Value", "value2",
 	}

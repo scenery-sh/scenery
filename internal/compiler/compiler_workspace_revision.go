@@ -41,10 +41,13 @@ func workspaceRevisionForEntries(entries map[string][]byte) string {
 	sort.Strings(paths)
 	h := sha256.New()
 	_, _ = h.Write([]byte("scenery.workspace-revision\x00"))
+	var length [8]byte
 	for _, path := range paths {
-		_ = binary.Write(h, binary.BigEndian, uint64(len([]byte(path))))
+		binary.BigEndian.PutUint64(length[:], uint64(len(path)))
+		_, _ = h.Write(length[:])
 		_, _ = h.Write([]byte(path))
-		_ = binary.Write(h, binary.BigEndian, uint64(len(entries[path])))
+		binary.BigEndian.PutUint64(length[:], uint64(len(entries[path])))
+		_, _ = h.Write(length[:])
 		_, _ = h.Write(entries[path])
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
@@ -289,7 +292,9 @@ func workspaceRevisionInputPathsReading(root string, sources []*Source, generate
 				}
 				return nil
 			}
-			included, excluded := includeMatcher.matches(relToImplementation), excludeMatcher.matches(relToImplementation)
+			var storage [16]string
+			segments := splitGlobValue(relToImplementation, storage[:0])
+			included, excluded := includeMatcher.matchesSegments(segments), excludeMatcher.matchesSegments(segments)
 			if !included || excluded {
 				return nil
 			}

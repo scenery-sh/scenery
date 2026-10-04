@@ -6,13 +6,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // Every transition that lets a task loop or a waiting caller make progress
@@ -57,36 +55,68 @@ func notifyTx(ctx context.Context, tx *sql.Tx, service string, message notificat
 	return nil
 }
 
-// watcher holds one LISTEN connection for a store and wakes subscribers by
-// key. A subscription is a channel closed by the next matching notification;
-// subscribe before checking the database, so no notification is missed.
+// watcher wakes a store's active subscribers. Subscribe before checking the
+// database and release after checking or waiting; notifications close the
+// current channel while later subscriptions belong to a new observation.
 type watcher struct {
 	mu     sync.Mutex
-	wakes  map[string]chan struct{}
-	cancel context.CancelFunc
-	done   chan struct{}
+	wakes  map[string]*subscription
+	closed bool
+}
+
+type subscription struct {
+	wake chan struct{}
+	refs int
 }
 
 func newWatcher() *watcher {
-	return &watcher{wakes: make(map[string]chan struct{})}
+	return &watcher{wakes: make(map[string]*subscription)}
 }
 
-func (w *watcher) subscribe(key string) <-chan struct{} {
+func (w *watcher) subscribe(key string) (<-chan struct{}, func()) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	ch, ok := w.wakes[key]
-	if !ok {
-		ch = make(chan struct{})
-		w.wakes[key] = ch
+	if w.closed {
+		wake := make(chan struct{})
+		close(wake)
+		return wake, func() {}
 	}
-	return ch
+	entry := w.wakes[key]
+	if entry == nil {
+		entry = &subscription{wake: make(chan struct{})}
+		w.wakes[key] = entry
+	}
+	entry.refs++
+	var once sync.Once
+	return entry.wake, func() {
+		once.Do(func() {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			if w.wakes[key] == entry {
+				entry.refs--
+				if entry.refs == 0 {
+					delete(w.wakes, key)
+				}
+			}
+		})
+	}
 }
 
 func (w *watcher) signal(key string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if ch, ok := w.wakes[key]; ok {
-		close(ch)
+	if entry, ok := w.wakes[key]; ok {
+		close(entry.wake)
+		delete(w.wakes, key)
+	}
+}
+
+func (w *watcher) close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closed = true
+	for key, entry := range w.wakes {
+		close(entry.wake)
 		delete(w.wakes, key)
 	}
 }
@@ -94,6 +124,15 @@ func (w *watcher) signal(key string) {
 func (w *watcher) dispatch(payload string) {
 	var message notification
 	if err := json.Unmarshal([]byte(payload), &message); err != nil {
+		return
+	}
+	if message.Kind == "ready" {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		for key, entry := range w.wakes {
+			close(entry.wake)
+			delete(w.wakes, key)
+		}
 		return
 	}
 	if message.Task != "" {
@@ -104,85 +143,80 @@ func (w *watcher) dispatch(payload string) {
 	}
 }
 
-// listen keeps one connection listening on channel until ctx ends, reconnecting
-// after a failure. Waiters are never stuck on a broken connection: they also
-// wake on their own fallback timers.
-func (w *watcher) listen(ctx context.Context, db *sql.DB, channel string) {
-	defer close(w.done)
-	for {
-		err := listenOnce(ctx, db, channel, w.dispatch)
-		if ctx.Err() != nil {
-			return
-		}
-		_ = err
-		timer := time.NewTimer(time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-	}
-}
-
-func listenOnce(ctx context.Context, db *sql.DB, channel string, dispatch func(string)) error {
-	conn, err := db.Conn(ctx)
+// listenNotifications owns a dedicated pgx connection, outside the query pool.
+// One base store family listens on every registered service's channel.
+func listenNotifications(ctx context.Context, databaseURL string, channels []string, dispatch func(string, string)) error {
+	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = conn.Close() }()
-	return conn.Raw(func(driverConn any) error {
-		raw, ok := driverConn.(*stdlib.Conn)
-		if !ok {
-			return errors.New("durable store: notifications need the pgx driver")
-		}
-		pgConn := raw.Conn()
-		if _, err := pgConn.Exec(ctx, "LISTEN "+pgx.Identifier{channel}.Sanitize()); err != nil {
+	config.RuntimeParams["application_name"] = "scenery durable notifications"
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = conn.Close(closeCtx)
+	}()
+	for _, channel := range channels {
+		if _, err := conn.Exec(ctx, "LISTEN "+pgx.Identifier{channel}.Sanitize()); err != nil {
 			return err
 		}
-		for {
-			message, err := pgConn.WaitForNotification(ctx)
-			if err != nil {
-				return err
-			}
-			dispatch(message.Payload)
+	}
+	// Recheck observers after connection setup/reconnect: the queries they
+	// checked before LISTEN became effective may have missed a transition.
+	for _, channel := range channels {
+		dispatch(channel, `{"kind":"ready"}`)
+	}
+	for {
+		message, err := conn.WaitForNotification(ctx)
+		if err != nil {
+			return err
 		}
-	})
+		dispatch(message.Channel, message.Payload)
+	}
 }
 
 // startWatch opens the store's LISTEN connection once, on first use, so a
 // store that only starts jobs or lists them never listens.
 func (s *Store) startWatch() *watcher {
-	s.watchOnce.Do(func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		w := newWatcher()
-		w.cancel = cancel
-		w.done = make(chan struct{})
-		s.watch = w
-		go w.listen(ctx, s.db, notificationChannel(s.Service))
-	})
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	if s.watch == nil {
+		s.watch = newWatcher()
+		if s.closed {
+			s.watch.close()
+		} else {
+			s.notifications.add(notificationChannel(s.Service), s.watch)
+		}
+	}
 	return s.watch
 }
 
 func (s *Store) stopWatch() {
-	if s == nil || s.watch == nil {
+	if s == nil {
 		return
 	}
-	s.watch.cancel()
-	select {
-	case <-s.watch.done:
-	case <-time.After(5 * time.Second):
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	s.closed = true
+	if s.watch != nil {
+		s.notifications.remove(notificationChannel(s.Service), s.watch)
+		s.watch.close()
 	}
 }
 
 // TaskWake is closed when a job of the task is queued or finishes. Take it
-// before leasing, so a job queued in between still wakes the loop.
-func (s *Store) TaskWake(taskName string) <-chan struct{} {
+// before leasing, so a job queued in between still wakes the loop. Call the
+// returned release function after the lease check or notification wait.
+func (s *Store) TaskWake(taskName string) (<-chan struct{}, func()) {
 	return s.startWatch().subscribe(taskWakeKey(taskName))
 }
 
 // JobWake is closed when the job reaches a final state or is requeued. Take
-// it before reading the job's state.
-func (s *Store) JobWake(jobID string) <-chan struct{} {
+// it before reading the job's state, then release after the check or wait.
+func (s *Store) JobWake(jobID string) (<-chan struct{}, func()) {
 	return s.startWatch().subscribe(jobWakeKey(jobID))
 }

@@ -106,9 +106,49 @@ func (s *Store) List(ctx context.Context, opts ListOptions) (*ListPage, error) {
 	}
 	entries := candidates.entries
 	sort.Slice(entries, func(i, j int) bool { return compareEntry(entries[i], entries[j]) < 0 })
+	return collectListPage(entries, opts.Limit, binding)
+}
+
+// collectListPage encodes each descriptor once for exact byte accounting.
+// Cursor text is base64url, so its JSON string size is exactly len+2; keep the
+// wrapper, optional fields and array commas in the same budget as the entries.
+func collectListPage(entries []listEntry, limit int, binding string) (*ListPage, error) {
 	page := &ListPage{Objects: []Object{}}
+	bytesUsed := len(`{"objects":[]}`)
 	for i, entry := range entries {
-		if i == opts.Limit {
+		if i == limit {
+			break
+		}
+		var value any = entry.object
+		additional := 0
+		if entry.kind == "prefix" {
+			value = entry.key
+			if len(page.Prefixes) == 0 {
+				additional = len(`,"prefixes":[]`)
+			} else {
+				additional = 1
+			}
+		} else if len(page.Objects) > 0 {
+			additional = 1
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		additional += len(encoded)
+		nextCursor := ""
+		if i+1 < len(entries) {
+			nextCursor = encodeCursor(binding, entry)
+		}
+		candidateBytes := bytesUsed + additional
+		if nextCursor != "" {
+			candidateBytes += len(`,"next_cursor":`) + len(nextCursor) + 2
+		}
+		if candidateBytes > MaxPageBytes {
+			if i == 0 {
+				return nil, fmt.Errorf("%w: one object descriptor cannot fit the page byte budget", ErrInvalid)
+			}
+			page.NextCursor = encodeCursor(binding, entries[i-1])
 			break
 		}
 		if entry.kind == "prefix" {
@@ -116,27 +156,8 @@ func (s *Store) List(ctx context.Context, opts ListOptions) (*ListPage, error) {
 		} else {
 			page.Objects = append(page.Objects, entry.object)
 		}
-		page.NextCursor = ""
-		if i+1 < len(entries) {
-			page.NextCursor = encodeCursor(binding, entry)
-		}
-		data, err := json.Marshal(page)
-		if err != nil {
-			return nil, err
-		}
-		if len(data) <= MaxPageBytes {
-			continue
-		}
-		if entry.kind == "prefix" {
-			page.Prefixes = page.Prefixes[:len(page.Prefixes)-1]
-		} else {
-			page.Objects = page.Objects[:len(page.Objects)-1]
-		}
-		if i == 0 {
-			return nil, fmt.Errorf("%w: one object descriptor cannot fit the page byte budget", ErrInvalid)
-		}
-		page.NextCursor = encodeCursor(binding, entries[i-1])
-		break
+		bytesUsed += additional
+		page.NextCursor = nextCursor
 	}
 	return page, nil
 }

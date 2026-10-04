@@ -209,6 +209,7 @@ func (s *Store) DeleteDevEventsForSession(ctx context.Context, appID, sessionID 
 			}
 			events = append(events, stored)
 		}
+		clear(state.DevEvents[len(events):])
 		state.DevEvents = events
 		for key := range state.DevSources {
 			kAppID, kSessionID, _ := splitDevSourceKey(key)
@@ -319,4 +320,13 @@ func splitDevSourceKey(key string) (string, string, string) {
 		parts = append(parts, "")
 	}
 	return parts[0], parts[1], parts[2]
+}
+
+func SortTraceSummariesByDuration(items []*TraceSummary) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].DurationNanos == items[j].DurationNanos {
+			return items[i].StartedAt.After(items[j].StartedAt)
+		}
+		return items[i].DurationNanos > items[j].DurationNanos
+	})
 }

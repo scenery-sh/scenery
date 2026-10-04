@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
@@ -90,35 +89,39 @@ func revisionListings(root string) *dirlisting.Tree {
 
 func snapshotFingerprint(snapshot fileSnapshot) string {
 	paths := make([]string, 0, len(snapshot.files)+len(snapshot.compilerFiles)+len(snapshot.compilerAbsent))
-	for path := range snapshot.files {
-		paths = append(paths, "source\x00"+path)
-	}
-	for path := range snapshot.compilerFiles {
-		if compilerFileAffectsRuntime(snapshot, snapshot, path) {
-			paths = append(paths, "compiler\x00"+path)
-		}
-	}
 	for path := range snapshot.compilerAbsent {
 		if compilerFileAffectsRuntime(snapshot, snapshot, path) {
-			paths = append(paths, "absent\x00"+path)
+			paths = append(paths, path)
 		}
 	}
-	sort.Strings(paths)
+	absentEnd := len(paths)
+	for path := range snapshot.compilerFiles {
+		if compilerFileAffectsRuntime(snapshot, snapshot, path) {
+			paths = append(paths, path)
+		}
+	}
+	compilerEnd := len(paths)
+	for path := range snapshot.files {
+		paths = append(paths, path)
+	}
+	// Preserve lexicographic namespace order without allocating prefixed paths.
+	sort.Strings(paths[:absentEnd])
+	sort.Strings(paths[absentEnd:compilerEnd])
+	sort.Strings(paths[compilerEnd:])
 	h := sha256.New()
 	var scratch []byte
-	for _, namespacedPath := range paths {
-		namespace, path, _ := strings.Cut(namespacedPath, "\x00")
-		stamp := snapshot.files[path]
-		if namespace == "compiler" {
-			stamp = snapshot.compilerFiles[path]
-		}
+	for index, path := range paths {
 		scratch = append(scratch[:0], path...)
 		scratch = append(scratch, 0)
-		if namespace == "absent" {
+		if index < absentEnd {
 			scratch = append(scratch, "absent"...)
 			scratch = append(scratch, 0)
 			_, _ = h.Write(scratch)
 			continue
+		}
+		stamp := snapshot.files[path]
+		if index < compilerEnd {
+			stamp = snapshot.compilerFiles[path]
 		}
 		scratch = append(scratch, stamp.hash...)
 		scratch = append(scratch, 0)
@@ -134,6 +137,26 @@ func snapshotFingerprint(snapshot fileSnapshot) string {
 }
 
 func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
+	// The watcher and compiler maps often name the very same captured buffer.
+	// Clone it once per candidate, while keeping the retained watcher isolated.
+	// Key by backing storage, not an unverified hash that could mask tampering.
+	type capturedBuffer struct {
+		first *byte
+		size  int
+	}
+	cloned := make(map[capturedBuffer][]byte)
+	cloneData := func(data []byte) []byte {
+		if len(data) == 0 {
+			return bytes.Clone(data)
+		}
+		key := capturedBuffer{first: &data[0], size: len(data)}
+		if copy, ok := cloned[key]; ok {
+			return copy
+		}
+		copy := bytes.Clone(data)
+		cloned[key] = copy
+		return copy
+	}
 	convert := func(stamps map[string]fileStamp, implementation map[string]bool) map[string]build.SourceSnapshotFile {
 		files := make(map[string]build.SourceSnapshotFile, len(stamps))
 		for rel, stamp := range stamps {
@@ -144,7 +167,7 @@ func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
 				Hash:           stamp.hash,
 				Embedded:       stamp.embed,
 				Implementation: implementation[rel],
-				Data:           bytes.Clone(stamp.data),
+				Data:           cloneData(stamp.data),
 			}
 		}
 		return files

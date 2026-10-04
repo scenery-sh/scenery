@@ -406,9 +406,11 @@ func appendNamedChild(spec map[string]any, name string, value map[string]any) {
 }
 
 func cloneMapValue(value any) map[string]any {
-	result := map[string]any{}
-	if source, ok := value.(map[string]any); ok {
-		maps.Copy(result, source)
+	source, _ := value.(map[string]any)
+	if len(source) == 0 {
+		return map[string]any{}
 	}
+	result := make(map[string]any, len(source))
+	maps.Copy(result, source)
 	return result
 }

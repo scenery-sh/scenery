@@ -185,9 +185,8 @@ func writeWatchFile(t testing.TB, root, rel, contents string) {
 	}
 }
 
-// A same-size rewrite that restores the original mtime must hit the rule
-// cache (proving unchanged files are not re-read per scan), while an mtime
-// bump must invalidate it so edits take effect on the next scan.
+// Unchanged files reuse parsed rules, while same-size rewrites take effect even
+// when a writer restores mtime. The status-change timestamp distinguishes them.
 func TestWatchIgnoreRuleCacheStampValidation(t *testing.T) {
 	t.Parallel()
 
@@ -205,18 +204,21 @@ func TestWatchIgnoreRuleCacheStampValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Same byte length, same mtime: the stamp heuristic must reuse the old
-	// parsed rules without re-reading the file.
+	_, identified := ignoreRuleIdentity(gitInfo)
+	if _, cached := cachedIgnoreRules(gitPath, "", gitInfo); cached != identified {
+		t.Fatalf("unchanged gitignore cache hit = %t, identity available = %t", cached, identified)
+	}
+	// Same byte length and mtime still have a changed physical stamp.
 	writeWatchFile(t, root, ".gitignore", "docs/\n")
 	if err := os.Chtimes(gitPath, gitInfo.ModTime(), gitInfo.ModTime()); err != nil {
 		t.Fatal(err)
 	}
 	cached := New(root)
-	if !cached.Ignored("dist", true) {
-		t.Fatal("stamp-identical rewrite must reuse cached gitignore rules")
+	if cached.Ignored("dist", true) {
+		t.Fatal("restored mtime must not reuse stale gitignore rules")
 	}
-	if cached.Ignored("docs", true) {
-		t.Fatal("stamp-identical rewrite must not surface the new rules yet")
+	if !cached.Ignored("docs", true) {
+		t.Fatal("restored mtime must load edited gitignore rules")
 	}
 
 	if err := os.Chtimes(gitPath, gitInfo.ModTime().Add(2*time.Second), gitInfo.ModTime().Add(2*time.Second)); err != nil {
@@ -240,8 +242,8 @@ func TestWatchIgnoreRuleCacheStampValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	cachedConfig := New(root)
-	if !cachedConfig.Ignored("logs", true) || cachedConfig.Ignored("temp", true) {
-		t.Fatal("stamp-identical config rewrite must reuse cached config rules")
+	if cachedConfig.Ignored("logs", true) || !cachedConfig.Ignored("temp", true) {
+		t.Fatal("restored config mtime must load edited watch.ignore rules")
 	}
 	if err := os.Chtimes(configPath, configInfo.ModTime().Add(2*time.Second), configInfo.ModTime().Add(2*time.Second)); err != nil {
 		t.Fatal(err)

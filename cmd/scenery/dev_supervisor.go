@@ -44,6 +44,8 @@ type devSupervisor struct {
 	worktreeControlPaths  *localagent.Paths
 	worktreeRootPaths     *localagent.WorktreePaths
 	victoriaDesiredEnv    []string
+	storageStartupDone    chan struct{}
+	storageStartupErr     error
 	victoriaStartupDone   chan struct{}
 	victoriaRecoveryDone  <-chan struct{}
 	victoriaSubstrateDone <-chan struct{}
@@ -404,16 +406,19 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error {
 	done := make(chan error, 1)
 	s.victoriaStartupDone = make(chan struct{})
+	s.storageStartupDone = make(chan struct{})
 	go func() {
 		var wg sync.WaitGroup
 		errCh := make(chan error, 2)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := s.console.Phase("Starting storage proxy", func() error {
+			defer close(s.storageStartupDone)
+			s.storageStartupErr = s.console.Phase("Starting storage proxy", func() error {
 				return s.ensureManagedStorageProxy(ctx)
-			}); err != nil {
-				errCh <- err
+			})
+			if s.storageStartupErr != nil {
+				errCh <- s.storageStartupErr
 			}
 		}()
 		go func() {

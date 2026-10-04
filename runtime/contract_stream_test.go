@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -187,12 +188,60 @@ func (writer *failingContractWriter) Write(data []byte) (int, error) {
 }
 
 func TestWriteContractByteStreamClientDisconnectCloses(t *testing.T) {
-	reader := newTrackingContractReader(bytes.Repeat([]byte("x"), 64))
-	err := writeContractByteStream(&failingContractWriter{remaining: 8}, ContractHTTPResponse{Stream: &ContractByteStream{Reader: reader, Size: 64}})
-	if err == nil {
-		t.Fatal("client disconnect was ignored")
+	// Span multiple compression buffers so the body failure precedes input EOF.
+	payload := make([]byte, 128<<10)
+	random := rand.New(rand.NewPCG(208, 13))
+	for index := range payload {
+		payload[index] = byte(random.Uint64())
 	}
-	if reader.closes != 1 {
-		t.Fatalf("reader closes = %d, want 1", reader.closes)
+	var complete bytes.Buffer
+	compressor := gzip.NewWriter(&complete)
+	if _, err := compressor.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressor.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		encoding  string
+		remaining int
+		unread    bool
+	}{
+		{"identity", "identity", 8, true},
+		{"gzip header", "gzip", 8, true},
+		{"gzip body", "gzip", 1024, true},
+		{"gzip trailer", "gzip", complete.Len() - 4, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := newTrackingContractReader(payload)
+			err := writeContractByteStream(&failingContractWriter{remaining: test.remaining}, ContractHTTPResponse{Stream: &ContractByteStream{Reader: reader, Size: int64(len(payload))}, StreamEncoding: test.encoding})
+			if err == nil {
+				t.Fatal("client disconnect was ignored")
+			}
+			if reader.closes != 1 {
+				t.Fatalf("reader closes = %d, want 1", reader.closes)
+			}
+			if unread := reader.reader.Len() > 0; unread != test.unread {
+				t.Fatalf("unread source after disconnect = %t, want %t", unread, test.unread)
+			}
+
+			// A subsequent response must not inherit the failed compressor state.
+			nextPayload := []byte("successful response after disconnect")
+			nextReader := newTrackingContractReader(nextPayload)
+			var next bytes.Buffer
+			if err := writeContractByteStream(&next, ContractHTTPResponse{Stream: &ContractByteStream{Reader: nextReader, Size: int64(len(nextPayload))}, StreamEncoding: "gzip"}); err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := gzip.NewReader(&next)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = decoded.Close() }()
+			body, err := io.ReadAll(decoded)
+			if err != nil || !bytes.Equal(body, nextPayload) || nextReader.closes != 1 {
+				t.Fatalf("response after disconnect = %q, %v; closes = %d", body, err, nextReader.closes)
+			}
+		})
 	}
 }

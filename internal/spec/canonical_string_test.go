@@ -41,16 +41,39 @@ func TestMarshalCanonicalStringEscapingAndValidation(t *testing.T) {
 	}
 
 	invalid := string([]byte{0xff})
+	type namedMap map[string]any
+	type namedString string
 	for name, value := range map[string]any{
-		"map key":      map[string]any{invalid: "value"},
-		"map value":    map[string]any{"key": invalid},
-		"nested map":   []any{map[string]any{"key": []string{invalid}}},
-		"struct field": struct{ Value string }{invalid},
+		"map key":                        map[string]any{invalid: "value"},
+		"map value":                      map[string]any{"key": invalid},
+		"nested map":                     []any{map[string]any{"key": []string{invalid}}},
+		"struct field":                   struct{ Value string }{invalid},
+		"named map in JSON container":    map[string]any{"value": namedMap{"key": invalid}},
+		"named string in JSON container": []any{namedString(invalid)},
+		"pointer in JSON container":      map[string]any{"value": &invalid},
+		"struct in JSON container":       []any{struct{ Value any }{[]any{invalid}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if encoded, err := MarshalCanonical(value); err == nil {
 				t.Fatalf("invalid UTF-8 accepted: %q", encoded)
 			}
 		})
+	}
+}
+
+func TestMarshalCanonicalMixedContainersPreserveJSONNormalization(t *testing.T) {
+	type namedMap map[string]any
+	var absent *string
+	value := map[string]any{
+		"binary": []byte{0xff},
+		"record": struct {
+			Value   any `json:"value"`
+			private string
+		}{Value: []any{namedMap{"number": int64(7)}, absent}, private: string([]byte{0xff})},
+	}
+	encoded, err := MarshalCanonical(value)
+	want := `{"binary":"/w==","record":{"value":[{"number":7},null]}}`
+	if err != nil || string(encoded) != want {
+		t.Fatalf("canonical JSON = %q, %v; want %q", encoded, err, want)
 	}
 }

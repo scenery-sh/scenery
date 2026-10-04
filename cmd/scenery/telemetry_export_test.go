@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +19,9 @@ import (
 // backend.
 type exportTestVictoria struct{ base string }
 
+func (v exportTestVictoria) GetTraceDetail(context.Context, devdash.TraceQuery) (*devdash.TraceDetail, error) {
+	return nil, nil
+}
 func (v exportTestVictoria) QueryTraceSummaries(context.Context, devdash.TraceQuery) ([]*devdash.TraceSummary, error) {
 	return nil, nil
 }
@@ -70,7 +72,7 @@ func TestReportIntakeRefusesAnOversizedReport(t *testing.T) {
 		AppID: "demo", Observability: &devdash.ObservabilityState{Enabled: true},
 	}}}, t.TempDir(), "127.0.0.1:0", nil)
 	t.Cleanup(func() { _ = server.Close() })
-	body, err := json.Marshal(devdash.ReportEnvelope{Type: "log", LogEvent: &devdash.LogEvent{Message: strings.Repeat("x", dashboardReportMaxBytes)}})
+	body, err := marshalTestReportBatch(devdash.ReportEnvelope{Type: "log", LogEvent: &devdash.LogEvent{Message: strings.Repeat("x", dashboardReportMaxBytes)}})
 	if err != nil {
 		t.Fatal(err)
 	}

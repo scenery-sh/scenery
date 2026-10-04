@@ -85,6 +85,7 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("snapshot-backup", runHarnessSnapshotBackupProbeStep),
 		harnessSingleProbe("typescript", runHarnessTypeScriptCheckerProbeStep),
 		harnessSingleProbe("code-task", runHarnessCodeTaskProcessProbeStep),
+		harnessSingleProbe("observability", runHarnessObservabilityProbeStep),
 		harnessSingleProbe("victoria", runHarnessVictoriaProcessProbeStep),
 		harnessSingleProbe("desktop", runHarnessDesktopProcessProbeStep),
 		harnessSingleProbe("deploy-ssh", runHarnessDeploySSHProcessProbeStep),

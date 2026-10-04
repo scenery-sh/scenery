@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 
 export class SceneryClientError extends Error {
+  traceId?: string;
   constructor(
     readonly code: string,
     readonly bindingAddress: string,
@@ -22,10 +23,24 @@ export class SceneryClientError extends Error {
     this.name = "SceneryClientError";
   }
 
-  toJSON(): Readonly<{ name: string; code: string; bindingAddress: string; message: string }> {
-    return Object.freeze({ name: this.name, code: this.code, bindingAddress: this.bindingAddress, message: this.message });
+  toJSON(): Readonly<{ name: string; code: string; bindingAddress: string; message: string; traceId?: string }> {
+    return Object.freeze({ name: this.name, code: this.code, bindingAddress: this.bindingAddress, message: this.message, ...(this.traceId ? { traceId: this.traceId } : {}) });
   }
 }
+
+/** Framework request lifecycle. It contains identities and timings, never bodies or credentials. */
+export interface ClientTraceEvent {
+  readonly callId: string;
+  readonly bindingAddress: string;
+  readonly phase: "start" | "attempt" | "response" | "attempt_error" | "complete";
+  readonly elapsedMs: number;
+  readonly attempt: number;
+  readonly traceId?: string;
+  readonly status?: number;
+  readonly outcome?: "success" | "failure" | "error" | "cancelled";
+  readonly errorCode?: string;
+}
+export type ClientTraceObserver = (event: ClientTraceEvent) => void;
 
 export interface CallOptions {
   readonly signal?: AbortSignal;
@@ -94,6 +109,7 @@ export interface ConstraintDescriptor {
 export type TypeRegistry = Readonly<Record<string, TypeDescriptor>>;
 
 export interface InvokeTransport {
+  readonly onTrace?: ClientTraceObserver;
   readonly baseUrl: string;
   readonly fetch: typeof globalThis.fetch;
   readonly headers: Readonly<Record<string, string>>;
@@ -1263,7 +1279,56 @@ function safeCause(cause: unknown): unknown {
   return cause instanceof SceneryClientError ? cause : undefined;
 }
 
+let clientCallSequence = 0;
+
+// The shared invocation path instruments every generated method and each fetch
+// attempt. A failing observer cannot turn a successful application call into an error.
 export async function invoke(
+  transport: InvokeTransport,
+  binding: BindingCall,
+  input: unknown,
+  options: CallOptions,
+  registry: TypeRegistry,
+): Promise<unknown> {
+  const started = performance.now();
+  const callId = String(++clientCallSequence);
+  let attempt = 0;
+  let traceId: string | undefined;
+  const emit = (phase: ClientTraceEvent["phase"], extra: Partial<ClientTraceEvent> = {}): void => {
+    try {
+      const observation: unknown = transport.onTrace?.(Object.freeze({ callId, bindingAddress: binding.address, phase, elapsedMs: Math.max(0, performance.now() - started), attempt, ...(traceId ? { traceId } : {}), ...extra }));
+      if (observation !== undefined) void Promise.resolve(observation).catch(() => {});
+    } catch { /* Observation never changes the request outcome. */ }
+  };
+  emit("start");
+  const fetch: typeof globalThis.fetch = async (url, init) => {
+    attempt++;
+    traceId = undefined;
+    emit("attempt");
+    try {
+      const response = await transport.fetch(url, init);
+      const received = response.headers.get("x-trace-id");
+      if (received && /^[0-9a-f]{32}$/.test(received) && !/^0+$/.test(received)) traceId = received;
+      emit("response", { status: response.status });
+      return response;
+    } catch (cause) {
+      emit("attempt_error", { errorCode: options.signal?.aborted ? "cancelled" : "network" });
+      throw cause;
+    }
+  };
+  try {
+    const result = await invokeRequest({ ...transport, fetch }, binding, input, options, registry);
+    const kind = typeof result === "object" && result !== null && "kind" in result ? result.kind : undefined;
+    emit("complete", { outcome: kind === "failure" || kind === "error" ? "failure" : "success" });
+    return result;
+  } catch (cause) {
+    if (cause instanceof SceneryClientError && traceId) cause.traceId = traceId;
+    emit("complete", { outcome: options.signal?.aborted ? "cancelled" : "error", errorCode: cause instanceof SceneryClientError ? cause.code : "unknown" });
+    throw cause;
+  }
+}
+
+async function invokeRequest(
   transport: InvokeTransport,
   binding: BindingCall,
   input: unknown,

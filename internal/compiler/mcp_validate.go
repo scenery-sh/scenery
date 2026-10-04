@@ -262,8 +262,7 @@ func validateAssistantResource(resource Resource, byAddress map[string]Resource)
 	return sortMCPDiagnostics(diagnostics)
 }
 
-func validateMCPGraph(resources []Resource) []Diagnostic {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+func validateMCPGraph(resources []Resource, byAddress map[string]Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	graph := map[string][]string{}
 	for _, resource := range resources {
@@ -318,6 +317,7 @@ func validateMCPAssistantPaths(root string, resources []Resource) []Diagnostic {
 	sort.Slice(assistants, func(i, j int) bool { return assistants[i].Address < assistants[j].Address })
 	var diagnostics []Diagnostic
 	routes := map[string]Resource{}
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	for _, assistant := range assistants {
 		implementation, _ := assistant.Spec["implementation"].(map[string]any)
 		source := strings.TrimSpace(stringValue(implementation["source"]))
@@ -383,7 +383,7 @@ func validateMCPAssistantPaths(root string, resources []Resource) []Diagnostic {
 			continue
 		}
 		gatewayAddress := resolveResourceRef(assistant, refString(surface["gateway"]), "http_gateway")
-		gateway := resourcesByAddress(&Manifest{Resources: resources})[gatewayAddress]
+		gateway := byAddress[gatewayAddress]
 		base := stringValue(gateway.Spec["base_path"])
 		route := canonicalRoute(joinHTTPPath(base, path))
 		if previous, exists := routes[route]; exists {
@@ -396,7 +396,6 @@ func validateMCPAssistantPaths(root string, resources []Resource) []Diagnostic {
 	// canonical matching is intentional: generated assistant subroutes remain
 	// private to the assistant mount and do not shadow unrelated application
 	// paths.
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	for route, assistant := range routes {
 		for _, binding := range resources {
 			if binding.Kind != "scenery.binding" || stringValue(binding.Spec["protocol"]) != "http" {

@@ -26,6 +26,18 @@ func (s *devSupervisor) beginRetainedPostgresStart(ctx context.Context, contract
 	}
 	root, appID, console := s.root, s.cfg.AppID(), s.console
 	return beginPostgresStart(ctx, func(ctx context.Context) error {
+		// Storage allocation and retained PostgreSQL share the worktree operation
+		// lock. Join only storage startup; compilation and Victoria stay concurrent.
+		if s.storageStartupDone != nil {
+			select {
+			case <-s.storageStartupDone:
+				if s.storageStartupErr != nil {
+					return s.storageStartupErr
+				}
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 		return console.Phase("Preparing retained PostgreSQL", func() error {
 			// The source snapshot is immutable; build diagnostics belong to a
 			// separate result. If fresh authority cannot be established (including

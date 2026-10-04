@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/filemeta"
 )
 
 type Matcher struct {
@@ -56,17 +57,17 @@ func New(root string) *Matcher {
 
 // ignoreRuleCache memoizes parsed rules per ignore-bearing file (keyed by
 // absolute path) so steady-state watch rescans stat unchanged files instead
-// of re-reading and re-parsing them every tick. Entries are validated by
-// size+mtime, matching the watcher's file-stamp heuristic, plus the base dir
-// the rules were parsed against (the same file yields different bases under
-// nested roots). Rules are immutable after parse, so sharing is safe.
+// of re-reading and re-parsing them every tick. Entries require unchanged
+// physical identity, status-change time, size, mtime and parsing base. Missing
+// identity never grants reuse. Rules are immutable after parse, so sharing is safe.
 var ignoreRuleCache sync.Map
 
 type ignoreRuleCacheEntry struct {
-	size    int64
-	modTime time.Time
-	base    string
-	rules   []watchIgnoreRule
+	identity filemeta.Identity
+	size     int64
+	modTime  time.Time
+	base     string
+	rules    []watchIgnoreRule
 }
 
 func cachedIgnoreRules(path, base string, info fs.FileInfo) ([]watchIgnoreRule, bool) {
@@ -75,19 +76,36 @@ func cachedIgnoreRules(path, base string, info fs.FileInfo) ([]watchIgnoreRule, 
 		return nil, false
 	}
 	entry, ok := value.(ignoreRuleCacheEntry)
-	if !ok || entry.base != base || entry.size != info.Size() || !entry.modTime.Equal(info.ModTime()) {
+	identity, identified := ignoreRuleIdentity(info)
+	if !ok || !identified || entry.identity != identity || entry.base != base || entry.size != info.Size() || !entry.modTime.Equal(info.ModTime()) {
 		return nil, false
 	}
 	return entry.rules, true
 }
 
 func storeIgnoreRules(path, base string, info fs.FileInfo, rules []watchIgnoreRule) {
+	identity, identified := ignoreRuleIdentity(info)
+	after, err := os.Stat(path)
+	confirmed, confirmationKnown := ignoreRuleIdentity(after)
+	if !identified || err != nil || !confirmationKnown || identity != confirmed || info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) {
+		ignoreRuleCache.Delete(path)
+		return
+	}
 	ignoreRuleCache.Store(path, ignoreRuleCacheEntry{
-		size:    info.Size(),
-		modTime: info.ModTime(),
-		base:    base,
-		rules:   rules,
+		identity: identity,
+		size:     info.Size(),
+		modTime:  info.ModTime(),
+		base:     base,
+		rules:    rules,
 	})
+}
+
+func ignoreRuleIdentity(info fs.FileInfo) (filemeta.Identity, bool) {
+	if info == nil || !info.Mode().IsRegular() {
+		return filemeta.Identity{}, false
+	}
+	identity, known := filemeta.Read(info)
+	return identity, known && identity.ChangeTimeNano != 0
 }
 
 func watchConfigIgnoreRules(root string) []watchIgnoreRule {
@@ -173,7 +191,8 @@ func (m *Matcher) Ignored(rel string, isDir bool) bool {
 	if rel == "" {
 		return false
 	}
-	relParts := strings.Split(rel, "/")
+	var storage [16]string
+	relParts := splitWatchSegments(rel, storage[:0])
 	for _, rule := range m.configRules {
 		if rule.matches(relParts, isDir) {
 			return true
@@ -201,8 +220,13 @@ func (m *Matcher) IgnoredEntry(rel string, isDir bool) bool {
 	if rel == "" {
 		return false
 	}
-	parts := strings.Split(rel, "/")
-	parent := m.parentIgnore(parts[:len(parts)-1])
+	var storage [16]string
+	parts := splitWatchSegments(rel, storage[:0])
+	parentPath := ""
+	if slash := strings.LastIndexByte(rel, '/'); slash >= 0 {
+		parentPath = rel[:slash]
+	}
+	parent := m.parentIgnore(parentPath, parts[:len(parts)-1])
 	if parent.configured {
 		return true
 	}
@@ -221,15 +245,18 @@ func (m *Matcher) IgnoredEntry(rel string, isDir bool) bool {
 
 // parentIgnore returns the contribution of the directory dir and its ancestors,
 // deriving it from its parent's.
-func (m *Matcher) parentIgnore(dir []string) parentIgnore {
+func (m *Matcher) parentIgnore(key string, dir []string) parentIgnore {
 	if len(dir) == 0 {
 		return parentIgnore{lastRule: -1}
 	}
-	key := strings.Join(dir, "/")
 	if state, ok := m.parents[key]; ok {
 		return state
 	}
-	state := m.parentIgnore(dir[:len(dir)-1])
+	parent := ""
+	if slash := strings.LastIndexByte(key, '/'); slash >= 0 {
+		parent = key[:slash]
+	}
+	state := m.parentIgnore(parent, dir[:len(dir)-1])
 	for _, rule := range m.configRules {
 		if state.configured {
 			break
@@ -242,7 +269,8 @@ func (m *Matcher) parentIgnore(dir []string) parentIgnore {
 			break
 		}
 	}
-	m.parents[key] = state
+	// Retain only the directory bytes, not the complete entry path behind key.
+	m.parents[strings.Clone(key)] = state
 	return state
 }
 
@@ -438,4 +466,17 @@ func splitWatchPath(value string) []string {
 		return nil
 	}
 	return strings.Split(value, "/")
+}
+
+// splitWatchSegments uses the caller's local storage for ordinary paths and
+// one allocation for paths of any greater depth. value is already normalized.
+func splitWatchSegments(value string, storage []string) []string {
+	count := strings.Count(value, "/") + 1
+	if count > cap(storage) {
+		storage = make([]string, 0, count)
+	}
+	for segment := range strings.SplitSeq(value, "/") {
+		storage = append(storage, segment)
+	}
+	return storage
 }

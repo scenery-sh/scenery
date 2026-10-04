@@ -28,7 +28,7 @@ func TestDevReporterDisablesOnConnectionRefused(t *testing.T) {
 					return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
 				}),
 			},
-			queue: make(chan devreport.ReportEnvelope, 4),
+			queue: make(chan []byte, 4),
 			done:  make(chan struct{}),
 			stop:  make(chan struct{}),
 		}
@@ -60,7 +60,7 @@ func TestDevReporterAddsSessionIdentity(t *testing.T) {
 		appRootHash: "root123",
 		branch:      "feature/a",
 		worktree:    "onlv-a",
-		queue:       make(chan devreport.ReportEnvelope, 4),
+		queue:       make(chan []byte, 4),
 		stop:        make(chan struct{}),
 	}
 	reporter.enqueue(devreport.ReportEnvelope{
@@ -71,7 +71,7 @@ func TestDevReporterAddsSessionIdentity(t *testing.T) {
 		},
 	})
 
-	report := <-reporter.queue
+	report := decodeQueuedReport(t, <-reporter.queue)
 	if report.AppID != "app" || report.SessionID != "session-a" || report.AppRootHash != "root123" || report.Branch != "feature/a" || report.Worktree != "onlv-a" {
 		t.Fatalf("envelope identity = %+v", report)
 	}
@@ -118,7 +118,7 @@ func TestDevReporterBacksOffAfterFailedPost(t *testing.T) {
 					}, nil
 				}),
 			},
-			queue: make(chan devreport.ReportEnvelope, 4),
+			queue: make(chan []byte, 4),
 			done:  make(chan struct{}),
 			stop:  make(chan struct{}),
 		}
@@ -127,6 +127,7 @@ func TestDevReporterBacksOffAfterFailedPost(t *testing.T) {
 
 		go reporter.loop()
 		reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+		synctest.Wait()
 		reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
 		synctest.Wait()
 
@@ -156,7 +157,7 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestTracedRoundTripperRedactsSensitiveURLAndError(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		queue: make(chan devreport.ReportEnvelope, 4),
+		queue: make(chan []byte, 4),
 	}
 	restoreReporter := setTestReporter(reporter)
 	defer restoreReporter()
@@ -196,17 +197,18 @@ func TestTracedRoundTripperRedactsSensitiveURLAndError(t *testing.T) {
 	}
 	_, _ = transport.RoundTrip(req)
 
-	start := <-reporter.queue
-	end := <-reporter.queue
-	if start.TraceEvent.SpanID != "span-2" || end.TraceEvent.SpanID != "span-2" {
+	start := decodeQueuedReport(t, <-reporter.queue)
+	end := decodeQueuedReport(t, <-reporter.queue)
+	summary := decodeQueuedReport(t, <-reporter.queue).TraceSummary
+	if summary.Type != "HTTP" || summary.ParentSpanID == nil || *summary.ParentSpanID != "span-2" || start.TraceEvent.SpanID == "span-2" || end.TraceEvent.SpanID != start.TraceEvent.SpanID {
 		t.Fatalf("HTTP events span IDs = %q, %q; want child span-2", start.TraceEvent.SpanID, end.TraceEvent.SpanID)
 	}
-	startPayload := start.TraceEvent.Event["span_event"].(map[string]any)["http_call_start"].(map[string]any)
+	startPayload := start.TraceEvent.Event["span_start"].(map[string]any)["http"].(map[string]any)
 	if got := startPayload["url"]; got != "https://user:%5Bredacted%5D@example.com/path?token=%5Bredacted%5D&x=1" {
 		t.Fatalf("redacted url = %#v", got)
 	}
-	endPayload := end.TraceEvent.Event["span_event"].(map[string]any)["http_call_end"].(map[string]any)
-	errPayload := endPayload["err"].(map[string]any)
+	endPayload := end.TraceEvent.Event["span_end"].(map[string]any)
+	errPayload := endPayload["error"].(map[string]any)
 	if got := errPayload["msg"]; got != "connection refused" {
 		t.Fatalf("error msg = %#v", got)
 	}

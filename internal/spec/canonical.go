@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -45,7 +45,7 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 			output.WriteString("false")
 		}
 	case string:
-		if canonicalUnescapedASCII(typed) {
+		if canonicalStringNeedsNoEscapes(typed) {
 			output.WriteByte('"')
 			output.WriteString(typed)
 			output.WriteByte('"')
@@ -94,7 +94,15 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 		for key := range typed {
 			keys = append(keys, key)
 		}
-		sort.Slice(keys, func(i, j int) bool { return lessUTF16(keys[i], keys[j]) })
+		slices.SortFunc(keys, func(left, right string) int {
+			if lessUTF16(left, right) {
+				return -1
+			}
+			if left == right {
+				return 0
+			}
+			return 1
+		})
 		output.WriteByte('{')
 		for index, key := range keys {
 			if index > 0 {
@@ -115,10 +123,11 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 	return nil
 }
 
-func canonicalUnescapedASCII(value string) bool {
+// Normalized JSON strings are valid UTF-8, so non-ASCII scalars need no escaping.
+func canonicalStringNeedsNoEscapes(value string) bool {
 	for index := 0; index < len(value); index++ {
 		character := value[index]
-		if character < 0x20 || character >= utf8.RuneSelf {
+		if character < 0x20 {
 			return false
 		}
 		switch character {
@@ -180,39 +189,69 @@ func canonicalJSONNumber(source string) (string, error) {
 	return result, nil
 }
 
-// asciiOnly reports whether every byte is below 0x80, in which case UTF-8 byte
-// order, code-point order, and UTF-16 code-unit order all coincide.
-func asciiOnly(value string) bool {
-	for index := 0; index < len(value); index++ {
-		if value[index] >= 0x80 {
-			return false
+// lessUTF16 orders strings by UTF-16 code unit, which is what the canonical JSON
+// object-key contract requires. Compare the ASCII prefix directly and stop at
+// its first difference; a non-ASCII suffix starts at a rune boundary.
+func lessUTF16(left, right string) bool {
+	for index := range min(len(left), len(right)) {
+		a, b := left[index], right[index]
+		if a >= utf8.RuneSelf || b >= utf8.RuneSelf {
+			return lessNonASCIIUTF16(left[index:], right[index:])
+		}
+		if a != b {
+			return a < b
 		}
 	}
-	return true
+	return len(left) < len(right)
 }
 
-// lessUTF16 orders strings by UTF-16 code unit, which is what the canonical JSON
-// object-key contract requires. Encoding both operands allocates four slices per
-// comparison, and a key sort calls this O(n log n) times; ASCII keys — nearly all
-// of them — are ordered identically by a plain byte compare, so take that path
-// without allocating and fall back to the exact encoding otherwise.
-func lessUTF16(left, right string) bool {
-	if asciiOnly(left) && asciiOnly(right) {
-		return left < right
-	}
-	a := utf16.Encode([]rune(left))
-	b := utf16.Encode([]rune(right))
-	for index := 0; index < len(a) && index < len(b); index++ {
-		if a[index] != b[index] {
-			return a[index] < b[index]
+// Supplementary runes retain their relative UTF-16 order. When compared with a
+// BMP rune, their leading surrogate determines the order instead.
+func lessNonASCIIUTF16(left, right string) bool {
+	for left != "" && right != "" {
+		a, leftSize := utf8.DecodeRuneInString(left)
+		b, rightSize := utf8.DecodeRuneInString(right)
+		if a != b {
+			if (a <= 0xffff) != (b <= 0xffff) {
+				if a > 0xffff {
+					a, _ = utf16.EncodeRune(a)
+				} else {
+					b, _ = utf16.EncodeRune(b)
+				}
+			}
+			return a < b
 		}
+		left, right = left[leftSize:], right[rightSize:]
 	}
-	return len(a) < len(b)
+	return len(left) < len(right)
 }
 
 func validateCanonicalStrings(value reflect.Value) error {
 	if !value.IsValid() {
 		return nil
+	}
+	// Compiler/schema values mostly use these JSON containers. Iterating them
+	// directly avoids allocating reflection values for every map key and item.
+	if value.CanInterface() {
+		switch typed := value.Interface().(type) {
+		case map[string]any:
+			for key, item := range typed {
+				if !utf8.ValidString(key) {
+					return fmt.Errorf("canonical JSON property contains invalid UTF-8")
+				}
+				if err := validateCanonicalStrings(reflect.ValueOf(item)); err != nil {
+					return err
+				}
+			}
+			return nil
+		case []any:
+			for _, item := range typed {
+				if err := validateCanonicalStrings(reflect.ValueOf(item)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 	}
 	if value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer {
 		if value.IsNil() {

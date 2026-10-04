@@ -17,15 +17,17 @@ type watchScanStats struct {
 	bytesHashed          int64
 }
 
+type watchWalkFunc func(path, rel string, entry fs.DirEntry, err error) error
+
 // walkWatchTree walks root in the order and with the callback semantics of
 // filepath.WalkDir. Before visiting a directory's entries it loads that
 // directory's .gitignore from the listing it has just read, so a rescan does
 // not look up .gitignore separately in every directory. Directory listings come
-// from walk.
-func walkWatchTree(root string, ignore *watchignore.Matcher, walk *dirlisting.Walk, stats *watchScanStats, fn fs.WalkDirFunc) error {
+// from walk. The callback also receives the slash-separated path relative to root.
+func walkWatchTree(root string, ignore *watchignore.Matcher, walk *dirlisting.Walk, stats *watchScanStats, fn watchWalkFunc) error {
 	info, err := os.Lstat(root)
 	if err != nil {
-		err = fn(root, nil, err)
+		err = fn(root, "", nil, err)
 	} else {
 		err = walkWatchDir(root, "", fs.FileInfoToDirEntry(info), ignore, walk, stats, fn)
 	}
@@ -35,8 +37,8 @@ func walkWatchTree(root string, ignore *watchignore.Matcher, walk *dirlisting.Wa
 	return err
 }
 
-func walkWatchDir(path, rel string, entry fs.DirEntry, ignore *watchignore.Matcher, walk *dirlisting.Walk, stats *watchScanStats, fn fs.WalkDirFunc) error {
-	if err := fn(path, entry, nil); err != nil || !entry.IsDir() {
+func walkWatchDir(path, rel string, entry fs.DirEntry, ignore *watchignore.Matcher, walk *dirlisting.Walk, stats *watchScanStats, fn watchWalkFunc) error {
+	if err := fn(path, rel, entry, nil); err != nil || !entry.IsDir() {
 		if errors.Is(err, filepath.SkipDir) && entry.IsDir() {
 			err = nil
 		}
@@ -51,7 +53,7 @@ func walkWatchDir(path, rel string, entry fs.DirEntry, ignore *watchignore.Match
 		}
 	}
 	if err != nil {
-		if err = fn(path, entry, err); err != nil {
+		if err = fn(path, rel, entry, err); err != nil {
 			if errors.Is(err, filepath.SkipDir) {
 				err = nil
 			}

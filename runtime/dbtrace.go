@@ -1,12 +1,11 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"scenery.sh/internal/devreport"
 	"scenery.sh/runtime/shared"
@@ -25,11 +24,7 @@ type dbQueryTrace struct {
 
 const maxDBQueryLength = 2048
 
-var (
-	singleQuotedSQLLiteralRE = regexp.MustCompile(`'([^']|'')*'`)
-	doubleQuotedSQLLiteralRE = regexp.MustCompile(`"([^"]|"")*"`)
-	sqlcQueryNameRE          = regexp.MustCompile(`(?i)^--\s*name:\s*([A-Za-z_][A-Za-z0-9_]*)\b`)
-)
+var sqlcQueryNameRE = regexp.MustCompile(`(?i)^--\s*name:\s*([A-Za-z_][A-Za-z0-9_]*)\b`)
 
 // TraceDBQueryStart starts a child trace for a database query and returns
 // a context carrying the query trace metadata for TraceDBQueryEnd.
@@ -134,7 +129,7 @@ func TraceDBQueryEnd(ctx context.Context, commandTag string, rowsAffected int64,
 					"duration_nanos": uint64(duration),
 					"status_code":    statusCodeName(err),
 					"db":             dbInfo,
-					"error":          traceError(err),
+					"error":          dbTraceError(err),
 				},
 			},
 		},
@@ -159,69 +154,24 @@ func TraceDBQueryEnd(ctx context.Context, commandTag string, rowsAffected int64,
 	})
 }
 
-func normalizeDBQuery(query string) string {
-	query = strings.Join(strings.Fields(strings.TrimSpace(query)), " ")
-	if query == "" {
-		return "unknown"
+// Driver and PostgreSQL error text can echo bound values (for example an
+// invalid integer or duplicate key). Retain the stable failure classification
+// without collecting those values through a second telemetry channel.
+func dbTraceError(err error) any {
+	if err == nil {
+		return nil
 	}
-	query = singleQuotedSQLLiteralRE.ReplaceAllString(query, "?")
-	query = doubleQuotedSQLLiteralRE.ReplaceAllString(query, "?")
-	query = redactNumericSQLLiterals(query)
-	if len(query) > maxDBQueryLength {
-		return query[:maxDBQueryLength] + "..."
+	message := "database query failed"
+	var state interface{ SQLState() string }
+	switch {
+	case errors.Is(err, context.Canceled):
+		message = "database query canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		message = "database query deadline exceeded"
+	case errors.As(err, &state):
+		message += " (SQLSTATE " + state.SQLState() + ")"
 	}
-	return query
-}
-
-func redactNumericSQLLiterals(query string) string {
-	var out bytes.Buffer
-	for i := 0; i < len(query); {
-		ch := rune(query[i])
-		if !unicode.IsDigit(ch) {
-			out.WriteByte(query[i])
-			i++
-			continue
-		}
-		prev := byte(0)
-		if i > 0 {
-			prev = query[i-1]
-		}
-		if prev == '$' || isSQLIdentByte(prev) {
-			out.WriteByte(query[i])
-			i++
-			continue
-		}
-		j := i + 1
-		dotUsed := false
-		for j < len(query) {
-			next := query[j]
-			if next == '.' && !dotUsed {
-				dotUsed = true
-				j++
-				continue
-			}
-			if next < '0' || next > '9' {
-				break
-			}
-			j++
-		}
-		next := byte(0)
-		if j < len(query) {
-			next = query[j]
-		}
-		if isSQLIdentByte(next) {
-			out.WriteString(query[i:j])
-			i = j
-			continue
-		}
-		out.WriteByte('?')
-		i = j
-	}
-	return out.String()
-}
-
-func isSQLIdentByte(ch byte) bool {
-	return ch == '_' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
+	return map[string]any{"msg": message}
 }
 
 func dbQueryOperation(query string) string {

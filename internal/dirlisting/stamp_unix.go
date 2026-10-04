@@ -4,8 +4,9 @@ package dirlisting
 
 import (
 	"io/fs"
-	"reflect"
 	"syscall"
+
+	"scenery.sh/internal/filemeta"
 )
 
 // stampOf identifies a directory by device, inode, size and its modification
@@ -16,23 +17,9 @@ func stampOf(info fs.FileInfo) (stamp, bool) {
 	if !ok {
 		return stamp{}, false
 	}
-	change, ok := statusChangeTime(stat)
+	identity, ok := filemeta.Read(info)
 	if !ok {
 		return stamp{}, false
 	}
-	return stamp{device: uint64(stat.Dev), inode: stat.Ino, size: info.Size(), modified: info.ModTime().UnixNano(), change: change}, true
-}
-
-// statusChangeTime reads the status-change time, whose field name differs
-// between Unix platforms.
-func statusChangeTime(stat *syscall.Stat_t) (int64, bool) {
-	value := reflect.ValueOf(stat).Elem()
-	for _, name := range [...]string{"Ctim", "Ctimespec"} {
-		if field := value.FieldByName(name); field.IsValid() {
-			if timespec, ok := field.Interface().(syscall.Timespec); ok {
-				return timespec.Nano(), true
-			}
-		}
-	}
-	return 0, false
+	return stamp{device: uint64(stat.Dev), inode: stat.Ino, size: info.Size(), modified: info.ModTime().UnixNano(), change: identity.ChangeTimeNano}, true
 }

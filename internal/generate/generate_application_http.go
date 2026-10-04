@@ -453,7 +453,7 @@ func renderContractHTTPPolicy(resources map[string]Resource, binding Resource, h
 	for _, step := range orderedChildren(pipeline.Spec, "step") {
 		steps = append(steps, refOrString(step["use"]))
 	}
-	return fmt.Sprintf("&sceneryruntime.ContractHTTPPolicy{BindingAddress: %q, GatewayAddress: %q, CORS: %q, AllowedOrigins: %#v, Forwarded: %q, TrustedProxyPrefixes: %#v, MaxRequestHeaderBytes: %d, MaxResponseBytes: %d, CompressionAlgorithms: %#v, CompressionThreshold: %d, TotalInvocationTimeoutNanos: %d, ReadTimeoutNanos: %d, WriteTimeoutNanos: %d, IdleTimeoutNanos: %d, AuthorizationStrategy: %q, AuthorizationRuleCount: %d, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{%s}, PipelineSteps: %#v, FrameworkGuarantee: %q, TransportStatuses: %s}", binding.Address, gatewayAddress, cors, allowedOrigins, forwarded, trusted, headerBytes, responseBytes, compression, threshold, durationNanos(timeouts["total_invocation"]), durationNanos(timeouts["read"]), durationNanos(timeouts["write"]), durationNanos(timeouts["idle"]), strategy, len(rules), strings.Join(rules, ", "), steps, stringValue(httpSpec["guarantee"]), goStringIntMap(status))
+	return fmt.Sprintf("&sceneryruntime.ContractHTTPPolicy{BindingAddress: %q, %sGatewayAddress: %q, CORS: %q, AllowedOrigins: %#v, Forwarded: %q, TrustedProxyPrefixes: %#v, MaxRequestHeaderBytes: %d, MaxResponseBytes: %d, CompressionAlgorithms: %#v, CompressionThreshold: %d, TotalInvocationTimeoutNanos: %d, ReadTimeoutNanos: %d, WriteTimeoutNanos: %d, IdleTimeoutNanos: %d, AuthorizationStrategy: %q, AuthorizationRuleCount: %d, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{%s}, PipelineSteps: %#v, FrameworkGuarantee: %q, TransportStatuses: %s}", binding.Address, renderPolicyTraceIdentity(resources, binding), gatewayAddress, cors, allowedOrigins, forwarded, trusted, headerBytes, responseBytes, compression, threshold, durationNanos(timeouts["total_invocation"]), durationNanos(timeouts["read"]), durationNanos(timeouts["write"]), durationNanos(timeouts["idle"]), strategy, len(rules), strings.Join(rules, ", "), steps, stringValue(httpSpec["guarantee"]), goStringIntMap(status))
 }
 
 func renderContractInternalPolicy(resources map[string]Resource, binding Resource) string {
@@ -475,7 +475,7 @@ func renderContractInvocationPolicy(resources map[string]Resource, owner Resourc
 	for _, step := range orderedChildren(pipeline.Spec, "step") {
 		steps = append(steps, refOrString(step["use"]))
 	}
-	return fmt.Sprintf("&sceneryruntime.ContractHTTPPolicy{BindingAddress: %q, AuthorizationStrategy: %q, AuthorizationRuleCount: %d, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{%s}, PipelineSteps: %#v}", address, strategy, len(rules), strings.Join(rules, ", "), steps)
+	return fmt.Sprintf("&sceneryruntime.ContractHTTPPolicy{BindingAddress: %q, %sAuthorizationStrategy: %q, AuthorizationRuleCount: %d, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{%s}, PipelineSteps: %#v}", address, renderPolicyTraceIdentity(resources, owner), strategy, len(rules), strings.Join(rules, ", "), steps)
 }
 
 func renderContractAuthorizationRules(authorization Resource) []string {
@@ -667,4 +667,13 @@ func goStringStringMap(values map[string]string) string {
 		entries = append(entries, fmt.Sprintf("%q: %q", key, values[key]))
 	}
 	return "map[string]string{" + strings.Join(entries, ", ") + "}"
+}
+
+func renderPolicyTraceIdentity(resources map[string]Resource, binding Resource) string {
+	operation := resources[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]
+	if operation.Address == "" {
+		return ""
+	}
+	service := resources[resolveResourceRef(operation, refString(operation.Spec["service"]), "service")]
+	return fmt.Sprintf("ServiceName: %q, OperationAddress: %q, ", service.Name, operation.Address)
 }
