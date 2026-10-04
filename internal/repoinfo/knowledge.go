@@ -58,7 +58,7 @@ func docsReviewDue(value string, now time.Time) bool {
 }
 
 func DocumentReviewDue(doc KnowledgeDocument, now time.Time) bool {
-	if IsCompletedPlan(doc) {
+	if IsExecPlanPath(doc.Path) && (doc.Status == "completed" || doc.Status == "deprecated") {
 		return false
 	}
 	return docsReviewDue(doc.ReviewAfter, now)

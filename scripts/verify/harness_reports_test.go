@@ -99,6 +99,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`,
 		"scenery.agent_context.schema.json",
+		"scenery.agent_context.summary.schema.json",
 		"scenery.approval-token.schema.json",
 		"scenery.approval-trust.schema.json",
 		"scenery.assistant.init.schema.json",
@@ -161,7 +162,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	if reads != 4 {
 		t.Fatalf("product schema reads = %d, want 4", reads)
 	}
-	if len(report.Validated) != 33 {
+	if len(report.Validated) != 34 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

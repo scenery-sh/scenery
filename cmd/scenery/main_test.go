@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/graph"
@@ -420,12 +421,29 @@ func copyFixtureRoot(t *testing.T, name string) string {
 	t.Helper()
 	source := fixtureSourceRoot(t, name)
 	root := t.TempDir()
-	if err := os.CopyFS(root, os.DirFS(source)); err != nil {
-		t.Fatal(err)
-	}
-	// `.scenery/` is machine-local cache and transaction state, never fixture
-	// input: start every copy from a clean workspace.
-	if err := os.RemoveAll(filepath.Join(root, ".scenery")); err != nil {
+	// Ignore machine-local state before reading it so it cannot become a Go
+	// test-cache input or affect another test's workspace.
+	if err := filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() && appwalk.SkipDir(source, path) {
+			return filepath.SkipDir
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		destination := filepath.Join(root, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o755)
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destination, contents, 0o644)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	rebaseFixtureModuleReplacements(t, root, source)

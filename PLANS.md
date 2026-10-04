@@ -41,7 +41,7 @@ Use these eight core sections so another agent can find progress, decisions and 
 - `## Validation and Acceptance`
 - `## Idempotence and Recovery`
 
-The `Progress` section must use checkboxes and timestamps. Update it at every meaningful stopping point.
+The `Progress` section must use checkboxes and timestamps. Update it at every meaningful stopping point. Keep a short `### Resume here` checkpoint there: recorded current state, the next action, unresolved decisions/authorization, and exact evidence links or named owning sections. Date it and distinguish historical observations from live state. A reader can jump to that checkpoint instead of reconstructing the plan's chronology. This is part of Progress, not a ninth required top-level section.
 
 Record decisions that affect contracts, scope, risk, recovery or the next agent's choices, with rationale and date. Routine implementation details belong in code.
 
@@ -78,7 +78,7 @@ For app-facing runtime changes, include an example command against a fixture app
 - `PLANS.md` must exist and define the required ExecPlan sections.
 - Active plans must contain the eight core sections. Additional sections are allowed. Completed plans retain their original historical structure.
 - Current ExecPlan validation requirements must not use subjective skip phrases in place of exact commands or conditions.
-- Completed numbered ExecPlans are excluded from scheduled freshness review. Broken completed-index links, stale knowledge metadata that flags a current contradiction, and completed plans linked from the active index remain actionable diagnostics.
+- Completed or deprecated numbered ExecPlans are excluded from scheduled freshness review. Broken completed-index links, stale knowledge metadata that flags a current contradiction, and historical plans linked from the active index remain actionable diagnostics.
 - Missing sections are reported as knowledge-contract diagnostics with file paths and suggested actions.
 
 The harness enforces resumable structure and rejects known subjective validation phrases. Engineering acceptance criteria remain the plan author's responsibility.

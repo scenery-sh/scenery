@@ -60,6 +60,16 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 
 Update this section at each meaningful stopping point. Replace planning timestamps with actual completion timestamps when work is executed.
 
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: Implementation is recorded as complete; authorized local conversion is documented, while other cutovers/platform proofs remain open.
+- Next: Use Outcomes and M6 to identify the exact remaining environment/platform and its missing authorization before any cutover.
+- Boundary: Linux/SSH/reboot and operator acceptance are not implied by repository tests; preserve configuration and retained data.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+
 ## Surprises & Discoveries
 
 - 2026-09-24: concurrent `os.Root.OpenFile(name, O_CREATE)` of one name fails with ENOENT on darwin (Go 1.27); reproduced in a standalone test. The environment lock file is therefore opened by path with `O_NOFOLLOW` (`internal/appconfig/lock_unix.go`).

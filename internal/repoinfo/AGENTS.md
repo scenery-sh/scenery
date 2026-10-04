@@ -11,7 +11,10 @@ changed-path/validation-command classification table.
 - Discovery reads only; it must not execute tests, provision resources, or write.
 - Classification consumes supplied paths/package metadata and produces values.
 - Keep full product documentation rendering and CLI parsing in `cmd/scenery`.
-- Completed numbered ExecPlans are immutable history, not freshness-review work.
+  Multi-path discovery deduplicates normalized paths and scopes; optional excerpts
+  retain exact source spans, content identity and explicit truncation.
+- Completed or deprecated numbered ExecPlans are immutable history, not
+  freshness-review work.
 - Keep existing schema identities exact; no old-index decoder or fallback.
 
 ## Verification

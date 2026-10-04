@@ -83,6 +83,16 @@ without the operator restarting anything.
   exercised with real processes. Producers older than this change never hand
   off; ONLV runtimes started before it still need one manual restart.
 
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: Source-snapshot handoff has real-process proof; ONLV pinned-version bump observation remains open.
+- Next: Check ONLV current pin/runtime identity, then run the recorded pinned-bump scenario only within authorized app scope.
+- Boundary: Unit tests and source-snapshot proof do not establish module-download/pinned-version live acceptance.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+
 ## Surprises & Discoveries
 
 - The old runtime had detected the pin change (evidence: `status` over

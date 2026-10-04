@@ -12,12 +12,14 @@ go run ./scripts/verify --quick --summary --write
 ```
 
 For ordinary work, discover only the applicable material with `scenery inspect
-docs --for-path <repository-relative-path> -o json`. Filter the index with
+docs --for-path <repository-relative-path>... -o json`; add `--include-text` for
+bounded source excerpts with explicit truncation and source identity. Filter the index with
 `--tag`, `--status`, or `--review-due`; reserve `--all` for the complete catalog.
 Build a missing local CLI using [Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
 
 ## Agent Entry Points
 
+- [Scoped Context Evaluation](agent-context-evaluation-0211.md): repeated contract-discovery and interrupted-work decisions.
 - [Agent Instruction Evaluation — Second Round](agent-instruction-evaluation-0209.md): independent decision evaluation and run-bound evidence.
 - [First-Round Evaluation](agent-instruction-evaluation.md): historical entrypoint counts and documentation/Go/runtime exercises.
 
@@ -67,6 +69,7 @@ Start with:
 - [scenery.build.result](schemas/scenery.build.result.schema.json)
 - [scenery.environment.registry](schemas/scenery.environment.registry.schema.json)
 - [scenery.harness.result](schemas/scenery.harness.result.schema.json)
+- [scenery.agent_context.summary](schemas/scenery.agent_context.summary.schema.json)
 - [scenery.inspect.validation](schemas/scenery.inspect.validation.schema.json)
 - [scenery.validation.result](schemas/scenery.validation.result.schema.json)
 - [scenery.harness.self](schemas/scenery.harness.self.schema.json)

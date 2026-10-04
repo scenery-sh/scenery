@@ -789,6 +789,16 @@ compile the application graph as it needs.
   gains the full 50 ms. The `dev-process` probe, which counts builds for atomic
   and multi-file saves under production timing, passes unchanged.
 
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: The process-per-service path is implemented; the 300/500 ms target and recorded review follow-ups remain open.
+- Next: Read the remaining Progress items and identify the current measured bottleneck before another bounded, explicitly authorized measurement.
+- Boundary: Do not delete retained resources when removing worktrees; older timing cohorts are not current performance proof.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+
 ## Surprises & Discoveries
 
 - Observed with the real Eve 0.39.1 helper and mock model: a turn that requests

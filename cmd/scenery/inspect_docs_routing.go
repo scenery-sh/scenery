@@ -44,6 +44,12 @@ type inspectDocsScoredDocument struct {
 }
 
 func validateInspectDocsOptions(opts inspectDocsOptions) error {
+	if len(opts.ForPaths) > 16 {
+		return usageErrorf("--for-path accepts at most 16 paths")
+	}
+	if opts.IncludeText && len(opts.ForPaths) == 0 {
+		return usageErrorf("--include-text requires --for-path")
+	}
 	if opts.Status != "" {
 		switch strings.ToLower(strings.TrimSpace(opts.Status)) {
 		case "active", "reference", "completed", "deprecated":
@@ -61,10 +67,10 @@ func validateInspectDocsOptions(opts inspectDocsOptions) error {
 	if opts.ReviewDue {
 		filterCount++
 	}
-	if opts.All && (strings.TrimSpace(opts.ForPath) != "" || filterCount > 0) {
+	if opts.All && (len(opts.ForPaths) > 0 || filterCount > 0) {
 		return usageErrorf("--all cannot be combined with --for-path, --tag, --status, or --review-due")
 	}
-	if strings.TrimSpace(opts.ForPath) != "" && filterCount > 0 {
+	if len(opts.ForPaths) > 0 && filterCount > 0 {
 		return usageErrorf("--for-path cannot be combined with --tag, --status, or --review-due")
 	}
 	return nil
@@ -74,12 +80,16 @@ func buildInspectDocsQuery(repoRoot string, opts inspectDocsOptions) (inspectDoc
 	switch {
 	case opts.All:
 		return inspectDocsQuery{Mode: "all", All: true}, nil
-	case strings.TrimSpace(opts.ForPath) != "":
-		path, err := normalizeInspectDocsQueryPath(repoRoot, opts.ForPath)
-		if err != nil {
-			return inspectDocsQuery{}, err
+	case len(opts.ForPaths) > 0:
+		paths := make([]string, 0, len(opts.ForPaths))
+		for _, raw := range opts.ForPaths {
+			path, err := normalizeInspectDocsQueryPath(repoRoot, raw)
+			if err != nil {
+				return inspectDocsQuery{}, err
+			}
+			paths = append(paths, path)
 		}
-		return inspectDocsQuery{Mode: "path", ForPath: path}, nil
+		return inspectDocsQuery{Mode: "path", ForPaths: uniqueSortedStrings(paths), IncludeText: opts.IncludeText}, nil
 	case strings.TrimSpace(opts.Tag) != "" || strings.TrimSpace(opts.Status) != "" || opts.ReviewDue:
 		return inspectDocsQuery{
 			Mode:      "filter",
@@ -93,6 +103,9 @@ func buildInspectDocsQuery(repoRoot string, opts inspectDocsOptions) (inspectDoc
 }
 
 func normalizeInspectDocsQueryPath(repoRoot, raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", usageErrorf("--for-path must not be empty")
+	}
 	if strings.ContainsRune(raw, 0) {
 		return "", usageErrorf("--for-path contains NUL")
 	}
@@ -223,6 +236,32 @@ func buildInspectDocsPathRoute(repoRoot, targetPath string, documents []inspectD
 	mergeInspectDocsTerms(profile.Domain, inspectDocsTerms(architectureText))
 	if doc, ok := documentByPath["ARCHITECTURE.md"]; ok && len(architectureSections) > 0 {
 		add(doc, "architecture", "owning architecture section", architectureSections)
+	}
+
+	if anchors := inspectDocsTypeScriptAnchors(targetPath); len(anchors) > 0 {
+		for _, ref := range []struct {
+			path, role string
+			anchors    []string
+		}{
+			{"docs/spec/typescript-client.md", "contract", anchors},
+			{"docs/agent-guide.md", "contract", []string{"typescript-client-integration"}},
+			{"docs/schemas/scenery.typescript-client-generated.schema.json", "schema", nil},
+		} {
+			doc, exists := documentByPath[ref.path]
+			if !exists {
+				return route, fmt.Errorf("documentation owner is not indexed: %s", ref.path)
+			}
+			var sections []inspectDocsSection
+			if len(ref.anchors) > 0 {
+				var err error
+				sections, err = inspectDocsSectionsByAnchor(repoRoot, ref.path, ref.anchors)
+				if err != nil {
+					return route, err
+				}
+			}
+			add(doc, ref.role, "explicit TypeScript client contract owner", sections)
+		}
+		return route, nil
 	}
 
 	relevantSet := stringSet(changedArea.RelevantDocs)
@@ -503,7 +542,7 @@ func inspectDocsBestSections(profile inspectDocsTermProfile, sections []inspectD
 			continue
 		}
 		headingScore := inspectDocsTextScore(profile, section.Heading)
-		bodyScore := inspectDocsTextScore(profile, section.Text)
+		bodyScore := min(inspectDocsTextScore(profile, section.Text), 12) / (1 + len(strings.Fields(section.Text))/400)
 		score := headingScore*3 + bodyScore
 		if score < 4 {
 			continue

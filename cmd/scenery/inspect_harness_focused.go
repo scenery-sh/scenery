@@ -218,6 +218,7 @@ func knownHarnessArtifacts() []harnessArtifact {
 		newHarnessArtifact("fixture-matrix", ".scenery/harness/fixture-matrix-latest.json", harnessFixtureMatrixKind, false),
 		newHarnessArtifact("schema-validation", ".scenery/harness/schema-validation-latest.json", harnessSchemaValidationKind, false),
 		newHarnessArtifact("agent-context", ".scenery/harness/agent-context.json", harnessAgentContextKind, false),
+		newHarnessArtifact("agent-context-summary", ".scenery/harness/agent-context-summary.json", "scenery.agent_context.summary", false),
 	}
 }
 

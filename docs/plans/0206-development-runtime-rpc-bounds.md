@@ -113,6 +113,16 @@ fast with `SCN8013`, and disconnecting removes the sleeping statements from
   clusters removed and no probe root retained. Milestone 6 is complete except
   A13, which fails on `main`'s external SQL change and belongs to plan 0205.
 
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: RPC bounds acceptance is recorded as passed; review/merge remains open.
+- Next: Recheck review/merge and the separately recorded worktree A13 failure before deciding whether this plan can close.
+- Boundary: Do not treat the complete worktree probe as passed: its A13 failure is assigned to environment configuration in Plan 0205.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+
 ## Surprises & Discoveries
 
 - A first reading of pgx v5.11.0 suggested that a cancelled context leaves the

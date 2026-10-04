@@ -1,0 +1,134 @@
+{
+  "$id": "https://scenery.sh/schemas/scenery.agent_context.summary.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "active_plans": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "agent_scopes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "changed_file_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "checks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "condition": {
+            "type": "string"
+          },
+          "evidence_step": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "covered",
+              "remaining",
+              "conditional"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "status"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "current_branch": {
+      "type": "string"
+    },
+    "current_commit": {
+      "type": "string"
+    },
+    "error_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "failing_steps": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "full_context_path": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "scenery.agent_context.summary"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "repo_checks_passed": {
+      "type": "boolean"
+    },
+    "run": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_path": {
+          "type": "string"
+        },
+        "final_input_revision": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "input_revision": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "inputs_stable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "input_revision",
+        "final_input_revision",
+        "inputs_stable"
+      ],
+      "type": "object"
+    },
+    "schema_revision": {
+      "const": "sha256:5ae84637586fefca4ff0daed4cde13311e86b03a7cf98a36ccda409ee73e0295"
+    },
+    "warning_count": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "kind",
+    "schema_revision",
+    "run",
+    "mode",
+    "repo_checks_passed",
+    "changed_file_count",
+    "error_count",
+    "warning_count",
+    "failing_steps",
+    "agent_scopes",
+    "active_plans",
+    "full_context_path",
+    "checks"
+  ],
+  "title": "scenery.agent_context.summary",
+  "type": "object"
+}

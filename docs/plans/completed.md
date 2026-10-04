@@ -1,5 +1,9 @@
 # Completed Plans
 
+- [0211 Scoped Agent Context And Resumption](0211-scoped-agent-context.md) — 2026-10-04: precise multi-path excerpts, compact immutable validation context, 1,037-word root instructions, nine resumption checkpoints and 30 independent evaluations; stable full validation has zero diagnostics, with mixed context benefits documented.
+
+- [0210 Zero Repository Verifier Warnings](0210-zero-verifier-warnings.md) — 2026-10-03: reviewed 30 overdue living documents, split 15 large authored files with declaration/rendered-byte parity, isolated assistant fixture state, and passed full default verification with zero warnings and unchanged budgets.
+
 - [0209 Consistent Agent Workflows and Run-Bound Evidence](0209-consistent-agent-workflows.md) — 2026-10-03: aligned generated guidance, made instruction checks resilient, reduced plan structure, scoped app checks, published immutable run bundles, and completed six independent routing evaluations with explicit limits.
 
 - [0208 Exact JSON Decoding Performance](0208-exact-json-decode-performance.md) — 2026-10-02: conformant string/whitespace/number-scanner fast paths, immutable record lookup reuse and balanced named ancestry reduce 100-row ONLV bytes-to-typed CPU medians by 29–33% (0.24–0.44 ms), with about 0.6 ms of one-time deep-registry freezing; three document sessions and real generated NextNext catalog reads passed. Allocation/RSS and app latency are unmeasured.

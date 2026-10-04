@@ -367,7 +367,14 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	flags.BoolVar(&opts.Implementation, "implementation", false, "")
 	flags.BoolVar(&opts.VerifyGeneration, "verify-generation", false, "")
 	flags.BoolVar(&opts.StorageStats, "stats", false, "")
-	flags.StringVar(&opts.Docs.ForPath, "for-path", "", "")
+	flags.Func("for-path", "repository path (repeatable)", func(value string) error {
+		if strings.TrimSpace(value) == "" {
+			return usageErrorf("--for-path must not be empty")
+		}
+		opts.Docs.ForPaths = append(opts.Docs.ForPaths, value)
+		return nil
+	})
+	flags.BoolVar(&opts.Docs.IncludeText, "include-text", false, "bounded source excerpts")
 	flags.StringVar(&opts.Docs.Tag, "tag", "", "")
 	flags.BoolVar(&opts.Docs.ReviewDue, "review-due", false, "")
 	flags.BoolVar(&opts.Docs.All, "all", false, "")
@@ -400,15 +407,14 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	if cliFlagSet(flags, "implementation") && opts.Subject != "assistants" {
 		return inspectOptions{}, usageErrorf("--implementation is only supported for inspect assistants")
 	}
-	for _, name := range []string{"for-path", "tag", "review-due", "all"} {
+	for _, name := range []string{"for-path", "include-text", "tag", "review-due", "all"} {
 		if cliFlagSet(flags, name) && opts.Subject != "docs" {
 			return inspectOptions{}, usageErrorf("--%s is only supported for inspect docs", name)
 		}
 	}
 	if opts.Subject == "docs" {
-		opts.Docs.ForPath = strings.TrimSpace(opts.Docs.ForPath)
 		opts.Docs.Tag = strings.TrimSpace(opts.Docs.Tag)
-		if cliFlagSet(flags, "for-path") && opts.Docs.ForPath == "" {
+		if cliFlagSet(flags, "for-path") && len(opts.Docs.ForPaths) == 0 {
 			return inspectOptions{}, usageErrorf("--for-path must not be empty")
 		}
 		if cliFlagSet(flags, "tag") && opts.Docs.Tag == "" {

@@ -8,6 +8,7 @@ type PayloadIdentity struct {
 }
 
 var payloadSchemaRevisions = map[string]string{
+	"scenery.agent_context.summary":       "sha256:5ae84637586fefca4ff0daed4cde13311e86b03a7cf98a36ccda409ee73e0295",
 	"scenery.db.migrate":                  "sha256:0f400279c74205778e4d2656af9295ce659ce08b93a7502e8dcfb41dd79d81c4",
 	"scenery.config.show":                 "sha256:52b252daaa4cc3fcf2ef9b6b6eed654db6ad81e641536d78e98a81ea7469dc22",
 	"scenery.config.change":               "sha256:afafdcbcaedca8b4692cf4cac475af54c6ffccd7bd3da09d83d627de771ae887",
@@ -43,7 +44,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.inspect.endpoints":           "sha256:af1066b46918c1a19a1e24c22e7316c35a406a6d8cfdd04c49e1a1623a797d13",
 	"scenery.inspect.observability":       "sha256:d4a30b220fd68c3155a257fdbfdece6d58ecf9f6c851fa569f7eacfe9ed7f5aa",
 	"scenery.inspect.durable":             "sha256:2e767f9bda8f938a8ef91a1c386f509dd1aafd7ae032d6e56ed14e79fca35c56",
-	"scenery.inspect.docs":                "sha256:cef606ca6894f7126a86ead96efcc6c7eacababa97be5c68b19db7514e734112",
+	"scenery.inspect.docs":                "sha256:3d40c8218ec9c21a781217f914817bcbec8f2c6663f86406493048919dc72334",
 	"scenery.inspect.paths":               "sha256:608b88133556842c287301f9d5dc62e97e76afec107695192b272d2fd6896d38",
 	"scenery.inspect.metrics":             "sha256:6af4d264dbb1fd08f82a3b69eac6114dd400100145476bae5f8cdd2fb8f337bd",
 	"scenery.inspect.traces":              "sha256:f3a83468f7bc3d018825b0536c47515a3d6e5e9d053a3e3442a6fa3a6a9bd816",

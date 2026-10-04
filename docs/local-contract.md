@@ -830,7 +830,7 @@ scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<pro
 scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation|assistants -o json [--app-root <path>]
 scenery inspect assistants [--implementation] -o json [--app-root <path>]
 scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]
-scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]
+scenery inspect docs -o json [--repo-root <path>] [--for-path <path>... [--include-text]|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 scenery inspect report <report-token> -o json
 scenery traces list -o json [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
@@ -1285,9 +1285,9 @@ go run ./scripts/verify -o json --write
 - architecture checks warn on non-generated source/code files over 1000 lines, cgo imports, `.DS_Store` artifacts, and compatibility imports outside known migration paths; unchanged warnings outside the changed area are debt summary in compact output, not agent attention
 - local harness/report artifacts matching `.scenery/**`, `coverage/**`, `test-results/**`, `*.harness*.json`, or `scenery-harness-self-*.json` are reported as ignored local artifacts and do not drive changed-area recommended commands
 - `--write` atomically publishes `.scenery/harness/runs/<run-id>/self.json`,
-  `summary.json` and `agent-context.json` before refreshing the latest navigation
+  `summary.json`, `agent-context.json` and `agent-context-summary.json` before refreshing the latest navigation
   copies. A published run directory is never replaced. `wrote` names its `self.json`.
-- All three payloads carry the same `run`: `id`, `input_revision`,
+- All four payloads carry the same `run`: `id`, `input_revision`,
   `final_input_revision`, `inputs_stable` and (only when writing) `archive_path`.
   Input revisions hash sorted Git-tracked and non-ignored untracked paths, file
   modes and contents, deleted markers and symlink targets without following links.
@@ -1295,7 +1295,7 @@ go run ./scripts/verify -o json --write
   These are boundary snapshots, not source isolation or proof of external state;
   toolchain/probe evidence remains separately recorded. Reuse evidence only when
   its inputs, scope and prerequisites still match.
-- Latest copies (`self-latest.json`, `self-summary-latest.json`, `agent-context.json`
+- Latest copies (`self-latest.json`, `self-summary-latest.json`, `agent-context.json`, `agent-context-summary.json`
   and topic `*-latest.json`) are navigation conveniences and can change independently.
   Use one run's archive for acceptance; its full report embeds the topic reports.
   Product drilldown commands still navigate latest snapshots. A failed navigation
@@ -1304,6 +1304,8 @@ go run ./scripts/verify -o json --write
 - changed-area output classifies paths as `documentation-only`, `go-package`, `cli-json-contract`, `compiler-or-generator`, `ui-catalog`, `release-sensitive-or-runtime`, or `repository-fallback`; multiple classes are cumulative and `recommended_commands` is their exact deduplicated union, with the full self-harness replacing the quick self-harness when both match
 - documentation-only paths select full knowledge/index inspection plus quick self-harness; Go packages select every affected-package test plus `go test ./...`; CLI JSON contracts select command tests, schema validation, and `docs/local-contract.md`; compiler/generator, UI catalog and `tools/typescript` paths select the catalog typecheck and committed consumer regeneration; release-sensitive/runtime paths select the full worktree-local self-harness and its applicable real-process proof
 - `--write` archives the one-file agent handoff as `runs/<run-id>/agent-context.json` and refreshes `.scenery/harness/agent-context.json` for navigation. It includes current failing steps, first files to read, exact rerun commands, `validation_classification`, the changed-area command union, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and separate risk classifications: `runtime`, `CLI contract`, `ui`, `schema`, `release`, and `onlv-impacting`.
+- `--write` also archives `runs/<run-id>/agent-context-summary.json` (`scenery.agent_context.summary`) and refreshes the same-named latest navigation copy. `scenery inspect harness artifact agent-context-summary --repo-root <path> -o json` reads that navigation copy without executing checks; use its run archive for authoritative proof. The summary carries the same run/input identity, selected mode, repository-check status, diagnostic counts, scope/plan paths, full-context path and every changed-area check (plus root-required lint). `covered` names a successful same-input evidence step; full ordinary Go tests cover matching package tests, never race/fresh flags. `remaining` means no receipt in this run, including checks successfully run separately; its `condition` explicitly directs the reader to inspect matching-input/scope proof before rerunning; reuse separate proof only after checking its inputs/scope. `conditional` names the unmet application-runtime prerequisite and is never a pass. No check is covered if the input identity is unstable. Warnings remain explicit; `repo_checks_passed` covers selected repository checks, not application/probe/release acceptance. Later edits invalidate reuse even when HEAD is unchanged.
+
 
 The generated agent loop uses the shared changed-area classifier. After editing,
 select quick or full from the root validation matrix and fulfill the command union.
@@ -1336,8 +1338,8 @@ scenery inspect harness timing --top 10 -o json
 - manifest output conforms to `scenery.inspect.harness`
 - focused outputs use the same schema version and return bounded topic-specific JSON for artifacts, diagnostics, and timing
 - from an app root, manifest output reports `.scenery/harness/latest.json` and `.scenery/harness/artifacts/`
-- from the scenery repo root, manifest output reports `.scenery/harness/self-latest.json`, `.scenery/harness/self-summary-latest.json`, and `.scenery/harness/artifacts/`
-- focused artifact output reads known `.scenery/harness/*-latest.json` files by name (`self-harness`, `self-summary`, `toolchain`, `changed-area`, `drift`, `test-timing`, `fixture-matrix`, `schema-validation`, `agent-context`)
+- from the scenery repo root, manifest output reports `.scenery/harness/self-latest.json`, `.scenery/harness/self-summary-latest.json`, `.scenery/harness/agent-context-summary.json`, and `.scenery/harness/artifacts/`
+- focused artifact output reads known `.scenery/harness/*-latest.json` files by name (`self-harness`, `self-summary`, `toolchain`, `changed-area`, `drift`, `test-timing`, `fixture-matrix`, `schema-validation`, `agent-context`, `agent-context-summary`)
 - diagnostics output caps returned diagnostics at 50 and supports `--severity error|warning`
 - timing output reads `.scenery/harness/test-timing-latest.json`, sorts slow packages/tests by duration, and caps both lists with `--top`
 - a missing named artifact file (including the timing artifact) is `failed_precondition` (`SCN8003`, exit 3) pointing at `go run ./scripts/verify --summary --write`; an unknown artifact name is `invalid_request` (`SCN8001`, exit 2), never an internal `SCN9000`
@@ -2173,7 +2175,9 @@ Path-query output contains only applicable `AGENTS.md` scopes, the owning
 `ARCHITECTURE.md` section, matching current-contract sections, relevant active
 ExecPlans, related schemas, and applicable verification commands. A completed
 historical plan is omitted unless its own path is queried directly. Ordinary
-path queries are capped at eight documents and should remain below 10 KiB.
+single-path queries are capped at eight documents and should remain below 10 KiB without text. Repeated `--for-path` accepts up to 16 paths, normalizes/sorts/deduplicates `query.for_paths`, and unions scopes, documents, sections and required commands; full supersedes quick. This is a union, not an eight-document cap across distinct paths.
+`--include-text` requires a path query and adds `query.include_text` and exact source `section.excerpt` objects; invalid UTF-8 sources are rejected rather than rewritten by JSON encoding. Each excerpt includes the whole-file SHA-256 `content_revision`, its actual included `end_line`, and `truncated`; text is bounded to 2,048 UTF-8 bytes per section / 8,192 across the response, stopping at complete lines. An oversized first line or exhausted budget yields empty text with an explicit truncated marker. Read the original span when the omitted contract matters. A directly queried document uses an empty anchor to mean the complete file span. Relevant active plans expose their `Resume here` section when present. Owned public TypeScript renderer paths select normative scalar/composite/record/API sections instead of unrelated runtime-keyword matches.
+
 Routing and commands reuse self-harness changed-area logic. The command list
 is prospective for the queried path, not proof of execution or a classification
 of the whole working-tree diff. Documentation selects quick; ordinary Go edits
@@ -2184,12 +2188,12 @@ Choose the repository verification mode using the complete change and the root
 validation matrix, then record the selected run's actual results.
 
 Scheduled freshness applies to living contracts, instructions, schemas, and
-active plans. A completed numbered ExecPlan is immutable historical evidence:
-its `review_due` value is always false even after its recorded `review_after`
-date, it does not contribute to `review_due_count`, and ordinary tag or
-review-due filters omit it. `--status completed`, `--all`, and a direct plan
-path provide explicit archive access. A completed plan is still surfaced as an
-actionable exception when `freshness: "stale"` records a known contradiction,
+active plans. Completed or deprecated numbered ExecPlans are immutable historical
+evidence: `review_due` is always false even after the recorded `review_after`
+date, they do not contribute to `review_due_count`, and review-due filters omit
+them. Ordinary tag filters also omit completed plans. The matching `--status`,
+`--all`, and a direct plan path provide explicit archive access. A historical plan
+is still surfaced as an actionable exception when `freshness: "stale"` records a known contradiction,
 the completed index contains a broken link, or the active index references it
 as current.
 
@@ -2206,7 +2210,7 @@ Example output:
   },
   "query": {
     "mode": "path",
-    "for_path": "internal/generate/client.go"
+    "for_paths": ["internal/generate/client.go"]
   },
   "summary": {
     "document_count": 134,

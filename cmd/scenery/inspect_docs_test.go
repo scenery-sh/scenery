@@ -224,7 +224,7 @@ Generate and check the target before handoff.
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.Query.Mode != "path" || payload.Query.ForPath != "internal/generate/client.go" {
+	if payload.Query.Mode != "path" || strings.Join(payload.Query.ForPaths, ",") != "internal/generate/client.go" {
 		t.Fatalf("query = %+v", payload.Query)
 	}
 	if got := inspectDocsScopePaths(payload.Agents.Scopes); got != "AGENTS.md,internal/generate/AGENTS.md" {
@@ -397,7 +397,7 @@ func TestRunSceneryInspectDocsCatalogFiltersAndDirectCompletedPlan(t *testing.T)
 	}
 }
 
-func TestCompletedExecPlanFreshnessPolicy(t *testing.T) {
+func TestHistoricalExecPlanFreshnessPolicy(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
@@ -412,6 +412,11 @@ func TestCompletedExecPlanFreshnessPolicy(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "deprecated ExecPlan is historical",
+			doc:  inspectDocsTestDocument("docs/plans/0002-history.md", "History", "deprecated", []string{"plans", "execplans"}),
+			want: false,
+		},
+		{
 			name: "active ExecPlan retains deadline",
 			doc:  inspectDocsTestDocument("docs/plans/0003-active.md", "Active", "active", []string{"plans", "execplans"}),
 			want: true,
@@ -419,6 +424,16 @@ func TestCompletedExecPlanFreshnessPolicy(t *testing.T) {
 		{
 			name: "living contract retains deadline",
 			doc:  inspectDocsTestDocument("docs/local-contract.md", "Contract", "active", []string{"contract"}),
+			want: true,
+		},
+		{
+			name: "deprecated contract retains deadline",
+			doc:  inspectDocsTestDocument("docs/retired-contract.md", "Contract", "deprecated", []string{"contract"}),
+			want: true,
+		},
+		{
+			name: "completed schema retains deadline",
+			doc:  inspectDocsTestDocument("docs/schemas/current.schema.json", "Schema", "completed", []string{"schema"}),
 			want: true,
 		},
 	} {

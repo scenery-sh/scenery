@@ -2,14 +2,13 @@
 
 ## Purpose
 
-Own repository verification outside the application executable.
+Own repository verification outside the app executable.
 
 ## Ownership
 
-This command owns repository orchestration, architecture/document checks,
-release probes, timing policy and their report writers. `internal/testsuite`
-retains fresh-test execution, binary caching and scheduling. Product commands
-must not import this command or that engine.
+Own orchestration, architecture/document checks, release probes, timing and
+reports. `internal/testsuite` retains fresh execution, binary caching and
+scheduling. Product commands must not import either owner.
 
 ## Local Contracts
 
@@ -29,7 +28,9 @@ must not import this command or that engine.
   then proves coexistence/native migration in a separate current home inside the
   same disposable daemon. Preserve the old-data and continuous-sibling checks;
   do not add a product compatibility decoder to satisfy the old fixture.
-- Reports use shared types and exact schemas; archive each run before updating latest.
+- Reports use shared types and exact schemas; archive before updating latest.
+  Compact context preserves run/input identity, diagnostics and remaining/conditional
+  requirements; unrecorded checks never pass.
 - The `--probe auth` step (also mandatory in release) builds
   `testdata/authprobe` and runs all 15 inventoried public-boundary journeys
   in fresh native processes and owned databases. Missing Docker, incomplete
@@ -94,7 +95,7 @@ identity, incompatibility rejection, RSS retention evidence, and the rule that
 a successful verifier step may still report `no_go`. This lane is not a product
 runtime and never joins the functional release catalog.
 
-Run `go test ./scripts/verify` and the root validation union. For changed probe
+Run `go test ./scripts/verify` and root validation. For changed probe
 execution or ownership, run its exact `--probe <id>` and check its assertion
 inventory and cleanup. Full release and timing audits are explicit workflows,
 not mandatory iteration steps. A successful build alone does not prove an

@@ -42,7 +42,7 @@ func buildHarnessCLIContractReportWithReader(repoRoot, fixture string, diagnosti
 	}{
 		{"version", "scenery version [-o json]", []string{"version", "-o", "json"}},
 		{"check", "scenery check [--app-root <path>] [-o json]", []string{"check", "--app-root", fixture, "-o", "json"}},
-		{"inspect docs", "scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]", []string{"inspect", "docs", "--repo-root", repoRoot, "--all", "-o", "json"}},
+		{"inspect docs", "scenery inspect docs -o json [--repo-root <path>] [--for-path <path>... [--include-text]|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]", []string{"inspect", "docs", "--repo-root", repoRoot, "--all", "-o", "json"}},
 		{"inspect ui", "scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]", []string{"inspect", "ui", "--app-root", fixture, "-o", "json"}},
 		{"inspect harness", "scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]", []string{"inspect", "harness", "--repo-root", repoRoot, "-o", "json"}},
 		{"ps", "scenery ps [-o json] [--app-root <path>] [--watch]", []string{"ps", "--app-root", fixture, "-o", "json"}},

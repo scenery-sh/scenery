@@ -12,15 +12,17 @@ func TestValidateDocsKnowledgeDoesNotRequestHistoricalPlanReview(t *testing.T) {
 	t.Parallel()
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
-	const planPath = "docs/plans/0002-history.md"
-	writeTestAppFile(t, root, planPath, "# Completed\n")
-	document := inspectDocsTestDocument(planPath, "History", "completed", []string{"plans", "execplans"})
-	document.ReviewAfter = "2026-07-01"
-	appendInspectDocsTestDocuments(t, root, document)
+	for _, status := range []string{"completed", "deprecated"} {
+		planPath := "docs/plans/0002-" + status + ".md"
+		writeTestAppFile(t, root, planPath, "# History\n")
+		document := inspectDocsTestDocument(planPath, "History", status, []string{"plans", "execplans"})
+		document.ReviewAfter = "2026-07-01"
+		appendInspectDocsTestDocuments(t, root, document)
+	}
 
 	diagnostics, _ := validateDocsKnowledge(root)
 	for _, diagnostic := range diagnostics {
-		if strings.Contains(diagnostic.Message, "document review is due") && strings.Contains(diagnostic.Message, planPath) {
+		if strings.Contains(diagnostic.Message, "document review is due") && strings.Contains(diagnostic.Message, "docs/plans/0002-") {
 			t.Fatalf("historical plan received review warning: %+v", diagnostic)
 		}
 	}

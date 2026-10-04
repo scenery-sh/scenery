@@ -50,20 +50,22 @@ type KnowledgeDocument struct {
 }
 
 type Options struct {
-	ForPath   string
-	Tag       string
-	Status    string
-	ReviewDue bool
-	All       bool
+	ForPaths    []string
+	IncludeText bool
+	Tag         string
+	Status      string
+	ReviewDue   bool
+	All         bool
 }
 
 type Query struct {
-	Mode      string `json:"mode"`
-	ForPath   string `json:"for_path,omitempty"`
-	Tag       string `json:"tag,omitempty"`
-	Status    string `json:"status,omitempty"`
-	ReviewDue bool   `json:"review_due,omitempty"`
-	All       bool   `json:"all,omitempty"`
+	Mode        string   `json:"mode"`
+	ForPaths    []string `json:"for_paths,omitempty"`
+	IncludeText bool     `json:"include_text,omitempty"`
+	Tag         string   `json:"tag,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	ReviewDue   bool     `json:"review_due,omitempty"`
+	All         bool     `json:"all,omitempty"`
 }
 
 type Response struct {
@@ -127,8 +129,16 @@ type Document struct {
 }
 
 type Section struct {
-	Heading   string `json:"heading"`
-	Anchor    string `json:"anchor"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
+	Heading   string   `json:"heading"`
+	Anchor    string   `json:"anchor"`
+	StartLine int      `json:"start_line"`
+	EndLine   int      `json:"end_line"`
+	Excerpt   *Excerpt `json:"excerpt,omitempty"`
+}
+
+type Excerpt struct {
+	Text            string `json:"text"`
+	EndLine         int    `json:"end_line"`
+	Truncated       bool   `json:"truncated"`
+	ContentRevision string `json:"content_revision"`
 }

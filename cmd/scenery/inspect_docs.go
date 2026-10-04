@@ -85,7 +85,7 @@ func buildInspectDocsResponseForOptions(repoRoot string, opts inspectDocsOptions
 	case "filter":
 		resp.Documents = filterInspectDocsDocuments(allDocuments, query)
 	case "path":
-		route, err := buildInspectDocsPathRoute(repoRoot, query.ForPath, allDocuments, allAgents)
+		route, err := buildInspectDocsPathsRoute(repoRoot, query.ForPaths, allDocuments, allAgents)
 		if err != nil {
 			return inspectDocsResponse{}, err
 		}
@@ -95,6 +95,11 @@ func buildInspectDocsResponseForOptions(repoRoot string, opts inspectDocsOptions
 	case "summary":
 	default:
 		return inspectDocsResponse{}, fmt.Errorf("unsupported inspect docs query mode %q", query.Mode)
+	}
+	if query.IncludeText {
+		if err := attachInspectDocsExcerpts(repoRoot, resp.Documents); err != nil {
+			return inspectDocsResponse{}, err
+		}
 	}
 	resp.Summary.SelectedDocumentCount = len(resp.Documents)
 	return resp, nil

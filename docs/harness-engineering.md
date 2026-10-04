@@ -44,7 +44,7 @@ preflight evidence, not application readiness. Inspect the warning details
 before treating a passing run as sufficient for the current acceptance scope.
 
 Select quick or full from the final changed paths and the root matrix; run full
-directly when required. Read `agent-context.json` in that run's reported
+directly when required. Read `agent-context-summary.json` first in that run's reported
 `run.archive_path`, then fulfill checks not already covered for those same inputs.
 An empty change set does not require another verifier. Use doctor only when
 readiness is unknown or a prerequisite fails.
@@ -299,7 +299,8 @@ The same evidence model is shared by the app harness, self-harness, and release
 gate so agents can inspect failures without scraping terminal
 scrollback.
 
-The self-harness archives `agent-context.json` together with `self.json` and
+The self-harness archives `agent-context.json` and its compact
+`agent-context-summary.json` together with `self.json` and
 `summary.json` under `.scenery/harness/runs/<run-id>/`. It includes current failing steps, the first file to
 read for each failure, exact rerun commands, deterministic validation classes,
 their changed-area command union, relevant active ExecPlans, recent failed
@@ -312,9 +313,10 @@ compact `scenery.harness.self.summary` decision packet and writes:
 <repo-root>/.scenery/harness/runs/<run-id>/self.json
 <repo-root>/.scenery/harness/runs/<run-id>/summary.json
 <repo-root>/.scenery/harness/runs/<run-id>/agent-context.json
+<repo-root>/.scenery/harness/runs/<run-id>/agent-context-summary.json
 ```
 
-All three files share `run.id` and the before/after input revisions. The verifier
+All four files share `run.id` and the before/after input revisions. The verifier
 rejects source drift during validation. Publication is atomic and refuses to
 replace a run; latest copies are refreshed afterward for navigation. Topic
 reports are embedded in `self.json`; latest drilldowns may belong to another run.
@@ -324,6 +326,14 @@ and symlink targets, not external state or changes reverted between boundaries.
 Use `go run ./scripts/verify -o json --write` only when stdout must contain the
 full `scenery.harness.self` archive. Agents should prefer artifacts and focused
 inspect commands over pasting `.scenery/harness/self-latest.json` into chat.
+
+Start with `agent-context-summary.json`: it separates `covered`, `remaining` and
+`conditional` checks without claiming unrecorded or external proof. Read the full
+context only for detailed changes, failures or classification. Separate successful
+lint/generation receipts can satisfy remaining requirements for identical inputs;
+the summary does not invent those receipts. Compare current authored inputs with
+the archived revision before reuse; matching HEAD alone is insufficient. The
+existing artifact inspector reads the navigation summary without running tests.
 
 ## Repository Self-Harness Checks
 
@@ -393,10 +403,10 @@ Use `scenery inspect docs --review-due -o json` to choose cleanup work and
 `--all` only for complete catalog validation. `go run ./scripts/verify --summary
 --write` includes the same docs freshness signals in its summaries.
 Scheduled freshness covers living contracts, instructions, schemas, and active
-plans. Completed numbered ExecPlans are immutable history and never enter the
-review-due queue; request them explicitly with `--status completed`, `--all`,
+plans. Completed or deprecated numbered ExecPlans are immutable history and never
+enter the review-due queue; inspect them with the matching `--status`, `--all`,
 or their direct path. Broken links from the completed index, stale knowledge
-metadata that flags a contradiction, and completed plans referenced from the
+metadata that flags a contradiction, and historical plans referenced from the
 active index remain actionable knowledge-contract signals.
 
 Keep `docs/knowledge.json` aligned with agent-facing source-of-truth docs. Until
@@ -423,6 +433,10 @@ Warnings:
 - `.DS_Store` files found in the working tree
 The dependency allowlist is intentionally small and lives in code next to the check. New direct dependencies should be rare and must include the reason they justify the added maintenance surface.
 
+Go, TypeScript, and TSX files with a first-line `// Code generated ... DO NOT EDIT.`
+header are exempt from file-size limits. Import and source-hygiene checks still
+apply to these files.
+
 A root dependency bump must also update every fixture module it makes older.
 Fixtures import generated, ignored packages, so `go mod tidy` fails in
 the repository copy: copy the fixture to a disposable directory, point its
@@ -441,3 +455,63 @@ read-only. Tidy that workspace instead; the probe keeps it under the reported
 - Quick validation does not require live application services. Full and release
   modes may provision disposable managed services and must clean up what they own.
 - It does not invent architecture rules. Add new checks only when the repo has a concrete invariant worth enforcing.
+
+## Repository Validation Matrix
+
+After editing, select quick or full from the changed areas below. Run full
+instead of quick when any area requires it; do not run quick first merely to
+choose full. The selected `--write` run publishes
+the reported `run.archive_path` bundle. In its `agent-context.json`, inspect
+`changed_area.validation_classes` and fulfill the union in
+`changed_area.recommended_commands`. If new changes add a class, complete its
+additional checks. A pre-edit snapshot cannot prove the final change.
+
+Every verifier builds the worktree-local product binary. See
+[Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
+Repository verification belongs to `scripts/verify`, not the application CLI.
+
+| Changed area | Minimum proof |
+|---|---|
+| Documentation only | `go run ./scripts/verify --quick --summary --write` |
+| Go package(s) | affected `go test ./<package>` commands, then `go test ./...` |
+| CLI JSON contract | `go test ./cmd/scenery`, quick verifier, matching `docs/local-contract.md` update |
+| Compiler or generator | affected tests, both fixture regenerations below, then `go test ./...` |
+| UI catalog or `tools/typescript` | `tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json`, `go test ./internal/generate`, both fixture regenerations |
+| Release-sensitive or runtime | `go run ./scripts/verify --summary --write`; named probes for changed external boundaries |
+
+Matches are cumulative; unmatched source/config/fixtures require `go test ./...`.
+A successful verifier step satisfies the same required check for the same
+inputs and scope, including full's repository Go suite. Reuse that evidence;
+repeat or broaden checks only for new changes, failures or unresolved concerns.
+Run `golangci-lint run ./...`; `.golangci.yml` owns the explicit correctness set.
+`errorlint` checks wrapped-error comparisons/assertions, without mandating API
+wrapping. Suppress only a narrowly justified intentional rule violation.
+
+Quick/default/race are service-free. Changed external boundaries require their
+named `--probe <id>` from the [catalog](#explicit-probe-catalog),
+including assertion and cleanup evidence. Release certification is explicit:
+run only `scripts/release-gate.sh` (one `--release`). Benchmarks and all-root
+timing audits require an explicit human request.
+
+Keep Go's test cache enabled. `-count=1` and `--fresh-tests` are for explicit fresh
+measurement or nondeterminism investigation. **Every exact top-level Go test
+root must remain below repeated isolated 100ms p95, without exceptions**; aim
+for 50–60ms bodies. Real processes, toolchains, services, network and OS-boundary
+proof belong in explicit integration probes, with ordinary in-process coverage.
+Do not hide cost in TestMain, subtests, setup, shared fixtures or exception lists.
+
+Compiler/generator changes regenerate and include both committed clients:
+
+```sh
+go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json
+go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
+```
+
+Target-app changes use the cumulative
+[application changed-surface matrix](agent-guide.md#application-validation-and-completion),
+plus the app's declared checks and acceptance. Documentation-only and frontend-only
+changes do not independently require Go/runtime checks; affected declarations,
+Go consumers and runtime behavior retain their checks.
+Follow `ui/AGENTS.md` for the binary-owned catalog; do not bypass its
+boundaries. Scenery serves no dashboard UI: development tooling consumes the
+documented development runtime RPC through a generated `dev-runtime.ts` client.

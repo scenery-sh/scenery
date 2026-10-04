@@ -83,6 +83,16 @@ SQL, and browse, upload, download and delete local storage objects, while
 - [ ] Merge both branches; after the Scenery merge, repin ONLV to the merged
   Scenery commit.
 
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: Implementation and acceptance are recorded as pushed; both merges and ONLV repin remain open in this plan.
+- Next: Verify current branch/merge state before acting on the recorded remaining merge/repin step.
+- Boundary: The recorded status may have advanced externally. Do not infer current merge state or expand authorization to ONLV from this checkpoint.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+
 ## Surprises & Discoveries
 
 - In the normal agent-owned mode the worktree owner's dashboard backend never

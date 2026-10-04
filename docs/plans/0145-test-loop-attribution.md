@@ -26,6 +26,12 @@ optimize a number nothing can explain.
 
 ## Progress
 
+- [x] 2026-10-03: Reviewed current verifier timing policy and the archived
+      default run `20261003T203259.538950000Z` during Plan 0210. Its cached Go
+      suite took 7.463s against the unchanged advisory 5s budget. This is not a
+      fresh isolated-root audit. Plan 0169 retains the later failing-root
+      evidence; the historical passing cohort below does not close that work.
+
 - [x] 2026-08-24: Replaced the 500ms/three-sample median outlier policy with a
       fast-test contract. Exact top-level `TestX` roots are fast by default,
       enter confirmation at 60ms, and violate at a nearest-rank p95 of 100ms
@@ -444,6 +450,16 @@ optimize a number nothing can explain.
       `cmd/scenery` samples moved from 11.814/10.632/11.153s (median 11.153s) to
       10.265/10.196/10.173s (median 10.196s): 0.957s and 8.6%, above the 0.5s /
       5% retain threshold. Focused ordinary and `-race -count=3` tests passed.
+
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: Test-loop work remains open; Plan 0210 recorded a zero-warning cached run, while Plan 0169 isolated-root acceptance is unresolved.
+- Next: Use the current run identity and remaining timing work here/0169 to choose the next explicitly requested measurement.
+- Boundary: The 0210 cached-suite result is not fresh or isolated-root p95 proof; no new all-root audit is authorized by this checkpoint.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
 
 ## Surprises & Discoveries
 
@@ -1006,6 +1022,11 @@ optimize a number nothing can explain.
   Date/Author: 2026-08-19 / Grok.
 
 ## Outcomes & Retrospective
+
+Current review (2026-10-03): this plan remains open. The latest default cached
+run exceeds the 5s suite budget, and Plan 0169 separately records unresolved
+isolated-root acceptance. Earlier dated timings below describe their own
+cohorts and do not establish the current checkout's timing status.
 
 Open. The confirmation-scope change removes the largest reported cost
 (99.506s of confirmation) from everyday fresh runs without losing regression

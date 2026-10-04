@@ -75,6 +75,16 @@ capture instead of extending historical inference further.
       isolated runs.
 - [ ] Commit and review; ONLV adoption and native capture follow separately.
 
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: Implementation and repository proof are recorded as complete; review/merge remains open.
+- Next: Recheck the current diff and merge status before closing; ONLV adoption/native capture are separate follow-ups.
+- Boundary: The installed launchd agent was not upgraded live. Restarting it still needs an explicit user request.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+
 ## Surprises & Discoveries
 
 - This host's installed `dev.scenery.agent.plist` lacks `--supervised`

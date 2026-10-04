@@ -17,7 +17,7 @@
       "const": "scenery.inspect.docs"
     },
     "schema_revision": {
-      "const": "sha256:cef606ca6894f7126a86ead96efcc6c7eacababa97be5c68b19db7514e734112"
+      "const": "sha256:3d40c8218ec9c21a781217f914817bcbec8f2c6663f86406493048919dc72334"
     },
     "repo": {
       "type": "object",
@@ -53,9 +53,6 @@
             "path"
           ]
         },
-        "for_path": {
-          "type": "string"
-        },
         "tag": {
           "type": "string"
         },
@@ -71,6 +68,19 @@
           "type": "boolean"
         },
         "all": {
+          "type": "boolean"
+        },
+        "for_paths": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "include_text": {
           "type": "boolean"
         }
       },
@@ -348,9 +358,38 @@
         "end_line": {
           "type": "integer",
           "minimum": 1
+        },
+        "excerpt": {
+          "$ref": "#/$defs/excerpt"
         }
       },
       "additionalProperties": false
+    },
+    "excerpt": {
+      "additionalProperties": false,
+      "properties": {
+        "content_revision": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "end_line": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "end_line",
+        "truncated",
+        "content_revision"
+      ],
+      "type": "object"
     }
   }
 }

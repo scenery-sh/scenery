@@ -51,6 +51,7 @@ func buildInspectHarnessResponse(opts inspectOptions) (inspectHarnessResponse, e
 		newInspectHarnessLatest("app-harness", ".scenery/harness/latest.json", "scenery.harness.result"),
 		newInspectHarnessLatest("self-harness", ".scenery/harness/self-latest.json", "scenery.harness.self"),
 		newInspectHarnessLatest("self-summary", ".scenery/harness/self-summary-latest.json", harnessSelfSummaryKind),
+		newInspectHarnessLatest("agent-context-summary", ".scenery/harness/agent-context-summary.json", "scenery.agent_context.summary"),
 		newInspectHarnessLatest("evidence-artifacts", ".scenery/harness/artifacts", harnessArtifactEvidenceKind),
 	}
 	for _, item := range candidates {

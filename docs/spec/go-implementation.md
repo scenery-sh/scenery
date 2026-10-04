@@ -746,7 +746,7 @@ generate application files.
 `scenery check` reports missing/stale local Go output and verifies native
 implementation against the current expected overlay without source repair.
 `generate --check` likewise compares without repair. `test`, `build`, `up` and
-build-consuming worker/library paths prepare current public packages before
+build-consuming worker paths prepare current public packages before
 analysis, including cache hits and branch changes. Watch MUST observe relevant
 source/module/lock changes and missing generated output without looping on its
 own generated writes. Hermetic Go children still use their declared target

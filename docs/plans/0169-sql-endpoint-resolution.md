@@ -70,6 +70,16 @@ snapshot/recovery, environment ABI, compiler, or public API changes are planned.
   quick verification passed with the existing 42 knowledge and 23 architecture
   warnings. `bash -n scripts/release-gate.sh` and `git diff --check` passed.
 
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: SQL/auth implementation is delivered; isolated-root timing failures outside that scope still block acceptance.
+- Next: Review the recorded failing roots and deferred repairs before proposing a separately authorized timing effort.
+- Boundary: Delivery authorization did not waive timing policy or authorize automatic continuation of deferred repairs.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+
 ## Surprises & Discoveries
 
 - `runtime` constructs a registry, whereas `db` first consumes an already

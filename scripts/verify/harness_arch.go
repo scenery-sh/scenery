@@ -125,7 +125,7 @@ var legacyIdentityMigrationFiles = map[string]struct{}{
 	"internal/agent/identity_test.go":                {},
 	"internal/agent/registry.go":                     {},
 	"internal/agent/state.go":                        {},
-	"internal/deployplan/deployplan.go":              {},
+	"internal/deployplan/deployment_state.go":        {},
 	"internal/deployplan/deployplan_test.go":         {},
 	"internal/deployplan/recovery.go":                {},
 	"internal/edge/dns.go":                           {},
@@ -478,11 +478,13 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 			return nil
 		}
 		summary.CheckedFiles++
-		lineCount, err := countFileLines(path)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		if lineCount >= architectureErrorLines && !architectureAllowsLongFile(rel) {
+		lineCount := countFileLines(data)
+		checkSize := !architectureAllowsLongFile(rel) && !architectureGeneratedSource(ext, data)
+		if lineCount >= architectureErrorLines && checkSize {
 			summary.LargeFiles++
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "architecture checks",
@@ -491,7 +493,7 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 				Message:         fmt.Sprintf("file has %d lines, over hard limit %d", lineCount, architectureErrorLines),
 				SuggestedAction: "Split the file before adding more behavior.",
 			})
-		} else if lineCount >= architectureWarnLines && !architectureAllowsLongFile(rel) {
+		} else if lineCount >= architectureWarnLines && checkSize {
 			summary.LargeFiles++
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "architecture checks",
@@ -932,19 +934,25 @@ func architectureGeneratedOrVendored(rel string) bool {
 	return false
 }
 
-func countFileLines(path string) (int, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
+// Generated headers exempt file size only; source hygiene and imports still apply.
+func architectureGeneratedSource(ext string, data []byte) bool {
+	if ext != ".go" && ext != ".ts" && ext != ".tsx" {
+		return false
 	}
+	line, _, _ := bytes.Cut(data, []byte{'\n'})
+	line = bytes.TrimSuffix(line, []byte{'\r'})
+	return bytes.HasPrefix(line, []byte("// Code generated ")) && bytes.HasSuffix(line, []byte(" DO NOT EDIT."))
+}
+
+func countFileLines(data []byte) int {
 	if len(data) == 0 {
-		return 0, nil
+		return 0
 	}
 	count := bytes.Count(data, []byte{'\n'})
 	if !bytes.HasSuffix(data, []byte{'\n'}) {
 		count++
 	}
-	return count, nil
+	return count
 }
 
 func readOptionalText(path string) string {

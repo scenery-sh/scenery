@@ -5282,12 +5282,14 @@ The following details are not part of the current specification:
 - the complete provider capability vocabulary;
 - the runtime workflow model;
 - stream and WebSocket type details;
-- source-compatible versus wire-compatible change classification;
-- patch authorization and review policy;
 - registry trust roots, signing, and revocation policy;
-- provider deployment-plan schema and target-platform vocabulary;
-- migration syntax for entity evolution.
+- migration syntax for entity evolution;
 - platform-specific HTTP listener and certificate schemas;
-- native toolchain identity schemas for CGO and architecture-specific builds.
+
+Implemented compatibility classifications are defined by [evolution.md](evolution.md).
+Approval-bound source changes and deployment plans are defined by Section 22 and
+the checked [change-plan](../schemas/scenery.change-plan.schema.json) and
+[deployment-plan](../schemas/scenery.deployment-plan.schema.json) schemas. Go target and native-tool
+identities are defined by [go-implementation.md](go-implementation.md).
 
 Until specified, tools MUST identify these features as unsupported. They MUST NOT invent silent defaults.

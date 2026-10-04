@@ -190,7 +190,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Query resources and provenance | `scenery list|get|explain|graph ... -o json` |
 | Inspect routed app views | `scenery inspect app|routes|services|endpoints -o json` |
 | Inspect assistant surfaces | `scenery inspect assistants [--implementation] -o json` |
-| Discover docs for a repository path | `scenery inspect docs --for-path <path> -o json` |
+| Discover docs for a repository path | `scenery inspect docs --for-path <path>... -o json` |
 | Rank React UI guardrail drift | `scenery inspect ui [--frontend <name>] -o human|json` |
 | Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
 | Inspect durable/storage capabilities | `scenery inspect durable -o json`, `scenery inspect storage -o json` |
@@ -567,7 +567,7 @@ Report the commands and outcomes, current served identity, and uncovered work.
 
 ## Working In The scenery Repository
 
-Use `scenery inspect docs --for-path <path> -o json` when you need to locate applicable instruction scopes, architecture/contract sections, active plans, schemas or verification commands. Read applicable root/child instructions and only the reference sections required by the change; a known typo does not require broad discovery. Use `--review-due` for doc gardening and `--all` for the complete catalog. Complex features, migrations and substantial refactors use an ExecPlan; small fixes do not.
+Use `scenery inspect docs --for-path <path>... -o json` when you need to locate applicable instruction scopes, architecture/contract sections, active plans, schemas or verification commands. Read applicable root/child instructions and only the reference sections required by the change; a known typo does not require broad discovery. Add `--include-text` for bounded source excerpts; read original spans beyond explicit truncation when needed. Use `--review-due` for doc gardening and `--all` for the complete catalog. Complex features, migrations and substantial refactors use an ExecPlan; small fixes do not.
 
 After editing, choose the mode from the current changed paths and the root
 [validation matrix](../AGENTS.md#validation-matrix). If any area requires full,
@@ -578,7 +578,7 @@ that full is required. Both modes write the current evidence snapshot:
 go run ./scripts/verify --quick --summary --write
 ```
 
-For full, omit `--quick`. Read `agent-context.json` inside the reported `run.archive_path` bundle from that
+For full, omit `--quick`. Start with `agent-context-summary.json`, which identifies covered, remaining and conditional checks. Read the detailed `agent-context.json` inside the reported `run.archive_path` bundle from that
 selected run and fulfill the union in `changed_area.recommended_commands`.
 `validation_classification` explains the cumulative matching rows. A successful
 step already executed by the verifier satisfies the same required command for
@@ -863,4 +863,23 @@ cleanup failure cannot produce a passing release result.
 
 ## Keeping Agent Docs Fresh
 
-When behavior changes, update the current owning layers together: root/child `AGENTS.md`, `SKILL.md`, this guide, `docs/local-contract.md`, app cookbook, schemas, and `docs/knowledge.json` as applicable. Completed ExecPlans are immutable history and have no scheduled review deadline; put current-contract pointers in living guidance or `docs/plans/completed.md`, and use stale knowledge metadata to flag a known contradiction instead of rewriting original decisions.
+When behavior changes, update the current owning layers together: root/child `AGENTS.md`, `SKILL.md`, this guide, `docs/local-contract.md`, app cookbook, schemas, and `docs/knowledge.json` as applicable. Completed or deprecated numbered ExecPlans are immutable history and have no scheduled review deadline; put current-contract pointers in living guidance or `docs/plans/completed.md`, and use stale knowledge metadata to flag a known contradiction instead of rewriting original decisions.
+
+## Repository Documentation Updates
+
+Update every affected layer with behavior changes; implementation-only edits need no instruction-doc change.
+
+| Changed surface | Owning document |
+|---|---|
+| Subtree ownership, workflow or checks | nearest `AGENTS.md` |
+| Repo-wide rules or validation | root `AGENTS.md` |
+| CLI, JSON, artifact paths or stability | `docs/local-contract.md` and schemas |
+| Agent workflows or app integration | `docs/agent-guide.md` and relevant skill route |
+| Human overview or examples | `README.md` or `docs/app-development-cookbook.md` |
+| Scenery env vars | `docs/environment.md` and `docs/environment.registry.json` |
+| Indexed docs or active ExecPlans | `docs/knowledge.json`; plans also `docs/plans/active.md` |
+
+Keep active plans' Progress, Surprises & Discoveries, Decision Log and Outcomes
+current. Completed or deprecated numbered plans are immutable history, without
+freshness reviews. Put later guidance or contradictions in living docs, the completed
+index or knowledge metadata. Historical notes are not current contracts.

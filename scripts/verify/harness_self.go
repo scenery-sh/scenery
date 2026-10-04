@@ -703,6 +703,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.harness.fixture_matrix.schema.json",
 		"docs/schemas/scenery.harness.schema_validation.schema.json",
 		"docs/schemas/scenery.agent_context.schema.json",
+		"docs/schemas/scenery.agent_context.summary.schema.json",
 		"docs/schemas/scenery.help.schema.json",
 		"docs/schemas/scenery.harness.result.schema.json",
 		"docs/schemas/scenery.dev-runtime.status.schema.json",
@@ -761,9 +762,10 @@ func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harness
 		newHarnessArtifact("fixture-matrix", ".scenery/harness/fixture-matrix-latest.json", harnessFixtureMatrixKind, false),
 		newHarnessArtifact("schema-validation", ".scenery/harness/schema-validation-latest.json", harnessSchemaValidationKind, false),
 		newHarnessArtifact("agent-context", ".scenery/harness/agent-context.json", harnessAgentContextKind, false),
+		newHarnessArtifact("agent-context-summary", ".scenery/harness/agent-context-summary.json", harnessAgentContextSummaryKind, false),
 	}
 	if resp.Run != nil && resp.Run.ArchivePath != "" {
-		names := map[string]string{"self-harness": "self.json", "self-summary": "summary.json", "agent-context": "agent-context.json"}
+		names := map[string]string{"self-harness": "self.json", "self-summary": "summary.json", "agent-context": "agent-context.json", "agent-context-summary": "agent-context-summary.json"}
 		for i := range artifacts {
 			if name := names[artifacts[i].Name]; name != "" {
 				artifacts[i].Path = resp.Run.ArchivePath + "/" + name
@@ -772,15 +774,16 @@ func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harness
 	}
 
 	reportWillExist := map[string]bool{
-		"self-harness":      selfWillExist,
-		"self-summary":      selfWillExist,
-		"toolchain":         selfWillExist && resp.Toolchain != nil,
-		"changed-area":      selfWillExist && resp.ChangedArea != nil,
-		"drift":             selfWillExist && resp.Drift != nil,
-		"test-timing":       selfWillExist && resp.TestTiming != nil,
-		"fixture-matrix":    selfWillExist && resp.FixtureMatrix != nil,
-		"schema-validation": selfWillExist,
-		"agent-context":     selfWillExist,
+		"self-harness":          selfWillExist,
+		"self-summary":          selfWillExist,
+		"toolchain":             selfWillExist && resp.Toolchain != nil,
+		"changed-area":          selfWillExist && resp.ChangedArea != nil,
+		"drift":                 selfWillExist && resp.Drift != nil,
+		"test-timing":           selfWillExist && resp.TestTiming != nil,
+		"fixture-matrix":        selfWillExist && resp.FixtureMatrix != nil,
+		"schema-validation":     selfWillExist,
+		"agent-context":         selfWillExist,
+		"agent-context-summary": selfWillExist,
 	}
 	for i := range artifacts {
 		if reportWillExist[artifacts[i].Name] {
@@ -795,6 +798,9 @@ func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harness
 
 func writeHarnessSelfOracleArtifacts(repoRoot string, resp harnessSelfResponse, contextPack harnessAgentContext) error {
 	harnessRoot := filepath.Join(repoRoot, ".scenery", "harness")
+	if err := writeHarnessCompactJSONFile(filepath.Join(harnessRoot, "agent-context-summary.json"), buildHarnessAgentContextSummary(resp, contextPack)); err != nil {
+		return err
+	}
 	if err := writeHarnessCompactJSONFile(filepath.Join(harnessRoot, "self-summary-latest.json"), buildHarnessSelfSummary(resp)); err != nil {
 		return err
 	}

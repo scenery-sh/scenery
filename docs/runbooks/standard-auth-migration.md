@@ -27,6 +27,7 @@ scenery standard auth owns managed Postgres tables in the `scenery` schema with 
 scenery_auth_tenants
 scenery_auth_users
 scenery_auth_auth_identities
+scenery_auth_google_connections
 scenery_auth_organization_memberships
 scenery_auth_refresh_sessions
 scenery_auth_one_time_tokens
@@ -51,12 +52,29 @@ Usually do not preserve:
 - expired or consumed one-time tokens
 - revoked or expired refresh sessions unless audit requirements say otherwise
 
+Google connection credentials in `scenery_auth_google_connections` are separate
+from Google sign-in identities. This runbook's copy SQL does not migrate them.
+Existing connected-account tokens require a separate mapping to the current
+table and compatible encryption using the target environment's
+`auth.token_cipher_key`. If that mapping cannot be verified, have users reconnect
+their Google account; never copy plaintext into the ciphertext columns.
+
 ## Preconditions
 
 1. Freeze auth writes or put the app in maintenance mode.
 2. Take a database backup.
 3. Deploy a Scenery build that contains standard auth support, but do not route production traffic to it yet.
-4. Use the canonical `JWT_SECRET` value that signed the existing access tokens. Refresh-cookie naming is not configurable: only `scenery_refresh` is accepted, so deployments using another cookie name require an explicit forced-login migration.
+4. Configure `auth.jwt_secret` in the target application's named environment
+   with the same secret that signed the existing access tokens:
+
+   ```sh
+   scenery config set auth.jwt_secret --env production
+   ```
+
+   The command prompts for the secret; do not put it in the command line or this
+   runbook. Standard auth ignores the former `JWT_SECRET` process variable.
+   Refresh-cookie naming is not configurable: only `scenery_refresh` is accepted,
+   so deployments using another cookie name require an explicit forced-login migration.
 5. Bootstrap the target schema on a copy of production first:
 
    ```sh
@@ -514,5 +532,7 @@ If cutover fails after traffic moves:
 
 - Password hashes are copied as opaque strings. scenery verifies Argon2id hashes and can upgrade hash parameters on successful login.
 - Refresh-session preservation requires the same token shape and the canonical `scenery_refresh` cookie name. Other cookie names are not accepted and require users to log in again.
-- Access JWTs only survive cutover if the new app uses the same canonical `JWT_SECRET` value and compatible claims. If not, users will need refresh or login.
+- Access JWTs only survive cutover if the target environment's `auth.jwt_secret`
+  holds the same signing secret and the claims are compatible. Otherwise users
+  need refresh or login.
 - Directly editing this data with SQL is production-sensitive. Use explicit SQL, backups, and verification queries.

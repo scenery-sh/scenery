@@ -309,6 +309,7 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "harness.fixture_matrix", schemaRel: "docs/schemas/scenery.harness.fixture_matrix.schema.json", payload: resp.FixtureMatrix},
 		{name: "harness.schema_validation", schemaRel: "docs/schemas/scenery.harness.schema_validation.schema.json", payload: report},
 		{name: "agent_context", schemaRel: "docs/schemas/scenery.agent_context.schema.json", payload: buildHarnessAgentContext(repoRoot, resp)},
+		{name: "agent_context.summary", schemaRel: "docs/schemas/scenery.agent_context.summary.schema.json", payload: buildHarnessAgentContextSummary(resp, buildHarnessAgentContext(repoRoot, resp))},
 	}
 	for _, item := range items {
 		if harnessNilPayload(item.payload) {

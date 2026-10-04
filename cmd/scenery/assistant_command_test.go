@@ -19,7 +19,7 @@ func TestAssistantStatusSnapshotSchemaRevisionMatchesDescriptor(t *testing.T) {
 }
 
 func TestInspectAssistantsDefaultsToProviderNeutral(t *testing.T) {
-	root := filepath.Join(repoRootForTest(t), "internal", "compiler", "testdata", "native")
+	root := copyFixtureRoot(t, "native")
 	output := captureStdout(t, func() error {
 		return runSceneryInspect([]string{"assistants", "--app-root", root, "-o", "json"}, os.Stdout)
 	})
@@ -51,7 +51,7 @@ func TestInspectAssistantsDefaultsToProviderNeutral(t *testing.T) {
 }
 
 func TestInspectAssistantsImplementationIsExplicit(t *testing.T) {
-	root := filepath.Join(repoRootForTest(t), "internal", "compiler", "testdata", "native")
+	root := copyFixtureRoot(t, "native")
 	output := captureStdout(t, func() error {
 		return runSceneryInspect([]string{"assistants", "--implementation", "--app-root", root, "-o", "json"}, os.Stdout)
 	})
@@ -71,16 +71,7 @@ func TestInspectAssistantsImplementationIsExplicit(t *testing.T) {
 }
 
 func TestAssistantStatusReadsSnapshotAndRemainsProviderNeutral(t *testing.T) {
-	root := filepath.Join(repoRootForTest(t), "internal", "compiler", "testdata", "native")
-	statusPath, err := assistantStatusSnapshotPath(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.Remove(statusPath)
-		_ = os.Remove(filepath.Dir(statusPath))
-		_ = os.Remove(filepath.Dir(filepath.Dir(statusPath)))
-	})
+	root := copyFixtureRoot(t, "native")
 	output := captureStdout(t, func() error {
 		return runAssistantStatus([]string{"support", "--app-root", root, "-o", "json"}, os.Stdout)
 	})

@@ -73,7 +73,7 @@ func hashHarnessInputs(root string, paths []string) (string, error) {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// Publish all three observations together. Later runs only replace navigation
+// Publish all run observations together. Later runs only replace navigation
 // copies; acceptance links always identify the immutable archive directory.
 func publishHarnessRun(root string, resp harnessSelfResponse, contextPack harnessAgentContext) error {
 	if resp.Run == nil || resp.Run.ID == "" || filepath.Base(resp.Run.ID) != resp.Run.ID || resp.Run.ID == "." || resp.Run.ID == ".." {
@@ -102,6 +102,7 @@ func publishHarnessRun(root string, resp harnessSelfResponse, contextPack harnes
 		{"self.json", resp},
 		{"summary.json", buildHarnessSelfSummary(resp)},
 		{"agent-context.json", contextPack},
+		{"agent-context-summary.json", buildHarnessAgentContextSummary(resp, contextPack)},
 	} {
 		if err := writeHarnessJSONFile(filepath.Join(staging, item.name), item.value); err != nil {
 			return err

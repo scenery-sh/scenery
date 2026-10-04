@@ -25,7 +25,7 @@ func TestRunArchivesPreserveEvidenceAcrossLaterPublication(t *testing.T) {
 		if err := publishHarnessRun(root, resp, contextPack); err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"self.json", "summary.json", "agent-context.json"} {
+		for _, name := range []string{"self.json", "summary.json", "agent-context.json", "agent-context-summary.json"} {
 			data, err := os.ReadFile(filepath.Join(root, run.ArchivePath, name))
 			if err != nil {
 				t.Fatal(err)

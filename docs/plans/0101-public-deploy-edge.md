@@ -28,6 +28,11 @@ macOS is the supported platform for this plan. Linux code paths may compile but 
 
 ## Progress
 
+* [x] 2026-10-03: Reviewed the current deployment/resume owners and focused
+  tests during Plan 0210. The status and privileged-helper code is split into
+  cohesive files without changing declarations. The literal post-fix operator
+  reboot/login remains unobserved; this documentation review does not close it.
+
 * [x] 2026-07-07: Explored existing edge substrate (`cmd/scenery/edge.go`, `internal/agent/*`), confirmed privileged helper + Caddy + host routing already exist and are the right base.
 * [x] 2026-07-07: User decisions captured: full stack at login, live dev session as public target, one domain per app, CLI surface under `scenery deploy`.
 * [x] 2026-07-07: Created this ExecPlan and registered it in `docs/plans/active.md` and `docs/knowledge.json`.
@@ -65,6 +70,16 @@ macOS is the supported platform for this plan. Linux code paths may compile but 
 * [x] 2026-07-22: Post-fix runtime acceptance passed without touching either app process. An unavailable Caddy was replaced (`pid 28515` to `10407`) while ONLV session `main-dbe32e` and Micro session `main-2826af` remained registered and both targets reported `already_running`. Unloading and bootstrapping the exact `RunAtLoad` plist then produced `runs = 1`, `last exit code = 0`, `edge_restarted: false`, deploy status `ready: true`, and public HTTP 200 for both domains. A literal post-fix machine reboot/login remains the only operator-driven observation.
 * [x] 2026-09-01: Removed two synchronous operations from the public request hot path: completed durable-artifact migration markers are now idempotent instead of being atomically rewritten and fsynced on every registry load, and macOS owner verification reads process identity through native `sysctl` calls instead of spawning `ps` per request. Two live ONLV 40-request measurements over one warm HTTP/2 connection dropped local Caddy → agent → Vite p50 from `22.75 ms` to `2.95–4.41 ms`; one decomposition measured direct agent → Vite at `1.54 ms` p50 and direct Vite at `0.75 ms` p50. All routes returned 200, the live session survived the agent restart, and the migration-marker inode remained unchanged across requests. Focused agent tests, `go test ./...`, and the full self-harness passed.
 * [x] 2026-09-02: Replaced public request-time deploy loading and owner inspection with an immutable route snapshot. Agent startup and session registration validate candidate routes, deploy/session changes republish, and a 250ms owner monitor invalidates exited or fingerprint-mismatched owners. A focused test proves requests neither read a subsequently corrupted deploy registry nor call the owner verifier; invalidation retains the enabled-host `503` contract. Race validation, `go test ./...`, and the full self-harness pass.
+
+
+### Resume here
+
+Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+
+- Current: Public edge and controlled failure/login-job scenarios have proof; literal post-fix operator reboot/login remains unobserved.
+- Next: Arrange the remaining operator observation only after its explicit authorization, then record producer/owner and outcome.
+- Boundary: Do not substitute controlled job reload or repository tests for a literal reboot/login observation.
+- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
 
 ## Surprises & Discoveries
 
