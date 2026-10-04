@@ -24,15 +24,17 @@ notifications and tracing exercised through disposable native applications.
 - [x] 2026-10-04: all six named boundary probes and owned cleanup pass in stable
   run `20261004T052943.365827000Z`, with zero diagnostics; observability retains
   28 spans and verifies retry correlation and discarded-response cancellation.
-- [ ] Complete final cached full verification, publish `main`, and install it.
+- [x] 2026-10-04: stable full run `20261004T053540.958695000Z` has zero diagnostics
+  and a 2.482 s cached suite; pushed integration `7b089bda` to `main` and installed
+  it with matching producer commit and a clean checkout.
 
 ### Resume here
 
-Recorded 2026-10-04: the merge is staged but not committed. The next command is
-final cached full verification below, then authorized publication and installation. Initial full evidence is
-`.scenery/harness/runs/20261004T051743.566620000Z/`; detailed parity, generation,
-lint and Bun evidence is `.scenery/harness/publish-main-20261004/`.
-The human authorized commit, direct push to `main` and `go install`.
+Completed 2026-10-04: integration `7b089bda` is on `main` and installed. Stable
+full evidence is `.scenery/harness/runs/20261004T053540.958695000Z/`; six boundary
+probes are `.scenery/harness/runs/20261004T052943.365827000Z/`. Detailed parity,
+generation, lint, Bun and installed identity evidence is
+`.scenery/harness/publish-main-20261004/`. This historical plan needs no resumption.
 
 ## Surprises & Discoveries
 
@@ -62,7 +64,20 @@ remaining differences are the intended local exact-JSON fast paths. Failed runs
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Both histories are integrated without rewriting completed plans or dropping
+performance and tracing behavior. The complete renderer comparison and named
+observability probe caught and corrected the retry cancellation omitted by the
+overlapping file split. All six boundary probes and owned cleanup pass, all three
+clients regenerate unchanged, 66 Bun tests and both TypeScript checks pass, lint
+reports zero issues, and final default verification has zero warnings and errors.
+
+`7b089bda85030418d4d97999e549bbaa67641b2a` was pushed to `main` and installed at
+`/Users/petrbrazdil/go/bin/scenery`; its version envelope reports the same commit.
+The final run's input digest is
+`sha256:7aa34a0c1b3bb420b5be8b3390e270bd5e438807388ced3f7b1402a3ebd283aa`.
+Release certification and new performance measurements were not selected. The
+initial cache-fill warnings and two failed probe runs remain historical evidence;
+failed observability fixtures retained artifacts after confirmed resource cleanup.
 
 ## Plan of Work
 

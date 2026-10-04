@@ -1,6 +1,8 @@
 # Completed Plans
 
-Plans 0208 through 0211 were allocated independently in the agent-workflow, performance and observability worktrees before integration. Their existing filenames and historical IDs are preserved; use the full linked title to identify a plan. New plans continue at 0212.
+- [0212 Agent Workflow And Main Integration](0212-agent-workflow-main-integration.md) — 2026-10-04: integrated both histories, retained exact-JSON fast paths and tracing, restored retry response cancellation, passed six boundary probes and stable zero-diagnostic full validation, then pushed and installed integration `7b089bda`.
+
+Plans 0208 through 0211 were allocated independently in the agent-workflow, performance and observability worktrees before integration. Their existing filenames and historical IDs are preserved; use the full linked title to identify a plan.
 
 - [0211 Scoped Agent Context And Resumption](0211-scoped-agent-context.md) — 2026-10-04: precise multi-path excerpts, compact immutable validation context, 1,037-word root instructions, nine resumption checkpoints and 30 independent evaluations; stable full validation has zero diagnostics, with mixed context benefits documented.
 
