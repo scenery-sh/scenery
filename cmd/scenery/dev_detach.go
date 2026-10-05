@@ -101,7 +101,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 	childArgs := append([]string{"up"}, devArgsForDetachedChild(args, root)...)
 	cmd := exec.Command(exe, childArgs...)
 	cmd.Dir = root
-	cmd.Env = append(envpolicy.Environ(), detachedDevChildEnv+"=1")
+	cmd.Env = append(envpolicy.Environ(), detachedDevChildEnv+"="+logPath)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -222,12 +222,7 @@ func reportDetachedDevAlreadyRunning(client *localagent.Client, root string, cfg
 }
 
 func detachedDevChildMode() bool {
-	switch strings.ToLower(strings.TrimSpace(envpolicy.Get(detachedDevChildEnv))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
+	return filepath.IsAbs(envpolicy.Get(detachedDevChildEnv))
 }
 
 func devArgsForDetachedChild(args []string, appRoot string) []string {

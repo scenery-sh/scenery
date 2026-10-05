@@ -19,6 +19,23 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0214-telemetry-driven-reliability.md",
+      "title": "Telemetry-Driven Reliability",
+      "owner": "scenery runtime / telemetry",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-05",
+      "review_after": "2026-11-04",
+      "summary": "Five telemetry-driven fixes spanning recorder authentication containment, build blocks, isolated attributable command evidence, latency boundaries and bounded supervisor logs.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "telemetry"
+      ]
+    },
+    {
       "path": "docs/plans/0213-eve-071-adapter.md",
       "title": "Eve 0.71 portable assistant adapter",
       "owner": "scenery assistant adapter / build",
@@ -215,8 +232,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-24",
-      "review_after": "2026-10-24",
+      "last_reviewed": "2026-10-05",
+      "review_after": "2026-11-04",
       "summary": "Machine output of scenery telemetry report: findings, CLI command and startup timings with failure bursts, detached supervisor rebuild timings, step percentiles, failure causes and streaks, and opt-in aggregates of agent Scenery calls and rejected inputs.",
       "tags": ["schemas", "telemetry", "machine-protocol"]
     },
@@ -263,8 +280,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-23",
-      "review_after": "2026-10-23",
+      "last_reviewed": "2026-10-05",
+      "review_after": "2026-11-04",
       "summary": "Result of the development runtime RPC status method: session identity and health, compile state, routes, service processes and observability readiness, verified by the generated dev-runtime.ts client.",
       "tags": ["schemas", "runtime", "typescript"]
     },
@@ -2540,8 +2557,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-14",
-      "review_after": "2026-10-14",
+      "last_reviewed": "2026-10-05",
+      "review_after": "2026-11-04",
       "summary": "Repository code map and cross-package invariants, with app-config and Go-loader instruction owners.",
       "tags": [
         "architecture",
@@ -2559,8 +2576,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-04",
-      "review_after": "2026-11-03",
+      "last_reviewed": "2026-10-05",
+      "review_after": "2026-11-04",
       "summary": "Current CLI and machine contracts including repeatable documentation paths, bounded exact excerpts and immutable compact validation context.",
       "tags": [
         "contract",
@@ -2701,8 +2718,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-04",
-      "review_after": "2026-11-03",
+      "last_reviewed": "2026-10-05",
+      "review_after": "2026-11-04",
       "summary": "Repository validation matrix, exact-root timing, explicit probes and compact run-bound covered, remaining and conditional checks.",
       "tags": [
         "harness",

@@ -112,7 +112,7 @@ func TestFrameworkHandoffContinuesForegroundAndDetachedRuns(t *testing.T) {
 	}
 
 	// A detached supervisor relaunches through the new producer's launcher.
-	t.Setenv(detachedDevChildEnv, "1")
+	t.Setenv(detachedDevChildEnv, filepath.Join(t.TempDir(), "supervisor.log"))
 	if err := continueWithFramework(handoff, []string{"--env", "all", "-o", "jsonl", "--app-root", "/app"}); err != nil {
 		t.Fatal(err)
 	}

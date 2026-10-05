@@ -85,6 +85,7 @@ func (s *devSupervisor) emitBuildStep(step build.Step) {
 	if step.Name == "go.command" && step.Reason == "build" {
 		fields["packages_rebuilt_available"] = step.PackagesRebuiltAvailable
 	}
+	optionalString("outcome", step.Outcome)
 	optionalString("snapshot_digest", step.SnapshotDigest)
 	optionalString("contract_revision", step.ContractRevision)
 	optionalString("implementation_revision", step.ImplementationRevision)

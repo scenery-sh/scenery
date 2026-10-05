@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/devtelemetry"
 )
 
 // A process host is the stable front of a development session whose services
@@ -74,8 +75,9 @@ type ProcessHostConfig struct {
 }
 
 type processGenerationManifest struct {
-	Generation       uint64 `json:"generation"`
-	ContractRevision string `json:"contract_revision"`
+	Observation      devtelemetry.Observation `json:"observation"`
+	Generation       uint64                   `json:"generation"`
+	ContractRevision string                   `json:"contract_revision"`
 	// Identity is the build identity of the generation: the runtime bundle of
 	// the development target the generation's processes were built from.
 	Identity  processInstanceIdentity              `json:"identity"`
@@ -112,13 +114,14 @@ type processGenerationStatusEntry struct {
 }
 
 type processHost struct {
-	name     string
-	token    string
-	contract string
-	routes   *routeTable
-	fallback string
-	required []string
-	mcpTools map[string]string
+	telemetry io.Writer
+	name      string
+	token     string
+	contract  string
+	routes    *routeTable
+	fallback  string
+	required  []string
+	mcpTools  map[string]string
 
 	// local serves the host's own application-level endpoints (assistant
 	// gateways) that localRoutes matches.
@@ -141,11 +144,14 @@ type processHost struct {
 }
 
 type processHostGeneration struct {
-	number    uint64
-	identity  processInstanceIdentity
-	instances map[string]*processHostInstance
-	bindings  map[string]string
-	inFlight  atomic.Int64
+	observation   devtelemetry.Observation
+	telemetry     io.Writer
+	firstResponse atomic.Bool
+	number        uint64
+	identity      processInstanceIdentity
+	instances     map[string]*processHostInstance
+	bindings      map[string]string
+	inFlight      atomic.Int64
 	// retired is closed when the generation is removed, which ends the
 	// admissions and conversation run scopes that hold it.
 	retired chan struct{}
@@ -267,7 +273,7 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 	if cfg.Fallback == "" && (len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
 		return nil, fmt.Errorf("runtime: process host with service routes requires a fallback process")
 	}
-	host := &processHost{name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}, closing: make(chan struct{})}
+	host := &processHost{telemetry: os.Stderr, name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}, closing: make(chan struct{})}
 	required := map[string]bool{}
 	if cfg.Fallback != "" {
 		required[cfg.Fallback] = true
@@ -313,7 +319,7 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 			// an assistant event stream attests the generation its
 			// conversation's run executes in (see attachAssistantStream).
 			current := h.acquire(0)
-			writer := &processHostAttestingWriter{ResponseWriter: w, generation: current}
+			writer := &processHostAttestingWriter{ResponseWriter: &processHostResponseWriter{ResponseWriter: w, generation: current}, generation: current}
 			if current != nil {
 				defer current.inFlight.Add(-1)
 				ctx := context.WithValue(req.Context(), processHostGenerationKey{}, current)
@@ -329,6 +335,7 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer generation.inFlight.Add(-1)
+	w = &processHostResponseWriter{ResponseWriter: w, generation: generation}
 	// An answer names the application generation that served it, so a check can
 	// bind its evidence to the exact published implementation set.
 	w.Header().Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
@@ -498,7 +505,7 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	if h.current != nil && manifest.Generation <= h.current.number || manifest.Generation == 0 {
 		return fmt.Errorf("generation %d does not follow the published generation", manifest.Generation)
 	}
-	generation := &processHostGeneration{number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings), retired: make(chan struct{})}
+	generation := &processHostGeneration{observation: manifest.Observation, telemetry: h.telemetry, number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings), retired: make(chan struct{})}
 	for name, spec := range manifest.Processes {
 		identity := spec.Identity
 		// A service instance records its service contract revision, which a

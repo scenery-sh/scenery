@@ -8,6 +8,8 @@ import (
 	"os"
 	"sort"
 	"time"
+
+	"scenery.sh/internal/machine"
 )
 
 // cliLineLimit bounds one CLI telemetry line; longer lines are no record.
@@ -22,11 +24,14 @@ const burstHourlyFailures = 60
 // Failures, Unattributed, Unversioned and Apps count every record; Commands
 // count command completions and Startup the scenery up startup measurements.
 type CLIReport struct {
-	Records      int `json:"records"`
-	Failures     int `json:"failures"`
-	Unattributed int `json:"unattributed"`
+	Producers             []Count `json:"producers"`
+	Diagnostics           []Count `json:"diagnostics"`
+	IdentifiedInvocations int     `json:"identified_invocations"`
+	Records               int     `json:"records"`
+	Failures              int     `json:"failures"`
+	Unattributed          int     `json:"unattributed"`
 	// Unversioned counts records whose producer reported no release version
-	// ("dev"), which cannot be tied to a producer commit.
+	// ("dev") and no producer commit.
 	Unversioned int             `json:"unversioned"`
 	Startup     Timing          `json:"startup"`
 	Commands    []CommandTiming `json:"commands"`
@@ -59,20 +64,23 @@ type FailureBurst struct {
 }
 
 type cliRecord struct {
-	At          time.Time `json:"at"`
-	Command     string    `json:"command"`
-	DurationMS  int64     `json:"duration_ms"`
-	ExitCode    int       `json:"exit_code"`
-	Version     string    `json:"version"`
-	Measurement string    `json:"measurement"`
-	App         *struct {
+	InvocationID   string            `json:"invocation_id"`
+	Producer       *machine.Producer `json:"producer"`
+	DiagnosticCode string            `json:"diagnostic_code"`
+	At             time.Time         `json:"at"`
+	Command        string            `json:"command"`
+	DurationMS     int64             `json:"duration_ms"`
+	ExitCode       int               `json:"exit_code"`
+	Version        string            `json:"version"`
+	Measurement    string            `json:"measurement"`
+	App            *struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"app"`
 }
 
 func readCLI(opts Options) (CLIReport, error) {
-	report := CLIReport{Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}}
+	report := CLIReport{Producers: []Count{}, Diagnostics: []Count{}, Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}}
 	if opts.CLITelemetryPath == "" {
 		return report, nil
 	}
@@ -84,6 +92,7 @@ func readCLI(opts Options) (CLIReport, error) {
 		return CLIReport{}, fmt.Errorf("read CLI telemetry: %w", err)
 	}
 	defer func() { _ = file.Close() }()
+	producers, diagnostics := map[string]int{}, map[string]int{}
 	commands := map[string]*timingAccumulator{}
 	apps := map[string]*timingAccumulator{}
 	appNames := map[string]string{}
@@ -130,8 +139,20 @@ func readCLI(opts Options) (CLIReport, error) {
 				stats.last = record.At
 			}
 		}
-		if record.Version == "" || record.Version == "dev" {
+		producer := record.Version
+		if record.Producer != nil && record.Producer.Commit != "" {
+			producer = record.Producer.Commit
+		}
+		if producer == "" || producer == "dev" {
 			report.Unversioned++
+			producer = "unknown"
+		}
+		producers[producer]++
+		if record.InvocationID != "" {
+			report.IdentifiedInvocations++
+		}
+		if record.DiagnosticCode != "" {
+			diagnostics[record.DiagnosticCode]++
 		}
 		// Every record counts toward its app, or as unattributed; startup
 		// measurements are timed apart from command completions.
@@ -151,6 +172,7 @@ func readCLI(opts Options) (CLIReport, error) {
 	if err != nil {
 		return CLIReport{}, fmt.Errorf("read CLI telemetry: %w", err)
 	}
+	report.Producers, report.Diagnostics = sortedCounts(producers, 0), sortedCounts(diagnostics, 0)
 	report.Startup = startup.timing()
 	for command, acc := range commands {
 		report.Commands = append(report.Commands, CommandTiming{Command: command, Timing: acc.timing()})

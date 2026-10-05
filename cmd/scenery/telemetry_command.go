@@ -246,7 +246,9 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 		}
 		addTelemetryTiming(&measurementGroup.telemetryTimingStats, record)
 
-		if len(percentileSamples) < maximumTelemetryLimit {
+		if record.ExitCode != 0 {
+			// Failures count as attempts but never as successful latency samples.
+		} else if len(percentileSamples) < maximumTelemetryLimit {
 			percentileSamples = append(percentileSamples, record)
 		} else {
 			percentileSamples[nextPercentileSample] = record

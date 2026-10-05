@@ -142,6 +142,10 @@ func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 }
 
 func (c *runConsole) RebuildFailed(err error) {
+	if errors.Is(err, errBuildSuperseded) {
+		c.Event("build.superseded", map[string]any{"operation_id": devBuildFailureOperation(err)})
+		return
+	}
 	if c.json && err != nil {
 		failure := map[string]any{
 			"stage":      "rebuild",
@@ -164,7 +168,7 @@ func (c *runConsole) BuildBlocked(block devBuildBlock) {
 	if c.json {
 		c.Event("build.blocked", map[string]any{
 			"reason": block.Reason, "cause": block.Cause,
-			"since": block.Since.Format(time.RFC3339), "prevented_builds": block.Prevented,
+			"since": block.Since.Format(time.RFC3339Nano), "prevented_builds": block.Prevented,
 		})
 		return
 	}

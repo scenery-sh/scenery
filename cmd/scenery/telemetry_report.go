@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -41,7 +42,24 @@ func runTelemetryReportCommand(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	report, err := telemetryreport.Build(telemetryReportBuildOptions(opts, telemetryPath, paths.Home))
+	build := telemetryReportBuildOptions(opts, telemetryPath, paths.Home)
+	entries, liveErr := inspectWorktreeOwners(context.Background(), "")
+	build.LiveStateChecked = liveErr == nil
+	if liveErr != nil {
+		build.LiveStateUnavailable++
+	}
+	for _, entry := range entries {
+		if entry.Status == "unavailable" || entry.Status == "incompatible-or-invalid" {
+			build.LiveStateUnavailable++
+		}
+		for _, block := range entry.BuildBlocks {
+			build.ActiveBlocks = append(build.ActiveBlocks, telemetryreport.BuildBlock{
+				AppRoot: entry.AppRoot, Reason: block.Reason, Cause: block.Cause,
+				Since: block.Since.UTC().Format(time.RFC3339Nano), PreventedBuilds: block.PreventedBuilds,
+			})
+		}
+	}
+	report, err := telemetryreport.Build(build)
 	if err != nil {
 		return err
 	}

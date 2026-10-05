@@ -10,6 +10,7 @@ import (
 // event stream; this package neither stores traces nor adds a second logger.
 type Step struct {
 	OperationID               string
+	Outcome                   string
 	Name                      string
 	StartedAt                 time.Time
 	Duration                  time.Duration

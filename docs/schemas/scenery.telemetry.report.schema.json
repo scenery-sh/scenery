@@ -18,7 +18,7 @@
       "const": "scenery.telemetry.report"
     },
     "schema_revision": {
-      "const": "sha256:4aa1bae5982c0089a8fdb82e3e3029d1b213a562f84a28ef27b8d15d782defd3"
+      "const": "sha256:16c6aa0a0a918362c5f29ed59ebd215a4225956ac9311b3600e70efe5d775646"
     },
     "window": {
       "type": "object",
@@ -48,7 +48,10 @@
         "supervisor_invalid_records",
         "agent_transcripts",
         "claude_sessions",
-        "codex_sessions"
+        "codex_sessions",
+        "live_state_checked",
+        "live_state_unavailable",
+        "supervisor_rotated_sessions"
       ],
       "additionalProperties": false,
       "properties": {
@@ -89,6 +92,17 @@
         },
         "transcripts": {
           "$ref": "#/$defs/transcriptSources"
+        },
+        "live_state_checked": {
+          "type": "boolean"
+        },
+        "live_state_unavailable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supervisor_rotated_sessions": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -108,7 +122,10 @@
         "startup",
         "commands",
         "apps",
-        "failure_bursts"
+        "failure_bursts",
+        "producers",
+        "diagnostics",
+        "identified_invocations"
       ],
       "additionalProperties": false,
       "properties": {
@@ -148,6 +165,22 @@
           "items": {
             "$ref": "#/$defs/failureBurst"
           }
+        },
+        "producers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        },
+        "identified_invocations": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -161,7 +194,12 @@
         "rebuild_steps",
         "failure_causes",
         "unmatched_errors",
-        "failure_streaks"
+        "failure_streaks",
+        "blocks",
+        "active_blocks",
+        "prevented_builds",
+        "superseded",
+        "observed_change_to_first_response"
       ],
       "additionalProperties": false,
       "properties": {
@@ -202,6 +240,29 @@
           "items": {
             "$ref": "#/$defs/failureStreak"
           }
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildBlock"
+          }
+        },
+        "active_blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildBlock"
+          }
+        },
+        "prevented_builds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "superseded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_change_to_first_response": {
+          "$ref": "#/$defs/timing"
         }
       }
     },
@@ -299,7 +360,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -323,6 +385,10 @@
             "integer",
             "null"
           ],
+          "minimum": 0
+        },
+        "percentile_sample_count": {
+          "type": "integer",
           "minimum": 0
         }
       }
@@ -378,7 +444,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -407,6 +474,10 @@
         "command": {
           "type": "string",
           "minLength": 1
+        },
+        "percentile_sample_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -418,7 +489,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -450,6 +522,10 @@
         },
         "name": {
           "type": "string"
+        },
+        "percentile_sample_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -460,7 +536,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -489,6 +566,10 @@
         "step": {
           "type": "string",
           "minLength": 1
+        },
+        "percentile_sample_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -675,6 +756,47 @@
           "minimum": 0
         },
         "unanswered_calls": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "buildBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app_root",
+        "reason",
+        "cause",
+        "since",
+        "last_seen",
+        "duration_ms",
+        "prevented_builds"
+      ],
+      "properties": {
+        "app_root": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "cause": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "last_seen": {
+          "type": "string"
+        },
+        "ended_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "prevented_builds": {
           "type": "integer",
           "minimum": 0
         }

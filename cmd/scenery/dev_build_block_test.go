@@ -74,6 +74,29 @@ func TestPendingMigrationBlocksUntilMigrationInputsChange(t *testing.T) {
 	}
 }
 
+func TestChangedAppliedSeedBlocksUnrelatedEdits(t *testing.T) {
+	t.Parallel()
+	s := &devSupervisor{}
+	seed := &changedAppliedSeedError{Path: "projects/db/seed.sql"}
+	if got := cliErrorDiagnostic(seed).Code; got != "SCN8003" {
+		t.Fatalf("seed conflict diagnostic = %s", got)
+	}
+	base := blockTestSnapshot(map[string]string{"projects/db/seed.sql": "edited", "projects/api.go": "a1"})
+	s.recordBuildOutcome(base, errors.Join(errors.New("another seed error"), fmt.Errorf("seed: %w", seed)))
+	edited := blockTestSnapshot(map[string]string{"projects/db/seed.sql": "edited", "projects/api.go": "a2"})
+	if block, prevented := s.preventBlockedBuild(edited); !prevented || block.Reason != buildBlockSeedChanged {
+		t.Fatalf("unrelated edit: block=%+v prevented=%t", block, prevented)
+	}
+	restored := blockTestSnapshot(map[string]string{"projects/db/seed.sql": "original", "projects/api.go": "a2"})
+	if _, prevented := s.preventBlockedBuild(restored); prevented {
+		t.Fatal("restoring the applied seed did not release the block")
+	}
+	s.recordBuildOutcome(restored, nil)
+	if s.status.BuildBlock != nil {
+		t.Fatal("successful build retained the seed block")
+	}
+}
+
 func TestBuildBlockedEventAndRuntimeStatus(t *testing.T) {
 	t.Parallel()
 

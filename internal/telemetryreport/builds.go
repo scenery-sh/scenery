@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"scenery.sh/internal/devtelemetry"
 	"scenery.sh/internal/redact"
+	"scenery.sh/internal/rotatinglog"
 )
 
 // failureStreakMinimum is the number of consecutive failed builds of one
@@ -23,11 +26,17 @@ const failureStreakMinimum = 5
 // Only a supervisor started with --detach keeps its event stream in a log, so
 // foreground sessions are absent.
 type Builds struct {
-	Sessions  int              `json:"sessions"`
-	Rebuilds  Timing           `json:"rebuilds"`
-	Initial   Timing           `json:"initial_builds"`
-	Worktrees []WorktreeBuilds `json:"worktrees"`
-	Steps     []StepTiming     `json:"rebuild_steps"`
+	FirstResponse   Timing `json:"observed_change_to_first_response"`
+	firstResponses  timingAccumulator
+	Superseded      int              `json:"superseded"`
+	Blocks          []BuildBlock     `json:"blocks"`
+	ActiveBlocks    []BuildBlock     `json:"active_blocks"`
+	PreventedBuilds int              `json:"prevented_builds"`
+	Sessions        int              `json:"sessions"`
+	Rebuilds        Timing           `json:"rebuilds"`
+	Initial         Timing           `json:"initial_builds"`
+	Worktrees       []WorktreeBuilds `json:"worktrees"`
+	Steps           []StepTiming     `json:"rebuild_steps"`
 	// Failures has one cause for each failed initial build or rebuild; the
 	// least frequent are summed as "other causes".
 	Failures []Count `json:"failure_causes"`
@@ -35,6 +44,7 @@ type Builds struct {
 	// request in the window has; they are charged to no build.
 	UnmatchedErrors int             `json:"unmatched_errors"`
 	Streaks         []FailureStreak `json:"failure_streaks"`
+	rotatedLogs     int
 	logs            int
 	partialLogs     int
 	failedLogs      int
@@ -78,6 +88,7 @@ type supervisorEvent struct {
 }
 
 type buildStepData struct {
+	Outcome     string    `json:"outcome"`
 	OperationID string    `json:"operation_id"`
 	Name        string    `json:"name"`
 	StartedAt   time.Time `json:"started_at"`
@@ -120,8 +131,10 @@ func supervisorLogs(home string) ([]string, error) {
 }
 
 func readBuilds(opts Options) (Builds, error) {
-	builds := Builds{Worktrees: []WorktreeBuilds{}, Steps: []StepTiming{}, Failures: []Count{}, Streaks: []FailureStreak{}}
+	builds := Builds{Worktrees: []WorktreeBuilds{}, Steps: []StepTiming{}, Failures: []Count{}, Streaks: []FailureStreak{}, Blocks: []BuildBlock{}, ActiveBlocks: []BuildBlock{}}
+	blocks := map[string]*BuildBlock{}
 	if opts.AgentHome == "" {
+		finalizeBlocks(&builds, blocks, opts)
 		return builds, nil
 	}
 	logs, err := supervisorLogs(opts.AgentHome)
@@ -140,7 +153,7 @@ func readBuilds(opts Options) (Builds, error) {
 				worktrees[root] = acc
 			}
 			return acc
-		}, rebuilds, initial, steps, causes, &builds)
+		}, rebuilds, initial, steps, causes, &builds, blocks)
 		if err != nil {
 			// A log that cannot be opened, or stops reading part way, is
 			// counted; what it held before the error still counts.
@@ -182,6 +195,8 @@ func readBuilds(opts Options) (Builds, error) {
 		return a.Rebuilds.Count+a.Initial.Count > b.Rebuilds.Count+b.Initial.Count || a.Rebuilds.Count+a.Initial.Count == b.Rebuilds.Count+b.Initial.Count && a.AppRoot < b.AppRoot
 	})
 	sort.Slice(builds.Streaks, func(i, j int) bool { return builds.Streaks[i].Count > builds.Streaks[j].Count })
+	finalizeBlocks(&builds, blocks, opts)
+	builds.FirstResponse = builds.firstResponses.timing()
 	return builds, nil
 }
 
@@ -202,15 +217,55 @@ var errSupervisorLogOpen = errors.New("open supervisor log")
 // the window has is unmatched and charged to no build. Each failed build has
 // exactly one cause, its first error, so the causes add up to the failed
 // builds.
-func readSupervisorLog(opts Options, path string, worktree func(root, name string) *worktreeAccumulator, rebuilds, initial *timingAccumulator, steps map[string]*timingAccumulator, causes map[string]int, builds *Builds) (bool, error) {
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
+func readSupervisorLog(opts Options, path string, worktree func(root, name string) *worktreeAccumulator, rebuilds, initial *timingAccumulator, steps map[string]*timingAccumulator, causes map[string]int, builds *Builds, blocks map[string]*BuildBlock) (bool, error) {
+	var readers []io.Reader
+	var files []*os.File
+	defer func() {
+		for _, file := range files {
+			_ = file.Close()
+		}
+	}()
+	for _, segment := range rotatinglog.Segments(path) {
+		file, err := os.Open(segment)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("%w %s: %w", errSupervisorLogOpen, filepath.Base(segment), err)
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return false, err
+		}
+		duplicate := false
+		for _, opened := range files {
+			previous, err := opened.Stat()
+			if err != nil {
+				_ = file.Close()
+				return false, err
+			}
+			if os.SameFile(previous, info) {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			_ = file.Close()
+			builds.partialLogs++
+			continue
+		}
+		files = append(files, file)
+		readers = append(readers, io.LimitReader(file, info.Size()))
+	}
+	if len(files) == 0 {
 		return false, nil
 	}
-	if err != nil {
-		return false, fmt.Errorf("%w %s: %w", errSupervisorLogOpen, filepath.Base(path), err)
+	if len(files) > 1 {
+		builds.rotatedLogs++
 	}
-	defer func() { _ = file.Close() }()
+	file := io.MultiReader(readers...)
+
 	type outcome struct {
 		at    time.Time
 		ok    bool
@@ -246,6 +301,28 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		}
 		inWindow = true
 		switch data.Type {
+		case "process.output":
+			var output struct {
+				Source string `json:"source"`
+				Output string `json:"output"`
+			}
+			if json.Unmarshal(data.Data, &output) != nil || output.Source != "host" {
+				return
+			}
+			for line := range strings.SplitSeq(output.Output, "\n") {
+				raw, ok := strings.CutPrefix(line, devtelemetry.FirstResponsePrefix)
+				if !ok {
+					continue
+				}
+				var response devtelemetry.FirstResponse
+				if json.Unmarshal([]byte(raw), &response) != nil || response.Initial || response.OperationID == "" || response.ObservedAt.IsZero() || response.At.Before(response.ObservedAt) || response.BuildInputDigest == "" {
+					continue
+				}
+				builds.firstResponses.add(response.At.Sub(response.ObservedAt).Milliseconds(), true)
+			}
+
+		case "build.blocked", "build.unblocked":
+			recordBlockEvent(blocks, root, data.Type, data.Time, data.Data)
 		case "build.error":
 			var failure buildErrorData
 			if json.Unmarshal(data.Data, &failure) != nil {
@@ -281,6 +358,12 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 			}
 			stepDurations := operationSteps[step.OperationID]
 			delete(operationSteps, step.OperationID)
+			if step.Outcome == "superseded" {
+				builds.Superseded++
+				outcomes = append(outcomes, outcome{at: step.StartedAt, ok: true})
+				awaiting = -1
+				return
+			}
 			duration := int64(step.DurationMS)
 			switch step.Reason {
 			case "initial_build":

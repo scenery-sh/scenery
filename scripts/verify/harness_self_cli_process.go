@@ -62,7 +62,7 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		}
 		command := exec.CommandContext(ctx, binary, test.args...)
 		command.Dir = repoRoot
-		command.Env = envWithOverrides(envpolicy.Environ(), "HOME="+home)
+		command.Env = envWithOverrides(envpolicy.Environ(), "HOME="+home, "SCENERY_AGENT_HOME="+filepath.Join(home, "private-agent"))
 		runErr := command.Run()
 		exitCode := 0
 		if runErr != nil {
@@ -77,8 +77,12 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 			_ = os.RemoveAll(home)
 			return nil, nil, fmt.Errorf("%s CLI exit = %d, want %d", test.name, exitCode, test.wantExit)
 		}
-		data, err := os.ReadFile(filepath.Join(home, ".scenery", "telemetry.jsonl"))
+		data, err := os.ReadFile(filepath.Join(home, "private-agent", "telemetry.jsonl"))
+		_, leaked := os.Stat(filepath.Join(home, ".scenery", "telemetry.jsonl"))
 		_ = os.RemoveAll(home)
+		if !os.IsNotExist(leaked) {
+			return nil, nil, fmt.Errorf("%s telemetry escaped the injected agent home", test.name)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -90,7 +94,7 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
 			return nil, nil, err
 		}
-		if record.Command != test.wantCommand || record.ExitCode != test.wantExit {
+		if record.Command != test.wantCommand || record.ExitCode != test.wantExit || record.InvocationID == "" || record.Producer == nil || (test.wantExit != 0 && record.DiagnosticCode == "") {
 			return nil, nil, fmt.Errorf("%s telemetry = %+v", test.name, record)
 		}
 		verified = append(verified, test.name)

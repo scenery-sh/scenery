@@ -7,7 +7,7 @@
 // Deployed origins do not serve it.
 
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
-export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:9f97baaaee9bedbdb6eb131ea1f828934c911d249f34d43925ed41043f4568bb";
+export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:4ec8fdf1223b0701ed0dccbde487a2e9e10b1a6dd507be8529ff51fd8a06e192";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
@@ -118,7 +118,7 @@ export interface DevRuntimeStatus {
 }
 
 export interface DevRuntimeBuildBlock {
-	/** framework_mismatch or migration_pending. */
+	/** framework_mismatch, migration_pending or seed_changed. */
 	readonly reason: string;
 	readonly cause: string;
 	readonly since: string;

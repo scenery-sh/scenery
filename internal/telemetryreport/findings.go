@@ -19,6 +19,16 @@ func findings(report Report) []Finding {
 	add := func(severity, code, format string, args ...any) {
 		result = append(result, Finding{Severity: severity, Code: code, Message: fmt.Sprintf(format, args...)})
 	}
+	for _, block := range report.Builds.ActiveBlocks {
+		age := block.DurationMS
+		add(severityCritical, "builds.active_block", "Builds in %s are BLOCKED (%s) since %s (%s, %d rebuilds prevented): %s. The last good generation is still serving; newer source is not applied.", block.AppRoot, block.Reason, block.Since, duration(&age), block.PreventedBuilds, block.Cause)
+	}
+	if report.Builds.PreventedBuilds > 0 {
+		add(severityInfo, "builds.prevented", "Observed blocks prevented %d rebuilds that would repeat the same failure; these are not failed build attempts.", report.Builds.PreventedBuilds)
+	}
+	if report.Sources.LiveStateUnavailable > 0 {
+		add(severityWarning, "sources.live_state_unavailable", "%d worktree owners could not be inspected; their current blocks are unknown.", report.Sources.LiveStateUnavailable)
+	}
 	for _, burst := range report.CLI.Bursts {
 		add(severityCritical, "cli.failure_burst", "scenery %s failed %d times with exit %d between %s and %s, at most %d an hour; a supervised or scripted caller is retrying without a person noticing.",
 			burst.Command, burst.Count, burst.ExitCode, burst.First, burst.Last, burst.PeakPerHour)
@@ -54,7 +64,7 @@ func findings(report Report) []Finding {
 		}
 	}
 	if len(failing) > 0 {
-		add(severityWarning, "cli.failing_commands", "Commands failing at least a quarter of the time: %s. Records carry exit codes only, so misuse and real failures cannot be told apart.", strings.Join(failing, "; "))
+		add(severityWarning, "cli.failing_commands", "Commands failing at least a quarter of the time: %s. Native diagnostic codes are grouped when recorded; older records carry exit codes only.", strings.Join(failing, "; "))
 	}
 	if agents := report.Agents; agents != nil && agents.SceneryCommands > 0 {
 		invalid := 0
@@ -100,8 +110,19 @@ func findings(report Report) []Finding {
 		add(severityInfo, "builds.unmatched_errors", "%d build errors name an operation no build request in the window has; they are charged to no build.", report.Builds.UnmatchedErrors)
 	}
 	if rebuilds := report.Builds.Rebuilds; rebuilds.Count > rebuilds.FailureCount {
-		add(severityInfo, "builds.rebuild_latency", "Successful rebuilds took p50 %s, p95 %s from build start to published generation over %d rebuilds; the time from saving a file to the first answer of the new generation is not recorded.",
+		add(severityInfo, "builds.rebuild_latency", "Successful rebuilds took p50 %s, p95 %s from build start to published generation over %d rebuilds.",
 			duration(rebuilds.P50MS), duration(rebuilds.P95MS), rebuilds.Count-rebuilds.FailureCount)
+	}
+	if response := report.Builds.FirstResponse; response.Count > 0 {
+		add(severityInfo, "builds.first_response_latency", "Captured change to first attested response headers: p50 %s, p95 %s over %d generations. Includes waiting for traffic; filesystem detection delay before capture is excluded.", duration(response.P50MS), duration(response.P95MS), response.Count)
+	} else if report.Builds.Sessions > 0 {
+		add(severityInfo, "builds.first_response_unavailable", "No captured-change to first-response measurements in retained history; older producers and generations without qualifying traffic provide no sample.")
+	}
+	if report.Builds.Superseded > 0 {
+		add(severityInfo, "builds.superseded", "%d build candidates were superseded by newer source; these are excluded from failed attempts and latency percentiles.", report.Builds.Superseded)
+	}
+	if report.Sources.SupervisorRotated > 0 {
+		add(severityInfo, "sources.retained_history", "%d supervisor sessions have rotated segments. This report covers retained history only; older events may have expired.", report.Sources.SupervisorRotated)
 	}
 	if report.Builds.Sessions == 0 {
 		add(severityInfo, "builds.no_history", "No build history in the window: only scenery up --detach keeps its supervisor events.")

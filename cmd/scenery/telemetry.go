@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/machine"
 )
 
 type cliTelemetryApp struct {
@@ -16,14 +18,17 @@ type cliTelemetryApp struct {
 }
 
 type cliTelemetryRecord struct {
-	At          time.Time        `json:"at"`
-	Command     string           `json:"command"`
-	DurationMS  int64            `json:"duration_ms"`
-	ExitCode    int              `json:"exit_code"`
-	Version     string           `json:"version"`
-	Mode        string           `json:"mode"`
-	Measurement string           `json:"measurement,omitempty"`
-	App         *cliTelemetryApp `json:"app,omitempty"`
+	InvocationID   string            `json:"invocation_id,omitempty"`
+	Producer       *machine.Producer `json:"producer,omitempty"`
+	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
+	At             time.Time         `json:"at"`
+	Command        string            `json:"command"`
+	DurationMS     int64             `json:"duration_ms"`
+	ExitCode       int               `json:"exit_code"`
+	Version        string            `json:"version"`
+	Mode           string            `json:"mode"`
+	Measurement    string            `json:"measurement,omitempty"`
+	App            *cliTelemetryApp  `json:"app,omitempty"`
 }
 
 const (
@@ -36,6 +41,8 @@ const (
 // an attached supervisor's eventual exit measures process lifetime, not
 // startup latency.
 type cliTelemetryInvocation struct {
+	invocationID    string
+	diagnosticCode  string
 	started         time.Time
 	args            []string
 	now             func() time.Time
@@ -46,10 +53,11 @@ type cliTelemetryInvocation struct {
 
 func newCLITelemetryInvocation(started time.Time, args []string) *cliTelemetryInvocation {
 	return &cliTelemetryInvocation{
-		started:  started,
-		args:     append([]string(nil), args...),
-		now:      time.Now,
-		recorder: recordCLITelemetry,
+		invocationID: rand.Text(),
+		started:      started,
+		args:         append([]string(nil), args...),
+		now:          time.Now,
+		recorder:     recordCLITelemetry,
 	}
 }
 
@@ -92,15 +100,19 @@ func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
 	if recorder == nil {
 		recorder = recordCLITelemetry
 	}
+	producer := cliProducer()
 	recorder(cliTelemetryRecord{
-		At:          i.started.UTC(),
-		Command:     telemetryCommand(i.args),
-		DurationMS:  duration.Milliseconds(),
-		ExitCode:    exitCode,
-		Version:     sceneryVersion,
-		Mode:        telemetryMode(i.args),
-		Measurement: measurement,
-		App:         telemetryInvocationApp(i.args),
+		InvocationID:   i.invocationID,
+		Producer:       &producer,
+		DiagnosticCode: i.diagnosticCode,
+		At:             i.started.UTC(),
+		Command:        telemetryCommand(i.args),
+		DurationMS:     duration.Milliseconds(),
+		ExitCode:       exitCode,
+		Version:        sceneryVersion,
+		Mode:           telemetryMode(i.args),
+		Measurement:    measurement,
+		App:            telemetryInvocationApp(i.args),
 	})
 }
 
@@ -133,11 +145,11 @@ func recordCLITelemetry(record cliTelemetryRecord) {
 }
 
 func cliTelemetryPath() (string, error) {
-	home, err := os.UserHomeDir()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".scenery", "telemetry.jsonl"), nil
+	return filepath.Join(paths.Home, "telemetry.jsonl"), nil
 }
 
 // telemetryInvocationApp resolves only stable configured identity. App roots

@@ -24,6 +24,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/devtelemetry"
 )
 
 // devProcessPreparation retains and preflights the replacement instances of a
@@ -149,13 +150,15 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 	}
 	attested := model.identity
 	model.published = max(model.published, model.generation) + 1
+	observation, _ := ctx.Value(devBuildObservationKey{}).(devtelemetry.Observation)
 	manifest := struct {
-		Generation       uint64              `json:"generation"`
-		ContractRevision string              `json:"contract_revision"`
-		Identity         identity            `json:"identity"`
-		Processes        map[string]instance `json:"processes"`
-		Bindings         map[string]string   `json:"bindings"`
-	}{Generation: model.published, ContractRevision: model.contract, Identity: identity{attested.ContractRevision, attested.ImplementationRevision, attested.BuildInputDigest, attested.GoTarget}, Processes: map[string]instance{}, Bindings: model.bindings}
+		Observation      devtelemetry.Observation `json:"observation"`
+		Generation       uint64                   `json:"generation"`
+		ContractRevision string                   `json:"contract_revision"`
+		Identity         identity                 `json:"identity"`
+		Processes        map[string]instance      `json:"processes"`
+		Bindings         map[string]string        `json:"bindings"`
+	}{Observation: observation, Generation: model.published, ContractRevision: model.contract, Identity: identity{attested.ContractRevision, attested.ImplementationRevision, attested.BuildInputDigest, attested.GoTarget}, Processes: map[string]instance{}, Bindings: model.bindings}
 	for name, service := range model.services {
 		pid, _ := strconv.Atoi(service.app.pid)
 		value := service.process.Identity

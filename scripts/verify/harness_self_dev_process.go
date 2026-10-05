@@ -99,7 +99,12 @@ func runHarnessDevManagedProcessProbeCheck(parent context.Context, repoRoot stri
 	if err != nil {
 		return nil, nil, err
 	}
+	logs, err := runHarnessSupervisorLogProof()
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
+		"supervisor_logs":         logs,
 		"basic_lifecycle":         basics,
 		"local_router_restart":    router,
 		"shared_build_processes":  sharedBuild,

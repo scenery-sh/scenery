@@ -13,7 +13,7 @@
       "const": "scenery.agent.status"
     },
     "schema_revision": {
-      "const": "sha256:91f5a51f98fcce1de0b4be034f31394e27699c26e122968c0d9d57f017f7b469"
+      "const": "sha256:54abc7f35a084d386e3a34c67b3a46874d90f64f90163f1d79821f9db1166f2e"
     },
     "worktrees": {
       "type": "array",
@@ -86,7 +86,8 @@
                 "reason": {
                   "enum": [
                     "framework_mismatch",
-                    "migration_pending"
+                    "migration_pending",
+                    "seed_changed"
                   ]
                 },
                 "cause": {

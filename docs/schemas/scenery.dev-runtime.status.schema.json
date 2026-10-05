@@ -19,7 +19,7 @@
       "const": "scenery.dev-runtime.status"
     },
     "schema_revision": {
-      "const": "sha256:9f97baaaee9bedbdb6eb131ea1f828934c911d249f34d43925ed41043f4568bb"
+      "const": "sha256:4ec8fdf1223b0701ed0dccbde487a2e9e10b1a6dd507be8529ff51fd8a06e192"
     },
     "app_id": {
       "type": "string",
@@ -82,7 +82,8 @@
         "reason": {
           "enum": [
             "framework_mismatch",
-            "migration_pending"
+            "migration_pending",
+            "seed_changed"
           ]
         },
         "cause": {

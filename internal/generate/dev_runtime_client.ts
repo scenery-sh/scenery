@@ -118,7 +118,7 @@ export interface DevRuntimeStatus {
 }
 
 export interface DevRuntimeBuildBlock {
-	/** framework_mismatch or migration_pending. */
+	/** framework_mismatch, migration_pending or seed_changed. */
 	readonly reason: string;
 	readonly cause: string;
 	readonly since: string;

@@ -305,7 +305,7 @@ func buildDBSeedResultWithContractEnvHooks(ctx context.Context, appRoot string, 
 			record.Status = "changed"
 			record.Error = "seed was previously applied with a different sha256"
 			result.addSeedRecord(record)
-			errs = append(errs, fmt.Errorf("seed %s changed after it was applied", plan.Path))
+			errs = append(errs, &changedAppliedSeedError{Path: plan.Path})
 			continue
 		}
 		if opts.DryRun {
