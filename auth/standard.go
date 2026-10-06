@@ -304,7 +304,7 @@ func resolveRefreshToken(params *RefreshParams, headers http.Header) string {
 		return strings.TrimSpace(params.RefreshToken)
 	}
 	request := http.Request{Header: headers}
-	if cookie, err := request.Cookie(refreshCookieName); err == nil {
+	if cookie, err := request.Cookie(refreshCookieName()); err == nil {
 		return strings.TrimSpace(cookie.Value)
 	}
 	return ""

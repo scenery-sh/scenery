@@ -19,7 +19,9 @@ const (
 	googleHTTPTimeout = 15 * time.Second
 )
 
-const refreshCookieName = "scenery_refresh"
+// canonicalRefreshCookieName is the refresh cookie name of deployed runtimes.
+// Local runtimes scope it by their public host and port; see refreshCookieName.
+const canonicalRefreshCookieName = "scenery_refresh"
 
 const (
 	identityProviderEmail  = "email"

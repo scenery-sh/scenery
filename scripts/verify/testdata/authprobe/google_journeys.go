@@ -16,7 +16,7 @@ import (
 func oauthBrowserJourney(p *probe) {
 	callback, response := p.googleFlow("/welcome")
 	p.redirect(response, "https://app.example.test/welcome")
-	session, _ := p.refresh(cookie(response))
+	session, _ := p.refresh(p.cookie(response))
 	claims := take(auth.ValidateToken(session.Token))
 	p.check(claims.UserID != "" && claims.TenantID != "", "OAuth refresh yields user and tenant")
 	me, _ := call[auth.AuthBootstrapResponse](p, http.MethodGet, "/auth/me", nil, session.Token, "")

@@ -2576,8 +2576,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-05",
-      "review_after": "2026-11-04",
+      "last_reviewed": "2026-10-06",
+      "review_after": "2026-11-05",
       "summary": "Current CLI and machine contracts including repeatable documentation paths, bounded exact excerpts and immutable compact validation context.",
       "tags": [
         "contract",
@@ -2675,8 +2675,8 @@
       "status": "completed",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-08",
-      "review_after": "2026-10-08",
+      "last_reviewed": "2026-10-06",
+      "review_after": "2026-11-05",
       "summary": "Human reference for scenery-owned environment variables, including optional dotenv layering and process precedence, fixed canonical standard-auth names and rejected legacy selectors, app-injected process identity, Postgres app database URLs and schema registry env, Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
@@ -3582,8 +3582,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-03",
-      "review_after": "2026-11-02",
+      "last_reviewed": "2026-10-06",
+      "review_after": "2026-11-05",
       "summary": "Operator checklist and Postgres SQL template for preserving existing app-owned auth data while moving to scenery standard auth tables and the canonical scenery_refresh cookie.",
       "tags": [
         "runbook",
