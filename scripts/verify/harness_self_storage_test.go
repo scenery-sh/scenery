@@ -4,10 +4,53 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
 )
+
+func TestHarnessStorageProbeNoState(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, entry, kind string
+		wantErr           bool
+	}{
+		{name: "missing home", kind: "missing"},
+		{name: "empty home"},
+		{name: "telemetry", entry: "telemetry.jsonl", kind: "file"},
+		{name: "worktree state", entry: "worktrees", kind: "directory", wantErr: true},
+		{name: "lock", entry: "agent.lock", kind: "file", wantErr: true},
+		{name: "telemetry directory", entry: "telemetry.jsonl", kind: "directory", wantErr: true},
+		{name: "telemetry symlink", entry: "telemetry.jsonl", kind: "symlink", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			home := filepath.Join(t.TempDir(), "home")
+			if tt.kind != "missing" {
+				if err := os.Mkdir(home, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := filepath.Join(home, tt.entry)
+			var err error
+			switch tt.kind {
+			case "file":
+				err = os.WriteFile(path, []byte("{}\n"), 0o600)
+			case "directory":
+				err = os.Mkdir(path, 0o700)
+			case "symlink":
+				err = os.Symlink("missing", path)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := verifyHarnessStorageProbeNoState(home); (err != nil) != tt.wantErr {
+				t.Fatalf("unallocated home inspection = %v, want error %t", err, tt.wantErr)
+			}
+		})
+	}
+}
 
 func TestHarnessDetachInfoReadsCLIEnvelope(t *testing.T) {
 	t.Parallel()
