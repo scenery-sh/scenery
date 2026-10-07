@@ -306,10 +306,24 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "harness.changed_area", schemaRel: "docs/schemas/scenery.harness.changed_area.schema.json", payload: resp.ChangedArea},
 		{name: "harness.drift", schemaRel: "docs/schemas/scenery.harness.drift.schema.json", payload: resp.Drift},
 		{name: "harness.test_timing", schemaRel: "docs/schemas/scenery.harness.test_timing.schema.json", payload: resp.TestTiming},
+		{name: "harness.verification", schemaRel: "docs/schemas/scenery.harness.verification.schema.json", payload: resp.Verification},
 		{name: "harness.fixture_matrix", schemaRel: "docs/schemas/scenery.harness.fixture_matrix.schema.json", payload: resp.FixtureMatrix},
 		{name: "harness.schema_validation", schemaRel: "docs/schemas/scenery.harness.schema_validation.schema.json", payload: report},
 		{name: "agent_context", schemaRel: "docs/schemas/scenery.agent_context.schema.json", payload: buildHarnessAgentContext(repoRoot, resp)},
 		{name: "agent_context.summary", schemaRel: "docs/schemas/scenery.agent_context.summary.schema.json", payload: buildHarnessAgentContextSummary(resp, buildHarnessAgentContext(repoRoot, resp))},
+	}
+	// Reporter artifacts can be nested inside a prepared-application probe's
+	// summary. Validate their actual bytes, rather than only artifact headers.
+	for _, reference := range harnessStructuredArtifacts(resp.Steps) {
+		payload, err := harnessJSONFilePayload(filepath.Join(repoRoot, filepath.FromSlash(reference.Path)))
+		if err != nil {
+			report.Diagnostics = append(report.Diagnostics, checkDiagnostic{Stage: "schema validation", Severity: "error", File: reference.Path, Message: err.Error()})
+			continue
+		}
+		items = append(items, struct {
+			name, schemaRel string
+			payload         any
+		}{reference.Path, "docs/schemas/" + reference.Kind + ".schema.json", payload})
 	}
 	for _, item := range items {
 		if harnessNilPayload(item.payload) {
@@ -335,6 +349,35 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		report.Validated = append(report.Validated, validation)
 	}
 	return report
+}
+
+func harnessStructuredArtifacts(steps []harnessStep) []harnessEvidenceArtifact {
+	encoded, _ := json.Marshal(steps)
+	var value any
+	_ = json.Unmarshal(encoded, &value)
+	seen := map[string]bool{}
+	var result []harnessEvidenceArtifact
+	var visit func(any)
+	visit = func(value any) {
+		switch value := value.(type) {
+		case map[string]any:
+			kind, _ := value["kind"].(string)
+			path, _ := value["path"].(string)
+			if kind == harnessTestResultsKind && filepath.IsLocal(path) && strings.HasPrefix(path, ".scenery/harness/artifacts/") && !seen[path] {
+				seen[path] = true
+				result = append(result, harnessEvidenceArtifact{Path: path, Kind: kind})
+			}
+			for _, child := range value {
+				visit(child)
+			}
+		case []any:
+			for _, child := range value {
+				visit(child)
+			}
+		}
+	}
+	visit(value)
+	return result
 }
 
 func harnessJSONFilePayload(path string) (map[string]any, error) {

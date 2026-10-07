@@ -70,10 +70,16 @@ func (s *devSupervisor) RebuildProductionFrontends(ctx context.Context, names []
 	}
 	s.mu.RUnlock()
 	for name, static := range servers {
+		started := time.Now()
+		operation := newDevBuildOperationID()
 		if s.console != nil {
-			s.console.Event("frontend.rebuild", map[string]any{"name": name})
+			s.console.Event("frontend.rebuild", map[string]any{"name": name, "operation_id": operation})
 		}
-		if err := static.Rebuild(ctx); err != nil {
+		err := static.Rebuild(ctx)
+		if s.console != nil {
+			s.console.Event("frontend.rebuild.finish", map[string]any{"name": name, "operation_id": operation, "ok": err == nil, "duration_ms": float64(time.Since(started).Microseconds()) / 1000, "boundary": "production build and bundle publication"})
+		}
+		if err != nil {
 			if s.console != nil {
 				s.console.printError("frontend "+name+" rebuild failed", err)
 			}

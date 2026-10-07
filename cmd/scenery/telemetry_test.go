@@ -37,6 +37,23 @@ func TestTelemetryClassification(t *testing.T) {
 	}
 }
 
+func TestNativeTelemetryUsesResolvedIdentityAndExplicitPurpose(t *testing.T) {
+	t.Setenv("SCENERY_EXECUTION_PURPOSE", "verification")
+	invocation := newCLITelemetryInvocation(time.Now(), []string{"help"})
+	var record cliTelemetryRecord
+	invocation.recorder = func(value cliTelemetryRecord) { record = value }
+	invocation.finish(0)
+	if record.Producer == nil || record.Version != record.Producer.Version || record.Purpose != "verification" || record.Dirty != cliBuildDirty() {
+		t.Fatalf("record identity = %+v", record)
+	}
+	for _, invalid := range []string{"", "dev", "fixture", "secret text"} {
+		t.Setenv("SCENERY_EXECUTION_PURPOSE", invalid)
+		if got := telemetryExecutionPurpose(); got != "unknown" {
+			t.Fatalf("purpose %q = %q", invalid, got)
+		}
+	}
+}
+
 func TestRecordCLITelemetryAppendsPrivateJSONL(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

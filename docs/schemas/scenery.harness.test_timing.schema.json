@@ -9,14 +9,21 @@
     "command",
     "total_seconds",
     "packages",
-    "budgets"
+    "budgets",
+    "run_id",
+    "source_commit",
+    "input_revision",
+    "context",
+    "discovery",
+    "spec_revision",
+    "producer"
   ],
   "properties": {
     "kind": {
       "const": "scenery.harness.test_timing"
     },
     "schema_revision": {
-      "const": "sha256:fb4d6102110a4beae1ab792069c5112ccee57681ac1df81f5fd7ab2232a6fb30"
+      "const": "sha256:ad1fdd2df41c8f116886f3d399729816183e8424d870be6dd62e2d269d53aab3"
     },
     "command": {
       "type": "array",
@@ -77,7 +84,8 @@
             "required": [
               "package",
               "build_id",
-              "seconds"
+              "seconds",
+              "outcome"
             ],
             "properties": {
               "package": {
@@ -88,6 +96,16 @@
               },
               "seconds": {
                 "type": "number"
+              },
+              "error": {
+                "type": "string"
+              },
+              "outcome": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "canceled"
+                ]
               }
             },
             "additionalProperties": false
@@ -236,6 +254,197 @@
         "type": "object",
         "additionalProperties": true
       }
+    },
+    "baseline_artifact": {
+      "type": "string"
+    },
+    "baseline_run": {
+      "type": "string"
+    },
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "type": "string"
+        },
+        "build_parallelism": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ci": {
+          "additionalProperties": false,
+          "properties": {
+            "attempt": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string"
+            },
+            "job": {
+              "type": "string"
+            },
+            "repository": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "workflow": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "commit",
+            "workflow",
+            "job",
+            "event",
+            "run_id",
+            "url",
+            "attempt"
+          ],
+          "type": "object"
+        },
+        "cpus": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "package_parallelism": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "result_cache": {
+          "type": "string"
+        },
+        "runner": {
+          "type": "string"
+        },
+        "runner_version": {
+          "type": "string"
+        },
+        "workload": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment",
+        "host",
+        "os",
+        "architecture",
+        "runner",
+        "runner_version",
+        "cpus",
+        "package_parallelism",
+        "build_parallelism",
+        "workload",
+        "result_cache"
+      ],
+      "type": "object"
+    },
+    "discovery": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "expected_packages": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_roots": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "missing_terminals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "non_event_lines": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "package_starts": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "package_terminals": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parser_errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "replayed_packages": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "root_starts": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "root_terminals": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "test_starts": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "test_terminals": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "complete",
+        "package_starts",
+        "package_terminals",
+        "test_starts",
+        "test_terminals",
+        "root_starts",
+        "root_terminals",
+        "replayed_packages",
+        "non_event_lines",
+        "parser_errors",
+        "missing_terminals"
+      ],
+      "type": "object"
+    },
+    "input_revision": {
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "scenery.cli.schema.json#/$defs/producer"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "source_commit": {
+      "type": "string"
+    },
+    "spec_revision": {
+      "$ref": "scenery.cli.schema.json#/$defs/revision"
     }
   },
   "additionalProperties": false,

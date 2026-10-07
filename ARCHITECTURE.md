@@ -787,7 +787,9 @@ metrics, runtime RPC status, and inspect commands should give enough evidence to
 debug a local app without relying on external services.
 
 `internal/telemetryreport` reads retained CLI and supervisor evidence; command
-boundaries supply verified current build blocks. `internal/rotatinglog` owns
+boundaries supply verified current build blocks and serving/source identity. It
+reads active and archived CLI evidence with explicit purpose/producer cohorts
+and per-source coverage; rejected work remains separate from completed builds. `internal/rotatinglog` owns
 bounded detached event files. `internal/devtelemetry` is the private host event
 shape joining a captured source snapshot to its first attested response; it
 contains no request bodies or credentials and never controls activation.

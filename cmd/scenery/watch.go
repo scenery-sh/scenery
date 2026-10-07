@@ -394,6 +394,12 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		}
 	}()
 
+	ctx = context.WithValue(ctx, workspaceWaitObserverKey{}, func(event, cause string) {
+		console.Event(event, map[string]any{"reason": "workspace_transaction_active", "cause": cause})
+	})
+	if err := waitForWorkspaceRead(ctx, root); err != nil {
+		return err
+	}
 	preparedSession, err := prepareDevAgentSessionDetailed(ctx, root, cfg, resolvedEnv, listen, console)
 	if err != nil {
 		if preparedSession != nil && preparedSession.Cleanup != nil {
@@ -438,6 +444,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	if err != nil {
 		return err
 	}
+	preparedSession.Owner.dashboard.bindServingSupervisor(supervisor)
 	supervisor.devDomainURL = preparedSession.DomainURL
 	supervisor.invocationEnvironment = preparedSession.Environment
 	supervisor.worktreeControlPaths = &preparedSession.Paths
@@ -480,7 +487,8 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		startUICatalogDevSync(ctx, console, supervisor, root, uiCatalogDir, resolvedEnv)
 	}
 
-	if err := supervisor.RebuildAndRestart(ctx, true, &snapshot); err != nil {
+	ctx = context.WithValue(ctx, watchSourceOwnerKey{}, true)
+	if err := rebuildAfterTransaction(ctx, supervisor, true, &snapshot); err != nil {
 		snapshot.retryGenerated = true
 		if errors.Is(err, errBuildSuperseded) {
 			supervisor.console.RebuildFailed(err)
@@ -520,6 +528,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
+			var lost *watchSourceLostError
+			if errors.As(err, &lost) {
+				supervisor.console.Event("source.lost", map[string]any{"reason": "source_missing", "cause": lost.Error(), "retained_data": true})
+			}
 			return err
 		}
 		paths := changedPaths(snapshot, nextSnapshot)
@@ -551,7 +563,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			}
 		}
 		supervisor.announceRebuild(appPaths)
-		if err := supervisor.RebuildAndRestart(ctx, false, &snapshot); err != nil {
+		if err := rebuildAfterTransaction(context.WithValue(ctx, devEditClassKey{}, classifyEditPaths(appPaths)), supervisor, false, &snapshot); err != nil {
 			snapshot.retryGenerated = true
 			supervisor.console.RebuildFailed(err)
 		} else {

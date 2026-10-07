@@ -19,6 +19,194 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0216-verification-coverage-and-evidence.md",
+      "title": "Verification Coverage and Trustworthy Timing",
+      "owner": "scenery verifier / validation",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Owns explicit JS lane coverage, native Go lifecycle and completeness, immutable validation and runner evidence, qualified timing baselines and frontend acceptance.",
+      "tags": [
+        "plans",
+        "execplans",
+        "harness",
+        "validation",
+        "timing"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.harness.self.summary.schema.json",
+      "title": "scenery.harness.self.summary Schema",
+      "owner": "scenery verifier / validation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked verification evidence, selection, identity, timing and completeness contract.",
+      "tags": [
+        "schemas",
+        "harness",
+        "validation",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.validation.result.schema.json",
+      "title": "scenery.validation.result Schema",
+      "owner": "scenery verifier / validation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked verification evidence, selection, identity, timing and completeness contract.",
+      "tags": [
+        "schemas",
+        "harness",
+        "validation",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.validation.plan.schema.json",
+      "title": "scenery.validation.plan Schema",
+      "owner": "scenery verifier / validation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked verification evidence, selection, identity, timing and completeness contract.",
+      "tags": [
+        "schemas",
+        "harness",
+        "validation",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.harness.test_timing.schema.json",
+      "title": "scenery.harness.test_timing Schema",
+      "owner": "scenery verifier / validation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked verification evidence, selection, identity, timing and completeness contract.",
+      "tags": [
+        "schemas",
+        "harness",
+        "validation",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.telemetry.export.schema.json",
+      "title": "scenery.telemetry.export Schema",
+      "owner": "scenery verifier / validation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked verification evidence, selection, identity, timing and completeness contract.",
+      "tags": [
+        "schemas",
+        "harness",
+        "validation",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.harness.verification.schema.json",
+      "title": "scenery.harness.verification Schema",
+      "owner": "scenery verifier / validation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked verification evidence, selection, identity, timing and completeness contract.",
+      "tags": [
+        "schemas",
+        "harness",
+        "validation",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.harness.test_results.schema.json",
+      "title": "scenery.harness.test_results Schema",
+      "owner": "scenery verifier / validation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked verification evidence, selection, identity, timing and completeness contract.",
+      "tags": [
+        "schemas",
+        "harness",
+        "validation",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.agent.status.schema.json",
+      "title": "Agent Status Schema",
+      "owner": "scenery runtime / telemetry",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked agent inventory contract with independent root, source, owner, metadata and serving identity state.",
+      "tags": [
+        "schemas",
+        "contract",
+        "runtime",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.telemetry.schema.json",
+      "title": "CLI Telemetry Schema",
+      "owner": "scenery runtime / telemetry",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Checked CLI telemetry query contract with independent execution purpose and dirty build state.",
+      "tags": [
+        "schemas",
+        "contract",
+        "runtime",
+        "telemetry"
+      ]
+    },
+    {
+      "path": "docs/plans/0215-telemetry-reliability-closure.md",
+      "title": "Telemetry Reliability Closure",
+      "owner": "scenery runtime / telemetry",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Closes the October 6 telemetry review with verification isolation, retained archive coverage, typed diagnostics, coherent source recovery, missing-source lifecycle and live rollout evidence.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "telemetry"
+      ]
+    },
+    {
       "path": "docs/plans/0214-telemetry-driven-reliability.md",
       "title": "Telemetry-Driven Reliability",
       "owner": "scenery runtime / telemetry",
@@ -232,10 +420,14 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-05",
-      "review_after": "2026-11-04",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "Machine output of scenery telemetry report: findings, CLI command and startup timings with failure bursts, detached supervisor rebuild timings, step percentiles, failure causes and streaks, and opt-in aggregates of agent Scenery calls and rejected inputs.",
-      "tags": ["schemas", "telemetry", "machine-protocol"]
+      "tags": [
+        "schemas",
+        "telemetry",
+        "machine-protocol"
+      ]
     },
     {
       "path": "docs/plans/0204-recorded-ownership-small-sdk-one-snapshot.md",
@@ -280,10 +472,14 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-05",
-      "review_after": "2026-11-04",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "Result of the development runtime RPC status method: session identity and health, compile state, routes, service processes and observability readiness, verified by the generated dev-runtime.ts client.",
-      "tags": ["schemas", "runtime", "typescript"]
+      "tags": [
+        "schemas",
+        "runtime",
+        "typescript"
+      ]
     },
     {
       "path": "docs/plans/0201-agent-readable-failures-and-cli-grammar.md",
@@ -1371,10 +1567,17 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-24",
-      "review_after": "2026-10-24",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "Current machine-output schema for stale-session pruning with explicit state, managed-database and disposable build-cache scopes, including the development-cache workspaces and app-local framework state each prune considered.",
-      "tags": ["schemas", "agent", "prune", "database", "build-cache", "machine-protocol"]
+      "tags": [
+        "schemas",
+        "agent",
+        "prune",
+        "database",
+        "build-cache",
+        "machine-protocol"
+      ]
     },
     {
       "path": "docs/plans/0135-governance-workspace-generation.md",
@@ -2501,8 +2704,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-04",
-      "review_after": "2026-11-03",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "App and repository workflows, application acceptance, owned documentation updates, scoped excerpts and compact input-bound validation context.",
       "tags": [
         "agents",
@@ -2557,8 +2760,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-05",
-      "review_after": "2026-11-04",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "Repository code map and cross-package invariants, with app-config and Go-loader instruction owners.",
       "tags": [
         "architecture",
@@ -2576,9 +2779,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-06",
-      "review_after": "2026-11-05",
-      "summary": "Current CLI and machine contracts including repeatable documentation paths, bounded exact excerpts and immutable compact validation context.",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Current CLI and machine contracts, including archive telemetry coverage, explicit cohorts, serving freshness, transaction deferral, source-loss lifecycle and ownership-bound prune preview.",
       "tags": [
         "contract",
         "cli",
@@ -2675,8 +2878,8 @@
       "status": "completed",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-06",
-      "review_after": "2026-11-05",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "Human reference for scenery-owned environment variables, including optional dotenv layering and process precedence, fixed canonical standard-auth names and rejected legacy selectors, app-injected process identity, Postgres app database URLs and schema registry env, Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
@@ -2718,9 +2921,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-05",
-      "review_after": "2026-11-04",
-      "summary": "Repository validation matrix, exact-root timing, explicit probes and compact run-bound covered, remaining and conditional checks.",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Cumulative validation matrix, isolated verification/release descendants, explicit process probes and immutable input-bound evidence.",
       "tags": [
         "harness",
         "agents",
@@ -3550,8 +3753,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-05",
-      "review_after": "2026-10-05",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "Current plans that should inform agent decisions, using permanent historical IDs and links mirrored in docs/knowledge.json; plans with shipped outcomes are pruned to the completed index while explicit open acceptance, measurement, validation, and implementation work remains active.",
       "tags": [
         "plans",
@@ -3566,8 +3769,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-05",
-      "review_after": "2026-10-05",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
       "summary": "Living index of shipped milestones whose linked numbered ExecPlans are immutable historical evidence, excluded from scheduled freshness review while current corrections live in owning contracts or explicit stale metadata.",
       "tags": [
         "plans",

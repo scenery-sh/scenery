@@ -10,6 +10,7 @@ Prefer `.scenery.json` for structural app settings. Application configuration va
 | --- | --- | --- |
 | `HOME` | host input | Host home directory, read as a fallback during browser discovery and default agent-home resolution. Not a scenery configuration surface. |
 | `SCENERY_AGENT_HOME` | user input | Overrides the durable state home, including `worktrees/<canonical-root-hash>/` and explicit machine edge/deploy state. Default is `~/.scenery`. Ordinary runtimes and managed SQL resources are owned per root without a private-home setting. This does not isolate machine-global DNS/edge listeners. |
+| `SCENERY_EXECUTION_PURPOSE` | internal attribution | Native CLI telemetry purpose: `development`, `verification`, `release`, or `unknown` for an unset/unrecognized marker. Verification and release entrypoints inject it for descendants. It does not select runtime behavior, and neither `dev` version nor a private home implies a purpose. |
 | `SCENERY_AGENT_SOCKET` | user input | Overrides only the explicitly managed machine agent Unix control socket. Ordinary worktree runtimes derive private sockets from their retained root identity. |
 | `SCENERY_AGENT_ROUTER_ADDR` | user input | Overrides only the explicitly managed machine agent router address (default `127.0.0.1:9440`), not ordinary worktree routing. |
 | `SCENERY_AGENT_TRUST` | user input | `1` asks the agent to trust the existing local scenery CA when starting HTTPS routing. |

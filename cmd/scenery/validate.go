@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/harnessreport"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/validation"
 )
@@ -99,7 +99,12 @@ type validationGraphEdge struct {
 }
 
 type validationPlanResponse struct {
+	harnessreport.Provenance
+	Profiles []validationProfileRecord `json:"profiles"`
 	cliPayloadIdentity
+	RunID       string                  `json:"run_id"`
+	DryRun      bool                    `json:"dry_run"`
+	Source      string                  `json:"source"`
 	OK          bool                    `json:"ok"`
 	App         inspectdata.AppRef      `json:"app"`
 	Profile     string                  `json:"profile"`
@@ -109,28 +114,40 @@ type validationPlanResponse struct {
 }
 
 type validationResultResponse struct {
+	harnessreport.Provenance
 	cliPayloadIdentity
-	OK          bool                    `json:"ok"`
-	GeneratedAt string                  `json:"generated_at"`
-	App         inspectdata.AppRef      `json:"app"`
-	Profile     string                  `json:"profile"`
-	Selection   validation.Selection    `json:"selection"`
-	Steps       []validationResultStep  `json:"steps"`
-	Artifacts   []validation.Artifact   `json:"artifacts,omitempty"`
-	Diagnostics []validation.Diagnostic `json:"diagnostics,omitempty"`
-	NextActions []string                `json:"next_actions,omitempty"`
-	Wrote       string                  `json:"wrote,omitempty"`
+	Run           validationRunIdentity   `json:"run"`
+	Plan          validationPlanResponse  `json:"plan"`
+	DryRun        bool                    `json:"dry_run"`
+	Outcome       string                  `json:"outcome"`
+	ExecutedSteps int                     `json:"executed_steps"`
+	SelectedSteps int                     `json:"selected_steps"`
+	OmittedSteps  []validationOmission    `json:"omitted_steps"`
+	UnknownStages []string                `json:"unknown_stages"`
+	OK            bool                    `json:"ok"`
+	GeneratedAt   string                  `json:"generated_at"`
+	App           inspectdata.AppRef      `json:"app"`
+	Profile       string                  `json:"profile"`
+	Selection     validation.Selection    `json:"selection"`
+	Steps         []validationResultStep  `json:"steps"`
+	Artifacts     []validation.Artifact   `json:"artifacts,omitempty"`
+	Diagnostics   []validation.Diagnostic `json:"diagnostics,omitempty"`
+	NextActions   []string                `json:"next_actions,omitempty"`
+	Wrote         string                  `json:"wrote,omitempty"`
 }
 
 type validationResultStep struct {
-	ID         string           `json:"id"`
-	Name       string           `json:"name"`
-	Kind       string           `json:"kind"`
-	Profile    string           `json:"profile,omitempty"`
-	OK         bool             `json:"ok"`
-	DurationMS int64            `json:"duration_ms"`
-	Evidence   *harnessEvidence `json:"evidence,omitempty"`
-	Error      string           `json:"error,omitempty"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Kind        string           `json:"kind"`
+	Profile     string           `json:"profile,omitempty"`
+	OK          bool             `json:"ok"`
+	DurationMS  int64            `json:"duration_ms"`
+	Outcome     string           `json:"outcome"`
+	ExecutionMS int64            `json:"execution_ms"`
+	ArtifactMS  int64            `json:"artifact_ms"`
+	Evidence    *harnessEvidence `json:"evidence,omitempty"`
+	Error       string           `json:"error,omitempty"`
 }
 
 type validationArtifactContext struct {
@@ -215,15 +232,26 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 			return err
 		}
 		if opts.DryRun {
-			resp := validationPlanResponse{
-				cliPayloadIdentity: newCLIPayloadIdentity(validationPlanKind),
-				OK:                 len(plan.Diagnostics) == 0,
-				App:                plan.App,
-				Profile:            plan.Profile,
-				Selection:          plan.Selection,
-				Steps:              plan.Steps,
-				Diagnostics:        plan.Diagnostics,
+			artifactCtx := newValidationArtifactContext(appRoot, opts.Write)
+			result := newValidationObservation(appRoot, cfg, plan, opts, artifactCtx)
+			result.OK = len(plan.Diagnostics) == 0
+			result.Outcome = "not_selected"
+			result.GeneratedAt = time.Now().UTC().Format(time.RFC3339Nano)
+			result.Steps = []validationResultStep{}
+			result.Run.FinalInputRevision = result.Run.InputRevision
+			result.Run.InputsStable = result.Run.InputRevision != ""
+			if !result.Run.InputsStable {
+				result.OK, result.Outcome = false, "incomplete"
 			}
+			for _, step := range plan.Steps {
+				result.OmittedSteps = append(result.OmittedSteps, validationOmission{ID: step.ID, Outcome: "not_selected", Reason: "dry run"})
+			}
+			if opts.Write {
+				if err := writeValidationResult(appRoot, &result); err != nil {
+					return err
+				}
+			}
+			resp := result.Plan
 			if opts.JSON {
 				return writeInspectJSON(stdout, resp)
 			}
@@ -514,7 +542,13 @@ func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Confi
 	writeArtifacts := func(stepName string, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
 		return writeValidationOutputArtifacts(artifactCtx, stepName, stdout, stderr)
 	}
-	return validationResultResponseFrom(validation.ExecutePlan(ctx, plan, run, writeArtifacts))
+	observation := newValidationObservation(appRoot, cfg, plan, opts, artifactCtx)
+	result := validationResultResponseFrom(validation.ExecutePlan(ctx, plan, run, writeArtifacts))
+	result.Provenance = observation.Provenance
+	result.Run, result.Plan, result.DryRun = observation.Run, observation.Plan, observation.DryRun
+	result.SelectedSteps, result.OmittedSteps, result.UnknownStages = observation.SelectedSteps, observation.OmittedSteps, observation.UnknownStages
+	completeValidationObservation(appRoot, &result)
+	return result
 }
 
 func validationResultResponseFrom(result validation.Result) validationResultResponse {
@@ -542,16 +576,16 @@ func validationResultStepFrom(step validation.StepResult) validationResultStep {
 	for _, artifact := range step.Artifacts {
 		artifacts = append(artifacts, harnessEvidenceArtifact{Name: artifact.Name, Path: artifact.Path})
 	}
-	finalizeHarnessEvidence(&evidence, step.Duration, step.OK, step.Stdout, step.Stderr, exitCodeFromError(step.Err), artifacts)
+	finalizeHarnessEvidence(&evidence, step.ExecutionDuration, step.OK, step.Stdout, step.Stderr, exitCodeFromError(step.Err), artifacts)
 	return validationResultStep{
 		ID:         step.ID,
 		Name:       step.Name,
 		Kind:       step.Kind,
 		Profile:    step.Profile,
 		OK:         step.OK,
-		DurationMS: step.Duration.Milliseconds(),
-		Evidence:   &evidence,
-		Error:      step.Error,
+		DurationMS: step.Duration.Milliseconds(), Outcome: validationStepOutcome(step), ExecutionMS: step.ExecutionDuration.Milliseconds(), ArtifactMS: step.ArtifactDuration.Milliseconds(),
+		Evidence: &evidence,
+		Error:    step.Error,
 	}
 }
 
@@ -668,29 +702,6 @@ func writeValidationOutputArtifacts(ctx validationArtifactContext, stepName stri
 	write("stdout", stdout)
 	write("stderr", stderr)
 	return artifacts, diags
-}
-
-func writeValidationResult(appRoot string, result *validationResultResponse) error {
-	dir := filepath.Join(appRoot, ".scenery", "harness", "validation")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	result.Wrote = filepath.Join(appRoot, ".scenery", "harness", "validation", "latest.json")
-	data, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(result.Wrote, data, 0o644); err != nil {
-		return err
-	}
-	if result.Profile != "" {
-		profileLatest := filepath.Join(dir, sanitizeHarnessArtifactFilename(result.Profile+"-latest.json"))
-		if err := os.WriteFile(profileLatest, data, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func writeValidationText(stdout io.Writer, result validationResultResponse) error {

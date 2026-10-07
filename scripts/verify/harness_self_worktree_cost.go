@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +16,8 @@ type worktreeCostCohort struct {
 	runtimes []detachedDevResult
 	records  []localagent.WorktreeRecord
 	pids     []int
+	owners   map[int]localagent.Owner
+	roles    map[string]int
 }
 
 func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
@@ -63,10 +64,21 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 		}
 		hardware["docker_info"] = strings.TrimSpace(string(out))
 		e["hardware"] = hardware
-		e["profile"] = "managed PostgreSQL plus three real optional Victoria components per worktree; API-only lending app"
-		e["cold_definition"] = "fresh authored Git checkout, fresh cohort-private GOCACHE, no generated application files or cluster; module downloads, toolchain binaries and host filesystem cache may be warm"
+		for _, tool := range []string{"go", "bun", "node"} {
+			flag := "--version"
+			if tool == "go" {
+				flag = "version"
+			}
+			output, err := p.run(p.repo, tool, flag)
+			if err != nil {
+				return err
+			}
+			hardware[tool+"_version"] = strings.TrimSpace(string(output))
+		}
+		e["profile"] = "managed PostgreSQL, three real Victoria components, a minimal managed Bun frontend and a real Eve helper with a deterministic model per worktree"
+		e["cold_definition"] = "fresh authored Git checkout, fresh cohort-private GOCACHE, no generated Go runtime files or cluster; authored TypeScript client, module downloads, toolchain binaries and host filesystem cache may be warm"
 		e["warm_definition"] = "same roots after ordinary down/up; retained SQL and observability data, generated artifacts and same cohort Go cache"
-		e["limitations"] = []string{"not an OS-cache-cold benchmark", "developer background workloads are not stopped", "aggregate RSS counts shared pages per process, not PSS", "Docker stats memory is container accounting, not host RSS", "no frontend dev server in this fixture", "no inferred capacity ceiling"}
+		e["limitations"] = []string{"not an OS-cache-cold benchmark", "developer background workloads are not stopped", "aggregate RSS counts shared pages per process, not PSS", "Docker stats memory is container accounting, not host RSS", "minimal frontend excludes bundler/HMR and browser cost; deterministic assistant excludes remote model/network cost", "startup peak is a sampled native RSS maximum; Docker startup peaks are not measured", "no inferred capacity ceiling or percentile from three cohort repetitions"}
 		var runs []map[string]any
 		for _, count := range []int{1, 5, 10} {
 			for repetition := 1; repetition <= 3; repetition++ {
@@ -83,7 +95,11 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 					p.roots = append(p.roots, root)
 					cohort.roots = append(cohort.roots, root)
 				}
+				row := map[string]any{"worktrees": count, "repetition": repetition, "complete": false}
+				runs = append(runs, row)
+				e["runs"] = runs
 				cold, err := p.startCostCohort(&cohort, true)
+				row["cold"] = cold
 				if err != nil {
 					return err
 				}
@@ -94,6 +110,7 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 					}
 				}
 				warm, err := p.startCostCohort(&cohort, false)
+				row["warm"] = warm
 				if err != nil {
 					return err
 				}
@@ -103,19 +120,25 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 					}
 				}
 				idle, err := p.measureCostPhase(cohort, false)
+				row["idle"] = idle
 				if err != nil {
 					return err
 				}
 				load, err := p.measureCostPhase(cohort, true)
+				row["load"] = load
+				if err != nil {
+					return err
+				}
+				churn, err := p.churnCostCohort(&cohort)
+				row["churn"] = churn
 				if err != nil {
 					return err
 				}
 				disk, err := p.costDisk(cohort, cache, sceneryCache)
+				row["disk"], row["process_roles"] = disk, cohort.roles
 				if err != nil {
 					return err
 				}
-				runs = append(runs, map[string]any{"worktrees": count, "repetition": repetition, "cold": cold, "warm": warm, "idle": idle, "load": load, "disk": disk})
-				e["runs"] = runs
 				for i, root := range cohort.roots {
 					if _, err := p.run(root, p.binary, "down", "--app-root", root, "-o", "json"); err != nil {
 						return err
@@ -128,6 +151,7 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 					}
 				}
 				p.roots = p.roots[:len(p.roots)-len(cohort.roots)]
+				row["complete"], row["cleanup"] = true, "verified owned cohort clusters and worktrees removed"
 				if err := os.RemoveAll(cache); err != nil {
 					return err
 				}
@@ -156,6 +180,8 @@ func (p *worktreeRuntimeProbe) startCostCohort(cohort *worktreeCostCohort, requi
 		err     error
 	}
 	begin := time.Now()
+	peak := p.startCostPeakSampler(cohort.roots)
+	defer peak()
 	done := make(chan started, len(cohort.roots))
 	for i, root := range cohort.roots {
 		go func() {
@@ -183,40 +209,41 @@ func (p *worktreeRuntimeProbe) startCostCohort(cohort *worktreeCostCohort, requi
 		return nil, err
 	}
 	evidence["shared_composition"] = shared
-	cohort.records, cohort.pids = nil, nil
+	cohort.records = nil
+	var assistantProofs []map[string]any
 	for i, root := range cohort.roots {
 		runtime := cohort.runtimes[i]
 		if err := p.get(worktreeProbeAPI(runtime) + "/books"); err != nil {
 			return nil, err
 		}
+		if err := p.get(strings.TrimRight(runtime.Session.RouteManifest.BaseURL, "/") + "/client.js"); err != nil {
+			return nil, err
+		}
+		proof, err := p.verifyCostAssistant(runtime)
+		if err != nil {
+			return nil, err
+		}
+		proof["app_root"] = root
+		assistantProofs = append(assistantProofs, proof)
 		record, err := p.record(root)
 		if err != nil {
 			return nil, err
 		}
 		cohort.records = append(cohort.records, record)
-		paths, err := localagent.PathsForWorktree(p.home, root)
-		if err != nil {
-			return nil, err
-		}
-		client := localagent.NewClient(paths.Socket)
-		stack, err := p.waitVictoriaReady(client, 0)
-		client.CloseIdleConnections()
-		if err != nil {
-			return nil, err
-		}
-		session, err := p.liveSession(root)
-		if err != nil {
-			return nil, err
-		}
-		appPID, err := strconv.Atoi(session.AppPID)
-		if err != nil || appPID <= 0 {
-			return nil, fmt.Errorf("cost cohort lacks a current app process")
-		}
-		cohort.pids = append(cohort.pids, runtime.PID, appPID)
-		for _, pid := range stack.PIDs {
-			cohort.pids = append(cohort.pids, pid)
-		}
 	}
+	ownersStarted := time.Now()
+	if err := p.captureCostOwners(cohort); err != nil {
+		return nil, err
+	}
+	peakResult := peak()
+	if peakResult["error"] != nil {
+		return nil, fmt.Errorf("native startup peak: %v", peakResult["error"])
+	}
+	evidence["native_startup_peak"] = peakResult
+	evidence["assistant_completion"] = assistantProofs
+	evidence["ownership_sampling_setup_ms"] = time.Since(ownersStarted).Milliseconds()
+	evidence["all_optional_ready_boundary"] = "required serving through frontend module response, deterministic assistant completion, Victoria readiness and verified settled process ownership; includes inspection work"
+	evidence["process_roles"] = cohort.roles
 	evidence["all_optional_ready_wall_ms"], evidence["native_processes"], evidence["postgres_containers"] = time.Since(begin).Milliseconds(), len(cohort.pids), len(cohort.records)
 	return evidence, nil
 }

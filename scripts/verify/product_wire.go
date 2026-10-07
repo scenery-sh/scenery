@@ -63,6 +63,8 @@ type cliTelemetryRecord struct {
 	InvocationID   string            `json:"invocation_id,omitempty"`
 	Producer       *machine.Producer `json:"producer,omitempty"`
 	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
+	Purpose        string            `json:"purpose,omitempty"`
+	Dirty          bool              `json:"dirty"`
 	At             time.Time         `json:"at"`
 	Command        string            `json:"command"`
 	DurationMS     int64             `json:"duration_ms"`

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,10 +50,13 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		args        []string
 		wantExit    int
 		wantCommand string
+		missingApp  bool
 	}{
 		{name: "success", wantCommand: "help"},
 		{name: "invalid_usage", args: []string{"not-a-command"}, wantExit: 2, wantCommand: "not-a-command"},
 		{name: "missing_resource", args: []string{"get", "missing/operation/nope", "--app-root", filepath.Join(repoRoot, "internal", "compiler", "testdata", "native")}, wantExit: 2, wantCommand: "get"},
+		{name: "missing_app", missingApp: true, wantExit: 2, wantCommand: "compile"},
+		{name: "semantic_status", args: []string{"status", "-o", "json"}, wantExit: 2, wantCommand: "status"},
 	}
 	verified := make([]string, 0, len(cases))
 	for _, test := range cases {
@@ -60,10 +64,14 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		if err != nil {
 			return nil, nil, err
 		}
-		command := exec.CommandContext(ctx, binary, test.args...)
+		args := test.args
+		if test.missingApp {
+			args = []string{"compile", "--app-root", home, "-o", "json"}
+		}
+		command := exec.CommandContext(ctx, binary, args...)
 		command.Dir = repoRoot
 		command.Env = envWithOverrides(envpolicy.Environ(), "HOME="+home, "SCENERY_AGENT_HOME="+filepath.Join(home, "private-agent"))
-		runErr := command.Run()
+		output, runErr := command.Output()
 		exitCode := 0
 		if runErr != nil {
 			var exitErr *exec.ExitError
@@ -96,6 +104,19 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		}
 		if record.Command != test.wantCommand || record.ExitCode != test.wantExit || record.InvocationID == "" || record.Producer == nil || (test.wantExit != 0 && record.DiagnosticCode == "") {
 			return nil, nil, fmt.Errorf("%s telemetry = %+v", test.name, record)
+		}
+		purpose := envpolicy.Get("SCENERY_EXECUTION_PURPOSE")
+		if purpose == "" {
+			purpose = "unknown"
+		}
+		if record.Purpose != purpose || record.Version != record.Producer.Version {
+			return nil, nil, fmt.Errorf("%s command purpose/version does not match its lane/producer", test.name)
+		}
+		if test.missingApp && (record.DiagnosticCode != "SCN8001" || bytes.Contains(output, []byte("report_token"))) {
+			return nil, nil, fmt.Errorf("missing app created an internal report: %s", output)
+		}
+		if test.name == "semantic_status" && !bytes.Contains(output, []byte("scenery ps -o json")) {
+			return nil, nil, fmt.Errorf("status misuse omitted the current inspection command: %s", output)
 		}
 		verified = append(verified, test.name)
 	}

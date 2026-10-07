@@ -331,14 +331,10 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 			SuggestedAction: installSuggestion("go"),
 		}}
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
-		return step, &harnessTestTimingReport{
-			PayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
-			Command:         command,
-			Env:             testEnv,
-			TotalSeconds:    float64(step.DurationMS) / 1000,
-			Budgets:         budgets,
-			Diagnostics:     step.Diagnostics,
-		}
+		report := parseHarnessGoTestTimingWithBudgets(nil, command, time.Since(started), budgets)
+		report.Env, report.Diagnostics = testEnv, step.Diagnostics
+		qualifyGoTimingContext(ctx, repoRoot, report, optionalHarnessArtifactContext(artifactCtxs), freshTests)
+		return step, report
 	}
 	outputFile, err := os.CreateTemp("", "scenery-go-test-*.json")
 	if err != nil {
@@ -352,14 +348,10 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 			SuggestedAction: "Check temporary directory permissions and available disk space, then rerun `go run ./scripts/verify -o json`.",
 		}}
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
-		return step, &harnessTestTimingReport{
-			PayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
-			Command:         command,
-			Env:             testEnv,
-			TotalSeconds:    float64(step.DurationMS) / 1000,
-			Budgets:         budgets,
-			Diagnostics:     step.Diagnostics,
-		}
+		report := parseHarnessGoTestTimingWithBudgets(nil, command, time.Since(started), budgets)
+		report.Env, report.Diagnostics = testEnv, step.Diagnostics
+		qualifyGoTimingContext(ctx, repoRoot, report, optionalHarnessArtifactContext(artifactCtxs), freshTests)
+		return step, report
 	}
 	outputPath := outputFile.Name()
 	defer func() { _ = os.Remove(outputPath) }()
@@ -397,11 +389,29 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	report.Env = append([]string{}, testEnv...)
 	if freshTests {
 		report.TestBinaries = harnessTestBinaryTimingFromResult(testResult)
+		report.Discovery.ExpectedPackages = &testResult.PackageCount
+		report.Discovery.ExpectedRoots = &testResult.SelectedTestRoots
 		applyHarnessColdBinaryBudgets(report)
 	}
-	if runErr == nil && freshTests {
-		selectHarnessTimingConfirmations(report, readHarnessTimingBaseline(repoRoot))
-		confirmHarnessTimingOutliers(ctx, repoRoot, report, runHarnessTimingConfirmationCommand)
+	qualifyGoTimingContext(ctx, repoRoot, report, optionalHarnessArtifactContext(artifactCtxs), freshTests)
+	qualifyTimingDiscovery(report)
+	if runErr == nil && freshTests && report.Discovery.Complete {
+		selectHarnessTimingConfirmations(report, readHarnessTimingBaseline(repoRoot, report))
+		confirmationIndex := 0
+		confirmHarnessTimingOutliers(ctx, repoRoot, report, func(ctx context.Context, root string, command []string) ([]byte, error) {
+			output, err := runHarnessTimingConfirmationCommand(ctx, root, command)
+			if len(output) > 0 {
+				confirmationIndex++
+				ref, issue := optionalHarnessArtifactContext(artifactCtxs).Write("Go isolated confirmation", fmt.Sprintf("go-confirmation-%04d.log", confirmationIndex), "", output)
+				if issue != nil {
+					return output, issue
+				}
+				if ref.Path != "" {
+					step.Evidence.Artifacts = append(step.Evidence.Artifacts, ref)
+				}
+			}
+			return output, err
+		})
 	}
 	elapsed := time.Since(started)
 	step.DurationMS = elapsed.Milliseconds()
@@ -414,6 +424,8 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		"confirmation_seconds":       report.ConfirmationSeconds,
 		"timing_lane":                report.Budgets.Lane,
 		"env":                        testEnv,
+		"timing_evidence_complete":   report.Discovery.Complete,
+		"replayed_packages":          report.Discovery.ReplayedPackages,
 	}
 	if freshTests {
 		step.Summary["test_results"] = testResult.TestResultCount
@@ -428,6 +440,18 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	step.Diagnostics = report.Diagnostics
 	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "go-test.jsonl", "go.test.jsonl", output, nil)
 	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
+	cases := normalizeGoCases(output, report, artifacts)
+	cases.CWD = repoRoot
+	data, encodeErr := json.Marshal(cases)
+	ref, writeErr := optionalHarnessArtifactContext(artifactCtxs).Write("Go case results", "go-test.cases.json", harnessTestResultsKind, data)
+	if encodeErr != nil || writeErr != nil {
+		step.Diagnostics = append(step.Diagnostics, checkDiagnostic{Stage: "go tests", Severity: "error", Message: "cannot retain normalized Go case results"})
+	}
+	if ref.Path != "" {
+		artifacts = append(artifacts, ref)
+	}
+	step.Summary["case_results"] = ref
+	step.Summary["case_completeness"] = cases.Completeness
 	if runErr != nil {
 		step.OK = false
 		step.Error = strings.TrimSpace(runErr.Error())
@@ -458,6 +482,8 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 	packages := map[string]*harnessPackageTiming{}
 	rootClock := newGoTestRootClock()
 	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
+	discovery := newTimingDiscovery()
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -465,8 +491,10 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		}
 		var event goTestJSONEvent
 		if err := json.Unmarshal(line, &event); err != nil {
+			discovery.nonEvent(line, err)
 			continue
 		}
+		discovery.observe(event)
 		if event.Package == "" {
 			continue
 		}
@@ -554,13 +582,9 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		})
 	}
 	if err := scanner.Err(); err != nil {
-		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
-			Stage:           "go tests",
-			Severity:        "warning",
-			Message:         "failed to scan complete go test JSON output: " + err.Error(),
-			SuggestedAction: "Rerun `" + strings.Join(report.Command, " ") + "` and inspect the raw output.",
-		})
+		discovery.errors = append(discovery.errors, "read event stream: "+err.Error())
 	}
+	report.Discovery = discovery.result()
 	return report
 }
 

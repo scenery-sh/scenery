@@ -97,6 +97,9 @@ type devSupervisor struct {
 	// buildBlock is set while builds fail for a cause no ordinary edit
 	// resolves (see dev_build_block.go).
 	buildBlock *devBuildBlock
+	// Serving inputs are captured only after successful publication, under mu.
+	servingSnapshot *fileSnapshot
+	servingIdentity *runtimeServingIdentity
 
 	// rebuildRequests wakes the watch loop for a rebuild that no watched
 	// file change would trigger (e.g. a ui catalog sync succeeding after the
@@ -426,8 +429,21 @@ func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error
 			var victoriaStack *victoria.Stack
 			_ = s.console.Phase("Starting Victoria observability stack", func() error {
 				victoriaStack = s.startVictoriaStack(ctx)
+				if victoria.Enabled() && victoriaStack == nil {
+					return fmt.Errorf("observability enabled but no ready stack was produced")
+				}
 				return nil
 			})
+			health := "disabled"
+			missing := []string{}
+			if victoria.Enabled() {
+				health = "ready"
+				if victoriaStack == nil {
+					health = "degraded"
+					missing = append(missing, "no ready Victoria stack")
+				}
+			}
+			s.console.Event("observability.health", map[string]any{"state": health, "enabled": victoria.Enabled(), "missing_evidence": missing})
 			if ctx.Err() != nil {
 				discardVictoriaStack(victoriaStack)
 				return

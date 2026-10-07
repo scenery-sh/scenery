@@ -20,7 +20,7 @@
       "const": "scenery.telemetry"
     },
     "schema_revision": {
-      "const": "sha256:b96726ab4ae934908d91ad27242ac26cef2e622bf12937516f61f1c567d07324"
+      "const": "sha256:1ddc5f4ae40a0f7e185b15992922f86fe7b01c1c7da2be658f9815985f89e0b5"
     },
     "query": {
       "type": "object",
@@ -196,6 +196,8 @@
           "type": "string",
           "pattern": "^SCN[0-9]{4}$"
         },
+        "purpose": {"enum": ["unknown", "development", "verification", "release"]},
+        "dirty": {"type": "boolean"},
         "at": {"type": "string", "format": "date-time"},
         "command": {"type": "string", "minLength": 1},
         "duration_ms": {"type": "integer", "minimum": 0},

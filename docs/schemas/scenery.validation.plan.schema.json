@@ -10,14 +10,20 @@
     "app",
     "profile",
     "selection",
-    "steps"
+    "steps",
+    "run_id",
+    "dry_run",
+    "source",
+    "profiles",
+    "spec_revision",
+    "producer"
   ],
   "properties": {
     "kind": {
       "const": "scenery.validation.plan"
     },
     "schema_revision": {
-      "const": "sha256:7016ed0dec211f1b98025de55e7a36da32e40cf769c042fe41bbcb5b75366125"
+      "const": "sha256:70fcd06fd152aeb86afc4d71920d09068a85e9f9a7a5ae00b808d85942efca06"
     },
     "ok": {
       "type": "boolean"
@@ -45,6 +51,30 @@
         "type": "object",
         "additionalProperties": true
       }
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "producer": {
+      "$ref": "scenery.cli.schema.json#/$defs/producer"
+    },
+    "profiles": {
+      "items": {
+        "type": "object"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "spec_revision": {
+      "$ref": "scenery.cli.schema.json#/$defs/revision"
     }
   },
   "additionalProperties": false,
@@ -52,41 +82,123 @@
     "selection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "resolved_profiles", "coverage_complete"],
+      "required": [
+        "mode",
+        "resolved_profiles",
+        "coverage_complete"
+      ],
       "properties": {
-        "mode": { "enum": ["explicit", "changed"] },
-        "requested": { "type": "array", "items": { "type": "string" } },
-        "base": { "type": "string" },
-        "changed_files": { "type": "array", "items": { "type": "string" } },
-        "resolved_profiles": { "type": ["array", "null"], "items": { "type": "string" } },
+        "mode": {
+          "enum": [
+            "explicit",
+            "changed"
+          ]
+        },
+        "requested": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "base": {
+          "type": "string"
+        },
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolved_profiles": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "matched_profiles": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["profile", "matched_paths", "matched_files"],
+            "required": [
+              "profile",
+              "matched_paths",
+              "matched_files"
+            ],
             "properties": {
-              "profile": { "type": "string" },
-              "matched_paths": { "type": "array", "items": { "type": "string" } },
-              "matched_files": { "type": "array", "items": { "type": "string" } }
+              "profile": {
+                "type": "string"
+              },
+              "matched_paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "matched_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
         },
-        "coverage_complete": { "type": "boolean" },
-        "coverage": { "type": "array", "items": { "$ref": "#/$defs/pathCoverage" } }
+        "coverage_complete": {
+          "type": "boolean"
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathCoverage"
+          }
+        }
       }
     },
     "pathCoverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "status"],
+      "required": [
+        "path",
+        "status"
+      ],
       "properties": {
-        "path": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["planned", "checked", "exempt", "unverified"] },
-        "profiles": { "type": "array", "items": { "type": "string" } },
-        "step_ids": { "type": "array", "items": { "type": "string" } },
-        "manual_profiles": { "type": "array", "items": { "type": "string" } },
-        "reason": { "type": "string" }
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "planned",
+            "checked",
+            "exempt",
+            "unverified"
+          ]
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "step_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "manual_profiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
       }
     }
   }

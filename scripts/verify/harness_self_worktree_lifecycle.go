@@ -145,7 +145,12 @@ func (p *worktreeRuntimeProbe) waitServing(url string) error {
 }
 
 func (p *worktreeRuntimeProbe) lifecycle(root string, runtime *detachedDevResult) error {
-	return p.scenario("A6", "rebuild, down/up, supervisor crash and PostgreSQL restart retain data", func(e map[string]any) error {
+	return p.scenario("A6", "stale-client recovery, rebuild, down/up, supervisor crash and PostgreSQL restart retain data", func(e map[string]any) error {
+		stale, err := p.staleClientRecovery(root, *runtime)
+		if err != nil {
+			return err
+		}
+		e["stale_client_recovery"] = stale
 		before, err := p.record(root)
 		if err != nil {
 			return err

@@ -48,6 +48,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 
 	resp := harnessSelfResponse{
 		PayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
+		Provenance:      harnessreport.CurrentProvenance(),
 		OK:              true,
 		GeneratedAt:     time.Now().UTC().Format(time.RFC3339Nano),
 		Mode:            opts.Mode,
@@ -59,6 +60,11 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		Knowledge: buildHarnessSelfKnowledge(repoRoot),
 	}
 	artifactCtx := newHarnessArtifactContext(repoRoot, opts.Write)
+	restoreEnvironment, err := isolateVerification(repoRoot, artifactCtx.RunID, opts.Mode)
+	if err != nil {
+		return err
+	}
+	defer restoreEnvironment()
 	inputRevision, err := harnessInputRevision(ctx, repoRoot)
 	if err != nil {
 		return err
@@ -107,6 +113,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	default:
 		return fmt.Errorf("unknown harness self mode %q", opts.Mode)
 	}
+	resp.Steps = append(resp.Steps, runJavascriptTestInventoryStep(ctx, repoRoot))
 	if probes := selectedHarnessProbes(opts); len(probes) > 0 {
 		ids := make([]string, 0, len(probes))
 		for _, probe := range probes {
@@ -147,9 +154,11 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	if !resp.Run.InputsStable {
 		resp.Steps = append(resp.Steps, harnessStep{Name: "validation input identity", OK: false, Error: "repository inputs changed during validation; rerun affected checks against the final inputs"})
 	}
+	resp.Verification = buildVerificationCoverage(repoRoot, resp)
 	schemaValidationStep, schemaValidation := runHarnessSchemaValidationStep(repoRoot, resp)
 	resp.SchemaValidation = schemaValidation
 	resp.Steps = append(resp.Steps, schemaValidationStep)
+	resp.Steps = append(resp.Steps, verificationIsolationEvidence(repoRoot, artifactCtx))
 	annotateHarnessStepEffects(resp.Steps)
 	annotateHarnessEvidence(resp.Steps, repoRoot)
 	for _, step := range resp.Steps {
@@ -158,6 +167,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		}
 	}
 	resp.NextActions = buildHarnessNextActions(resp.Steps)
+	resp.Verification = buildVerificationCoverage(repoRoot, resp)
 
 	if opts.Write {
 		if err := publishHarnessRun(repoRoot, resp, buildHarnessAgentContext(repoRoot, resp)); err != nil {
@@ -357,6 +367,8 @@ const typescriptToolingRootRel = "tools/typescript"
 // harnessTypeScriptLaneNames are the self-harness lanes that need bun and the
 // installed tools/typescript dependency tree.
 var harnessTypeScriptLaneNames = []string{
+	"Scenery table behavior guards",
+	"Scenery runtime identity checks",
 	"Scenery TypeScript client conformance",
 	"Scenery TypeScript client typecheck",
 	"Scenery UI catalog typecheck",

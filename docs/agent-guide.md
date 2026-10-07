@@ -229,6 +229,8 @@ marker is found; it is not evidence that an app can compile or start.
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
 - Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive. On machines set up with `scenery deploy setup`, the agent is continuously owned by the `dev.scenery.agent` launchd LaunchAgent and restart cooperates with it (`supervised: true` in the JSON payload) and first brings the installed job up to the current agent invocation, including start failure containment (`supervisor_updated: true` when it rewrote the job); `scenery deploy status -o json` reports supervision truth under `agent_supervisor`, reports the login-resume job's state and last exit code, and refuses `ready` when either supervisor is unloaded or the last resume completed unsuccessfully. Public resume is independent of optional `local.dev` wildcard DNS.
 - Use `scenery system agent cleanup` to find same-user processes still tied to the pre-rebrand `~/.onlava` config or socket; it reports them as `running_pids` and never signals them, because Scenery did not record them. Stop them yourself, then pass `--remove-state` to remove that directory explicitly.
+- Inspect `scenery ps -o json` for independent source, owner, metadata and serving freshness; retained candidate files do not attest a published generation. A verified owner stops after persistent source loss and retains separately owned data.
+- Use `scenery prune --older-than <duration> --preview -o json` to review exact selection, bytes and ownership before cleanup. Supervisor logs and invalid/unknown ownership remain retained.
 - Use `scenery prune --older-than <duration>` for non-destructive stale record and substrate-lease cleanup. Add `--state`, `--db`, or `--all` only when the corresponding deletion is intended; database cleanup refuses external DSNs.
 - Use `scenery prune --older-than <duration> --build-cache` to reclaim development-cache workspaces whose app root is gone or whose build state is older than the cutoff; locked workspaces and those of running runtimes stay. Add `--app-root <path>` to limit the prune to that root and also drop its framework snapshots and producers that neither the current selection nor the retained runtime names. The next `scenery up` rebuilds anything removed.
 - Use `scenery doctor -o json` when startup reports an occupied Scenery port; it distinguishes duplicate Scenery owners from foreign listeners, and startup never falls back to an unadvertised router port.
@@ -543,6 +545,12 @@ affected checks after corrections. Repository-only verification follows the
 
 Keep app validation in configured profiles: `validate changed --base <ref>
 --dry-run -o json` includes branch, tracked working-tree and untracked changes.
+A written result resolves to immutable `validation/runs/<run-id>/plan.json` and
+`result.json`, including dry runs with zero execution and failed runs with blocked
+remaining steps. Inspect exact selection, producer/input identity and raw command
+artifacts before calling a fast invocation useful proof. Use `scenery telemetry
+export` with exact run IDs and explicitly selected frontend logs/traces/benchmarks
+when sharing local evidence; verify its completeness manifest first.
 Use `harness --with-validation=<profile>` for a selected domain journey; framework
 inspection alone does not establish application writes or browser rendering.
 Changed results account for every path: `planned`, `checked`, `exempt` or

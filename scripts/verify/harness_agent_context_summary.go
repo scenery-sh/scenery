@@ -40,7 +40,7 @@ func buildHarnessAgentContextSummary(resp harnessSelfResponse, contextPack harne
 	stable := resp.Run != nil && resp.Run.InputsStable && resp.Run.InputRevision != "" && resp.Run.InputRevision == resp.Run.FinalInputRevision
 	fullTests, fullVet := false, false
 	for _, step := range resp.Steps {
-		fullTests = fullTests || (step.OK && step.Name == "go tests" && strings.Join(step.Command, " ") == "go test -json ./...")
+		fullTests = fullTests || (step.OK && harnessStepRunsFullGoSuite(step))
 		fullVet = fullVet || (step.OK && step.Name == "go vet" && strings.Join(step.Command, " ") == "go vet ./...")
 	}
 	summary := harnessAgentContextSummary{
@@ -114,10 +114,14 @@ func buildHarnessAgentContextSummary(resp harnessSelfResponse, contextPack harne
 }
 
 func harnessAgentStepCoversCommand(step harnessStep, command string) bool {
+	// A stage reproduction command is not proof that the whole verifier ran.
+	if command == repoinfo.ValidationFullCommand || command == harnessValidationQuickCommand {
+		return false
+	}
 	if strings.Join(step.Command, " ") == command {
 		return true
 	}
-	if step.Name != "go tests" || strings.Join(step.Command, " ") != "go test -json ./..." {
+	if !harnessStepRunsFullGoSuite(step) {
 		return false
 	}
 	fields := strings.Fields(command)
@@ -133,4 +137,9 @@ func harnessAgentStepCoversCommand(step harnessStep, command string) bool {
 		}
 	}
 	return true
+}
+
+func harnessStepRunsFullGoSuite(step harnessStep) bool {
+	command := strings.Join(step.Command, " ")
+	return step.Name == "go tests" && (command == "go test -json ./..." || command == strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "))
 }

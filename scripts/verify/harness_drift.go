@@ -764,6 +764,10 @@ func harnessStepEffects(step harnessStep) []string {
 		}
 	}
 	switch step.Name {
+	case "frontend readiness and production rebuild probe":
+		for _, effect := range []string{"external-binary", "filesystem-write", "loopback-network", "ports", "tempdir", "node-runtime"} {
+			set[effect] = true
+		}
 	case harnessNativeReloadName, harnessNativeReloadPluginName, harnessNativeAttributionName:
 		set["external-binary"] = true
 		set["filesystem-read"] = true

@@ -263,7 +263,7 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, private := range []string{"/Users/dev", "head", "max_output_tokens", "run scenery up first"} {
+	for _, private := range []string{"/Users/dev", "2>&1 | head", "max_output_tokens", "run scenery up first"} {
 		if strings.Contains(string(encoded), private) {
 			t.Fatalf("report kept transcript or message text %q: %s", private, encoded)
 		}

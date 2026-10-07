@@ -20,9 +20,9 @@ import (
 	"scenery.sh/internal/victoria"
 )
 
-func runHarnessObservabilityProbeStep(ctx context.Context, repo string) harnessStep {
+func runHarnessObservabilityProbeStepWithArtifacts(ctx context.Context, repo string, artifacts harnessArtifactContext) harnessStep {
 	started := time.Now()
-	proof, err := runHarnessObservabilityProbe(ctx, repo)
+	proof, err := runHarnessObservabilityProbe(ctx, repo, artifacts)
 	step := harnessStep{Name: "observability signal round trip", Summary: proof, OK: err == nil, DurationMS: time.Since(started).Milliseconds()}
 	if err != nil {
 		step.Error = err.Error()
@@ -33,7 +33,7 @@ func runHarnessObservabilityProbeStep(ctx context.Context, repo string) harnessS
 // The probe uses the authored SQL fixture, a disposable home and real managed
 // Victoria binaries. It proves the public request path and export/readback,
 // rather than manufacturing reports which bypass the instrumented connector.
-func runHarnessObservabilityProbe(parent context.Context, repo string) (proof map[string]any, resultErr error) {
+func runHarnessObservabilityProbe(parent context.Context, repo string, artifactContexts ...harnessArtifactContext) (proof map[string]any, resultErr error) {
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 	proof = map[string]any{}
@@ -226,6 +226,11 @@ func runHarnessObservabilityProbe(parent context.Context, repo string) (proof ma
 		return proof, fmt.Errorf("RPC detail incomplete: %d/%d spans", len(traceDetail.Spans), len(spans))
 	}
 	proof["trace_detail_rpc"] = "scoped span tree and SQL events verified"
+	artifact, artifactErr := optionalHarnessArtifactContext(artifactContexts).Write("joined native SQL HTTP trace", "observability-joined-trace.json", "", traceResponse.Result)
+	if artifactErr != nil {
+		return proof, artifactErr
+	}
+	proof["joined_trace"] = artifact
 	if err := waitForHarnessCondition(readback, func() bool {
 		listResponse, callErr := rpc.call(3, "traces/list", map[string]any{"app_id": runtimeStatus.AppID}, 5*time.Second)
 		if callErr != nil || listResponse.Error != nil || !bytes.Contains(listResponse.Result, []byte(traceID)) {

@@ -30,7 +30,7 @@ func findings(report Report) []Finding {
 		add(severityWarning, "sources.live_state_unavailable", "%d worktree owners could not be inspected; their current blocks are unknown.", report.Sources.LiveStateUnavailable)
 	}
 	for _, burst := range report.CLI.Bursts {
-		add(severityCritical, "cli.failure_burst", "scenery %s failed %d times with exit %d between %s and %s, at most %d an hour; a supervised or scripted caller is retrying without a person noticing.",
+		add(severityCritical, "cli.failure_burst", "scenery %s failed %d times with exit %d between %s and %s, at most %d an hour; this is consistent with an automated retry loop, but the caller and cause are not established.",
 			burst.Command, burst.Count, burst.ExitCode, burst.First, burst.Last, burst.PeakPerHour)
 	}
 	for index, streak := range report.Builds.Streaks {
@@ -94,6 +94,16 @@ func findings(report Report) []Finding {
 		}
 	}
 	sources := report.Sources
+	for _, file := range sources.CLI {
+		if file.Status == "partial" || file.Status == "unreadable" {
+			add(severityWarning, "sources.cli_incomplete", "CLI source %s is %s; retained aggregates include only its readable records.", file.Path, file.Status)
+		}
+	}
+	for _, purpose := range report.CLI.Purposes {
+		if purpose.Name == "unknown" && purpose.Count > 0 {
+			add(severityInfo, "cli.purpose_unknown", "%d CLI records have unknown execution purpose. App/build identity cannot classify them as verification; use the independent app, purpose and producer cohorts.", purpose.Count)
+		}
+	}
 	incomplete := sources.SupervisorLogsFailed + sources.SupervisorLogsPartial
 	skipped := sources.SupervisorInvalid
 	if transcripts := sources.Transcripts; transcripts != nil {

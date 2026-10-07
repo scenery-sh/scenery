@@ -9,6 +9,11 @@ EXTERNAL_APP_ROOT="${SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT:-}"
 
 mkdir -p "$LOG_DIR"
 
+release_agent_home="$(mktemp -d "$LOG_DIR/agent.XXXXXX")"
+export SCENERY_AGENT_HOME="$release_agent_home"
+export SCENERY_EXECUTION_PURPOSE=release
+unset SCENERY_AGENT_SOCKET SCENERY_AGENT_ROUTER_ADDR
+
 cleanup_items=()
 
 cleanup() {

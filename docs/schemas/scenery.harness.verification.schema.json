@@ -1,0 +1,109 @@
+{
+  "$id": "https://scenery.sh/schemas/scenery.harness.verification.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "ci": {
+      "type": "object"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "input_revision": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "scenery.harness.verification"
+    },
+    "lanes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "age_seconds": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "artifact": {
+            "type": "string"
+          },
+          "boundary": {
+            "type": "string"
+          },
+          "command": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "not_selected",
+              "incomplete"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "wall_ms": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "required",
+          "selected",
+          "outcome",
+          "age_seconds",
+          "command",
+          "wall_ms",
+          "boundary"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "producer": {
+      "$ref": "scenery.cli.schema.json#/$defs/producer"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "schema_revision": {
+      "const": "sha256:0b17c6f9d5e265127a577656afb8e61b39462dcb5dec09042a015c9bd79bac8a"
+    },
+    "spec_revision": {
+      "$ref": "scenery.cli.schema.json#/$defs/revision"
+    }
+  },
+  "required": [
+    "kind",
+    "schema_revision",
+    "run_id",
+    "input_revision",
+    "generated_at",
+    "complete",
+    "lanes",
+    "spec_revision",
+    "producer"
+  ],
+  "title": "Applicable verification lane coverage",
+  "type": "object"
+}

@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scenery.sh/schemas/scenery.agent.status.schema.json",
   "title": "scenery.agent.status",
   "type": "object",
   "required": [
@@ -13,7 +12,7 @@
       "const": "scenery.agent.status"
     },
     "schema_revision": {
-      "const": "sha256:54abc7f35a084d386e3a34c67b3a46874d90f64f90163f1d79821f9db1166f2e"
+      "const": "sha256:6d95cc2c2b98f1e7654164d6d82563866dc89f9f225be9eec51fe8928c70ea14"
     },
     "worktrees": {
       "type": "array",
@@ -22,7 +21,13 @@
         "required": [
           "key",
           "status",
-          "sessions"
+          "sessions",
+          "root_status",
+          "source_status",
+          "owner_status",
+          "metadata_status",
+          "source_freshness",
+          "serving"
         ],
         "properties": {
           "key": {
@@ -87,7 +92,8 @@
                   "enum": [
                     "framework_mismatch",
                     "migration_pending",
-                    "seed_changed"
+                    "seed_changed",
+                    "generated_clients_stale"
                   ]
                 },
                 "cause": {
@@ -103,6 +109,94 @@
                 }
               },
               "additionalProperties": false
+            }
+          },
+          "root_status": {
+            "enum": [
+              "present",
+              "missing",
+              "unavailable",
+              "unknown"
+            ]
+          },
+          "source_status": {
+            "enum": [
+              "present",
+              "missing",
+              "unavailable",
+              "unknown"
+            ]
+          },
+          "owner_status": {
+            "enum": [
+              "verified_running",
+              "stopped",
+              "unavailable",
+              "unknown"
+            ]
+          },
+          "metadata_status": {
+            "enum": [
+              "compatible",
+              "incompatible-or-invalid",
+              "absent",
+              "unknown"
+            ]
+          },
+          "source_freshness": {
+            "enum": [
+              "current",
+              "stale",
+              "source_missing",
+              "blocked",
+              "transaction_pending",
+              "unknown"
+            ],
+            "description": "Reported by the verified live owner from its last published source snapshot; current covers runtime watch inputs at observation time, not a business response or UI acceptance. Missing, incompatible or unavailable live evidence remains unknown."
+          },
+          "serving": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "generation",
+                "pid",
+                "contract_revision",
+                "implementation_revision",
+                "build_input_digest",
+                "framework_source_digest",
+                "source_snapshot_digest",
+                "published_at"
+              ],
+              "properties": {
+                "generation": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "pid": {
+                  "type": "string"
+                },
+                "published_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "contract_revision": {
+                  "type": "string"
+                },
+                "implementation_revision": {
+                  "type": "string"
+                },
+                "build_input_digest": {
+                  "type": "string"
+                },
+                "framework_source_digest": {
+                  "type": "string"
+                },
+                "source_snapshot_digest": {
+                  "type": "string"
+                }
+              }
             }
           }
         },
@@ -177,5 +271,6 @@
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$id": "https://scenery.sh/schemas/scenery.agent.status.schema.json"
 }

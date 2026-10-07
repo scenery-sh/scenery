@@ -18,14 +18,16 @@
     "reports",
     "artifacts",
     "drilldowns",
-    "run"
+    "run",
+    "spec_revision",
+    "producer"
   ],
   "properties": {
     "kind": {
       "const": "scenery.harness.self.summary"
     },
     "schema_revision": {
-      "const": "sha256:8a81f1469adc0eecead1e483318dbddf92d365cdd35ff2b1e850fd656c817b2b"
+      "const": "sha256:56b62406d978106c303b79a830a4655c69a0f9a8fe4d2ab74a5922b917241b7d"
     },
     "ok": {
       "type": "boolean"
@@ -146,6 +148,15 @@
         }
       },
       "additionalProperties": false
+    },
+    "producer": {
+      "$ref": "scenery.cli.schema.json#/$defs/producer"
+    },
+    "spec_revision": {
+      "$ref": "scenery.cli.schema.json#/$defs/revision"
+    },
+    "verification": {
+      "$ref": "scenery.harness.verification.schema.json"
     }
   },
   "additionalProperties": false,

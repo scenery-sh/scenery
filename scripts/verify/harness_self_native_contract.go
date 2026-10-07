@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,10 +20,6 @@ import (
 const harnessNativeContractApplicationProbeName = "native contract application probe"
 
 type harnessNativeContractApplicationCheck func(context.Context, string) (map[string]any, []checkDiagnostic, error)
-
-func runHarnessNativeContractApplicationProbeStep(ctx context.Context, repoRoot string) harnessStep {
-	return runHarnessNativeContractApplicationProbeStepWithCheck(ctx, repoRoot, runHarnessNativeContractApplicationProbeCheck)
-}
 
 func runHarnessNativeContractApplicationProbeStepWithCheck(ctx context.Context, repoRoot string, check harnessNativeContractApplicationCheck) harnessStep {
 	started := time.Now()
@@ -67,7 +62,7 @@ func (s *harnessNativeContractProbeSegments) run(name string, fn func() error) e
 	return err
 }
 
-func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoRoot string) (summary map[string]any, diagnostics []checkDiagnostic, err error) {
+func runHarnessNativeContractApplicationProbeCheckWithArtifacts(parent context.Context, repoRoot string, artifacts harnessArtifactContext) (summary map[string]any, diagnostics []checkDiagnostic, err error) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 
@@ -172,7 +167,9 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 	}
 	if err := segments.run("call grouped routes and run generated client against the session", func() error {
 		baseURL := strings.TrimRight(started.Session.RouteManifest.Routes[localagent.RouteAPI].URL, "/")
-		return runHarnessGeneratedTypeScriptClient(ctx, appRoot, baseURL, started.Session.AppPID, bundle)
+		testStep, issue := runHarnessGeneratedTypeScriptClient(ctx, appRoot, baseURL, started.Session.AppPID, bundle, artifacts)
+		summary["generated_client_tests"] = testStep
+		return issue
 	}); err != nil {
 		return summary, nil, err
 	}
@@ -333,23 +330,23 @@ var nativeContractServiceEntrypointFragments = []string{
 // ungrouped spelling through the session, requires every answer to attest the
 // linked runtime bundle and the session's host process, and runs the generated
 // TypeScript client against the same session.
-func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, baseURL, hostPID string, bundle build.RuntimeBundleDescriptor) error {
+func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, baseURL, hostPID string, bundle build.RuntimeBundleDescriptor, artifacts harnessArtifactContext) (harnessStep, error) {
 	if baseURL == "" || hostPID == "" {
-		return fmt.Errorf("the session published no API route or host process")
+		return harnessStep{}, fmt.Errorf("the session published no API route or host process")
 	}
 	if err := os.WriteFile(filepath.Join(appRoot, "typescript_reference_server_url.txt"), []byte(baseURL), 0o600); err != nil {
-		return err
+		return harnessStep{}, err
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	for _, route := range []string{"/api/house/process", "/api/group1/nested/house/process"} {
 		request, err := http.NewRequestWithContext(parent, http.MethodPost, baseURL+route, strings.NewReader(`{"scene_id":"grouped-probe"}`))
 		if err != nil {
-			return err
+			return harnessStep{}, err
 		}
 		request.Header.Set("Content-Type", "application/json")
 		response, err := client.Do(request)
 		if err != nil {
-			return err
+			return harnessStep{}, err
 		}
 		_ = response.Body.Close()
 		want := http.StatusOK
@@ -357,28 +354,24 @@ func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, baseUR
 			want = http.StatusNotFound
 		}
 		if response.StatusCode != want {
-			return fmt.Errorf("grouped native route %s returned %d, want %d", route, response.StatusCode, want)
+			return harnessStep{}, fmt.Errorf("grouped native route %s returned %d, want %d", route, response.StatusCode, want)
 		}
 		for header, value := range map[string]string{
 			"X-Scenery-Contract-Revision": bundle.ContractRevision, "X-Scenery-Implementation-Revision": bundle.ImplementationRevision,
 			"X-Scenery-Build-Input-Digest": bundle.BuildInput.Digest, "X-Scenery-Go-Target": bundle.Target, "X-Scenery-Process-ID": hostPID,
 		} {
 			if got := response.Header.Get(header); got != value {
-				return fmt.Errorf("%s answered %s %q, want the linked runtime bundle's %q", route, header, got, value)
+				return harnessStep{}, fmt.Errorf("%s answered %s %q, want the linked runtime bundle's %q", route, header, got, value)
 			}
 		}
 		if want == http.StatusOK && (response.Header.Get("X-Scenery-Service-Process-ID") == "" || response.Header.Get("X-Scenery-Service-Process-ID") == hostPID) {
-			return fmt.Errorf("%s did not name its answering service process", route)
+			return harnessStep{}, fmt.Errorf("%s did not name its answering service process", route)
 		}
 	}
-	bun := exec.CommandContext(parent, "bun", "test", "./typescript_reference_server.test.ts")
-	bun.Dir = appRoot
-	bunOutput, err := bun.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("generated TypeScript client against the development session: %w\n%s", err, bunOutput)
+	expected := 1
+	step := runHarnessBunStep(parent, appRoot, "native generated client", []string{"typescript_reference_server.test.ts"}, &expected, artifacts)
+	if !step.OK {
+		return step, fmt.Errorf("generated TypeScript client evidence failed: %s", firstNonEmpty(step.Error, fmt.Sprint(step.Diagnostics)))
 	}
-	if !bytes.Contains(bunOutput, []byte("1 pass")) {
-		return fmt.Errorf("generated TypeScript client proof did not report one pass:\n%s", bunOutput)
-	}
-	return nil
+	return step, nil
 }

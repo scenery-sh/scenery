@@ -9,6 +9,7 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/machine"
 )
 
@@ -21,6 +22,8 @@ type cliTelemetryRecord struct {
 	InvocationID   string            `json:"invocation_id,omitempty"`
 	Producer       *machine.Producer `json:"producer,omitempty"`
 	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
+	Purpose        string            `json:"purpose,omitempty"`
+	Dirty          bool              `json:"dirty"`
 	At             time.Time         `json:"at"`
 	Command        string            `json:"command"`
 	DurationMS     int64             `json:"duration_ms"`
@@ -105,15 +108,28 @@ func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
 		InvocationID:   i.invocationID,
 		Producer:       &producer,
 		DiagnosticCode: i.diagnosticCode,
+		Purpose:        telemetryExecutionPurpose(),
+		Dirty:          cliBuildDirty(),
 		At:             i.started.UTC(),
 		Command:        telemetryCommand(i.args),
 		DurationMS:     duration.Milliseconds(),
 		ExitCode:       exitCode,
-		Version:        sceneryVersion,
+		Version:        producer.Version,
 		Mode:           telemetryMode(i.args),
 		Measurement:    measurement,
 		App:            telemetryInvocationApp(i.args),
 	})
+}
+
+// Purpose is explicit process attribution, independent of app/build identity.
+// Unmarked invocations remain unknown rather than inferred from their home.
+func telemetryExecutionPurpose() string {
+	switch value := envpolicy.Get("SCENERY_EXECUTION_PURPOSE"); value {
+	case "development", "verification", "release":
+		return value
+	default:
+		return "unknown"
+	}
 }
 
 func telemetryRecordMeasurement(record cliTelemetryRecord) string {

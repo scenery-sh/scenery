@@ -54,10 +54,12 @@ type Window struct {
 // not be read, or was read only in part, is counted rather than silently
 // missing from the aggregates.
 type Sources struct {
-	SupervisorRotated int `json:"supervisor_rotated_sessions"`
-	LiveStateChecked     bool `json:"live_state_checked"`
-	LiveStateUnavailable int  `json:"live_state_unavailable"`
-	CLIRecords           int  `json:"cli_records"`
+	Supervisor           []SupervisorFileCoverage `json:"supervisor_files"`
+	CLI                  []CLIFileCoverage        `json:"cli_files"`
+	SupervisorRotated    int                      `json:"supervisor_rotated_sessions"`
+	LiveStateChecked     bool                     `json:"live_state_checked"`
+	LiveStateUnavailable int                      `json:"live_state_unavailable"`
+	CLIRecords           int                      `json:"cli_records"`
 	// CLIInvalid counts CLI telemetry lines that are no record, including
 	// lines longer than the reader keeps.
 	CLIInvalid     int `json:"cli_invalid_records"`
@@ -183,11 +185,13 @@ func Build(opts Options) (Report, error) {
 	}
 	report.CLI = cli
 	report.Sources.CLIRecords, report.Sources.CLIInvalid = cli.Records, cli.invalid
+	report.Sources.CLI = cli.files
 	builds, err := readBuilds(opts)
 	if err != nil {
 		return Report{}, err
 	}
 	report.Builds = builds
+	report.Sources.Supervisor = builds.coverage
 	report.Sources.LiveStateChecked = opts.LiveStateChecked
 	report.Sources.LiveStateUnavailable = opts.LiveStateUnavailable
 	report.Sources.SupervisorLogs = builds.logs

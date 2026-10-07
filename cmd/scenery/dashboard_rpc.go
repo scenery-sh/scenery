@@ -71,6 +71,11 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		result := newRuntimeStatus(status)
+		if s.supervisor != nil && status.AppRoot == s.supervisor.root {
+			result.Serving, result.SourceFreshness = s.supervisor.currentServingState(ctx)
+		} else if controller, ok := s.controller.(*agentDashboardController); ok {
+			result.Serving, result.SourceFreshness = controller.servingState(ctx, status)
+		}
 		if result.Observability != nil {
 			result.Observability.Export = s.telemetry.counts()
 		}
@@ -161,6 +166,8 @@ type runtimeStatus struct {
 	ServiceProcesses    []runtimeServiceProcess `json:"service_processes"`
 	Observability       *runtimeObservability   `json:"observability,omitempty"`
 	BuildBlock          *runtimeBuildBlock      `json:"build_block,omitempty"`
+	Serving             *runtimeServingIdentity `json:"serving,omitempty"`
+	SourceFreshness     string                  `json:"source_freshness"`
 }
 
 type runtimeBuildBlock struct {
@@ -214,6 +221,7 @@ func newRuntimeStatus(status devdash.AppStatus) runtimeStatus {
 		SessionStatusReason: status.SessionStatusReason,
 		Compiling:           status.Compiling,
 		CompileError:        status.CompileError,
+		SourceFreshness:     "unknown",
 		PID:                 status.PID,
 		Routes:              status.Routes,
 		ServiceProcesses:    make([]runtimeServiceProcess, 0, len(status.ServiceProcesses)),

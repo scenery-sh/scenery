@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0216 Verification Coverage and Trustworthy Timing](0216-verification-coverage-and-evidence.md)
+  - Status: active
+  - Owner: scenery verifier / validation
+  - Created: 2026-10-07
+  - Focus: complete JS lane ownership, native Go lifecycle timing, immutable validation and runner artifacts, comparable baselines, and frontend acceptance evidence.
+
 - [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md)
   - Status: active
   - Owner: scenery runtime / telemetry

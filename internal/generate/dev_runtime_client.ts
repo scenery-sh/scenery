@@ -106,6 +106,9 @@ export interface DevRuntimeStatus {
 	readonly compiling: boolean;
 	readonly compile_error?: string;
 	readonly pid?: string;
+	/** Identity of the last published source, with the current serving generation. */
+	readonly serving?: DevRuntimeServingIdentity;
+	readonly source_freshness: "current" | "stale" | "source_missing" | "blocked" | "transaction_pending" | "unknown";
 	readonly routes: Readonly<Record<string, string>>;
 	readonly service_processes: readonly DevRuntimeServiceProcess[];
 	readonly observability?: DevRuntimeObservability;
@@ -117,8 +120,19 @@ export interface DevRuntimeStatus {
 	readonly build_block?: DevRuntimeBuildBlock;
 }
 
+export interface DevRuntimeServingIdentity {
+	readonly generation: number;
+	readonly pid: string;
+	readonly contract_revision: string;
+	readonly implementation_revision: string;
+	readonly build_input_digest: string;
+	readonly framework_source_digest: string;
+	readonly source_snapshot_digest: string;
+	readonly published_at: string;
+}
+
 export interface DevRuntimeBuildBlock {
-	/** framework_mismatch, migration_pending or seed_changed. */
+	/** framework_mismatch, migration_pending, seed_changed or generated_clients_stale. */
 	readonly reason: string;
 	readonly cause: string;
 	readonly since: string;

@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scenery.sh/schemas/scenery.prune.schema.json",
   "title": "scenery.prune",
   "type": "object",
   "required": [
@@ -15,14 +14,15 @@
     "dev_events_pruned",
     "dev_sources_pruned",
     "resources",
-    "build_cache"
+    "build_cache",
+    "preview"
   ],
   "properties": {
     "kind": {
       "const": "scenery.prune"
     },
     "schema_revision": {
-      "const": "sha256:70bf94355fc476cbea6610f495a99ebd43a17c8be4a0404d7caa52163942bcb8"
+      "const": "sha256:212df0b20151171c7ec70d521698c5e66146b55c17f84719d2b919cdd63060a3"
     },
     "cutoff": {
       "type": "string",
@@ -197,7 +197,59 @@
         }
       },
       "additionalProperties": false
+    },
+    "preview": {
+      "type": "boolean"
+    },
+    "inventory": {
+      "type": "array",
+      "description": "Read-only retained directories and separately owned resources, including invalid metadata. Bytes count logical regular-file contents; complete=false marks unmeasured content/volumes. Preview allocates no runtime/data and removes nothing.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "app_root",
+          "path",
+          "kind",
+          "bytes",
+          "complete",
+          "reclaimable",
+          "reason"
+        ],
+        "properties": {
+          "app_root": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "retained_worktree",
+              "supervisor_logs",
+              "database_volume",
+              "session_state",
+              "build_workspace",
+              "framework_state"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "reclaimable": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$id": "https://scenery.sh/schemas/scenery.prune.schema.json"
 }

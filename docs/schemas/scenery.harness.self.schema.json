@@ -1,215 +1,84 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scenery.sh/schemas/scenery.harness.self.schema.json",
-  "title": "scenery self harness result",
-  "type": "object",
-  "required": [
-    "kind",
-    "schema_revision",
-    "ok",
-    "generated_at",
-    "mode",
-    "repo",
-    "knowledge",
-    "steps",
-    "artifacts",
-    "run"
-  ],
-  "properties": {
-    "kind": {
-      "const": "scenery.harness.self"
-    },
-    "schema_revision": {
-      "const": "sha256:0aac8e7f50469bbff43bcaaab0a90396d288762e22b3792309d1ae7b4f5c418b"
-    },
-    "ok": {
-      "type": "boolean"
-    },
-    "generated_at": {
-      "type": "string"
-    },
-    "mode": {
-      "enum": [
-        "default",
-        "quick",
-        "race",
-        "release",
-        "probe",
-        "benchmark"
-      ]
-    },
-    "repo": {
-      "type": "object",
-      "required": [
-        "root",
-        "module_path",
-        "go_mod_path"
-      ],
+  "$defs": {
+    "artifact": {
+      "additionalProperties": false,
       "properties": {
-        "root": {
-          "type": "string"
-        },
-        "module_path": {
-          "const": "scenery.sh"
-        },
-        "go_mod_path": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
-    },
-    "knowledge": {
-      "type": "object",
-      "required": [
-        "entrypoints",
-        "schemas"
-      ],
-      "properties": {
-        "entrypoints": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/knowledge_file"
-          }
-        },
-        "schemas": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/knowledge_file"
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "toolchain": {
-      "type": "object",
-      "additionalProperties": true
-    },
-    "changed_area": {
-      "$ref": "#/$defs/changed_area"
-    },
-    "drift": {
-      "type": "object",
-      "additionalProperties": true
-    },
-    "test_timing": {
-      "$ref": "#/$defs/test_timing"
-    },
-    "fixture_matrix": {
-      "type": "object",
-      "additionalProperties": true
-    },
-    "schema_validation": {
-      "$ref": "#/$defs/schema_validation"
-    },
-    "steps": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/step"
-      }
-    },
-    "artifacts": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/artifact"
-      }
-    },
-    "next_actions": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "wrote": {
-      "type": "string"
-    },
-    "run": {
-      "type": "object",
-      "required": [
-        "id",
-        "input_revision",
-        "final_input_revision",
-        "inputs_stable"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "input_revision": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "final_input_revision": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "inputs_stable": {
+        "exists": {
           "type": "boolean"
         },
-        "archive_path": {
+        "kind": {
           "type": "string"
-        }
-      },
-      "additionalProperties": false
-    }
-  },
-  "additionalProperties": false,
-  "$defs": {
-    "knowledge_file": {
-      "type": "object",
-      "required": [
-        "path",
-        "exists"
-      ],
-      "properties": {
+        },
+        "name": {
+          "type": "string"
+        },
         "path": {
           "type": "string"
         },
-        "exists": {
-          "type": "boolean"
+        "schema_revision": {
+          "type": "string"
         }
       },
-      "additionalProperties": false
+      "required": [
+        "name",
+        "path",
+        "exists"
+      ],
+      "type": "object"
     },
     "changed_area": {
-      "type": "object",
-      "required": [
-        "kind",
-        "schema_revision",
-        "changed_files",
-        "affected_packages",
-        "validation_classes",
-        "recommended_commands",
-        "relevant_docs",
-        "risk_flags"
-      ],
+      "additionalProperties": false,
       "properties": {
+        "affected_packages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "changed_files": {
+          "items": {
+            "$ref": "#/$defs/changed_file"
+          },
+          "type": "array"
+        },
+        "diagnostics": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "ignored_files": {
+          "items": {
+            "$ref": "#/$defs/changed_file"
+          },
+          "type": "array"
+        },
         "kind": {
           "const": "scenery.harness.changed_area"
+        },
+        "recommended_commands": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "relevant_docs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "risk_flags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "schema_revision": {
           "const": "sha256:a7240232c8378e835cac0ec4fa6f9a9236b5988ec7692d1988d43edbf5a73b0f"
         },
-        "changed_files": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/changed_file"
-          }
-        },
-        "ignored_files": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/changed_file"
-          }
-        },
-        "affected_packages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "validation_classes": {
-          "type": "array",
           "items": {
             "enum": [
               "documentation-only",
@@ -221,559 +90,61 @@
               "repository-fallback"
             ]
           },
+          "type": "array",
           "uniqueItems": true
-        },
-        "recommended_commands": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "relevant_docs": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "risk_flags": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "diagnostics": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
         }
       },
-      "additionalProperties": false
+      "required": [
+        "kind",
+        "schema_revision",
+        "changed_files",
+        "affected_packages",
+        "validation_classes",
+        "recommended_commands",
+        "relevant_docs",
+        "risk_flags"
+      ],
+      "type": "object"
     },
     "changed_file": {
-      "type": "object",
-      "required": [
-        "path",
-        "status",
-        "category"
-      ],
+      "additionalProperties": false,
       "properties": {
-        "path": {
-          "type": "string"
-        },
-        "status": {
-          "type": "string"
-        },
         "category": {
           "type": "string"
         },
         "package": {
           "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
         }
       },
-      "additionalProperties": false
-    },
-    "test_timing": {
-      "type": "object",
       "required": [
-        "kind",
-        "schema_revision",
-        "command",
-        "total_seconds",
-        "packages",
-        "budgets"
+        "path",
+        "status",
+        "category"
       ],
-      "properties": {
-        "kind": {
-          "const": "scenery.harness.test_timing"
-        },
-        "schema_revision": {
-          "const": "sha256:fb4d6102110a4beae1ab792069c5112ccee57681ac1df81f5fd7ab2232a6fb30"
-        },
-        "command": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "env": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "total_seconds": {
-          "type": "number"
-        },
-        "confirmation_seconds": {
-          "type": "number"
-        },
-        "test_binaries": {
-          "type": "object",
-          "required": [
-            "manifest_hit",
-            "prepare_seconds",
-            "build_parallelism",
-            "built_count",
-            "test_package_count"
-          ],
-          "properties": {
-            "manifest_hit": {
-              "type": "boolean"
-            },
-            "prepare_seconds": {
-              "type": "number"
-            },
-            "list_seconds": {
-              "type": "number"
-            },
-            "aggregate_build_seconds": {
-              "type": "number"
-            },
-            "build_parallelism": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "built_count": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "test_package_count": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "builds": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": [
-                  "package",
-                  "build_id",
-                  "seconds"
-                ],
-                "properties": {
-                  "package": {
-                    "type": "string"
-                  },
-                  "build_id": {
-                    "type": "string"
-                  },
-                  "seconds": {
-                    "type": "number"
-                  }
-                },
-                "additionalProperties": false
-              }
-            }
-          },
-          "additionalProperties": false
-        },
-        "packages": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/package_timing"
-          }
-        },
-        "slow_tests": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/test_timing_item"
-          }
-        },
-        "observed_slow_tests": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/test_timing_item"
-          }
-        },
-        "observed_integration_tests": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/test_timing_item"
-          }
-        },
-        "deferred_confirmations": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "package",
-              "seconds",
-              "baseline_seconds",
-              "reason"
-            ],
-            "properties": {
-              "package": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "seconds": {
-                "type": "number"
-              },
-              "baseline_seconds": {
-                "type": "number"
-              },
-              "reason": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "budgets": {
-          "type": "object",
-          "required": [
-            "total_seconds",
-            "package_seconds",
-            "default_test_class",
-            "test_target_seconds",
-            "test_seconds",
-            "integration_exceptions",
-            "confirmation_percentile",
-            "mode"
-          ],
-          "properties": {
-            "lane": {
-              "type": "string",
-              "enum": [
-                "cached",
-                "fresh",
-                "release"
-              ]
-            },
-            "target_seconds": {
-              "type": "number"
-            },
-            "total_seconds": {
-              "type": "number"
-            },
-            "package_seconds": {
-              "type": "number"
-            },
-            "package_overrides": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "number"
-              }
-            },
-            "default_test_class": {
-              "const": "fast"
-            },
-            "test_target_seconds": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "test_seconds": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "integration_exceptions": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/test_timing_integration_exception"
-              }
-            },
-            "confirmation_runs": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "confirmation_percentile": {
-              "const": 95
-            },
-            "confirmation_scope": {
-              "type": "string",
-              "enum": [
-                "regressions",
-                "all"
-              ]
-            },
-            "test_binary_count": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "cold_prepare_seconds": {
-              "type": "number"
-            },
-            "mode": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        },
-        "diagnostics": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "package_timing": {
-      "type": "object",
-      "required": [
-        "package",
-        "seconds"
-      ],
-      "properties": {
-        "package": {
-          "type": "string"
-        },
-        "seconds": {
-          "type": "number"
-        },
-        "budget_seconds": {
-          "type": "number"
-        },
-        "isolated_seconds": {
-          "type": "number"
-        },
-        "slow_tests": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/test_timing_item"
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "test_timing_item": {
-      "type": "object",
-      "required": [
-        "name",
-        "package",
-        "class",
-        "seconds",
-        "target_seconds",
-        "budget_seconds"
-      ],
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "package": {
-          "type": "string"
-        },
-        "class": {
-          "type": "string",
-          "enum": [
-            "fast",
-            "integration"
-          ]
-        },
-        "seconds": {
-          "type": "number"
-        },
-        "target_seconds": {
-          "type": "number"
-        },
-        "budget_seconds": {
-          "type": "number"
-        },
-        "isolated_samples": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          }
-        },
-        "isolated_p95_seconds": {
-          "type": "number"
-        },
-        "classification_reason": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "class": {
-                "const": "integration"
-              }
-            },
-            "required": [
-              "class"
-            ]
-          },
-          "then": {
-            "required": [
-              "classification_reason"
-            ]
-          }
-        }
-      ],
-      "additionalProperties": false
-    },
-    "test_timing_integration_exception": {
-      "type": "object",
-      "required": [
-        "package",
-        "name",
-        "class",
-        "target_seconds",
-        "budget_seconds",
-        "classification_reason"
-      ],
-      "properties": {
-        "package": {
-          "type": "string",
-          "minLength": 1
-        },
-        "name": {
-          "type": "string",
-          "pattern": "^Test[A-Z0-9_][A-Za-z0-9_]*$"
-        },
-        "class": {
-          "const": "integration"
-        },
-        "target_seconds": {
-          "const": 0.1
-        },
-        "budget_seconds": {
-          "const": 3
-        },
-        "classification_reason": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "additionalProperties": false
-    },
-    "schema_validation": {
-      "type": "object",
-      "required": [
-        "kind",
-        "schema_revision",
-        "validated"
-      ],
-      "properties": {
-        "kind": {
-          "const": "scenery.harness.schema_validation"
-        },
-        "schema_revision": {
-          "const": "sha256:0918839b24308f0f76a77333a3046fac7030513faef6d1ce3345bb3e34dbf0f1"
-        },
-        "validated": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/schema_validation_item"
-          }
-        },
-        "diagnostics": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "schema_validation_item": {
-      "type": "object",
-      "required": [
-        "name",
-        "schema",
-        "ok"
-      ],
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "schema": {
-          "type": "string"
-        },
-        "ok": {
-          "type": "boolean"
-        },
-        "error": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
-    },
-    "step": {
-      "type": "object",
-      "required": [
-        "name",
-        "command",
-        "ok",
-        "duration_ms"
-      ],
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "command": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "ok": {
-          "type": "boolean"
-        },
-        "duration_ms": {
-          "type": "integer"
-        },
-        "evidence": {
-          "$ref": "#/$defs/evidence"
-        },
-        "effects": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "summary": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "diagnostics": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "error": {
-          "type": "string"
-        },
-        "output_tail": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
+      "type": "object"
     },
     "evidence": {
-      "type": "object",
-      "required": [
-        "kind",
-        "schema_revision",
-        "duration_ms"
-      ],
+      "additionalProperties": false,
       "properties": {
-        "kind": {
-          "const": "scenery.harness.artifact"
-        },
-        "schema_revision": {
-          "const": "sha256:5fdbd3fbabd171b9226331c8d821c2a59744e7682943593896c332b8ac69eaa8"
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/evidence_artifact"
+          },
+          "type": "array"
         },
         "command": {
-          "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "type": "array"
         },
         "cwd": {
-          "type": "string"
-        },
-        "started_at": {
           "type": "string"
         },
         "duration_ms": {
@@ -782,71 +153,341 @@
         "exit_code": {
           "type": "integer"
         },
-        "stdout_tail": {
+        "kind": {
+          "const": "scenery.harness.artifact"
+        },
+        "repro_command": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "const": "sha256:5fdbd3fbabd171b9226331c8d821c2a59744e7682943593896c332b8ac69eaa8"
+        },
+        "started_at": {
           "type": "string"
         },
         "stderr_tail": {
           "type": "string"
         },
-        "artifacts": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/evidence_artifact"
-          }
-        },
-        "repro_command": {
+        "stdout_tail": {
           "type": "string"
         }
       },
-      "additionalProperties": false
+      "required": [
+        "kind",
+        "schema_revision",
+        "duration_ms"
+      ],
+      "type": "object"
     },
     "evidence_artifact": {
-      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        }
+      },
       "required": [
         "name",
         "path"
       ],
+      "type": "object"
+    },
+    "knowledge_file": {
+      "additionalProperties": false,
       "properties": {
-        "kind": {
-          "type": "string"
-        },
-        "schema_revision": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
+        "exists": {
+          "type": "boolean"
         },
         "path": {
           "type": "string"
         }
       },
-      "additionalProperties": false
-    },
-    "artifact": {
-      "type": "object",
       "required": [
-        "name",
         "path",
         "exists"
       ],
+      "type": "object"
+    },
+    "schema_validation": {
+      "additionalProperties": false,
       "properties": {
+        "diagnostics": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
         "kind": {
-          "type": "string"
+          "const": "scenery.harness.schema_validation"
         },
         "schema_revision": {
+          "const": "sha256:0918839b24308f0f76a77333a3046fac7030513faef6d1ce3345bb3e34dbf0f1"
+        },
+        "validated": {
+          "items": {
+            "$ref": "#/$defs/schema_validation_item"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "schema_revision",
+        "validated"
+      ],
+      "type": "object"
+    },
+    "schema_validation_item": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
           "type": "string"
         },
         "name": {
           "type": "string"
         },
-        "path": {
+        "ok": {
+          "type": "boolean"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "schema",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "step": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "diagnostics": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "effects": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "error": {
           "type": "string"
         },
-        "exists": {
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "output_tail": {
+          "type": "string"
+        },
+        "summary": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "command",
+        "ok",
+        "duration_ms"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://scenery.sh/schemas/scenery.harness.self.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/artifact"
+      },
+      "type": "array"
+    },
+    "changed_area": {
+      "$ref": "#/$defs/changed_area"
+    },
+    "drift": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "fixture_matrix": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "scenery.harness.self"
+    },
+    "knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "entrypoints": {
+          "items": {
+            "$ref": "#/$defs/knowledge_file"
+          },
+          "type": "array"
+        },
+        "schemas": {
+          "items": {
+            "$ref": "#/$defs/knowledge_file"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entrypoints",
+        "schemas"
+      ],
+      "type": "object"
+    },
+    "mode": {
+      "enum": [
+        "default",
+        "quick",
+        "race",
+        "release",
+        "probe",
+        "benchmark"
+      ]
+    },
+    "next_actions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "producer": {
+      "$ref": "scenery.cli.schema.json#/$defs/producer"
+    },
+    "repo": {
+      "additionalProperties": false,
+      "properties": {
+        "go_mod_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "const": "scenery.sh"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "module_path",
+        "go_mod_path"
+      ],
+      "type": "object"
+    },
+    "run": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_path": {
+          "type": "string"
+        },
+        "final_input_revision": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "input_revision": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "inputs_stable": {
           "type": "boolean"
         }
       },
-      "additionalProperties": false
+      "required": [
+        "id",
+        "input_revision",
+        "final_input_revision",
+        "inputs_stable"
+      ],
+      "type": "object"
+    },
+    "schema_revision": {
+      "const": "sha256:2560d2d766de7573a42afad53db3d1c795a9eec1a064488b8ff12b5f4395248d"
+    },
+    "schema_validation": {
+      "$ref": "#/$defs/schema_validation"
+    },
+    "spec_revision": {
+      "$ref": "scenery.cli.schema.json#/$defs/revision"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/step"
+      },
+      "type": "array"
+    },
+    "test_timing": {
+      "$ref": "scenery.harness.test_timing.schema.json"
+    },
+    "toolchain": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "verification": {
+      "$ref": "scenery.harness.verification.schema.json"
+    },
+    "wrote": {
+      "type": "string"
     }
-  }
+  },
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "generated_at",
+    "mode",
+    "repo",
+    "knowledge",
+    "steps",
+    "artifacts",
+    "run",
+    "spec_revision",
+    "producer"
+  ],
+  "title": "scenery self harness result",
+  "type": "object"
 }

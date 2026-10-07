@@ -7,6 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -14,6 +17,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"unicode"
 
 	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/envpolicy"
@@ -22,7 +26,7 @@ import (
 
 const (
 	testBinaryCacheKind             = "scenery.test-binary-cache"
-	testBinaryCacheSchemaDescriptor = `{"fingerprint":"digest","kind":"scenery.test-binary-cache","no_test_packages":"array<string>","packages":"array<test-package>","producer":"producer","schema_revision":"digest","spec_revision":"digest"}`
+	testBinaryCacheSchemaDescriptor = `{"fingerprint":"digest","kind":"scenery.test-binary-cache","no_test_packages":"array<string>","packages":"array<test-package-with-root-inventory>","producer":"producer","schema_revision":"digest","spec_revision":"digest"}`
 )
 
 func testPackageListArgs() []string {
@@ -39,10 +43,11 @@ type listedPackage struct {
 }
 
 type testPackage struct {
-	Dir        string `json:"dir"`
-	ImportPath string `json:"import_path"`
-	BuildID    string `json:"build_id"`
-	Binary     string `json:"binary"`
+	Dir        string   `json:"dir"`
+	ImportPath string   `json:"import_path"`
+	BuildID    string   `json:"build_id"`
+	Binary     string   `json:"binary"`
+	TestRoots  []string `json:"test_roots"`
 }
 
 type cacheManifest struct {
@@ -118,8 +123,14 @@ func listTestPackages(ctx context.Context, repoRoot, cacheDir, fingerprint strin
 		})
 	}
 	testPackages := make(map[string]bool, len(manifest.Packages))
-	for _, pkg := range manifest.Packages {
+	for i := range manifest.Packages {
+		pkg := &manifest.Packages[i]
 		testPackages[pkg.ImportPath] = true
+		listed := allPackages[pkg.ImportPath]
+		pkg.TestRoots, err = discoverTestRoots(listed.Dir, append(listed.TestGoFiles, listed.XTestGoFiles...))
+		if err != nil {
+			return manifest, err
+		}
 	}
 	for importPath := range allPackages {
 		if !testPackages[importPath] {
@@ -129,6 +140,34 @@ func listTestPackages(ctx context.Context, repoRoot, cacheDir, fingerprint strin
 	sort.Slice(manifest.Packages, func(i, j int) bool { return manifest.Packages[i].ImportPath < manifest.Packages[j].ImportPath })
 	sort.Strings(manifest.NoTestPackages)
 	return manifest, nil
+}
+
+// Go list supplies the build-selected test files; this inventory identifies
+// expected roots without executing test binaries or rediscovering dependencies.
+func discoverTestRoots(dir string, files []string) ([]string, error) {
+	roots := []string{}
+	for _, name := range files {
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return roots, err
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv != nil {
+				continue
+			}
+			name := function.Name.Name
+			if !strings.HasPrefix(name, "Test") || name == "TestMain" {
+				continue
+			}
+			suffix := []rune(strings.TrimPrefix(name, "Test"))
+			if len(suffix) == 0 || !unicode.IsLower(suffix[0]) {
+				roots = append(roots, name)
+			}
+		}
+	}
+	sort.Strings(roots)
+	return roots, nil
 }
 
 func workspaceFingerprint(ctx context.Context, repoRoot string) (string, error) {

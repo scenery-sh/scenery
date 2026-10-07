@@ -13,6 +13,7 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/devtelemetry"
+	"scenery.sh/internal/workspacetx"
 	"scenery.sh/runtime"
 )
 
@@ -42,7 +43,14 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			returnErr = devBuildOperationError{operationID: operationID, err: returnErr}
 		}
 	}()
-	ctx = build.WithTraceOperation(ctx, operationID, s.emitBuildStep)
+	editClass, _ := ctx.Value(devEditClassKey{}).(string)
+	if editClass == "" {
+		editClass = "unknown"
+		if initial {
+			editClass = "initial"
+		}
+	}
+	ctx = build.WithTraceOperation(ctx, operationID, func(step build.Step) { s.emitBuildStepWithEditClass(step, editClass) })
 	ctx = context.WithValue(ctx, devBuildObservationKey{}, devtelemetry.Observation{OperationID: operationID, ObservedAt: captured.capturedAt, Initial: initial})
 	requestStarted := time.Now()
 	recordDevScheduling(ctx, clearInheritedBackgroundPolicy)
@@ -57,6 +65,9 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		}
 		if errors.Is(returnErr, errBuildSuperseded) {
 			outcome = "superseded"
+		}
+		if workspacetx.IsActive(returnErr) {
+			outcome = "deferred"
 		}
 		build.RecordStep(ctx, build.Step{
 			Outcome: outcome, Name: "build.request", StartedAt: requestStarted, Duration: time.Since(requestStarted),
@@ -203,6 +214,7 @@ func (s *devSupervisor) publishActivatedApp(ctx context.Context, initial bool, s
 		s.console.Banner(s.runURLs())
 	}
 	refreshSnapshotContract(s.root, snapshot, plan.Result.Contract)
+	s.captureServingState(*snapshot, plan.Result)
 	return nil
 }
 

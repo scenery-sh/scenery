@@ -71,13 +71,13 @@ func (c *runConsole) Phase(title string, fn func() error) error {
 	started := time.Now()
 	if c.json {
 		c.Event("phase.start", map[string]any{
-			"title": title,
+			"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano),
 		})
 	}
 	err := fn()
 	if c.json {
 		data := map[string]any{
-			"title":       title,
+			"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano), "boundary": "phase wall interval; overlaps are not summed",
 			"ok":          err == nil,
 			"duration_ms": time.Since(started).Milliseconds(),
 		}
@@ -512,4 +512,8 @@ func (w *setupOutputWriter) emit(line []byte) {
 		return
 	}
 	w.console.SetupOutput(string(line), w.stream)
+}
+
+func localPhaseID(title string) string {
+	return strings.Join(strings.Fields(strings.ToLower(title)), "-")
 }

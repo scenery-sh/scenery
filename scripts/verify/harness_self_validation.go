@@ -15,10 +15,6 @@ const harnessValidationGitProbeName = "validation changed-files Git probe"
 
 type harnessValidationGitCheck func(context.Context, string) (map[string]any, []checkDiagnostic, error)
 
-func runHarnessValidationGitProbeStep(ctx context.Context, repoRoot string) harnessStep {
-	return runHarnessValidationGitProbeStepWithCheck(ctx, repoRoot, runHarnessValidationGitProbeCheck)
-}
-
 func runHarnessValidationGitProbeStepWithCheck(ctx context.Context, repoRoot string, check harnessValidationGitCheck) harnessStep {
 	started := time.Now()
 	step := harnessStep{
@@ -45,7 +41,7 @@ func runHarnessValidationGitProbeStepWithCheck(ctx context.Context, repoRoot str
 	return step
 }
 
-func runHarnessValidationGitProbeCheck(ctx context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
+func runHarnessValidationGitProbeCheckWithArtifacts(ctx context.Context, repoRoot string, artifacts harnessArtifactContext) (map[string]any, []checkDiagnostic, error) {
 	root, err := os.MkdirTemp("", "scenery-validation-git-probe-*")
 	if err != nil {
 		return nil, nil, err
@@ -107,10 +103,18 @@ func runHarnessValidationGitProbeCheck(ctx context.Context, _ string) (map[strin
 	if len(files) != 2 || files[0] != "src/main.go" || files[1] != "src/new file\n.go" {
 		return nil, nil, fmt.Errorf("working and untracked app-relative files = %q", files)
 	}
-	return map[string]any{
+	summary := map[string]any{
 		"proof":         "real_git_history_working_changes_and_untracked_files_filtered_to_app_relative_paths",
 		"changed_files": files,
-	}, nil, nil
+	}
+	if repoRoot != "" {
+		proof, err := runHarnessApplicationArchiveProof(ctx, repoRoot, appRoot, artifacts)
+		if err != nil {
+			return summary, nil, err
+		}
+		summary["application_validation"] = proof
+	}
+	return summary, nil, nil
 }
 
 func writeHarnessValidationFile(path, body string) error {

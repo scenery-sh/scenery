@@ -50,6 +50,18 @@ func TestPruneFrameworkStateKeepsSelectionAndRuntimeOnly(t *testing.T) {
 	writeBuildTestFile(t, root, ".scenery/framework/bin/"+frameworkPruneDigest(0)+"/test-platform/.build-123/scenery", "partial")
 	writeBuildTestFile(t, root, ".scenery/framework/source/notes.txt", "not a snapshot")
 
+	preview, err := PreviewFrameworkState(root)
+	if err != nil || len(preview) != 9 {
+		t.Fatalf("preview = %+v, %v", preview, err)
+	}
+	for _, entry := range preview {
+		if entry.Removed {
+			t.Fatalf("preview claimed removal: %+v", entry)
+		}
+		if _, err := os.Stat(entry.Path); err != nil {
+			t.Fatalf("preview changed %s: %v", entry.Path, err)
+		}
+	}
 	entries, err := PruneFrameworkState(root)
 	if err != nil {
 		t.Fatal(err)

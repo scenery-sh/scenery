@@ -210,3 +210,5 @@ type pendingMigrationError struct {
 func (e *pendingMigrationError) Error() string {
 	return fmt.Sprintf("schema migration for %s is pending; the current runtime was retained; run scenery down, scenery db migrate, then scenery up", e.Service)
 }
+
+func (*pendingMigrationError) ExitCode() int { return 3 }

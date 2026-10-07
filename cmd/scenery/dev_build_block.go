@@ -31,6 +31,7 @@ const (
 	// migrate and up, resolve it.
 	buildBlockMigrationPending = "migration_pending"
 	buildBlockSeedChanged      = "seed_changed"
+	buildBlockGeneratedClients = "generated_clients_stale"
 )
 
 // Applied seeds are immutable; unrelated edits cannot repair their ledger.
@@ -70,6 +71,10 @@ func deterministicBuildBlock(err error) string {
 	if errors.As(err, &seed) {
 		return buildBlockSeedChanged
 	}
+	var contract *build.ContractError
+	if errors.As(err, &contract) && contract.Diagnostic.Code == "SCN6204" && strings.Contains(contract.Diagnostic.Message, "generated TypeScript clients are stale") {
+		return buildBlockGeneratedClients
+	}
 	return ""
 }
 
@@ -90,6 +95,17 @@ func buildBlockKey(reason string, snapshot fileSnapshot) string {
 			if reason == buildBlockSeedChanged && strings.HasSuffix(slash, ".scn") {
 				paths = append(paths, path)
 			}
+		case buildBlockGeneratedClients:
+			if strings.HasSuffix(slash, ".scn") || slash == ".scenery.json" || slash == "go.mod" || slash == "go.sum" {
+				paths = append(paths, path)
+			}
+		}
+	}
+	if reason == buildBlockGeneratedClients {
+		for path := range snapshot.generatedContent {
+			if strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".tsx") || strings.HasSuffix(path, "scenery.typescript-client-generated.json") {
+				paths = append(paths, path)
+			}
 		}
 	}
 	sort.Strings(paths)
@@ -99,7 +115,11 @@ func buildBlockKey(reason string, snapshot fileSnapshot) string {
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(path))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(snapshot.files[path].hash))
+		stamp, ok := snapshot.files[path]
+		if !ok {
+			stamp = snapshot.generatedContent[path]
+		}
+		_, _ = h.Write([]byte(stamp.hash))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

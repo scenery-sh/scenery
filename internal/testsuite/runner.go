@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -42,14 +43,15 @@ type Options struct {
 }
 
 type Result struct {
-	PackageCount     int
-	TestPackageCount int
-	TestResultCount  int
-	BuiltCount       int
-	BuildParallelism int
-	ManifestHit      bool
-	Packages         []PackageTiming
-	Prepare          PrepareTiming
+	PackageCount      int
+	TestPackageCount  int
+	TestResultCount   int
+	SelectedTestRoots int
+	BuiltCount        int
+	BuildParallelism  int
+	ManifestHit       bool
+	Packages          []PackageTiming
+	Prepare           PrepareTiming
 }
 
 type PackageTiming struct {
@@ -74,6 +76,8 @@ type BinaryBuild struct {
 	Package string
 	BuildID string
 	Elapsed time.Duration
+	Outcome string
+	Error   string
 }
 
 // AggregateBuildElapsed sums the elapsed duration observed for each build.
@@ -88,11 +92,12 @@ func (t PrepareTiming) AggregateBuildElapsed() time.Duration {
 }
 
 type packageRun struct {
-	Package testPackage
-	Elapsed time.Duration
-	Output  []byte
-	Action  string
-	Err     error
+	Package  testPackage
+	Elapsed  time.Duration
+	Output   []byte
+	Action   string
+	Err      error
+	Streamed bool
 }
 
 type runDependencies struct {
@@ -117,21 +122,36 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 
 func runWithDependencies(ctx context.Context, opts Options, deps runDependencies) (Result, error) {
 	manifest, hit, prepared, err := deps.prepare(ctx, opts)
+	result := Result{
+		PackageCount:     len(manifest.Packages) + len(manifest.NoTestPackages),
+		TestPackageCount: len(manifest.Packages),
+		BuildParallelism: opts.BuildParallelism,
+		ManifestHit:      hit,
+		Prepare:          prepared,
+	}
+	for _, build := range prepared.Builds {
+		if build.Outcome != "failed" {
+			result.BuiltCount++
+		}
+	}
+	selection, selectionErr := regexp.Compile(strings.SplitN(opts.RunPattern, "/", 2)[0])
+	if selectionErr != nil {
+		return result, selectionErr
+	}
+	for _, pkg := range manifest.Packages {
+		for _, root := range pkg.TestRoots {
+			if selection.MatchString(root) {
+				result.SelectedTestRoots++
+			}
+		}
+	}
 	if err != nil {
-		return Result{}, err
+		return result, err
 	}
 
 	estimates := deps.loadTimingEstimates(filepath.Join(opts.CacheDir, "timings.json"))
 	sortTestPackages(manifest.Packages, estimates)
 	runs := deps.runPackages(ctx, opts, manifest.Packages)
-	result := Result{
-		PackageCount:     len(manifest.Packages) + len(manifest.NoTestPackages),
-		TestPackageCount: len(manifest.Packages),
-		BuiltCount:       len(prepared.Builds),
-		BuildParallelism: opts.BuildParallelism,
-		ManifestHit:      hit,
-		Prepare:          prepared,
-	}
 	var runErrors []error
 	for _, run := range runs {
 		result.Packages = append(result.Packages, PackageTiming{Package: run.Package.ImportPath, Elapsed: run.Elapsed})
@@ -206,9 +226,11 @@ func environmentWithOverride(environment []string, name, value string) []string 
 func prepare(ctx context.Context, opts Options) (cacheManifest, bool, PrepareTiming, error) {
 	started := time.Now()
 	timing := PrepareTiming{}
+	var manifest cacheManifest
+	var hit bool
 	fail := func(err error) (cacheManifest, bool, PrepareTiming, error) {
 		timing.Elapsed = time.Since(started)
-		return cacheManifest{}, false, timing, err
+		return manifest, hit, timing, err
 	}
 	unlock, err := lockCache(ctx, filepath.Join(opts.CacheDir, "cache.lock"))
 	if err != nil {
@@ -220,7 +242,7 @@ func prepare(ctx context.Context, opts Options) (cacheManifest, bool, PrepareTim
 		return fail(err)
 	}
 	manifestPath := filepath.Join(opts.CacheDir, "manifest.json")
-	manifest, hit := readManifest(manifestPath, fingerprint, opts.RefreshManifest)
+	manifest, hit = readManifest(manifestPath, fingerprint, opts.RefreshManifest)
 	if !hit {
 		listStarted := time.Now()
 		manifest, err = listTestPackages(ctx, opts.RepoRoot, opts.CacheDir, fingerprint, opts.Env)
@@ -259,7 +281,18 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 	}
 	var mu sync.Mutex
 	builds := make([]BinaryBuild, 0, len(missing))
-	errs := parallelPackages(missing, opts.BuildParallelism, func(pkg testPackage) error {
+	errs := parallelPackages(missing, opts.BuildParallelism, func(pkg testPackage) (operationErr error) {
+		started := time.Now()
+		defer func() {
+			build := BinaryBuild{Package: pkg.ImportPath, BuildID: pkg.BuildID, Elapsed: time.Since(started), Outcome: "passed"}
+			if operationErr != nil {
+				build.Outcome = "failed"
+				build.Error = operationErr.Error()
+			}
+			mu.Lock()
+			builds = append(builds, build)
+			mu.Unlock()
+		}()
 		temp, err := os.CreateTemp(opts.CacheDir, ".test-binary-*.tmp")
 		if err != nil {
 			return err
@@ -269,13 +302,11 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 			return err
 		}
 		defer func() { _ = os.Remove(tempPath) }()
-		started := time.Now()
 		cmd := exec.CommandContext(ctx, "go", testBinaryBuildArgs(tempPath, pkg.ImportPath)...)
 		configureCommandCancellation(cmd)
 		cmd.Dir = opts.RepoRoot
 		cmd.Env = opts.Env
 		output, err := cmd.CombinedOutput()
-		elapsed := time.Since(started)
 		if err != nil {
 			return fmt.Errorf("build %s: %w: %s", pkg.ImportPath, err, strings.TrimSpace(string(output)))
 		}
@@ -285,9 +316,6 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 		if err := os.Rename(tempPath, pkg.Binary); err != nil {
 			return err
 		}
-		mu.Lock()
-		builds = append(builds, BinaryBuild{Package: pkg.ImportPath, BuildID: pkg.BuildID, Elapsed: elapsed})
-		mu.Unlock()
 		return nil
 	})
 	sort.Slice(builds, func(i, j int) bool {
@@ -307,12 +335,13 @@ func runPackages(ctx context.Context, opts Options, packages []testPackage) []pa
 	jobs := make(chan testPackage)
 	results := make(chan packageRun, len(packages))
 	var wg sync.WaitGroup
+	output := &lockedEventOutput{writer: opts.Output}
 	for range opts.PackageParallelism {
 		wg.Go(func() {
 			for pkg := range jobs {
 				started := time.Now()
-				cmd := exec.CommandContext(ctx, pkg.Binary,
-					"-test.v",
+				cmd := exec.CommandContext(ctx, "go", "tool", "test2json", "-t", "-p", pkg.ImportPath, pkg.Binary,
+					"-test.v=test2json",
 					"-test.run", opts.RunPattern,
 					"-test.count=1",
 					"-test.timeout=10m",
@@ -321,20 +350,26 @@ func runPackages(ctx context.Context, opts Options, packages []testPackage) []pa
 				configureCommandCancellation(cmd)
 				cmd.Dir = pkg.Dir
 				cmd.Env = opts.Env
-				var output bytes.Buffer
-				cmd.Stdout = &output
-				cmd.Stderr = &output
+				stream := &testEventOutput{sink: output}
+				var stderr bytes.Buffer
+				cmd.Stdout = stream
+				cmd.Stderr = &stderr
 				err := cmd.Run()
+				err = errors.Join(err, stream.finish())
+				if err != nil && stderr.Len() > 0 {
+					err = fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+				}
 				action := "pass"
 				if err != nil {
 					action = "fail"
 				}
 				results <- packageRun{
-					Package: pkg,
-					Elapsed: time.Since(started),
-					Output:  append([]byte(nil), output.Bytes()...),
-					Action:  action,
-					Err:     err,
+					Package:  pkg,
+					Elapsed:  time.Since(started),
+					Output:   append([]byte(nil), stream.output.Bytes()...),
+					Action:   action,
+					Err:      err,
+					Streamed: true,
 				}
 			}
 		})

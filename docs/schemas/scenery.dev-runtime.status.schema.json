@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scenery.sh/schemas/scenery.dev-runtime.status.schema.json",
   "title": "scenery.dev-runtime.status",
   "description": "Result of the development runtime RPC method `status` (docs/local-contract.md#development-runtime-rpc).",
   "type": "object",
@@ -12,14 +11,15 @@
     "running",
     "compiling",
     "routes",
-    "service_processes"
+    "service_processes",
+    "source_freshness"
   ],
   "properties": {
     "kind": {
       "const": "scenery.dev-runtime.status"
     },
     "schema_revision": {
-      "const": "sha256:4ec8fdf1223b0701ed0dccbde487a2e9e10b1a6dd507be8529ff51fd8a06e192"
+      "const": "sha256:93b6ee76b4ef4b5626531207a014791d0c56bbc38419533fa0bb1e505ffd2d2c"
     },
     "app_id": {
       "type": "string",
@@ -83,7 +83,8 @@
           "enum": [
             "framework_mismatch",
             "migration_pending",
-            "seed_changed"
+            "seed_changed",
+            "generated_clients_stale"
           ]
         },
         "cause": {
@@ -98,6 +99,58 @@
           "minimum": 0
         }
       }
+    },
+    "serving": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generation",
+        "pid",
+        "contract_revision",
+        "implementation_revision",
+        "build_input_digest",
+        "framework_source_digest",
+        "source_snapshot_digest",
+        "published_at"
+      ],
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pid": {
+          "type": "string"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "contract_revision": {
+          "type": "string"
+        },
+        "implementation_revision": {
+          "type": "string"
+        },
+        "build_input_digest": {
+          "type": "string"
+        },
+        "framework_source_digest": {
+          "type": "string"
+        },
+        "source_snapshot_digest": {
+          "type": "string"
+        }
+      }
+    },
+    "source_freshness": {
+      "enum": [
+        "current",
+        "stale",
+        "source_missing",
+        "blocked",
+        "transaction_pending",
+        "unknown"
+      ]
     }
   },
   "additionalProperties": false,
@@ -201,5 +254,6 @@
       },
       "additionalProperties": false
     }
-  }
+  },
+  "$id": "https://scenery.sh/schemas/scenery.dev-runtime.status.schema.json"
 }

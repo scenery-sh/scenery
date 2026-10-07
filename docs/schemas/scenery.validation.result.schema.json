@@ -11,14 +11,24 @@
     "app",
     "profile",
     "selection",
-    "steps"
+    "steps",
+    "run",
+    "plan",
+    "dry_run",
+    "outcome",
+    "executed_steps",
+    "selected_steps",
+    "omitted_steps",
+    "unknown_stages",
+    "spec_revision",
+    "producer"
   ],
   "properties": {
     "kind": {
       "const": "scenery.validation.result"
     },
     "schema_revision": {
-      "const": "sha256:42dd91b0f9856dd3d133f56e2f6036fcc360c87653fc8989c64c7c2fd2706a62"
+      "const": "sha256:139558e468ee2afaf721b0f1a1b4b1fde798cd6f98748af96246c8fa6de2e0da"
     },
     "ok": {
       "type": "boolean"
@@ -65,6 +75,92 @@
     },
     "wrote": {
       "type": "string"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "executed_steps": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "omitted_steps": {
+      "items": {
+        "required": [
+          "id",
+          "outcome",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "outcome": {
+      "enum": [
+        "passed",
+        "failed",
+        "not_selected",
+        "incomplete"
+      ]
+    },
+    "plan": {
+      "$ref": "scenery.validation.plan.schema.json"
+    },
+    "producer": {
+      "$ref": "scenery.cli.schema.json#/$defs/producer"
+    },
+    "run": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_path": {
+          "type": "string"
+        },
+        "final_input_revision": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "identity_error": {
+          "type": "string"
+        },
+        "input_revision": {
+          "type": "string"
+        },
+        "input_scope": {
+          "type": "string"
+        },
+        "inputs_stable": {
+          "type": "boolean"
+        },
+        "source_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "source_commit",
+        "input_revision",
+        "final_input_revision",
+        "input_scope",
+        "inputs_stable"
+      ],
+      "type": "object"
+    },
+    "selected_steps": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "spec_revision": {
+      "$ref": "scenery.cli.schema.json#/$defs/revision"
+    },
+    "unknown_stages": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     }
   },
   "additionalProperties": false

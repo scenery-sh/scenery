@@ -83,6 +83,9 @@ type telemetryResponse struct {
 }
 
 func runTelemetryCommand(stdout io.Writer, args []string) error {
+	if len(args) > 0 && args[0] == "export" {
+		return runTelemetryBundleCommand(stdout, args[1:])
+	}
 	if len(args) > 0 && args[0] == "report" {
 		return runTelemetryReportCommand(stdout, args[1:])
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
@@ -71,6 +72,33 @@ func TestPendingMigrationBlocksUntilMigrationInputsChange(t *testing.T) {
 	}
 	if _, prevented := s.preventBlockedBuild(blockTestSnapshot(map[string]string{"designs/db/migrations/0002.sql": "m2b", "designs/api.go": "a2"})); prevented {
 		t.Fatal("a changed migration was not built")
+	}
+}
+
+func TestStaleClientBlockTracksDeclarationsAndGeneratedBytes(t *testing.T) {
+	t.Parallel()
+	base := blockTestSnapshot(map[string]string{"app.scn": "schema-1", "api/api.go": "handler-1", "go.mod": "mod-1"})
+	base.generatedContent = map[string]fileStamp{"client/api.ts": {hash: "client-1"}}
+	s := &devSupervisor{}
+	err := &build.ContractError{Diagnostic: graph.Diagnostic{Code: "SCN6204", Message: "generated TypeScript clients are stale", Suggestions: []string{"Run scenery generate --target typescript_client.api -o json"}}}
+	s.recordBuildOutcome(base, fmt.Errorf("verification: %w", err))
+	edit := blockTestSnapshot(map[string]string{"app.scn": "schema-1", "api/api.go": "handler-2", "go.mod": "mod-1"})
+	edit.generatedContent = base.generatedContent
+	if block, prevented := s.preventBlockedBuild(edit); !prevented || block.Reason != buildBlockGeneratedClients || !strings.Contains(block.Cause, "typescript_client.api") {
+		t.Fatalf("unrelated edit = %+v, prevented %t", block, prevented)
+	}
+	edit.generatedContent = map[string]fileStamp{"client/api.ts": {hash: "regenerated"}}
+	if _, prevented := s.preventBlockedBuild(edit); prevented {
+		t.Fatal("regeneration did not release stale-client block")
+	}
+	edit.generatedContent = base.generatedContent
+	edit.files["app.scn"] = fileStamp{hash: "schema-2"}
+	if _, prevented := s.preventBlockedBuild(edit); prevented {
+		t.Fatal("declaration change did not release stale-client block")
+	}
+	s.recordBuildOutcome(edit, nil)
+	if s.status.BuildBlock != nil {
+		t.Fatal("successful regeneration retained a block")
 	}
 }
 

@@ -121,6 +121,9 @@ func helpSubcommandsComplete(entry helpCommandEntry) bool {
 // unknownWordHint tells what to do about an unknown word: the closest
 // candidates when some are close, and the help command that lists them all.
 func unknownWordHint(word string, candidates []string, help string) string {
+	if word == "status" && help == "scenery help" {
+		return "run `scenery ps -o json` to inspect worktree/runtime status, or `scenery help ps` for its current grammar"
+	}
 	if suggestion := didYouMean(word, candidates); suggestion != "" {
 		return suggestion + " Run `" + help + "` for all of them."
 	}

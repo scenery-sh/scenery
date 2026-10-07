@@ -174,7 +174,17 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 			if wait != nil {
 				ready := make(chan error, 1)
 				go func() {
-					ready <- c.runPhase("Waiting for frontend dev servers", func() error { return wait(ctx) })
+					ready <- c.runPhase("Waiting for frontend dev servers", func() error {
+						err := wait(ctx)
+						if c.console != nil {
+							for _, process := range processes {
+								if process != nil {
+									c.console.Event("frontend.readiness", map[string]any{"name": process.Name, "milestones": process.readinessObservation(), "ok": err == nil})
+								}
+							}
+						}
+						return err
+					})
 					close(ready)
 				}()
 				prepared.FrontendReady = ready
