@@ -37,6 +37,7 @@ type harnessTestTimingReport = harnessreport.TestTimingReport
 type harnessTimingDeferral = harnessreport.TimingDeferral
 type harnessToolchainReport = harnessreport.ToolchainReport
 type harnessToolchainTool = harnessreport.ToolchainTool
+
 const harnessSelfSummaryKind = harnessreport.SummaryKind
 
 var buildHarnessSelfSummary = harnessreport.BuildSummary

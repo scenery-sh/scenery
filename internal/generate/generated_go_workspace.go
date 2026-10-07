@@ -76,4 +76,3 @@ func renderedGoWorkspaceFiles(root string, files []generatedFile) (map[string][]
 	}
 	return rendered, nil
 }
-

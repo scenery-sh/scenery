@@ -12,6 +12,7 @@ var configureDetachedChildProcess = devprocess.ConfigureDetachedChild
 
 type devProcessReadyRequest = devprocess.ReadyRequest
 type devProcessStartRequest = devprocess.StartRequest
+
 var killProcessIDTree = devprocess.KillTreePID
 var killProcessTree = devprocess.KillTree
 

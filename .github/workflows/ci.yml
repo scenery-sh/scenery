@@ -51,6 +51,13 @@ jobs:
               json.dump(evidence, output)
           PY
 
+      - name: Prepare offline probe dependencies
+        run: |
+          probe_module="$(mktemp -d)"
+          trap 'rm -rf "$probe_module"' EXIT
+          cp go.mod go.sum "$probe_module/"
+          go -C "$probe_module" mod download all
+
       - name: Check formatting
         run: |
           files="$(gofmt -l $(git ls-files '*.go'))"

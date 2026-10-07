@@ -82,6 +82,15 @@ final commit and verify remote CI. Preserve Plan 0215 and unrelated scratch.
   cache-only exclusion retained a borderline 100 ms p95 and is preserved as a
   failed confirmation; the final measured result excludes both categories.
 
+- The first published push CI reached the existing formatting gate and found
+  six pre-existing Go files with whitespace-only differences. Normalize those
+  files with gofmt, retain the failed run, then repeat current-head verification.
+
+- That CI also retained successful JS cases while offline CLI/native fixtures
+  failed on uncached transitive Go module metadata. CI now explicitly prepares
+  the declared module graph in a temporary module before the offline probes;
+  tracked go.mod/go.sum and fixture network isolation remain unchanged.
+
 ## Decision Log
 
 - 2026-10-07: Preserve the separate cached, fresh, isolated-confirmation and
