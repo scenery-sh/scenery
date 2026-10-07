@@ -21,6 +21,7 @@ import (
 )
 
 type harnessSelfOptions struct {
+	Base         string
 	RepoRoot     string
 	JSON         bool
 	Write        bool
@@ -46,6 +47,13 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		return err
 	}
 
+	if opts.Base != "" {
+		opts.Base, err = runHarnessGit(ctx, repoRoot, "rev-parse", "--verify", opts.Base+"^{commit}")
+		if err != nil {
+			return fmt.Errorf("resolve --base commit: %w", err)
+		}
+		opts.Base = strings.TrimSpace(opts.Base)
+	}
 	resp := harnessSelfResponse{
 		PayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
 		Provenance:      harnessreport.CurrentProvenance(),
@@ -65,7 +73,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		return err
 	}
 	defer restoreEnvironment()
-	inputRevision, err := harnessInputRevision(ctx, repoRoot)
+	inputRevision, err := harnessScopedInputRevision(ctx, repoRoot, opts.Base)
 	if err != nil {
 		return err
 	}
@@ -82,7 +90,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 
 	toolchainStep, toolchain := runHarnessToolchainPreflightStep(ctx, repoRoot)
 	resp.Toolchain = toolchain
-	changedAreaStep, changedArea := runHarnessChangedAreaStep(ctx, repoRoot)
+	changedAreaStep, changedArea := runHarnessChangedAreaStep(ctx, repoRoot, opts.Base)
 	resp.ChangedArea = changedArea
 	driftStep, drift := runHarnessDriftStep(ctx, repoRoot)
 	resp.Drift = drift
@@ -146,7 +154,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	annotateHarnessStepEffects(resp.Steps)
 	annotateHarnessEvidence(resp.Steps, repoRoot)
 
-	resp.Run.FinalInputRevision, err = harnessInputRevision(ctx, repoRoot)
+	resp.Run.FinalInputRevision, err = harnessScopedInputRevision(ctx, repoRoot, opts.Base)
 	if err != nil {
 		return err
 	}
@@ -288,6 +296,7 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
+	flags.StringVar(&opts.Base, "base", "", "include committed base..HEAD changes in the changed-area scope")
 	flags.StringVar(&opts.WorkloadRoot, "workload-root", "", "read-only source repository for a native-reload experiment")
 	flags.Func("o", "human or json", func(value string) error {
 		switch value {

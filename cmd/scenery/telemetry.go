@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -204,6 +205,11 @@ func telemetryCommand(args []string) string {
 		return "help"
 	}
 	switch args[0] {
+	case "feature":
+		if len(args) > 1 && slices.Contains(featureActions[:], args[1]) {
+			return "feature " + args[1]
+		}
+		return "feature"
 	case "db", "task", "storage", "validate", "worktree", "harness", "inspect", "logs", "traces", "metrics", "system", "deploy", "changes", "telemetry":
 		if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
 			return args[0] + " " + args[1]
@@ -217,6 +223,10 @@ func telemetryMode(args []string) string {
 		return "oneshot"
 	}
 	switch args[0] {
+	case "feature":
+		if options, err := parseFeatureArgs(args[1:]); err == nil && options.Watch {
+			return "long_running"
+		}
 	case "up", "worker", "console":
 		return "long_running"
 	case "logs":

@@ -575,6 +575,12 @@ Report the commands and outcomes, current served identity, and uncovered work.
 
 ## Working In The scenery Repository
 
+For concurrent features, use the [local feature workflow](feature-workflow.md):
+separate worktrees, one main owner, focused feedback during development and the
+cumulative matrix on the combined landing candidate. The ledger retains later
+outstanding work and recorded validation; do not rebase every feature after each
+landing. Review and apply within the human's publication authorization.
+
 Use `scenery inspect docs --for-path <path>... -o json` when you need to locate applicable instruction scopes, architecture/contract sections, active plans, schemas or verification commands. Read applicable root/child instructions and only the reference sections required by the change; a known typo does not require broad discovery. Add `--include-text` for bounded source excerpts; read original spans beyond explicit truncation when needed. Use `--review-due` for doc gardening and `--all` for the complete catalog. Complex features, migrations and substantial refactors use an ExecPlan; small fixes do not.
 
 After editing, choose the mode from the current changed paths and the root

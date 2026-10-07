@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,4 +68,19 @@ func publishHarnessRun(root string, resp harnessSelfResponse, contextPack harnes
 		return err
 	}
 	return writeHarnessSelfOracleArtifacts(root, resp, contextPack)
+}
+
+// Scope is part of identity: equal files checked against different bases do
+// not certify the same integration command union.
+func harnessScopedInputRevision(ctx context.Context, root, base string) (string, error) {
+	input, err := harnessInputRevision(ctx, root)
+	if err != nil || base == "" {
+		return input, err
+	}
+	head, err := runHarnessGit(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256([]byte(input + "\x00" + base + "\x00" + strings.TrimSpace(head)))
+	return "sha256:" + hex.EncodeToString(hash[:]), nil
 }

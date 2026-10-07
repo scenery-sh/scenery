@@ -17,12 +17,12 @@ func TestCompactContextSeparatesCoverageRemainingAndConditionalProof(t *testing.
 		{Name: "go vet", OK: true, Command: []string{"go", "vet", "./..."}},
 		{Name: "logs", OK: true, Command: []string{"scenery", "logs", "--limit", "500", "-o", "jsonl"}},
 	}}
-	contextPack := harnessAgentContext{Run: run, ChangedAreaRecommendedCommands: []string{"go test ./...", "go test ./runtime", "go test ./../other", "go test -race ./runtime", "go run ./cmd/scenery generate --target typescript_client.public_api", "scenery logs --limit 500 -o jsonl", repoinfo.ValidationFullCommand}}
+	contextPack := harnessAgentContext{Run: run, ChangedAreaRecommendedCommands: []string{"go test ./...", "go test ./runtime", "go test ./../other", "go test -race ./runtime", "go run ./cmd/scenery generate --target typescript_client.public_api", "scenery logs --limit 500 -o jsonl", repoinfo.ValidationFullCommand, repoinfo.ValidationQuickCommand}}
 	summary := buildHarnessAgentContextSummary(resp, contextPack)
 	if !summary.RepoChecksPassed || summary.Run != run {
 		t.Fatalf("identity/status = %+v", summary)
 	}
-	want := map[string]string{"go test ./...": "covered", "go test ./runtime": "covered", "go test ./../other": "remaining", "go test -race ./runtime": "remaining", "go run ./cmd/scenery generate --target typescript_client.public_api": "remaining", "scenery logs --limit 500 -o jsonl": "conditional", repoinfo.ValidationFullCommand: "covered", "golangci-lint run ./...": "remaining"}
+	want := map[string]string{"go test ./...": "covered", "go test ./runtime": "covered", "go test ./../other": "remaining", "go test -race ./runtime": "remaining", "go run ./cmd/scenery generate --target typescript_client.public_api": "remaining", "scenery logs --limit 500 -o jsonl": "conditional", repoinfo.ValidationFullCommand: "covered", repoinfo.ValidationQuickCommand: "covered", "golangci-lint run ./...": "remaining"}
 	for _, check := range summary.Checks {
 		if check.Status != want[check.Command] {
 			t.Fatalf("check = %+v, want %s", check, want[check.Command])

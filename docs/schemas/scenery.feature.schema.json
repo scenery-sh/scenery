@@ -1,0 +1,486 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "action"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.feature"
+    },
+    "schema_revision": {
+      "const": "sha256:ce3bd4b39bb123f8ba9f52cf3af768ffba194adf5dfcddb4221550aff2539330"
+    },
+    "ok": {
+      "const": true
+    },
+    "action": {
+      "enum": [
+        "create",
+        "register",
+        "set",
+        "list",
+        "prepare",
+        "inspect",
+        "check",
+        "land",
+        "close"
+      ]
+    },
+    "overview": {
+      "$ref": "#/$defs/overview"
+    },
+    "feature": {
+      "$ref": "#/$defs/record"
+    },
+    "candidate": {
+      "$ref": "#/$defs/candidate"
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/receipt"
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.feature.schema.json",
+  "title": "Local feature workflow result",
+  "$defs": {
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "name",
+        "purpose",
+        "path",
+        "branch",
+        "base",
+        "stage",
+        "dependencies",
+        "closed"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "working",
+            "ready",
+            "parked"
+          ]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "closed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expensive": {
+          "type": "boolean"
+        },
+        "reuse": {
+          "type": "boolean"
+        },
+        "when_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision",
+        "environment",
+        "command",
+        "cwd",
+        "started_at",
+        "duration_ms",
+        "exit_code",
+        "outcome",
+        "reused",
+        "archive"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "reused": {
+          "type": "boolean"
+        },
+        "archive": {
+          "type": "string"
+        }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feature",
+        "commit"
+      ],
+      "properties": {
+        "feature": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "integrated_commit": {
+          "type": "string"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "id",
+        "path",
+        "base",
+        "remote",
+        "checkpoints",
+        "next",
+        "tip",
+        "tree",
+        "revision",
+        "status",
+        "conflicts",
+        "changed",
+        "diff",
+        "checks",
+        "receipts",
+        "created_at"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "remote": {
+          "type": "string"
+        },
+        "checkpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/checkpoint"
+          }
+        },
+        "next": {
+          "type": "integer"
+        },
+        "tip": {
+          "type": "string"
+        },
+        "tree": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "prepared",
+            "conflicts",
+            "validated",
+            "validation_failed",
+            "publishing",
+            "published"
+          ]
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "diff": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/receipt"
+          }
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "published_at": {
+          "type": "string"
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "name",
+        "purpose",
+        "path",
+        "branch",
+        "base",
+        "stage",
+        "dependencies",
+        "closed",
+        "head",
+        "status",
+        "outstanding",
+        "dirty",
+        "overlap",
+        "blockers",
+        "validation",
+        "landing",
+        "runtime"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "working",
+            "ready",
+            "parked"
+          ]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "head": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "working",
+            "ready",
+            "blocked",
+            "partially_landed",
+            "fully_landed",
+            "parked",
+            "closed"
+          ]
+        },
+        "outstanding": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dirty": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "overlap": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/overlap"
+          }
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "validation": {
+          "type": "string"
+        },
+        "landing": {
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "last_checkpoint": {
+          "type": "string"
+        },
+        "last_landing": {
+          "type": "string"
+        }
+      }
+    },
+    "overlap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feature",
+        "paths"
+      ],
+      "properties": {
+        "feature": {
+          "type": "string"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "overview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo_root",
+        "main",
+        "features",
+        "candidates"
+      ],
+      "properties": {
+        "repo_root": {
+          "type": "string"
+        },
+        "main": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/row"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        }
+      }
+    }
+  }
+}

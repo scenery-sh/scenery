@@ -103,6 +103,7 @@ var rootHelpGroups = []helpRootGroup{
 	}},
 	{Name: "Workspace", Entries: []helpRootEntry{
 		{Command: "worktree", Summary: "Create, list, and remove app worktrees"},
+		{Command: "feature", Summary: "Track isolated features and validate local main landing"},
 		{Command: "framework", Summary: "Select a coherent local Scenery producer"},
 	}},
 	{Name: "Observability", Entries: []helpRootEntry{
@@ -148,6 +149,8 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery db drop",
 	}},
 	{Name: "Workspace", Commands: []string{
+		"scenery feature list",
+		"scenery feature land",
 		"scenery worktree create",
 		"scenery worktree list",
 		"scenery worktree remove",
@@ -337,6 +340,30 @@ var helpCommands = []helpCommandEntry{
 		Flags:       []string{"--from <branch>", "--app-root <path>", "--yes", "--expect-revision <digest>", "-o", "json"},
 		JSON:        true,
 		Stability:   "stable",
+	},
+	{
+		Command:     "feature",
+		Group:       "Workspace",
+		Summary:     "Track local feature checkpoints and publish validated integration candidates to main.",
+		Subcommands: featureActions[:],
+		Usage: []string{
+			"scenery feature create <name> --purpose <text> [--path <path>] [--depends-on <name>...] [--repo-root <path>] [-o human|json]",
+			"scenery feature register <name> --purpose <text> --path <path> [--depends-on <name>...] [--repo-root <path>] [-o human|json]",
+			"scenery feature set <name> [--purpose <text>] [--stage working|ready|parked] [--depends-on <name>...|--no-dependencies] [--repo-root <path>] [-o human|json]",
+			"scenery feature list [--repo-root <path>] [-o human|json]",
+			"scenery feature list --watch [--interval <duration>] [--repo-root <path>] [-o human|jsonl]",
+			"scenery feature prepare <name>... [--commit <commit>] [--repo-root <path>] [-o human|json]",
+			"scenery feature inspect <candidate> [--repo-root <path>] [-o human|json]",
+			"scenery feature check <name> [--repo-root <path>] [-o human|json]",
+			"scenery feature check --candidate <id> --expect-revision <digest> [--repo-root <path>] [-o human|json]",
+			"scenery feature land <name>... [--commit <commit>] [--repo-root <path>] [-o human|json]",
+			"scenery feature land --candidate <id> --yes --expect-revision <digest> [--repo-root <path>] [-o human|json]",
+			"scenery feature close <name> [--repo-root <path>] [-o human|json]",
+		},
+		Flags:     []string{"--repo-root <path>", "--path <path>", "--purpose <text>", "--stage working|ready|parked", "--depends-on <name>", "--no-dependencies", "--candidate <id>", "--commit <commit>", "--yes", "--expect-revision <digest>", "--watch", "--interval <duration>", "-o human|json|jsonl"},
+		JSON:      true,
+		Stability: "stable",
+		Notes:     []string{"Works in Git repositories without .scenery.json. Reads scenery.features.json for focused and required landing checks. Only origin/main is pushed. Conflicted candidates retain their own checkout and release landing admission."},
 	},
 	{
 		Command:     "framework",

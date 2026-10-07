@@ -130,9 +130,9 @@ type harnessAgentDocsFreshness struct {
 	Error            string   `json:"error,omitempty"`
 }
 
-func runHarnessChangedAreaStep(ctx context.Context, repoRoot string) (harnessStep, *harnessChangedAreaReport) {
+func runHarnessChangedAreaStep(ctx context.Context, repoRoot string, base ...string) (harnessStep, *harnessChangedAreaReport) {
 	started := time.Now()
-	report := buildHarnessChangedAreaReport(ctx, repoRoot)
+	report := buildHarnessChangedAreaReport(ctx, repoRoot, base...)
 	step := harnessStep{
 		Name:       "changed area oracle",
 		Command:    harnessStaticCheckCommand(repoRoot),
@@ -147,13 +147,17 @@ func runHarnessChangedAreaStep(ctx context.Context, repoRoot string) (harnessSte
 		},
 		Diagnostics: report.Diagnostics,
 	}
+	if len(base) > 0 && base[0] != "" {
+		step.Command = append(step.Command, "--base", base[0])
+		step.Summary["comparison_base"] = base[0]
+	}
 	if !step.OK {
 		step.Error = "changed-area oracle failed"
 	}
 	return step, report
 }
 
-func buildHarnessChangedAreaReport(ctx context.Context, repoRoot string) *harnessChangedAreaReport {
+func buildHarnessChangedAreaReport(ctx context.Context, repoRoot string, base ...string) *harnessChangedAreaReport {
 	report := &harnessChangedAreaReport{
 		PayloadIdentity:     newCLIPayloadIdentity(harnessChangedAreaKind),
 		ChangedFiles:        []harnessChangedFile{},
@@ -165,6 +169,14 @@ func buildHarnessChangedAreaReport(ctx context.Context, repoRoot string) *harnes
 		Diagnostics:         []checkDiagnostic{},
 	}
 	changes, diagnostics := harnessCollectChangedFiles(ctx, repoRoot)
+	if len(base) > 0 && base[0] != "" {
+		output, err := runHarnessGit(ctx, repoRoot, "diff", "--no-renames", "--name-only", "-z", base[0], "HEAD", "--")
+		if err != nil {
+			diagnostics = append(diagnostics, checkDiagnostic{Stage: "changed area oracle", Severity: "error", Message: "cannot inspect committed comparison: " + err.Error()})
+		} else {
+			changes = mergeCommittedChanges(changes, strings.Split(output, "\x00"))
+		}
+	}
 
 	packages, err := harnessListGoPackages(ctx, repoRoot)
 	if err != nil {
@@ -697,4 +709,19 @@ func sortedKeysChanged(values map[string]harnessChangedFile) []string {
 
 func roundSeconds(value float64) float64 {
 	return float64(int(value*1000+0.5)) / 1000
+}
+
+// Committed changes and outstanding edits share the single path classifier.
+func mergeCommittedChanges(changes []harnessChangedFile, paths []string) []harnessChangedFile {
+	seen := map[string]bool{}
+	for _, change := range changes {
+		seen[change.Path] = true
+	}
+	for _, path := range paths {
+		if path != "" && !seen[path] {
+			changes = append(changes, harnessChangedFile{Path: path, Status: "modified"})
+			seen[path] = true
+		}
+	}
+	return changes
 }

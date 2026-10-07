@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "probe_limit": 1,
+  "development": [
+    {
+      "id": "focused",
+      "command": "go",
+      "args": [
+        "run",
+        "./scripts/feature-check",
+        "--development",
+        "--base",
+        "{base}"
+      ]
+    }
+  ],
+  "landing": [
+    {
+      "id": "repository-source",
+      "command": "go",
+      "args": [
+        "run",
+        "./scripts/feature-check",
+        "--base",
+        "{base}"
+      ],
+      "reuse": true
+    },
+    {
+      "id": "feature",
+      "command": "go",
+      "args": [
+        "run",
+        "./scripts/verify",
+        "--probe",
+        "feature",
+        "--base",
+        "{base}",
+        "--summary",
+        "--write"
+      ],
+      "expensive": true,
+      "when_paths": [
+        "internal/feature/",
+        "cmd/scenery/feature",
+        "docs/schemas/scenery.feature",
+        "scripts/verify/harness_self_feature",
+        "scenery.features.json"
+      ]
+    },
+    {
+      "id": "cli-grammar",
+      "command": "go",
+      "args": [
+        "run",
+        "./scripts/verify",
+        "--probe",
+        "cli-grammar",
+        "--base",
+        "{base}",
+        "--summary",
+        "--write"
+      ],
+      "expensive": true,
+      "when_paths": [
+        "cmd/scenery/",
+        "docs/schemas/scenery.help",
+        "internal/machine/"
+      ]
+    },
+    {
+      "id": "validation-git",
+      "command": "go",
+      "args": [
+        "run",
+        "./scripts/verify",
+        "--probe",
+        "validation-git",
+        "--base",
+        "{base}",
+        "--summary",
+        "--write"
+      ],
+      "expensive": true,
+      "when_paths": [
+        "internal/validation/",
+        "scripts/verify/harness_oracle.go",
+        "scripts/verify/harness_self_validation.go",
+        "scripts/verify/harness_run_archive.go",
+        "scripts/feature-check/"
+      ]
+    },
+    {
+      "id": "cli-process",
+      "command": "go",
+      "args": [
+        "run",
+        "./scripts/verify",
+        "--probe",
+        "cli-process",
+        "--base",
+        "{base}",
+        "--summary",
+        "--write"
+      ],
+      "expensive": true,
+      "when_paths": [
+        "cmd/scenery/main.go",
+        "cmd/scenery/feature",
+        "cmd/scenery/telemetry",
+        "internal/machine/"
+      ]
+    }
+  ]
+}

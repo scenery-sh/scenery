@@ -14,6 +14,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
+	"scenery.sh/internal/feature"
 	"scenery.sh/internal/machine"
 )
 
@@ -160,11 +161,19 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			manifestPayload = compiled.Manifest
 		}
 	}
+	featurePolicy, _ := harnessJSONFilePayload(filepath.Join(repoRoot, feature.PolicyFile))
 	items := []struct {
 		name      string
 		schemaRel string
 		payload   any
 	}{
+		{name: "feature", schemaRel: "docs/schemas/scenery.feature.schema.json", payload: whenSchemaExists("docs/schemas/scenery.feature.schema.json", struct {
+			cliPayloadIdentity
+			OK       bool             `json:"ok"`
+			Action   string           `json:"action"`
+			Overview feature.Overview `json:"overview"`
+		}{newCLIPayloadIdentity("scenery.feature"), true, "list", feature.Overview{RepoRoot: repoRoot, Main: "main", Features: []feature.Row{}, Candidates: []feature.Candidate{}}})},
+		{name: "feature.policy", schemaRel: "docs/schemas/scenery.feature.policy.schema.json", payload: featurePolicy},
 		{name: "docs.index", schemaRel: "docs/schemas/scenery.docs.index.schema.json", payload: docsKnowledgePayload},
 		{name: "approval.trust", schemaRel: "docs/schemas/scenery.approval-trust.schema.json", payload: artifact("scenery.approval-trust", map[string]any{
 			"keys": map[string]any{"maintainer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},

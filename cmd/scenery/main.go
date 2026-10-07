@@ -178,6 +178,8 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return dbCommand(args[1:])
 	case "worktree":
 		return worktreeCommand(args[1:])
+	case "feature":
+		return featureCommand(args[1:])
 	case "framework":
 		return frameworkCommand(args[1:])
 	case "generate":

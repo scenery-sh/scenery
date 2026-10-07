@@ -31,6 +31,10 @@ These capabilities exist; their current contracts live in
 - A single `.scenery/harness/agent-context.json` handoff with failures,
   relevant docs, required commands, and risk classifications.
 
+- Repository-local feature ledger, exact checkpoint/batch candidates, combined
+  validation, shared probe admission and serialized main publication; see
+  [local feature integration](docs/feature-workflow.md).
+
 ## Current Priorities
 
 1. **Developer feedback cost.** Continue the measured work in

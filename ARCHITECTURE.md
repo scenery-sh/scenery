@@ -128,6 +128,17 @@ Its inherited-pipe fixture measures linked identity, executable hashing and
 constructor activation using `internal/devprocess`; it is not a supported
 second runtime. Plan 0181 owns its feasibility decision and promotion gates.
 
+### `internal/feature`
+
+Owns repository-local Git feature records, isolated integration candidates,
+revision-bound validation, shared expensive-probe admission and serialized main
+publication. State/evidence live in the Git common directory, separate from app
+runtime/data ownership. `cmd/scenery/feature.go` exposes typed commands and uses
+existing verified runtime inspection for the overview. The package never imports
+the verifier or application execution machinery. Repository-authored argv in
+`scenery.features.json` delegates validation; `scripts/feature-check` completes
+Scenery's single changed-area command union. See [feature workflow](docs/feature-workflow.md).
+
 ### `internal/app`
 
 Follow [app instructions](internal/app/AGENTS.md) for this boundary.

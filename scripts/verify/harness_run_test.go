@@ -214,3 +214,15 @@ func TestChangedAreaIgnoresLocalHarnessArtifacts(t *testing.T) {
 		t.Fatalf("ignored-only changes recommended commands: %+v", report.RecommendedCommands)
 	}
 }
+
+func TestCommittedCandidateChangesJoinOutstandingScope(t *testing.T) {
+	t.Parallel()
+	changes := mergeCommittedChanges([]harnessChangedFile{{Path: "internal/feature/ledger.go", Status: "staged"}}, []string{"internal/feature/ledger.go", "cmd/scenery/feature.go", ""})
+	if len(changes) != 2 || changes[0].Status != "staged" || changes[1].Path != "cmd/scenery/feature.go" {
+		t.Fatalf("comparison union: %+v", changes)
+	}
+	opts, err := parseHarnessSelfArgs([]string{"--base", "abcdef", "--quick"})
+	if err != nil || opts.Base != "abcdef" {
+		t.Fatalf("base selection: %+v %v", opts, err)
+	}
+}

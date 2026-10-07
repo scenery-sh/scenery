@@ -29,7 +29,7 @@ outside these lanes.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--base <commit>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
 
@@ -227,6 +227,7 @@ release certification. Failed steps identify their focused rerun command.
 | `inspect-go` | Go-package documentation inspection |
 | `toolchain-build` | Source toolchain builds |
 | `worktree-git` | Git worktree lifecycle |
+| `feature` | Five-feature ledger, exact/partial checkpoints, conflict/batch landing, revision refusal, failed/unknown push recovery, raw input checks, publication exclusion, shared probe admission across dead owners and owned cleanup |
 | `edge` | Caddy/publication HTTP and TLS behavior |
 | `generation` | Generated-package/source-only compilation |
 | `native-contract` | Native contract application through `scenery up`: stock process links with external framework source, generated application, service and host entrypoints, runtime bundle with local replacement inputs, grouped route and removed ungrouped spelling attested by the host with the runtime bundle, generated TypeScript client against the session, and public restarts reusing every process executable |
@@ -240,7 +241,7 @@ release certification. Failed steps identify their focused rerun command.
 | `configuration` | Environment configuration through `scenery up` on two Git worktrees of a disposable `testdata/apps/multiservice` copy with its own agent home, poisoned `.env` files and ambient look-alike variables: one `config set` reaches both runtimes, only the consuming service process restarts with its identical executable and no new link step, a differently typed value and an unknown key written by another revision are reported `rejected` and `unused` while the healthy generation keeps serving, and `unset` restores defaults; cleanup of processes and state |
 | `configuration-secrets` | The host's secret backend (macOS login Keychain or `systemd-creds`) with a unique application namespace: a missing required secret stops `scenery up` naming its key, `--stdin` stores it without plaintext in CLI output, store, logs or process environments, the runtime receives the exact bytes, rotation restarts only the consumer, and every created secret item is removed. The other platform's backend is reported unverified |
 | `configuration-deploy` | `scenery deploy` through a test-double `ssh` that runs remote commands on this host under a separate target home: production values stored only on the target, first release active, restart using the active rather than the desired revision, configuration-only redeploy with identical executables, a failing activation restoring the previous release and configuration, and refusal over a legacy checkout. The systemd service owner, `systemd-creds` and a real reboot are reported unverified |
-| `validation-git` | Changed-file Git validation |
+| `validation-git` | Changed-file Git validation, clean committed candidate scope and comparison-base input identity |
 | `test-cache` | Fresh test-binary cache lifecycle |
 
 Full release selects every functional catalog entry once plus the full race
@@ -526,6 +527,22 @@ read-only. Tidy that workspace instead; the probe keeps it under the reported
 - Quick validation does not require live application services. Full and release
   modes may provision disposable managed services and must clean up what they own.
 - It does not invent architecture rules. Add new checks only when the repo has a concrete invariant worth enforcing.
+
+## Concurrent Development And Landing
+
+Registered features use focused checks while developing; the final landing owns
+cumulative combined-candidate validation. `scripts/feature-check --base <commit>`
+selects the matrix's quick/full mode, reads the immutable compact context before
+the full union, completes uncovered source checks and lint, and refuses unresolved
+conditional owner acceptance. `scenery.features.json` selects separate expensive
+probes and shared admission. See [local feature integration](feature-workflow.md).
+
+`go run ./scripts/verify --base <commit> ...` includes committed base-to-HEAD
+paths along with outstanding edits through the existing path classifier. The
+resolved base appears in the changed-area step's command/summary and binds the
+run input revision with HEAD and source bytes. Without `--base`, the existing
+working-tree scope remains. Prior evidence from another base cannot establish
+combined-candidate acceptance, even when file bytes happen to match.
 
 ## Repository Validation Matrix
 

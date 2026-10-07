@@ -8,6 +8,7 @@ type PayloadIdentity struct {
 }
 
 var payloadSchemaRevisions = map[string]string{
+	"scenery.feature":                     "sha256:ce3bd4b39bb123f8ba9f52cf3af768ffba194adf5dfcddb4221550aff2539330",
 	"scenery.harness.verification":        "sha256:0b17c6f9d5e265127a577656afb8e61b39462dcb5dec09042a015c9bd79bac8a",
 	"scenery.telemetry.export":            "sha256:de17166e8b0e2320dc9f53d00a0ead35fa9aadb8ef77f905eefaa8667e5359c0",
 	"scenery.harness.test_results":        "sha256:942678c71de92263ea889e580240c1bd68fbb90b33abda846c4b3fd534416e7c",

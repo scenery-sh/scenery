@@ -55,7 +55,7 @@ scenery telemetry report [--since <duration>] [--agent-transcripts] [-o human|js
 
 `-o json` selects the singular `scenery.cli` envelope. It always carries `kind`, digest `schema_revision` and `spec_revision`, `producer`, `ok`, nullable graph revision fields, `data`, and ordered `diagnostics`; command-specific schemas describe `data`. `workspace_revision` and `contract_revision` are a canonical digest or null. `implementation_revision` and `deployment_revision` are a canonical digest, a target-to-digest object, or null; other JSON shapes fail decoding. `-o jsonl` emits `scenery.cli.event` envelopes with the same identity fields, monotonically increasing sequence numbers, an `event` discriminator, and one terminal summary event. Decoders accept only the exact current schema revision, which is the complete self-normalized digest of the matching checked JSON Schema. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
 
-CLI invocations best-effort append JSON objects to `<agent home>/telemetry.jsonl` (`SCENERY_AGENT_HOME`, default `~/.scenery`), with owner-only file permissions. New records also carry an opaque `invocation_id`, the machine `producer` (release, commit and toolchain when available), and a sanitized `diagnostic_code` on failure. Validation homes therefore keep their own telemetry; a custom home is not inferred to be a test. Ordinary records contain UTC `at`, coarse `command`, `duration_ms`, `exit_code`, `version`, and `mode`; omission of `measurement` means command completion. A newly owned `scenery up` runtime instead writes one `measurement: "startup"` record immediately after its existing internal readiness boundary: shared startup dependencies, the application listener, and configured frontend readiness have succeeded. Its later supervisor exit is not recorded, the detached launcher defers to its owner child, and already-running acquisition is not startup. Startup failure that exits before readiness is recorded as a failed startup measurement. When app discovery succeeds records additionally contain configured `app.id` and `app.name`. Mode is `long_running` for `up`, `worker`, `console`, and `logs --follow`, and `oneshot` otherwise. Command classification retains at most the known command and subcommand and never stores flags, filesystem paths, SQL, tokens, storage keys, or task arguments. App attribution is resolved after the measured duration, so discovery overhead is excluded. Telemetry encoding, discovery, directory, open, or write failures are ignored and never change command output or exit status.
+CLI invocations best-effort append JSON objects to `<agent home>/telemetry.jsonl` (`SCENERY_AGENT_HOME`, default `~/.scenery`), with owner-only file permissions. New records also carry an opaque `invocation_id`, the machine `producer` (release, commit and toolchain when available), and a sanitized `diagnostic_code` on failure. Validation homes therefore keep their own telemetry; a custom home is not inferred to be a test. Ordinary records contain UTC `at`, coarse `command`, `duration_ms`, `exit_code`, `version`, and `mode`; omission of `measurement` means command completion. A newly owned `scenery up` runtime instead writes one `measurement: "startup"` record immediately after its existing internal readiness boundary: shared startup dependencies, the application listener, and configured frontend readiness have succeeded. Its later supervisor exit is not recorded, the detached launcher defers to its owner child, and already-running acquisition is not startup. Startup failure that exits before readiness is recorded as a failed startup measurement. When app discovery succeeds records additionally contain configured `app.id` and `app.name`. Mode is `long_running` for `up`, `worker`, `console`, and `logs --follow` and `feature list --watch`, and `oneshot` otherwise. Command classification retains at most the known command and subcommand and never stores flags, filesystem paths, SQL, tokens, storage keys, or task arguments. App attribution is resolved after the measured duration, so discovery overhead is excluded. Telemetry encoding, discovery, directory, open, or write failures are ignored and never change command output or exit status.
 
 `scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--measurement completion|startup]... [--since <duration>] [--limit <n>] [-o human|json]` streams that file and retains at most the requested recent records (default 100, maximum 10,000) while calculating overall, per-app, per-command, and per-measurement timing summaries. App, command, and measurement filters are repeatable OR filters; supplying different filter classes combines them with AND. App filters exactly match configured ID or name. Every timing summary reports all-history count/average/min/max plus exact p50/p95 over the latest at most 10,000 successful matching records, with `percentile_sample_count` making that bound explicit. `--command up --measurement startup` therefore excludes historical or ordinary completion/lifetime timings from startup percentiles. Historical records without app identity remain visible as unattributed when no app filter is selected. JSON data uses kind `scenery.telemetry` and the exact checked schema in `docs/schemas/scenery.telemetry.schema.json`.
 
@@ -2493,3 +2493,43 @@ exceptions cannot change application outcomes. Request/response bodies, URLs,
 headers and credentials are not included. A `SceneryClientError` after receiving
 a trace ID retains it in `traceId` and `toJSON()`. The observer is a client-side
 integration point; these events are not automatically exported to the server.
+
+## Local Feature Coordination
+
+`scenery feature` is repository-local Git coordination, independent of an app's
+`.scenery.json`. `create`, `register`, `set`, `list`, `prepare`, `inspect`, `check`,
+`land` and `close` expose the current `scenery.feature` payload checked by
+[scenery.feature.schema.json](schemas/scenery.feature.schema.json). Exact grammar
+is advertised by `scenery help feature -o json`; list watch emits `scenery.cli.event`
+snapshots with increasing sequences and one terminal summary on stop/failure. Policy version 1 is checked by
+[scenery.feature.policy.schema.json](schemas/scenery.feature.policy.schema.json).
+
+Creation uses `feat/<name>`; registration binds an existing branch checkout.
+Purpose/dependencies/stage are declared intent. The observed ledger combines
+Git outstanding paths, dependencies, overlaps, exact development feedback,
+candidates and immutable published receipts. Ready intent never asserts passing
+integration. Later edits retain partial status; close only records completion.
+
+Prepare captures committed feature checkpoints, latest published main and the
+single origin publication destination, then creates a detached candidate. Its
+revision binds base/tip/tree/destination/checkpoints/check argv. Inspect retains
+conflicts or finishes staged resolution and exposes the full resulting diff.
+Check and apply require `--expect-revision`; applying land also requires `--yes`.
+It validates the combined candidate before fast-forward/push, publishes main only
+and records exact checkpoint-to-integration mappings plus check evidence. Source
+reuse requires matching authored bytes/argv/cwd/executable/environment and an
+immutable successful archive; external/expensive checks never reuse execution.
+Concurrent publication, stale revision/base, divergent main, overlapping primary
+edits or failed validation stop publication. Push failure retains local main;
+observed publication can recover the same receipt after interruption.
+
+Private metadata/checkouts/locks/evidence live under the shared Git common
+`scenery-features/` directory. Kernel-owned locks serialize publication and
+admit expensive children across worktrees; stale files never grant ownership.
+No command removes feature worktrees or retained runtime data. See the
+[workflow and recovery contract](feature-workflow.md) for setup and commands.
+
+Repository verifier `--base <commit>` includes committed comparison changes in
+its existing changed-area classifier, unioned with outstanding edits. Resolved
+base and HEAD bind its source input revision; the base is recorded in the
+changed-area step. A clean candidate therefore retains its integration scope.

@@ -82,6 +82,7 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("inspect-go", runHarnessInspectDocsGoPackageProbeStep),
 		harnessSingleProbe("toolchain-build", runHarnessToolchainSourceBuildProbeStep),
 		harnessSingleProbe("worktree-git", runHarnessWorktreeGitProbeStep),
+		harnessSingleProbe("feature", runHarnessFeatureProbeStep),
 		harnessSingleProbe("edge", runHarnessEdgeProcessProbeStep),
 		harnessSingleProbe("generation", runHarnessGenerationCompileProbeStep),
 		{id: "native-contract", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {

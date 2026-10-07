@@ -2666,9 +2666,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-04",
-      "review_after": "2026-11-03",
-      "summary": "Compact repository entrypoint with unchanged authorization and engineering boundaries, scoped documentation excerpts and exact owning validation references.",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Compact repository instructions with focused registered-feature development and combined landing validation.",
       "tags": [
         "agents",
         "repo",
@@ -2683,9 +2683,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-14",
-      "review_after": "2026-10-14",
-      "summary": "Small portable app-skill router with direct workflow references, essential source/data ownership, existing authorization, and observable completion.",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Portable app and local-feature skill router with revision-bound landing, partial-work preservation and observable completion.",
       "tags": [
         "skill",
         "agents",
@@ -2706,7 +2706,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "App and repository workflows, application acceptance, owned documentation updates, scoped excerpts and compact input-bound validation context.",
+      "summary": "App and repository workflows, local feature integration, application acceptance and input-bound validation context.",
       "tags": [
         "agents",
         "cli",
@@ -2726,9 +2726,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-05",
-      "review_after": "2026-10-05",
-      "summary": "Strategic roadmap separating implemented harness capabilities from remaining developer-loop, public-runtime, browser-proof, and documentation maintenance priorities; executable work lives in the active-plan index.",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Implemented baseline and current roadmap, including local feature integration and shared expensive-probe admission.",
       "tags": [
         "plans",
         "harness",
@@ -2762,7 +2762,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Repository code map and cross-package invariants, with app-config and Go-loader instruction owners.",
+      "summary": "Repository code map including local feature coordination independent of app runtime and data ownership.",
       "tags": [
         "architecture",
         "agents",
@@ -2781,7 +2781,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Current CLI and machine contracts, including archive telemetry coverage, explicit cohorts, serving freshness, transaction deferral, source-loss lifecycle and ownership-bound prune preview.",
+      "summary": "Current CLI and machine contracts including typed local feature coordination and comparison-bound repository verification.",
       "tags": [
         "contract",
         "cli",
@@ -2868,7 +2868,9 @@
         "docs/schemas/scenery.assistant.runtime-descriptor.schema.json",
         "docs/schemas/scenery.assistant.status.schema.json",
         "docs/schemas/scenery.assistant.sync.schema.json",
-        "docs/schemas/scenery.inspect.assistants.schema.json"
+        "docs/schemas/scenery.inspect.assistants.schema.json",
+        "docs/schemas/scenery.feature.schema.json",
+        "docs/schemas/scenery.feature.policy.schema.json"
       ]
     },
     {
@@ -2923,7 +2925,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Cumulative validation matrix, isolated verification/release descendants, explicit process probes, serial Bun helper tests and immutable input-bound evidence.",
+      "summary": "Cumulative validation, combined-candidate scope, feature/CLI/Git probes and immutable input-bound evidence.",
       "tags": [
         "harness",
         "agents",
@@ -4005,6 +4007,74 @@
         "runtime",
         "telemetry",
         "postgres"
+      ]
+    },
+    {
+      "path": "docs/plans/0217-local-feature-integration.md",
+      "title": "Local Feature Integration",
+      "freshness": "current",
+      "owner": "scenery feature workflows",
+      "status": "completed",
+      "quality": "A",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Shared feature ledger, isolated checkpoint integration, serialized main publication and exact-input validation with bounded expensive probes.",
+      "tags": [
+        "plans",
+        "execplans",
+        "features",
+        "integration",
+        "worktree",
+        "validation"
+      ]
+    },
+    {
+      "path": "docs/feature-workflow.md",
+      "title": "Local Feature Integration",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Isolated feature worktrees, exact checkpoint/batch review, combined validation, serialized main publication and receipt-aware cleanup.",
+      "tags": [
+        "features",
+        "worktrees",
+        "workflow",
+        "validation"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.feature.schema.json",
+      "title": "Local Feature Result Schema",
+      "owner": "scenery machine",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Typed current feature records, overview, candidates and check receipts.",
+      "tags": [
+        "schema",
+        "features",
+        "cli"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.feature.policy.schema.json",
+      "title": "Local Feature Policy Schema",
+      "owner": "scenery machine",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-07",
+      "review_after": "2026-11-06",
+      "summary": "Repository-owned development/landing argv, changed-path selection and shared probe admission.",
+      "tags": [
+        "schema",
+        "features",
+        "validation"
       ]
     }
   ],

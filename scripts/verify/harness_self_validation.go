@@ -80,6 +80,28 @@ func runHarnessValidationGitProbeCheckWithArtifacts(ctx context.Context, repoRoo
 			return nil, nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 		}
 	}
+	// A clean committed candidate must still select its integration checks.
+	base = strings.TrimSpace(base)
+	committed, committedErr := runHarnessGit(ctx, root, "diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--")
+	if committedErr != nil {
+		return nil, nil, committedErr
+	}
+	changes := mergeCommittedChanges(nil, strings.Split(committed, "\x00"))
+	if len(changes) != 2 {
+		return nil, nil, fmt.Errorf("committed candidate paths = %+v", changes)
+	}
+	beforeScope, scopeErr := harnessScopedInputRevision(ctx, root, base)
+	if scopeErr != nil {
+		return nil, nil, scopeErr
+	}
+	head, headErr := runHarnessGit(ctx, root, "rev-parse", "HEAD")
+	if headErr != nil {
+		return nil, nil, headErr
+	}
+	afterScope, scopeErr := harnessScopedInputRevision(ctx, root, strings.TrimSpace(head))
+	if scopeErr != nil || beforeScope == afterScope {
+		return nil, nil, fmt.Errorf("comparison base did not bind validation identity: %v", scopeErr)
+	}
 	files, err := validation.CollectChangedFiles(ctx, appRoot, strings.TrimSpace(base))
 	if err != nil {
 		return nil, nil, err

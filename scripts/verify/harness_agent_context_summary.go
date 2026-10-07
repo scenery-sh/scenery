@@ -97,7 +97,8 @@ func buildHarnessAgentContextSummary(resp harnessSelfResponse, contextPack harne
 					break
 				}
 			}
-			if resp.OK && ((command == repoinfo.ValidationFullCommand && fullTests && fullVet && (resp.Mode == harnessSelfModeDefault || resp.Mode == harnessSelfModeRace || resp.Mode == harnessSelfModeRelease)) || (command == harnessValidationQuickCommand && resp.Mode == harnessSelfModeQuick)) {
+			fullRun := fullTests && fullVet && (resp.Mode == harnessSelfModeDefault || resp.Mode == harnessSelfModeRace || resp.Mode == harnessSelfModeRelease)
+			if resp.OK && ((command == repoinfo.ValidationFullCommand && fullRun) || (command == harnessValidationQuickCommand && (resp.Mode == harnessSelfModeQuick || fullRun))) {
 				check.Status = "covered"
 				check.EvidenceStep = "selected verifier run"
 				check.Condition = ""

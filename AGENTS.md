@@ -40,6 +40,7 @@ and resolution in an active plan. `.scenery/gen/` is cache, not an API.
 - `internal/devprocess/AGENTS.md`
 - `internal/edge/AGENTS.md`
 - `internal/evolution/AGENTS.md`
+- `internal/feature/AGENTS.md`
 - `internal/generate/AGENTS.md`
 - `internal/graph/AGENTS.md`
 - `internal/harnessevidence/AGENTS.md`
@@ -114,7 +115,10 @@ history without freshness reviews; later guidance belongs in living docs/indexes
 
 ## Validation Matrix
 
-Select quick/full **after editing** from the cumulative
+Registered feature worktrees use focused development checks while working;
+[local feature landing](docs/feature-workflow.md) owns the cumulative validation
+of the combined candidate. A ready label is not acceptance. For completion or
+landing, select quick/full **after editing** from the cumulative
 [repository matrix](docs/harness-engineering.md#repository-validation-matrix).
 Documentation-only edits select quick; source and contract changes retain the
 matrix's cumulative requirements.

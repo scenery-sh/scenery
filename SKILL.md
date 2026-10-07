@@ -33,6 +33,7 @@ references when the task crosses their boundary, not as a startup checklist.
 | Run an app-local code task | `scenery task list -o json` | [Code tasks](docs/app-development-cookbook.md#app-local-code-tasks) |
 | Deploy an authorized change | Inspect the configured environment and deployment status | [Deployment](docs/agent-guide.md#runtime-command-choice) |
 | Validate app work | Select app-owned profiles and the acceptance scenario | [Application validation](docs/agent-guide.md#application-validation-and-completion) |
+| Coordinate feature worktrees or land a checkpoint | `scenery feature list -o json`; inspect the repository policy and exact candidate | [Local feature integration](docs/feature-workflow.md) |
 | Change Scenery itself | Read its root and applicable child instructions | [Repository workflow](docs/agent-guide.md#working-in-the-scenery-repository) |
 
 Documentation paths are relative to the Scenery checkout. Use bundled references
@@ -80,6 +81,15 @@ Before deletion, migration, restore, or retained-state repair, read the
 [owning workflow](docs/agent-guide.md#storage-and-databases) and its linked
 runbook. Preview first; apply only the authorized selector/revision. Keep
 plan approvals and caller identity in trusted execution context.
+
+## Concurrent Features
+
+Use isolated feature branches/worktrees and one primary main owner. Keep focused
+feedback in development; validate the combined candidate at landing. Refresh only
+for dependencies, changed shared contracts or readiness. Review the candidate diff
+and exact revision before an authorized apply; only main is pushed. Consult the
+feature ledger and immutable landing receipts before cleanup. Later edits stay
+outstanding after an earlier checkpoint lands; close never removes data or work.
 
 ## Completion
 
