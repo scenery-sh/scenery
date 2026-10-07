@@ -91,6 +91,11 @@ final commit and verify remote CI. Preserve Plan 0215 and unrelated scratch.
   the declared module graph in a temporary module before the offline probes;
   tracked go.mod/go.sum and fixture network isolation remain unchanged.
 
+- The next CI passed every JS/native lane but exposed two compiler tests that
+  resolved a hard-coded older Go toolchain absent from the hosted runner. Their
+  temporary modules now use the executing test toolchain, matching the existing
+  target-identity test discipline without changing production resolution.
+
 ## Decision Log
 
 - 2026-10-07: Preserve the separate cached, fresh, isolated-confirmation and

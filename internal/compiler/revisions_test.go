@@ -3,6 +3,7 @@ package compiler
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -43,15 +44,16 @@ func TestGeneratedAdapterDigestsAreRetainedByContractRevision(t *testing.T) {
 // revision, build inputs and implementation bindings, and nothing of another
 // service.
 func TestServiceProcessImplementationRevisionsAreIndependentAcrossServices(t *testing.T) {
+	version := strings.TrimPrefix(runtime.Version(), "go")
 	root := t.TempDir()
 	for name, contents := range map[string]string{
-		"go.mod": "module example.test/estate\n\ngo 1.26.3\n",
+		"go.mod": "module example.test/estate\n\ngo " + version + "\n",
 		appFilename: `application "estate" {}
 go_module "application" {
   root = "."
   import_path = "example.test/estate"
 }
-go_toolchain "application" { version = "1.26.3" }
+go_toolchain "application" { version = "` + version + `" }
 go_target "development" {
   role = "development"
   platform = "host"
