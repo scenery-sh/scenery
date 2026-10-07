@@ -12,6 +12,23 @@ import (
 	localagent "scenery.sh/internal/agent"
 )
 
+// CLI telemetry may record read-only commands without allocating runtime or storage state.
+func verifyHarnessStorageProbeNoState(home string) error {
+	entries, err := os.ReadDir(home)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect unallocated agent home: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != "telemetry.jsonl" || !entry.Type().IsRegular() {
+			return fmt.Errorf("unexpected state in unallocated agent home: %s", entry.Name())
+		}
+	}
+	return nil
+}
+
 // This probe owns a disposable repository, linked worktree and agent home.
 // Assertions use the public CLI, never the obsolete shared-cell layout.
 func runHarnessStorageIsolationProbe(ctx context.Context, repoRoot, binary string) (summary map[string]any, err error) {
@@ -48,7 +65,7 @@ func runHarnessStorageIsolationProbe(ctx context.Context, repoRoot, binary strin
 		}
 		return out, nil
 	}
-	// Unallocated reads must not create the agent home, locks or owner records.
+	// Unallocated reads must not create worktree state, locks or owner records.
 	for _, root := range []string{rootA, rootB} {
 		if _, err := run(root, "inspect", "storage"); err != nil {
 			return summary, err
@@ -57,8 +74,8 @@ func runHarnessStorageIsolationProbe(ctx context.Context, repoRoot, binary strin
 			return summary, err
 		}
 	}
-	if _, err := os.Stat(home); !errors.Is(err, os.ErrNotExist) {
-		return summary, fmt.Errorf("unallocated read created state or failed inspection: %v", err)
+	if err := verifyHarnessStorageProbeNoState(home); err != nil {
+		return summary, fmt.Errorf("unallocated read: %w", err)
 	}
 	summary["unallocated_reads_no_state"] = "passed"
 	input, output := filepath.Join(base, "input"), filepath.Join(base, "output")
@@ -196,8 +213,8 @@ func runHarnessStorageIsolationProbe(ctx context.Context, repoRoot, binary strin
 			return summary, fmt.Errorf("read-only snapshot probe: %w: %s", err, firstNonEmpty(stderr, out))
 		}
 	}
-	if _, err := os.Stat(dryHome); !errors.Is(err, os.ErrNotExist) {
-		return summary, fmt.Errorf("snapshot verify/dry-run created target state: %v", err)
+	if err := verifyHarnessStorageProbeNoState(dryHome); err != nil {
+		return summary, fmt.Errorf("snapshot verify/dry-run: %w", err)
 	}
 	summary["snapshot_verify_dry_run_no_target_state"] = "passed"
 	loaded, err := run(rootA, "snapshot", "load", "--storage", "--input", archive, "--mode", "overwrite", "--yes")
