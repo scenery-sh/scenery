@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
+
+	"scenery.sh/internal/machine"
 )
 
 // cliLineLimit bounds one CLI telemetry line; longer lines are no record.
@@ -22,17 +25,48 @@ const burstHourlyFailures = 60
 // Failures, Unattributed, Unversioned and Apps count every record; Commands
 // count command completions and Startup the scenery up startup measurements.
 type CLIReport struct {
-	Records      int `json:"records"`
-	Failures     int `json:"failures"`
-	Unattributed int `json:"unattributed"`
+	Purposes              []Count     `json:"purposes"`
+	Cohorts               []CLICohort `json:"cohorts"`
+	Producers             []Count     `json:"producers"`
+	Diagnostics           []Count     `json:"diagnostics"`
+	IdentifiedInvocations int         `json:"identified_invocations"`
+	Records               int         `json:"records"`
+	Failures              int         `json:"failures"`
+	Unattributed          int         `json:"unattributed"`
 	// Unversioned counts records whose producer reported no release version
-	// ("dev"), which cannot be tied to a producer commit.
+	// ("dev") and no producer commit.
 	Unversioned int             `json:"unversioned"`
 	Startup     Timing          `json:"startup"`
 	Commands    []CommandTiming `json:"commands"`
 	Apps        []AppTiming     `json:"apps"`
 	Bursts      []FailureBurst  `json:"failure_bursts"`
 	invalid     int
+	files       []CLIFileCoverage
+}
+
+// CLICohort keeps app, execution purpose and producer independent. Unknown
+// purpose/dirty state in historical records is never inferred from a dev build.
+type CLICohort struct {
+	AppID       string `json:"app_id"`
+	AppName     string `json:"app_name"`
+	Purpose     string `json:"purpose"`
+	Producer    string `json:"producer"`
+	Dirty       string `json:"dirty"`
+	Command     string `json:"command"`
+	Measurement string `json:"measurement"`
+	Timing
+}
+
+type CLIFileCoverage struct {
+	Path       string `json:"path"`
+	Archived   bool   `json:"archived"`
+	Status     string `json:"status"`
+	Records    int    `json:"records"`
+	InWindow   int    `json:"in_window"`
+	Duplicates int    `json:"duplicates"`
+	Invalid    int    `json:"invalid"`
+	First      string `json:"first,omitempty"`
+	Last       string `json:"last,omitempty"`
 }
 
 type CommandTiming struct {
@@ -59,31 +93,39 @@ type FailureBurst struct {
 }
 
 type cliRecord struct {
-	At          time.Time `json:"at"`
-	Command     string    `json:"command"`
-	DurationMS  int64     `json:"duration_ms"`
-	ExitCode    int       `json:"exit_code"`
-	Version     string    `json:"version"`
-	Measurement string    `json:"measurement"`
-	App         *struct {
+	InvocationID   string            `json:"invocation_id"`
+	Producer       *machine.Producer `json:"producer"`
+	DiagnosticCode string            `json:"diagnostic_code"`
+	Purpose        string            `json:"purpose"`
+	Dirty          *bool             `json:"dirty"`
+	At             time.Time         `json:"at"`
+	Command        string            `json:"command"`
+	DurationMS     int64             `json:"duration_ms"`
+	ExitCode       int               `json:"exit_code"`
+	Version        string            `json:"version"`
+	Measurement    string            `json:"measurement"`
+	App            *struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"app"`
 }
 
 func readCLI(opts Options) (CLIReport, error) {
-	report := CLIReport{Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}}
+	report := CLIReport{Purposes: []Count{}, Cohorts: []CLICohort{}, Producers: []Count{}, Diagnostics: []Count{}, Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}, files: []CLIFileCoverage{}}
 	if opts.CLITelemetryPath == "" {
 		return report, nil
 	}
-	file, err := os.Open(opts.CLITelemetryPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return report, nil
-	}
+	archives, err := filepath.Glob(filepath.Join(filepath.Dir(opts.CLITelemetryPath), "telemetry-archive", "*", "telemetry.jsonl"))
 	if err != nil {
-		return CLIReport{}, fmt.Errorf("read CLI telemetry: %w", err)
+		return CLIReport{}, fmt.Errorf("list CLI telemetry archives: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	// Active evidence wins an identified overlap. Legacy lines lack a reliable
+	// invocation key and remain separate records, even when their bytes match.
+	paths := append([]string{opts.CLITelemetryPath}, archives...)
+	identified := map[string]bool{}
+	cohorts := map[CLICohort]*timingAccumulator{}
+	purposes := map[string]int{}
+	producers, diagnostics := map[string]int{}, map[string]int{}
 	commands := map[string]*timingAccumulator{}
 	apps := map[string]*timingAccumulator{}
 	appNames := map[string]string{}
@@ -99,58 +141,141 @@ func readCLI(opts Options) (CLIReport, error) {
 		first, last time.Time
 	}
 	hours := map[hourKey]*hourStats{}
-	oversized, err := readLines(file, cliLineLimit, func(raw []byte) {
-		line := bytes.TrimSpace(raw)
-		if len(line) == 0 {
-			return
-		}
-		var record cliRecord
-		if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() {
-			report.invalid++
-			return
-		}
-		if !opts.inWindow(record.At) {
-			return
-		}
-		report.Records++
-		ok := record.ExitCode == 0
-		if !ok {
-			report.Failures++
-			key := hourKey{command: record.Command, hour: record.At.UTC().Format("2006-01-02T15"), exit: record.ExitCode}
-			stats := hours[key]
-			if stats == nil {
-				stats = &hourStats{first: record.At, last: record.At}
-				hours[key] = stats
+	for _, path := range paths {
+		coverage := CLIFileCoverage{Path: filepath.ToSlash(path), Archived: path != opts.CLITelemetryPath, Status: "complete"}
+		file, openErr := os.Open(path)
+		if openErr != nil {
+			coverage.Status = "unreadable"
+			if errors.Is(openErr, os.ErrNotExist) {
+				coverage.Status = "missing"
 			}
-			stats.count++
-			if record.At.Before(stats.first) {
-				stats.first = record.At
+			report.files = append(report.files, coverage)
+			continue
+		}
+		var first, last time.Time
+		oversized, readErr := readLines(file, cliLineLimit, func(raw []byte) {
+			line := bytes.TrimSpace(raw)
+			if len(line) == 0 {
+				return
 			}
-			if record.At.After(stats.last) {
-				stats.last = record.At
+			var record cliRecord
+			if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() {
+				coverage.Invalid++
+				return
 			}
+			coverage.Records++
+			if first.IsZero() || record.At.Before(first) {
+				first = record.At
+			}
+			if record.At.After(last) {
+				last = record.At
+			}
+			if !opts.inWindow(record.At) {
+				return
+			}
+			coverage.InWindow++
+			measurement := "completion"
+			if record.Measurement == "startup" {
+				measurement = "startup"
+			}
+			if record.InvocationID != "" {
+				key := record.InvocationID + "\x00" + measurement
+				if identified[key] {
+					coverage.Duplicates++
+					return
+				}
+				identified[key] = true
+			}
+			report.Records++
+			ok := record.ExitCode == 0
+			if !ok {
+				report.Failures++
+				key := hourKey{command: record.Command, hour: record.At.UTC().Format("2006-01-02T15"), exit: record.ExitCode}
+				stats := hours[key]
+				if stats == nil {
+					stats = &hourStats{first: record.At, last: record.At}
+					hours[key] = stats
+				}
+				stats.count++
+				if record.At.Before(stats.first) {
+					stats.first = record.At
+				}
+				if record.At.After(stats.last) {
+					stats.last = record.At
+				}
+			}
+			producer := record.Version
+			if record.Producer != nil && record.Producer.Commit != "" {
+				producer = record.Producer.Commit
+			}
+			if producer == "" || producer == "dev" {
+				report.Unversioned++
+				producer = "unknown"
+			}
+			producers[producer]++
+			purpose := record.Purpose
+			if purpose != "development" && purpose != "verification" && purpose != "release" {
+				purpose = "unknown"
+			}
+			purposes[purpose]++
+			cohort := CLICohort{Purpose: purpose, Producer: producer, Dirty: "unknown", Command: record.Command, Measurement: measurement}
+			if record.Dirty != nil {
+				cohort.Dirty = "clean"
+				if *record.Dirty {
+					cohort.Dirty = "dirty"
+				}
+			}
+			if record.App != nil {
+				cohort.AppID, cohort.AppName = record.App.ID, record.App.Name
+			}
+			if cohorts[cohort] == nil {
+				cohorts[cohort] = &timingAccumulator{}
+			}
+			cohorts[cohort].add(record.DurationMS, ok)
+			if record.InvocationID != "" {
+				report.IdentifiedInvocations++
+			}
+			if record.DiagnosticCode != "" {
+				diagnostics[record.DiagnosticCode]++
+			}
+			// Every record counts toward its app, or as unattributed; startup
+			// measurements are timed apart from command completions.
+			if record.App == nil || record.App.ID == "" {
+				report.Unattributed++
+			} else {
+				accumulate(apps, record.App.ID, record.DurationMS, ok)
+				appNames[record.App.ID] = record.App.Name
+			}
+			if record.Measurement == "startup" {
+				startup.add(record.DurationMS, ok)
+				return
+			}
+			accumulate(commands, record.Command, record.DurationMS, ok)
+		})
+		_ = file.Close()
+		coverage.Invalid += oversized
+		report.invalid += coverage.Invalid
+		if readErr != nil {
+			coverage.Status = "partial"
 		}
-		if record.Version == "" || record.Version == "dev" {
-			report.Unversioned++
+		if !first.IsZero() {
+			coverage.First, coverage.Last = first.UTC().Format(time.RFC3339Nano), last.UTC().Format(time.RFC3339Nano)
 		}
-		// Every record counts toward its app, or as unattributed; startup
-		// measurements are timed apart from command completions.
-		if record.App == nil || record.App.ID == "" {
-			report.Unattributed++
-		} else {
-			accumulate(apps, record.App.ID, record.DurationMS, ok)
-			appNames[record.App.ID] = record.App.Name
-		}
-		if record.Measurement == "startup" {
-			startup.add(record.DurationMS, ok)
-			return
-		}
-		accumulate(commands, record.Command, record.DurationMS, ok)
-	})
-	report.invalid += oversized
-	if err != nil {
-		return CLIReport{}, fmt.Errorf("read CLI telemetry: %w", err)
+		report.files = append(report.files, coverage)
 	}
+	report.Purposes = sortedCounts(purposes, 0)
+	for cohort, acc := range cohorts {
+		cohort.Timing = acc.timing()
+		report.Cohorts = append(report.Cohorts, cohort)
+	}
+	sort.Slice(report.Cohorts, func(i, j int) bool {
+		a, b := report.Cohorts[i], report.Cohorts[j]
+		if a.Count != b.Count {
+			return a.Count > b.Count
+		}
+		return fmt.Sprintf("%s/%s/%s/%s/%s/%s", a.AppID, a.Purpose, a.Producer, a.Dirty, a.Command, a.Measurement) < fmt.Sprintf("%s/%s/%s/%s/%s/%s", b.AppID, b.Purpose, b.Producer, b.Dirty, b.Command, b.Measurement)
+	})
+	report.Producers, report.Diagnostics = sortedCounts(producers, 0), sortedCounts(diagnostics, 0)
 	report.Startup = startup.timing()
 	for command, acc := range commands {
 		report.Commands = append(report.Commands, CommandTiming{Command: command, Timing: acc.timing()})

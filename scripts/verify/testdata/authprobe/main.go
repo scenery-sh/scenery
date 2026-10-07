@@ -44,6 +44,9 @@ type probe struct {
 	client     *http.Client
 	google     *fakeGoogle
 	assertions []string
+	// refreshCookie is the runtime-scoped refresh cookie name learned from the
+	// first issued cookie.
+	refreshCookie string
 }
 
 type failure struct{ err error }
@@ -210,7 +213,10 @@ func (p *probe) request(method, path string, input any, token, refresh string) (
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	if refresh != "" {
-		request.AddCookie(&http.Cookie{Name: "scenery_refresh", Value: refresh})
+		if p.refreshCookie == "" {
+			panic(failure{errors.New("refresh cookie name unknown before the first issued cookie")})
+		}
+		request.AddCookie(&http.Cookie{Name: p.refreshCookie, Value: refresh})
 	}
 	response := take(p.client.Do(request))
 	encoded := take(io.ReadAll(response.Body))
@@ -228,9 +234,15 @@ func call[T any](p *probe, method, path string, input any, token, refresh string
 	return value, response
 }
 
-func cookie(response *http.Response) string {
+// cookie returns the issued refresh token and records the runtime-scoped
+// cookie name (a local runtime issues scenery_refresh_<host>_<port>).
+func (p *probe) cookie(response *http.Response) string {
 	for _, c := range response.Cookies() {
-		if c.Name == "scenery_refresh" {
+		if strings.HasPrefix(c.Name, "scenery_refresh") {
+			if p.refreshCookie != "" && p.refreshCookie != c.Name {
+				panic(failure{fmt.Errorf("refresh cookie name changed from %q to %q", p.refreshCookie, c.Name)})
+			}
+			p.refreshCookie = c.Name
 			return c.Value
 		}
 	}
@@ -251,12 +263,12 @@ func (p *probe) redirect(response *http.Response, want string) {
 func (p *probe) signin() (auth.AuthSessionResponse, string) {
 	callback, response := p.googleFlow("/")
 	_ = callback
-	return p.refresh(cookie(response))
+	return p.refresh(p.cookie(response))
 }
 
 func (p *probe) refresh(value string) (auth.AuthSessionResponse, string) {
 	result, response := call[auth.AuthSessionResponse](p, http.MethodPost, "/auth/refresh", nil, "", value)
-	return result, cookie(response)
+	return result, p.cookie(response)
 }
 
 func (p *probe) googleFlow(redirect string) (string, *http.Response) {

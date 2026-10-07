@@ -122,6 +122,9 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 		if err := p.prepareGitWorktrees(rootA, rootB); err != nil {
 			return summary, err.Error()
 		}
+		if err := p.prepareCostWorkload(rootA); err != nil {
+			return summary, err.Error()
+		}
 		if err := p.prepareVictoriaBinaries(rootA); err != nil {
 			return summary, err.Error()
 		}

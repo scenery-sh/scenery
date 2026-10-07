@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 
 export class SceneryClientError extends Error {
+  traceId?: string;
   constructor(
     readonly code: string,
     readonly bindingAddress: string,
@@ -22,10 +23,24 @@ export class SceneryClientError extends Error {
     this.name = "SceneryClientError";
   }
 
-  toJSON(): Readonly<{ name: string; code: string; bindingAddress: string; message: string }> {
-    return Object.freeze({ name: this.name, code: this.code, bindingAddress: this.bindingAddress, message: this.message });
+  toJSON(): Readonly<{ name: string; code: string; bindingAddress: string; message: string; traceId?: string }> {
+    return Object.freeze({ name: this.name, code: this.code, bindingAddress: this.bindingAddress, message: this.message, ...(this.traceId ? { traceId: this.traceId } : {}) });
   }
 }
+
+/** Framework request lifecycle. It contains identities and timings, never bodies or credentials. */
+export interface ClientTraceEvent {
+  readonly callId: string;
+  readonly bindingAddress: string;
+  readonly phase: "start" | "attempt" | "response" | "attempt_error" | "complete";
+  readonly elapsedMs: number;
+  readonly attempt: number;
+  readonly traceId?: string;
+  readonly status?: number;
+  readonly outcome?: "success" | "failure" | "error" | "cancelled";
+  readonly errorCode?: string;
+}
+export type ClientTraceObserver = (event: ClientTraceEvent) => void;
 
 export interface CallOptions {
   readonly signal?: AbortSignal;
@@ -94,8 +109,9 @@ export interface ConstraintDescriptor {
 export type TypeRegistry = Readonly<Record<string, TypeDescriptor>>;
 
 export interface InvokeTransport {
+  readonly onTrace?: ClientTraceObserver;
   readonly baseUrl: string;
-  readonly fetch: typeof globalThis.fetch;
+  readonly fetch: (...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>;
   readonly headers: Readonly<Record<string, string>>;
   readonly authentication?: AuthenticationOptions;
 
@@ -225,14 +241,26 @@ export function relativePath(value: string): RelativePathString {
 
 export function parseExactJSON(source: string): JsonValue {
   let offset = 0;
+  const stringSpecial = /["\\\u0000-\u001f\ud800-\udfff]/g;
+  const numberToken = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
   const whitespace = () => {
-    while (offset < source.length && /[\t\n\r ]/.test(source[offset] ?? "")) offset++;
+    while (offset < source.length) {
+      const code = source.charCodeAt(offset);
+      if (code !== 32 && code !== 9 && code !== 10 && code !== 13) break;
+      offset++;
+    }
   };
   const fail = (message: string): never => {
     throw new SceneryClientError("contract_violation", "", message);
   };
   const parseString = (): string => {
     const start = offset;
+    stringSpecial.lastIndex = start + 1;
+    const special = stringSpecial.exec(source);
+    if (special !== null && special[0] === '"') {
+      offset = special.index + 1;
+      return source.slice(start + 1, special.index);
+    }
     offset++;
     let escaped = false;
     while (offset < source.length) {
@@ -307,13 +335,20 @@ export function parseExactJSON(source: string): JsonValue {
         offset++;
       }
     }
-    for (const [token, value] of [["true", true], ["false", false], ["null", null]] as const) {
-      if (source.startsWith(token, offset)) {
-        offset += token.length;
-        return value;
-      }
+    if (character === "t" && source.startsWith("true", offset)) {
+      offset += 4;
+      return true;
     }
-    const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(source.slice(offset));
+    if (character === "f" && source.startsWith("false", offset)) {
+      offset += 5;
+      return false;
+    }
+    if (character === "n" && source.startsWith("null", offset)) {
+      offset += 4;
+      return null;
+    }
+    numberToken.lastIndex = offset;
+    const match = numberToken.exec(source);
     if (match === null) return fail("invalid JSON value");
     offset += match[0].length;
     return jsonNumberFromToken(match[0]);
@@ -850,6 +885,25 @@ function validateStringFormat(value: string, format: string, path: string): void
   encodePrimitive(value, primitive, path);
 }
 
+// A lookup remains valid only while the descriptor, array and fields are immutable.
+const recordFieldLookups = new WeakMap<TypeDescriptor, ReadonlyMap<string, FieldDescriptor>>();
+
+function recordFieldsByWire(descriptor: Extract<TypeDescriptor, { readonly kind: "record" }>): ReadonlyMap<string, FieldDescriptor> {
+  const cached = recordFieldLookups.get(descriptor);
+  if (cached !== undefined) return cached;
+  const fields = descriptor.fields;
+  const lookup = new Map(fields.map((field) => [field.wire, field] as const));
+  // Frozen accessors can still change; cache only dense, plain data arrays/keys.
+  if (Object.isFrozen(descriptor) && Object.getOwnPropertyDescriptor(descriptor, "fields")?.value === fields
+      && Object.isFrozen(fields) && Object.getPrototypeOf(fields) === Array.prototype
+      && Reflect.ownKeys(fields).length === fields.length + 1
+      && fields.every((field, index) => Object.getOwnPropertyDescriptor(fields, index)?.value === field
+        && Object.isFrozen(field) && typeof Object.getOwnPropertyDescriptor(field, "wire")?.value === "string")) {
+    recordFieldLookups.set(descriptor, lookup);
+  }
+  return lookup;
+}
+
 function decodeTypedValue(
   value: unknown,
   descriptor: TypeDescriptor,
@@ -860,9 +914,12 @@ function decodeTypedValue(
   if (descriptor.kind === "named") {
     const resolved = registry[descriptor.name];
     if (resolved === undefined || resolving.has(descriptor.name)) invalid(path, "invalid named type descriptor");
-    const next = new Set(resolving);
-    next.add(descriptor.name);
-    return decodeTypedValue(value, resolved, registry, path, next);
+    resolving.add(descriptor.name);
+    try {
+      return decodeTypedValue(value, resolved, registry, path, resolving);
+    } finally {
+      resolving.delete(descriptor.name);
+    }
   }
   if (descriptor.kind === "optional") return decodeTypedValue(value, descriptor.value, registry, path, resolving);
   if (descriptor.kind === "nullable") return value === null ? null : decodeTypedValue(value, descriptor.value, registry, path, resolving);
@@ -907,7 +964,7 @@ function decodeTypedValue(
     return Object.freeze({ kind: tag, value: decodeTypedValue(Object.freeze(payload), variant, registry, `${path}.value`, resolving) });
   }
   if (!isObject(value) || Array.isArray(value)) invalid(path, "expected a record");
-  const byWire = new Map(descriptor.fields.map((field) => [field.wire, field] as const));
+  const byWire = recordFieldsByWire(descriptor);
   const decoded = Object.create(null) as Record<string, unknown>;
   const unknown = Object.create(null) as Record<string, JsonValue>;
   for (const [wire, item] of Object.entries(value)) {
@@ -1222,7 +1279,56 @@ function safeCause(cause: unknown): unknown {
   return cause instanceof SceneryClientError ? cause : undefined;
 }
 
+let clientCallSequence = 0;
+
+// The shared invocation path instruments every generated method and each fetch
+// attempt. A failing observer cannot turn a successful application call into an error.
 export async function invoke(
+  transport: InvokeTransport,
+  binding: BindingCall,
+  input: unknown,
+  options: CallOptions,
+  registry: TypeRegistry,
+): Promise<unknown> {
+  const started = performance.now();
+  const callId = String(++clientCallSequence);
+  let attempt = 0;
+  let traceId: string | undefined;
+  const emit = (phase: ClientTraceEvent["phase"], extra: Partial<ClientTraceEvent> = {}): void => {
+    try {
+      const observation: unknown = transport.onTrace?.(Object.freeze({ callId, bindingAddress: binding.address, phase, elapsedMs: Math.max(0, performance.now() - started), attempt, ...(traceId ? { traceId } : {}), ...extra }));
+      if (observation !== undefined) void Promise.resolve(observation).catch(() => {});
+    } catch { /* Observation never changes the request outcome. */ }
+  };
+  emit("start");
+  const fetch: InvokeTransport["fetch"] = async (url, init) => {
+    attempt++;
+    traceId = undefined;
+    emit("attempt");
+    try {
+      const response = await transport.fetch(url, init);
+      const received = response.headers.get("x-trace-id");
+      if (received && /^[0-9a-f]{32}$/.test(received) && !/^0+$/.test(received)) traceId = received;
+      emit("response", { status: response.status });
+      return response;
+    } catch (cause) {
+      emit("attempt_error", { errorCode: options.signal?.aborted ? "cancelled" : "network" });
+      throw cause;
+    }
+  };
+  try {
+    const result = await invokeRequest({ ...transport, fetch }, binding, input, options, registry);
+    const kind = typeof result === "object" && result !== null && "kind" in result ? result.kind : undefined;
+    emit("complete", { outcome: kind === "failure" || kind === "error" ? "failure" : "success" });
+    return result;
+  } catch (cause) {
+    if (cause instanceof SceneryClientError && traceId) cause.traceId = traceId;
+    emit("complete", { outcome: options.signal?.aborted ? "cancelled" : "error", errorCode: cause instanceof SceneryClientError ? cause.code : "unknown" });
+    throw cause;
+  }
+}
+
+async function invokeRequest(
   transport: InvokeTransport,
   binding: BindingCall,
   input: unknown,

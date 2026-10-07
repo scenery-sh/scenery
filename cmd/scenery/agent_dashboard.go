@@ -33,6 +33,30 @@ type agentDashboardController struct {
 	victoriaMu        sync.Mutex
 	victoria          *victoria.Stack
 	victoriaSubstrate string
+	servingMu         sync.RWMutex
+	servingSupervisor *devSupervisor
+}
+
+// The worktree control listener outlives its app supervisor. Only the supervisor
+// acquired for this listener may attest source freshness for its current session.
+func (r *agentDashboardRuntime) bindServingSupervisor(supervisor *devSupervisor) {
+	c, ok := r.server.controller.(*agentDashboardController)
+	if !ok {
+		return
+	}
+	c.servingMu.Lock()
+	c.servingSupervisor = supervisor
+	c.servingMu.Unlock()
+}
+
+func (c *agentDashboardController) servingState(ctx context.Context, status devdash.AppStatus) (*runtimeServingIdentity, string) {
+	c.servingMu.RLock()
+	supervisor := c.servingSupervisor
+	c.servingMu.RUnlock()
+	if supervisor == nil || status.AppRoot != supervisor.root || status.SessionID != supervisor.currentSessionID() {
+		return nil, "unknown"
+	}
+	return supervisor.currentServingState(ctx)
 }
 
 func startAgentDashboard(ctx context.Context, agentServer *localagent.Server, addr string) (*agentDashboardRuntime, error) {

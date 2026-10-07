@@ -2,13 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
+	"scenery.sh/internal/repoinfo"
 	"strings"
 )
 
@@ -23,54 +20,7 @@ func harnessInputRevision(ctx context.Context, root string) (string, error) {
 }
 
 func hashHarnessInputs(root string, paths []string) (string, error) {
-	paths = slices.Clone(paths)
-	slices.Sort(paths)
-	paths = slices.Compact(paths)
-	hash := sha256.New()
-	for _, path := range paths {
-		if path == "" {
-			continue
-		}
-		if !filepath.IsLocal(path) {
-			return "", fmt.Errorf("validation input is outside repository: %q", path)
-		}
-		abs := filepath.Join(root, path)
-		info, err := os.Lstat(abs)
-		if os.IsNotExist(err) {
-			_, _ = fmt.Fprintf(hash, "%s\x00missing\x00", path)
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		_, _ = fmt.Fprintf(hash, "%s\x00%s\x00", path, info.Mode())
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(abs)
-			if err != nil {
-				return "", err
-			}
-			_, _ = fmt.Fprintf(hash, "%s\x00", target)
-		case info.Mode().IsRegular():
-			file, err := os.Open(abs)
-			if err != nil {
-				return "", err
-			}
-			content := sha256.New()
-			_, copyErr := io.Copy(content, file)
-			closeErr := file.Close()
-			if copyErr != nil {
-				return "", copyErr
-			}
-			if closeErr != nil {
-				return "", closeErr
-			}
-			_, _ = fmt.Fprintf(hash, "%x\x00", content.Sum(nil))
-		default:
-			return "", fmt.Errorf("unsupported validation input: %s", path)
-		}
-	}
-	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+	return repoinfo.HashInputs(root, paths)
 }
 
 // Publish all run observations together. Later runs only replace navigation
@@ -100,6 +50,7 @@ func publishHarnessRun(root string, resp harnessSelfResponse, contextPack harnes
 		value any
 	}{
 		{"self.json", resp},
+		{"verification.json", resp.Verification},
 		{"summary.json", buildHarnessSelfSummary(resp)},
 		{"agent-context.json", contextPack},
 		{"agent-context-summary.json", buildHarnessAgentContextSummary(resp, contextPack)},

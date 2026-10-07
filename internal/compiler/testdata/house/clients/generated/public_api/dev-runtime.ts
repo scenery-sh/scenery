@@ -7,7 +7,7 @@
 // Deployed origins do not serve it.
 
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
-export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:9f97baaaee9bedbdb6eb131ea1f828934c911d249f34d43925ed41043f4568bb";
+export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:93b6ee76b4ef4b5626531207a014791d0c56bbc38419533fa0bb1e505ffd2d2c";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
@@ -106,6 +106,9 @@ export interface DevRuntimeStatus {
 	readonly compiling: boolean;
 	readonly compile_error?: string;
 	readonly pid?: string;
+	/** Identity of the last published source, with the current serving generation. */
+	readonly serving?: DevRuntimeServingIdentity;
+	readonly source_freshness: "current" | "stale" | "source_missing" | "blocked" | "transaction_pending" | "unknown";
 	readonly routes: Readonly<Record<string, string>>;
 	readonly service_processes: readonly DevRuntimeServiceProcess[];
 	readonly observability?: DevRuntimeObservability;
@@ -117,8 +120,19 @@ export interface DevRuntimeStatus {
 	readonly build_block?: DevRuntimeBuildBlock;
 }
 
+export interface DevRuntimeServingIdentity {
+	readonly generation: number;
+	readonly pid: string;
+	readonly contract_revision: string;
+	readonly implementation_revision: string;
+	readonly build_input_digest: string;
+	readonly framework_source_digest: string;
+	readonly source_snapshot_digest: string;
+	readonly published_at: string;
+}
+
 export interface DevRuntimeBuildBlock {
-	/** framework_mismatch or migration_pending. */
+	/** framework_mismatch, migration_pending, seed_changed or generated_clients_stale. */
 	readonly reason: string;
 	readonly cause: string;
 	readonly since: string;

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/appsdk"
+	"scenery.sh/runtime/shared"
 )
 
 func TestResolveRefreshToken(t *testing.T) {
@@ -153,4 +154,64 @@ func parseSetCookie(t *testing.T, value string) *http.Cookie {
 		t.Fatalf("parsed cookies = %#v, want one from %q", cookies, value)
 	}
 	return cookies[0]
+}
+
+func TestRefreshCookieNameScopesLocalRuntimes(t *testing.T) {
+	oldMeta := appsdk.Metadata()
+	t.Cleanup(func() { appsdk.SetMetadata(*oldMeta) })
+
+	local := func(baseURL string) {
+		appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: baseURL, Environment: shared.Environment{Name: "local", Type: shared.EnvDevelopment, Cloud: shared.CloudLocal}})
+	}
+	local("http://localhost:4976")
+	if got := refreshCookieName(); got != "scenery_refresh_localhost_4976" {
+		t.Fatalf("local refreshCookieName() = %q", got)
+	}
+	local("http://localhost:4920")
+	if got := refreshCookieName(); got != "scenery_refresh_localhost_4920" {
+		t.Fatalf("second local refreshCookieName() = %q", got)
+	}
+	local("http://Clean-Tech.local.dev:4920/api")
+	if got := refreshCookieName(); got != "scenery_refresh_clean_tech_local_dev_4920" {
+		t.Fatalf("named host refreshCookieName() = %q", got)
+	}
+	local("")
+	if got := refreshCookieName(); got != "scenery_refresh" {
+		t.Fatalf("local refreshCookieName() without base URL = %q", got)
+	}
+	appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: "https://api.example.test", Environment: shared.Environment{Name: "production", Type: shared.EnvProduction, Cloud: shared.CloudGCP}})
+	if got := refreshCookieName(); got != "scenery_refresh" {
+		t.Fatalf("deployed refreshCookieName() = %q", got)
+	}
+}
+
+func TestScopedRefreshCookieIsolatesLocalRuntimes(t *testing.T) {
+	oldMeta := appsdk.Metadata()
+	oldSecrets := secrets
+	secrets.AuthCookieDomain = ""
+	secrets.APIBaseURL = ""
+	t.Cleanup(func() {
+		appsdk.SetMetadata(*oldMeta)
+		secrets = oldSecrets
+	})
+	appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: "http://localhost:4976", Environment: shared.Environment{Name: "local", Type: shared.EnvDevelopment, Cloud: shared.CloudLocal}})
+
+	issued := parseSetCookie(t, refreshCookie("token", time.Now().Add(time.Hour)))
+	if issued.Name != "scenery_refresh_localhost_4976" {
+		t.Fatalf("issued cookie name = %q", issued.Name)
+	}
+	cleared := parseSetCookie(t, clearRefreshCookie())
+	if cleared.Name != issued.Name || cleared.MaxAge >= 0 {
+		t.Fatalf("cleared cookie = %q MaxAge=%d, want %q cleared", cleared.Name, cleared.MaxAge, issued.Name)
+	}
+
+	headers := http.Header{}
+	headers.Set("Cookie", "scenery_refresh=other-runtime; scenery_refresh_localhost_4920=sibling; scenery_refresh_localhost_4976=mine")
+	if got := resolveRefreshToken(nil, headers); got != "mine" {
+		t.Fatalf("resolveRefreshToken() = %q, want the runtime's own cookie", got)
+	}
+	headers.Set("Cookie", "scenery_refresh=other-runtime; scenery_refresh_localhost_4920=sibling")
+	if got := resolveRefreshToken(nil, headers); got != "" {
+		t.Fatalf("resolveRefreshToken() = %q, want no token from other runtimes' cookies", got)
+	}
 }

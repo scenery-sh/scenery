@@ -69,6 +69,7 @@ type pruneOptions struct {
 	State      bool
 	All        bool
 	BuildCache bool
+	Preview    bool
 	JSON       bool
 }
 
@@ -84,6 +85,8 @@ type pruneResponse struct {
 	DevSourcesPruned  int64                    `json:"dev_sources_pruned"`
 	Resources         []worktreePrunedResource `json:"resources"`
 	BuildCache        *pruneBuildCacheReport   `json:"build_cache"`
+	Preview           bool                     `json:"preview"`
+	Inventory         []worktreePruneInventory `json:"inventory,omitempty"`
 }
 
 func agentCommand(args []string) error {
@@ -731,6 +734,7 @@ func parsePruneArgs(args []string) (pruneOptions, error) {
 	flags.BoolVar(&opts.State, "state", false, "")
 	flags.BoolVar(&opts.All, "all", false, "")
 	flags.BoolVar(&opts.BuildCache, "build-cache", false, "")
+	flags.BoolVar(&opts.Preview, "preview", false, "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

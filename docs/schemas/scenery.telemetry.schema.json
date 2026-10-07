@@ -20,7 +20,7 @@
       "const": "scenery.telemetry"
     },
     "schema_revision": {
-      "const": "sha256:a2cacb0ae5e884f7d8867e875f21b7c93f3ae6086b80d08ea9cc391387e3cc56"
+      "const": "sha256:1ddc5f4ae40a0f7e185b15992922f86fe7b01c1c7da2be658f9815985f89e0b5"
     },
     "query": {
       "type": "object",
@@ -155,6 +155,49 @@
       "required": ["at", "command", "duration_ms", "exit_code", "version", "mode"],
       "additionalProperties": false,
       "properties": {
+        "invocation_id": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "toolchain"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "built_at": {
+              "type": "string"
+            },
+            "toolchain": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "go_version"
+              ],
+              "properties": {
+                "go_version": {
+                  "type": "string"
+                },
+                "manifest_revision": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "diagnostic_code": {
+          "type": "string",
+          "pattern": "^SCN[0-9]{4}$"
+        },
+        "purpose": {"enum": ["unknown", "development", "verification", "release"]},
+        "dirty": {"type": "boolean"},
         "at": {"type": "string", "format": "date-time"},
         "command": {"type": "string", "minLength": 1},
         "duration_ms": {"type": "integer", "minimum": 0},

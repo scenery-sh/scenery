@@ -7,6 +7,7 @@ var buildInspectDocsAgents = repoinfo.BuildAgents
 type docsKnowledgeDocument = repoinfo.KnowledgeDocument
 type harnessPackageInfo = repoinfo.PackageInfo
 type inspectDocsResponse = repoinfo.Response
+
 var readDocsKnowledgeIndex = repoinfo.ReadKnowledge
 var docsDocumentReviewDue = repoinfo.DocumentReviewDue
 var populateHarnessChangedAreaReport = repoinfo.PopulateChangedArea
@@ -15,6 +16,7 @@ var harnessOnlvImpactingPath = repoinfo.OnlvImpactingPath
 var sortedStringSet = repoinfo.SortedStringSet
 var appendUniqueSorted = repoinfo.AppendUniqueSorted
 var discoverSceneryRepoRoot = repoinfo.DiscoverRoot
+
 const docsIndexKind = repoinfo.IndexKind
 const inspectDocsKind = repoinfo.InspectKind
 

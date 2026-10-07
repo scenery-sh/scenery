@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "react": [
+        "./node_modules/react/index.js"
+      ],
+      "react/*": [
+        "./node_modules/react/*"
+      ],
+      "@astryxdesign/core/*": [
+        "./node_modules/@astryxdesign/core/dist/*/index.js",
+        "./node_modules/@astryxdesign/core/dist/*.js"
+      ],
+      "@stylexjs/stylex": [
+        "./node_modules/@stylexjs/stylex/lib/es/stylex.mjs"
+      ]
+    }
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "$id": "https://scenery.sh/schemas/scenery.telemetry.export.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "files": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "archive_path": {
+            "type": "string"
+          },
+          "bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "missing_reason": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "archive_path",
+          "bytes",
+          "purpose"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "scenery.telemetry.export"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "omitted_runs": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "output": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "root": {
+      "type": "string"
+    },
+    "runs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "schema_revision": {
+      "const": "sha256:de17166e8b0e2320dc9f53d00a0ead35fa9aadb8ef77f905eefaa8667e5359c0"
+    },
+    "spec_revision": {
+      "type": "string"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer",
+    "ok",
+    "generated_at",
+    "root",
+    "output",
+    "runs",
+    "files",
+    "omitted_runs",
+    "unknown"
+  ],
+  "title": "Bounded telemetry and immutable verification evidence export",
+  "type": "object"
+}

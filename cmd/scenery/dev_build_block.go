@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,7 +30,18 @@ const (
 	// running supervisor cannot apply. Changed migration inputs, or down, db
 	// migrate and up, resolve it.
 	buildBlockMigrationPending = "migration_pending"
+	buildBlockSeedChanged      = "seed_changed"
+	buildBlockGeneratedClients = "generated_clients_stale"
 )
+
+// Applied seeds are immutable; unrelated edits cannot repair their ledger.
+type changedAppliedSeedError struct{ Path string }
+
+func (e *changedAppliedSeedError) Error() string {
+	return fmt.Sprintf("seed %s changed after it was applied; restore the applied seed and put new data changes in a migration", e.Path)
+}
+
+func (*changedAppliedSeedError) ExitCode() int { return 3 }
 
 // devBuildBlock is the state of a supervisor whose builds are blocked. The
 // runtime keeps serving its last good generation while the requested changes
@@ -55,6 +67,14 @@ func deterministicBuildBlock(err error) string {
 	if errors.As(err, &pending) {
 		return buildBlockMigrationPending
 	}
+	var seed *changedAppliedSeedError
+	if errors.As(err, &seed) {
+		return buildBlockSeedChanged
+	}
+	var contract *build.ContractError
+	if errors.As(err, &contract) && contract.Diagnostic.Code == "SCN6204" && strings.Contains(contract.Diagnostic.Message, "generated TypeScript clients are stale") {
+		return buildBlockGeneratedClients
+	}
 	return ""
 }
 
@@ -68,8 +88,22 @@ func buildBlockKey(reason string, snapshot fileSnapshot) string {
 			if slash == "go.mod" || slash == "go.sum" {
 				paths = append(paths, path)
 			}
-		case buildBlockMigrationPending:
+		case buildBlockMigrationPending, buildBlockSeedChanged:
 			if strings.HasSuffix(slash, ".sql") || strings.Contains(slash, "/migrations/") || strings.HasPrefix(slash, "migrations/") || strings.HasPrefix(filepath.Base(slash), ".scenery") {
+				paths = append(paths, path)
+			}
+			if reason == buildBlockSeedChanged && strings.HasSuffix(slash, ".scn") {
+				paths = append(paths, path)
+			}
+		case buildBlockGeneratedClients:
+			if strings.HasSuffix(slash, ".scn") || slash == ".scenery.json" || slash == "go.mod" || slash == "go.sum" {
+				paths = append(paths, path)
+			}
+		}
+	}
+	if reason == buildBlockGeneratedClients {
+		for path := range snapshot.generatedContent {
+			if strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".tsx") || strings.HasSuffix(path, "scenery.typescript-client-generated.json") {
 				paths = append(paths, path)
 			}
 		}
@@ -81,7 +115,11 @@ func buildBlockKey(reason string, snapshot fileSnapshot) string {
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(path))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(snapshot.files[path].hash))
+		stamp, ok := snapshot.files[path]
+		if !ok {
+			stamp = snapshot.generatedContent[path]
+		}
+		_, _ = h.Write([]byte(stamp.hash))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -91,6 +129,7 @@ func buildBlockKey(reason string, snapshot fileSnapshot) string {
 // the status that carries it must be persisted again.
 func (s *devSupervisor) recordBuildOutcome(captured fileSnapshot, err error) bool {
 	s.mu.Lock()
+	previous := s.buildBlock
 	hadBlock := s.buildBlock != nil
 	reason := ""
 	if err != nil {
@@ -105,9 +144,26 @@ func (s *devSupervisor) recordBuildOutcome(captured fileSnapshot, err error) boo
 		s.buildBlock = &devBuildBlock{Reason: reason, Cause: err.Error(), Key: buildBlockKey(reason, captured), Since: time.Now().UTC()}
 	}
 	record := s.publishBuildBlockLocked()
+	current := s.buildBlock
+	changed := previous != current
+	var previousValue, currentValue devBuildBlock
+	if previous != nil {
+		previousValue = *previous
+	}
+	if current != nil {
+		currentValue = *current
+	}
 	blocked := hadBlock || s.buildBlock != nil
 	s.mu.Unlock()
 	record.write()
+	if s.console != nil && changed {
+		if previous != nil {
+			s.console.Event("build.unblocked", map[string]any{"since": previousValue.Since.Format(time.RFC3339Nano), "reason": previousValue.Reason, "cause": previousValue.Cause, "prevented_builds": previousValue.Prevented})
+		}
+		if current != nil {
+			s.console.BuildBlocked(currentValue)
+		}
+	}
 	return blocked
 }
 

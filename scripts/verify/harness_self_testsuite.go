@@ -17,10 +17,6 @@ const harnessTestsuiteCacheProbeName = "fresh test-binary cache probe"
 
 type harnessTestsuiteCacheCheck func(context.Context, string) (map[string]any, []checkDiagnostic, error)
 
-func runHarnessTestsuiteCacheProbeStep(ctx context.Context, repoRoot string) harnessStep {
-	return runHarnessTestsuiteCacheProbeStepWithCheck(ctx, repoRoot, runHarnessTestsuiteCacheProbeCheck)
-}
-
 func runHarnessTestsuiteCacheProbeStepWithCheck(ctx context.Context, repoRoot string, check harnessTestsuiteCacheCheck) harnessStep {
 	started := time.Now()
 	step := harnessStep{
@@ -47,7 +43,7 @@ func runHarnessTestsuiteCacheProbeStepWithCheck(ctx context.Context, repoRoot st
 	return step
 }
 
-func runHarnessTestsuiteCacheProbeCheck(ctx context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
+func runHarnessTestsuiteCacheProbeCheckWithArtifacts(ctx context.Context, _ string, artifacts harnessArtifactContext) (map[string]any, []checkDiagnostic, error) {
 	root, err := os.MkdirTemp("", "scenery-testsuite-cache-probe-*")
 	if err != nil {
 		return nil, nil, err
@@ -64,7 +60,12 @@ func runHarnessTestsuiteCacheProbeCheck(ctx context.Context, _ string) (map[stri
 import (
 	"os"
 	"testing"
+	"time"
 )
+
+func TestParallelRoot(t *testing.T) {
+ t.Run("expensive-parallel-child",func(t *testing.T){t.Parallel();time.Sleep(85*time.Millisecond)})
+}
 
 func TestFreshProbe(t *testing.T) {
 	file, err := os.OpenFile(%q, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -156,13 +157,62 @@ func TestFreshProbe(t *testing.T) {
 	if string(markerData) != "xxxx" {
 		return nil, nil, fmt.Errorf("fresh execution marker = %q, want four executions", markerData)
 	}
+	var compileOutput bytes.Buffer
+	compileOnly, err := testsuite.Run(ctx, testsuite.Options{RepoRoot: repoRoot, CacheDir: cacheDir, RunPattern: "a^", PackageParallelism: 1, BuildParallelism: 1, Output: &compileOutput, Env: env})
+	if err != nil || compileOnly.TestResultCount != 0 {
+		return nil, nil, fmt.Errorf("compile-only selection: %+v %v", compileOnly, err)
+	}
+	markerAfter, _ := os.ReadFile(marker)
+	if string(markerAfter) != "xxxx" {
+		return nil, nil, fmt.Errorf("compile-only invocation executed tests")
+	}
+	var lifecycle bytes.Buffer
+	nativeStarted := time.Now()
+	native, err := testsuite.Run(ctx, testsuite.Options{RepoRoot: repoRoot, CacheDir: cacheDir, RunPattern: "^TestParallelRoot$", PackageParallelism: 1, BuildParallelism: 1, Output: &lifecycle, Env: env})
+	if err != nil {
+		return nil, nil, err
+	}
+	budgets := harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true)
+	report := parseHarnessGoTestTimingWithBudgets(lifecycle.Bytes(), []string{"native-test2json"}, time.Since(nativeStarted), budgets)
+	report.Discovery.ExpectedPackages = &native.PackageCount
+	report.Discovery.ExpectedRoots = &native.SelectedTestRoots
+	qualifyTimingDiscovery(report)
+	if !report.Discovery.Complete || len(report.ObservedSlowTests) != 1 || report.ObservedSlowTests[0].Name != "TestParallelRoot" || !strings.Contains(lifecycle.String(), `"Action":"pause"`) || !strings.Contains(lifecycle.String(), `"Action":"cont"`) {
+		return nil, nil, fmt.Errorf("parallel-child lifecycle failed discovery/candidate bridge: %+v", report)
+	}
+	raw, writeErr := artifacts.Write("parallel-parent native lifecycle", "parallel-parent.jsonl", "", lifecycle.Bytes())
+	if writeErr != nil {
+		return nil, nil, writeErr
+	}
+	sampleRefs := []harnessEvidenceArtifact{}
+	sampleIndex := 0
+	confirmHarnessTimingOutliers(ctx, repoRoot, report, func(ctx context.Context, root string, command []string) ([]byte, error) {
+		output, err := runHarnessTimingConfirmationCommand(ctx, root, command)
+		if len(output) > 0 {
+			sampleIndex++
+			ref, issue := artifacts.Write("parallel-parent confirmation", fmt.Sprintf("parallel-parent-confirmation-%02d.log", sampleIndex), "", output)
+			if issue != nil {
+				return output, issue
+			}
+			sampleRefs = append(sampleRefs, ref)
+		}
+		return output, err
+	})
+	if len(report.ObservedSlowTests) != 1 || len(report.ObservedSlowTests[0].IsolatedSamples) != budgets.ConfirmationRuns || hasErrorDiagnostics(report.Diagnostics) {
+		return nil, nil, fmt.Errorf("parallel-child candidate did not receive %d confirmations: %+v", budgets.ConfirmationRuns, report)
+	}
 	return map[string]any{
-		"proof":                 "real_go_test_binary_cache_and_git_workspace_fingerprint_verified",
-		"cold_built_binaries":   first.BuiltCount,
-		"warm_built_binaries":   second.BuiltCount,
-		"fresh_execution_count": len(markerData),
-		"dirty_rebuilt":         !dirty.ManifestHit,
-		"commit_preserved_hit":  committed.ManifestHit,
+		"proof":                           "real_go_test_binary_cache_and_git_workspace_fingerprint_verified",
+		"cold_built_binaries":             first.BuiltCount,
+		"warm_built_binaries":             second.BuiltCount,
+		"fresh_execution_count":           len(markerData),
+		"dirty_rebuilt":                   !dirty.ManifestHit,
+		"commit_preserved_hit":            committed.ManifestHit,
+		"compile_only_executed":           compileOnly.TestResultCount,
+		"parallel_lifecycle_artifact":     raw,
+		"parallel_confirmation_artifacts": sampleRefs,
+		"parallel_parent":                 report.ObservedSlowTests[0],
+		"lifecycle_discovery":             report.Discovery,
 	}, nil, nil
 }
 

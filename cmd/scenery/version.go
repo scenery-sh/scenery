@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strings"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/machine"
@@ -127,6 +128,20 @@ func cliProducer() machine.Producer {
 		producer.Toolchain.ManifestRevision = "sha256:" + resp.Toolchain.SHA256
 	}
 	return producer
+}
+
+func cliBuildDirty() bool {
+	if strings.HasSuffix(sceneryVersion, "+dirty") {
+		return true
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.modified" {
+				return setting.Value == "true"
+			}
+		}
+	}
+	return false
 }
 
 func writeVersionJSON(w io.Writer, resp versionResponse) error {

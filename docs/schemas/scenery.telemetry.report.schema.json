@@ -18,7 +18,7 @@
       "const": "scenery.telemetry.report"
     },
     "schema_revision": {
-      "const": "sha256:4aa1bae5982c0089a8fdb82e3e3029d1b213a562f84a28ef27b8d15d782defd3"
+      "const": "sha256:ac55c3e57674c46a972b84b2014e0211facc68c3bacf66b580b14f457dbee84d"
     },
     "window": {
       "type": "object",
@@ -48,7 +48,12 @@
         "supervisor_invalid_records",
         "agent_transcripts",
         "claude_sessions",
-        "codex_sessions"
+        "codex_sessions",
+        "live_state_checked",
+        "live_state_unavailable",
+        "supervisor_rotated_sessions",
+        "cli_files",
+        "supervisor_files"
       ],
       "additionalProperties": false,
       "properties": {
@@ -89,6 +94,79 @@
         },
         "transcripts": {
           "$ref": "#/$defs/transcriptSources"
+        },
+        "live_state_checked": {
+          "type": "boolean"
+        },
+        "live_state_unavailable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supervisor_rotated_sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cli_files": {
+          "items": {
+            "$ref": "#/$defs/cliFileCoverage"
+          },
+          "type": "array"
+        },
+        "supervisor_files": {
+          "description": "Logical session log coverage. Open segments are bounded at their observed size; first/last are retained event cutoffs, not proof of continuous coverage.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "first": {
+                "type": "string"
+              },
+              "in_window": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "invalid": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "last": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "records": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "segments": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "snapshot_bytes": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "unreadable",
+                  "missing"
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "status",
+              "snapshot_bytes",
+              "segments",
+              "records",
+              "in_window",
+              "invalid"
+            ],
+            "type": "object"
+          },
+          "type": "array"
         }
       }
     },
@@ -108,7 +186,12 @@
         "startup",
         "commands",
         "apps",
-        "failure_bursts"
+        "failure_bursts",
+        "producers",
+        "diagnostics",
+        "identified_invocations",
+        "purposes",
+        "cohorts"
       ],
       "additionalProperties": false,
       "properties": {
@@ -148,6 +231,34 @@
           "items": {
             "$ref": "#/$defs/failureBurst"
           }
+        },
+        "producers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/count"
+          }
+        },
+        "identified_invocations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cohorts": {
+          "items": {
+            "$ref": "#/$defs/cliCohort"
+          },
+          "type": "array"
+        },
+        "purposes": {
+          "items": {
+            "$ref": "#/$defs/count"
+          },
+          "type": "array"
         }
       }
     },
@@ -161,7 +272,23 @@
         "rebuild_steps",
         "failure_causes",
         "unmatched_errors",
-        "failure_streaks"
+        "failure_streaks",
+        "blocks",
+        "active_blocks",
+        "prevented_builds",
+        "superseded",
+        "observed_change_to_first_response",
+        "initial_failure_causes",
+        "rebuild_failure_causes",
+        "unstarted_error_causes",
+        "transaction_waits",
+        "deferred_candidates",
+        "first_header_observations",
+        "first_header_observation_count",
+        "startup_phases",
+        "phase_boundary",
+        "observability_states",
+        "cache_work"
       ],
       "additionalProperties": false,
       "properties": {
@@ -202,6 +329,145 @@
           "items": {
             "$ref": "#/$defs/failureStreak"
           }
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildBlock"
+          }
+        },
+        "active_blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/buildBlock"
+          }
+        },
+        "prevented_builds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "superseded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_change_to_first_response": {
+          "$ref": "#/$defs/timing"
+        },
+        "cache_work": {
+          "items": {
+            "required": [
+              "layer",
+              "edit_class",
+              "cache",
+              "reason",
+              "samples",
+              "accumulated_ms",
+              "boundary"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "deferred_candidates": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_header_observation_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_header_observations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "app_root": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string"
+              },
+              "build_input_digest": {
+                "type": "string"
+              },
+              "duration_ms": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "generation": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "implementation_revision": {
+                "type": "string"
+              },
+              "initial": {
+                "type": "boolean"
+              },
+              "observed_at": {
+                "type": "string"
+              },
+              "operation_id": {
+                "type": "string"
+              },
+              "status": {
+                "maximum": 499,
+                "minimum": 200,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "app_root",
+              "operation_id",
+              "observed_at",
+              "initial",
+              "at",
+              "generation",
+              "implementation_revision",
+              "build_input_digest",
+              "status",
+              "duration_ms"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "initial_failure_causes": {
+          "items": {
+            "$ref": "#/$defs/count"
+          },
+          "type": "array"
+        },
+        "observability_states": {
+          "items": {
+            "$ref": "#/$defs/count"
+          },
+          "type": "array"
+        },
+        "phase_boundary": {
+          "type": "string"
+        },
+        "rebuild_failure_causes": {
+          "items": {
+            "$ref": "#/$defs/count"
+          },
+          "type": "array"
+        },
+        "startup_phases": {
+          "items": {
+            "$ref": "#/$defs/stepTiming"
+          },
+          "type": "array"
+        },
+        "transaction_waits": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unstarted_error_causes": {
+          "items": {
+            "$ref": "#/$defs/count"
+          },
+          "type": "array"
         }
       }
     },
@@ -299,7 +565,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -323,6 +590,10 @@
             "integer",
             "null"
           ],
+          "minimum": 0
+        },
+        "percentile_sample_count": {
+          "type": "integer",
           "minimum": 0
         }
       }
@@ -378,7 +649,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -407,6 +679,10 @@
         "command": {
           "type": "string",
           "minLength": 1
+        },
+        "percentile_sample_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -418,7 +694,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -450,6 +727,10 @@
         },
         "name": {
           "type": "string"
+        },
+        "percentile_sample_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -460,7 +741,8 @@
         "count",
         "failure_count",
         "p50_ms",
-        "p95_ms"
+        "p95_ms",
+        "percentile_sample_count"
       ],
       "additionalProperties": false,
       "properties": {
@@ -489,6 +771,10 @@
         "step": {
           "type": "string",
           "minLength": 1
+        },
+        "percentile_sample_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -679,6 +965,179 @@
           "minimum": 0
         }
       }
+    },
+    "buildBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app_root",
+        "reason",
+        "cause",
+        "since",
+        "last_seen",
+        "duration_ms",
+        "prevented_builds"
+      ],
+      "properties": {
+        "app_root": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "cause": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "last_seen": {
+          "type": "string"
+        },
+        "ended_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "prevented_builds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "cliCohort": {
+      "additionalProperties": false,
+      "properties": {
+        "app_id": {
+          "type": "string"
+        },
+        "app_name": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dirty": {
+          "enum": [
+            "unknown",
+            "clean",
+            "dirty"
+          ]
+        },
+        "failure_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "measurement": {
+          "enum": [
+            "completion",
+            "startup"
+          ]
+        },
+        "p50_ms": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "p95_ms": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "percentile_sample_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "purpose": {
+          "enum": [
+            "unknown",
+            "development",
+            "verification",
+            "release"
+          ]
+        }
+      },
+      "required": [
+        "count",
+        "failure_count",
+        "p50_ms",
+        "p95_ms",
+        "percentile_sample_count",
+        "app_id",
+        "app_name",
+        "purpose",
+        "producer",
+        "dirty",
+        "command",
+        "measurement"
+      ],
+      "type": "object"
+    },
+    "cliFileCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "archived": {
+          "type": "boolean"
+        },
+        "duplicates": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "in_window": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "invalid": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "records": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "unreadable",
+            "missing"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "status",
+        "archived",
+        "records",
+        "in_window",
+        "duplicates",
+        "invalid"
+      ],
+      "type": "object"
     }
   }
 }

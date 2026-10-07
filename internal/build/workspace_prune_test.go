@@ -137,6 +137,18 @@ func TestPruneWorkspacesRemovesOrphanedAndStaleWorkspacesOnly(t *testing.T) {
 	writeBuildTestFile(t, cacheRoot, "build/retained-go-compiler/v1/unrelated/state", "x")
 
 	cutoff := now.Add(-24 * time.Hour)
+	_, preview, err := PruneWorkspaces(context.Background(), WorkspacePruneOptions{Cutoff: cutoff, ProtectedAppRoots: []string{protectedRoot}, Preview: true})
+	if err != nil || len(preview) != 5 {
+		t.Fatalf("preview = %+v, %v", preview, err)
+	}
+	for _, entry := range preview {
+		if entry.Removed {
+			t.Fatalf("preview claimed removal: %+v", entry)
+		}
+		if _, err := os.Stat(entry.Path); err != nil {
+			t.Fatalf("preview changed %s: %v", entry.Path, err)
+		}
+	}
 	reported, entries, err := PruneWorkspaces(context.Background(), WorkspacePruneOptions{Cutoff: cutoff, ProtectedAppRoots: []string{protectedRoot}})
 	if err != nil {
 		t.Fatal(err)

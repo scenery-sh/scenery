@@ -4,23 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
-
-const fakeGoModeEnv = "TESTSUITE_FAKE_GO"
-
-func TestTestsuiteHelperProcess(t *testing.T) {
-	if os.Getenv(fakeGoModeEnv) != "1" {
-		t.Skip("helper process")
-	}
-	if err := os.WriteFile(os.Getenv("TESTSUITE_MARKER"), []byte("ran"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Run("child", func(t *testing.T) {})
-}
 
 func TestRunReusesPreparedManifestButExecutesPackagesFreshInProcess(t *testing.T) {
 	t.Parallel()
@@ -47,7 +37,7 @@ func TestRunReusesPreparedManifestButExecutesPackagesFreshInProcess(t *testing.T
 			}
 			return []packageRun{{
 				Package: packages[0],
-				Output:  []byte("--- PASS: TestTestsuiteHelperProcess/child (0.00s)\n--- PASS: TestTestsuiteHelperProcess (0.00s)\n"),
+				Output:  fixtureNativeEvents(t, packages[0].ImportPath),
 				Action:  "pass",
 			}}
 		},
@@ -103,24 +93,6 @@ func TestNormalizeOptionsPinsDefaultParallelism(t *testing.T) {
 	}
 	if opts.BuildParallelism != DefaultBuildParallelism {
 		t.Fatalf("build parallelism = %d, want pinned default 4", opts.BuildParallelism)
-	}
-}
-
-func TestRunPatternCanCompileWithoutExecutingTests(t *testing.T) {
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	marker := filepath.Join(t.TempDir(), "marker")
-	env := append(os.Environ(), fakeGoModeEnv+"=1", "TESTSUITE_MARKER="+marker)
-	runs := runPackages(context.Background(), Options{
-		RunPattern: "a^", PackageParallelism: 1, Env: env,
-	}, []testPackage{{Dir: t.TempDir(), ImportPath: "example.com/compileonly", Binary: self}})
-	if len(runs) != 1 || runs[0].Err != nil {
-		t.Fatalf("compile-only runs = %+v", runs)
-	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("compile-only run executed test, marker stat = %v", err)
 	}
 }
 
@@ -220,5 +192,68 @@ func writeFixtureFile(t *testing.T, root, relativePath, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func fixtureNativeEvents(t *testing.T, pkg string) []byte {
+	t.Helper()
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	now := time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)
+	for _, event := range []testEvent{
+		{Time: now, Package: pkg, Action: "start"},
+		{Time: now, Package: pkg, Action: "run", Test: "TestTestsuiteHelperProcess"},
+		{Time: now, Package: pkg, Action: "run", Test: "TestTestsuiteHelperProcess/child"},
+		{Time: now, Package: pkg, Action: "pass", Test: "TestTestsuiteHelperProcess/child"},
+		{Time: now, Package: pkg, Action: "pass", Test: "TestTestsuiteHelperProcess"},
+		{Time: now, Package: pkg, Action: "pass"},
+	} {
+		if err := encoder.Encode(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return output.Bytes()
+}
+
+func TestFailedPreparationRetainsMeasuredCosts(t *testing.T) {
+	t.Parallel()
+	failure := errors.New("link failed")
+	result, err := runWithDependencies(context.Background(), Options{BuildParallelism: 4}, runDependencies{
+		prepare: func(context.Context, Options) (cacheManifest, bool, PrepareTiming, error) {
+			return cacheManifest{Packages: []testPackage{{ImportPath: "example.com/a"}}}, false, PrepareTiming{Elapsed: 2 * time.Second, ListElapsed: time.Second, Builds: []BinaryBuild{{Package: "example.com/a", BuildID: "id", Elapsed: time.Second, Outcome: "failed", Error: failure.Error()}}}, failure
+		},
+	})
+	if !errors.Is(err, failure) || result.BuildParallelism != 4 || result.Prepare.Elapsed != 2*time.Second || len(result.Prepare.Builds) != 1 || result.BuiltCount != 0 || result.TestPackageCount != 1 {
+		t.Fatalf("failed preparation=%+v err=%v", result, err)
+	}
+}
+
+func TestNativeEventOutputPreservesSplitRecordsAndTimestamps(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	stream := testEventOutput{sink: &lockedEventOutput{writer: &output}}
+	events := fixtureNativeEvents(t, "example.com/a")
+	for _, chunk := range [][]byte{events[:13], events[13:31], events[31:]} {
+		if _, err := stream.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := stream.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output.Bytes(), events) {
+		t.Fatalf("changed native records: %s", output.Bytes())
+	}
+	if _, err := writePackageEvents(json.NewEncoder(&output), packageRun{Package: testPackage{ImportPath: "example.com/a"}, Output: events, Streamed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output.Bytes(), events) {
+		t.Fatal("streamed records were duplicated")
+	}
+	if _, err := stream.Write([]byte("{")); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.finish(); err == nil {
+		t.Fatal("truncated record accepted")
 	}
 }

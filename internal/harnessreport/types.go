@@ -234,6 +234,8 @@ type ValidationRun struct {
 
 type SelfResponse struct {
 	PayloadIdentity
+	Provenance
+	Verification     *VerificationCoverage   `json:"verification,omitempty"`
 	Run              *ValidationRun          `json:"run,omitempty"`
 	OK               bool                    `json:"ok"`
 	GeneratedAt      string                  `json:"generated_at"`
@@ -287,21 +289,23 @@ type SelfSummaryReports struct {
 
 type SelfSummaryResponse struct {
 	PayloadIdentity
-	Run               *ValidationRun      `json:"run,omitempty"`
-	OK                bool                `json:"ok"`
-	Status            string              `json:"status"`
-	GeneratedAt       string              `json:"generated_at"`
-	Mode              string              `json:"mode"`
-	Repo              SelfSummaryRepo     `json:"repo"`
-	CanProceed        bool                `json:"can_proceed"`
-	ChangedArea       SelfSummaryChanges  `json:"changed_area"`
-	DiagnosticSummary map[string]int      `json:"diagnostic_summary"`
-	Attention         []SelfAttentionItem `json:"attention,omitempty"`
-	Steps             []SelfSummaryStep   `json:"steps"`
-	Reports           SelfSummaryReports  `json:"reports"`
-	Artifacts         []Artifact          `json:"artifacts"`
-	Drilldowns        []string            `json:"drilldowns"`
-	Wrote             string              `json:"wrote,omitempty"`
+	Provenance
+	Verification      *VerificationCoverage `json:"verification,omitempty"`
+	Run               *ValidationRun        `json:"run,omitempty"`
+	OK                bool                  `json:"ok"`
+	Status            string                `json:"status"`
+	GeneratedAt       string                `json:"generated_at"`
+	Mode              string                `json:"mode"`
+	Repo              SelfSummaryRepo       `json:"repo"`
+	CanProceed        bool                  `json:"can_proceed"`
+	ChangedArea       SelfSummaryChanges    `json:"changed_area"`
+	DiagnosticSummary map[string]int        `json:"diagnostic_summary"`
+	Attention         []SelfAttentionItem   `json:"attention,omitempty"`
+	Steps             []SelfSummaryStep     `json:"steps"`
+	Reports           SelfSummaryReports    `json:"reports"`
+	Artifacts         []Artifact            `json:"artifacts"`
+	Drilldowns        []string              `json:"drilldowns"`
+	Wrote             string                `json:"wrote,omitempty"`
 }
 
 type SelfSummaryStep struct {
@@ -351,6 +355,8 @@ type TestBinaryBuild struct {
 	Package string  `json:"package"`
 	BuildID string  `json:"build_id"`
 	Seconds float64 `json:"seconds"`
+	Outcome string  `json:"outcome"`
+	Error   string  `json:"error,omitempty"`
 }
 
 // harnessTestBinaryTiming attributes the fresh lane's pre-execution cost.
@@ -424,18 +430,26 @@ type TestTimingException struct {
 
 type TestTimingReport struct {
 	PayloadIdentity
-	Command                  []string          `json:"command"`
-	Env                      []string          `json:"env,omitempty"`
-	TotalSeconds             float64           `json:"total_seconds"`
-	ConfirmationSeconds      float64           `json:"confirmation_seconds,omitempty"`
-	TestBinaries             *TestBinaryTiming `json:"test_binaries,omitempty"`
-	Packages                 []PackageTiming   `json:"packages"`
-	ObservedSlowTests        []TestTiming      `json:"observed_slow_tests,omitempty"`
-	ObservedIntegrationTests []TestTiming      `json:"observed_integration_tests,omitempty"`
-	SlowTests                []TestTiming      `json:"slow_tests,omitempty"`
-	DeferredConfirmations    []TimingDeferral  `json:"deferred_confirmations,omitempty"`
-	Budgets                  TestTimingBudgets `json:"budgets"`
-	Diagnostics              []Diagnostic      `json:"diagnostics,omitempty"`
+	Provenance
+	RunID                    string             `json:"run_id"`
+	SourceCommit             string             `json:"source_commit"`
+	InputRevision            string             `json:"input_revision"`
+	Context                  MeasurementContext `json:"context"`
+	BaselineRun              string             `json:"baseline_run,omitempty"`
+	BaselineArtifact         string             `json:"baseline_artifact,omitempty"`
+	Discovery                TimingDiscovery    `json:"discovery"`
+	Command                  []string           `json:"command"`
+	Env                      []string           `json:"env,omitempty"`
+	TotalSeconds             float64            `json:"total_seconds"`
+	ConfirmationSeconds      float64            `json:"confirmation_seconds,omitempty"`
+	TestBinaries             *TestBinaryTiming  `json:"test_binaries,omitempty"`
+	Packages                 []PackageTiming    `json:"packages"`
+	ObservedSlowTests        []TestTiming       `json:"observed_slow_tests,omitempty"`
+	ObservedIntegrationTests []TestTiming       `json:"observed_integration_tests,omitempty"`
+	SlowTests                []TestTiming       `json:"slow_tests,omitempty"`
+	DeferredConfirmations    []TimingDeferral   `json:"deferred_confirmations,omitempty"`
+	Budgets                  TestTimingBudgets  `json:"budgets"`
+	Diagnostics              []Diagnostic       `json:"diagnostics,omitempty"`
 }
 
 // harnessTimingDeferral records a candidate the confirmation pass did not
@@ -472,3 +486,21 @@ type ToolchainTool struct {
 
 // intOrFloat preserves compact numeric JSON while keeping the summary structs simple.
 type IntOrFloat float64
+
+// TimingDiscovery distinguishes a complete event stream from a partial
+// candidate set. Replayed packages supply correctness, not fresh body timings.
+type TimingDiscovery struct {
+	Complete         bool     `json:"complete"`
+	ExpectedPackages *int     `json:"expected_packages,omitempty"`
+	ExpectedRoots    *int     `json:"expected_roots,omitempty"`
+	PackageStarts    int      `json:"package_starts"`
+	PackageTerminals int      `json:"package_terminals"`
+	TestStarts       int      `json:"test_starts"`
+	TestTerminals    int      `json:"test_terminals"`
+	RootStarts       int      `json:"root_starts"`
+	RootTerminals    int      `json:"root_terminals"`
+	ReplayedPackages int      `json:"replayed_packages"`
+	NonEventLines    int      `json:"non_event_lines"`
+	ParserErrors     []string `json:"parser_errors"`
+	MissingTerminals []string `json:"missing_terminals"`
+}

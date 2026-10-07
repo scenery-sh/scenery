@@ -19,7 +19,13 @@ func TestCatalogFromCompiledApplication(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		if entry.IsDir() && (entry.Name() == ".scenery" || entry.Name() == "node_modules" || entry.Name() == ".git") {
+			return filepath.SkipDir
+		}
 		relative, _ := filepath.Rel(source, path)
+		if entry.IsDir() && (relative == filepath.Join("clients", "generated") || relative == filepath.Join("house", "scenerycontract") || relative == filepath.Join("internal", "scenerygen")) {
+			return filepath.SkipDir
+		}
 		if entry.IsDir() {
 			return os.MkdirAll(filepath.Join(root, relative), 0o755)
 		}

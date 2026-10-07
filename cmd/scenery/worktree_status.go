@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,7 +14,13 @@ import (
 
 type worktreeStatusEntry struct {
 	localagent.WorktreeDiscovery
-	Sessions []localagent.Session `json:"sessions"`
+	RootStatus      string                   `json:"root_status"`
+	SourceStatus    string                   `json:"source_status"`
+	OwnerStatus     string                   `json:"owner_status"`
+	MetadataStatus  string                   `json:"metadata_status"`
+	SourceFreshness string                   `json:"source_freshness"`
+	Sessions        []localagent.Session     `json:"sessions"`
+	Serving         []runtimeServingIdentity `json:"serving"`
 	// BuildBlocks holds the build block of each running session whose
 	// builds are blocked.
 	BuildBlocks []sessionBuildBlock `json:"build_blocks,omitempty"`
@@ -45,7 +52,7 @@ func runWorktreeStatus(ctx context.Context, stdout io.Writer, args []string) err
 				_, _ = fmt.Fprintf(stdout, "local agent: %s after %d failed start(s) since %s (%s): %s\n", strings.ToUpper(incident.State), incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, incident.Cause)
 			}
 			for _, entry := range entries {
-				_, _ = fmt.Fprintf(stdout, "%s\t%s\n", firstNonEmpty(entry.AppRoot, entry.Key), entry.Status)
+				_, _ = fmt.Fprintf(stdout, "%s\t%s (root=%s source=%s owner=%s metadata=%s freshness=%s)\n", firstNonEmpty(entry.AppRoot, entry.Key), entry.Status, entry.RootStatus, entry.SourceStatus, entry.OwnerStatus, entry.MetadataStatus, entry.SourceFreshness)
 				writeStatusTable(stdout, entry.Sessions, nil)
 				for _, block := range entry.BuildBlocks {
 					_, _ = fmt.Fprintf(stdout, "  %s: builds BLOCKED (%s) since %s, %d build(s) prevented: %s\n", block.SessionID, block.Reason, block.Since.Format(time.RFC3339), block.PreventedBuilds, block.Cause)
@@ -103,8 +110,10 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 	}
 	result := make([]worktreeStatusEntry, 0, len(discovered))
 	for _, item := range discovered {
-		entry := worktreeStatusEntry{WorktreeDiscovery: item, Sessions: []localagent.Session{}}
+		entry := worktreeStatusEntry{WorktreeDiscovery: item, Sessions: []localagent.Session{}, Serving: []runtimeServingIdentity{}, OwnerStatus: "unknown", MetadataStatus: item.Status, SourceFreshness: "unknown"}
+		entry.RootStatus, entry.SourceStatus = worktreeSourceStatus(item.AppRoot)
 		if item.Status == "retained" {
+			entry.MetadataStatus = "compatible"
 			paths, err := commandWorktreePaths(item.AppRoot)
 			if err != nil {
 				return nil, err
@@ -114,6 +123,7 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 				entry.Status = "unavailable"
 			} else if !held {
 				entry.Status = "stopped"
+				entry.OwnerStatus = "stopped"
 				if _, err := os.Stat(item.AppRoot); os.IsNotExist(err) {
 					entry.Status = "orphaned"
 				}
@@ -128,9 +138,18 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 				entry.Status = "running"
 				if err != nil {
 					entry.Status = "unavailable"
+					entry.OwnerStatus = "unavailable"
 				} else {
 					entry.Sessions = markInconsistentStatusSessions(entry.Sessions)
 					for _, session := range entry.Sessions {
+						if sessionOwnerLive(session) {
+							entry.OwnerStatus = "verified_running"
+							status, statusErr := readWorktreeRuntimeStatus(ctx, item.AppRoot, session)
+							if statusErr == nil && status.Serving != nil {
+								entry.Serving = append(entry.Serving, *status.Serving)
+								entry.SourceFreshness = status.SourceFreshness
+							}
+						}
 						if block, ok := liveSessionBuildBlock(session.StateRoot); ok && strings.TrimSpace(session.StateRoot) != "" {
 							entry.BuildBlocks = append(entry.BuildBlocks, block)
 						}
@@ -138,7 +157,29 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 				}
 			}
 		}
+		if entry.SourceStatus == "missing" {
+			entry.SourceFreshness = "source_missing"
+		} else if len(entry.BuildBlocks) > 0 {
+			entry.SourceFreshness = "blocked"
+		}
 		result = append(result, entry)
 	}
 	return result, nil
+}
+
+func worktreeSourceStatus(root string) (string, string) {
+	if root == "" {
+		return "unknown", "unknown"
+	}
+	status := func(path string, directory bool) string {
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return "missing"
+		}
+		if err != nil || info.IsDir() != directory || (!directory && !info.Mode().IsRegular()) {
+			return "unavailable"
+		}
+		return "present"
+	}
+	return status(root, true), status(filepath.Join(root, "app.scn"), false)
 }

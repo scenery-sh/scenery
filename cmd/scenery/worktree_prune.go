@@ -42,6 +42,27 @@ func runWorktreePrune(ctx context.Context, stdout io.Writer, args []string) erro
 	}
 	cutoff := time.Now().UTC().Add(-opts.OlderThan)
 	response := pruneResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.prune"), Cutoff: cutoff.Format(time.RFC3339Nano), Pruned: []string{}, Skipped: []string{}, DBCleanup: opts.DB, StateCleanup: opts.State, BuildCacheCleanup: opts.BuildCache, Resources: []worktreePrunedResource{}}
+	if opts.Preview {
+		response.Preview = true
+		response.Inventory, err = previewWorktreePrune(entries, cutoff, opts)
+		if err != nil {
+			return err
+		}
+		if opts.BuildCache {
+			cache, err := previewBuildCache(ctx, entries, opts.AppRoot, cutoff)
+			if err != nil {
+				return err
+			}
+			response.Inventory = append(response.Inventory, cache...)
+		}
+		if opts.JSON {
+			return writeCLIJSON(stdout, response)
+		}
+		for _, item := range response.Inventory {
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%d logical bytes (complete=%t reclaimable=%t): %s\n", item.AppRoot, item.Path, item.Bytes, item.Complete, item.Reclaimable, item.Reason)
+		}
+		return nil
+	}
 	for _, entry := range entries {
 		if entry.Status != "stopped" && entry.Status != "orphaned" {
 			if opts.DB && entry.Status != "absent" {

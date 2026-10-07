@@ -83,6 +83,11 @@ func (p *worktreeRuntimeProbe) measureCostPhase(cohort worktreeCostCohort, load 
 
 func (p *worktreeRuntimeProbe) costSample(cohort worktreeCostCohort) (worktreeCostSample, error) {
 	sample := worktreeCostSample{At: time.Now().UTC()}
+	for _, owner := range cohort.owners {
+		if err := localagent.VerifyOwner(owner); err != nil {
+			return sample, fmt.Errorf("resource sample changed native owner %d: %w", owner.PID, err)
+		}
+	}
 	pids := make([]string, len(cohort.pids))
 	for i, pid := range cohort.pids {
 		pids[i] = strconv.Itoa(pid)

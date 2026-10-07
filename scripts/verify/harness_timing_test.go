@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"scenery.sh/internal/harnessreport"
 	"scenery.sh/internal/testsuite"
 )
 
@@ -143,39 +144,48 @@ func TestSelectHarnessTimingConfirmationsWithoutBaselineKeepsEveryCandidate(t *t
 	}
 }
 
-func TestReadHarnessTimingBaselineRejectsStaleSchema(t *testing.T) {
+func TestReadHarnessTimingBaselineQualifiesImmutableCohort(t *testing.T) {
 	t.Parallel()
-
 	root := t.TempDir()
-	path := filepath.Join(root, ".scenery", "harness", "test-timing-latest.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
+	current := &harnessTestTimingReport{Budgets: harnessTestTimingBudgets{Lane: "fresh"}, Context: harnessreport.MeasurementContext{Runner: "go", RunnerVersion: "go1.27", Host: "host", PackageParallelism: 6, BuildParallelism: 4}}
+	prior := *current
+	prior.PayloadIdentity = newCLIPayloadIdentity(harnessTestTimingKind)
+	prior.RunID = "001"
+	prior.Discovery.Complete = true
+	write := func(id string, timing harnessTestTimingReport) {
+		t.Helper()
+		path := filepath.Join(root, ".scenery", "harness", "runs", id, "self.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		result := harnessSelfResponse{OK: true, Run: &harnessreport.ValidationRun{InputsStable: true}, TestTiming: &timing}
+		data, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	report := harnessTestTimingReport{
-		PayloadIdentity: cliPayloadIdentity{Kind: harnessTestTimingKind, SchemaRevision: "sha256:" + strings.Repeat("0", 64)},
-		Budgets:         defaultHarnessTestTimingBudgets(),
+	write("001", prior)
+	cached := prior
+	cached.Budgets.Lane = "cached"
+	write("002", cached)
+	mismatch := prior
+	mismatch.Context.Host = "another-host"
+	write("003", mismatch)
+	broken := prior
+	broken.Discovery.Complete = false
+	write("004", broken)
+	stale := prior
+	stale.SchemaRevision = "sha256:" + strings.Repeat("0", 64)
+	write("005", stale)
+	if got := readHarnessTimingBaseline(root, current); got == nil || got.RunID != "001" || current.BaselineArtifact != ".scenery/harness/runs/001/self.json" {
+		t.Fatalf("qualified baseline = %+v current=%+v", got, current)
 	}
-	encoded, err := json.Marshal(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, encoded, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := readHarnessTimingBaseline(root); got != nil {
-		t.Fatalf("stale baseline was accepted: %+v", got)
-	}
-
-	report.PayloadIdentity = newCLIPayloadIdentity(harnessTestTimingKind)
-	encoded, err = json.Marshal(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, encoded, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := readHarnessTimingBaseline(root); got == nil {
-		t.Fatal("current baseline was rejected")
+	current.Context.BuildParallelism = 2
+	if got := readHarnessTimingBaseline(root, current); got != nil {
+		t.Fatal("concurrency mismatch accepted")
 	}
 }
 
@@ -306,13 +316,14 @@ func TestHarnessTestBinaryTimingRanksBuildsByDuration(t *testing.T) {
 	timing := harnessTestBinaryTimingFromResult(testsuite.Result{
 		ManifestHit:      false,
 		TestPackageCount: 2,
+		BuiltCount:       2,
 		BuildParallelism: 4,
 		Prepare: testsuite.PrepareTiming{
 			Elapsed:     10 * time.Second,
 			ListElapsed: 4 * time.Second,
 			Builds: []testsuite.BinaryBuild{
-				{Package: "scenery.sh/cmd/scenery", BuildID: "id-a", Elapsed: 3500 * time.Millisecond},
-				{Package: "scenery.sh/internal/edge", BuildID: "id-b", Elapsed: 900 * time.Millisecond},
+				{Package: "scenery.sh/cmd/scenery", BuildID: "id-a", Outcome: "passed", Elapsed: 3500 * time.Millisecond},
+				{Package: "scenery.sh/internal/edge", BuildID: "id-b", Outcome: "passed", Elapsed: 900 * time.Millisecond},
 			},
 		},
 	})

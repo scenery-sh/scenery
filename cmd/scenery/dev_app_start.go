@@ -12,8 +12,14 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/devtelemetry"
+	"scenery.sh/internal/workspacetx"
 	"scenery.sh/runtime"
 )
+
+var errBuildSuperseded = errors.New("source changed during candidate preparation; discard the superseded generation and retry")
+
+type devBuildObservationKey struct{}
 
 func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot *fileSnapshot) (returnErr error) {
 	if snapshot == nil {
@@ -37,7 +43,15 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			returnErr = devBuildOperationError{operationID: operationID, err: returnErr}
 		}
 	}()
-	ctx = build.WithTraceOperation(ctx, operationID, s.emitBuildStep)
+	editClass, _ := ctx.Value(devEditClassKey{}).(string)
+	if editClass == "" {
+		editClass = "unknown"
+		if initial {
+			editClass = "initial"
+		}
+	}
+	ctx = build.WithTraceOperation(ctx, operationID, func(step build.Step) { s.emitBuildStepWithEditClass(step, editClass) })
+	ctx = context.WithValue(ctx, devBuildObservationKey{}, devtelemetry.Observation{OperationID: operationID, ObservedAt: captured.capturedAt, Initial: initial})
 	requestStarted := time.Now()
 	recordDevScheduling(ctx, clearInheritedBackgroundPolicy)
 	defer func() {
@@ -45,8 +59,18 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		if initial {
 			reason = "initial_build"
 		}
+		outcome := "success"
+		if returnErr != nil {
+			outcome = "failure"
+		}
+		if errors.Is(returnErr, errBuildSuperseded) {
+			outcome = "superseded"
+		}
+		if workspacetx.IsActive(returnErr) {
+			outcome = "deferred"
+		}
 		build.RecordStep(ctx, build.Step{
-			Name: "build.request", StartedAt: requestStarted, Duration: time.Since(requestStarted),
+			Outcome: outcome, Name: "build.request", StartedAt: requestStarted, Duration: time.Since(requestStarted),
 			Cache: "not_applicable", Reason: reason, OK: returnErr == nil, SnapshotDigest: snapshotFingerprint(captured),
 		})
 	}()
@@ -128,6 +152,11 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	err = s.requireCurrentBuildSnapshot(captured)
 	build.RecordStep(ctx, build.Step{Name: "supervisor.snapshot_verify", StartedAt: snapshotStarted, Duration: time.Since(snapshotStarted), Cache: "not_applicable", Reason: "source_unchanged_since_capture", OK: err == nil})
 	if err != nil {
+		if errors.Is(err, errBuildSuperseded) {
+			s.setCompiling(false, "")
+			_ = s.persistStatus(ctx)
+			return err
+		}
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
 	activationStarted := time.Now()
@@ -185,6 +214,7 @@ func (s *devSupervisor) publishActivatedApp(ctx context.Context, initial bool, s
 		s.console.Banner(s.runURLs())
 	}
 	refreshSnapshotContract(s.root, snapshot, plan.Result.Contract)
+	s.captureServingState(*snapshot, plan.Result)
 	return nil
 }
 
@@ -197,7 +227,7 @@ func (s *devSupervisor) requireCurrentBuildSnapshot(snapshot fileSnapshot) error
 		return fmt.Errorf("verify current build inputs: %w", err)
 	}
 	if !buildInputSnapshotsEqual(snapshot, current) {
-		return fmt.Errorf("source changed during candidate preparation; discard the superseded generation and retry")
+		return errBuildSuperseded
 	}
 	return nil
 }

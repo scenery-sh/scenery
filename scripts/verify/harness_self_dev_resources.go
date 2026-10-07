@@ -39,6 +39,29 @@ type harnessDevResourceSample struct {
 }
 
 func captureHarnessDevResources(ctx context.Context, ownerPID int, sceneryCache, goCache string) (harnessDevResourceSample, error) {
+	sample, err := captureHarnessDevProcessTree(ctx, ownerPID)
+	if err != nil {
+		return sample, err
+	}
+	for _, pid := range sample.PIDs {
+		fds, err := harnessProcessFDs(ctx, pid)
+		if err != nil {
+			return sample, err
+		}
+		sample.FileDescriptors += fds
+	}
+	if sample.SceneryCache, err = harnessTreeUsageAt(sceneryCache); err != nil {
+		return sample, err
+	}
+	if sample.GoCache, err = harnessTreeUsageAt(goCache); err != nil {
+		return sample, err
+	}
+	return sample, nil
+}
+
+// Process membership and RSS do not require descriptor or disk inspection.
+// Resource lanes select only the metrics they actually report.
+func captureHarnessDevProcessTree(ctx context.Context, ownerPID int) (harnessDevResourceSample, error) {
 	var sample harnessDevResourceSample
 	command := exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,rss=")
 	output, err := command.Output()
@@ -84,21 +107,10 @@ func captureHarnessDevResources(ctx context.Context, ownerPID int, sceneryCache,
 		if pid == ownerPID {
 			sample.OwnerRSSKiB = processes[pid].rss
 		}
-		fds, err := harnessProcessFDs(ctx, pid)
-		if err != nil {
-			return sample, err
-		}
-		sample.FileDescriptors += fds
 	}
 	sort.Ints(sample.PIDs)
 	sample.ProcessCount = len(sample.PIDs)
 	sample.RuntimeChildren = sample.ProcessCount - 1
-	if sample.SceneryCache, err = harnessTreeUsageAt(sceneryCache); err != nil {
-		return sample, err
-	}
-	if sample.GoCache, err = harnessTreeUsageAt(goCache); err != nil {
-		return sample, err
-	}
 	return sample, nil
 }
 

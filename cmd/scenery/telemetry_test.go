@@ -37,9 +37,27 @@ func TestTelemetryClassification(t *testing.T) {
 	}
 }
 
+func TestNativeTelemetryUsesResolvedIdentityAndExplicitPurpose(t *testing.T) {
+	t.Setenv("SCENERY_EXECUTION_PURPOSE", "verification")
+	invocation := newCLITelemetryInvocation(time.Now(), []string{"help"})
+	var record cliTelemetryRecord
+	invocation.recorder = func(value cliTelemetryRecord) { record = value }
+	invocation.finish(0)
+	if record.Producer == nil || record.Version != record.Producer.Version || record.Purpose != "verification" || record.Dirty != cliBuildDirty() {
+		t.Fatalf("record identity = %+v", record)
+	}
+	for _, invalid := range []string{"", "dev", "fixture", "secret text"} {
+		t.Setenv("SCENERY_EXECUTION_PURPOSE", invalid)
+		if got := telemetryExecutionPurpose(); got != "unknown" {
+			t.Fatalf("purpose %q = %q", invalid, got)
+		}
+	}
+}
+
 func TestRecordCLITelemetryAppendsPrivateJSONL(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("SCENERY_AGENT_HOME", filepath.Join(home, ".scenery"))
 	record := cliTelemetryRecord{
 		At:         time.Date(2026, 7, 13, 12, 41, 3, 421000000, time.UTC),
 		Command:    "db seed",
@@ -79,6 +97,7 @@ func TestRecordCLITelemetryAppendsPrivateJSONL(t *testing.T) {
 func TestCLITelemetryInvocationRecordsUpAtReadinessExactlyOnce(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("SCENERY_AGENT_HOME", filepath.Join(home, ".scenery"))
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{
   "name": "Example App",
@@ -133,6 +152,7 @@ func TestCLITelemetryInvocationRecordsUpAtReadinessExactlyOnce(t *testing.T) {
 func TestCLITelemetryDetachedLauncherDoesNotDuplicateOwnerStartup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("SCENERY_AGENT_HOME", filepath.Join(home, ".scenery"))
 	invocation := newCLITelemetryInvocation(time.Now(), []string{"up", "--detach"})
 
 	original := runDetachedDevFunc
@@ -304,6 +324,7 @@ func TestLoadCLITelemetryPercentilesUseLatestBoundedSample(t *testing.T) {
 func TestTelemetryCommandJSONAndFilters(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("SCENERY_AGENT_HOME", filepath.Join(home, ".scenery"))
 	now := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
 	recordCLITelemetry(cliTelemetryRecord{At: now, Command: "check", DurationMS: 12, ExitCode: 0, Version: "dev", Mode: "oneshot", App: &cliTelemetryApp{ID: "app-a", Name: "Alpha"}})
 
@@ -334,5 +355,51 @@ func TestTelemetryArgsRejectInvalidBounds(t *testing.T) {
 		if _, err := parseTelemetryArgs(args, now); err == nil {
 			t.Fatalf("parseTelemetryArgs(%q) succeeded", args)
 		}
+	}
+}
+
+func TestTelemetryHonorsPrivateAgentHomeAndNativeIdentity(t *testing.T) {
+	home, agentHome := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	var output bytes.Buffer
+	code := executeCLIWith([]string{"unknown", "-o", "json"}, &output, &output, time.Now(), func([]string, *cliTelemetryInvocation) error { return usageErrorf("unknown command") }, recordCLITelemetry)
+	if code != 2 {
+		t.Fatalf("exit = %d", code)
+	}
+	data, err := os.ReadFile(filepath.Join(agentHome, "telemetry.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record cliTelemetryRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.InvocationID == "" || record.Producer == nil || record.Producer.Toolchain.GoVersion == "" || record.DiagnosticCode != "SCN8001" {
+		t.Fatalf("record = %+v", record)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".scenery", "telemetry.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("personal telemetry touched: %v", err)
+	}
+}
+
+func TestTelemetryPercentilesExcludeFastFailures(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "telemetry.jsonl")
+	var data bytes.Buffer
+	for _, record := range []cliTelemetryRecord{{At: time.Now(), Command: "check", DurationMS: 1, ExitCode: 2, Mode: "oneshot"}, {At: time.Now(), Command: "check", DurationMS: 1000, Mode: "oneshot"}} {
+		if err := json.NewEncoder(&data).Encode(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(path, data.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response, err := loadCLITelemetry(path, telemetryQueryOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Summary.Count != 2 || response.Summary.FailureCount != 1 || response.Summary.PercentileSampleCount != 1 || response.Summary.P50DurationMS != 1000 {
+		t.Fatalf("summary = %+v", response.Summary)
 	}
 }

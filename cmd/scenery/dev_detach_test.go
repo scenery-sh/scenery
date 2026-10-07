@@ -66,7 +66,7 @@ func TestDetachedDevWaitTimeoutsSeparateRegistrationFromReadiness(t *testing.T) 
 }
 
 func TestDetachedDevChildMode(t *testing.T) {
-	t.Setenv(detachedDevChildEnv, "yes")
+	t.Setenv(detachedDevChildEnv, filepath.Join(t.TempDir(), "supervisor.log"))
 	if !detachedDevChildMode() {
 		t.Fatal("expected detached child mode")
 	}

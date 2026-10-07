@@ -52,6 +52,8 @@ type WorkspacePruneEntry struct {
 // build state is older than Cutoff is removed; every other workspace is kept.
 // A workspace another process holds locked is always kept.
 type WorkspacePruneOptions struct {
+	// Preview reports the same selection without removing any files.
+	Preview bool
 	// Cutoff removes workspaces whose build state was last written before
 	// it. Zero disables age-based removal.
 	Cutoff time.Time
@@ -143,6 +145,10 @@ func pruneWorkspace(path string, protectedRoot bool, opts WorkspacePruneOptions)
 		item.Reason = WorkspacePruneRecent
 	}
 	item.Bytes = directoryBytes(path)
+	if opts.Preview {
+		item.Removed = false
+		return item, nil
+	}
 	if !item.Removed {
 		return item, nil
 	}

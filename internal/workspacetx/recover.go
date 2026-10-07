@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -318,6 +319,13 @@ func legacyStateError(path string) error {
 }
 
 type activeTransactionError struct{ pid int }
+
+// IsActive distinguishes a live write transaction from invalid recovery state.
+// Supervisors may defer reads for the former; other failures need remediation.
+func IsActive(err error) bool {
+	var active *activeTransactionError
+	return errors.As(err, &active)
+}
 
 func (e *activeTransactionError) Error() string {
 	return fmt.Sprintf("failed_precondition: workspace change transaction is active in process %d", e.pid)

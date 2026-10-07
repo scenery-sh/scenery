@@ -153,7 +153,9 @@ func ensureHarnessStepEvidence(step *harnessreport.Step, defaultCWD string) {
 		started := time.Now().UTC().Add(-time.Duration(step.DurationMS) * time.Millisecond)
 		step.Evidence.StartedAt = started.Format(time.RFC3339Nano)
 	}
-	step.Evidence.DurationMS = step.DurationMS
+	if step.Evidence.ExitCode == nil {
+		step.Evidence.DurationMS = step.DurationMS
+	}
 	if step.Evidence.ExitCode == nil {
 		code := 0
 		if !step.OK {

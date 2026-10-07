@@ -204,7 +204,7 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	}
 	RecordStep(ctx, Step{Name: "go.input_discovery", StartedAt: started, Duration: time.Since(started), Cache: cache, Reason: reason, OK: err == nil, Actions: actions})
 	if err != nil {
-		return nil, fmt.Errorf("go %s failed while producing build inputs: %w\n%s", strings.Join(args, " "), err, output)
+		return nil, goCommandFailure(ctx, args, output, err)
 	}
 	var manifest *BuildInputManifest
 	stats := buildInputDigestStats{}

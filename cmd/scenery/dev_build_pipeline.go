@@ -37,10 +37,10 @@ func newDevBuildOperationID() string {
 	return fmt.Sprintf("build-%x-%x", time.Now().UnixNano(), devBuildOperationSequence.Add(1))
 }
 
-func (s *devSupervisor) emitBuildStep(step build.Step) {
+func (s *devSupervisor) emitBuildStepWithEditClass(step build.Step, editClass string) {
 	fields := map[string]any{
-		"operation_id": step.OperationID,
-		"name":         step.Name, "started_at": step.StartedAt.UTC().Format(time.RFC3339Nano),
+		"operation_id": step.OperationID, "edit_class": editClass,
+		"name": step.Name, "started_at": step.StartedAt.UTC().Format(time.RFC3339Nano),
 		"duration_ms": float64(step.Duration.Microseconds()) / 1000,
 		"cache":       step.Cache, "reason": step.Reason, "ok": step.OK,
 	}
@@ -85,6 +85,7 @@ func (s *devSupervisor) emitBuildStep(step build.Step) {
 	if step.Name == "go.command" && step.Reason == "build" {
 		fields["packages_rebuilt_available"] = step.PackagesRebuiltAvailable
 	}
+	optionalString("outcome", step.Outcome)
 	optionalString("snapshot_digest", step.SnapshotDigest)
 	optionalString("contract_revision", step.ContractRevision)
 	optionalString("implementation_revision", step.ImplementationRevision)

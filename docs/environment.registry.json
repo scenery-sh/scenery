@@ -3,6 +3,22 @@
   "schema_revision": "sha256:6b701aa3ad57d309f09af6c10a16d91814259db5cfe4f55eae879cabd9b5100e",
   "variables": [
     {
+      "name": "SCENERY_EXECUTION_PURPOSE",
+      "match": "exact",
+      "scope": "internal",
+      "direction": "injected",
+      "category": "telemetry",
+      "stability": "internal",
+      "secret": false,
+      "allowed_in": ["code", "docs", "tests"],
+      "owner": "scenery verifier / telemetry",
+      "rationale": "Explicit descendant telemetry attribution independent of producer version and agent home. Verifier/release lanes set verification/release; unmarked invocations remain unknown. Plan 0215 explains why process propagation needs this marker.",
+      "preferred_surface": "Automatically injected by the verification lane; optional development attribution for a command process",
+      "replacement": "",
+      "sunset": "",
+      "docs": ["docs/environment.md"]
+    },
+    {
       "name": "API_BASE_URL",
       "match": "exact",
       "scope": "runtime",

@@ -21,12 +21,12 @@ func waitForStableChangePolling(ctx context.Context, root string, current fileSn
 		case <-ctx.Done():
 			return fileSnapshot{}, false, ctx.Err()
 		case <-wake:
-			next, err := scanWatchedFilesReusing(root, current)
+			next, err := scanWatchAfterTransaction(ctx, root, current)
 			return next, true, err
 		case <-ticker.C:
 		}
 
-		next, err := scanWatchedFilesReusing(root, current)
+		next, err := scanWatchAfterTransaction(ctx, root, current)
 		if err != nil {
 			return fileSnapshot{}, false, err
 		}
@@ -48,14 +48,14 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 		case <-ctx.Done():
 			return fileSnapshot{}, false, ctx.Err()
 		case <-wake:
-			next, err := scanWatchedFilesReusing(root, current)
+			next, err := scanWatchAfterTransaction(ctx, root, current)
 			return next, true, err
 		case _, ok := <-events:
 			if !ok {
 				return waitForStableChangePolling(ctx, root, current, wake)
 			}
 		case <-ticker.C:
-			next, err := scanWatchedFilesReusing(root, current)
+			next, err := scanWatchAfterTransaction(ctx, root, current)
 			if err != nil {
 				return fileSnapshot{}, false, err
 			}
@@ -92,7 +92,7 @@ func waitForSnapshotToSettlePolling(ctx context.Context, root string, current fi
 		case <-timer.C:
 			// Settling may be shorter than the polling interval. Verify the
 			// final quiet boundary instead of returning the first observed save.
-			next, err := scanWatchedFilesReusing(root, current)
+			next, err := scanWatchAfterTransaction(ctx, root, current)
 			if err != nil {
 				return fileSnapshot{}, err
 			}
@@ -102,7 +102,7 @@ func waitForSnapshotToSettlePolling(ctx context.Context, root string, current fi
 			current = next
 			timer.Reset(watchSettleDelay)
 		case <-ticker.C:
-			next, err := scanWatchedFilesReusing(root, current)
+			next, err := scanWatchAfterTransaction(ctx, root, current)
 			if err != nil {
 				return fileSnapshot{}, err
 			}
@@ -148,7 +148,7 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, current fil
 		results = make(chan scanned, 1)
 		stale, due = false, false
 		go func(out chan<- scanned) {
-			snapshot, err := scanWatchedFilesReusing(root, current)
+			snapshot, err := scanWatchAfterTransaction(ctx, root, current)
 			out <- scanned{snapshot: snapshot, err: err}
 		}(results)
 	}
@@ -165,7 +165,7 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, current fil
 		case _, ok := <-events:
 			if !ok {
 				join()
-				return scanWatchedFilesReusing(root, current)
+				return scanWatchAfterTransaction(ctx, root, current)
 			}
 			stale, due, settled, finished = true, false, false, nil
 			quiet.Reset(watchSettleDelay)

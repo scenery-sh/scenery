@@ -41,6 +41,15 @@ type FrameworkPruneEntry struct {
 // but cannot be read fails closed: nothing is removed. A framework state root
 // another process is preparing is kept and reported as locked.
 func PruneFrameworkState(appRoot string) ([]FrameworkPruneEntry, error) {
+	return pruneFrameworkState(appRoot, false)
+}
+
+// PreviewFrameworkState observes the exact prune selection without mutation.
+func PreviewFrameworkState(appRoot string) ([]FrameworkPruneEntry, error) {
+	return pruneFrameworkState(appRoot, true)
+}
+
+func pruneFrameworkState(appRoot string, preview bool) ([]FrameworkPruneEntry, error) {
 	canonical, err := filepath.EvalSymlinks(appRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return []FrameworkPruneEntry{}, nil
@@ -92,9 +101,11 @@ func PruneFrameworkState(appRoot string) ([]FrameworkPruneEntry, error) {
 	defer unlock()
 	report := []FrameworkPruneEntry{}
 	remove := func(path, kind, reason string) error {
-		item := FrameworkPruneEntry{Path: path, Kind: kind, Bytes: directoryBytes(path), Removed: true, Reason: reason}
-		if err := os.RemoveAll(path); err != nil {
-			return err
+		item := FrameworkPruneEntry{Path: path, Kind: kind, Bytes: directoryBytes(path), Removed: !preview, Reason: reason}
+		if !preview {
+			if err := os.RemoveAll(path); err != nil {
+				return err
+			}
 		}
 		report = append(report, item)
 		return nil

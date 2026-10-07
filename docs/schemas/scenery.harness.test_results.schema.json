@@ -1,0 +1,376 @@
+{
+  "$id": "https://scenery.sh/schemas/scenery.harness.test_results.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "architecture": {
+      "type": "string"
+    },
+    "artifacts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "schema_revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "attempt": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "cases": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "boundary": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "first_attempt_outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "skipped",
+              "todo",
+              "timed_out",
+              "canceled",
+              "blocked",
+              "incomplete",
+              "not_selected"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "skipped",
+              "todo",
+              "timed_out",
+              "canceled",
+              "blocked",
+              "incomplete",
+              "not_selected"
+            ]
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "seconds": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "suite": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "file",
+          "suite",
+          "name",
+          "boundary",
+          "outcome",
+          "first_attempt_outcome",
+          "seconds",
+          "attempt",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "command": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "completeness": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "discovered": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "executed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "missing_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "parser_errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "terminal": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "complete",
+        "expected",
+        "discovered",
+        "executed",
+        "terminal",
+        "parser_errors",
+        "missing_files"
+      ],
+      "type": "object"
+    },
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "type": "string"
+        },
+        "build_parallelism": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ci": {
+          "additionalProperties": false,
+          "properties": {
+            "attempt": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string"
+            },
+            "job": {
+              "type": "string"
+            },
+            "repository": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "workflow": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "commit",
+            "workflow",
+            "job",
+            "event",
+            "run_id",
+            "url",
+            "attempt"
+          ],
+          "type": "object"
+        },
+        "cpus": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "package_parallelism": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "result_cache": {
+          "type": "string"
+        },
+        "runner": {
+          "type": "string"
+        },
+        "runner_version": {
+          "type": "string"
+        },
+        "workload": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment",
+        "host",
+        "os",
+        "architecture",
+        "runner",
+        "runner_version",
+        "cpus",
+        "package_parallelism",
+        "build_parallelism",
+        "workload",
+        "result_cache"
+      ],
+      "type": "object"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "filter": {
+      "type": "string"
+    },
+    "input_revision": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "scenery.harness.test_results"
+    },
+    "lane": {
+      "type": "string"
+    },
+    "os": {
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "passed",
+        "failed",
+        "skipped",
+        "todo",
+        "timed_out",
+        "canceled",
+        "blocked",
+        "incomplete",
+        "not_selected"
+      ]
+    },
+    "parent_run_id": {
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "scenery.cli.schema.json#/$defs/producer"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "runner": {
+      "type": "string"
+    },
+    "runner_version": {
+      "type": "string"
+    },
+    "schema_revision": {
+      "const": "sha256:942678c71de92263ea889e580240c1bd68fbb90b33abda846c4b3fd534416e7c"
+    },
+    "selected_files": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "selected_packages": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "source_commit": {
+      "type": "string"
+    },
+    "spec_revision": {
+      "$ref": "scenery.cli.schema.json#/$defs/revision"
+    },
+    "step_id": {
+      "type": "string"
+    },
+    "unknown_stages": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "wall_seconds": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "kind",
+    "schema_revision",
+    "run_id",
+    "parent_run_id",
+    "step_id",
+    "source_commit",
+    "input_revision",
+    "purpose",
+    "lane",
+    "runner",
+    "runner_version",
+    "os",
+    "architecture",
+    "cwd",
+    "context",
+    "outcome",
+    "command",
+    "selected_files",
+    "wall_seconds",
+    "attempt",
+    "completeness",
+    "cases",
+    "artifacts",
+    "unknown_stages",
+    "spec_revision",
+    "producer"
+  ],
+  "title": "Scenery attributable runner case results",
+  "type": "object"
+}

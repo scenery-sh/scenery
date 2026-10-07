@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "profile:query-table": "cd ../.. && tools/typescript/node_modules/.bin/tsc -p tools/typescript/tsconfig.profiler.json && bun --preload ./tools/typescript/perf/query-table-profiler-mocks.tsx ./tools/typescript/perf/query-table-profiler.bench.tsx"
+    "profile:query-table": "cd ../.. && tools/typescript/node_modules/.bin/tsc -p tools/typescript/tsconfig.profiler.json && bun --tsconfig-override \"$PWD/tools/typescript/tsconfig.runtime.json\" --preload ./tools/typescript/perf/query-table-profiler-mocks.tsx ./tools/typescript/perf/query-table-profiler.bench.tsx"
   },
   "dependencies": {
     "@astryxdesign/core": "^0.1.7",

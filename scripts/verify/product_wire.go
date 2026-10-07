@@ -3,6 +3,7 @@ package main
 import (
 	json "encoding/json"
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/machine"
 	postgresdb "scenery.sh/internal/postgresdb"
 	time "time"
 )
@@ -59,14 +60,19 @@ type worktreeRemoveResult struct {
 }
 
 type cliTelemetryRecord struct {
-	At          time.Time        `json:"at"`
-	Command     string           `json:"command"`
-	DurationMS  int64            `json:"duration_ms"`
-	ExitCode    int              `json:"exit_code"`
-	Version     string           `json:"version"`
-	Mode        string           `json:"mode"`
-	Measurement string           `json:"measurement,omitempty"`
-	App         *cliTelemetryApp `json:"app,omitempty"`
+	InvocationID   string            `json:"invocation_id,omitempty"`
+	Producer       *machine.Producer `json:"producer,omitempty"`
+	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
+	Purpose        string            `json:"purpose,omitempty"`
+	Dirty          bool              `json:"dirty"`
+	At             time.Time         `json:"at"`
+	Command        string            `json:"command"`
+	DurationMS     int64             `json:"duration_ms"`
+	ExitCode       int               `json:"exit_code"`
+	Version        string            `json:"version"`
+	Mode           string            `json:"mode"`
+	Measurement    string            `json:"measurement,omitempty"`
+	App            *cliTelemetryApp  `json:"app,omitempty"`
 }
 
 type dbServerStatusResponse struct {

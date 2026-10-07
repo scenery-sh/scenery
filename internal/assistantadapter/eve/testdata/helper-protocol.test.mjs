@@ -8,7 +8,7 @@
 // turn, which the helper prevents by running one run at a time), the durable
 // stream is read by absolute index, and a connection header
 // callback receives the executing turn. The verifier renders the templates and
-// runs this file with `node --test`.
+// runs the 11 cases serially with `bun test`; production Eve still uses Node.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

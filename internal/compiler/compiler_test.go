@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -182,11 +183,12 @@ func TestContractRevisionUsesOnlyContractDomains(t *testing.T) {
 }
 
 func TestImplementationRevisionRequiresBuildSuppliedInputManifest(t *testing.T) {
+	version := strings.TrimPrefix(runtime.Version(), "go")
 	temp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(temp, "house"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(temp, "go.mod"), []byte("module example.test/clean-tech\n\ngo 1.26.3\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(temp, "go.mod"), []byte("module example.test/clean-tech\n\ngo "+version+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(temp, appFilename)
@@ -203,7 +205,7 @@ go_module "application" {
   root = "."
   import_path = "example.test/clean-tech"
 }
-go_toolchain "application" { version = "1.26.3" }
+go_toolchain "application" { version = "` + version + `" }
 go_target "development" {
   role = "development"
   platform = "host"

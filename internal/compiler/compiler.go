@@ -75,7 +75,7 @@ func compileResult(root string) (*Result, error) {
 		return nil, err
 	}
 	if !containsBase(paths, scn.AppFilename) {
-		return nil, fmt.Errorf("%s does not contain %s", absRoot, scn.AppFilename)
+		return nil, &MissingAppError{Root: absRoot}
 	}
 	for _, path := range paths {
 		source, syntaxDiagnostics := scn.Parse(absRoot, path)

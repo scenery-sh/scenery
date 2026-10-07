@@ -292,7 +292,7 @@ func runRealGo(ctx context.Context, dir string, environment []string, args ...st
 	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("go %s failed: %w\n%s", strings.Join(args, " "), err, output)
+		return goCommandFailure(ctx, args, output, err)
 	}
 	return nil
 }

@@ -19,6 +19,14 @@ and `scenery inspect harness` reads bounded existing reports. Scenery has no
 dashboard harness. The `scenery.harness.self` report names and paths
 remain current data contracts, not an executable product subcommand.
 
+Every verification lane establishes its own disposable `SCENERY_AGENT_HOME`
+before launching product or tool descendants. Probe-specific homes narrow that
+boundary. Native commands carry explicit `verification` or `release` purpose,
+and fallback-home command evidence is retained under the run's artifact directory.
+The release shell owns a private home under its log directory for its additional
+packaging and fixture commands. Personal telemetry and runtime state remain
+outside these lanes.
+
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
 go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
@@ -99,12 +107,19 @@ bounds against real PostgreSQL (plan 0206). A18 is separate:
 `go run ./scripts/verify --benchmark worktree-cost --summary --write` runs only
 on an explicit human measurement request, never as part of default or release.
 The resource-cost lane runs three repetitions each of 1, 5 and 10 SQL-backed
-worktrees with the real default Victoria profile. It records per-root and cohort
-cold/warm serving times, native process RSS/CPU separately from Docker container
-memory/CPU, fixed-window idle/load samples, disk usage and hardware/daemon
-identity. Cold means fresh roots and cohort Go cache, not flushed host/module
-or toolchain caches. Background developer workloads are not stopped, shared
-pages can appear in multiple RSS values, and no capacity ceiling is inferred.
+worktrees with the real default Victoria profile, a managed minimal Bun frontend
+and an Eve helper with a deterministic model. It verifies a completed assistant
+run and frontend module response. It records per-root and cohort cold/warm
+serving times, a one-second sampled native startup RSS maximum, native process
+RSS/CPU separately from Docker container memory/CPU, fixed-window idle/load
+samples, disk usage and hardware/daemon identity. Twenty unique handler edits
+per worktree retain matching normal-endpoint response identities, then refresh
+verified process owners for post-churn idle samples. Cold means fresh roots and
+cohort Go cache, not flushed host/module or toolchain caches. The frontend does
+not exercise a bundler or browser, the assistant does not use a remote model,
+and Docker startup peaks remain unmeasured. Background developer workloads are
+not stopped, shared pages can appear in multiple RSS values, and no capacity
+ceiling or percentile is inferred from three repetitions.
 
 `--benchmark native-reload --workload-root <path>` runs the Plan 0181 experiment
 against a read-only ONLV repository containing commit
@@ -189,23 +204,24 @@ release certification. Failed steps identify their focused rerun command.
 | `parallel-runtime` | Parallel runtime/session isolation |
 | `postgres` | Full PostgreSQL service, durable, reset and snapshot proof, including twelve durable service views sharing one listener outside the query pool, actual notification delivery, task-scoped expiration recovery, future acquisition deadlines, and listener cleanup |
 | `ui` | `tools/typescript` dependencies, TypeScript client conformance and generated `dev-runtime.ts` behavior, generated-client and UI catalog typechecks |
+| `frontend` | Real managed frontend subprocess and HTTP route/module readiness: an unavailable advertised module blocks readiness despite a listener; production rebuild success/failure have matched terminal spans and the failed build retains the prior bundle; child/listener cleanup |
 | `fixtures` | Fixture generation/compilation matrix |
 | `storage` | Storage CLI, routes, empty-prefix tenant isolation over Unix proxy transport, restart persistence and a fresh tagged 260-entry disk-pressure reclamation/resume integration test |
 | `core-separation` | Product/verifier dependency and source-only boundaries |
 | `capability-authority` | Runtime capability authority |
 | `auth` | All 15 database/OAuth lifecycle journeys |
-| `worktree` | Functional A1–A17 worktree runtime/SQL ownership, where A13 configures `sql.database_url` through `scenery config set --env local --stdin` and requires development `up` to refuse it in every worktree without allocating a managed database, `db reset`, `db drop`, `prune --db` and `down --db` to reject it, an inherited `DATABASE_URL` to select nothing, and no command output or configuration file to reveal the credential; and A19 development runtime RPC bounds: refused admission beyond the connection and app limits, `status` under saturation, a result budget, and statements cancelled in PostgreSQL on disconnect |
+| `worktree` | Functional A1–A17 worktree runtime/SQL ownership, including A6 stale-client blocking across unrelated source edits and recovery through public client regeneration, where A13 configures `sql.database_url` through `scenery config set --env local --stdin` and requires development `up` to refuse it in every worktree without allocating a managed database, `db reset`, `db drop`, `prune --db` and `down --db` to reject it, an inherited `DATABASE_URL` to select nothing, and no command output or configuration file to reveal the credential; and A19 development runtime RPC bounds: refused admission beyond the connection and app limits, `status` under saturation, a result budget, and statements cancelled in PostgreSQL on disconnect |
 | `agent-restart` | Local-agent restart |
 | `assistant-init` | Assistant initialization |
 | `assistant-runtime` | Assistant production runtime |
-| `assistant-helper` | Generated Eve channel and connection under Node against a simulated Eve runtime that reproduces the observed provider behavior: a later run waits while a run is open and a late call of the open run keeps its run, an approval resolved in its original turn continues its run in a continuation turn while a later run waits and resolves only for that run, cancelling a queued run never sends it and cancelling a parked run denies its approvals, a turn without evidence is refused and unpublished, a refused send leaves no pending run, overlapping streams and tool calls share one history with contiguous sequences, a run cancelled after the provider accepted it but before its turn is bound is cancelled at that turn and executes nothing, a run the provider never starts ends at the next session boundary, a subscriber that leaves stops the reads made for it, and the connection resolves the gateway address supplied at start rather than one from its build |
+| `assistant-helper` | Generated Eve channel and connection under Bun against a simulated Eve runtime that reproduces the observed provider behavior: a later run waits while a run is open and a late call of the open run keeps its run, an approval resolved in its original turn continues its run in a continuation turn while a later run waits and resolves only for that run, cancelling a queued run never sends it and cancelling a parked run denies its approvals, a turn without evidence is refused and unpublished, a refused send leaves no pending run, overlapping streams and tool calls share one history with contiguous sequences, a run cancelled after the provider accepted it but before its turn is bound is cancelled at that turn and executes nothing, a run the provider never starts ends at the next session boundary, a subscriber that leaves stops the reads made for it, and the connection resolves the gateway address supplied at start rather than one from its build |
 | `assistant-journey` | `testdata/assistant` with its generated Eve helper and mock model through `scenery up` in a disposable copy with its own agent home: a run parked on approval keeps a later run queued and resumes as itself, overlapping streams read one contiguous history, a durable receipt's status and cancellation reach the durable store after a host replacement that keeps the service, and after the receipt journal of the serving host can be neither written, marked nor removed the host reports its state unavailable, the next host starts a new host state epoch and refuses the earlier receipt |
 | `build-info` | Build identity freshness |
-| `cli-process` | CLI exit and telemetry |
+| `cli-process` | CLI exit, native invocation/producer/diagnostic identity, and telemetry isolated to the injected agent home |
 | `cli-grammar` | The grammar `scenery help -o json` advertises, against the parser, in a disposable home and app copy: every usage line yields requests that must be refused as `invalid_request` (`SCN8001`, exit 2) with a message (an unknown flag, each value flag without its value, an invalid value of each closed choice, an unknown subcommand, an unknown command), every usage path asked with `-h`, `--help` and `--help -o json` must answer with that command's help (exit 0, its usage or its `scenery.help` descriptor), host families included since a help request never runs its command, and every read-only usage line, written with its required parts and each advertised `-o` mode, must not be refused as wrongly written nor fail internally. `system` and `deploy` act on the host and are read but not executed |
 | `dev-follower` | Development follower process |
-| `dev-process` | Native agent-health dashboard backend replacement and bounded unavailable response; managed child-process lifecycle through the process model: every answer attested by the session host with a build verified against the runtime bundle and naming its service process, a rejected preflight and a failing replacement constructor keeping the published generation serving, the final served build equal to the `build --development --verify-generation` candidate, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, a contract edit and its return across failing builds serving the previously compiled contract revision, behavior-preserving cgo/native edit, 20 unique edit-to-exact-response generations, bounded process/FD/RSS/cache settling, and tagged build-cache input mutation/rejection/retry, restored external-source bypass without change time (including temporarily enabled ignored Go files and temporary embeds in initially empty directories), canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
-| `process-model` | `testdata/apps/multiservice` through `scenery up`: three distinct processes, every answer attested by the host with the serving generation's build and naming its service instance; a `greet` request pinned to generation 1 completing against the first `greeter` and `echo` after `greeter` and then `echo` were replaced (generation 2 retires without stopping the first `echo`), with drain before activation on replacement; retirement of the first generation's instances; a failed build and identical restored source keeping the published generation; a shared package edit replacing both services in one generation; a contract-changing generation whose `echo` constructor fails keeping the host and services serving; a service replacement whose publication the host applies while its answer and every confirmation are lost (injected through the host's control faults) reconciled without another edit, the previous echo instance still answering in a later generation; process/socket/link/host-state cleanup; and that every entrypoint of the session was linked by stock Go, with no recipe recorded or used. Before the session starts, a detached start on an address no host can bind answers one internal diagnostic whose report token `scenery inspect report` resolves, from a later invocation, to the command, arguments and cause of that other process |
+| `dev-process` | Production-size bounded supervisor log rotation and retained-session reporting; native agent-health dashboard backend replacement and bounded unavailable response; managed child-process lifecycle through the process model: every answer attested by the session host with a build verified against the runtime bundle and naming its service process, a rejected preflight and a failing replacement constructor keeping the published generation serving, the final served build equal to the `build --development --verify-generation` candidate, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, a contract edit and its return across failing builds serving the previously compiled contract revision, behavior-preserving cgo/native edit, 20 unique edit-to-exact-response generations, bounded process/FD/RSS/cache settling, and tagged build-cache input mutation/rejection/retry, restored external-source bypass without change time (including temporarily enabled ignored Go files and temporary embeds in initially empty directories), canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
+| `process-model` | Captured-change to first attested response telemetry across rebuilt generations; `testdata/apps/multiservice` through `scenery up`: three distinct processes, every answer attested by the host with the serving generation's build and naming its service instance; a `greet` request pinned to generation 1 completing against the first `greeter` and `echo` after `greeter` and then `echo` were replaced (generation 2 retires without stopping the first `echo`), with drain before activation on replacement; retirement of the first generation's instances; a failed build and identical restored source keeping the published generation; a shared package edit replacing both services in one generation; a contract-changing generation whose `echo` constructor fails keeping the host and services serving; a service replacement whose publication the host applies while its answer and every confirmation are lost (injected through the host's control faults) reconciled without another edit, the previous echo instance still answering in a later generation; a live workspace transaction holding invalid partial source waits, then one coherent final edit publishes the expected response and matching `ps` generation/build; loss of app.scn stops verified processes while retaining separately owned fixture data; process/socket/link/host-state cleanup; and that every entrypoint of the session was linked by stock Go, with no recipe recorded or used. Before the session starts, a detached start on an address no host can bind answers one internal diagnostic whose report token `scenery inspect report` resolves, from a later invocation, to the command, arguments and cause of that other process |
 | `dev-lock` | Named process locks |
 | `dev-cleanup` | Session cleanup |
 | `inspect-go` | Go-package documentation inspection |
@@ -317,7 +333,7 @@ compact `scenery.harness.self.summary` decision packet and writes:
 <repo-root>/.scenery/harness/runs/<run-id>/agent-context-summary.json
 ```
 
-All four files share `run.id` and the before/after input revisions. The verifier
+All four decision/context files share `run.id` and the before/after input revisions. The verifier
 rejects source drift during validation. Publication is atomic and refuses to
 replace a run; latest copies are refreshed afterward for navigation. Topic
 reports are embedded in `self.json`; latest drilldowns may belong to another run.
@@ -335,6 +351,60 @@ lint/generation receipts can satisfy remaining requirements for identical inputs
 the summary does not invent those receipts. Compare current authored inputs with
 the archived revision before reuse; matching HEAD alone is insufficient. The
 existing artifact inspector reads the navigation summary without running tests.
+
+### Test Evidence and Applicable Coverage
+
+Each written run also publishes `verification.json`, exposed in full and compact
+reports. A lane is applicable only when it passed for the final input revision,
+inputs stayed stable and its immutable archive exists. Required Go, client,
+table, runtime identity, typecheck, generated helper and prepared native-reference
+lanes expose selected/not-selected/blocked/incomplete outcomes, command, age and
+archive reference. A cached Go correctness result may be applicable correctness
+proof; its replayed cases have zero new executions and never become fresh timing.
+A missing CI result remains missing local/remote evidence.
+
+The conventional JS inventory owns all seven test files exactly once. The `ui`
+probe runs client conformance, real table behavior and runtime identity in three
+Bun stages, then separate compiler stages with `tsc --extendedDiagnostics`.
+Dependency installation, generated Eve overlay preparation and Bun execution
+remain separate. The helper probe requires all 11 protocol cases, uses a 20s
+per-case timeout and caps concurrency at one because its generated modules share
+state. Its bounded real-timer waits retain cancellation and stream-cleanup proof.
+This simulation does not migrate the deployed assistant: production still uses
+Eve 0.71.0 and managed Node 24.18.0, with its existing production and journey
+probes. The native reference test belongs to `native-contract`, which requires
+its prepared live application. CI selects the ordinary Go suite and all
+three JS owners, pins Bun, records run/attempt/commit metadata and uploads
+available immutable/raw artifacts with `always()`.
+
+Go uses native timestamped `test2json` lifecycle events from reusable binaries.
+Discovery reconciles selected root/package inventory, starts and terminals;
+malformed/truncated event data or missing timestamps disqualifies mandatory timing
+proof. The `test-cache` probe proves that an expensive parallel child selects its
+parent for 20 isolated confirmations. Failed preparation retains partial link
+spans, outcomes and concurrency. Baselines are immutable compatible fresh runs;
+cohorts hold host, toolchain, workload, concurrency and cache definitions constant
+while source revisions remain comparison subjects. Cached runs cannot erase them.
+
+`.cases.json` artifacts use `scenery.harness.test_results`: full case/parent IDs,
+runner/version, the resolved executable in command argv, exact selection, outcome,
+duration boundary, attempts, replay, completeness and raw artifact references.
+Bun JUnit survives success and failure,
+including runner timeouts. Unknown first-attempt history, timestamps, module loading,
+hooks and cleanup are explicit; parallel case durations are not summed into wall
+time. Reporting and metadata overhead are separate from the actual subprocess.
+Bun 1.3.14 can emit a nonfatal tsconfig directory-mismatch diagnostic for the
+repository's external JSX dependency map; retain stderr and evaluate complete
+reporter terminals independently.
+
+The query-table guards render the real component with isolated control/style
+mocks, count bounded rendered rows and exercise cell activation, expansion and
+observer disposal. `bun run --cwd tools/typescript profile:query-table` archives
+20 alternating full/windowed samples after two warmups at 1k/5k/10k rows, with
+before/after workload identity. Its React test-renderer commit cost excludes
+browser layout, paint and consuming-app cost. Browser HMR/render/interaction,
+backend edit latency and resource probes remain distinct explicitly selected
+boundaries; observational targets do not become correctness passes.
 
 ## Repository Self-Harness Checks
 

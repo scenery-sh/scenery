@@ -21,6 +21,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
+	"scenery.sh/internal/telemetryreport"
 )
 
 const harnessProcessModelProbeName = "process model replacement probe"
@@ -465,11 +466,24 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if err != nil || echoSix.Message != "echo-two|hi" || echoSix.PID != echoFive.PID || echoSix.Generation <= echoFive.Generation+1 {
 		return nil, fmt.Errorf("after the unknown publication was reconciled echo = %#v, %v; want process %d in a generation after %d", echoSix, err, echoFive.PID, echoFive.Generation+1)
 	}
+	sourceRecovery, err := harnessSourceRecovery(ctx, repoRoot, appRoot, home, started.LogPath, echoSource, echoSix, call, waitFor)
+	if err != nil {
+		return nil, fmt.Errorf("source recovery: %w", err)
+	}
 	stockLinks, err := harnessProcessModelStockOnly(started.LogPath)
 	if err != nil {
 		return nil, err
 	}
+	telemetry, err := telemetryreport.Build(telemetryreport.Options{AgentHome: home})
+	if err != nil {
+		return nil, err
+	}
+	if telemetry.Builds.FirstResponse.PercentileSampleCount < 2 {
+		return nil, fmt.Errorf("first-response telemetry covered %d rebuilt generations, want at least two", telemetry.Builds.FirstResponse.PercentileSampleCount)
+	}
 	return map[string]any{
+		"source_recovery":                           sourceRecovery,
+		"first_response_telemetry":                  telemetry.Builds.FirstResponse,
 		"unknown_publication_reconciled_generation": echoSix.Generation,
 		"stock_entrypoint_links":                    stockLinks,
 		"host_pids":                                 []int{host, replacedHost, takeoverHost},

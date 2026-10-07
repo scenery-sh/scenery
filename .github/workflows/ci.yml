@@ -3,6 +3,7 @@ name: CI
 "on":
   pull_request:
   push:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,6 +31,28 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - name: Record CI identity
+        env:
+          CI_CONTEXT: |
+            {"repository":${{ toJSON(github.repository) }},"sha":${{ toJSON(github.sha) }},"workflow":${{ toJSON(github.workflow) }},"event_name":${{ toJSON(github.event_name) }},"run_id":${{ toJSON(github.run_id) }},"run_attempt":${{ toJSON(github.run_attempt) }},"server_url":${{ toJSON(github.server_url) }}}
+        run: |
+          mkdir -p .scenery/harness
+          python3 - <<'PY'
+          import json, os
+          context = json.loads(os.environ['CI_CONTEXT'])
+          evidence = {key: context[source] for key, source in {'repository':'repository', 'commit':'sha', 'workflow':'workflow', 'event':'event_name', 'run_id':'run_id'}.items()}
+          evidence.update(job='verify', attempt=int(context['run_attempt']), url=f"{context['server_url']}/{context['repository']}/actions/runs/{context['run_id']}")
+          with open('.scenery/harness/ci-context.json', 'w') as output:
+              json.dump(evidence, output)
+          PY
+
+      - name: Prepare offline probe dependencies
+        run: |
+          probe_module="$(mktemp -d)"
+          trap 'rm -rf "$probe_module"' EXIT
+          cp go.mod go.sum "$probe_module/"
+          go -C "$probe_module" mod download all
+
       - name: Check formatting
         run: |
           files="$(gofmt -l $(git ls-files '*.go'))"
@@ -41,3 +64,21 @@ jobs:
       - name: Verify repository
         run: go run ./scripts/verify --summary --write
 
+      - name: Verify JavaScript lanes
+        if: ${{ !cancelled() }}
+        run: go run ./scripts/verify --probe ui --probe assistant-helper --summary --write
+
+      - name: Verify prepared native reference lane
+        if: ${{ !cancelled() }}
+        run: go run ./scripts/verify --probe native-contract --summary --write
+
+      - name: Retain verification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: verification-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .scenery/harness/runs/
+            .scenery/harness/artifacts/
+          include-hidden-files: true
+          if-no-files-found: warn

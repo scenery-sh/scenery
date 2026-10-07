@@ -55,7 +55,9 @@ type StepResult struct {
 	// Started is when the step began executing.
 	Started time.Time
 	// Duration covers command execution and artifact writing.
-	Duration time.Duration
+	Duration          time.Duration
+	ExecutionDuration time.Duration
+	ArtifactDuration  time.Duration
 	// Command and CWD echo the executed plan step.
 	Command []string
 	CWD     string
@@ -114,25 +116,29 @@ func runStep(ctx context.Context, plan ResolvedPlan, step PlanStep, run StepRunn
 	started := time.Now()
 	var stdout, stderr bytes.Buffer
 	err := run(ctx, step, &stdout, &stderr)
+	executionDuration := time.Since(started)
+	reportStarted := time.Now()
 	var artifacts []OutputArtifact
 	var diagnostics []Diagnostic
 	if writeArtifacts != nil {
 		artifacts, diagnostics = writeArtifacts(step.Name, stdout.Bytes(), stderr.Bytes())
 	}
 	res := StepResult{
-		ID:        step.ID,
-		Name:      step.Name,
-		Kind:      step.Kind,
-		Profile:   step.Profile,
-		OK:        err == nil,
-		Started:   started,
-		Duration:  time.Since(started),
-		Command:   append([]string(nil), step.Command...),
-		CWD:       firstNonEmpty(step.CWD, plan.App.Root),
-		Stdout:    stdout.String(),
-		Stderr:    stderr.String(),
-		Err:       err,
-		Artifacts: artifacts,
+		ID:                step.ID,
+		Name:              step.Name,
+		Kind:              step.Kind,
+		Profile:           step.Profile,
+		OK:                err == nil,
+		Started:           started,
+		Duration:          time.Since(started),
+		ExecutionDuration: executionDuration,
+		ArtifactDuration:  time.Since(reportStarted),
+		Command:           append([]string(nil), step.Command...),
+		CWD:               firstNonEmpty(step.CWD, plan.App.Root),
+		Stdout:            stdout.String(),
+		Stderr:            stderr.String(),
+		Err:               err,
+		Artifacts:         artifacts,
 	}
 	if len(diagnostics) > 0 {
 		res.Error = diagnostics[0].Message

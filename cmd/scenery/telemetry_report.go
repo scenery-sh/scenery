@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -41,7 +42,24 @@ func runTelemetryReportCommand(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	report, err := telemetryreport.Build(telemetryReportBuildOptions(opts, telemetryPath, paths.Home))
+	build := telemetryReportBuildOptions(opts, telemetryPath, paths.Home)
+	entries, liveErr := inspectWorktreeOwners(context.Background(), "")
+	build.LiveStateChecked = liveErr == nil
+	if liveErr != nil {
+		build.LiveStateUnavailable++
+	}
+	for _, entry := range entries {
+		if entry.Status == "unavailable" || entry.Status == "incompatible-or-invalid" {
+			build.LiveStateUnavailable++
+		}
+		for _, block := range entry.BuildBlocks {
+			build.ActiveBlocks = append(build.ActiveBlocks, telemetryreport.BuildBlock{
+				AppRoot: entry.AppRoot, Reason: block.Reason, Cause: block.Cause,
+				Since: block.Since.UTC().Format(time.RFC3339Nano), PreventedBuilds: block.PreventedBuilds,
+			})
+		}
+	}
+	report, err := telemetryreport.Build(build)
 	if err != nil {
 		return err
 	}
@@ -131,7 +149,7 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		return fmt.Sprintf("%dms", *value)
 	}
 	timing := func(name string, t telemetryreport.Timing) []string {
-		return []string{name, fmt.Sprint(t.Count), fmt.Sprintf("failed %d", t.FailureCount), "p50 " + ms(t.P50MS), "p95 " + ms(t.P95MS)}
+		return []string{name, fmt.Sprint(t.Count), fmt.Sprintf("failed %d", t.FailureCount), fmt.Sprintf("successful n=%d", t.PercentileSampleCount), "p50 " + ms(t.P50MS), "p95 " + ms(t.P95MS)}
 	}
 	line("Scenery telemetry report, %s to %s", firstNonEmpty(report.Window.Since, "the first record"), report.Window.Until)
 	sources := fmt.Sprintf("Sources: %d CLI records, %d supervisor logs", report.Sources.CLIRecords, report.Sources.SupervisorLogs)
@@ -141,6 +159,10 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		sources += "; agent transcripts not read (--agent-transcripts)"
 	}
 	line("%s.", sources)
+	for _, source := range report.Sources.CLI {
+		line("  CLI %s (%s, archived=%t): retained %d, in window %d, duplicate invocations %d, invalid %d; %s to %s.", source.Path, source.Status, source.Archived, source.Records, source.InWindow, source.Duplicates, source.Invalid, firstNonEmpty(source.First, "unknown"), firstNonEmpty(source.Last, "unknown"))
+	}
+	line("  Identified overlaps are counted once (active file wins); legacy rows without invocation identity are retained separately.")
 	if incomplete := report.Sources.SupervisorLogsFailed + report.Sources.SupervisorLogsPartial; incomplete > 0 {
 		line("  %d supervisor logs unreadable or read in part; %d invalid event records skipped.", incomplete, report.Sources.SupervisorInvalid)
 	}
@@ -166,11 +188,50 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		}
 	}
 	table(rows)
-	for index, cause := range builds.Failures {
-		if index == 5 {
-			break
+	if len(builds.StartupPhases) > 0 {
+		line("Startup phases (%s)", builds.PhaseBoundary)
+		phaseRows := [][]string{}
+		for _, phase := range builds.StartupPhases {
+			phaseRows = append(phaseRows, timing(phase.Step, phase.Timing))
 		}
-		line("  %5d× %s", cause.Count, cause.Name)
+		table(phaseRows)
+	}
+	for _, health := range builds.ObservabilityStates {
+		line("  observability %s: %d observations", health.Name, health.Count)
+	}
+	for _, cache := range builds.CacheWork {
+		line("  cache %s / %s / %s (%s): %d samples, %.1fms accumulated, %d files hashed, %d reused", cache.Layer, cache.EditClass, cache.Cache, cache.Reason, cache.Samples, cache.AccumulatedMS, cache.FilesHashed, cache.FilesReused)
+	}
+	line("  Superseded %d; transaction waits %d; deferred candidates %d; blocked rebuilds prevented %d.", builds.Superseded, builds.TransactionWaits, builds.DeferredCandidates, builds.PreventedBuilds)
+	for _, stage := range []struct {
+		name   string
+		causes []telemetryreport.Count
+	}{{"initial failure", builds.InitialFailures}, {"rebuild failure", builds.RebuildFailures}, {"unstarted/rejected work", builds.UnstartedErrors}} {
+		for _, cause := range stage.causes {
+			line("  %s %5d× %s", stage.name, cause.Count, cause.Name)
+		}
+	}
+	if len(builds.Worktrees) > 0 {
+		line("Worktrees")
+		rows = nil
+		for _, worktree := range builds.Worktrees {
+			rows = append(rows, timing(worktree.AppRoot+" rebuilds", worktree.Rebuilds), timing("  initial builds", worktree.Initial))
+		}
+		table(rows)
+	}
+	if builds.FirstResponse.Count > 0 {
+		line("  Passive captured-change to first attested headers: n=%d; includes waiting for traffic and accepted 2xx–4xx responses.", builds.FirstResponse.PercentileSampleCount)
+		if builds.FirstResponse.Count == 1 {
+			line("  Single observed interval: %s; successful business-request latency requires a controlled request.", ms(builds.FirstResponse.P50MS))
+		} else {
+			table([][]string{timing("change to first headers", builds.FirstResponse)})
+		}
+	}
+	if len(builds.HeaderObservations) > 0 {
+		line("  Attested header events: %d observed, %d retained; initial events are excluded from the rebuild interval aggregate.", builds.HeaderObservationCount, len(builds.HeaderObservations))
+		for _, event := range builds.HeaderObservations {
+			line("    %s generation %d initial=%t HTTP %d: %dms from captured source; %s", event.At.UTC().Format(time.RFC3339Nano), event.Generation, event.Initial, event.Status, event.DurationMS, event.AppRoot)
+		}
 	}
 	cli := report.CLI
 	line("")
@@ -181,6 +242,22 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 			break
 		}
 		rows = append(rows, timing(command.Command, command.Timing))
+	}
+	table(rows)
+	line("CLI apps and purposes")
+	rows = nil
+	for _, app := range cli.Apps {
+		rows = append(rows, timing(app.ID+" ("+app.Name+")", app.Timing))
+	}
+	table(rows)
+	for _, purpose := range cli.Purposes {
+		line("  purpose %s: %d", purpose.Name, purpose.Count)
+	}
+	line("CLI cohorts (app / purpose / producer / dirty / command / measurement)")
+	rows = nil
+	for _, cohort := range cli.Cohorts {
+		name := fmt.Sprintf("%s / %s / %s / %s / %s / %s", firstNonEmpty(cohort.AppID, "unattributed"), cohort.Purpose, cohort.Producer, cohort.Dirty, cohort.Command, cohort.Measurement)
+		rows = append(rows, timing(name, cohort.Timing))
 	}
 	table(rows)
 	if agents := report.Agents; agents != nil {

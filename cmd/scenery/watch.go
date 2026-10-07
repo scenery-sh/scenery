@@ -27,6 +27,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/localproxy"
+	"scenery.sh/internal/rotatinglog"
 	"scenery.sh/internal/watchignore"
 )
 
@@ -370,7 +371,17 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	}
 	defer stopParentMonitor()
 
-	console := newRunConsole(os.Stdout, os.Stderr, verbose, jsonMode, cfg.AppID(), root)
+	var logWriter *rotatinglog.Writer
+	var output, errorOutput io.Writer = os.Stdout, os.Stderr
+	if detachedDevChildMode() {
+		logWriter, err = rotatinglog.Open(envpolicy.Get(detachedDevChildEnv))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = logWriter.Close() }()
+		output, errorOutput = logWriter, logWriter
+	}
+	console := newRunConsole(output, errorOutput, verbose, jsonMode, cfg.AppID(), root)
 	defer func() {
 		if _, handoff := errors.AsType[*frameworkHandoff](runErr); handoff {
 			console.Finish(runErr)
@@ -383,6 +394,12 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		}
 	}()
 
+	ctx = context.WithValue(ctx, workspaceWaitObserverKey{}, func(event, cause string) {
+		console.Event(event, map[string]any{"reason": "workspace_transaction_active", "cause": cause})
+	})
+	if err := waitForWorkspaceRead(ctx, root); err != nil {
+		return err
+	}
 	preparedSession, err := prepareDevAgentSessionDetailed(ctx, root, cfg, resolvedEnv, listen, console)
 	if err != nil {
 		if preparedSession != nil && preparedSession.Cleanup != nil {
@@ -411,6 +428,11 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		restoreAgentEnv = func() {}
 	}
 	defer restoreAgentEnv()
+	if logWriter != nil {
+		if err := rotatinglog.Prune(envpolicy.Get(detachedDevChildEnv)); err != nil {
+			console.Event("log.retention_error", map[string]any{"error": err.Error()})
+		}
+	}
 
 	snapshot, err := preparedSession.Owner.startupScan.wait()
 	preparedSession.Owner.startupScan = nil
@@ -422,6 +444,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	if err != nil {
 		return err
 	}
+	preparedSession.Owner.dashboard.bindServingSupervisor(supervisor)
 	supervisor.devDomainURL = preparedSession.DomainURL
 	supervisor.invocationEnvironment = preparedSession.Environment
 	supervisor.worktreeControlPaths = &preparedSession.Paths
@@ -464,16 +487,21 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		startUICatalogDevSync(ctx, console, supervisor, root, uiCatalogDir, resolvedEnv)
 	}
 
-	if err := supervisor.RebuildAndRestart(ctx, true, &snapshot); err != nil {
+	ctx = context.WithValue(ctx, watchSourceOwnerKey{}, true)
+	if err := rebuildAfterTransaction(ctx, supervisor, true, &snapshot); err != nil {
 		snapshot.retryGenerated = true
-		err = preserveCLIDiagnostic(err)
-		err = startup.Report(err)
-		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
-		// Detached children fail fast so the waiting parent reports the build
-		// error instead of hanging until its readiness timeout. Interactive
-		// runs keep watching, as InitialBuildFailed just promised.
-		if detachedDevChildMode() {
-			return err
+		if errors.Is(err, errBuildSuperseded) {
+			supervisor.console.RebuildFailed(err)
+		} else {
+			err = preserveCLIDiagnostic(err)
+			err = startup.Report(err)
+			supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
+			// Detached children fail fast so the waiting parent reports the build
+			// error instead of hanging until its readiness timeout. Interactive
+			// runs keep watching, as InitialBuildFailed just promised.
+			if detachedDevChildMode() {
+				return err
+			}
 		}
 	} else {
 		if err := acceptGeneratedSnapshot(root, &snapshot); err != nil {
@@ -499,6 +527,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
+			}
+			var lost *watchSourceLostError
+			if errors.As(err, &lost) {
+				supervisor.console.Event("source.lost", map[string]any{"reason": "source_missing", "cause": lost.Error(), "retained_data": true})
 			}
 			return err
 		}
@@ -531,7 +563,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			}
 		}
 		supervisor.announceRebuild(appPaths)
-		if err := supervisor.RebuildAndRestart(ctx, false, &snapshot); err != nil {
+		if err := rebuildAfterTransaction(context.WithValue(ctx, devEditClassKey{}, classifyEditPaths(appPaths)), supervisor, false, &snapshot); err != nil {
 			snapshot.retryGenerated = true
 			supervisor.console.RebuildFailed(err)
 		} else {

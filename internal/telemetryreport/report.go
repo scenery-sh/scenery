@@ -29,6 +29,10 @@ type Options struct {
 	// after "scenery" in an agent's shell command counts as an invocation only
 	// when it names one of these commands.
 	CommandFamilies map[string][]string
+	// ActiveBlocks are supplied only after the CLI verifies each live owner.
+	ActiveBlocks         []BuildBlock
+	LiveStateChecked     bool
+	LiveStateUnavailable int
 }
 
 // Report is the aggregate result. Every list is ordered most significant first.
@@ -50,7 +54,12 @@ type Window struct {
 // not be read, or was read only in part, is counted rather than silently
 // missing from the aggregates.
 type Sources struct {
-	CLIRecords int `json:"cli_records"`
+	Supervisor           []SupervisorFileCoverage `json:"supervisor_files"`
+	CLI                  []CLIFileCoverage        `json:"cli_files"`
+	SupervisorRotated    int                      `json:"supervisor_rotated_sessions"`
+	LiveStateChecked     bool                     `json:"live_state_checked"`
+	LiveStateUnavailable int                      `json:"live_state_unavailable"`
+	CLIRecords           int                      `json:"cli_records"`
 	// CLIInvalid counts CLI telemetry lines that are no record, including
 	// lines longer than the reader keeps.
 	CLIInvalid     int `json:"cli_invalid_records"`
@@ -79,10 +88,11 @@ type Finding struct {
 // the nearest-rank percentiles describe the successful ones. A percentile is
 // null when no attempt succeeded.
 type Timing struct {
-	Count        int    `json:"count"`
-	FailureCount int    `json:"failure_count"`
-	P50MS        *int64 `json:"p50_ms"`
-	P95MS        *int64 `json:"p95_ms"`
+	PercentileSampleCount int    `json:"percentile_sample_count"`
+	Count                 int    `json:"count"`
+	FailureCount          int    `json:"failure_count"`
+	P50MS                 *int64 `json:"p50_ms"`
+	P95MS                 *int64 `json:"p95_ms"`
 }
 
 type timingAccumulator struct {
@@ -101,7 +111,7 @@ func (a *timingAccumulator) add(durationMS int64, ok bool) {
 
 func (a *timingAccumulator) timing() Timing {
 	p := percentiles(a.durations, 50, 95)
-	return Timing{Count: a.count, FailureCount: a.failures, P50MS: p[0], P95MS: p[1]}
+	return Timing{PercentileSampleCount: len(a.durations), Count: a.count, FailureCount: a.failures, P50MS: p[0], P95MS: p[1]}
 }
 
 // percentiles returns nearest-rank percentiles of values from one sorted
@@ -175,12 +185,17 @@ func Build(opts Options) (Report, error) {
 	}
 	report.CLI = cli
 	report.Sources.CLIRecords, report.Sources.CLIInvalid = cli.Records, cli.invalid
+	report.Sources.CLI = cli.files
 	builds, err := readBuilds(opts)
 	if err != nil {
 		return Report{}, err
 	}
 	report.Builds = builds
+	report.Sources.Supervisor = builds.coverage
+	report.Sources.LiveStateChecked = opts.LiveStateChecked
+	report.Sources.LiveStateUnavailable = opts.LiveStateUnavailable
 	report.Sources.SupervisorLogs = builds.logs
+	report.Sources.SupervisorRotated = builds.rotatedLogs
 	report.Sources.SupervisorLogsPartial, report.Sources.SupervisorLogsFailed, report.Sources.SupervisorInvalid = builds.partialLogs, builds.failedLogs, builds.invalidRecords
 	if opts.AgentTranscripts {
 		agents, err := readAgents(opts)

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,8 @@ func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
 		{errors.New("invalid_request: malformed change"), 2},
 		{errors.New("revision_conflict: stale graph"), 3},
 		{errors.New("failed_precondition: stale plan"), 3},
+		{&pendingMigrationError{Service: "projects"}, 3},
+		{&compiler.MissingAppError{Root: "/missing-app"}, 2},
 		{errors.New("capability_unavailable: provider missing"), 4},
 		{errors.New("permission_denied: approval missing"), 5},
 		{errors.New("internal: compiler panic"), 10},
@@ -351,6 +354,8 @@ func TestContractJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
 		{err: errors.New("invalid_request: malformed request"), wantCode: "SCN8001"},
 		{err: errors.New("revision_conflict: stale graph"), wantCode: "SCN8002"},
 		{err: errors.New("failed_precondition: stale plan"), wantCode: "SCN8003"},
+		{err: preserveCLIDiagnostic(fmt.Errorf("build: %w", &pendingMigrationError{Service: "projects"})), wantCode: "SCN8003"},
+		{err: fmt.Errorf("compile: %w", &compiler.MissingAppError{Root: "/app"}), wantCode: "SCN8001"},
 		{err: errors.New("capability_unavailable: provider missing"), wantCode: "SCN8004"},
 		{err: errors.New("permission_denied: approval missing"), wantCode: "SCN8005"},
 		{err: errors.New("internal: compiler invariant"), wantCode: "SCN9000", wantReport: true},

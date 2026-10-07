@@ -38,7 +38,7 @@ func harnessTestBinaryTimingFromResult(result testsuite.Result) *harnessTestBina
 		ListSeconds:           roundSeconds(result.Prepare.ListElapsed.Seconds()),
 		AggregateBuildSeconds: roundSeconds(result.Prepare.AggregateBuildElapsed().Seconds()),
 		BuildParallelism:      result.BuildParallelism,
-		BuiltCount:            len(result.Prepare.Builds),
+		BuiltCount:            result.BuiltCount,
 		TestPackageCount:      result.TestPackageCount,
 	}
 	for _, build := range result.Prepare.Builds {
@@ -46,24 +46,44 @@ func harnessTestBinaryTimingFromResult(result testsuite.Result) *harnessTestBina
 			Package: build.Package,
 			BuildID: build.BuildID,
 			Seconds: roundSeconds(build.Elapsed.Seconds()),
+			Outcome: build.Outcome,
+			Error:   build.Error,
 		})
 	}
 	return timing
 }
 
-// readHarnessTimingBaseline loads the previous run's report. A missing or
-// unreadable artifact is not an error: without a baseline every candidate is
-// new, which is the conservative direction.
-func readHarnessTimingBaseline(repoRoot string) *harnessTestTimingReport {
-	report, err := readHarnessJSON[harnessTestTimingReport](filepath.Join(repoRoot, ".scenery", "harness", "test-timing-latest.json"))
-	if err != nil {
+// Only an immutable, complete fresh run in the same cohort can defer work.
+// A cached or interrupted run never displaces this history.
+func readHarnessTimingBaseline(repoRoot string, current *harnessTestTimingReport) *harnessTestTimingReport {
+	entries, err := os.ReadDir(filepath.Join(repoRoot, ".scenery", "harness", "runs"))
+	if err != nil || current == nil || current.Budgets.Lane != "fresh" {
 		return nil
 	}
 	identity := newCLIPayloadIdentity(harnessTestTimingKind)
-	if report.Kind != identity.Kind || report.SchemaRevision != identity.SchemaRevision {
-		return nil
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		path := filepath.Join(".scenery", "harness", "runs", entry.Name(), "self.json")
+		run, err := readHarnessJSON[harnessSelfResponse](filepath.Join(repoRoot, path))
+		if err != nil || !run.OK || run.Run == nil || !run.Run.InputsStable || run.TestTiming == nil {
+			continue
+		}
+		prior := run.TestTiming
+		if prior.Kind != identity.Kind || prior.SchemaRevision != identity.SchemaRevision || !prior.Discovery.Complete || prior.Discovery.ReplayedPackages != 0 || prior.Budgets.Lane != "fresh" {
+			continue
+		}
+		oldContext, context := prior.Context, current.Context
+		oldContext.CI, context.CI = nil, nil
+		if oldContext != context {
+			continue
+		}
+		current.BaselineRun, current.BaselineArtifact = prior.RunID, filepath.ToSlash(path)
+		return prior
 	}
-	return &report
+	return nil
 }
 
 // selectHarnessTimingConfirmations narrows the confirmation pass to candidates

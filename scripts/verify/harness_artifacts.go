@@ -5,6 +5,7 @@ import "scenery.sh/internal/harnessevidence"
 var annotateHarnessEvidence = harnessevidence.Annotate
 var exitCodeFromError = harnessevidence.ExitCode
 var finalizeHarnessEvidence = harnessevidence.Finalize
+
 type harnessArtifactContext = harnessevidence.Context
 
 const harnessArtifactEvidenceKind = harnessevidence.Kind

@@ -73,8 +73,9 @@ their Google account; never copy plaintext into the ciphertext columns.
 
    The command prompts for the secret; do not put it in the command line or this
    runbook. Standard auth ignores the former `JWT_SECRET` process variable.
-   Refresh-cookie naming is not configurable: only `scenery_refresh` is accepted,
+   Refresh-cookie naming is not configurable: deployed runtimes accept only `scenery_refresh`,
    so deployments using another cookie name require an explicit forced-login migration.
+   (Local runtimes use `scenery_refresh_<host>_<port>`; see `docs/local-contract.md`.)
 5. Bootstrap the target schema on a copy of production first:
 
    ```sh
@@ -531,7 +532,7 @@ If cutover fails after traffic moves:
 ## Notes
 
 - Password hashes are copied as opaque strings. scenery verifies Argon2id hashes and can upgrade hash parameters on successful login.
-- Refresh-session preservation requires the same token shape and the canonical `scenery_refresh` cookie name. Other cookie names are not accepted and require users to log in again.
+- Refresh-session preservation requires the same token shape and the canonical `scenery_refresh` cookie name in deployed environments. Other cookie names are not accepted and require users to log in again.
 - Access JWTs only survive cutover if the target environment's `auth.jwt_secret`
   holds the same signing secret and the claims are compatible. Otherwise users
   need refresh or login.

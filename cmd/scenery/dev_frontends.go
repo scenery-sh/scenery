@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -32,8 +33,9 @@ type managedFrontendProcess struct {
 	Static  *staticFrontendServer
 	LogFile *os.File
 
-	ownerMu sync.RWMutex
-	owner   localagent.Owner
+	ownerMu   sync.RWMutex
+	owner     localagent.Owner
+	readiness []frontendReadiness
 }
 
 type packageJSONForFrontend struct {
@@ -822,11 +824,28 @@ func waitForManagedFrontend(ctx context.Context, process *managedFrontendProcess
 	if process == nil || process.Process == nil {
 		return fmt.Errorf("managed frontend did not start")
 	}
+	started := time.Now()
+	listening := false
 	if err := process.Process.WaitReady(ctx, devProcessReadyRequest{
 		Timeout:  managedFrontendStartupTimeout,
 		Interval: 100 * time.Millisecond,
-		Probe: func(context.Context) error {
+		Probe: func(probeContext context.Context) error {
 			if tcpAddrAcceptsConnections(process.Addr) {
+				if !listening {
+					process.recordReadiness("listening", "ready", "", started)
+					listening = true
+				}
+				count, err := probeFrontendHTTP(probeContext, process.Addr, &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }})
+				if err != nil {
+					return err
+				}
+				process.recordReadiness("representative_route", "ready", "GET /", started)
+				outcome := "ready"
+				if count == 0 {
+					outcome = "not_declared"
+				}
+				process.recordReadiness("client_modules", outcome, fmt.Sprintf("%d same-origin script modules", count), started)
+				process.recordReadiness("render_hmr_interaction", "not_measured", "requires native browser evidence", started)
 				return nil
 			}
 			return fmt.Errorf("frontend %s is not accepting TCP connections on %s", process.Name, process.Addr)

@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	scenery "scenery.sh"
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/errs"
 )
@@ -72,7 +74,9 @@ type EmailLoginParams struct {
 }
 
 type RefreshParams struct {
-	RefreshToken string `cookie:"scenery_refresh"`
+	// RefreshToken is resolved from the runtime's refresh cookie when empty;
+	// see refreshCookieName.
+	RefreshToken string
 }
 
 type PasswordResetRequestParams struct {
@@ -295,7 +299,7 @@ func (s *Service) createAuthSessionResponse(ctx context.Context, q authdb.Querie
 
 func refreshCookie(value string, expiresAt time.Time) string {
 	cookie := (&http.Cookie{
-		Name:     refreshCookieName,
+		Name:     refreshCookieName(),
 		Value:    strings.TrimSpace(value),
 		Path:     refreshCookiePath(requestHeaders()),
 		Expires:  expiresAt,
@@ -312,7 +316,7 @@ func refreshCookie(value string, expiresAt time.Time) string {
 
 func clearRefreshCookie() string {
 	cookie := (&http.Cookie{
-		Name:     refreshCookieName,
+		Name:     refreshCookieName(),
 		Value:    "",
 		Path:     refreshCookiePath(requestHeaders()),
 		Expires:  time.Unix(0, 0),
@@ -325,6 +329,40 @@ func clearRefreshCookie() string {
 		cookie += "; Domain=" + domain
 	}
 	return cookie
+}
+
+// refreshCookieName returns the refresh cookie name issued and accepted by
+// this runtime. Browsers key cookies by host and path and ignore the port, so
+// two local runtimes on different localhost ports would otherwise replace each
+// other's refresh cookie and sign each other out. Local runtimes scope the
+// name by the host and port of their public base URL; deployed runtimes keep
+// the canonical name.
+func refreshCookieName() string {
+	if !isLocalRuntime() {
+		return canonicalRefreshCookieName
+	}
+	meta := scenery.Meta()
+	if meta == nil {
+		return canonicalRefreshCookieName
+	}
+	return scopedRefreshCookieName(meta.APIBaseURL)
+}
+
+func scopedRefreshCookieName(baseURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || parsed.Host == "" {
+		return canonicalRefreshCookieName
+	}
+	scope := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		}
+		return '_'
+	}, parsed.Host)
+	return canonicalRefreshCookieName + "_" + scope
 }
 
 func refreshCookiePath(headers http.Header) string {

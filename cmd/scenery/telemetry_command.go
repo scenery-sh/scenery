@@ -83,6 +83,9 @@ type telemetryResponse struct {
 }
 
 func runTelemetryCommand(stdout io.Writer, args []string) error {
+	if len(args) > 0 && args[0] == "export" {
+		return runTelemetryBundleCommand(stdout, args[1:])
+	}
 	if len(args) > 0 && args[0] == "report" {
 		return runTelemetryReportCommand(stdout, args[1:])
 	}
@@ -246,7 +249,9 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 		}
 		addTelemetryTiming(&measurementGroup.telemetryTimingStats, record)
 
-		if len(percentileSamples) < maximumTelemetryLimit {
+		if record.ExitCode != 0 {
+			// Failures count as attempts but never as successful latency samples.
+		} else if len(percentileSamples) < maximumTelemetryLimit {
 			percentileSamples = append(percentileSamples, record)
 		} else {
 			percentileSamples[nextPercentileSample] = record

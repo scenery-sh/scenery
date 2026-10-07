@@ -51,6 +51,9 @@ func harnessProbeCatalog() []harnessProbe {
 			return runHarnessPostgresProbeStep(ctx, root, true)
 		}),
 		{id: "ui", run: runHarnessUIProbe},
+		{id: "frontend", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
+			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, root, "frontend readiness and production rebuild probe", []string{"go", "test", "-tags=scenery_frontend_integration", "./cmd/scenery", "-run=^TestFrontendReadinessIntegration$", "-v", "-count=1"}, artifacts))
+		}},
 		{id: "fixtures", run: func(ctx context.Context, root string, resp *harnessSelfResponse, _ harnessArtifactContext) {
 			step, matrix := runHarnessFixtureMatrixStep(ctx, root)
 			resp.FixtureMatrix = matrix
@@ -66,7 +69,7 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("agent-restart", runHarnessAgentRestartProbeStep),
 		harnessSingleProbe("assistant-init", runHarnessAssistantInitProbeStep),
 		harnessSingleProbe("assistant-runtime", runHarnessAssistantProductionProbeStep),
-		harnessSingleProbe("assistant-helper", runHarnessAssistantHelperProbeStep),
+		{id: "assistant-helper", run: runHarnessAssistantHelperProbe},
 		harnessSingleProbe("assistant-journey", runHarnessAssistantJourneyProbeStep),
 		harnessSingleProbe("build-info", runHarnessBuildInfoProbeStep),
 		harnessSingleProbe("cli-process", runHarnessCLIProcessProbeStep),
@@ -81,19 +84,33 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("worktree-git", runHarnessWorktreeGitProbeStep),
 		harnessSingleProbe("edge", runHarnessEdgeProcessProbeStep),
 		harnessSingleProbe("generation", runHarnessGenerationCompileProbeStep),
-		harnessSingleProbe("native-contract", runHarnessNativeContractApplicationProbeStep),
+		{id: "native-contract", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
+			resp.Steps = append(resp.Steps, runHarnessNativeContractApplicationProbeStepWithCheck(ctx, root, func(ctx context.Context, root string) (map[string]any, []checkDiagnostic, error) {
+				return runHarnessNativeContractApplicationProbeCheckWithArtifacts(ctx, root, artifacts)
+			}))
+		}},
 		harnessSingleProbe("snapshot-backup", runHarnessSnapshotBackupProbeStep),
 		harnessSingleProbe("typescript", runHarnessTypeScriptCheckerProbeStep),
 		harnessSingleProbe("code-task", runHarnessCodeTaskProcessProbeStep),
-		harnessSingleProbe("observability", runHarnessObservabilityProbeStep),
+		{id: "observability", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
+			resp.Steps = append(resp.Steps, runHarnessObservabilityProbeStepWithArtifacts(ctx, root, artifacts))
+		}},
 		harnessSingleProbe("victoria", runHarnessVictoriaProcessProbeStep),
 		harnessSingleProbe("desktop", runHarnessDesktopProcessProbeStep),
 		harnessSingleProbe("deploy-ssh", runHarnessDeploySSHProcessProbeStep),
 		harnessSingleProbe("configuration", configurationProbeStep("environment configuration probe", runHarnessConfigurationProbe)),
 		harnessSingleProbe("configuration-secrets", configurationProbeStep("environment configuration secrets probe", runHarnessConfigurationSecretsProbe)),
 		harnessSingleProbe("configuration-deploy", configurationProbeStep("environment configuration deploy probe", runHarnessConfigurationDeployProbe)),
-		harnessSingleProbe("validation-git", runHarnessValidationGitProbeStep),
-		harnessSingleProbe("test-cache", runHarnessTestsuiteCacheProbeStep),
+		{id: "validation-git", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
+			resp.Steps = append(resp.Steps, runHarnessValidationGitProbeStepWithCheck(ctx, root, func(ctx context.Context, root string) (map[string]any, []checkDiagnostic, error) {
+				return runHarnessValidationGitProbeCheckWithArtifacts(ctx, root, artifacts)
+			}))
+		}},
+		{id: "test-cache", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
+			resp.Steps = append(resp.Steps, runHarnessTestsuiteCacheProbeStepWithCheck(ctx, root, func(ctx context.Context, root string) (map[string]any, []checkDiagnostic, error) {
+				return runHarnessTestsuiteCacheProbeCheckWithArtifacts(ctx, root, artifacts)
+			}))
+		}},
 	}
 }
 
@@ -133,8 +150,10 @@ func runHarnessUIProbe(ctx context.Context, repoRoot string, resp *harnessSelfRe
 	}
 	tsc := filepath.Join(toolingRoot, "node_modules", ".bin", "tsc")
 	resp.Steps = append(resp.Steps,
-		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts", "internal/generate/testdata/dev_runtime_client.test.ts"}, artifactCtx),
-		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{tsc, "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
-		runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{tsc, "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
+		runHarnessBunStep(ctx, repoRoot, "Scenery TypeScript client conformance", javascriptStageFiles("client"), nil, artifactCtx),
+		runHarnessBunStep(ctx, repoRoot, "Scenery table behavior guards", javascriptStageFiles("table"), nil, artifactCtx),
+		runHarnessBunStep(ctx, repoRoot, "Scenery runtime identity checks", javascriptStageFiles("identity"), nil, artifactCtx),
+		runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{tsc, "--extendedDiagnostics", "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
+		runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{tsc, "--extendedDiagnostics", "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
 	)
 }

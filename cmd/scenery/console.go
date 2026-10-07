@@ -71,13 +71,13 @@ func (c *runConsole) Phase(title string, fn func() error) error {
 	started := time.Now()
 	if c.json {
 		c.Event("phase.start", map[string]any{
-			"title": title,
+			"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano),
 		})
 	}
 	err := fn()
 	if c.json {
 		data := map[string]any{
-			"title":       title,
+			"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano), "boundary": "phase wall interval; overlaps are not summed",
 			"ok":          err == nil,
 			"duration_ms": time.Since(started).Milliseconds(),
 		}
@@ -142,6 +142,10 @@ func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 }
 
 func (c *runConsole) RebuildFailed(err error) {
+	if errors.Is(err, errBuildSuperseded) {
+		c.Event("build.superseded", map[string]any{"operation_id": devBuildFailureOperation(err)})
+		return
+	}
 	if c.json && err != nil {
 		failure := map[string]any{
 			"stage":      "rebuild",
@@ -164,7 +168,7 @@ func (c *runConsole) BuildBlocked(block devBuildBlock) {
 	if c.json {
 		c.Event("build.blocked", map[string]any{
 			"reason": block.Reason, "cause": block.Cause,
-			"since": block.Since.Format(time.RFC3339), "prevented_builds": block.Prevented,
+			"since": block.Since.Format(time.RFC3339Nano), "prevented_builds": block.Prevented,
 		})
 		return
 	}
@@ -508,4 +512,8 @@ func (w *setupOutputWriter) emit(line []byte) {
 		return
 	}
 	w.console.SetupOutput(string(line), w.stream)
+}
+
+func localPhaseID(title string) string {
+	return strings.Join(strings.Fields(strings.ToLower(title)), "-")
 }

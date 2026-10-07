@@ -52,6 +52,22 @@ func TestCompactContextSeparatesCoverageRemainingAndConditionalProof(t *testing.
 		}
 	}
 	resp.Steps[1].OK = true
+	resp.Mode = harnessSelfModeProbe
+	resp.Steps = append(resp.Steps, harnessStep{Name: "verification isolation", OK: true, Command: strings.Fields(repoinfo.ValidationFullCommand)})
+	summary = buildHarnessAgentContextSummary(resp, contextPack)
+	for _, check := range summary.Checks {
+		if check.Command == repoinfo.ValidationFullCommand && check.Status == "covered" {
+			t.Fatal("probe reproduction command claimed full verification")
+		}
+	}
+	resp.Mode = harnessSelfModeDefault
+	resp.Steps[0].Command = harnessSelfGoTestCommandWithCacheMode(true)
+	summary = buildHarnessAgentContextSummary(resp, contextPack)
+	for _, check := range summary.Checks {
+		if (check.Command == "go test ./..." || check.Command == repoinfo.ValidationFullCommand) && check.Status != "covered" {
+			t.Fatalf("complete fresh suite was not covered: %+v", check)
+		}
+	}
 	run.InputsStable = false
 	summary = buildHarnessAgentContextSummary(resp, contextPack)
 	if summary.RepoChecksPassed {
