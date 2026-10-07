@@ -17,38 +17,41 @@ timing comparisons, and collect representative frontend evidence.
 - [x] 2026-10-07 Read the supplied follow-up, live source state and owner contracts.
 - [x] 2026-10-07 Read GitHub workflow metadata; the CI workflow is active.
 - [x] Assign every conventional JavaScript test an owning lane and select it in CI.
-- [ ] Obtain fresh remote CI execution after publishing final inputs.
+- [x] Obtain fresh remote CI execution after publishing final inputs.
 - [x] Preserve Go lifecycle timestamps, complete discovery and failed preparation.
 - [x] Archive application plans/results and export exact referenced run artifacts.
 - [x] Retain normalized Bun/Node case results and separate compiler/setup stages.
 - [x] Qualify durable timing baselines and expose verification freshness.
 - [x] Collect frontend readiness, edit/interaction and controlled rendering evidence.
-- [ ] Complete cumulative validation and required native probes; review all receipts.
+- [x] Complete cumulative validation and required native probes; review all receipts.
 
 ### Resume here
 
-2026-10-07: current native probes `20261007T025116.459149000Z` passed all seven
-selected boundaries including dev-process with verified cleanup. Fresh full
-`20261007T023112.713669000Z` passed correctness with complete native discovery:
-99 packages, 2,435 exact roots and 3,475 terminal cases, no replay/parser errors.
-It retained 7,880 isolated samples and 45 roots over 100 ms p95. One fixture-copy
-defect exposed by generated caches is repaired: selected twenty-process catalog
-confirmation `20261007T025756.111269Z` has 20 ms p95. Remaining timing findings
-are retained warnings, not performance acceptance. Resource benchmark
-`20261007T015701.970770000Z` passed all nine
-1/5/10-worktree cohorts, all twenty handler generations per worktree and verified
-owned cleanup with stable inputs. Backend edit benchmark
-`20261007T012505.495870000Z` passed correctness; candidate median/p95
-644.883/766.135 ms misses the observational 300/500 ms targets. Actual Bun/Node
-negative run `runner-failure/runs/20261007T022917.882257000Z/result.json` retains
-complete pass/fail/timeout/skip/todo evidence. The final controlled profiler has
-twenty measured samples and two warmups per configuration. Earlier native
-probe run `20261007T010243.139434000Z` and browser run
-`frontend-browser/runs/20261007T010401.279753Z/result.json` remain scoped proof;
-the latter records three component and three style HMR edits, three successful
-interactions and byte-identical restoration. Next: finish current cumulative
-proof, including dev-process after its resource-helper extraction, publish the
-final commit and verify remote CI. Preserve Plan 0215 and unrelated scratch.
+Completed 2026-10-07. Source commit `d2b16647305ef89adddcc3c24d334a37fdd24819`
+is published in draft PR 239. Push CI `37565690786` and pull-request CI
+`37565695714` passed. The downloaded push artifact has three stable-input
+immutable runs; its final verification record completes all eight required
+lanes. Full current local verification `20261007T031209.007204000Z`, the complete
+changed-area command union, lint, fixture generation, TypeScript checks,
+appconfig race/Linux vet and the named native boundaries passed. Both changed
+compiler roots additionally passed twenty isolated native confirmations with
+p95 52.388/52.012 ms (`compiler-confirmation/runs/20261007T031450.970960Z`).
+The final publication adds only this completion record and living indexes;
+require current-head CI for that commit too. Retain evidence in the bounded
+export and its ignored completion receipt, without reopening this history.
+
+Fresh native run `20261007T023112.713669000Z` retains complete discovery for
+99 packages, 2,435 roots and 3,475 terminals plus 7,880 isolated samples.
+Catalog confirmation `20261007T025756.111269Z` proves the fixture-copy repair at
+20 ms p95. The other recorded timing findings remain separate from correctness
+acceptance and are owned by the affected packages and plan 0145. Resource run
+`20261007T015701.970770000Z`, backend edit run `20261007T012505.495870000Z`,
+negative runner run `20261007T022917.882257000Z`, final profiler run
+`20261007T023021961Z`, browser run `20261007T010401.279753Z`, thirteen native
+boundaries `20261007T010243.139434000Z` and final dev-process proof
+`20261007T025116.459149000Z` remain qualified by their own input identities.
+All measured resources were cleaned up and consumer source edits restored.
+Plan 0215, retained data and unrelated scratch are preserved.
 
 ## Surprises & Discoveries
 
@@ -112,9 +115,11 @@ final commit and verify remote CI. Preserve Plan 0215 and unrelated scratch.
 
 ## Outcomes & Retrospective
 
-Implementation and representative measurements are complete; final cumulative
-validation and current-head remote CI remain open. Full fresh discovery is
-complete. The 45 original confirmed timing violations, fresh suite 18.472 s
+Implementation, representative measurements, cumulative validation and
+attributable current-head source CI are complete. Both push and pull-request CI
+passed; the retained artifact completes all eight lanes with matching commit,
+working-input identity and raw references. Failed CI attempts remain retained.
+Full fresh discovery is complete. The 45 original confirmed timing violations, fresh suite 18.472 s
 versus 5 s and 70 test binaries versus 60 remain explicit evidence; after the
 selected catalog repair, the other recorded violations are outside this
 instrumentation change's performance acceptance. Owners are the affected
