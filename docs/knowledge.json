@@ -2923,7 +2923,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Cumulative validation matrix, isolated verification/release descendants, explicit process probes and immutable input-bound evidence.",
+      "summary": "Cumulative validation matrix, isolated verification/release descendants, explicit process probes, serial Bun helper tests and immutable input-bound evidence.",
       "tags": [
         "harness",
         "agents",

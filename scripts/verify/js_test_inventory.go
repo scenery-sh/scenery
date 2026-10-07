@@ -26,7 +26,7 @@ func javascriptTestOwners() []javascriptTestOwner {
 		{"internal/generate/testdata/query_table_perf.test.tsx", "ui", "table", "tools/typescript dependencies"},
 		{"internal/generate/testdata/query_table_regressions.test.tsx", "ui", "table", "tools/typescript dependencies"},
 		{"internal/build/runtime_identity.test.ts", "ui", "identity", "Bun"},
-		{"internal/assistantadapter/eve/testdata/helper-protocol.test.mjs", "assistant-helper", "helper", "generated Eve overlay and Node"},
+		{"internal/assistantadapter/eve/testdata/helper-protocol.test.mjs", "assistant-helper", "helper", "generated Eve overlay and Bun"},
 		{"internal/compiler/testdata/native/typescript_reference_server.test.ts", "native-contract", "reference-server", "prepared live native application"},
 	}
 }

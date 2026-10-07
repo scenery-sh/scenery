@@ -214,7 +214,7 @@ release certification. Failed steps identify their focused rerun command.
 | `agent-restart` | Local-agent restart |
 | `assistant-init` | Assistant initialization |
 | `assistant-runtime` | Assistant production runtime |
-| `assistant-helper` | Generated Eve channel and connection under Node against a simulated Eve runtime that reproduces the observed provider behavior: a later run waits while a run is open and a late call of the open run keeps its run, an approval resolved in its original turn continues its run in a continuation turn while a later run waits and resolves only for that run, cancelling a queued run never sends it and cancelling a parked run denies its approvals, a turn without evidence is refused and unpublished, a refused send leaves no pending run, overlapping streams and tool calls share one history with contiguous sequences, a run cancelled after the provider accepted it but before its turn is bound is cancelled at that turn and executes nothing, a run the provider never starts ends at the next session boundary, a subscriber that leaves stops the reads made for it, and the connection resolves the gateway address supplied at start rather than one from its build |
+| `assistant-helper` | Generated Eve channel and connection under Bun against a simulated Eve runtime that reproduces the observed provider behavior: a later run waits while a run is open and a late call of the open run keeps its run, an approval resolved in its original turn continues its run in a continuation turn while a later run waits and resolves only for that run, cancelling a queued run never sends it and cancelling a parked run denies its approvals, a turn without evidence is refused and unpublished, a refused send leaves no pending run, overlapping streams and tool calls share one history with contiguous sequences, a run cancelled after the provider accepted it but before its turn is bound is cancelled at that turn and executes nothing, a run the provider never starts ends at the next session boundary, a subscriber that leaves stops the reads made for it, and the connection resolves the gateway address supplied at start rather than one from its build |
 | `assistant-journey` | `testdata/assistant` with its generated Eve helper and mock model through `scenery up` in a disposable copy with its own agent home: a run parked on approval keeps a later run queued and resumes as itself, overlapping streams read one contiguous history, a durable receipt's status and cancellation reach the durable store after a host replacement that keeps the service, and after the receipt journal of the serving host can be neither written, marked nor removed the host reports its state unavailable, the next host starts a new host state epoch and refuses the earlier receipt |
 | `build-info` | Build identity freshness |
 | `cli-process` | CLI exit, native invocation/producer/diagnostic identity, and telemetry isolated to the injected agent home |
@@ -366,10 +366,15 @@ A missing CI result remains missing local/remote evidence.
 The conventional JS inventory owns all seven test files exactly once. The `ui`
 probe runs client conformance, real table behavior and runtime identity in three
 Bun stages, then separate compiler stages with `tsc --extendedDiagnostics`.
-Dependency installation, generated Eve overlay preparation and Node execution
-remain separate. The native reference test belongs to `native-contract`, which
-requires its prepared live application. CI selects the ordinary Go suite and all
-three JS owners, pins Bun/Node, records run/attempt/commit metadata and uploads
+Dependency installation, generated Eve overlay preparation and Bun execution
+remain separate. The helper probe requires all 11 protocol cases, uses a 20s
+per-case timeout and caps concurrency at one because its generated modules share
+state. Its bounded real-timer waits retain cancellation and stream-cleanup proof.
+This simulation does not migrate the deployed assistant: production still uses
+Eve 0.71.0 and managed Node 24.18.0, with its existing production and journey
+probes. The native reference test belongs to `native-contract`, which requires
+its prepared live application. CI selects the ordinary Go suite and all
+three JS owners, pins Bun, records run/attempt/commit metadata and uploads
 available immutable/raw artifacts with `always()`.
 
 Go uses native timestamped `test2json` lifecycle events from reusable binaries.
@@ -382,9 +387,10 @@ cohorts hold host, toolchain, workload, concurrency and cache definitions consta
 while source revisions remain comparison subjects. Cached runs cannot erase them.
 
 `.cases.json` artifacts use `scenery.harness.test_results`: full case/parent IDs,
-runner/version, exact selection, outcome, duration boundary, attempts, replay,
-completeness and raw artifact references. Bun JUnit and Node JUnit/TAP survive
-success and failure. Unknown first-attempt history, timestamps, module loading,
+runner/version, the resolved executable in command argv, exact selection, outcome,
+duration boundary, attempts, replay, completeness and raw artifact references.
+Bun JUnit survives success and failure,
+including runner timeouts. Unknown first-attempt history, timestamps, module loading,
 hooks and cleanup are explicit; parallel case durations are not summed into wall
 time. Reporting and metadata overhead are separate from the actual subprocess.
 Bun 1.3.14 can emit a nonfatal tsconfig directory-mismatch diagnostic for the

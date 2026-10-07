@@ -13,7 +13,7 @@ const harnessAssistantHelperProbeName = "assistant helper protocol probe"
 
 // The assistant-helper probe renders the generated Eve channel and connection
 // and runs their run attribution, event ownership and approval protocol under
-// Node against a simulated Eve runtime
+// Bun against a simulated Eve runtime
 // (internal/assistantadapter/eve/testdata/helper-protocol.test.mjs).
 func runHarnessAssistantHelperProbe(ctx context.Context, repoRoot string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -40,9 +40,11 @@ func runHarnessAssistantHelperProbe(ctx context.Context, repoRoot string, resp *
 		return
 	}
 	files := []string{"internal/assistantadapter/eve/testdata/helper-protocol.test.mjs"}
-	step := runHarnessJUnitStep(ctx, overlay, harnessAssistantHelperProbeName, "node", files, nil, artifacts, func(report string) []string {
-		return []string{"node", "--test", "--test-timeout=20000", "--test-reporter=junit", "--test-reporter-destination=" + report,
-			"--test-reporter=tap", "--test-reporter-destination=" + filepath.Join(filepath.Dir(report), "results.tap"), filepath.Join(repoRoot, filepath.FromSlash(files[0]))}
+	expected := 11
+	step := runHarnessJUnitStep(ctx, overlay, harnessAssistantHelperProbeName, "bun", files, &expected, artifacts, func(report string) []string {
+		// The generated modules share state; keep the protocol cases serial.
+		return []string{"bun", "test", "--timeout=20000", "--max-concurrency=1", "--reporter=junit", "--reporter-outfile=" + report,
+			filepath.Join(repoRoot, filepath.FromSlash(files[0]))}
 	})
 	step.Summary["proof"] = "generated_eve_helper_attributes_tool_calls_and_events_to_the_run_of_the_executing_turn"
 	resp.Steps = append(resp.Steps, step)

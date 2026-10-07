@@ -42,11 +42,16 @@ func runHarnessJUnitStep(ctx context.Context, dir, name, runner string, files []
 		sourceRoot = dir
 	}
 	input, inputErr := harnessInputRevision(ctx, sourceRoot)
-	versionCommand := exec.CommandContext(ctx, runner, "--version")
+	runnerPath, runnerErr := exec.LookPath(runner)
+	argv := command(reportPath)
+	if runnerErr == nil {
+		argv[0] = runnerPath
+	}
+	versionCommand := exec.CommandContext(ctx, argv[0], "--version")
 	versionBytes, versionErr := versionCommand.Output()
 	sourceCommit, commitErr := runHarnessGit(ctx, sourceRoot, "rev-parse", "HEAD")
 	metadataMS := time.Since(metadataStarted).Milliseconds()
-	step := runHarnessExecStep(ctx, dir, name, command(reportPath), artifacts)
+	step := runHarnessExecStep(ctx, dir, name, argv, artifacts)
 	reportStarted := time.Now()
 	if step.Summary == nil {
 		step.Summary = map[string]any{}
@@ -74,7 +79,7 @@ func runHarnessJUnitStep(ctx context.Context, dir, name, runner string, files []
 	result.CWD = dir
 	result.WallSeconds = float64(step.DurationMS) / 1000
 	finalInput, finalErr := harnessInputRevision(ctx, sourceRoot)
-	for label, issue := range map[string]error{"raw JUnit": readErr, "input identity": inputErr, "final input identity": finalErr, "source commit": commitErr, "runner version": versionErr} {
+	for label, issue := range map[string]error{"raw JUnit": readErr, "input identity": inputErr, "final input identity": finalErr, "source commit": commitErr, "runner executable": runnerErr, "runner version": versionErr} {
 		if issue != nil {
 			result.Completeness.Complete = false
 			result.Completeness.ParserErrors = append(result.Completeness.ParserErrors, label+": "+issue.Error())
@@ -97,21 +102,6 @@ func runHarnessJUnitStep(ctx context.Context, dir, name, runner string, files []
 			step.Evidence.Artifacts = append(step.Evidence.Artifacts, reference)
 		}
 	}
-	if runner == "node" && artifacts.Enabled {
-		tap, tapErr := os.ReadFile(filepath.Join(temp, "results.tap"))
-		if tapErr == nil {
-			ref, issue := artifacts.Write(name+" TAP", sanitizeHarnessArtifactName(name)+".tap", "", tap)
-			if issue == nil {
-				step.Evidence.Artifacts = append(step.Evidence.Artifacts, ref)
-			} else {
-				tapErr = issue
-			}
-		}
-		if tapErr != nil {
-			result.Completeness.Complete = false
-			result.Completeness.ParserErrors = append(result.Completeness.ParserErrors, "retain TAP: "+tapErr.Error())
-		}
-	}
 	if !result.Completeness.Complete {
 		result.Outcome = "incomplete"
 	}
@@ -128,6 +118,7 @@ func runHarnessJUnitStep(ctx context.Context, dir, name, runner string, files []
 	step.Summary["case_results"] = reference
 	step.Summary["runner"] = runner
 	step.Summary["runner_version"] = result.RunnerVersion
+	step.Summary["executable"] = runnerPath
 	step.Summary["selected_files"] = files
 	step.Summary["case_completeness"] = result.Completeness
 	step.Summary["measurement_boundary"] = "subprocess wall time; case times are runner-reported and are not summed"
