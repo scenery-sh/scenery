@@ -113,6 +113,37 @@ work; completed plans are immutable history.
 - [x] 2026-10-08 Committed independently reviewable source changes:
   `fbce55d4` reversed agent timing, `6bc63937` complete metric validation,
   and `e792dd40` trace-buffer event loss contract and runtime proof.
+- [x] 2026-10-08 Published second-batch checkpoint
+  `637a0e1669574bf76722788c41ab5526c038e378`; draft PR #240 head/base/body
+  and clean feature checkout verified. Its documentation-only quick archive
+  `20261008T102943.177603000Z` passes with stable inputs and the identical
+  compiled framework source digest.
+- [x] 2026-10-08 Submitted a single complete fresh GPT-6 Pro question with the
+  actual GitHub connector against that head/base and PR #240 progress:
+  `https://chatgpt.com/c/6ac77146-7eb8-83eb-826f-b9cb242b9eb6`. The exact
+  five-minute monitor `telemetry-oracle-cycle-003` is active; the answer is pending.
+- [x] 2026-10-08 Independently reproduced decimal timestamp defects through the
+  public `QueryMetrics` boundary at that exact published source: the valid upper
+  int64 nanosecond endpoint is rejected, the valid lower endpoint shifts 574 ns,
+  one nanosecond below it is accepted, and ordinary `.123456789` loses 73 ns.
+  This is a verified correction to the prior batch, not completed Oracle feedback.
+- [x] Complete the exact-decimal correction: preserve `json.Number` through the
+  nested result decoder, compare the exact range before truncating subnanosecond
+  fractions toward zero, and avoid exponent-sized allocation. Focused public
+  query cases now pass both endpoints, near-boundary fractions, negative/zero
+  times and exponent spellings. Source commit `d53b36c0` is locally complete.
+- [x] 2026-10-08 Exact timestamp correction: cumulative full/default archive
+  `20261008T104731.424521000Z`, observability `20261008T104851.438112000Z`
+  and CLI-process `20261008T105655.542833000Z` pass at stable input
+  `sha256:fcdb58919e5d9280db8f1e9a3df797efdc5e8b5452df4d68b664d6eddc3ca23c`.
+  Zero errors and 12 existing knowledge warnings; lint zero issues. All 19
+  cumulative changed test roots pass 20 isolated serial samples, max p95 10 ms.
+  All three archives share compiled framework source digest
+  `sha256:b645acd3c5729c2d821cceff320d1838a938be69de8326e99d25d13856766797`.
+  Ordinary backend metrics, trace/log/RPC/client acceptance, exact natural TTL
+  loss one, immediate zero and owned runtime/Victoria/PostgreSQL cleanup pass.
+  The unchanged generator/schema/client input scope reuses second-batch
+  regeneration, Bun and TypeScript receipts.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
@@ -121,14 +152,18 @@ work; completed plans are immutable history.
 ### Resume here
 
 2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240)
-is the persistent review output. The second source-only Oracle review against
-`b258a7d57ddf697a670e7d56587da25d84a6962a` is fully captured and its monitor
-removed. The three verified corrections have passed cumulative full/lint,
-focused timing, CLI-process and natural long-lived/runtime/generated-client
-acceptance and are committed separately above. Complete the documentation-only
-checkpoint, verify the draft's actual published head, then start the next fresh
-review at that exact head with PR #240 progress. Do not redo completed unchanged
-checks merely because a heartbeat resumes. N7/N8, broader wrapper/redirection
+has published head `637a0e1669574bf76722788c41ab5526c038e378`. The third
+review targets that exact source and the original base; its complete question is
+accepted and generating, with an exact five-minute monitor. Capture the entire
+final answer before deleting that monitor. Local source proofs independently
+confirm an exact timestamp range/precision defect; its correction is implemented
+and cumulative full, lint, changed-root timing and owned runtime acceptance
+now pass; publish its source and this documentation checkpoint.
+Finite-query proof also accepts 9,437,299 input bytes and 4,194,868 normalized
+output bytes despite a series limit of one. The neighboring 8 MiB/4 MiB precedents
+are not yet new finite-query contracts, and this establishes no actual backend
+incidence or OOM. Assess completed Oracle advice, then publish the exact-decimal
+correction and choose the next bounded milestone. N7/N8, broader wrapper/redirection
 semantics and ZIP publication remain later milestones, alongside the reproduced
 VictoriaTraces field-cap admission gap. These development checks establish no
 production incidence, release certification or installed-agent/deployment proof.
@@ -174,6 +209,14 @@ this checkpoint; the first review stays bound to its original source.
   policy changed to make these checks pass.
 
 ## Decision Log
+
+- 2026-10-08: Correct metric timestamps using the original decimal JSON number,
+  including exponent notation, rather than a float64 intermediary. Nested result
+  decoding must retain `json.Number` too. Reject exact values beyond either
+  int64 nanosecond endpoint before truncating subnanosecond fractions toward zero.
+  Compare decimal digit counts and at most 19 whole-nanosecond digits; huge
+  exponents must not allocate exponent-sized integers. Numeric-string metric
+  values and current JSON/schema shapes stay unchanged.
 
 - 2026-10-08: Use one feature branch and one draft PR across cycles. Start a fresh
   ChatGPT conversation for each independent review; reuse only for a focused
