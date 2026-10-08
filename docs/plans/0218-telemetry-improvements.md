@@ -97,7 +97,22 @@ work; completed plans are immutable history.
   `QueryMetrics` with a private injected transport. Local correction validates
   supported shapes and every sample, including series beyond the output limit;
   valid NaN/infinity value strings remain accepted. Focused packages pass.
-  Cumulative/runtime validation and publication remain pending.
+  Cumulative/runtime validation is complete; publish with the other second-batch
+  corrections in the same draft checkpoint.
+- [x] 2026-10-08 Second-batch final full/default archive
+  `20261008T102633.892751000Z` and CLI-process archive
+  `20261008T102633.893718000Z` pass at stable input
+  `sha256:d501119a2f099c2118f198035b809031c669aaddd3eb7881523f071010e8499d`.
+  Zero errors, lint zero issues; 12 existing knowledge warnings and one 6.547 s
+  whole-suite advisory in full. All 18 cumulative changed Go test roots pass 20
+  isolated serial samples with p95 at most 50 ms, below 100 ms. Native, house and
+  assistant regeneration, both TypeScript checks and 56 Bun tests pass; unchanged
+  generator inputs/scope permit reusing those development receipts. Full covers
+  the changed-area Go command union. Probe/full framework source digest matches
+  `sha256:9138cd78aee5f90642b02bfc46db0d50a8574e90c5bf4a86a591a3e12e3859e0`.
+- [x] 2026-10-08 Committed independently reviewable source changes:
+  `fbce55d4` reversed agent timing, `6bc63937` complete metric validation,
+  and `e792dd40` trace-buffer event loss contract and runtime proof.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
@@ -105,19 +120,18 @@ work; completed plans are immutable history.
 
 ### Resume here
 
-2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) has
-published head `b258a7d57ddf697a670e7d56587da25d84a6962a`, containing the first
-validated seven fixes. The second review is complete against that exact head,
-with the full answer captured and its monitor deleted. Its source-only review
-retains the first batch and confirms malformed-metric normalization and reversed
-Claude clocks as adjacent correctness gaps. The current local batch excludes
-invalid timing while retaining outcomes, and exposes N6 loss evidence through a
-required server-lifetime event counter. Natural long-lived span, capacity/drain, metric and regenerated-client acceptance
-has passed in the owned runtime. Finish cumulative full/lint and changed-root
-timing verification, then publish the clock, malformed-metrics and N6 corrections
-as separately reviewable commits before the next fresh review.
-N7/N8, general wrapper/redirection semantics and ZIP publication remain explicit
-later milestones.
+2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240)
+is the persistent review output. The second source-only Oracle review against
+`b258a7d57ddf697a670e7d56587da25d84a6962a` is fully captured and its monitor
+removed. The three verified corrections have passed cumulative full/lint,
+focused timing, CLI-process and natural long-lived/runtime/generated-client
+acceptance and are committed separately above. Complete the documentation-only
+checkpoint, verify the draft's actual published head, then start the next fresh
+review at that exact head with PR #240 progress. Do not redo completed unchanged
+checks merely because a heartbeat resumes. N7/N8, broader wrapper/redirection
+semantics and ZIP publication remain later milestones, alongside the reproduced
+VictoriaTraces field-cap admission gap. These development checks establish no
+production incidence, release certification or installed-agent/deployment proof.
 The independent `telemetry-improvements-loop` heartbeat persists until Petr
 stops. Local durable state, actual submission limits, complete-answer capture
 location, assessment and synthetic proof live under
