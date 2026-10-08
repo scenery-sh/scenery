@@ -154,7 +154,7 @@ work; completed plans are immutable history.
   observability `20261008T112205.059409000Z`, CLI-process
   `20261008T112509.045832000Z`, lint and 22-root isolated timing pass. Corrected
   the earlier report-test gofmt omission observed in remote CI; the local full
-  formatting check passes. Remote CI for the forthcoming head remains pending.
+  formatting check passes. Remote CI for the published source/checkpoint remains pending.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
@@ -163,12 +163,13 @@ work; completed plans are immutable history.
 ### Resume here
 
 2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240)
-has published timestamp checkpoint `83c03b1ea8f6bf26d39842ea4771f2d8cde2e5bf`.
+has published admission source checkpoint `52d11fc49568fe0675c09b40eaa0c2be600c29b6`.
 The third review of prior head `637a0e1669574bf76722788c41ab5526c038e378`
 is complete and assessed; its full final answer is preserved and exact temporary
 monitor deleted. The exact timestamp correction is published and validated.
-N6b backend admission evidence is now locally complete and validated; publish
-this batch and its validation checkpoint before a fourth independent review.
+N6b backend admission evidence is complete, validated and pushed at that
+source checkpoint. Publish the documentation checkpoint and refresh the draft
+PR body before a fourth independent review.
 
 Final source full/default archive `20261008T112628.810591000Z`, lint and the
 repository-wide CI formatting check pass. Named observability
