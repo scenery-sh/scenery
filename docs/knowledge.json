@@ -491,7 +491,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Result of the development runtime RPC status method: session identity and health, compile state, routes, service processes and observability readiness, verified by the generated dev-runtime.ts client.",
+      "summary": "Development runtime status: session identity/health, compile state, routes, service processes, observability readiness and server-lifetime trace-buffer eviction evidence, with an exact generated-client schema revision.",
       "tags": [
         "schemas",
         "runtime",
@@ -2942,7 +2942,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Cumulative validation, combined-candidate scope, feature/CLI/Git probes and immutable input-bound evidence.",
+      "summary": "Cumulative validation, combined-candidate scope, feature/CLI/Git and telemetry round-trip probes, and immutable input-bound evidence.",
       "tags": [
         "harness",
         "agents",

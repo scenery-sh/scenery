@@ -33,6 +33,7 @@ func prepareObservabilityOperations(root string) error {
 	}
 	app = bytes.Replace(app, []byte("database = data_source.library"), []byte("database = data_source.library\n    tasks = execution_engine.probe"), 1)
 	app = bytes.Replace(app, []byte(`typescript_client "public_api" {`), []byte(`typescript_client "public_api" {
+ dev_runtime = true
  include = [module.library.create]
  retry {
   policy = "scenery.retry.idempotent"

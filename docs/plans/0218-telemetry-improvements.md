@@ -65,6 +65,39 @@ work; completed plans are immutable history.
   cleanup of its runtime, Victoria processes and PostgreSQL cluster.
 - [x] 2026-10-08 Published the first validated implementation batch as
   `35d94253caa2538d2d938d058bed86f8c23498c0` and updated draft PR #240.
+- [x] 2026-10-08 Published documentation checkpoint
+  `b258a7d57ddf697a670e7d56587da25d84a6962a`; its documentation-only quick
+  archive `20261008T085625.155150000Z` has stable inputs and zero errors.
+- [x] 2026-10-08 Submitted one complete fresh Chat GPT-6 Pro review with the
+  actual GitHub connector against that exact head and the original base, naming
+  PR #240 and all first-batch progress. Canonical conversation:
+  `https://chatgpt.com/c/6ac75c6f-8f80-83eb-8af5-660a5d206a55`.
+  The complete final answer was captured in the originating task; its exact
+  five-minute monitor `telemetry-oracle-cycle-002` was deleted and absence verified.
+- [x] 2026-10-08 Independently reproduced trace-buffer capacity/age losses with
+  a test-only overlay and the public status boundary. Preliminary cycle-002
+  feedback also identified reversed Claude clocks; its regression failed with
+  negative wall time, then passed after excluding that timing while retaining
+  known outcomes and legitimate zero-duration samples.
+- [x] Complete N6 with a separately named trace-event loss count, deterministic
+  eviction tests, checked status/client contract, and real owned runtime proof.
+- [x] 2026-10-08 Named observability archive `20261008T102236.074295000Z`
+  passes with stable inputs, zero errors and 12 existing knowledge warnings.
+  Its capacity phase records seven buffer evictions and 4,092 retained synthetic
+  events; ordinary SDK reports share that buffer, so the capacity delta need not
+  be one. The natural 31-second span records exactly one TTL eviction, healthy
+  summary/end evidence and a 31.001038-second metric. An immediate operation
+  adds zero. Scoped RPC and the actual generated client agree on current status
+  revision `sha256:50d87d2565ab839da6883c12d91522fad5f9c9cca1efd93f92e214f8ad8a4b13`.
+  Serving build input is
+  `sha256:7dcaf18c4680c1ed344d0d8d342b25c4669e7b00106cf970d36c750989d7fcc5`;
+  owned runtime, Victoria processes and PostgreSQL cleanup is verified.
+- [x] Capture and assess the entire second review, then delete its exact monitor.
+- [x] 2026-10-08 Reproduced malformed metric samples as partial success through
+  `QueryMetrics` with a private injected transport. Local correction validates
+  supported shapes and every sample, including series beyond the output limit;
+  valid NaN/infinity value strings remain accepted. Focused packages pass.
+  Cumulative/runtime validation and publication remain pending.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
@@ -72,19 +105,19 @@ work; completed plans are immutable history.
 
 ### Resume here
 
-2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) contains
-the first validated source batch at `35d94253caa2538d2d938d058bed86f8c23498c0`.
-The first review is complete and captured; its exact monitor was deleted. N1,
-N2, narrow N3, N4, N5, N9 and the independent negative-duration defect are fixed.
-Final full/default archive `20261008T084548.900946000Z` covers the changed-area
-union with zero errors, 12 existing knowledge warnings and a 15.257 s whole-suite
-advisory warning. Lint and both named probes passed; their compiled framework
-digest matches the final verifier, and owned runtime cleanup is confirmed.
-This publication-status update is documentation only against the source commit;
-verify that delta before its checkpoint. Then start a fresh second review of the
-exact latest published head, or recover its accepted conversation from durable
-state if already pending. N6-N8, general wrapper/redirection semantics and ZIP
-publication remain explicit later milestones.
+2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) has
+published head `b258a7d57ddf697a670e7d56587da25d84a6962a`, containing the first
+validated seven fixes. The second review is complete against that exact head,
+with the full answer captured and its monitor deleted. Its source-only review
+retains the first batch and confirms malformed-metric normalization and reversed
+Claude clocks as adjacent correctness gaps. The current local batch excludes
+invalid timing while retaining outcomes, and exposes N6 loss evidence through a
+required server-lifetime event counter. Natural long-lived span, capacity/drain, metric and regenerated-client acceptance
+has passed in the owned runtime. Finish cumulative full/lint and changed-root
+timing verification, then publish the clock, malformed-metrics and N6 corrections
+as separately reviewable commits before the next fresh review.
+N7/N8, general wrapper/redirection semantics and ZIP publication remain explicit
+later milestones.
 The independent `telemetry-improvements-loop` heartbeat persists until Petr
 stops. Local durable state, actual submission limits, complete-answer capture
 location, assessment and synthetic proof live under
@@ -110,6 +143,22 @@ this checkpoint; the first review stays bound to its original source.
   nevertheless verified the exact source pair through GitHub; assess its final
   coverage explicitly and use paste for subsequent complete questions.
 
+- 2026-10-08: The first N6 runtime attempt exposed a separate backend limit:
+  one synthetic span with 4,093 events exceeded VictoriaTraces' 1,000-field
+  line cap (20,485 fields) and was discarded despite accepted export transport.
+  Cleanup succeeded. Partition the capacity fixture across at most 128 events
+  per span, preserving its total 4,097-event workload and natural TTL scenario.
+  Backend admission/loss evidence is an explicit later candidate; the new buffer
+  counter does not promise end-to-end delivery.
+- 2026-10-08: Two later probe failures were in the acceptance code: a reused
+  decode destination retained obsolete map keys, and the lifecycle payload was
+  incorrectly expected to have event name `span_end` rather than `scenery.event`.
+  Fresh decoding and assertions on `data.span_end` correct those expectations.
+  VictoriaMetrics also normally hides fresh samples for 30 seconds; the original
+  15-second metric poll was insufficient. The named probe now permits 45 seconds
+  and retains a useful last-query diagnostic. No production timing or export
+  policy changed to make these checks pass.
+
 ## Decision Log
 
 - 2026-10-08: Use one feature branch and one draft PR across cycles. Start a fresh
@@ -134,6 +183,16 @@ this checkpoint; the first review stays bound to its original source.
   with focused failing-before/passing-after proof; N3 remains a narrow shell
   lookup correction. N6-N8 need separate counting/coverage/budget milestones.
 
+- 2026-10-08: N6 uses `observability.export.trace_buffer_dropped_events` for individual
+  events removed from the waiting buffer by age or capacity. Keep existing
+  `dropped` units and `failed` report/signal pairs; do not add unlike units or
+  redesign delivery accounting in this batch. The buffer owns this counter under
+  its existing mutex; successful drains never increment it. Age eviction remains
+  lazy on add/drain, as before. The checked status revision and fixed generated
+  client advance together. This choice follows verified source behavior and the
+  completed second review's counting critique. Its source-only conclusions
+  require local tests and runtime proof; they establish no production incidence.
+
 ## Outcomes & Retrospective
 
 Not yet completed. This plan remains active while the authorized loop runs.
@@ -147,7 +206,13 @@ Real runtime acceptance used an owned disposable application and verified
 build-input digest `sha256:d02c2e568820474e77d0b3f81f9edbbc5bf11fe9bcde18346972823f4cb7a952`;
 it is evidence for this candidate, not for a live installed agent or deployment.
 Release certification and unrelated lifecycle probes were not selected; CLI
-grammar, runtime RPC output and generated-client templates did not change.
+grammar, runtime RPC output and generated-client templates did not change
+in the first batch. The second batch advances the current status schema, registry
+and generated client together for explicit N6 event-loss evidence. Architecture
+boundaries stay unchanged; the TypeScript specification already delegates exact
+status identity to the checked schema. Those owning documents need no additional
+update. Finite-read/report budgets, snapshot coverage, shell redirection and ZIP
+publication remain later milestones, alongside the reproduced backend field cap.
 
 ## Plan of Work
 
@@ -167,6 +232,26 @@ owning docs/schemas/tests, then validate and publish the reviewed checkpoint to
 the draft branch. Record the result and next review question here.
 
 ## Validation and Acceptance
+
+The N6 runtime scenario first proves the existing native/SQL/HTTP round trip.
+Then the disposable app sends 4,097 authenticated synthetic orphan trace events
+to its own report endpoint, exceeding the documented 4,096-event capacity, and
+sends their 33 summaries (at most 128 events per span) to transfer surviving
+events into successful export. Confirm
+capacity loss, retained backend events, unchanged existing loss units and current
+serving identity. A separate natural SDK WORK span remains alive for 31 seconds
+while its HTTP parent completes immediately. Its one start event must expire;
+its summary, end event and duration metric remain queryable, and its exact loss
+increment is one. An immediately completed operation adds zero. Scoped RPC and
+the freshly generated development client must agree on current schema/status.
+The named `observability` probe owns these HTTP/process/timer boundaries and
+verified cleanup; ordinary tests use deterministic ages and no process, socket
+or sleep. Strict TTL boundary, multiple occurrences, combined TTL/capacity,
+app/session/trace/span key isolation and successful/repeated drains must prove
+exactly-once accounting. No personal telemetry or installed runtime is involved.
+Reversed/missing Claude timestamps retain outcomes but no duration; equal times
+remain a valid zero-duration sample. Decoding-invalid coverage retains its
+existing meaning; this small correction adds no timing-coverage counter.
 
 The first observable scenario is a native CLI invocation with an unknown root,
 unknown subcommand or positional SSH target. Its retained `command` must contain

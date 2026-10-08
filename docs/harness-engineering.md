@@ -234,7 +234,7 @@ release certification. Failed steps identify their focused rerun command.
 | `snapshot-backup` | Snapshot backup process |
 | `typescript` | TypeScript checker |
 | `code-task` | Code-task process |
-| `observability` | Real requests through a disposable generated PostgreSQL/storage/durable app and Victoria: sqlc query names, prepared and transaction SQL, failures and redaction, nested internal/durable/HTTP/storage spans, streamed I/O events, correlated logs, scoped CLI queries and runtime trace-detail RPC, generated TypeScript client retry/correlation, current response identity and owned cleanup |
+| `observability` | Real requests through a disposable generated PostgreSQL/storage/durable app and Victoria: sqlc query names, prepared and transaction SQL, failures and redaction, nested internal/durable/HTTP/storage spans, streamed I/O events, correlated logs, scoped CLI queries and runtime trace-detail RPC, generated TypeScript client retry/correlation, current response identity and owned cleanup; authenticated trace-buffer capacity loss with successful survivor drain, a natural SDK span held beyond the 30-second TTL with exactly one lost start event and retained summary/end/duration metric, immediate-operation zero-loss control, and current generated status-client/schema evidence |
 | `victoria` | Victoria process lifecycle |
 | `desktop` | Desktop process |
 | `deploy-ssh` | SSH deployment process |

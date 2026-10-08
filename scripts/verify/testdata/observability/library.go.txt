@@ -1,0 +1,153 @@
+package library
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	contract "example.com/library-desk/library/scenerycontract"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"scenery.sh"
+	"scenery.sh/db"
+	"scenery.sh/storage"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func (s *Service) observe(ctx context.Context) error {
+	ctx, span := scenery.StartSpan(ctx, "sql-observability")
+	defer span.End(nil)
+	invocation, ok := scenery.InvocationFromContext(ctx)
+	if !ok {
+		return fmt.Errorf("missing invocation")
+	}
+	if _, err := s.input.Clients.Probe.Invoke(ctx, invocation, contract.TraceProbeInput{}); err != nil {
+		return err
+	}
+	if _, err := s.input.Clients.Background.Invoke(ctx, invocation, contract.TraceProbeInput{}); err != nil {
+		return err
+	}
+	var value string
+	if err := s.database.QueryRowContext(ctx, "-- name: ProbeLiteral :one\nSELECT $$private-query-value$$::text").Scan(&value); err != nil {
+		return err
+	}
+	pool, err := db.Get(ctx, "library")
+	if err != nil {
+		return err
+	}
+	stmt, err := pool.PrepareContext(ctx, "-- name: ProbePrepared :one\nSELECT $1::text")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	if err := stmt.QueryRowContext(ctx, "private-argument").Scan(&value); err != nil {
+		return err
+	}
+	tx, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "-- name: ProbeTransaction :exec\nSELECT 42"); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if _, err := s.database.ExecContext(ctx, "-- name: ProbeFailure :exec\nSELECT $1::text::integer", "private-argument"); err == nil {
+		return fmt.Errorf("expected SQL failure")
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		slog.Default().WithGroup("probe").With("component", "sql").WithGroup("attempt").InfoContext(ctx, "observability-probe-log", "number", 1, "token", "private-log-token")
+	}()
+	<-done
+	request, err := http.NewRequestWithContext(ctx, "GET", "PROBE_UPSTREAM", nil)
+	if err != nil {
+		return err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if count, _ := strconv.Atoi(response.Header.Get("X-Scenery-Probe-Trace-Events")); count == 1 {
+		_, held := scenery.StartSpan(context.WithoutCancel(ctx), "trace-buffer-long-lived")
+		go func() { time.Sleep(31 * time.Second); held.End(nil) }()
+	} else if count > 1 {
+		return reportTraceBufferProbe(ctx, count)
+	}
+	return nil
+}
+func (s *Service) TraceProbe(ctx context.Context, _ contract.TraceProbeInput) (contract.TraceProbeOutcome, error) {
+	if _, err := s.database.ExecContext(ctx, "-- name: ProbeNested :exec\nSELECT 1"); err != nil {
+		return nil, err
+	}
+	store, err := storage.Default(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = store.Put(ctx, "proof.txt", strings.NewReader("hello"), storage.PutOptions{}); err != nil {
+		return nil, err
+	}
+	body, _, err := store.Get(ctx, "proof.txt", storage.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	_, err = io.Copy(io.Discard, body)
+	_ = body.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err = store.Delete(ctx, "proof.txt", storage.DeleteOptions{}); err != nil {
+		return nil, err
+	}
+	return contract.TraceProbeDone{Value: scenery.Unit{}}, nil
+}
+
+// Only the disposable probe's loopback upstream can select this boundary proof.
+// Existing framework wiring stays inside the app; no token enters probe output.
+func reportTraceBufferProbe(ctx context.Context, count int) error {
+	send := func(reports []map[string]any) error {
+		body, err := json.Marshal(map[string]any{"reports": reports})
+		if err != nil {
+			return err
+		}
+		request, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("SCENERY_DEV_REPORT_URL"), bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Authorization", "Bearer "+os.Getenv("SCENERY_DEV_REPORT_TOKEN"))
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return err
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNoContent {
+			return fmt.Errorf("trace buffer report status %d", response.StatusCode)
+		}
+		return nil
+	}
+	for first := 0; first < count; first += 64 {
+		reports := []map[string]any{}
+		for index := first; index < count && index < first+64; index++ {
+			reports = append(reports, map[string]any{"type": "trace-event", "app_id": os.Getenv("SCENERY_APP_ID"), "session_id": os.Getenv("SCENERY_SESSION_ID"), "reporter_pid": os.Getpid(), "trace_event": map[string]any{"trace_id": strings.Repeat("f", 32), "span_id": fmt.Sprintf("%016x", index/128+1), "event_id": index + 1, "event_time": time.Now().UTC(), "event": map[string]any{"kind": "trace-buffer-probe"}}})
+		}
+		if err := send(reports); err != nil {
+			return err
+		}
+	}
+	// Keep each exported span below the backend's ordinary fields-per-line
+	// limit; this scenario measures buffer capacity, not backend refusal.
+	summaries := []map[string]any{}
+	for first := 0; first < count; first += 128 {
+		summaries = append(summaries, map[string]any{"type": "trace-summary", "app_id": os.Getenv("SCENERY_APP_ID"), "session_id": os.Getenv("SCENERY_SESSION_ID"), "reporter_pid": os.Getpid(), "trace_summary": map[string]any{"trace_id": strings.Repeat("f", 32), "span_id": fmt.Sprintf("%016x", first/128+1), "type": "WORK", "is_root": true, "is_error": false, "started_at": time.Now().UTC(), "duration_nanos": 1, "service_name": "library", "endpoint_name": "trace-buffer-capacity"}})
+	}
+	return send(summaries)
+}

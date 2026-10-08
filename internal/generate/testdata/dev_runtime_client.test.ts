@@ -3,6 +3,8 @@ import { createServer, type AddressInfo } from "node:net";
 
 import {
 	DEV_RUNTIME_MAX_REQUEST_BYTES,
+	DEV_RUNTIME_STATUS_KIND,
+	DEV_RUNTIME_STATUS_SCHEMA_REVISION,
 	DevRuntimeClient,
 	DevRuntimeError,
 	storageTarget,
@@ -122,6 +124,25 @@ async function failure(promise: Promise<unknown>): Promise<DevRuntimeError> {
 }
 
 describe("DevRuntimeClient connection lifecycle", () => {
+	test("reads current buffer-loss status and rejects the previous revision", async () => {
+		const client = runtimeClient();
+		const reading = client.status();
+		socket(0).open();
+		socket(0).reply(socket(0).sent[0], {
+			kind: DEV_RUNTIME_STATUS_KIND,
+			schema_revision: DEV_RUNTIME_STATUS_SCHEMA_REVISION,
+			observability: { export: { dropped: 7, failed: 3, trace_buffer_dropped_events: 2 } },
+		});
+		expect((await reading).observability?.export).toEqual({ dropped: 7, failed: 3, trace_buffer_dropped_events: 2 });
+		const stale = failure(client.status());
+		socket(0).reply(socket(0).sent[1], {
+			kind: DEV_RUNTIME_STATUS_KIND,
+			schema_revision: "sha256:93b6ee76b4ef4b5626531207a014791d0c56bbc38419533fa0bb1e505ffd2d2c",
+			observability: { export: { dropped: 7, failed: 3 } },
+		});
+		expect((await stale).code).toBe("protocol");
+		client.dispose();
+	});
  test("reads scoped trace summaries and complete span events", async () => {
   const client = runtimeClient();
   const listed = client.traces("app", { limit: 10 });

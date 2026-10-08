@@ -19,7 +19,7 @@
       "const": "scenery.dev-runtime.status"
     },
     "schema_revision": {
-      "const": "sha256:93b6ee76b4ef4b5626531207a014791d0c56bbc38419533fa0bb1e505ffd2d2c"
+      "const": "sha256:50d87d2565ab839da6883c12d91522fad5f9c9cca1efd93f92e214f8ad8a4b13"
     },
     "app_id": {
       "type": "string",
@@ -210,11 +210,12 @@
           "$ref": "#/$defs/signal"
         },
         "export": {
-          "description": "Telemetry not delivered to the observability backend since the runtime started: runtime admission and failed-batch drops carried by a later successful batch, reports rejected by intake byte limits or dropped because the bounded export queue was full, and exports that failed, one for each report and signal.",
+          "description": "Loss evidence with distinct counting units; these counters are not additive. dropped retains runtime admission and failed-batch envelope counts, intake byte-limit refusals, and full export-queue jobs (a trace summary plus its events is one job). failed counts failed report/signal exports. trace_buffer_dropped_events separately counts accepted event occurrences evicted from the waiting trace buffer by age or capacity, once on removal, across all app/session keys during the owning dashboard server lifetime; successful drains and status reads do not count as losses.",
           "type": "object",
           "required": [
             "dropped",
-            "failed"
+            "failed",
+            "trace_buffer_dropped_events"
           ],
           "additionalProperties": false,
           "properties": {
@@ -223,6 +224,10 @@
               "minimum": 0
             },
             "failed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "trace_buffer_dropped_events": {
               "type": "integer",
               "minimum": 0
             }
