@@ -169,6 +169,7 @@ type MetricsCatalogQuery struct {
 	Limit    int
 	Timeout  time.Duration
 	Warnings []string
+	client   *http.Client
 }
 
 type MetricsCatalogRecord struct {
@@ -277,11 +278,7 @@ func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, erro
 		values.Set("end", formatVictoriaTime(q.Bounds.End))
 		values.Set("step", q.Step.String())
 	}
-	client := q.client
-	if client == nil {
-		client = http.DefaultClient
-	}
-	payload, err := fetchMetricsWithClient(ctx, client, q.BaseURL, path, values)
+	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, path, values)
 	if err != nil {
 		return MetricsQueryResult{}, err
 	}
@@ -318,15 +315,13 @@ func MetricsLabels(ctx context.Context, q MetricsCatalogQuery) (MetricsLabelsRes
 	if q.Match != "" {
 		values.Add("match[]", q.Match)
 	}
-	payload, err := fetchMetrics(ctx, q.BaseURL, "/prometheus/api/v1/labels", values)
+	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, "/prometheus/api/v1/labels", values)
 	if err != nil {
 		return MetricsLabelsResult{}, err
 	}
-	for _, item := range payload.Data.Strings {
-		result.Labels = append(result.Labels, item)
-		if q.Limit > 0 && len(result.Labels) >= q.Limit {
-			break
-		}
+	result.Labels, err = normalizeMetricCatalogLabels(payload.Data.Catalog, q.Limit)
+	if err != nil {
+		return MetricsLabelsResult{}, err
 	}
 	sort.Strings(result.Labels)
 	return result, nil
@@ -354,15 +349,13 @@ func MetricsSeries(ctx context.Context, q MetricsCatalogQuery) (MetricsSeriesRes
 	if q.Match != "" {
 		values.Add("match[]", q.Match)
 	}
-	payload, err := fetchMetrics(ctx, q.BaseURL, "/prometheus/api/v1/series", values)
+	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, "/prometheus/api/v1/series", values)
 	if err != nil {
 		return MetricsSeriesResult{}, err
 	}
-	for _, item := range payload.Data.Series {
-		result.Series = append(result.Series, item)
-		if q.Limit > 0 && len(result.Series) >= q.Limit {
-			break
-		}
+	result.Series, err = normalizeMetricCatalogSeries(payload.Data.Catalog, q.Limit)
+	if err != nil {
+		return MetricsSeriesResult{}, err
 	}
 	return result, nil
 }
@@ -558,11 +551,10 @@ func catalogValues(q MetricsCatalogQuery) url.Values {
 	return values
 }
 
-func fetchMetrics(ctx context.Context, baseURL, path string, values url.Values) (victoriaMetricsResponse, error) {
-	return fetchMetricsWithClient(ctx, http.DefaultClient, baseURL, path, values)
-}
-
 func fetchMetricsWithClient(ctx context.Context, client *http.Client, baseURL, path string, values url.Values) (victoriaMetricsResponse, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+path, strings.NewReader(values.Encode()))
 	if err != nil {
 		return victoriaMetricsResponse{}, err
@@ -601,8 +593,7 @@ type victoriaMetricsResponse struct {
 type victoriaMetricsData struct {
 	ResultType string
 	Result     []victoriaMetricResult
-	Strings    []string
-	Series     []map[string]string
+	Catalog    []json.RawMessage
 }
 
 func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
@@ -619,10 +610,7 @@ func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	}
-	if err := json.Unmarshal(data, &d.Strings); err == nil {
-		return nil
-	}
-	return json.Unmarshal(data, &d.Series)
+	return json.Unmarshal(data, &d.Catalog)
 }
 
 type victoriaMetricResult struct {

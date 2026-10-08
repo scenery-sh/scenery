@@ -283,46 +283,69 @@ work; completed plans are immutable history.
 - [ ] Start the next consultation with the draft PR number and exact current
   head, repeating until Petr stops the loop.
 
+- [x] 2026-10-08 Publish supervisor source `c1ff8939` and documentation
+  checkpoint `2f810c2ad9931fc7e13a3702980a69e036c14913` to the same OPEN draft
+  PR #240; exact-head push and identical-tree PR CI both pass. Current remote
+  suite advisories are 30.467/30.622s, distinct from the final local 4.474s.
+- [x] 2026-10-08 Submit fresh Oracle007 once at the exact 2f810/base checkpoint
+  with actual GitHub and verified GPT6/Pro5of5. Save its whole 26,355-character
+  final and 39 full DOM links, independently assess the P2 catalog correction,
+  and delete exact monitor `telemetry-oracle007` with absence verified.
+- [x] 2026-10-08 Independently reproduce MetricsSeries null-label conversion and
+  adjacent misleading empty/limited success through 16 public Go calls against
+  an owned HTTP responder, built while the target checkout was clean. Retain
+  inputs/outputs, actual PID, source/build/binary hashes and listener/server
+  cleanup. Supplemental 24-call evidence restores the exact pinned query source
+  through an explicit overlay and excludes the unused candidate helper: it also
+  confirms emitted null rows, query-shape acceptance and MetricsLabels null/shape
+  coercion. The initial supplemental directory-form build was a preparation
+  failure, excluded from evidence; explicit main-file compilation succeeded.
+- [x] 2026-10-08 Implement endpoint-specific raw catalog validation for series
+  objects/string labels and label-name strings, through all omitted rows. Keep
+  valid empty distinctions, ordering, literal contents and current public shapes.
+  Five service-free public roots and the existing catalog test pass, with request
+  scope/bounds, cancellation, body closure and valid calls after rejection.
+- [ ] Complete cumulative full/lint, affected exact-root isolated timing and fresh
+  named observability HTTP/real-Victoria/CLI/owned-cleanup acceptance for the
+  catalog correction before updating the draft and starting Oracle008.
+
 ### Resume here
 
-Petr's loop remains active and unbounded until manual stop. ZIP source
-`c90fe94dd439095a8f928c558dc26cae8db2d2fa` and documentation checkpoint
-`b4eb34ac1c18e4bc93ba5ac8876e82297c63ab27` are published to draft PR #240.
-Six whole reviews with immutable source links are saved and assessed; their
-exact monitors are deleted with absence verified. Current b4eb CI is green on exact-head push and an
-independently checked identical-tree PR merge. Neither CI lane runs observability
-or CLI-process. Prior ZIP full/default, lint, 24 changed-root timing and eight
-actual publication scenarios remain recorded above with their scope limits.
+Petr's loop remains active and unbounded until manual stop. Published draft
+PR #240 is OPEN at `2f810c2ad9931fc7e13a3702980a69e036c14913`, original base
+`89fdc46c20527939ee1780a240339ba04aa54ef8`. Supervisor source `c1ff8939`
+completed final full/lint, 30-root isolated timing and named actual CLI acceptance;
+those receipts remain above. Both current CI lanes pass on exact-head push and
+an independently checked identical-tree PR merge; neither runs the named
+observability/CLI-process probes or lint.
 
-Oracle006 completed at
-`https://chatgpt.com/c/6ac79593-b1ac-83eb-9366-13ae0ba61340` against b4eb/base,
-naming PR240 progress. Its entire 32,140-character final and 45 DOM links are
-saved and independently assessed; exact monitor `telemetry-oracle-006` is deleted
-with absence verified. Raw token validity, independent cache counters and truthful
-human/latency wording refinements were accepted. Successful trace-buffer drains
-add no loss themselves, but can trigger the existing lazy TTL pruning; this is a
-wording qualification, not a behavior change. The overall loop remains active.
+Oracle007 completed at
+`https://chatgpt.com/c/6ac7a1d0-4c68-83ed-93e2-412a04b8d440` against 2f810/base,
+naming PR240 progress. Its whole final and immutable links are saved/assessed,
+and exact `telemetry-oracle007` is deleted with absence verified. It recommended
+the independently reproduced pre-existing P2 MetricsSeries catalog correction,
+including endpoint/row shape, every omitted label and precise empty controls.
+Its review executed no Go/product tests or local receipt audit.
 
-Actual owned CLI before-proof confirms supervisor request/child negative
-percentiles, fractional-negative false zero, unrepresentable durations/sums and
-cache corruption, including a sanitized serialization failure. This is synthetic
-malformed input proof, not normal producer incidence. Local correction validates
-individual durations and child sums before integer conversion, preserves valid
-fractional sums/zero and known untimed outcomes/joins/streaks/terminal cleanup,
-counts invalid source timing, and keeps cache cohorts coherent. Six focused
-roots and the revised CLI fixture pass; final acceptance is recorded above. The cache report contract now retains all decoded
-non-timing work with required `timing_sample_count` and nullable
-`accumulated_ms`, advancing its checked identity and static registry together. Source correction `c1ff8939` has completed cumulative full/lint, 30-root timing
-and named actual CLI JSON/human/schema/input-preservation/owned-cleanup proof.
-Finish this documentation-only quick checkpoint before publication. Update the same draft and start fresh Oracle007 at the resulting exact head,
-original base and current PR progress after this validated publication.
+The local catalog correction is not yet published. Raw JSON rows preserve kinds
+until the consuming endpoint validates them. MetricsLabels is explicitly included
+because removal of the shared Strings/Series fallback requires its own typed
+consumer; both endpoints get focused controls and named HTTP acceptance.
+Do not describe an actual public Go call as a malformed-input CLI exit proof.
+Keep current series/labels/query schemas and identity literals unchanged when
+their existing public shape is enforced. The named segment records HTTP request
+scope/selector/bounds, exact controls/schema/identity, sanitized errors and joined
+owned cleanup, separately from the healthy real-Victoria metrics series CLI path.
+Finish cumulative validation and update this checkpoint before publishing the
+same draft, then start a fresh revision-bound Oracle008 review.
 
 N7 snapshot/coverage/aggregate budgets, N8 finite query limits, broader redirection
-attribution and lossless delivery prevention remain separate. Oracle006's live
-source progress also identifies a separate MetricsSeries null-label decoder
-candidate; verify it independently before scope selection. Generator/status/
-client and observability inputs remain unchanged: reuse receipts only for those
-owning scopes, never claim old observability matches the current source digest.
+attribution and lossless delivery prevention remain separate. Raw retention and
+emitted-only normalization do not bound successful-response input memory.
+Catalog/query changes require new named observability; retain historical receipt
+identities only for unchanged owning/exercised inputs. Generator/status/client and
+CLI-process behavior are unchanged, so any reuse must state that scope and must
+not claim a historical binary/digest is the newly compiled whole product.
 Do not add arbitrary caps, truncate detail, modify VNEXT or restart a live agent.
 
 Durable questions, answers, assessments, proofs and active process state live

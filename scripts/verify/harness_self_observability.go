@@ -41,6 +41,11 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 	proof = map[string]any{}
+	catalogProof, err := proveHarnessMetricCatalog(ctx, repo, optionalHarnessArtifactContext(artifactContexts))
+	proof["metric_catalog"] = catalogProof
+	if err != nil {
+		return proof, err
+	}
 	if !harnessDockerAvailable(ctx) {
 		return proof, errors.New("docker unavailable; SQL observability proof did not run")
 	}
@@ -345,6 +350,18 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		return proof, fmt.Errorf("metric readback: %w: %v", err, observationErr)
 	}
 	proof["sql_duration_metrics"] = true
+	seriesOutput, err := runHarnessAppCLIWithEnv(ctx, repo, root, p.env, "metrics", "series", "--match", "scenery_request_duration_seconds", "-o", "json")
+	if err != nil {
+		return proof, err
+	}
+	var catalog obs.MetricsSeriesResult
+	if err := decodeCLIJSON(seriesOutput, &catalog); err != nil {
+		return proof, err
+	}
+	if len(catalog.Series) == 0 || !catalog.Scope.Enforced {
+		return proof, errors.New("real backend series catalog is incomplete")
+	}
+	proof["cli_metrics_series"] = catalog
 	output, err := runHarnessAppCLIWithEnv(ctx, repo, root, p.env, "traces", "list", "--trace-id", traceID, "-o", "json")
 	if err != nil {
 		return proof, err

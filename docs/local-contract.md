@@ -2312,6 +2312,16 @@ output resource budgets remain a separately tracked improvement.
 `scenery metrics series -o json --match 'scenery_request_duration_seconds'` emits
 `scenery.metrics.series`.
 
+Catalog `data` must be an array of the endpoint's own row type: label-name
+catalogs require strings; series catalogs require non-null objects whose label
+values are strings. Validate every row and label, including those beyond the
+output limit, before returning success. Null data, null rows, non-string values
+and the other endpoint's response shape fail instead of becoming empty or
+partial evidence. Preserve valid empty arrays, empty series objects, present
+empty string values and literal string contents. Series retain response order;
+label names retain sorting of the selected output prefix. These checks do not
+establish finite input or output resource budgets.
+
 ### `scenery inspect docs -o json`
 
 Use task-scoped inspection to locate context and checks for a repository path:

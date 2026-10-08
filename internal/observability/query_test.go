@@ -2,7 +2,6 @@ package observability
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -150,38 +149,32 @@ func TestQueryMetricsAppliesExtraLabels(t *testing.T) {
 func TestMetricsLabelsAndSeriesDecodeCatalogs(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if r.Form.Get("match[]") != "scenery_request_duration_seconds" {
+			t.Fatalf("catalog match[] = %q", r.Form.Get("match[]"))
+		}
+		data := `["z","a"]`
 		switch r.URL.Path {
 		case "/prometheus/api/v1/labels":
-			if err := r.ParseForm(); err != nil {
-				t.Fatalf("ParseForm: %v", err)
-			}
-			if r.Form.Get("match[]") != `scenery_request_duration_seconds` {
-				t.Fatalf("labels match[] = %q", r.Form.Get("match[]"))
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": []string{"z", "a"}})
 		case "/prometheus/api/v1/series":
-			if err := r.ParseForm(); err != nil {
-				t.Fatalf("ParseForm: %v", err)
-			}
-			if r.Form.Get("match[]") != `scenery_request_duration_seconds` {
-				t.Fatalf("match[] = %q", r.Form.Get("match[]"))
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": []map[string]string{{"__name__": "scenery_request_duration_seconds"}}})
+			data = `[{"__name__":"scenery_request_duration_seconds"}]`
 		default:
 			t.Fatalf("path = %s", r.URL.Path)
 		}
-	}))
-	defer server.Close()
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"status":"success","data":` + data + `}`))}, nil
+	})}
 
-	labels, err := MetricsLabels(context.Background(), MetricsCatalogQuery{BaseURL: server.URL, Scope: testScope(), Bounds: testBounds(), Match: "scenery_request_duration_seconds", Limit: 10, Timeout: time.Second})
+	labels, err := MetricsLabels(context.Background(), MetricsCatalogQuery{BaseURL: "http://metrics.test", client: client, Scope: testScope(), Bounds: testBounds(), Match: "scenery_request_duration_seconds", Limit: 10, Timeout: time.Second})
 	if err != nil {
 		t.Fatalf("MetricsLabels: %v", err)
 	}
 	if strings.Join(labels.Labels, ",") != "a,z" {
 		t.Fatalf("labels = %+v", labels.Labels)
 	}
-	series, err := MetricsSeries(context.Background(), MetricsCatalogQuery{BaseURL: server.URL, Scope: testScope(), Bounds: testBounds(), Match: "scenery_request_duration_seconds", Limit: 10})
+	series, err := MetricsSeries(context.Background(), MetricsCatalogQuery{BaseURL: "http://metrics.test", client: client, Scope: testScope(), Bounds: testBounds(), Match: "scenery_request_duration_seconds", Limit: 10})
 	if err != nil {
 		t.Fatalf("MetricsSeries: %v", err)
 	}
