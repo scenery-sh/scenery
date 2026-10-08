@@ -29,7 +29,13 @@ work; completed plans are immutable history.
   freshness warnings. Lint reported zero issues.
 - [x] 2026-10-08 Created the persistent five-minute loop heartbeat
   `telemetry-improvements-loop`; recorded its ID in the local durable state.
-- [ ] Submit the first complete Oracle question and record its URL/revisions.
+- [x] 2026-10-08 Verified Chat GPT-6 in the hidden model submenu and Pro 5 of 5;
+  accepted review at `https://chatgpt.com/c/6ac74dcb-56ec-83eb-956f-eaab8823d064`
+  targets `2ee9b0f78a00060d8e2bd6da4e51ffe8b4e0d752` against the initial base.
+  Actual submitted scope and input fragmentation are recorded in
+  `.scenery/telemetry-improvements/cycle-001-submission.md`.
+- [x] 2026-10-08 Created exact five-minute consultation monitor
+  `telemetry-oracle-cycle-001`; preserve the separate persistent loop heartbeat.
 - [ ] Verify actionable advice, select a bounded implementation, and record its
   observable acceptance scenario before editing runtime behavior.
 - [ ] Complete cumulative validation and update the draft PR.
@@ -39,22 +45,37 @@ work; completed plans are immutable history.
 ### Resume here
 
 2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) is
-published; no product changes yet. The prepared first question and exact
-source/validation/scheduler state are under ignored
-`.scenery/telemetry-improvements/`. It has not been submitted: the new ChatGPT
-picker verifies Pro (5 of 5), but displays no 6 or Latest identity. Petr has a
-pending clarification about accepting this current Pro selection. Resolve that
-model identity before sending, refresh the question's exact published target,
-verify its actual GitHub chip, and submit once. No consultation monitor exists
-until submission; the separate loop heartbeat is active. Recover any recorded
-conversation before resending. Read live Git/PR/scheduler state before relying
-on this checkpoint.
+published; no product changes yet. The first Oracle review is accepted and
+generating at the recorded URL with the actual GitHub connector and exact
+target/base confirmed by the Oracle. Recover that conversation rather than
+resending. Its exact monitor is `telemetry-oracle-cycle-001`; capture the entire
+final answer before deleting that monitor, then assess/implement useful advice.
+The separate `telemetry-improvements-loop` heartbeat persists until Petr stops
+the loop. Local durable state, intended question, actual accepted scope and
+synthetic negative-duration proof live under
+`.scenery/telemetry-improvements/`. The model clarification is resolved: click
+the Pro label within the Chat effort picker to reveal GPT-6 selection, then
+return to verify Pro 5 of 5. Use paste for multiline questions; native typeText
+submitted paragraphs separately. Read live Git/PR/scheduler state before relying
+on this checkpoint; this later documentation update does not change the pending
+review's pinned source.
 
 ## Surprises & Discoveries
 
 - Plan 0207 retains historical review/merge tasks, while current main already
   contains later telemetry reliability closure. Resolve behavior from the
   pinned implementation and current contracts, not stale plan status.
+- 2026-10-08: A synthetic successful CLI record with `duration_ms: -7` is rejected
+  by the query but accepted by report, producing p50/p95 of -7 contrary to the
+  checked report schema. Private fixture and actual output are retained in
+  `.scenery/telemetry-improvements/proofs/negative-record/`; native recording
+  clamps durations, so the reproduced trigger is malformed retained input.
+- 2026-10-08: Chat's model submenu is hidden behind its effort label. Native
+  typeText interprets multiline paragraph breaks as submits; the first review
+  accepted three messages containing its source/goal/contracts/constraints.
+  The intended validation/output/evidence tail was not submitted. The Oracle
+  nevertheless verified the exact source pair through GitHub; assess its final
+  coverage explicitly and use paste for subsequent complete questions.
 
 ## Decision Log
 
