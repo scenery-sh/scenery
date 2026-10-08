@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,16 @@ func TestTelemetryClassification(t *testing.T) {
 		{[]string{"build", "--target", "development"}, "build", "oneshot"},
 		{[]string{"db", "seed", "--env", "dev"}, "db seed", "oneshot"},
 		{[]string{"task", "run", "secret-argument"}, "task run", "oneshot"},
+		{[]string{"deploy", "operator@private-host:/private/path"}, "deploy", "oneshot"},
+		{[]string{"db", "/private/path"}, "db", "oneshot"},
+		{[]string{"task", "private-task"}, "task", "oneshot"},
+		{[]string{"logs", "private-token"}, "logs", "oneshot"},
+		{[]string{"/private/path", "secret-argument"}, "unknown", "oneshot"},
+		{[]string{"--private-token"}, "unknown", "oneshot"},
+		{[]string{"config", "set", "private-key", "private-value"}, "config set", "oneshot"},
+		{[]string{"generate", "sqlc", "--app-root", "/private/path"}, "generate sqlc", "oneshot"},
+		{[]string{"inspect", "artifact"}, "inspect", "oneshot"},
+		{[]string{"inspect", "harness", "artifact"}, "inspect harness", "oneshot"},
 		{[]string{"feature", "land", "private-feature"}, "feature land", "oneshot"},
 		{[]string{"feature", "private-feature"}, "feature", "oneshot"},
 		{[]string{"feature", "list", "--watch=1", "-o", "jsonl"}, "feature list", "long_running"},
@@ -41,13 +52,61 @@ func TestTelemetryClassification(t *testing.T) {
 	}
 }
 
+func TestTelemetryClassificationUsesKnownCommandFamilies(t *testing.T) {
+	t.Parallel()
+	for root, subcommands := range telemetryReportCommandFamilies() {
+		if got := telemetryCommand([]string{root, "private-operand"}); got != root {
+			t.Errorf("%q retains an unknown operand: %q", root, got)
+		}
+		for _, subcommand := range subcommands {
+			if got := telemetryCommand([]string{root, subcommand, "private-operand"}); got != root+" "+subcommand {
+				t.Errorf("%q %q classification = %q", root, subcommand, got)
+			}
+		}
+	}
+}
+
+func TestTelemetryQueryPreservesUnknownDirtyIdentity(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "telemetry.jsonl")
+	var lines strings.Builder
+	for _, variant := range []struct{ version, dirty string }{{"missing", ""}, {"clean", `,"dirty":false`}, {"dirty", `,"dirty":true`}} {
+		fmt.Fprintf(&lines, `{"at":%q,"command":"check","duration_ms":1,"exit_code":0,"version":%q,"mode":"oneshot"%s}`+"\n", time.Now().UTC().Format(time.RFC3339Nano), variant.version, variant.dirty)
+	}
+	if err := os.WriteFile(path, []byte(lines.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response, err := loadCLITelemetry(path, telemetryQueryOptions{Limit: 3})
+	if err != nil || len(response.Records) != 3 {
+		t.Fatalf("query = %+v: %v", response, err)
+	}
+	for _, record := range response.Records {
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		dirty, present := fields["dirty"]
+		if record.Version == "missing" {
+			if present {
+				t.Fatalf("historical record invents dirty identity: %s", encoded)
+			}
+		} else if !present || dirty != (record.Version == "dirty") {
+			t.Fatalf("explicit dirty identity changed: %s", encoded)
+		}
+	}
+}
+
 func TestNativeTelemetryUsesResolvedIdentityAndExplicitPurpose(t *testing.T) {
 	t.Setenv("SCENERY_EXECUTION_PURPOSE", "verification")
 	invocation := newCLITelemetryInvocation(time.Now(), []string{"help"})
 	var record cliTelemetryRecord
 	invocation.recorder = func(value cliTelemetryRecord) { record = value }
 	invocation.finish(0)
-	if record.Producer == nil || record.Version != record.Producer.Version || record.Purpose != "verification" || record.Dirty != cliBuildDirty() {
+	if record.Producer == nil || record.Version != record.Producer.Version || record.Purpose != "verification" || record.Dirty == nil || *record.Dirty != cliBuildDirty() {
 		t.Fatalf("record identity = %+v", record)
 	}
 	for _, invalid := range []string{"", "dev", "fixture", "secret text"} {

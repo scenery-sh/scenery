@@ -126,6 +126,7 @@ type MetricsQuery struct {
 	Timeout  time.Duration
 	Limit    int
 	Warnings []string
+	client   *http.Client
 }
 
 type MetricsQueryRecord struct {
@@ -168,6 +169,7 @@ type MetricsCatalogQuery struct {
 	Limit    int
 	Timeout  time.Duration
 	Warnings []string
+	client   *http.Client
 }
 
 type MetricsCatalogRecord struct {
@@ -198,6 +200,10 @@ type MetricsSeriesResult struct {
 }
 
 func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
+	return queryLogsWithClient(ctx, nil, q)
+}
+
+func queryLogsWithClient(ctx context.Context, client *http.Client, q LogsQuery) (LogsQueryResult, error) {
 	result := LogsQueryResult{
 		PayloadIdentity: NewPayloadIdentity(LogsQueryKind, "scope,backend,query,warnings,logs"),
 		Scope:           q.Scope,
@@ -215,7 +221,7 @@ func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
 		defer cancel()
 	}
-	rows, err := fetchLogs(ctx, q.BaseURL, "/select/logsql/query", logValues(q))
+	rows, err := fetchLogs(ctx, client, q.BaseURL, "/select/logsql/query", logValues(q))
 	if err != nil {
 		return LogsQueryResult{}, err
 	}
@@ -224,11 +230,15 @@ func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 }
 
 func TailLogs(ctx context.Context, q LogsQuery, emit func(LogsTailEntry) error) error {
+	return tailLogsWithClient(ctx, nil, q, emit)
+}
+
+func tailLogsWithClient(ctx context.Context, client *http.Client, q LogsQuery, emit func(LogsTailEntry) error) error {
 	if strings.TrimSpace(q.BaseURL) == "" {
 		return fmt.Errorf("VictoriaLogs is unavailable")
 	}
 	record := logsQueryRecord(q)
-	return streamLogs(ctx, q.BaseURL, "/select/logsql/tail", logTailValues(q), func(row map[string]any) error {
+	return streamLogs(ctx, client, q.BaseURL, "/select/logsql/tail", logTailValues(q), func(row map[string]any) error {
 		entries := normalizeLogRows([]map[string]any{row}, q.Fields, 1)
 		if len(entries) == 0 {
 			return nil
@@ -276,12 +286,18 @@ func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, erro
 		values.Set("end", formatVictoriaTime(q.Bounds.End))
 		values.Set("step", q.Step.String())
 	}
-	payload, err := fetchMetrics(ctx, q.BaseURL, path, values)
+	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, path, values)
 	if err != nil {
 		return MetricsQueryResult{}, err
 	}
 	result.ResultType = payload.Data.ResultType
-	result.Series = normalizeMetricResults(payload.Data.Result, q.Limit)
+	if !q.Instant && result.ResultType != "matrix" {
+		return MetricsQueryResult{}, fmt.Errorf("VictoriaMetrics range query requires a matrix result")
+	}
+	result.Series, err = normalizeMetricResults(payload.Data.Result, result.ResultType, q.Limit)
+	if err != nil {
+		return MetricsQueryResult{}, err
+	}
 	return result, nil
 }
 
@@ -307,15 +323,13 @@ func MetricsLabels(ctx context.Context, q MetricsCatalogQuery) (MetricsLabelsRes
 	if q.Match != "" {
 		values.Add("match[]", q.Match)
 	}
-	payload, err := fetchMetrics(ctx, q.BaseURL, "/prometheus/api/v1/labels", values)
+	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, "/prometheus/api/v1/labels", values)
 	if err != nil {
 		return MetricsLabelsResult{}, err
 	}
-	for _, item := range payload.Data.Strings {
-		result.Labels = append(result.Labels, item)
-		if q.Limit > 0 && len(result.Labels) >= q.Limit {
-			break
-		}
+	result.Labels, err = normalizeMetricCatalogLabels(payload.Data.Catalog, q.Limit)
+	if err != nil {
+		return MetricsLabelsResult{}, err
 	}
 	sort.Strings(result.Labels)
 	return result, nil
@@ -343,15 +357,13 @@ func MetricsSeries(ctx context.Context, q MetricsCatalogQuery) (MetricsSeriesRes
 	if q.Match != "" {
 		values.Add("match[]", q.Match)
 	}
-	payload, err := fetchMetrics(ctx, q.BaseURL, "/prometheus/api/v1/series", values)
+	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, "/prometheus/api/v1/series", values)
 	if err != nil {
 		return MetricsSeriesResult{}, err
 	}
-	for _, item := range payload.Data.Series {
-		result.Series = append(result.Series, item)
-		if q.Limit > 0 && len(result.Series) >= q.Limit {
-			break
-		}
+	result.Series, err = normalizeMetricCatalogSeries(payload.Data.Catalog, q.Limit)
+	if err != nil {
+		return MetricsSeriesResult{}, err
 	}
 	return result, nil
 }
@@ -407,22 +419,25 @@ func logScopeFilters(scope QueryScope) []string {
 	return out
 }
 
-func fetchLogs(ctx context.Context, baseURL, path string, values url.Values) ([]map[string]any, error) {
+func fetchLogs(ctx context.Context, client *http.Client, baseURL, path string, values url.Values) ([]map[string]any, error) {
 	var rows []map[string]any
-	err := streamLogs(ctx, baseURL, path, values, func(row map[string]any) error {
+	err := streamLogs(ctx, client, baseURL, path, values, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	})
 	return rows, err
 }
 
-func streamLogs(ctx context.Context, baseURL, path string, values url.Values, emit func(map[string]any) error) error {
+func streamLogs(ctx context.Context, client *http.Client, baseURL, path string, values url.Values, emit func(map[string]any) error) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+path, strings.NewReader(values.Encode()))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -434,12 +449,24 @@ func streamLogs(ctx context.Context, baseURL, path string, values url.Values, em
 		}
 		return fmt.Errorf("VictoriaLogs query failed: %s", resp.Status)
 	}
-	scanner := bufio.NewScanner(resp.Body)
+	reader := &responseErrorReader{Reader: resp.Body}
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		// Scanner's end condition includes failed reads. Only a newline or clean
+		// EOF completes a physical line; keep already completed buffered rows.
+		if atEOF && reader.err != nil && bytes.IndexByte(data, '\n') < 0 {
+			return 0, nil, reader.err
+		}
+		return bufio.ScanLines(data, atEOF)
+	})
 	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
+		line := scanner.Bytes()
+		if onlyJSONWhitespace(line) {
 			continue
+		}
+		if !json.Valid(line) {
+			return fmt.Errorf("VictoriaLogs response contains an invalid JSON line")
 		}
 		var row map[string]any
 		dec := json.NewDecoder(bytes.NewReader(line))
@@ -471,7 +498,7 @@ func normalizeLogRows(rows []map[string]any, fields []string, limit int) []LogEn
 		}
 		if rawFields := firstRowString(row, "fields_json"); rawFields != "" {
 			var fields map[string]any
-			if json.Unmarshal([]byte(rawFields), &fields) == nil && len(fields) > 0 {
+			if decodeFiniteJSON(strings.NewReader(rawFields), &fields) == nil && len(fields) > 0 {
 				entry.Fields = fields
 			}
 		}
@@ -547,13 +574,16 @@ func catalogValues(q MetricsCatalogQuery) url.Values {
 	return values
 }
 
-func fetchMetrics(ctx context.Context, baseURL, path string, values url.Values) (victoriaMetricsResponse, error) {
+func fetchMetricsWithClient(ctx context.Context, client *http.Client, baseURL, path string, values url.Values) (victoriaMetricsResponse, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+path, strings.NewReader(values.Encode()))
 	if err != nil {
 		return victoriaMetricsResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return victoriaMetricsResponse{}, err
 	}
@@ -566,9 +596,7 @@ func fetchMetrics(ctx context.Context, baseURL, path string, values url.Values) 
 		return victoriaMetricsResponse{}, fmt.Errorf("VictoriaMetrics query failed: %s", resp.Status)
 	}
 	var payload victoriaMetricsResponse
-	dec := json.NewDecoder(resp.Body)
-	dec.UseNumber()
-	if err := dec.Decode(&payload); err != nil {
+	if err := decodeFiniteJSON(resp.Body, &payload); err != nil {
 		return victoriaMetricsResponse{}, err
 	}
 	if payload.Status != "" && payload.Status != "success" {
@@ -586,8 +614,7 @@ type victoriaMetricsResponse struct {
 type victoriaMetricsData struct {
 	ResultType string
 	Result     []victoriaMetricResult
-	Strings    []string
-	Series     []map[string]string
+	Catalog    []json.RawMessage
 }
 
 func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
@@ -598,69 +625,97 @@ func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err == nil && (raw.ResultType != "" || len(raw.Result) > 0) {
 		d.ResultType = raw.ResultType
 		if len(raw.Result) > 0 && string(raw.Result) != "null" {
-			_ = json.Unmarshal(raw.Result, &d.Result)
+			decoder := json.NewDecoder(bytes.NewReader(raw.Result))
+			decoder.UseNumber()
+			return decoder.Decode(&d.Result)
 		}
 		return nil
 	}
-	if err := json.Unmarshal(data, &d.Strings); err == nil {
-		return nil
-	}
-	return json.Unmarshal(data, &d.Series)
+	return json.Unmarshal(data, &d.Catalog)
 }
 
 type victoriaMetricResult struct {
-	Metric map[string]string `json:"metric"`
-	Value  []any             `json:"value"`
-	Values [][]any           `json:"values"`
+	Metric map[string]any `json:"metric"`
+	Value  []any          `json:"value"`
+	Values [][]any        `json:"values"`
 }
 
-func normalizeMetricResults(items []victoriaMetricResult, limit int) []MetricSeries {
+func normalizeMetricResults(items []victoriaMetricResult, resultType string, limit int) ([]MetricSeries, error) {
+	if resultType != "vector" && resultType != "matrix" {
+		return nil, fmt.Errorf("VictoriaMetrics query returned unsupported result type")
+	}
+	if items == nil {
+		return nil, fmt.Errorf("VictoriaMetrics query requires a result array")
+	}
 	out := make([]MetricSeries, 0, len(items))
 	for _, item := range items {
-		series := MetricSeries{Metric: item.Metric}
-		if sample := metricSample(item.Value); sample != nil {
-			series.Value = sample
+		if item.Metric == nil {
+			return nil, fmt.Errorf("VictoriaMetrics result requires a metric object")
 		}
-		for _, raw := range item.Values {
-			if sample := metricSample(raw); sample != nil {
+		labels := make(map[string]string, len(item.Metric))
+		for name, raw := range item.Metric {
+			value, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Errorf("VictoriaMetrics metric label requires a string")
+			}
+			labels[name] = value
+		}
+		series := MetricSeries{Metric: labels}
+		if resultType == "vector" {
+			if item.Values != nil {
+				return nil, fmt.Errorf("VictoriaMetrics vector requires value rather than values")
+			}
+			sample, err := metricSample(item.Value)
+			if err != nil {
+				return nil, err
+			}
+			series.Value = sample
+		} else {
+			if item.Values == nil || item.Value != nil {
+				return nil, fmt.Errorf("VictoriaMetrics matrix requires a values array")
+			}
+			for _, raw := range item.Values {
+				sample, err := metricSample(raw)
+				if err != nil {
+					return nil, err
+				}
 				series.Values = append(series.Values, *sample)
 			}
 		}
-		out = append(out, series)
-		if limit > 0 && len(out) >= limit {
-			break
+		// Validate even omitted series: a malformed response is never a
+		// successful partial result merely because the output limit is small.
+		if limit <= 0 || len(out) < limit {
+			out = append(out, series)
 		}
 	}
-	return out
+	return out, nil
 }
 
-func metricSample(raw []any) *MetricSample {
-	if len(raw) < 2 {
-		return nil
+func metricSample(raw []any) (*MetricSample, error) {
+	if len(raw) != 2 {
+		return nil, fmt.Errorf("VictoriaMetrics sample requires a timestamp/value pair")
 	}
-	timestamp, ok := numberAsFloat(raw[0])
+	timestamp, ok := raw[0].(json.Number)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("VictoriaMetrics sample timestamp is not a representable nanosecond time")
+	}
+	nanos, err := metricTimestampNanos(timestamp)
+	if err != nil {
+		return nil, err
+	}
+	value, ok := raw[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("VictoriaMetrics sample value requires a numeric string")
+	}
+	// Prometheus represents NaN and infinities as strings too. They are valid
+	// metric values even though timestamps must be finite and representable.
+	if _, err := strconv.ParseFloat(value, 64); err != nil {
+		return nil, fmt.Errorf("VictoriaMetrics sample value requires a numeric string")
 	}
 	return &MetricSample{
-		Time:  time.Unix(0, int64(timestamp*1e9)).UTC().Format(time.RFC3339Nano),
-		Value: fmt.Sprint(raw[1]),
-	}
-}
-
-func numberAsFloat(value any) (float64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return v, true
-	case json.Number:
-		n, err := v.Float64()
-		return n, err == nil
-	case string:
-		n, err := strconv.ParseFloat(v, 64)
-		return n, err == nil
-	default:
-		return 0, false
-	}
+		Time:  time.Unix(0, nanos).UTC().Format(time.RFC3339Nano),
+		Value: value,
+	}, nil
 }
 
 func logsQueryRecord(q LogsQuery) LogsQueryRecord {

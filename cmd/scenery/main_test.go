@@ -58,7 +58,11 @@ func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 		wantCommand string
 	}{
 		{name: "success", args: nil, want: 0, wantCommand: "help"},
-		{name: "invalid usage", args: []string{"not-a-command"}, err: errors.New("invalid_request: unknown command"), want: 2, wantCommand: "not-a-command"},
+		{name: "invalid usage", args: []string{"not-a-command"}, err: errors.New("invalid_request: unknown command"), want: 2, wantCommand: "unknown"},
+		{name: "private root", args: []string{"PRIVATE_SENTINEL"}, err: errors.New("invalid_request: unknown command"), want: 2, wantCommand: "unknown"},
+		{name: "private subcommand", args: []string{"db", "PRIVATE_SENTINEL"}, err: errors.New("invalid_request: unknown subcommand"), want: 2, wantCommand: "db"},
+		{name: "deploy operand", args: []string{"deploy", "operator@PRIVATE_SENTINEL"}, want: 0, wantCommand: "deploy"},
+		{name: "validation profile", args: []string{"validate", "PRIVATE_SENTINEL"}, want: 0, wantCommand: "validate"},
 		{name: "missing resource", args: []string{"get", "missing/operation/nope"}, err: errors.New("invalid_request: resource not found"), want: 2, wantCommand: "get"},
 	}
 	for _, test := range tests {
@@ -69,6 +73,7 @@ func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 				if telemetry == nil || strings.Join(args, "\x00") != strings.Join(test.args, "\x00") {
 					t.Fatalf("runner args/telemetry = %q/%v", args, telemetry)
 				}
+				stdout.WriteString("original command output\n")
 				return test.err
 			}, func(record cliTelemetryRecord) {
 				records = append(records, record)
@@ -82,6 +87,13 @@ func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 			record := records[0]
 			if record.Command != test.wantCommand || record.ExitCode != test.want {
 				t.Fatalf("telemetry = %#v, want command %q and exit code %d", record, test.wantCommand, test.want)
+			}
+			encoded, err := json.Marshal(record)
+			if err != nil || strings.Contains(string(encoded), "PRIVATE_SENTINEL") {
+				t.Fatalf("telemetry retains a private operand: %s (%v)", encoded, err)
+			}
+			if stdout.String() != "original command output\n" || (test.want != 0 && record.DiagnosticCode != "SCN8001") {
+				t.Fatalf("command output/diagnostic changed: %q, %q", stdout.String(), record.DiagnosticCode)
 			}
 			// The exit code reports the failure class; stderr says what failed.
 			if test.err != nil && (stderr.String() != humanCLIErrorMessage(test.err)+"\n" || strings.Contains(stderr.String(), "invalid_request")) {

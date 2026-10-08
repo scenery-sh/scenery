@@ -11,7 +11,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -32,11 +34,23 @@ func runHarnessObservabilityProbeStepWithArtifacts(ctx context.Context, repo str
 
 // The probe uses the authored SQL fixture, a disposable home and real managed
 // Victoria binaries. It proves the public request path and export/readback,
-// rather than manufacturing reports which bypass the instrumented connector.
+// rather than replacing the instrumented connector with synthetic reports.
+// A separate final segment submits orphan events through authenticated intake
+// to prove trace-buffer loss accounting in the served status.
 func runHarnessObservabilityProbe(parent context.Context, repo string, artifactContexts ...harnessArtifactContext) (proof map[string]any, resultErr error) {
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 	proof = map[string]any{}
+	catalogProof, err := proveHarnessMetricCatalog(ctx, repo, optionalHarnessArtifactContext(artifactContexts))
+	proof["metric_catalog"] = catalogProof
+	if err != nil {
+		return proof, err
+	}
+	framingProof, err := proveHarnessQueryFraming(ctx, repo, optionalHarnessArtifactContext(artifactContexts))
+	proof["query_framing"] = framingProof
+	if err != nil {
+		return proof, err
+	}
 	if !harnessDockerAvailable(ctx) {
 		return proof, errors.New("docker unavailable; SQL observability proof did not run")
 	}
@@ -78,15 +92,23 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		return proof, err
 	}
 	propagated := make(chan string, 1)
+	var traceBufferEvents atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case propagated <- r.Header.Get("traceparent"):
 		default:
 		}
+		if count := traceBufferEvents.Load(); count != 0 {
+			w.Header().Set("X-Scenery-Probe-Trace-Events", strconv.FormatInt(count, 10))
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	source := strings.ReplaceAll(observabilityProbeSource, "PROBE_UPSTREAM", upstream.URL)
+	fixture, err := os.ReadFile(filepath.Join(repo, "scripts", "verify", "testdata", "observability", "library.go.txt"))
+	if err != nil {
+		return proof, err
+	}
+	source := strings.ReplaceAll(string(fixture), "PROBE_UPSTREAM", upstream.URL)
 	if err := os.WriteFile(filepath.Join(root, "library/observability.go"), []byte(source), 0600); err != nil {
 		return proof, err
 	}
@@ -333,6 +355,18 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		return proof, fmt.Errorf("metric readback: %w: %v", err, observationErr)
 	}
 	proof["sql_duration_metrics"] = true
+	seriesOutput, err := runHarnessAppCLIWithEnv(ctx, repo, root, p.env, "metrics", "series", "--match", "scenery_request_duration_seconds", "-o", "json")
+	if err != nil {
+		return proof, err
+	}
+	var catalog obs.MetricsSeriesResult
+	if err := decodeCLIJSON(seriesOutput, &catalog); err != nil {
+		return proof, err
+	}
+	if len(catalog.Series) == 0 || !catalog.Scope.Enforced {
+		return proof, errors.New("real backend series catalog is incomplete")
+	}
+	proof["cli_metrics_series"] = catalog
 	output, err := runHarnessAppCLIWithEnv(ctx, repo, root, p.env, "traces", "list", "--trace-id", traceID, "-o", "json")
 	if err != nil {
 		return proof, err
@@ -341,6 +375,16 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		return proof, errors.New("CLI trace list did not return the request")
 	}
 	proof["cli_trace_lookup"] = true
+	bufferProof, err := proveHarnessTraceBufferLoss(ctx, p, root, rpc, rpcURL, runtimeStatus.AppID, worktreeProbeAPI(running), &traceBufferEvents, session.AppPID, response.Header.Get("X-Scenery-Build-Input-Digest"), optionalHarnessArtifactContext(artifactContexts))
+	if err != nil {
+		return proof, err
+	}
+	proof["trace_buffer_loss"] = bufferProof
+	admissionProof, err := proveHarnessBackendAdmission(ctx, p, paths, agent, substrate, rpc, runtimeStatus.AppID, worktreeProbeAPI(running), &traceBufferEvents, session.AppPID, response.Header.Get("X-Scenery-Build-Input-Digest"), optionalHarnessArtifactContext(artifactContexts))
+	if err != nil {
+		return proof, err
+	}
+	proof["backend_admission"] = admissionProof
 	return proof, nil
 }
 
@@ -402,37 +446,6 @@ func verifyObservabilitySpans(spans []*devdash.TraceSummary) error {
 	}
 	return nil
 }
-
-const observabilityProbeSource = `package library
-import("context"; "fmt"; "log/slog"; "net/http"; "scenery.sh"; "scenery.sh/db"; "scenery.sh/storage"; "strings"; "io"; contract "example.com/library-desk/library/scenerycontract")
-func(s *Service) observe(ctx context.Context) error {
- ctx, span := scenery.StartSpan(ctx,"sql-observability"); defer span.End(nil)
- invocation,ok := scenery.InvocationFromContext(ctx); if !ok { return fmt.Errorf("missing invocation") }
- if _,err := s.input.Clients.Probe.Invoke(ctx,invocation,contract.TraceProbeInput{}); err != nil { return err }
- if _,err := s.input.Clients.Background.Invoke(ctx,invocation,contract.TraceProbeInput{}); err != nil { return err }
- var value string
- if err := s.database.QueryRowContext(ctx,"-- name: ProbeLiteral :one\nSELECT $$private-query-value$$::text").Scan(&value); err != nil { return err }
- pool,err:=db.Get(ctx,"library"); if err!=nil{return err}
- stmt,err:=pool.PrepareContext(ctx,"-- name: ProbePrepared :one\nSELECT $1::text");if err!=nil{return err};defer stmt.Close()
- if err:=stmt.QueryRowContext(ctx,"private-argument").Scan(&value);err!=nil{return err}
- tx,err:=s.database.BeginTx(ctx,nil);if err!=nil{return err};defer tx.Rollback()
- if _,err:=tx.ExecContext(ctx,"-- name: ProbeTransaction :exec\nSELECT 42");err!=nil{return err}
- if err:=tx.Commit();err!=nil{return err}
- if _,err:=s.database.ExecContext(ctx,"-- name: ProbeFailure :exec\nSELECT $1::text::integer","private-argument");err==nil{return fmt.Errorf("expected SQL failure")}
- done:=make(chan struct{});go func(){defer close(done);slog.Default().WithGroup("probe").With("component","sql").WithGroup("attempt").InfoContext(ctx,"observability-probe-log","number",1,"token","private-log-token")}();<-done
- request,err:=http.NewRequestWithContext(ctx,"GET","PROBE_UPSTREAM",nil);if err!=nil{return err}
- response,err:=http.DefaultClient.Do(request);if err!=nil{return err};return response.Body.Close()
-}
-func(s *Service) TraceProbe(ctx context.Context, _ contract.TraceProbeInput) (contract.TraceProbeOutcome,error) {
- if _,err := s.database.ExecContext(ctx,"-- name: ProbeNested :exec\nSELECT 1"); err != nil { return nil,err }
- store,err := storage.Default(ctx);if err!=nil{return nil,err}
- if _,err = store.Put(ctx,"proof.txt",strings.NewReader("hello"),storage.PutOptions{});err!=nil{return nil,err}
- body,_,err := store.Get(ctx,"proof.txt",storage.GetOptions{});if err!=nil{return nil,err}
- _,err=io.Copy(io.Discard,body);_ = body.Close();if err!=nil{return nil,err}
- if err=store.Delete(ctx,"proof.txt",storage.DeleteOptions{});err!=nil{return nil,err}
- return contract.TraceProbeDone{Value:scenery.Unit{}},nil
-}
-`
 
 const observabilityClientProbe = `
 import { PublicApiClient } from "./client/generated/client.ts";

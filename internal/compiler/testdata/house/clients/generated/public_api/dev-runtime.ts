@@ -7,7 +7,7 @@
 // Deployed origins do not serve it.
 
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
-export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:93b6ee76b4ef4b5626531207a014791d0c56bbc38419533fa0bb1e505ffd2d2c";
+export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:50d87d2565ab839da6883c12d91522fad5f9c9cca1efd93f92e214f8ad8a4b13";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
@@ -73,13 +73,14 @@ export interface DevRuntimeObservability {
 }
 
 /**
- * Telemetry the runtime did not deliver to the observability backend since
- * it started: reports dropped because they were too large or its bounded
- * export queue was full, and exports that failed.
+ * Loss evidence with distinct counting units; these counters are not additive.
  */
 export interface DevRuntimeTelemetryExport {
 	readonly dropped: number;
 	readonly failed: number;
+	/** Accepted event occurrences evicted by TTL/capacity across all app/session
+	 * keys during the owning dashboard server's lifetime; successful drains add zero. */
+	readonly trace_buffer_dropped_events: number;
 }
 
 export interface DevRuntimeServiceProcess {

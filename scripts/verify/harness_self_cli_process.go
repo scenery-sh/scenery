@@ -53,10 +53,11 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		missingApp  bool
 	}{
 		{name: "success", wantCommand: "help"},
-		{name: "invalid_usage", args: []string{"not-a-command"}, wantExit: 2, wantCommand: "not-a-command"},
+		{name: "invalid_usage", args: []string{"not-a-command"}, wantExit: 2, wantCommand: "unknown"},
+		{name: "private_operand", args: []string{"task", "private-task-token"}, wantExit: 2, wantCommand: "task"},
 		{name: "missing_resource", args: []string{"get", "missing/operation/nope", "--app-root", filepath.Join(repoRoot, "internal", "compiler", "testdata", "native")}, wantExit: 2, wantCommand: "get"},
 		{name: "missing_app", missingApp: true, wantExit: 2, wantCommand: "compile"},
-		{name: "semantic_status", args: []string{"status", "-o", "json"}, wantExit: 2, wantCommand: "status"},
+		{name: "semantic_status", args: []string{"status", "-o", "json"}, wantExit: 2, wantCommand: "unknown"},
 	}
 	verified := make([]string, 0, len(cases))
 	for _, test := range cases {
@@ -120,8 +121,28 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		}
 		verified = append(verified, test.name)
 	}
+	publication, err := proveHarnessTelemetryPublication(ctx, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	timing, err := proveHarnessSupervisorTiming(ctx, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	snapshots, err := proveHarnessReportSnapshots(ctx, repoRoot)
+	if err != nil {
+		return map[string]any{"report_snapshot": snapshots}, nil, err
+	}
+	evidence, err := proveHarnessReportEvidence(ctx, repoRoot)
+	if err != nil {
+		return map[string]any{"report_evidence": evidence}, nil, err
+	}
 	return map[string]any{
-		"proof":          "real_cli_process_exit_codes_and_per_process_telemetry_verified",
-		"verified_cases": verified,
+		"report_evidence":           evidence,
+		"report_snapshot":           snapshots,
+		"supervisor_timing":         timing,
+		"proof":                     "real_cli_process_exit_codes_and_per_process_telemetry_verified",
+		"verified_cases":            verified,
+		"telemetry_zip_publication": publication,
 	}, nil, nil
 }

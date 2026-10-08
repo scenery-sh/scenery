@@ -108,7 +108,39 @@
         "cmd/scenery/main.go",
         "cmd/scenery/feature",
         "cmd/scenery/telemetry",
-        "internal/machine/"
+        "internal/machine/",
+        "internal/telemetryreport/",
+        "internal/schemacheck/",
+        "scripts/verify/harness_report",
+        "scripts/verify/harness_supervisor_timing",
+        "scripts/verify/harness_telemetry"
+      ]
+    },
+    {
+      "id": "observability",
+      "command": "go",
+      "args": [
+        "run",
+        "./scripts/verify",
+        "--probe",
+        "observability",
+        "--base",
+        "{base}",
+        "--summary",
+        "--write"
+      ],
+      "expensive": true,
+      "when_paths": [
+        "cmd/scenery/dashboard",
+        "internal/observability/",
+        "internal/schemacheck/",
+        "internal/generate/dev_runtime_client.ts",
+        "docs/schemas/scenery.dev-runtime.status.schema.json",
+        "scripts/verify/harness_self_observability",
+        "scripts/verify/harness_observability",
+        "scripts/verify/harness_metrics_catalog",
+        "scripts/verify/harness_query_framing",
+        "scripts/verify/testdata/observability/"
       ]
     }
   ]

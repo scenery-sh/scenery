@@ -67,7 +67,7 @@ type Sources struct {
 	// SupervisorLogsPartial counts supervisor logs whose reading stopped at
 	// an error, SupervisorLogsFailed those that could not be opened, and
 	// SupervisorInvalid their event lines that did not decode or were too
-	// long.
+	// long, or whose timing evidence is invalid.
 	SupervisorLogsPartial int                `json:"supervisor_logs_partial"`
 	SupervisorLogsFailed  int                `json:"supervisor_logs_failed"`
 	SupervisorInvalid     int                `json:"supervisor_invalid_records"`
@@ -85,8 +85,8 @@ type Finding struct {
 }
 
 // Timing summarizes durations in milliseconds: every attempt is counted, and
-// the nearest-rank percentiles describe the successful ones. A percentile is
-// null when no attempt succeeded.
+// the nearest-rank percentiles describe successful attempts with valid timing
+// evidence. A percentile is null when none has valid timing.
 type Timing struct {
 	PercentileSampleCount int    `json:"percentile_sample_count"`
 	Count                 int    `json:"count"`
@@ -100,13 +100,18 @@ type timingAccumulator struct {
 	durations       []int64
 }
 
-func (a *timingAccumulator) add(durationMS int64, ok bool) {
+func (a *timingAccumulator) addUntimed(ok bool) {
 	a.count++
 	if !ok {
 		a.failures++
-		return
 	}
-	a.durations = append(a.durations, durationMS)
+}
+
+func (a *timingAccumulator) add(durationMS int64, ok bool) {
+	a.addUntimed(ok)
+	if ok {
+		a.durations = append(a.durations, durationMS)
+	}
 }
 
 func (a *timingAccumulator) timing() Timing {

@@ -38,6 +38,9 @@ and full for source/contract changes. It reads the selected run's compact contex
 first, then completes the full changed-area command union and lint. External
 checks are separate policy gates, admitted through the shared limit. Applications
 supply their own path-to-check command; ONLV uses its pinned `validate changed`.
+Scenery's policy selects CLI-process acceptance for report and shared schema
+checks, and observability acceptance for query, development status/client and
+their HTTP proof owners. Shared schema changes select both boundaries.
 
 ## Create, Inspect And Work
 

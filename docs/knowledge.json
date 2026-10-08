@@ -19,6 +19,23 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0218-telemetry-improvements.md",
+      "title": "Telemetry Improvements",
+      "owner": "scenery telemetry",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-08",
+      "review_after": "2026-11-07",
+      "summary": "Completed twelve Oracle telemetry reviews with verified report/query/ZIP/status corrections, exact numeric schema checks and owned acceptance. Loop manually stopped; combined landing and source installation are authorized, with exact delivery receipts in local state. Resource budgets remain separate.",
+      "tags": [
+        "plans",
+        "execplans",
+        "telemetry",
+        "observability"
+      ]
+    },
+    {
       "path": "docs/plans/0216-verification-coverage-and-evidence.md",
       "title": "Verification Coverage and Trustworthy Timing",
       "owner": "scenery verifier / validation",
@@ -420,9 +437,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
-      "summary": "Machine output of scenery telemetry report: findings, CLI command and startup timings with failure bursts, detached supervisor rebuild timings, step percentiles, failure causes and streaks, and opt-in aggregates of agent Scenery calls and rejected inputs.",
+      "last_reviewed": "2026-10-08",
+      "review_after": "2026-11-07",
+      "summary": "Telemetry report contract with independent outcome/timing cohorts and required nullable captured extents/nonnegative physical byte counts for native CLI, supervisor and opt-in transcript sources.",
       "tags": [
         "schemas",
         "telemetry",
@@ -474,7 +491,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Result of the development runtime RPC status method: session identity and health, compile state, routes, service processes and observability readiness, verified by the generated dev-runtime.ts client.",
+      "summary": "Development runtime status: session identity/health, compile state, routes, service processes, observability readiness and server-lifetime trace-buffer eviction evidence, with an exact generated-client schema revision.",
       "tags": [
         "schemas",
         "runtime",
@@ -2779,9 +2796,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
-      "summary": "Current CLI and machine contracts including typed local feature coordination and comparison-bound repository verification.",
+      "last_reviewed": "2026-10-08",
+      "review_after": "2026-11-07",
+      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields.",
       "tags": [
         "contract",
         "cli",
@@ -2923,9 +2940,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
-      "summary": "Cumulative validation, combined-candidate scope, feature/CLI/Git probes and immutable input-bound evidence.",
+      "last_reviewed": "2026-10-08",
+      "review_after": "2026-11-07",
+      "summary": "Repository verification matrix and named probes, including failure-aware query framing, exact structured JSON/schema numbers, independent assertion outcomes and complete owned HTTP/runtime cleanup.",
       "tags": [
         "harness",
         "agents",
@@ -4037,7 +4054,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Isolated feature worktrees, exact checkpoint/batch review, combined validation, serialized main publication and receipt-aware cleanup.",
+      "summary": "Isolated feature worktrees, exact checkpoint/batch review, combined validation, serialized main publication and receipt-aware cleanup; Scenery report/shared-schema and observability boundaries select explicit named probes.",
       "tags": [
         "features",
         "worktrees",

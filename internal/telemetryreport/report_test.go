@@ -180,7 +180,8 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	t.Parallel()
 
 	base := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
-	report, err := Build(newReportFixture(t, base))
+	opts := newReportFixture(t, base)
+	report, err := Build(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +257,8 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	if !slices.Contains(agents.ToolErrorKinds, Count{Name: "edit or write before reading", Count: 1}) {
 		t.Fatalf("tool error kinds = %+v", agents.ToolErrorKinds)
 	}
-	if sources := report.Sources.Transcripts; sources == nil || *sources != (TranscriptSources{Read: 3, InvalidRecords: 1, UnmatchedResults: 1, UnansweredCalls: 1}) {
+	sources := report.Sources.Transcripts
+	if sources == nil || sources.SnapshotBytes == nil || sources.ReadBytes != *sources.SnapshotBytes || sources.ReadBytes == 0 || sources.Read != 3 || sources.Partial != 0 || sources.Failed != 0 || sources.InvalidRecords != 1 || sources.OversizedRecords != 0 || sources.UnmatchedResults != 1 || sources.UnansweredCalls != 1 {
 		t.Fatalf("transcript sources = %+v", sources)
 	}
 	encoded, err := json.Marshal(report)
@@ -302,18 +304,31 @@ func TestSceneryAttemptsFindCommandsAtCommandPosition(t *testing.T) {
 		commands     []string
 		attributable bool
 	}{
+		"scenery":                                        {[]string{"help"}, true},
+		"/owned/bin/scenery":                             {[]string{"help"}, true},
+		"command -p -- scenery":                          {[]string{"help"}, true},
+		"command -v scenery":                             {nil, false},
+		"command -V scenery":                             {nil, false},
+		"scenery && true":                                {[]string{"help"}, false},
 		"./scripts/scenery logs tail --follow":           {[]string{"logs tail"}, true},
 		"scenery check -o json 2>&1 >/tmp/check.json":    {[]string{"check"}, true},
 		"GOWORK=off ./scripts/scenery status --app-root": {[]string{"unknown status"}, true},
-		"scenery --help":                                {[]string{"--help"}, true},
-		"time env A=1 scenery ps":                       {[]string{"ps"}, true},
-		".scenery/harness/bin/scenery up && scenery ps": {[]string{"up", "ps"}, false},
-		"go run ./cmd/scenery check -o json":            {[]string{"check"}, false},
-		"sudo scenery up":                               {[]string{"up"}, false},
-		"echo scenery up; scenery logs --since 1h":      {[]string{"logs"}, false},
-		"scenery up &":                                  {[]string{"up"}, false},
-		"if scenery check; then echo ok; fi":            {[]string{"check"}, false},
-		"x=$(scenery ps)":                               {[]string{"ps"}, false},
+		"scenery --help":                                 {[]string{"--help"}, true},
+		"time env A=1 scenery ps":                        {[]string{"ps"}, true},
+		"command scenery check":                          {[]string{"check"}, true},
+		"command -p -- scenery check":                    {[]string{"check"}, true},
+		"command -v scenery check":                       {nil, false},
+		"command -V scenery check":                       {nil, false},
+		"command -pv scenery check":                      {nil, false},
+		"env A=1 command -v scenery check":               {nil, false},
+		"command -unknown scenery check":                 {[]string{"check"}, false},
+		".scenery/harness/bin/scenery up && scenery ps":  {[]string{"up", "ps"}, false},
+		"go run ./cmd/scenery check -o json":             {[]string{"check"}, false},
+		"sudo scenery up":                                {[]string{"up"}, false},
+		"echo scenery up; scenery logs --since 1h":       {[]string{"logs"}, false},
+		"scenery up &":                                   {[]string{"up"}, false},
+		"if scenery check; then echo ok; fi":             {[]string{"check"}, false},
+		"x=$(scenery ps)":                                {[]string{"ps"}, false},
 		// Short-circuits: the shell's outcome is not Scenery's.
 		"false && scenery check": {[]string{"check"}, false},
 		"scenery check && false": {[]string{"check"}, false},

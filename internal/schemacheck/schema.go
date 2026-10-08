@@ -7,10 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -25,7 +23,7 @@ func ValidateFile(schemaPath string, payload any) []string {
 		return []string{err.Error()}
 	}
 	var schema any
-	if err := json.Unmarshal(schemaData, &schema); err != nil {
+	if err := decodeSchemaJSON(schemaData, &schema); err != nil {
 		return []string{"invalid schema JSON: " + err.Error()}
 	}
 	payloadData, err := json.Marshal(payload)
@@ -33,7 +31,7 @@ func ValidateFile(schemaPath string, payload any) []string {
 		return []string{"failed to marshal payload: " + err.Error()}
 	}
 	var value any
-	if err := json.Unmarshal(payloadData, &value); err != nil {
+	if err := decodeSchemaJSON(payloadData, &value); err != nil {
 		return []string{"failed to normalize payload JSON: " + err.Error()}
 	}
 	validator := harnessSchemaValidator{root: schema, schemaDir: filepath.Dir(schemaPath)}
@@ -65,13 +63,13 @@ func (v harnessSchemaValidator) validate(schema any, value any, path string) []s
 	}
 	var diagnostics []string
 	diagnostics = append(diagnostics, v.validateCompositions(node, value, path)...)
-	if constValue, ok := node["const"]; ok && !reflect.DeepEqual(constValue, value) {
+	if constValue, ok := node["const"]; ok && !schemaValuesEqual(constValue, value) {
 		diagnostics = append(diagnostics, fmt.Sprintf("%s: value %s does not equal const %s", path, compactJSON(value), compactJSON(constValue)))
 	}
 	if enumValues, ok := node["enum"].([]any); ok {
 		matched := false
 		for _, enumValue := range enumValues {
-			if reflect.DeepEqual(enumValue, value) {
+			if schemaValuesEqual(enumValue, value) {
 				matched = true
 				break
 			}
@@ -136,8 +134,8 @@ func (v harnessSchemaValidator) validateCompositions(schema map[string]any, valu
 
 func (v harnessSchemaValidator) validateObject(schema map[string]any, value map[string]any, path string) []string {
 	var diagnostics []string
-	if minimum, ok := schema["minProperties"].(float64); ok && len(value) < int(minimum) {
-		diagnostics = append(diagnostics, fmt.Sprintf("%s: object has %d properties, want at least %d", path, len(value), int(minimum)))
+	if minimum, ok := schema["minProperties"].(json.Number); ok && compareSchemaNumbers(json.Number(fmt.Sprint(len(value))), minimum) < 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: object has %d properties, want at least %s", path, len(value), minimum))
 	}
 	if required, ok := schema["required"].([]any); ok {
 		for _, raw := range required {
@@ -213,16 +211,16 @@ func matchesSchemaPattern(value string, patterns map[string]*regexp.Regexp) bool
 
 func (v harnessSchemaValidator) validateArray(schema map[string]any, value []any, path string) []string {
 	var diagnostics []string
-	if minimum, ok := schema["minItems"].(float64); ok && len(value) < int(minimum) {
-		diagnostics = append(diagnostics, fmt.Sprintf("%s: array has %d items, want at least %d", path, len(value), int(minimum)))
+	if minimum, ok := schema["minItems"].(json.Number); ok && compareSchemaNumbers(json.Number(fmt.Sprint(len(value))), minimum) < 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: array has %d items, want at least %s", path, len(value), minimum))
 	}
-	if maximum, ok := schema["maxItems"].(float64); ok && len(value) > int(maximum) {
-		diagnostics = append(diagnostics, fmt.Sprintf("%s: array has %d items, want at most %d", path, len(value), int(maximum)))
+	if maximum, ok := schema["maxItems"].(json.Number); ok && compareSchemaNumbers(json.Number(fmt.Sprint(len(value))), maximum) > 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: array has %d items, want at most %s", path, len(value), maximum))
 	}
 	if unique, _ := schema["uniqueItems"].(bool); unique {
 		seen := map[string]bool{}
 		for _, item := range value {
-			key := compactJSON(item)
+			key := compactJSON(canonicalSchemaNumbers(item))
 			if seen[key] {
 				diagnostics = append(diagnostics, path+": array items must be unique")
 				break
@@ -241,11 +239,11 @@ func (v harnessSchemaValidator) validateArray(schema map[string]any, value []any
 func validateStringConstraints(schema map[string]any, value, path string) []string {
 	var diagnostics []string
 	length := utf8.RuneCountInString(value)
-	if minimum, ok := schema["minLength"].(float64); ok && length < int(minimum) {
-		diagnostics = append(diagnostics, fmt.Sprintf("%s: string length %d is less than minimum %d", path, length, int(minimum)))
+	if minimum, ok := schema["minLength"].(json.Number); ok && compareSchemaNumbers(json.Number(fmt.Sprint(length)), minimum) < 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: string length %d is less than minimum %s", path, length, minimum))
 	}
-	if maximum, ok := schema["maxLength"].(float64); ok && length > int(maximum) {
-		diagnostics = append(diagnostics, fmt.Sprintf("%s: string length %d exceeds maximum %d", path, length, int(maximum)))
+	if maximum, ok := schema["maxLength"].(json.Number); ok && compareSchemaNumbers(json.Number(fmt.Sprint(length)), maximum) > 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: string length %d exceeds maximum %s", path, length, maximum))
 	}
 	if pattern, ok := schema["pattern"].(string); ok {
 		compiled, err := regexp.Compile(pattern)
@@ -289,7 +287,7 @@ func (v harnessSchemaValidator) resolveRef(ref string) (any, harnessSchemaValida
 		return nil, v, fmt.Errorf("failed to read external $ref %q: %w", ref, err)
 	}
 	var schema any
-	if err := json.Unmarshal(data, &schema); err != nil {
+	if err := decodeSchemaJSON(data, &schema); err != nil {
 		return nil, v, fmt.Errorf("invalid external schema %q: %w", ref, err)
 	}
 	external := harnessSchemaValidator{root: schema, schemaDir: filepath.Dir(schemaPath)}
@@ -360,11 +358,11 @@ func jsonValueMatchesAnyType(value any, types []string) bool {
 				return true
 			}
 		case "number":
-			if _, ok := value.(float64); ok {
+			if _, ok := value.(json.Number); ok {
 				return true
 			}
 		case "integer":
-			if number, ok := value.(float64); ok && math.Trunc(number) == number {
+			if number, ok := value.(json.Number); ok && schemaNumberIsInteger(number) {
 				return true
 			}
 		case "string":
@@ -386,8 +384,8 @@ func jsonValueType(value any) string {
 		return "object"
 	case []any:
 		return "array"
-	case float64:
-		if math.Trunc(value) == value {
+	case json.Number:
+		if schemaNumberIsInteger(value) {
 			return "integer"
 		}
 		return "number"
@@ -399,16 +397,16 @@ func jsonValueType(value any) string {
 }
 
 func validateNumericBounds(schema map[string]any, value any, path string) []string {
-	number, ok := value.(float64)
+	number, ok := value.(json.Number)
 	if !ok {
 		return nil
 	}
 	var diagnostics []string
-	if min, ok := schema["minimum"].(float64); ok && number < min {
-		diagnostics = append(diagnostics, fmt.Sprintf("%s: value %.3f is less than minimum %.3f", path, number, min))
+	if min, ok := schema["minimum"].(json.Number); ok && compareSchemaNumbers(number, min) < 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: value %s is less than minimum %s", path, number, min))
 	}
-	if max, ok := schema["maximum"].(float64); ok && number > max {
-		diagnostics = append(diagnostics, fmt.Sprintf("%s: value %.3f is greater than maximum %.3f", path, number, max))
+	if max, ok := schema["maximum"].(json.Number); ok && compareSchemaNumbers(number, max) > 0 {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: value %s is greater than maximum %s", path, number, max))
 	}
 	return diagnostics
 }

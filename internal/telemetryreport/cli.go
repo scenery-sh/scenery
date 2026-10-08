@@ -58,15 +58,17 @@ type CLICohort struct {
 }
 
 type CLIFileCoverage struct {
-	Path       string `json:"path"`
-	Archived   bool   `json:"archived"`
-	Status     string `json:"status"`
-	Records    int    `json:"records"`
-	InWindow   int    `json:"in_window"`
-	Duplicates int    `json:"duplicates"`
-	Invalid    int    `json:"invalid"`
-	First      string `json:"first,omitempty"`
-	Last       string `json:"last,omitempty"`
+	Path          string `json:"path"`
+	SnapshotBytes *int64 `json:"snapshot_bytes"`
+	ReadBytes     int64  `json:"read_bytes"`
+	Archived      bool   `json:"archived"`
+	Status        string `json:"status"`
+	Records       int    `json:"records"`
+	InWindow      int    `json:"in_window"`
+	Duplicates    int    `json:"duplicates"`
+	Invalid       int    `json:"invalid"`
+	First         string `json:"first,omitempty"`
+	Last          string `json:"last,omitempty"`
 }
 
 type CommandTiming struct {
@@ -152,14 +154,22 @@ func readCLI(opts Options) (CLIReport, error) {
 			report.files = append(report.files, coverage)
 			continue
 		}
+		snapshot, _, captureErr := captureSnapshot(file)
+		if captureErr != nil {
+			_ = file.Close()
+			coverage.Status = "unreadable"
+			report.files = append(report.files, coverage)
+			continue
+		}
+		coverage.SnapshotBytes = &snapshot.size
 		var first, last time.Time
-		oversized, readErr := readLines(file, cliLineLimit, func(raw []byte) {
+		oversized, readErr := readLines(snapshot, cliLineLimit, func(raw []byte) {
 			line := bytes.TrimSpace(raw)
 			if len(line) == 0 {
 				return
 			}
 			var record cliRecord
-			if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() {
+			if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() || record.DurationMS < 0 {
 				coverage.Invalid++
 				return
 			}
@@ -253,6 +263,7 @@ func readCLI(opts Options) (CLIReport, error) {
 			accumulate(commands, record.Command, record.DurationMS, ok)
 		})
 		_ = file.Close()
+		coverage.ReadBytes = snapshot.readBytes
 		coverage.Invalid += oversized
 		report.invalid += coverage.Invalid
 		if readErr != nil {

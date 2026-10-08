@@ -128,6 +128,9 @@ func TestTelemetryBundleRetainsTransitiveEvidenceAndMissingReasons(t *testing.T)
 	if err != nil || result.OK || result.Files[len(result.Files)-1].MissingReason == "" {
 		t.Fatalf("missing evidence was hidden: %+v %v", result, err)
 	}
+	if staging, err := filepath.Glob(filepath.Join(root, ".telemetry-export-*.zip")); err != nil || len(staging) != 0 {
+		t.Fatalf("completed exports left staging files: %v %v", staging, err)
+	}
 }
 
 type readinessDoer func(*http.Request) (*http.Response, error)

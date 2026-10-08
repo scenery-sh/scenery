@@ -78,6 +78,7 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		}
 		if result.Observability != nil {
 			result.Observability.Export = s.telemetry.counts()
+			result.Observability.Export.TraceBufferDroppedEvents = s.traces.droppedCount()
 		}
 		return result, nil
 	case "traces/clear":
@@ -195,11 +196,12 @@ type runtimeObservability struct {
 	Export  runtimeTelemetryExport `json:"export"`
 }
 
-// runtimeTelemetryExport counts the telemetry this runtime did not deliver to
-// the observability backend.
+// runtimeTelemetryExport keeps distinct report/job, failed-signal and buffered
+// event loss units. Buffer loss spans all keys during the dashboard server lifetime.
 type runtimeTelemetryExport struct {
-	Dropped uint64 `json:"dropped"`
-	Failed  uint64 `json:"failed"`
+	Dropped                  uint64 `json:"dropped"`
+	Failed                   uint64 `json:"failed"`
+	TraceBufferDroppedEvents uint64 `json:"trace_buffer_dropped_events"`
 }
 
 type runtimeSignal struct {

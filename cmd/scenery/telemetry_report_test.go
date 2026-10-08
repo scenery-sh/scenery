@@ -48,6 +48,7 @@ func TestTelemetryReportOutputs(t *testing.T) {
 		fmt.Fprintf(&cli, `{"at":%q,"command":"system agent","duration_ms":80,"exit_code":10,"version":"dev","mode":"oneshot"}`+"\n", base.Add(time.Duration(i)*time.Second).Format(time.RFC3339Nano))
 	}
 	fmt.Fprintf(&cli, `{"at":%q,"command":"up","duration_ms":4000,"exit_code":0,"version":"dev","mode":"long_running","measurement":"startup","app":{"id":"shop","name":"Shop"}}`+"\n", base.Format(time.RFC3339Nano))
+	fmt.Fprintf(&cli, `{"at":%q,"command":"check","duration_ms":-7,"exit_code":0,"mode":"oneshot"}`+"\n", base.Format(time.RFC3339Nano))
 	cliPath := filepath.Join(root, "telemetry.jsonl")
 	if err := os.WriteFile(cliPath, []byte(cli.String()), 0o600); err != nil {
 		t.Fatal(err)
@@ -71,6 +72,7 @@ func TestTelemetryReportOutputs(t *testing.T) {
 		event("build.error", at, `{"error":"generated TypeScript clients are stale"}`)
 		request(fmt.Sprintf("failed-%d", i), at, false)
 	}
+	event("phase.finish", base, `{"phase_id":"startup","duration_ms":-0.5,"ok":true}`)
 	if err := os.WriteFile(logPath, []byte(log.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +83,9 @@ func TestTelemetryReportOutputs(t *testing.T) {
 	transcript := fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"tool_use","id":"a","name":"Bash","input":{"command":"scenery logs --help"}}]}}
 {"type":"user","timestamp":%q,"message":{"content":[{"type":"tool_result","tool_use_id":"a","is_error":true,"content":"Exit code 2\nunknown flag \"--help\""}]}}
 `, base.Format(time.RFC3339Nano), base.Add(time.Second).Format(time.RFC3339Nano))
+	transcript += fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"tool_use","id":"reversed","name":"Bash","input":{"command":"scenery check"}}]}}
+{"type":"user","timestamp":%q,"message":{"content":[{"type":"tool_result","tool_use_id":"reversed","is_error":false,"content":"done"}]}}
+`, base.Add(time.Second).Format(time.RFC3339Nano), base.Format(time.RFC3339Nano))
 	if err := os.WriteFile(claude, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +98,9 @@ func TestTelemetryReportOutputs(t *testing.T) {
 	}
 	if len(report.CLI.Bursts) != 1 || len(report.Builds.Streaks) != 1 || report.Agents == nil || len(report.Agents.RejectedInputs) != 1 {
 		t.Fatalf("fixture did not populate every section: %+v", report)
+	}
+	if report.Sources.CLIInvalid != 1 || report.CLI.Records != 62 {
+		t.Fatalf("negative CLI duration was not rejected: %+v", report.Sources)
 	}
 	response := telemetryReportResponse{cliPayloadIdentity: newCLIPayloadIdentity(telemetryReportPayloadKind), Report: report}
 	encoded, err := json.Marshal(response)
@@ -110,7 +118,7 @@ func TestTelemetryReportOutputs(t *testing.T) {
 	if err := writeTelemetryReportHuman(&human, report); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"[critical] scenery system agent failed 61 times", "5 consecutive builds failed in /work/shop", `rejected unknown flag "--help"`} {
+	for _, want := range []string{fmt.Sprintf("read %d / captured %d bytes", cli.Len(), cli.Len()), fmt.Sprintf("read %d / captured %d bytes", log.Len(), log.Len()), fmt.Sprintf("read %d / captured %d bytes", len(transcript), len(transcript)), "timed successes n=1", "known outcomes retained", "[critical] scenery system agent failed 61 times", "5 consecutive builds failed in /work/shop", `rejected unknown flag "--help"`} {
 		if !strings.Contains(human.String(), want) {
 			t.Fatalf("human report lacks %q:\n%s", want, human.String())
 		}

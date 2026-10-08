@@ -16,6 +16,7 @@ type dashboardTraceEventBuffer struct {
 	mu      sync.Mutex
 	events  map[dashboardTraceEventKey][]bufferedDashboardTraceEvent
 	total   int
+	dropped uint64
 	maxAge  time.Duration
 	maxSize int
 }
@@ -116,7 +117,9 @@ func (b *dashboardTraceEventBuffer) pruneLocked(now time.Time) {
 				kept = append(kept, item)
 			}
 		}
-		b.total -= len(items) - len(kept)
+		removed := len(items) - len(kept)
+		b.total -= removed
+		b.dropped += uint64(removed)
 		if len(kept) == 0 {
 			delete(b.events, key)
 			continue
@@ -158,5 +161,17 @@ func (b *dashboardTraceEventBuffer) trimLocked() {
 			b.events[oldestKey] = items
 		}
 		b.total--
+		b.dropped++
 	}
+}
+
+// droppedCount counts buffered events evicted by age or capacity, independently
+// of export jobs and report/signal failures. A successful drain is not a loss.
+func (b *dashboardTraceEventBuffer) droppedCount() uint64 {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dropped
 }

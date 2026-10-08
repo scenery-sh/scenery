@@ -24,7 +24,7 @@ type cliTelemetryRecord struct {
 	Producer       *machine.Producer `json:"producer,omitempty"`
 	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
 	Purpose        string            `json:"purpose,omitempty"`
-	Dirty          bool              `json:"dirty"`
+	Dirty          *bool             `json:"dirty,omitempty"`
 	At             time.Time         `json:"at"`
 	Command        string            `json:"command"`
 	DurationMS     int64             `json:"duration_ms"`
@@ -105,12 +105,13 @@ func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
 		recorder = recordCLITelemetry
 	}
 	producer := cliProducer()
+	dirty := cliBuildDirty()
 	recorder(cliTelemetryRecord{
 		InvocationID:   i.invocationID,
 		Producer:       &producer,
 		DiagnosticCode: i.diagnosticCode,
 		Purpose:        telemetryExecutionPurpose(),
-		Dirty:          cliBuildDirty(),
+		Dirty:          &dirty,
 		At:             i.started.UTC(),
 		Command:        telemetryCommand(i.args),
 		DurationMS:     duration.Milliseconds(),
@@ -204,16 +205,12 @@ func telemetryCommand(args []string) string {
 	if _, help := helpRequestTopics(args); len(args) == 0 || help {
 		return "help"
 	}
-	switch args[0] {
-	case "feature":
-		if len(args) > 1 && slices.Contains(featureActions[:], args[1]) {
-			return "feature " + args[1]
-		}
-		return "feature"
-	case "db", "task", "storage", "validate", "worktree", "harness", "inspect", "logs", "traces", "metrics", "system", "deploy", "changes", "telemetry":
-		if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
-			return args[0] + " " + args[1]
-		}
+	subcommands, known := telemetryReportCommandFamilies()[args[0]]
+	if !known {
+		return "unknown"
+	}
+	if len(args) > 1 && slices.Contains(subcommands, args[1]) {
+		return args[0] + " " + args[1]
 	}
 	return args[0]
 }

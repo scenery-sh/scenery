@@ -73,13 +73,14 @@ export interface DevRuntimeObservability {
 }
 
 /**
- * Telemetry the runtime did not deliver to the observability backend since
- * it started: reports dropped because they were too large or its bounded
- * export queue was full, and exports that failed.
+ * Loss evidence with distinct counting units; these counters are not additive.
  */
 export interface DevRuntimeTelemetryExport {
 	readonly dropped: number;
 	readonly failed: number;
+	/** Accepted event occurrences evicted by TTL/capacity across all app/session
+	 * keys during the owning dashboard server's lifetime; successful drains add zero. */
+	readonly trace_buffer_dropped_events: number;
 }
 
 export interface DevRuntimeServiceProcess {
