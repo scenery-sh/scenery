@@ -98,6 +98,58 @@ func TestMetricsQueryPreservesValidSamples(t *testing.T) {
 	}
 }
 
+func TestMetricsQueryPreservesExactTimestampBounds(t *testing.T) {
+	t.Parallel()
+	for _, fixture := range []struct {
+		raw    string
+		nanos  int64
+		reject bool
+	}{
+		{"-9223372036.854775808", -1 << 63, false},
+		{"9223372036.854775807", 1<<63 - 1, false},
+		{"-9.223372036854775808e9", -1 << 63, false},
+		{"9.223372036854775807e9", 1<<63 - 1, false},
+		{"9223372036.8547758070", 1<<63 - 1, false},
+		{"9223372036.854775806999999999", 1<<63 - 2, false},
+		{"-9223372036.854775807999999999", -(1<<63 - 1), false},
+		{"1812450000.123456789", 1812450000123456789, false},
+		{"1.812450000123456789E+9", 1812450000123456789, false},
+		{"0.1234567899", 123456789, false},
+		{"-0.1234567899", -123456789, false},
+		{"0.00000000000000000001e11", 1, false},
+		{"-0.00000000000000000001e11", -1, false},
+		{"1e+00000000000000000000009", 1000000000000000000, false},
+		{"-0", 0, false},
+		{"0e9999999999999999999999999999999999999999", 0, false},
+		{"1e-9999999999999999999999999999999999999999", 0, false},
+		{"1e-9223372036854775808", 0, false},
+		{"-9223372036.854775809", 0, true},
+		{"9223372036.854775808", 0, true},
+		{"9223372036.8547758070000000001", 0, true},
+		{"-9223372036.8547758080000000001", 0, true},
+		{"1e9999999999999999999999999999999999999999", 0, true},
+		{"1e9223372036854775807", 0, true},
+	} {
+		t.Run(fixture.raw, func(t *testing.T) {
+			data := `{"resultType":"vector","result":[{"metric":{},"value":[` + fixture.raw + `,"1"]}]}`
+			result, err := QueryMetrics(context.Background(), metricsFixtureQuery(data, true))
+			if fixture.reject {
+				if err == nil || len(result.Series) != 0 {
+					t.Fatalf("out-of-range timestamp accepted: %+v err=%v", result.Series, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := time.Unix(0, fixture.nanos).UTC().Format(time.RFC3339Nano)
+			if got := result.Series[0].Value.Time; got != want {
+				t.Fatalf("timestamp=%s want=%s", got, want)
+			}
+		})
+	}
+}
+
 func metricsFixtureQuery(data string, instant bool) MetricsQuery {
 	at := time.Unix(1812450000, 0).UTC()
 	return MetricsQuery{BaseURL: "http://metrics.test", PromQL: "x", Bounds: TimeBounds{Start: at.Add(-time.Minute), End: at}, Step: time.Second, Instant: instant, Limit: 1, client: &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) {

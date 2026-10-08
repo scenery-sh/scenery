@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -614,7 +613,9 @@ func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err == nil && (raw.ResultType != "" || len(raw.Result) > 0) {
 		d.ResultType = raw.ResultType
 		if len(raw.Result) > 0 && string(raw.Result) != "null" {
-			return json.Unmarshal(raw.Result, &d.Result)
+			decoder := json.NewDecoder(bytes.NewReader(raw.Result))
+			decoder.UseNumber()
+			return decoder.Decode(&d.Result)
 		}
 		return nil
 	}
@@ -677,10 +678,13 @@ func metricSample(raw []any) (*MetricSample, error) {
 	if len(raw) != 2 {
 		return nil, fmt.Errorf("VictoriaMetrics sample requires a timestamp/value pair")
 	}
-	timestamp, ok := numberAsFloat(raw[0])
-	nanos := timestamp * 1e9
-	if !ok || math.IsNaN(timestamp) || math.IsInf(timestamp, 0) || nanos < float64(math.MinInt64) || nanos >= float64(math.MaxInt64) {
+	timestamp, ok := raw[0].(json.Number)
+	if !ok {
 		return nil, fmt.Errorf("VictoriaMetrics sample timestamp is not a representable nanosecond time")
+	}
+	nanos, err := metricTimestampNanos(timestamp)
+	if err != nil {
+		return nil, err
 	}
 	value, ok := raw[1].(string)
 	if !ok {
@@ -691,23 +695,10 @@ func metricSample(raw []any) (*MetricSample, error) {
 	if _, err := strconv.ParseFloat(value, 64); err != nil {
 		return nil, fmt.Errorf("VictoriaMetrics sample value requires a numeric string")
 	}
-	seconds, fraction := math.Modf(timestamp)
 	return &MetricSample{
-		Time:  time.Unix(int64(seconds), int64(fraction*1e9)).UTC().Format(time.RFC3339Nano),
+		Time:  time.Unix(0, nanos).UTC().Format(time.RFC3339Nano),
 		Value: value,
 	}, nil
-}
-
-func numberAsFloat(value any) (float64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return v, true
-	case json.Number:
-		n, err := v.Float64()
-		return n, err == nil
-	default:
-		return 0, false
-	}
 }
 
 func logsQueryRecord(q LogsQuery) LogsQueryRecord {
