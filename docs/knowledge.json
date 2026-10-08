@@ -27,7 +27,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Active unbounded Oracle telemetry loop: published report evidence accepted; next bounded error-shape and exact human semantic guard correction under cumulative acceptance, with framing and resource budgets separate.",
+      "summary": "Active unbounded Oracle telemetry loop: report evidence and bounded finite metric/catalog/physical log-line framing accepted, with service-free owner tests and fresh named HTTP/runtime proof; resource budgets remain separate.",
       "tags": [
         "plans",
         "execplans",
@@ -2798,7 +2798,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Local CLI and JSON contracts, including descriptor-bound report extents, nullable physical coverage and presence-aware supervisor error evidence preserving valid joins and historical diagnostic causes.",
+      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage and presence-aware supervisor errors, complete finite metric/catalog framing and original physical log-line validation before emission.",
       "tags": [
         "contract",
         "cli",
@@ -2942,7 +2942,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Repository validation with explicit functional probes, source/input identity, exact report snapshot ownership and human semantic/error-shape evidence; isolated service-free root timing remains separate.",
+      "summary": "Repository verification matrix and named probes, including native report semantic coverage and owned public HTTP query framing, prompt tail lifecycle, exact request/schema controls and complete cleanup alongside real Victoria/runtime acceptance.",
       "tags": [
         "harness",
         "agents",

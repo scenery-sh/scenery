@@ -489,14 +489,44 @@ work; completed plans are immutable history.
   UI, Linux, complete retention, totalmemory, delivery or release certification.
 
 
+- [x] 2026-10-08 Oracle011 at publisheda0149a5 found no new report regression
+  in its eleven-file scope and recommended one pre-existing query batch. Whole
+  final/source URLs captured and exact monitor removed. Independent31 framing,
+  13 lifecycle and39 whitespace HTTP before calls corroborated prefix acceptance,
+  short-body success and Unicode trimming. Finite metric/catalog completion now
+  retains initial read errors and checks buffered/remaining ASCII whitespace
+  with fixed scratch; logs validate original physical lines before emission.
+  Three ordinary listener roots now use genuine private in-memory owners called
+  by public wrappers. Exact numbers/no-newline/special metric values and existing
+  schemas remain intact; no total resource bound claimed.
+- [x] 2026-10-08 Final full/default `20261008T175624.914143000Z`, lint zero,
+  gofmt1,799 and fresh named observability `20261008T175715.349838000Z` pass
+  at stable input391efe9597c9414905e01449057c71498bbf04a86868a90817e9619eac780e15
+  and framework sourceb5e9f8252b623ce50aa81ffc1ddce727b18c5f883e7bf2e1cf460e508dc8e3df.
+  The84 actual public framing HTTP cases and30 catalog controls pass exact
+  schemas/form/scope/short-body/retry/valid-prefix/held-open tail/peer termination
+  and all-handler/server/listener cleanup. Fresh real SQL/HTTP/log/metric/RPC,
+  native CLI, generated client/status, capacity7/TTL1 and pinned backend refusal1
+  acceptance remains bound to actual served build8b1091bdc345e11a8f449e0eb54206bfaa9865e32970fe689004c41d5efe28fa.
+  Prepared executable83c01f95d19495e680cf8cd30f82445e4d20715a685ff1beae9a8aca0df1602b
+  was executed before publication at producer a014+dirty; no future binary
+  equality claimed. Five known exact PIDs, private fixture root and matching
+  process commands are independently absent; no unrecorded all-PID inventory.
+  Cumulative57 exact roots retain20isolatedserialsamples/p95<100ms:17 newly
+  measured query roots max20ms,40 unchanged scopes retain original identities
+  max90ms. Private probe timeout-form expectation was corrected after a fully
+  cleaned failed attempt; final full/lint/named acceptance follows that edit.
+  Full has12knowledge warnings plus9.735s suite advisory, named12, zero errors.
+
 ### Resume here
 
-Petr's loop is active until manual stop. Oracle010 reviewed published draft
-PR #240 at `397b058` against original base89fdc46 and prior7bd. Whole final and
-assessment are saved; exact monitor removed. Selected report shape/semantic
-assertion changes are implemented and accepted as recorded above. Run the docs
+Petr's loop is active until manual stop. Oracle011 reviewed published draft
+PR #240 at a0149a5 against base89fdc46 and prior397b. Whole final and independent
+assessment are saved; exact monitor removed. The bounded query framing and
+service-free test batch is accepted as recorded above. Run the documentation
 checkpoint with unchanged source hashes, publish to the same draft, inspect
-current CI and start fresh revision-bound Oracle011.
+current CI, then start fresh revision-bound Oracle012. Cycle010 report/ZIP/other
+unchanged acceptance retains its original owning/exercised source identities.
 Live Git/PR and `.scenery/telemetry-improvements/state.json` own changing heads,
 validation/publication/consultation facts; do not duplicate an active operation.
 Keep source/input identities when reusing successful checks. Older named
@@ -505,8 +535,8 @@ apply only to unchanged owners, not the changed report binary. Use native
 running Chrome in the background, preserve healthy generation, capture whole
 final/source links before exact monitor removal and assess advice independently.
 
-Standalone telemetry query, N7b aggregate/state budgets, N8 finite backend
-responses, outer metrics/log framing, active redirection attribution and delivery
+Standalone telemetry query, N7b aggregate/state budgets, N8 total finite backend
+response budgets, active redirection attribution and delivery
 prevention remain separately scoped. These file extents do not prove atomic
 content, all-reader/total-memory bounds or complete retention. Retain other
 receipts only for unchanged owning/exercised scope with original identities.

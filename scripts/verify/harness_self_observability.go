@@ -46,6 +46,11 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 	if err != nil {
 		return proof, err
 	}
+	framingProof, err := proveHarnessQueryFraming(ctx, repo, optionalHarnessArtifactContext(artifactContexts))
+	proof["query_framing"] = framingProof
+	if err != nil {
+		return proof, err
+	}
 	if !harnessDockerAvailable(ctx) {
 		return proof, errors.New("docker unavailable; SQL observability proof did not run")
 	}

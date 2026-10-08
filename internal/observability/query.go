@@ -200,6 +200,10 @@ type MetricsSeriesResult struct {
 }
 
 func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
+	return queryLogsWithClient(ctx, nil, q)
+}
+
+func queryLogsWithClient(ctx context.Context, client *http.Client, q LogsQuery) (LogsQueryResult, error) {
 	result := LogsQueryResult{
 		PayloadIdentity: NewPayloadIdentity(LogsQueryKind, "scope,backend,query,warnings,logs"),
 		Scope:           q.Scope,
@@ -217,7 +221,7 @@ func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
 		defer cancel()
 	}
-	rows, err := fetchLogs(ctx, q.BaseURL, "/select/logsql/query", logValues(q))
+	rows, err := fetchLogs(ctx, client, q.BaseURL, "/select/logsql/query", logValues(q))
 	if err != nil {
 		return LogsQueryResult{}, err
 	}
@@ -226,11 +230,15 @@ func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 }
 
 func TailLogs(ctx context.Context, q LogsQuery, emit func(LogsTailEntry) error) error {
+	return tailLogsWithClient(ctx, nil, q, emit)
+}
+
+func tailLogsWithClient(ctx context.Context, client *http.Client, q LogsQuery, emit func(LogsTailEntry) error) error {
 	if strings.TrimSpace(q.BaseURL) == "" {
 		return fmt.Errorf("VictoriaLogs is unavailable")
 	}
 	record := logsQueryRecord(q)
-	return streamLogs(ctx, q.BaseURL, "/select/logsql/tail", logTailValues(q), func(row map[string]any) error {
+	return streamLogs(ctx, client, q.BaseURL, "/select/logsql/tail", logTailValues(q), func(row map[string]any) error {
 		entries := normalizeLogRows([]map[string]any{row}, q.Fields, 1)
 		if len(entries) == 0 {
 			return nil
@@ -411,22 +419,25 @@ func logScopeFilters(scope QueryScope) []string {
 	return out
 }
 
-func fetchLogs(ctx context.Context, baseURL, path string, values url.Values) ([]map[string]any, error) {
+func fetchLogs(ctx context.Context, client *http.Client, baseURL, path string, values url.Values) ([]map[string]any, error) {
 	var rows []map[string]any
-	err := streamLogs(ctx, baseURL, path, values, func(row map[string]any) error {
+	err := streamLogs(ctx, client, baseURL, path, values, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	})
 	return rows, err
 }
 
-func streamLogs(ctx context.Context, baseURL, path string, values url.Values, emit func(map[string]any) error) error {
+func streamLogs(ctx context.Context, client *http.Client, baseURL, path string, values url.Values, emit func(map[string]any) error) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+path, strings.NewReader(values.Encode()))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -441,9 +452,12 @@ func streamLogs(ctx context.Context, baseURL, path string, values url.Values, em
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
+		line := scanner.Bytes()
+		if onlyJSONWhitespace(line) {
 			continue
+		}
+		if !json.Valid(line) {
+			return fmt.Errorf("VictoriaLogs response contains an invalid JSON line")
 		}
 		var row map[string]any
 		dec := json.NewDecoder(bytes.NewReader(line))
@@ -573,9 +587,7 @@ func fetchMetricsWithClient(ctx context.Context, client *http.Client, baseURL, p
 		return victoriaMetricsResponse{}, fmt.Errorf("VictoriaMetrics query failed: %s", resp.Status)
 	}
 	var payload victoriaMetricsResponse
-	dec := json.NewDecoder(resp.Body)
-	dec.UseNumber()
-	if err := dec.Decode(&payload); err != nil {
+	if err := decodeFiniteJSON(resp.Body, &payload); err != nil {
 		return victoriaMetricsResponse{}, err
 	}
 	if payload.Status != "" && payload.Status != "success" {

@@ -73,11 +73,14 @@ func proveHarnessMetricCatalog(parent context.Context, repo string, artifacts ha
 	}
 	var mu sync.Mutex
 	var requests []requestEvidence
+	var handlers sync.WaitGroup
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return proof, err
 	}
 	server := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.Add(1)
+		defer handlers.Done()
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
@@ -108,6 +111,14 @@ func proveHarnessMetricCatalog(parent context.Context, repo string, artifacts ha
 			}
 		case <-time.After(time.Second):
 			closeErr = errors.Join(closeErr, errors.New("catalog server did not terminate"))
+		}
+		joined := make(chan struct{})
+		go func() { handlers.Wait(); close(joined) }()
+		select {
+		case <-joined:
+			proof["all_handlers_joined"] = true
+		case <-time.After(time.Second):
+			closeErr = errors.Join(closeErr, errors.New("catalog handlers did not terminate"))
 		}
 		if _, acceptErr := listener.Accept(); !errors.Is(acceptErr, net.ErrClosed) {
 			closeErr = errors.Join(closeErr, errors.New("catalog listener remains open"))

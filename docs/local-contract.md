@@ -1180,6 +1180,7 @@ Inspect rules:
 - User-facing dev lifecycle and observability commands scope to the app root. Internal session IDs remain in JSON records, manifests, routes, and state paths for compatibility, but users should not select or create runtime sessions directly.
 - `logs query` defaults to the app root's live runtime, `--since 15m`, `--limit 200`, `--timeout 3s`, and JSON envelope output. `--limit` is capped at 2000 and reports a JSON warning when clamped. It accepts native VictoriaLogs LogsQL through `--query`; `--logql` is rejected rather than silently treating Loki LogQL as LogsQL. Finite queries use an HTTP context deadline derived from `--timeout`.
 - `logs tail` streams scoped `scenery.logs.tail.entry` JSONL log entries from the VictoriaLogs live-tail endpoint, maps `--since` to VictoriaLogs `start_offset`, rejects `--start` and `--end`, and exits through normal context cancellation or interrupt handling.
+- Log responses validate each entire original physical JSON line before emitting it. Only empty or ASCII JSON-whitespace lines are ignored; Unicode whitespace, trailing values and garbage fail. Preserve exact JSON numbers. A finite query returns no successful partial envelope after a malformed line or transport failure. A live tail emits completed valid lines without waiting for connection EOF, retains only the valid emitted prefix on a later failure, and propagates cancellation and callback errors.
 - `metrics query` defaults to range mode for the app root's live runtime with `--since 15m`, `--step 5s`, `--timeout 3s`, `--limit 100`, and JSON output. `--limit` is capped at 10000 and reports a JSON warning when clamped. `--instant` switches to the instant Prometheus API endpoint. Finite queries use an HTTP context deadline derived from `--timeout`.
 - `metrics labels` and `metrics series` default to the app root's live runtime with `--since 1h`, `--timeout 3s`, and `--limit 1000`; catalog limits are capped at 10000 and report a JSON warning when clamped. `metrics labels` accepts optional `--match`, and `metrics series` requires `--match`.
 - Query commands are scoped by default. Scenery applies LogsQL scope through VictoriaLogs `extra_filters` and metrics scope through repeated VictoriaMetrics `extra_label` query parameters, and every JSON envelope echoes `scope.enforced=true`.
@@ -2330,6 +2331,12 @@ The response uses `scenery.metrics.query`, echoes scope and bounds, reports
 the backend `result_type`, and returns normalized metric series and samples.
 Malformed backend result structures fail decoding and propagate a query error;
 they never produce a successful empty or partially decoded metric result.
+Finite metric and catalog responses require one complete outer JSON document,
+followed only by ASCII JSON whitespace (space, tab, carriage return and line
+feed) through clean body completion. Trailing values/garbage and every observed
+non-EOF read error, including one accompanying the final document bytes, fail
+before a successful result. Exact JSON numbers and valid no-newline completion
+are preserved. This framing rule does not establish a total body-memory budget.
 Query results support vector or matrix series (range queries require a matrix).
 Every series requires a metric object whose label values are strings, including
 valid empty strings; null and other JSON kinds are malformed. Every sample has

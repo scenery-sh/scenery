@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -16,7 +15,10 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 
 	scope := testScope()
 	var form url.Values
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			t.Fatalf("request method/header: %s %v", r.Method, r.Header)
+		}
 		if r.URL.Path != "/select/logsql/query" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
@@ -24,12 +26,11 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 			t.Fatalf("ParseForm: %v", err)
 		}
 		form = r.Form
-		_, _ = io.WriteString(w, `{"_time":"2026-06-08T10:00:00Z","level":"error","source_id":"api","message":"failed","fields_json":"{\"route\":\"/tasks\"}","trace_id":"trace-1","span_id":"span-1"}`+"\n")
-	}))
-	defer server.Close()
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"_time":"2026-06-08T10:00:00Z","level":"error","source_id":"api","message":"failed","fields_json":"{\"route\":\"/tasks\"}","trace_id":"trace-1","span_id":"span-1"}` + "\n"))}, nil
+	})}
 
-	result, err := QueryLogs(context.Background(), LogsQuery{
-		BaseURL: server.URL,
+	result, err := queryLogsWithClient(context.Background(), client, LogsQuery{
+		BaseURL: "http://query.test",
 		Scope:   scope,
 		Query:   "error",
 		Bounds:  testBounds(),
@@ -69,7 +70,10 @@ func TestTailLogsUsesStartOffsetAndSelfDescribingEntries(t *testing.T) {
 	t.Parallel()
 
 	var form url.Values
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			t.Fatalf("request method/header: %s %v", r.Method, r.Header)
+		}
 		if r.URL.Path != "/select/logsql/tail" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
@@ -77,13 +81,12 @@ func TestTailLogsUsesStartOffsetAndSelfDescribingEntries(t *testing.T) {
 			t.Fatalf("ParseForm: %v", err)
 		}
 		form = r.Form
-		_, _ = io.WriteString(w, `{"_time":"2026-06-08T10:00:00Z","message":"tailed"}`+"\n")
-	}))
-	defer server.Close()
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"_time":"2026-06-08T10:00:00Z","message":"tailed"}` + "\n"))}, nil
+	})}
 
 	var entries []LogsTailEntry
-	err := TailLogs(context.Background(), LogsQuery{
-		BaseURL: server.URL,
+	err := tailLogsWithClient(context.Background(), client, LogsQuery{
+		BaseURL: "http://query.test",
 		Scope:   testScope(),
 		Query:   "*",
 		Bounds:  testBounds(),
@@ -108,7 +111,10 @@ func TestQueryMetricsAppliesExtraLabels(t *testing.T) {
 	t.Parallel()
 
 	var form url.Values
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			t.Fatalf("request method/header: %s %v", r.Method, r.Header)
+		}
 		if r.URL.Path != "/prometheus/api/v1/query_range" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
@@ -116,12 +122,12 @@ func TestQueryMetricsAppliesExtraLabels(t *testing.T) {
 			t.Fatalf("ParseForm: %v", err)
 		}
 		form = r.Form
-		_, _ = io.WriteString(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"scenery_request_duration_seconds","scenery_session_id":"session-a"},"values":[[1812450000,"0.2"]]}]}}`)
-	}))
-	defer server.Close()
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"scenery_request_duration_seconds","scenery_session_id":"session-a"},"values":[[1812450000,"0.2"]]}]}}`))}, nil
+	})}
 
 	result, err := QueryMetrics(context.Background(), MetricsQuery{
-		BaseURL: server.URL,
+		client:  client,
+		BaseURL: "http://query.test",
 		Scope:   testScope(),
 		PromQL:  "scenery_request_duration_seconds",
 		Bounds:  testBounds(),
