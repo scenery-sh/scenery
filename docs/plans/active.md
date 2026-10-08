@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0218 Telemetry Improvements](0218-telemetry-improvements.md)
+  - Status: active
+  - Owner: scenery telemetry
+  - Created: 2026-10-08
+  - Focus: repeated revision-bound Oracle reviews, verified telemetry fixes and simplifications, cumulative validation, and one continuously updated draft PR until the developer stops the loop.
+
 - [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md)
   - Status: active
   - Owner: scenery runtime / telemetry
