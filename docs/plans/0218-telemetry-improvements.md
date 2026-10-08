@@ -154,7 +154,67 @@ work; completed plans are immutable history.
   observability `20261008T112205.059409000Z`, CLI-process
   `20261008T112509.045832000Z`, lint and 22-root isolated timing pass. Corrected
   the earlier report-test gofmt omission observed in remote CI; the local full
-  formatting check passes. Remote CI for the published source/checkpoint remains pending.
+  formatting check passes. The published push and PR CI jobs subsequently passed.
+- [x] 2026-10-08 Fourth review submitted exactly once with GPT-6 Pro and the
+  actual GitHub connector, bound to published `b996b28815f9a207d099b785ac411386fc23d1a9`,
+  original base and draft PR #240. Push CI checks out the exact head; PR CI
+  checks out a synthetic merge with the identical tree. Canonical
+  conversation is `https://chatgpt.com/c/6ac78102-d1f0-83eb-8847-1b0bcc340ff1`;
+  the complete answer is captured, and exact `telemetry-oracle-004` monitor
+  deletion and absence are verified. The independent overall loop stays active.
+- [x] 2026-10-08 Independently confirm the fourth review's preliminary null-label
+  concern through public `QueryMetrics`: vector, matrix and after-limit null
+  labels silently become empty strings. A test-only overlay fails those three
+  cases while preserving valid empty labels and refusing other JSON kinds.
+  Local correction validates decoded label types before normalization; all nine
+  before-proof cases and focused observability package tests pass afterward.
+- [x] 2026-10-08 Reproduce ZIP publication overwrite through the actual prepared
+  worktree CLI. An explicitly included disposable FIFO synchronizes staging and
+  a competing exclusive destination creation; the CLI replaces that completed
+  competing file with a complete ZIP and exits successfully. Initial-existing
+  destination refusal, child exit and owned disposable cleanup are verified.
+  This establishes overwrite capability, not production incidence or a regular
+  file race frequency; permanent correction and named acceptance remain open.
+- [x] 2026-10-08 Complete null-label development validation: full
+  `20261008T115207.245305000Z`, lint zero issues, four modified observability
+  roots with 20 isolated samples each below 1 ms p95, and named observability
+  `20261008T115713.218092000Z` pass with owned cleanup. These receipts precede
+  the additional admission-owner refinement and do not prove its acceptance.
+- [x] 2026-10-08 Independently confirm the general `VerifyOwner` policy permits
+  missing observed fields and executable-basename equality. Scope the correction
+  to admission evidence: capture live ownership before and after each metrics
+  request, require complete exact PID/start/executable/command equality, and
+  retain those observations in the artifact. New missing-field/basename cases
+  exercise the pure comparison; focused packages pass. Global owner policy is
+  intentionally unchanged; current full/lint/runtime acceptance now passes.
+- [x] 2026-10-08 Capture and assess the whole fourth answer (29,035 characters,
+  all immutable sources). Accept null-label validation and local strict-owner
+  proof refinement; retain qualified CI identity, report/read limits,
+  redirection, ZIP correction and delivery prevention as separate work.
+- [x] 2026-10-08 Strict-owner named observability
+  `20261008T120919.934915000Z` and CLI-process
+  `20261008T121238.958537000Z` pass at stable input
+  `sha256:4fe1baab4da2e16f3879bea0f9a1cfbf440680f24d3577980680154ddca0d8d9`.
+  All six stored/live fingerprint records agree on complete PID/start/full
+  executable/command identity; counter delta is one and all 196 control events
+  survive. Baseline/TTL/client and owned cleanup pass. Serving build input is
+  `sha256:f0304a40e67f318369a782aaae779f58b5a0bc2ab31f185e2e0ed5b9bad03dff`.
+  Supplemental owned synthetic HTTP proof exercises actual public QueryMetrics:
+  four null/mixed/after-limit refusals and three valid empty-label/object/special
+  value controls, exact timestamps, sanitized errors and listener cleanup.
+- [x] 2026-10-08 Fourth-batch final full/default
+  `20261008T121438.390242000Z` passes with stable input
+  `sha256:0f209d0a7d784ed59d1ffd48edc524d1936f9639fab2be3809cd3d0a67a10cbc`.
+  Zero errors, lint 0 and repository-wide gofmt pass; 12 existing knowledge
+  warnings and a 5.061-second suite advisory. Full and both named probes share
+  framework source `sha256:224464940a295c6e3a2076b7a27bf0ea8f190355ee0254bb3e7daf8ba7c24aef`.
+  Seven changed roots are remeasured after final test-case deduplication; all 22
+  cumulative changed roots pass 20 isolated samples, max p95 10 ms. Fifteen
+  unchanged relevant scopes and unchanged generator/Bun/TS receipts are reused.
+- [x] 2026-10-08 Commit independently reviewable fourth-batch fixes:
+  `e473e336` refuses non-string metric labels; `2425ed0a` requires complete
+  observed telemetry-backend ownership. Only the living-plan checkpoint remains.
+- [ ] Publish the validated fourth batch and start a fresh exact-head review.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
@@ -162,48 +222,46 @@ work; completed plans are immutable history.
 
 ### Resume here
 
-2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240)
-has published admission source checkpoint `52d11fc49568fe0675c09b40eaa0c2be600c29b6`.
-The third review of prior head `637a0e1669574bf76722788c41ab5526c038e378`
-is complete and assessed; its full final answer is preserved and exact temporary
-monitor deleted. The exact timestamp correction is published and validated.
-N6b backend admission evidence is complete, validated and pushed at that
-source checkpoint. Publish the documentation checkpoint and refresh the draft
-PR body before a fourth independent review.
+Petr's loop remains active and unbounded until manual stop. Published head is
+`b996b28815f9a207d099b785ac411386fc23d1a9` on draft PR #240; four entire
+GPT-6 Pro/GitHub reviews are preserved and their exact temporary monitors
+removed. Review 004 at
+`https://chatgpt.com/c/6ac78102-d1f0-83eb-8847-1b0bcc340ff1` is fully assessed.
+Push CI ran that exact head; PR CI ran merge `086143bc` with the identical tree.
+Neither CI job independently ran observability or CLI-process.
 
-Final source full/default archive `20261008T112628.810591000Z`, lint and the
-repository-wide CI formatting check pass. Named observability
-`20261008T112205.059409000Z` and CLI-process `20261008T112509.045832000Z`
-pass with the same compiled framework source digest
-`sha256:dec13a8f2a937be70989c7c6a0d9129e36b943bd6b830143aa5c3b3496439b6c`.
-The later test-only gofmt correction changes the input revision, so the named
-probe receipts are reused only for their unchanged compiled source and scope.
-All 22 cumulative changed roots have 20 isolated serial samples with max p95
-10 ms: the five report roots and three new probe evidence roots were relinked
-and remeasured, with unchanged-package receipts retained for the other 14.
-Zero errors, 12 existing knowledge advisories and a 5.298-second whole-suite
-advisory remain; no all-root timing audit or release certification was requested.
+Local fourth-batch source rejects non-string metric labels while preserving
+empty strings, exact timestamps and special values. The admission probe now
+captures complete exact live fingerprints around both metrics requests. Its
+pure comparison tests, full/default `20261008T121438.390242000Z`, lint,
+22 cumulative changed-root timing (20 samples, max p95 10 ms), current strict
+observability `20261008T120919.934915000Z` and CLI-process
+`20261008T121238.958537000Z` pass. The real backend control/counter/readback,
+serving build identity, current generated status client and owned runtime,
+Victoria and PostgreSQL cleanup are verified. An additional owned synthetic HTTP
+responder proves the public label-validation boundary and its sanitized refusal;
+it does not establish malformed Victoria output incidence. The general agent
+owner policy and production export representation are unchanged.
 
-The owned backend counter advances from zero to one for the 1,005-field row;
-the 1,000-field control returns all 196 unique events, timestamps and payloads.
-The refused trace is absent, process/binary identity is stable, the diagnostic
-confirms the field boundary, and Scenery loss counters stay unchanged. Prior
-native SQL/HTTP/context/log/metric/RPC/client acceptance passes, along with
-capacity loss seven, 4,092 retained capacity events, exactly one natural TTL
-loss, an immediate zero-loss control and owned runtime/Victoria/PostgreSQL
-cleanup. This improves evidence of backend refusal; delivery prevention and
-production encoding changes remain separate.
+Source fixes `e473e336` and `2425ed0a` are committed. Finish the documentation
+checkpoint quick check, commit/push it and update draft PR #240. Then submit one fresh
+revision-bound GPT-6 Pro question with the actual GitHub connector, naming this
+progress and exact current head/base, and install its exact five-minute monitor.
+Keep the independent loop heartbeat active. Retain earlier generator/Bun/TS
+receipts only for unchanged generator/status/client input scope.
 
-N7/N8, conservative redirection attribution and actual ZIP publication-race
-proof remain later milestones. Finite-query synthetic proof accepts 9,437,299
-input bytes and 4,194,868 normalized output bytes with series limit one;
-neighboring 8 MiB/4 MiB precedents do not establish a new finite-query contract
-or actual incidence/OOM. The independent `telemetry-improvements-loop`
-heartbeat persists until Petr stops. Durable local state, complete answers,
-assessments and proofs live under `.scenery/telemetry-improvements/`.
-For the next review paste one complete primary question, verify Chat GPT-6 Pro
-and the actual GitHub chip, and name the exact published head/base and PR #240.
-Read live Git/PR/scheduler state before relying on this checkpoint.
+The actual prepared CLI reproduces ZIP publication overwrite using an explicitly
+selected disposable FIFO for deterministic synchronization. Initial existing
+output refusal, complete ZIP/child/staging/temp cleanup are verified. This is
+capability evidence, not regular-file race frequency or production incidence.
+ZIP no-replace correction, N7 snapshots/coverage/aggregate budgets, N8 finite
+query limits, broader redirection attribution and delivery prevention remain
+separate candidates. Do not add arbitrary caps or truncate useful detail.
+
+Durable questions, answers, assessments, proofs and active process state live
+under `.scenery/telemetry-improvements/`. Read live Git/PR/scheduler/runtime state
+before relying on this checkpoint. Preserve unrelated data and healthy pending
+generation; repeat the validated publish/review loop until Petr stops.
 
 ## Surprises & Discoveries
 
