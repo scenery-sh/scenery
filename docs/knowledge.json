@@ -439,7 +439,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Machine output of scenery telemetry report: findings, CLI command and startup timings with failure bursts, detached supervisor rebuild timings, step percentiles, failure causes and streaks, and opt-in aggregates of agent Scenery calls and rejected inputs.",
+      "summary": "Machine output of scenery telemetry report: valid timed-success cohorts, retained untimed supervisor outcomes, cache work with explicit timing sample counts and nullable subtotals, source coverage, failure causes/streaks and opt-in agent aggregates.",
       "tags": [
         "schemas",
         "telemetry",

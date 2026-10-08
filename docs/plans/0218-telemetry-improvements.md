@@ -252,40 +252,45 @@ work; completed plans are immutable history.
 ### Resume here
 
 Petr's loop remains active and unbounded until manual stop. ZIP source
-`c90fe94dd439095a8f928c558dc26cae8db2d2fa` is committed/pushed to draft PR #240;
-the following documentation checkpoint records its acceptance. Five whole
-reviews and immutable/grouped sources are saved/assessed, and all exact monitors
-are deleted with absence verified. Review005 at
-`https://chatgpt.com/c/6ac78b34-44d0-83eb-b40c-e62d9560d5dc` confirms ZIP overwrite
-and collision diagnostics, qualifies cleanup/filesystem guarantees, and adds a
-separate source-confirmed negative supervisor build-step timing candidate.
+`c90fe94dd439095a8f928c558dc26cae8db2d2fa` and documentation checkpoint
+`b4eb34ac1c18e4bc93ba5ac8876e82297c63ab27` are published to draft PR #240.
+Six whole reviews with immutable source links are saved and assessed; their
+exact monitors are deleted with absence verified. Current b4eb CI is green on exact-head push and an
+independently checked identical-tree PR merge. Neither CI lane runs observability
+or CLI-process. Prior ZIP full/default, lint, 24 changed-root timing and eight
+actual publication scenarios remain recorded above with their scope limits.
 
-ZIP full/default, lint, formatting, 24 cumulative changed-root timing and named
-CLI-process acceptance are complete as recorded above. The ordinary local
-Darwin filesystem proof includes fresh/incomplete-evidence ZIPs, existing
-file/directory/live and dangling symlinks, a competing destination after
-staging/input rendezvous, and two staged/rendezvoused actual writers. Payload
-bytes/hash and all ZIP entries/CRC are checked; owned cleanup passes. Best-effort
-staging removal, generic link errors and platform limits remain explicit. No
-Windows, unsupported-filesystem, NFS failure, crash or hostile-parent proof is
-claimed. The prior 40d CI checkpoint is green on exact-head push and same-tree
-PR merge; inspect current source/checkpoint CI before claiming those new jobs
-pass. Neither CI lane runs observability or CLI-process.
+Oracle006 completed at
+`https://chatgpt.com/c/6ac79593-b1ac-83eb-9366-13ae0ba61340` against b4eb/base,
+naming PR240 progress. Its entire 32,140-character final and 45 DOM links are
+saved and independently assessed; exact monitor `telemetry-oracle-006` is deleted
+with absence verified. Raw token validity, independent cache counters and truthful
+human/latency wording refinements were accepted. Successful trace-buffer drains
+add no loss themselves, but can trigger the existing lazy TTL pruning; this is a
+wording qualification, not a behavior change. The overall loop remains active.
 
-Finish the documentation-only quick checkpoint, update/verify the PR body/head
-and begin fresh Oracle006 against the resulting published exact head, original
-base and PR #240 progress. No consultation is currently pending; create only
-one exact monitor after an accepted canonical conversation. Preserve the
-continuing heartbeat and repeat the loop. Next bounded candidate is malformed
-negative supervisor timing: establish actual report before-proof and preserve
-legitimate zero/outcomes before choosing the correction.
+Actual owned CLI before-proof confirms supervisor request/child negative
+percentiles, fractional-negative false zero, unrepresentable durations/sums and
+cache corruption, including a sanitized serialization failure. This is synthetic
+malformed input proof, not normal producer incidence. Local correction validates
+individual durations and child sums before integer conversion, preserves valid
+fractional sums/zero and known untimed outcomes/joins/streaks/terminal cleanup,
+counts invalid source timing, and keeps cache cohorts coherent. Six focused
+roots cover before/after timing, raw token, joins, cache and latency evidence;
+affected package tests pass. The cache report contract now retains all decoded
+non-timing work with required `timing_sample_count` and nullable
+`accumulated_ms`, advancing its checked identity and static registry together. Complete cumulative
+full/lint, changed-root timing and the named actual CLI/schema/owned-cleanup
+probe before publication. Update the same draft and start fresh Oracle007 at the resulting exact head,
+original base and current PR progress after this validated publication.
 
-N7 snapshots/coverage/aggregate budgets, N8 finite query limits, negative supervisor timing, broader
-redirection attribution and lossless delivery prevention remain separate.
-Do not add arbitrary caps or truncate detail. Generator/status/client inputs
-remain unchanged; reuse their existing generation/Bun/TS receipts only for that
-scope. ZIP output JSON/identity remains unchanged; update owning request and
-publication contracts alongside implementation.
+N7 snapshot/coverage/aggregate budgets, N8 finite query limits, broader redirection
+attribution and lossless delivery prevention remain separate. Oracle006's live
+source progress also identifies a separate MetricsSeries null-label decoder
+candidate; verify it independently before scope selection. Generator/status/
+client and observability inputs remain unchanged: reuse receipts only for those
+owning scopes, never claim old observability matches the current source digest.
+Do not add arbitrary caps, truncate detail, modify VNEXT or restart a live agent.
 
 Durable questions, answers, assessments, proofs and active process state live
 under `.scenery/telemetry-improvements/`. Read live Git/PR/scheduler/runtime state
@@ -392,8 +397,8 @@ in the first batch. The second batch advances the current status schema, registr
 and generated client together for explicit N6 event-loss evidence. Architecture
 boundaries stay unchanged; the TypeScript specification already delegates exact
 status identity to the checked schema. Those owning documents need no additional
-update. Finite-read/report budgets, snapshot coverage, shell redirection and negative supervisor timing
-remain later milestones, alongside the reproduced backend field cap.
+update. Finite-read/report budgets, snapshot coverage, shell redirection
+remain later milestones; supervisor timing is the current bounded correction, alongside the reproduced backend field cap.
 
 ## Plan of Work
 

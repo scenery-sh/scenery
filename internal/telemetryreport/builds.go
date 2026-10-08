@@ -124,26 +124,26 @@ type supervisorEvent struct {
 }
 
 type buildStepData struct {
-	Cache                    string    `json:"cache"`
-	EditClass                string    `json:"edit_class"`
-	FilesHashed              int       `json:"files_hashed"`
-	BytesHashed              int64     `json:"bytes_hashed"`
-	FilesReused              int       `json:"files_reused"`
-	BytesReused              int64     `json:"bytes_reused"`
-	FilesWritten             int       `json:"files_written"`
-	BytesWritten             int64     `json:"bytes_written"`
-	CacheHits                int       `json:"cache_hits"`
-	CacheMisses              int       `json:"cache_misses"`
-	PackagesRebuilt          []string  `json:"packages_rebuilt"`
-	PackagesRebuiltAvailable bool      `json:"packages_rebuilt_available"`
-	ExecutableBytes          int64     `json:"executable_bytes"`
-	Outcome                  string    `json:"outcome"`
-	OperationID              string    `json:"operation_id"`
-	Name                     string    `json:"name"`
-	StartedAt                time.Time `json:"started_at"`
-	DurationMS               float64   `json:"duration_ms"`
-	OK                       bool      `json:"ok"`
-	Reason                   string    `json:"reason"`
+	Cache                    string          `json:"cache"`
+	EditClass                string          `json:"edit_class"`
+	FilesHashed              int             `json:"files_hashed"`
+	BytesHashed              int64           `json:"bytes_hashed"`
+	FilesReused              int             `json:"files_reused"`
+	BytesReused              int64           `json:"bytes_reused"`
+	FilesWritten             int             `json:"files_written"`
+	BytesWritten             int64           `json:"bytes_written"`
+	CacheHits                int             `json:"cache_hits"`
+	CacheMisses              int             `json:"cache_misses"`
+	PackagesRebuilt          []string        `json:"packages_rebuilt"`
+	PackagesRebuiltAvailable bool            `json:"packages_rebuilt_available"`
+	ExecutableBytes          int64           `json:"executable_bytes"`
+	Outcome                  string          `json:"outcome"`
+	OperationID              string          `json:"operation_id"`
+	Name                     string          `json:"name"`
+	StartedAt                time.Time       `json:"started_at"`
+	DurationMS               json.RawMessage `json:"duration_ms"`
+	OK                       bool            `json:"ok"`
+	Reason                   string          `json:"reason"`
 }
 
 type buildErrorData struct {
@@ -338,7 +338,11 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 	var outcomes []outcome
 	byOperation := map[string]int{}
 	awaiting := -1 // the failed build whose error has not arrived yet
-	operationSteps := map[string]map[string]float64{}
+	operationSteps := map[string]map[string]*supervisorTiming{}
+	invalidRecord := func() {
+		builds.invalidRecords++
+		coverage.Invalid++
+	}
 	var acc *worktreeAccumulator
 	var root string
 	inWindow := false
@@ -380,13 +384,13 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		switch data.Type {
 		case "phase.finish":
 			var phase struct {
-				ID         string  `json:"phase_id"`
-				Title      string  `json:"title"`
-				DurationMS float64 `json:"duration_ms"`
-				OK         bool    `json:"ok"`
+				ID         string          `json:"phase_id"`
+				Title      string          `json:"title"`
+				DurationMS json.RawMessage `json:"duration_ms"`
+				OK         bool            `json:"ok"`
 			}
-			if json.Unmarshal(data.Data, &phase) != nil || phase.DurationMS < 0 {
-				builds.invalidRecords++
+			if json.Unmarshal(data.Data, &phase) != nil {
+				invalidRecord()
 				return
 			}
 			id := phase.ID
@@ -394,13 +398,17 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 				id = strings.Join(strings.Fields(strings.ToLower(phase.Title)), "-")
 			}
 			if id == "" {
-				builds.invalidRecords++
+				invalidRecord()
 				return
 			}
 			if builds.phaseSamples[id] == nil {
 				builds.phaseSamples[id] = &timingAccumulator{}
 			}
-			builds.phaseSamples[id].add(int64(phase.DurationMS), phase.OK)
+			timing := decodeSupervisorTiming(phase.DurationMS)
+			if timing.invalid {
+				invalidRecord()
+			}
+			timing.record(builds.phaseSamples[id], phase.OK)
 		case "observability.health":
 			var health struct {
 				State string `json:"state"`
@@ -470,15 +478,31 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		case "build.step":
 			var step buildStepData
 			if json.Unmarshal(data.Data, &step) != nil || step.OperationID == "" {
+				invalidRecord()
 				return
 			}
-			recordCacheWork(builds, step)
+			timing := decodeSupervisorTiming(step.DurationMS)
+			invalid := timing.invalid
+			if !recordCacheWork(builds, step, timing) {
+				invalid = true
+			}
 			if step.Name != "build.request" {
 				if operationSteps[step.OperationID] == nil {
-					operationSteps[step.OperationID] = map[string]float64{}
+					operationSteps[step.OperationID] = map[string]*supervisorTiming{}
 				}
-				operationSteps[step.OperationID][step.Name] += step.DurationMS
+				if operationSteps[step.OperationID][step.Name] == nil {
+					operationSteps[step.OperationID][step.Name] = &supervisorTiming{}
+				}
+				if !operationSteps[step.OperationID][step.Name].add(timing) {
+					invalid = true
+				}
+				if invalid {
+					invalidRecord()
+				}
 				return
+			}
+			if invalid {
+				invalidRecord()
 			}
 			stepDurations := operationSteps[step.OperationID]
 			delete(operationSteps, step.OperationID)
@@ -493,17 +517,19 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 				awaiting = -1
 				return
 			}
-			duration := int64(step.DurationMS)
 			switch step.Reason {
 			case "initial_build":
-				initial.add(duration, step.OK)
-				acc.initial.add(duration, step.OK)
+				timing.record(initial, step.OK)
+				timing.record(&acc.initial, step.OK)
 			default:
-				rebuilds.add(duration, step.OK)
-				acc.rebuilds.add(duration, step.OK)
+				timing.record(rebuilds, step.OK)
+				timing.record(&acc.rebuilds, step.OK)
 				if step.OK {
-					for name, ms := range stepDurations {
-						accumulate(steps, name, int64(ms), true)
+					for name, childTiming := range stepDurations {
+						if steps[name] == nil {
+							steps[name] = &timingAccumulator{}
+						}
+						childTiming.record(steps[name], true)
 					}
 				}
 			}

@@ -150,7 +150,7 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		return fmt.Sprintf("%dms", *value)
 	}
 	timing := func(name string, t telemetryreport.Timing) []string {
-		return []string{name, fmt.Sprint(t.Count), fmt.Sprintf("failed %d", t.FailureCount), fmt.Sprintf("successful n=%d", t.PercentileSampleCount), "p50 " + ms(t.P50MS), "p95 " + ms(t.P95MS)}
+		return []string{name, fmt.Sprint(t.Count), fmt.Sprintf("failed %d", t.FailureCount), fmt.Sprintf("timed successes n=%d", t.PercentileSampleCount), "p50 " + ms(t.P50MS), "p95 " + ms(t.P95MS)}
 	}
 	line("Scenery telemetry report, %s to %s", firstNonEmpty(report.Window.Since, "the first record"), report.Window.Until)
 	sources := fmt.Sprintf("Sources: %d CLI records, %d supervisor logs", report.Sources.CLIRecords, report.Sources.SupervisorLogs)
@@ -164,8 +164,8 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		line("  CLI %s (%s, archived=%t): retained %d, in window %d, duplicate invocations %d, invalid %d; %s to %s.", source.Path, source.Status, source.Archived, source.Records, source.InWindow, source.Duplicates, source.Invalid, firstNonEmpty(source.First, "unknown"), firstNonEmpty(source.Last, "unknown"))
 	}
 	line("  Identified overlaps are counted once (active file wins); legacy rows without invocation identity are retained separately.")
-	if incomplete := report.Sources.SupervisorLogsFailed + report.Sources.SupervisorLogsPartial; incomplete > 0 {
-		line("  %d supervisor logs unreadable or read in part; %d invalid event records skipped.", incomplete, report.Sources.SupervisorInvalid)
+	if incomplete := report.Sources.SupervisorLogsFailed + report.Sources.SupervisorLogsPartial; incomplete > 0 || report.Sources.SupervisorInvalid > 0 {
+		line("  %d supervisor logs unreadable or read in part; %d event records with invalid evidence (known outcomes retained).", incomplete, report.Sources.SupervisorInvalid)
 	}
 	if transcripts := report.Sources.Transcripts; transcripts != nil {
 		line("  Transcripts: %d read, %d read in part, %d unreadable; %d invalid and %d oversized records skipped, %d results without a call, %d calls without a result.",
@@ -201,7 +201,11 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 		line("  observability %s: %d observations", health.Name, health.Count)
 	}
 	for _, cache := range builds.CacheWork {
-		line("  cache %s / %s / %s (%s): %d samples, %.1fms accumulated, %d files hashed, %d reused", cache.Layer, cache.EditClass, cache.Cache, cache.Reason, cache.Samples, cache.AccumulatedMS, cache.FilesHashed, cache.FilesReused)
+		accumulated := "unavailable"
+		if cache.AccumulatedMS != nil {
+			accumulated = fmt.Sprintf("%.1fms", *cache.AccumulatedMS)
+		}
+		line("  cache %s / %s / %s (%s): %d records, timed n=%d, %s accumulated, %d files hashed, %d reused", cache.Layer, cache.EditClass, cache.Cache, cache.Reason, cache.Samples, cache.TimingSampleCount, accumulated, cache.FilesHashed, cache.FilesReused)
 	}
 	line("  Superseded %d; transaction waits %d; deferred candidates %d; blocked rebuilds prevented %d.", builds.Superseded, builds.TransactionWaits, builds.DeferredCandidates, builds.PreventedBuilds)
 	for _, stage := range []struct {

@@ -18,7 +18,7 @@
       "const": "scenery.telemetry.report"
     },
     "schema_revision": {
-      "const": "sha256:ac55c3e57674c46a972b84b2014e0211facc68c3bacf66b580b14f457dbee84d"
+      "const": "sha256:8269c9d267acbbebf42bb74a608dd6ab3eef9d5afdab719333c4435db7f7048a"
     },
     "window": {
       "type": "object",
@@ -362,9 +362,27 @@
               "reason",
               "samples",
               "accumulated_ms",
-              "boundary"
+              "boundary",
+              "timing_sample_count"
             ],
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "samples": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "timing_sample_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "accumulated_ms": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            }
           },
           "type": "array"
         },

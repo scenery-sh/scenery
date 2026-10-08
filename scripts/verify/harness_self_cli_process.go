@@ -125,7 +125,12 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 	if err != nil {
 		return nil, nil, err
 	}
+	timing, err := proveHarnessSupervisorTiming(ctx, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
+		"supervisor_timing":         timing,
 		"proof":                     "real_cli_process_exit_codes_and_per_process_telemetry_verified",
 		"verified_cases":            verified,
 		"telemetry_zip_publication": publication,

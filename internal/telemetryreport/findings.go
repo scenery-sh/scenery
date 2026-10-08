@@ -114,14 +114,14 @@ func findings(report Report) []Finding {
 		add(severityWarning, "sources.incomplete", "%d source files could not be read or were read only in part (see sources); failures they hold are missing from this report.", incomplete)
 	}
 	if skipped > 0 {
-		add(severityInfo, "sources.skipped_records", "%d records of the read sources did not decode or were too long and were skipped.", skipped)
+		add(severityInfo, "sources.skipped_records", "%d records of the read sources contained invalid or oversized evidence; that evidence was excluded, while known supervisor outcomes were retained.", skipped)
 	}
 	if report.Builds.UnmatchedErrors > 0 {
 		add(severityInfo, "builds.unmatched_errors", "%d build errors name an operation no build request in the window has; they are charged to no build.", report.Builds.UnmatchedErrors)
 	}
-	if rebuilds := report.Builds.Rebuilds; rebuilds.Count > rebuilds.FailureCount {
-		add(severityInfo, "builds.rebuild_latency", "Successful rebuilds took p50 %s, p95 %s from build start to published generation over %d rebuilds.",
-			duration(rebuilds.P50MS), duration(rebuilds.P95MS), rebuilds.Count-rebuilds.FailureCount)
+	if rebuilds := report.Builds.Rebuilds; rebuilds.PercentileSampleCount > 0 {
+		add(severityInfo, "builds.rebuild_latency", "Successful rebuilds took p50 %s, p95 %s from build start to published generation over %d timed successful rebuilds.",
+			duration(rebuilds.P50MS), duration(rebuilds.P95MS), rebuilds.PercentileSampleCount)
 	}
 	if response := report.Builds.FirstResponse; response.Count > 0 {
 		add(severityInfo, "builds.first_response_latency", "Captured change to first attested response headers: p50 %s, p95 %s over %d generations. Includes waiting for traffic; filesystem detection delay before capture is excluded.", duration(response.P50MS), duration(response.P95MS), response.Count)

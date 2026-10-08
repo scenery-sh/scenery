@@ -72,6 +72,7 @@ func TestTelemetryReportOutputs(t *testing.T) {
 		event("build.error", at, `{"error":"generated TypeScript clients are stale"}`)
 		request(fmt.Sprintf("failed-%d", i), at, false)
 	}
+	event("phase.finish", base, `{"phase_id":"startup","duration_ms":-0.5,"ok":true}`)
 	if err := os.WriteFile(logPath, []byte(log.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +118,7 @@ func TestTelemetryReportOutputs(t *testing.T) {
 	if err := writeTelemetryReportHuman(&human, report); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"[critical] scenery system agent failed 61 times", "5 consecutive builds failed in /work/shop", `rejected unknown flag "--help"`} {
+	for _, want := range []string{"timed successes n=1", "known outcomes retained", "[critical] scenery system agent failed 61 times", "5 consecutive builds failed in /work/shop", `rejected unknown flag "--help"`} {
 		if !strings.Contains(human.String(), want) {
 			t.Fatalf("human report lacks %q:\n%s", want, human.String())
 		}
