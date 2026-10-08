@@ -22,8 +22,10 @@ import (
 const harnessAdmissionCounter = `vt_rows_dropped_total{reason="too_many_fields"}`
 
 type harnessAdmissionSnapshot struct {
-	Owner   localagent.Owner `json:"owner"`
-	Counter uint64           `json:"too_many_fields_rows"`
+	Owner          localagent.Owner `json:"owner"`
+	ObservedBefore localagent.Owner `json:"observed_before"`
+	ObservedAfter  localagent.Owner `json:"observed_after"`
+	Counter        uint64           `json:"too_many_fields_rows"`
 }
 
 // The pinned backend exposes this exact series even at zero. Absence and
@@ -114,6 +116,13 @@ func proveHarnessBackendAdmission(ctx context.Context, p *worktreeRuntimeProbe, 
 	if err != nil {
 		return nil, err
 	}
+	// Admission evidence requires a complete observed fingerprint and exact
+	// executable path, beyond the general owner's tolerant verification policy.
+	observe := func(candidate localagent.Owner) (localagent.Owner, error) {
+		live := localagent.CaptureOwner(candidate.PID, "")
+		_, err := harnessAdmissionDelta(harnessAdmissionSnapshot{Owner: candidate}, harnessAdmissionSnapshot{Owner: live})
+		return live, err
+	}
 	read := func() (harnessAdmissionSnapshot, error) {
 		current, err := agent.GetSubstrate(ctx, localagent.SubstrateVictoria)
 		if err != nil || current.Status != "ready" || current.PIDs["traces"] != owner.PID || current.URLs["traces"] != substrate.URLs["traces"] {
@@ -123,7 +132,8 @@ func proveHarnessBackendAdmission(ctx context.Context, p *worktreeRuntimeProbe, 
 		if _, err := harnessAdmissionDelta(harnessAdmissionSnapshot{Owner: owner}, harnessAdmissionSnapshot{Owner: candidate}); err != nil {
 			return harnessAdmissionSnapshot{}, err
 		}
-		if err := localagent.VerifyOwner(candidate); err != nil {
+		observedBefore, err := observe(candidate)
+		if err != nil {
 			return harnessAdmissionSnapshot{}, err
 		}
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(current.URLs["traces"], "/")+"/metrics", nil)
@@ -144,10 +154,11 @@ func proveHarnessBackendAdmission(ctx context.Context, p *worktreeRuntimeProbe, 
 		if err != nil {
 			return harnessAdmissionSnapshot{}, err
 		}
-		if err := localagent.VerifyOwner(candidate); err != nil {
+		observedAfter, err := observe(candidate)
+		if err != nil {
 			return harnessAdmissionSnapshot{}, err
 		}
-		return harnessAdmissionSnapshot{Owner: candidate, Counter: counter}, nil
+		return harnessAdmissionSnapshot{Owner: candidate, ObservedBefore: observedBefore, ObservedAfter: observedAfter, Counter: counter}, nil
 	}
 	status := func() (map[string]uint64, error) {
 		response, err := rpc.call(20, "status", map[string]any{}, 5*time.Second)

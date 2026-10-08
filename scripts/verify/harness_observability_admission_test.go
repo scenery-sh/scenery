@@ -47,8 +47,11 @@ func TestBackendAdmissionDeltaRejectsResetAndChangedOwner(t *testing.T) {
 		{"reset", func(s *harnessAdmissionSnapshot) { s.Counter = 1 }, true},
 		{"changed pid", func(s *harnessAdmissionSnapshot) { s.Owner.PID++ }, true},
 		{"reused pid", func(s *harnessAdmissionSnapshot) { s.Owner.StartedAt = "new" }, true},
-		{"binary changed", func(s *harnessAdmissionSnapshot) { s.Owner.Exe = "/other/traces" }, true},
+		{"same executable basename", func(s *harnessAdmissionSnapshot) { s.Owner.Exe = "/other/traces" }, true},
 		{"command changed", func(s *harnessAdmissionSnapshot) { s.Owner.CmdlineHash = "new" }, true},
+		{"observed start absent", func(s *harnessAdmissionSnapshot) { s.Owner.StartedAt = "" }, true},
+		{"observed executable absent", func(s *harnessAdmissionSnapshot) { s.Owner.Exe = "" }, true},
+		{"observed command absent", func(s *harnessAdmissionSnapshot) { s.Owner.CmdlineHash = "" }, true},
 		{"unknown owner", func(s *harnessAdmissionSnapshot) { s.Owner = localagent.Owner{} }, true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
