@@ -84,9 +84,9 @@ func telemetryReportBuildOptions(opts telemetryReportOptions, telemetryPath, age
 	return build
 }
 
-// telemetryReportCommandFamilies names every command `scenery help` advertises
-// with its subcommands, so an agent's shell command counts as a Scenery
-// invocation only when it names a real command.
+// telemetryReportCommandFamilies derives public roots and their immediate
+// subcommands from the help catalog. Native capture uses this finite vocabulary;
+// transcript reports use it to distinguish known commands from unknown attempts.
 func telemetryReportCommandFamilies() map[string][]string {
 	// help and version answer without a command entry of their own.
 	families := map[string][]string{"help": nil, "version": nil}
@@ -98,7 +98,8 @@ func telemetryReportCommandFamilies() map[string][]string {
 		family := words[0]
 		subcommands := families[family]
 		if len(words) > 1 {
-			subcommands = append(subcommands, words[1])
+			families[family] = append(subcommands, words[1])
+			continue
 		}
 		families[family] = append(subcommands, command.Subcommands...)
 	}

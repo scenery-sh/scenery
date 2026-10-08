@@ -598,7 +598,7 @@ func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err == nil && (raw.ResultType != "" || len(raw.Result) > 0) {
 		d.ResultType = raw.ResultType
 		if len(raw.Result) > 0 && string(raw.Result) != "null" {
-			_ = json.Unmarshal(raw.Result, &d.Result)
+			return json.Unmarshal(raw.Result, &d.Result)
 		}
 		return nil
 	}

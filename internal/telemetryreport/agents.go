@@ -58,6 +58,7 @@ type Agents struct {
 // "--help". Failures, waiting time and p50 cover only attributable shell
 // commands: one simple command that ran Scenery directly, with a recorded
 // outcome, whose exit status and duration are therefore the command's own.
+// Waiting time includes failures; p50 covers only timed successes.
 type AgentCommand struct {
 	Command      string `json:"command"`
 	Count        int    `json:"count"`
@@ -277,7 +278,9 @@ func (t *agentTally) visit(opts Options, call toolCall) {
 			}
 			if run.timed {
 				tally.wall += run.duration.Milliseconds()
-				tally.durations = append(tally.durations, run.duration.Milliseconds())
+				if run.outcome == outcomeSucceeded {
+					tally.durations = append(tally.durations, run.duration.Milliseconds())
+				}
 			}
 		}
 	}

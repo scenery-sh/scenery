@@ -207,7 +207,25 @@ func (scan shellScan) sceneryInvocations() []shellInvocation {
 				continue
 			}
 			switch word {
-			case "env", "command", "exec", "time":
+			case "command":
+				words = words[1:]
+				for len(words) > 0 && strings.HasPrefix(words[0], "-") {
+					option := words[0]
+					words = words[1:]
+					if option == "--" {
+						break
+					}
+					if !strings.HasPrefix(option, "--") && strings.ContainsAny(option[1:], "vV") {
+						// Lookup forms inspect command names without executing them.
+						words = nil
+						break
+					}
+					if option != "-p" {
+						direct = false
+					}
+				}
+				continue
+			case "env", "exec", "time":
 				words = words[1:]
 				for len(words) > 0 && strings.HasPrefix(words[0], "-") {
 					words = words[1:]

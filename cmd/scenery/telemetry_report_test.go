@@ -48,6 +48,7 @@ func TestTelemetryReportOutputs(t *testing.T) {
 		fmt.Fprintf(&cli, `{"at":%q,"command":"system agent","duration_ms":80,"exit_code":10,"version":"dev","mode":"oneshot"}`+"\n", base.Add(time.Duration(i)*time.Second).Format(time.RFC3339Nano))
 	}
 	fmt.Fprintf(&cli, `{"at":%q,"command":"up","duration_ms":4000,"exit_code":0,"version":"dev","mode":"long_running","measurement":"startup","app":{"id":"shop","name":"Shop"}}`+"\n", base.Format(time.RFC3339Nano))
+	fmt.Fprintf(&cli, `{"at":%q,"command":"check","duration_ms":-7,"exit_code":0,"mode":"oneshot"}`+"\n", base.Format(time.RFC3339Nano))
 	cliPath := filepath.Join(root, "telemetry.jsonl")
 	if err := os.WriteFile(cliPath, []byte(cli.String()), 0o600); err != nil {
 		t.Fatal(err)
@@ -93,6 +94,9 @@ func TestTelemetryReportOutputs(t *testing.T) {
 	}
 	if len(report.CLI.Bursts) != 1 || len(report.Builds.Streaks) != 1 || report.Agents == nil || len(report.Agents.RejectedInputs) != 1 {
 		t.Fatalf("fixture did not populate every section: %+v", report)
+	}
+	if report.Sources.CLIInvalid != 1 || report.CLI.Records != 62 {
+		t.Fatalf("negative CLI duration was not rejected: %+v", report.Sources)
 	}
 	response := telemetryReportResponse{cliPayloadIdentity: newCLIPayloadIdentity(telemetryReportPayloadKind), Report: report}
 	encoded, err := json.Marshal(response)

@@ -159,7 +159,7 @@ func readCLI(opts Options) (CLIReport, error) {
 				return
 			}
 			var record cliRecord
-			if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() {
+			if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() || record.DurationMS < 0 {
 				coverage.Invalid++
 				return
 			}

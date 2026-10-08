@@ -36,8 +36,33 @@ work; completed plans are immutable history.
   `.scenery/telemetry-improvements/cycle-001-submission.md`.
 - [x] 2026-10-08 Created exact five-minute consultation monitor
   `telemetry-oracle-cycle-001`; preserve the separate persistent loop heartbeat.
-- [ ] Verify actionable advice, select a bounded implementation, and record its
+- [x] 2026-10-08 Captured the entire completed first review in the originating
+  task, assessed its nine source findings, and deleted the exact consultation
+  monitor with confirmed cleanup. Its conversation remains available.
+- [x] 2026-10-08 Verified the preliminary native command privacy finding and
+  implemented catalog-derived classification. Focused package tests pass;
+  the process probe now expects `unknown` and covers a private task operand.
+- [x] 2026-10-08 Reject negative native durations in report intake, with
+  valid-following-record, coverage, aggregation and checked-schema tests.
+- [x] Verify actionable advice, select a bounded implementation, and record its
   observable acceptance scenario before editing runtime behavior.
+- [x] 2026-10-08 Implemented N2/N4/N5/N9 and the narrow N3 lookup correction.
+  Their focused regression cases failed before the corrections and the affected
+  package tests now pass. N1's exact pinned classifier also fails the new privacy
+  cases through an explicit Go source overlay; candidate surrounding code is
+  retained, so this is not whole-target execution proof.
+- [x] Complete final full/default, lint, CLI-process and observability acceptance
+  for this small batch; retain source/cleanup proof and warnings.
+- [x] 2026-10-08 Final source validation: full/default archive
+  `20261008T083822.678926000Z`, CLI-process `20261008T083926.834884000Z`,
+  observability `20261008T084234.531468000Z`, all at stable input
+  `sha256:2ac4a4ca87fabfc1967005b5b46c85ae4ca618834edb40809f85d31217d72962`.
+  Zero errors; lint 0 issues. Full had 12 existing knowledge warnings and a
+  5.286 s whole-suite advisory warning; probes had only the 12 knowledge warnings.
+  All 11 changed test roots passed 20 isolated serial samples, reported p95 at
+  most 30 ms. Observability verified native/SQL/HTTP traces, scoped RPC queries,
+  structured logs and duration metrics, with source build-input identity and
+  cleanup of its runtime, Victoria processes and PostgreSQL cluster.
 - [ ] Complete cumulative validation and update the draft PR.
 - [ ] Start the next consultation with the draft PR number and exact current
   head, repeating until Petr stops the loop.
@@ -45,20 +70,22 @@ work; completed plans are immutable history.
 ### Resume here
 
 2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) is
-published; no product changes yet. The first Oracle review is accepted and
-generating at the recorded URL with the actual GitHub connector and exact
-target/base confirmed by the Oracle. Recover that conversation rather than
-resending. Its exact monitor is `telemetry-oracle-cycle-001`; capture the entire
-final answer before deleting that monitor, then assess/implement useful advice.
-The separate `telemetry-improvements-loop` heartbeat persists until Petr stops
-the loop. Local durable state, intended question, actual accepted scope and
-synthetic negative-duration proof live under
-`.scenery/telemetry-improvements/`. The model clarification is resolved: click
-the Pro label within the Chat effort picker to reveal GPT-6 selection, then
-return to verify Pro 5 of 5. Use paste for multiline questions; native typeText
-submitted paragraphs separately. Read live Git/PR/scheduler state before relying
-on this checkpoint; this later documentation update does not change the pending
-review's pinned source.
+published. The first review is complete and captured; its exact monitor was
+deleted. Native command privacy and negative report duration fixes are in the
+worktree. Initial full/default validation, lint and CLI-process proof passed;
+later nested-catalog and serialized-record assertions need final validation.
+The small batch now also implements N2/N4/N5/N9 and narrow N3. Source validation,
+lint and both named probes passed with explicit warnings and cleanup. This
+checkpoint updates validation documentation after those receipts; reclassify
+that final documentation update, then publish the batch. N6-N8, general wrapper/redirection
+semantics and ZIP publication remain explicit later milestones.
+The independent `telemetry-improvements-loop` heartbeat persists until Petr
+stops. Local durable state, actual submission limits, complete-answer capture
+location, assessment and synthetic proof live under
+`.scenery/telemetry-improvements/`. Use paste for future multiline questions,
+verify Chat GPT-6 plus Pro and the actual GitHub chip, and name the next exact
+published head with PR #240. Read live Git/PR/scheduler state before relying on
+this checkpoint; the first review stays bound to its original source.
 
 ## Surprises & Discoveries
 
@@ -86,10 +113,35 @@ review's pinned source.
 - 2026-10-08: Oracle advice is evidence to investigate. Reject unsupported or
   redundant recommendations explicitly instead of expanding product surface
   merely to keep the loop moving. No subagents are authorized.
+- 2026-10-08: Verified the first review's preliminary command-classification
+  finding against the pinned source and current argument-free contract. The
+  first bounded change uses the existing help-derived command families, keeps
+  only a recognized root and first subcommand, and groups every unrecognized
+  root as `unknown`. It never changes command execution or diagnostics.
+- 2026-10-08: The complete review confirms additional source defects: agent
+  p50 includes failures (N2), shell lookup wrappers count as execution (N3),
+  rebuild findings use the combined failure cohort (N4), query invents a clean
+  historical dirty state (N5), trace-buffer losses are uncounted (N6), retained
+  report state/snapshot coverage lacks bounds (N7), finite backend reads lack
+  bounds (N8), and metrics decode errors are discarded (N9). Verify N8/N9's
+  concrete boundaries before changing them. Select small N2/N4/N5/N9 corrections
+  with focused failing-before/passing-after proof; N3 remains a narrow shell
+  lookup correction. N6-N8 need separate counting/coverage/budget milestones.
 
 ## Outcomes & Retrospective
 
 Not yet completed. This plan remains active while the authorized loop runs.
+The first implementation batch fixes native argument capture, negative report
+durations, successful agent percentiles, rebuild cause cohorts, historical dirty
+identity, command lookup attribution and swallowed metric decode errors. It
+adds no dependency, environment knob or alternate decoder. Existing schemas
+already describe the corrected types; JSON shapes and schema revisions stay
+unchanged. Completed historical plans and `VNEXT.md` remain untouched.
+Real runtime acceptance used an owned disposable application and verified
+build-input digest `sha256:d02c2e568820474e77d0b3f81f9edbbc5bf11fe9bcde18346972823f4cb7a952`;
+it is evidence for this candidate, not for a live installed agent or deployment.
+Release certification and unrelated lifecycle probes were not selected; CLI
+grammar, runtime RPC output and generated-client templates did not change.
 
 ## Plan of Work
 
@@ -109,6 +161,37 @@ owning docs/schemas/tests, then validate and publish the reviewed checkpoint to
 the draft branch. Record the result and next review question here.
 
 ## Validation and Acceptance
+
+The first observable scenario is a native CLI invocation with an unknown root,
+unknown subcommand or positional SSH target. Its retained `command` must contain
+only a known catalog name or `unknown`, while known subcommands still retain
+their useful coarse identity and help/long-running classification is preserved.
+Focused classification tests cover the catalog and synthetic sensitive operands;
+the `cli-process` probe verifies native recording, exit status and isolated agent
+home through the real CLI. No SSH connection or private data is needed.
+
+The independently reproduced malformed-input scenario adds successful and failed
+CLI records with negative durations to an owned fixture. The report must count
+them as invalid source records, exclude them from all timing/outcome/cohort
+aggregates, retain valid following records and satisfy its unchanged schema.
+
+The small report/query batch additionally proves these observable results:
+
+- Claude command failures taking 10/20 ms and a success taking 1,000 ms report
+  p50 1,000 ms; only-failure commands have null p50. Total attributable waiting
+  time and attempt/failure counts retain every known outcome.
+- A rebuild failure-rate finding uses rebuild causes even when initial failures
+  dominate the combined cause list, in both warning and critical cases.
+- Native query JSON preserves absent, false and true historical dirty identity;
+  new native invocations still record an explicit boolean.
+- Malformed VictoriaMetrics result objects fail JSON decoding instead of
+  returning successful empty/partial series. Existing vector, matrix, label and
+  series shapes remain valid. The named `observability` probe retains the real
+  generated-app, trace/log/metric query, source identity and cleanup acceptance.
+- `command -v`/`-V`, including combined short flags and nested `env`, count no
+  Scenery invocation. Ordinary `command` and `command -p --` remain direct;
+  unknown wrapper flags do not attribute a shell result to Scenery. File
+  redirection semantics remain a separately tracked contract refinement.
 
 All commands run from the feature worktree root. Documentation-only checkpoints
 select `go run ./scripts/verify --quick --summary --write`. Go edits require

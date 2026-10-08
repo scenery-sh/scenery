@@ -48,9 +48,9 @@ func findings(report Report) []Finding {
 		rate := percent(rebuilds.FailureCount, rebuilds.Count)
 		switch {
 		case rate >= 30:
-			add(severityCritical, "builds.failure_rate", "%d%% of rebuilds failed (%d of %d); leading cause: %s.", rate, rebuilds.FailureCount, rebuilds.Count, leadingCause(report.Builds.Failures))
+			add(severityCritical, "builds.failure_rate", "%d%% of rebuilds failed (%d of %d); leading cause: %s.", rate, rebuilds.FailureCount, rebuilds.Count, leadingCause(report.Builds.RebuildFailures))
 		case rate >= 10:
-			add(severityWarning, "builds.failure_rate", "%d%% of rebuilds failed (%d of %d); leading cause: %s.", rate, rebuilds.FailureCount, rebuilds.Count, leadingCause(report.Builds.Failures))
+			add(severityWarning, "builds.failure_rate", "%d%% of rebuilds failed (%d of %d); leading cause: %s.", rate, rebuilds.FailureCount, rebuilds.Count, leadingCause(report.Builds.RebuildFailures))
 		}
 	}
 	if startup := report.CLI.Startup; startup.Count >= 20 && percent(startup.FailureCount, startup.Count) >= 5 {
