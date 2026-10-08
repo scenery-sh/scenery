@@ -88,7 +88,7 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		case propagated <- r.Header.Get("traceparent"):
 		default:
 		}
-		if count := traceBufferEvents.Load(); count > 0 {
+		if count := traceBufferEvents.Load(); count != 0 {
 			w.Header().Set("X-Scenery-Probe-Trace-Events", strconv.FormatInt(count, 10))
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -358,6 +358,11 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		return proof, err
 	}
 	proof["trace_buffer_loss"] = bufferProof
+	admissionProof, err := proveHarnessBackendAdmission(ctx, p, paths, agent, substrate, rpc, runtimeStatus.AppID, worktreeProbeAPI(running), &traceBufferEvents, session.AppPID, response.Header.Get("X-Scenery-Build-Input-Digest"), optionalHarnessArtifactContext(artifactContexts))
+	if err != nil {
+		return proof, err
+	}
+	proof["backend_admission"] = admissionProof
 	return proof, nil
 }
 

@@ -120,8 +120,8 @@ work; completed plans are immutable history.
   compiled framework source digest.
 - [x] 2026-10-08 Submitted a single complete fresh GPT-6 Pro question with the
   actual GitHub connector against that head/base and PR #240 progress:
-  `https://chatgpt.com/c/6ac77146-7eb8-83eb-826f-b9cb242b9eb6`. The exact
-  five-minute monitor `telemetry-oracle-cycle-003` is active; the answer is pending.
+  `https://chatgpt.com/c/6ac77146-7eb8-83eb-826f-b9cb242b9eb6`. The entire final answer and immutable references are captured locally; exact
+  monitor `telemetry-oracle-cycle-003` is deleted with absence verified.
 - [x] 2026-10-08 Independently reproduced decimal timestamp defects through the
   public `QueryMetrics` boundary at that exact published source: the valid upper
   int64 nanosecond endpoint is rejected, the valid lower endpoint shifts 574 ns,
@@ -144,6 +144,17 @@ work; completed plans are immutable history.
   loss one, immediate zero and owned runtime/Victoria/PostgreSQL cleanup pass.
   The unchanged generator/schema/client input scope reuses second-batch
   regeneration, Bun and TypeScript receipts.
+- [x] Complete N6b backend admission evidence: pinned same-owner counter delta,
+  exact healthy control event inventory, rejected span absence, distinct loss
+  units and unchanged baseline/TTL/client/cleanup acceptance.
+- [x] 2026-10-08 N6b actual backend admission proof passes: same pinned owner
+  and stable binary hash, known counter zero-to-one, exact 196-event control at
+  1,000 fields, absent rejected trace at 1,005 fields, confirming diagnostic and
+  unchanged Scenery loss counters. Final full `20261008T112628.810591000Z`,
+  observability `20261008T112205.059409000Z`, CLI-process
+  `20261008T112509.045832000Z`, lint and 22-root isolated timing pass. Corrected
+  the earlier report-test gofmt omission observed in remote CI; the local full
+  formatting check passes. Remote CI for the forthcoming head remains pending.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
@@ -152,28 +163,46 @@ work; completed plans are immutable history.
 ### Resume here
 
 2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240)
-has published head `637a0e1669574bf76722788c41ab5526c038e378`. The third
-review targets that exact source and the original base; its complete question is
-accepted and generating, with an exact five-minute monitor. Capture the entire
-final answer before deleting that monitor. Local source proofs independently
-confirm an exact timestamp range/precision defect; its correction is implemented
-and cumulative full, lint, changed-root timing and owned runtime acceptance
-now pass; publish its source and this documentation checkpoint.
-Finite-query proof also accepts 9,437,299 input bytes and 4,194,868 normalized
-output bytes despite a series limit of one. The neighboring 8 MiB/4 MiB precedents
-are not yet new finite-query contracts, and this establishes no actual backend
-incidence or OOM. Assess completed Oracle advice, then publish the exact-decimal
-correction and choose the next bounded milestone. N7/N8, broader wrapper/redirection
-semantics and ZIP publication remain later milestones, alongside the reproduced
-VictoriaTraces field-cap admission gap. These development checks establish no
-production incidence, release certification or installed-agent/deployment proof.
-The independent `telemetry-improvements-loop` heartbeat persists until Petr
-stops. Local durable state, actual submission limits, complete-answer capture
-location, assessment and synthetic proof live under
-`.scenery/telemetry-improvements/`. Use paste for future multiline questions,
-verify Chat GPT-6 plus Pro and the actual GitHub chip, and name the next exact
-published head with PR #240. Read live Git/PR/scheduler state before relying on
-this checkpoint; the first review stays bound to its original source.
+has published timestamp checkpoint `83c03b1ea8f6bf26d39842ea4771f2d8cde2e5bf`.
+The third review of prior head `637a0e1669574bf76722788c41ab5526c038e378`
+is complete and assessed; its full final answer is preserved and exact temporary
+monitor deleted. The exact timestamp correction is published and validated.
+N6b backend admission evidence is now locally complete and validated; publish
+this batch and its validation checkpoint before a fourth independent review.
+
+Final source full/default archive `20261008T112628.810591000Z`, lint and the
+repository-wide CI formatting check pass. Named observability
+`20261008T112205.059409000Z` and CLI-process `20261008T112509.045832000Z`
+pass with the same compiled framework source digest
+`sha256:dec13a8f2a937be70989c7c6a0d9129e36b943bd6b830143aa5c3b3496439b6c`.
+The later test-only gofmt correction changes the input revision, so the named
+probe receipts are reused only for their unchanged compiled source and scope.
+All 22 cumulative changed roots have 20 isolated serial samples with max p95
+10 ms: the five report roots and three new probe evidence roots were relinked
+and remeasured, with unchanged-package receipts retained for the other 14.
+Zero errors, 12 existing knowledge advisories and a 5.298-second whole-suite
+advisory remain; no all-root timing audit or release certification was requested.
+
+The owned backend counter advances from zero to one for the 1,005-field row;
+the 1,000-field control returns all 196 unique events, timestamps and payloads.
+The refused trace is absent, process/binary identity is stable, the diagnostic
+confirms the field boundary, and Scenery loss counters stay unchanged. Prior
+native SQL/HTTP/context/log/metric/RPC/client acceptance passes, along with
+capacity loss seven, 4,092 retained capacity events, exactly one natural TTL
+loss, an immediate zero-loss control and owned runtime/Victoria/PostgreSQL
+cleanup. This improves evidence of backend refusal; delivery prevention and
+production encoding changes remain separate.
+
+N7/N8, conservative redirection attribution and actual ZIP publication-race
+proof remain later milestones. Finite-query synthetic proof accepts 9,437,299
+input bytes and 4,194,868 normalized output bytes with series limit one;
+neighboring 8 MiB/4 MiB precedents do not establish a new finite-query contract
+or actual incidence/OOM. The independent `telemetry-improvements-loop`
+heartbeat persists until Petr stops. Durable local state, complete answers,
+assessments and proofs live under `.scenery/telemetry-improvements/`.
+For the next review paste one complete primary question, verify Chat GPT-6 Pro
+and the actual GitHub chip, and name the exact published head/base and PR #240.
+Read live Git/PR/scheduler state before relying on this checkpoint.
 
 ## Surprises & Discoveries
 
@@ -209,6 +238,13 @@ this checkpoint; the first review stays bound to its original source.
   policy changed to make these checks pass.
 
 ## Decision Log
+
+- 2026-10-08: Select N6b after the complete third review and independent upstream
+  source inspection. VictoriaTraces v0.9.2 expands each event into row fields,
+  rejects rows above 1,000 fields, and increments its existing rejection counter
+  without making OTLP HTTP completion fail. Ingested-row counts precede admission.
+  Preserve production encoding and detail semantics; add named runtime evidence,
+  not an arbitrary cap, span fragmentation or a delivery guarantee.
 
 - 2026-10-08: Correct metric timestamps using the original decimal JSON number,
   including exponent notation, rather than a float64 intermediary. Nested result
@@ -289,6 +325,22 @@ owning docs/schemas/tests, then validate and publish the reviewed checkpoint to
 the draft branch. Record the result and next review question here.
 
 ## Validation and Acceptance
+
+N6b acceptance uses the same owned disposable app and production authenticated
+report/export path. One control span stays below the pinned backend's 1,000-field
+row limit; a second exceeds it. Their total event inventory stays below 4,096 and
+finishes within the 30-second buffer TTL. Observe the backend rejection metric
+before/after, require a known exact delta of one, and bind both snapshots to the
+same verified process owner and pinned binary. Missing metrics, reset or changed
+identity fail evidence, never become zero. Require the control's exact event
+names, timestamps, structured ordinals and uniqueness through scoped RPC; pair
+rejected-span absence with that healthy query and unchanged buffer/export-loss
+counters. Keep the earlier native/SQL/HTTP/context/log/metric/client/status/TTL
+surface and cleanup. Application intake204 is directly observed; exporter success
+is a source-supported inference unless its response is directly captured. This
+scenario proves backend rejection evidence, not prevention or delivered detail.
+Run the named `observability` probe, cumulative full/default, lint and focused
+service-free evidence tests; no release gate or all-root timing audit.
 
 The N6 runtime scenario first proves the existing native/SQL/HTTP round trip.
 Then the disposable app sends 4,097 authenticated synthetic orphan trace events

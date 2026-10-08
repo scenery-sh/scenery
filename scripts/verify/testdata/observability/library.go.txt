@@ -76,7 +76,9 @@ func (s *Service) observe(ctx context.Context) error {
 		return err
 	}
 	defer response.Body.Close()
-	if count, _ := strconv.Atoi(response.Header.Get("X-Scenery-Probe-Trace-Events")); count == 1 {
+	if count, _ := strconv.Atoi(response.Header.Get("X-Scenery-Probe-Trace-Events")); count == -1 {
+		return reportTraceAdmissionProbe(ctx)
+	} else if count == 1 {
 		_, held := scenery.StartSpan(context.WithoutCancel(ctx), "trace-buffer-long-lived")
 		go func() { time.Sleep(31 * time.Second); held.End(nil) }()
 	} else if count > 1 {
@@ -113,27 +115,7 @@ func (s *Service) TraceProbe(ctx context.Context, _ contract.TraceProbeInput) (c
 // Only the disposable probe's loopback upstream can select this boundary proof.
 // Existing framework wiring stays inside the app; no token enters probe output.
 func reportTraceBufferProbe(ctx context.Context, count int) error {
-	send := func(reports []map[string]any) error {
-		body, err := json.Marshal(map[string]any{"reports": reports})
-		if err != nil {
-			return err
-		}
-		request, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("SCENERY_DEV_REPORT_URL"), bytes.NewReader(body))
-		if err != nil {
-			return err
-		}
-		request.Header.Set("Authorization", "Bearer "+os.Getenv("SCENERY_DEV_REPORT_TOKEN"))
-		request.Header.Set("Content-Type", "application/json")
-		response, err := http.DefaultClient.Do(request)
-		if err != nil {
-			return err
-		}
-		response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
-			return fmt.Errorf("trace buffer report status %d", response.StatusCode)
-		}
-		return nil
-	}
+	send := func(reports []map[string]any) error { return sendObservabilityProbeReports(ctx, reports) }
 	for first := 0; first < count; first += 64 {
 		reports := []map[string]any{}
 		for index := first; index < count && index < first+64; index++ {
@@ -150,4 +132,56 @@ func reportTraceBufferProbe(ctx context.Context, count int) error {
 		summaries = append(summaries, map[string]any{"type": "trace-summary", "app_id": os.Getenv("SCENERY_APP_ID"), "session_id": os.Getenv("SCENERY_SESSION_ID"), "reporter_pid": os.Getpid(), "trace_summary": map[string]any{"trace_id": strings.Repeat("f", 32), "span_id": fmt.Sprintf("%016x", first/128+1), "type": "WORK", "is_root": true, "is_error": false, "started_at": time.Now().UTC(), "duration_nanos": 1, "service_name": "library", "endpoint_name": "trace-buffer-capacity"}})
 	}
 	return send(summaries)
+}
+
+// With these exact identities, v0.9.2 expands 20 resource/scope/span fields
+// plus five per event (time, name, id, session, structured payload). Thus 196
+// events meet its 1,000-field limit and 197 exceed it, below the buffer cap/TTL.
+func reportTraceAdmissionProbe(ctx context.Context) error {
+	for _, fixture := range []struct {
+		trace, kind string
+		count       int
+	}{
+		{strings.Repeat("c", 32), "control", 196},
+		{strings.Repeat("d", 32), "rejected", 197},
+	} {
+		started := time.Now().UTC().Truncate(time.Microsecond)
+		for first := 0; first < fixture.count; first += 64 {
+			reports := []map[string]any{}
+			for index := first; index < fixture.count && index < first+64; index++ {
+				at := started.Add(time.Duration(index) * time.Microsecond)
+				reports = append(reports, map[string]any{"type": "trace-event", "app_id": os.Getenv("SCENERY_APP_ID"), "session_id": os.Getenv("SCENERY_SESSION_ID"), "reporter_pid": os.Getpid(), "trace_event": map[string]any{"trace_id": fixture.trace, "span_id": "0000000000000001", "event_id": index + 1, "event_time": at, "event": map[string]any{"admission": map[string]any{"kind": fixture.kind, "ordinal": index + 1, "time": at.Format(time.RFC3339Nano)}}}})
+			}
+			if err := sendObservabilityProbeReports(ctx, reports); err != nil {
+				return err
+			}
+		}
+		summary := map[string]any{"type": "trace-summary", "app_id": os.Getenv("SCENERY_APP_ID"), "session_id": os.Getenv("SCENERY_SESSION_ID"), "reporter_pid": os.Getpid(), "trace_summary": map[string]any{"trace_id": fixture.trace, "span_id": "0000000000000001", "type": "WORK", "is_root": true, "is_error": false, "started_at": started, "duration_nanos": int64(time.Millisecond), "service_name": "library", "endpoint_name": "backend-admission-" + fixture.kind}}
+		if err := sendObservabilityProbeReports(ctx, []map[string]any{summary}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sendObservabilityProbeReports(ctx context.Context, reports []map[string]any) error {
+	body, err := json.Marshal(map[string]any{"reports": reports})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("SCENERY_DEV_REPORT_URL"), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+os.Getenv("SCENERY_DEV_REPORT_TOKEN"))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("trace buffer report status %d", response.StatusCode)
+	}
+	return nil
 }
