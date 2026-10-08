@@ -246,6 +246,40 @@ work; completed plans are immutable history.
   unchanged owning scope; it does not share the new ZIP digest.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
+- [x] 2026-10-08 Complete Oracle006 at the exact b4eb checkpoint, save its
+  32,140-character whole final and 45 DOM source links, independently assess,
+  delete the exact monitor and verify absence. Accept raw timing/outcome
+  separation, fractional/zero preservation, poisoned child cohorts, adjacent
+  phase range/accounting, cache work preservation and truthful human findings.
+- [x] 2026-10-08 Commit supervisor timing correction as `c1ff8939`. Six new
+  focused roots plus the revised owning CLI report fixture pass. Raw-token
+  before proof overlays exact b4eb source with a retained test snapshot; an
+  incomplete helper overlay failed compilation and is excluded as intake proof.
+  Actual product before proof and normal-producer incidence limits remain explicit.
+- [x] 2026-10-08 Final full/default `20261008T134004.028032000Z` and named
+  CLI-process `20261008T134108.894459000Z` pass at stable input
+  `sha256:be752f6932519a60d3fba9680632b329e717548a10458dfe821ea45c43ed4b4f`,
+  shared framework `sha256:80e805583aabd5b7b503207382b982ba69ddb619c68cb6bb4cba97adbcc9b4cf`.
+  Lint 0; 1,780 non-ignored Go sources format clean. Full covers the changed-area
+  union including machine identity, vet, architecture, drift and checked schemas;
+  suite 4.474 s, zero errors and 12 existing knowledge warnings. The first CLI
+  proof exposed a human display gate hiding invalid-only supervisor evidence;
+  fixed it, added the owning fixture and repeated final full/lint/probe.
+- [x] 2026-10-08 Actual report JSON/human processes preserve 18 rebuild outcomes,
+  5 failures and 4 timed successes (p50 10/p95 20), initial failure/error causes,
+  named/legacy joins, streaks, terminal cleanup, superseded/deferred, fractional
+  sums/zero and following records. Twenty invalid timing records are visible;
+  raw missing/null/mistyped/negative-underflow/positive-overflow tokens cannot
+  invent samples. Cache counters survive independently, required timing sample
+  counts expose partial nullable subtotals. Checked report identity advances to
+  `sha256:8269c9d267acbbebf42bb74a608dd6ab3eef9d5afdab719333c4435db7f7048a`.
+  Envelope/payload schemas, source byte hash/immutability, actual child exits and
+  owned root removal are verified. Existing eight ZIP scenarios still pass.
+- [x] 2026-10-08 Thirty cumulative changed exact Go roots each have 20 isolated
+  serial samples, p95 maximum 90 ms. Remeasure five existing telemetry roots,
+  six new roots and the CLI report root (maximum 60 ms); reuse 18 unchanged
+  owning/exercised scopes. Runtime/query/status/backend and generator/client
+  proofs remain historical and scoped to unchanged inputs, not the new digest.
 - [ ] Start the next consultation with the draft PR number and exact current
   head, repeating until Petr stops the loop.
 
@@ -276,12 +310,11 @@ malformed input proof, not normal producer incidence. Local correction validates
 individual durations and child sums before integer conversion, preserves valid
 fractional sums/zero and known untimed outcomes/joins/streaks/terminal cleanup,
 counts invalid source timing, and keeps cache cohorts coherent. Six focused
-roots cover before/after timing, raw token, joins, cache and latency evidence;
-affected package tests pass. The cache report contract now retains all decoded
+roots and the revised CLI fixture pass; final acceptance is recorded above. The cache report contract now retains all decoded
 non-timing work with required `timing_sample_count` and nullable
-`accumulated_ms`, advancing its checked identity and static registry together. Complete cumulative
-full/lint, changed-root timing and the named actual CLI/schema/owned-cleanup
-probe before publication. Update the same draft and start fresh Oracle007 at the resulting exact head,
+`accumulated_ms`, advancing its checked identity and static registry together. Source correction `c1ff8939` has completed cumulative full/lint, 30-root timing
+and named actual CLI JSON/human/schema/input-preservation/owned-cleanup proof.
+Finish this documentation-only quick checkpoint before publication. Update the same draft and start fresh Oracle007 at the resulting exact head,
 original base and current PR progress after this validated publication.
 
 N7 snapshot/coverage/aggregate budgets, N8 finite query limits, broader redirection
