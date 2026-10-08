@@ -22,12 +22,12 @@
       "path": "docs/plans/0218-telemetry-improvements.md",
       "title": "Telemetry Improvements",
       "owner": "scenery telemetry",
-      "status": "active",
+      "status": "completed",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Active unbounded Oracle telemetry loop: report evidence and bounded finite metric/catalog/physical log-line framing accepted, with service-free owner tests and fresh named HTTP/runtime proof; resource budgets remain separate.",
+      "summary": "Completed twelve Oracle telemetry reviews with verified report/query/ZIP/status corrections, exact numeric schema checks and owned acceptance. Loop manually stopped; combined landing and source installation are authorized, with exact delivery receipts in local state. Resource budgets remain separate.",
       "tags": [
         "plans",
         "execplans",
@@ -2798,7 +2798,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage and presence-aware supervisor errors, complete finite metric/catalog framing and original physical log-line validation before emission.",
+      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields.",
       "tags": [
         "contract",
         "cli",
@@ -2942,7 +2942,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Repository verification matrix and named probes, including native report semantic coverage and owned public HTTP query framing, prompt tail lifecycle, exact request/schema controls and complete cleanup alongside real Victoria/runtime acceptance.",
+      "summary": "Repository verification matrix and named probes, including failure-aware query framing, exact structured JSON/schema numbers, independent assertion outcomes and complete owned HTTP/runtime cleanup.",
       "tags": [
         "harness",
         "agents",
@@ -4054,7 +4054,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-07",
       "review_after": "2026-11-06",
-      "summary": "Isolated feature worktrees, exact checkpoint/batch review, combined validation, serialized main publication and receipt-aware cleanup.",
+      "summary": "Isolated feature worktrees, exact checkpoint/batch review, combined validation, serialized main publication and receipt-aware cleanup; Scenery report/shared-schema and observability boundaries select explicit named probes.",
       "tags": [
         "features",
         "worktrees",

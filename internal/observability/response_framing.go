@@ -29,7 +29,7 @@ func decodeFiniteJSON(body io.Reader, value any) error {
 		if reader.err != nil {
 			return reader.err
 		}
-		if errors.Is(err, io.EOF) {
+		if err == io.EOF { //nolint:errorlint // io.Reader requires the exact sentinel for clean completion.
 			return nil
 		}
 		if err != nil {
@@ -45,7 +45,7 @@ type responseErrorReader struct {
 
 func (r *responseErrorReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
-	if err != nil && !errors.Is(err, io.EOF) && r.err == nil {
+	if err != nil && err != io.EOF && r.err == nil { //nolint:errorlint // Wrapped or joined EOF is a read failure.
 		r.err = err
 	}
 	return n, err

@@ -449,8 +449,17 @@ func streamLogs(ctx context.Context, client *http.Client, baseURL, path string, 
 		}
 		return fmt.Errorf("VictoriaLogs query failed: %s", resp.Status)
 	}
-	scanner := bufio.NewScanner(resp.Body)
+	reader := &responseErrorReader{Reader: resp.Body}
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		// Scanner's end condition includes failed reads. Only a newline or clean
+		// EOF completes a physical line; keep already completed buffered rows.
+		if atEOF && reader.err != nil && bytes.IndexByte(data, '\n') < 0 {
+			return 0, nil, reader.err
+		}
+		return bufio.ScanLines(data, atEOF)
+	})
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if onlyJSONWhitespace(line) {
@@ -489,7 +498,7 @@ func normalizeLogRows(rows []map[string]any, fields []string, limit int) []LogEn
 		}
 		if rawFields := firstRowString(row, "fields_json"); rawFields != "" {
 			var fields map[string]any
-			if json.Unmarshal([]byte(rawFields), &fields) == nil && len(fields) > 0 {
+			if decodeFiniteJSON(strings.NewReader(rawFields), &fields) == nil && len(fields) > 0 {
 				entry.Fields = fields
 			}
 		}

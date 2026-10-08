@@ -6,9 +6,10 @@ Improve Scenery's telemetry through repeated, revision-bound external reviews.
 Each cycle asks ChatGPT 6 Astra Pro through its GitHub connector for concrete
 defects and useful simplifications, verifies the advice locally, implements a
 bounded change, validates it, and updates one draft pull request. Petr authorized
-this loop on 2026-10-08 until he manually stops it. The draft is the reviewable
-output; merging, deployment, global CLI installation and changes to unrelated
-applications or retained data are outside this authorization.
+this loop on 2026-10-08 until he manually stops it. After twelve reviews, Petr
+stopped further consultation and authorized finishing the current corrections,
+merging PR #240 to main and installing Scenery from that source. Deployment and
+changes to unrelated applications or retained data remain outside this scope.
 
 Telemetry includes native CLI evidence, retained supervisor/build events,
 report attribution and coverage, runtime signal capture/export, and their
@@ -518,22 +519,55 @@ work; completed plans are immutable history.
   cleaned failed attempt; final full/lint/named acceptance follows that edit.
   Full has12knowledge warnings plus9.735s suite advisory, named12, zero errors.
 
-### Resume here
+### Final delivery
 
-Petr's loop is active until manual stop. Oracle011 reviewed published draft
-PR #240 at a0149a5 against base89fdc46 and prior397b. Whole final and independent
-assessment are saved; exact monitor removed. The bounded query framing and
-service-free test batch is accepted as recorded above. Run the documentation
-checkpoint with unchanged source hashes, publish to the same draft, inspect
-current CI, then start fresh revision-bound Oracle012. Cycle010 report/ZIP/other
+Petr manually stopped the loop after twelve reviews. The overall heartbeat and
+all exact consultation monitors are removed; do not start Oracle013.
+Oracle012 reviewed published draft
+PR #240 at6dd05e8 against base89fdc46 and priora0149a5. Whole24,560-character final,
+49actual source hrefs and independent assessment are saved; exact monitor removed
+and absence verified. All four findings are independently corroborated: eight
+actual HTTP before calls show failed final-fragment emission and nested numeric
+rounding; twelve service-free injected reader cuts show wrapped/joined EOF false
+success; the genuine84case framing HTTP owner accepts a deliberately wrong
+valid prefix as an expected product failure. All before HTTP resources joined.
+The bounded follow-up changes clean-EOF identity, failure-aware line splitting,
+exact structured-field numbers and unconditional probe assertion failure. New
+ordinary controls pass and the deliberately mutated HTTP owner now fails with
+owned cleanup. Valid1e309 structured fields exposed a change-caused verifier
+normalization failure; shared schema checks now retain exact decimal tokens and
+compare types/bounds/const/enum/unique items without expanded exponent powers.
+The failed HTTP control cleaned all49handlers/server/listener before allocation
+of any runtime. Full/default and lint pass. Two initial timing cohorts failed
+with sporadic report-root elapsed spikes; all failed samples remain recorded.
+Uninstrumented investigation and forty trace samples did not reproduce them.
+A fixed final cohort passed all60 cumulative changed roots, maximum p95 20ms:
+those two report roots have100 fresh samples each (all <=10ms), the other38
+remaining roots20 each, and twenty accepted same-input roots retain their exact
+receipts. Both earlier failed cohorts remain recorded without a proven cause.
+Fresh observability archive `20261008T191016.313563000Z` and CLI-process
+`20261008T191328.479335000Z` pass at identical stable input
+`sha256:6e333377b2754f28b222d0436f6822b96dc4aef7e39bbdc00b15317d914669c7`:
+90 framing/30catalog HTTP cases, original SQL/HTTP/log/metric/RPC/client/status,
+capacity7/TTL1/backend refusal1,29 JSON/human report cases and8 ZIP cases retain
+checked schemas and cleanup. Five known observability PIDs/one private root and
+45 known CLI probe PIDs/29 private roots are independently absent. Served signal
+input is `sha256:a805fddfbc752c064abc7073ce3561da9ecd71629e045c1913f4ca0adf011df9`;
+source-only review, prepared CLI and served runtime identities stay distinct.
+Both named archives have12 existing knowledge warnings and zero errors.
+The engineering effort is complete; its final checkpoint is delivered through
+the same PR. The combined landing candidate still owns cumulative source/lint
+and all selected fresh named probes before publication. Petr separately
+authorized main publication and source installation; exact candidate, landing,
+PR and installed-source facts live in the durable state/landing receipts.
+Earlier report/ZIP/other
 unchanged acceptance retains its original owning/exercised source identities.
 Live Git/PR and `.scenery/telemetry-improvements/state.json` own changing heads,
 validation/publication/consultation facts; do not duplicate an active operation.
 Keep source/input identities when reusing successful checks. Older named
 observability and generator/client receipts retain original identities and
-apply only to unchanged owners, not the changed report binary. Use native
-running Chrome in the background, preserve healthy generation, capture whole
-final/source links before exact monitor removal and assess advice independently.
+apply only to unchanged owners, not the changed report binary. Installation
+does not restart an existing agent or migrate retained application state.
 
 Standalone telemetry query, N7b aggregate/state budgets, N8 total finite backend
 response budgets, active redirection attribution and delivery
@@ -626,7 +660,13 @@ Do not truncate detail, add arbitrary caps, edit VNEXT or restart a live agent.
 
 ## Outcomes & Retrospective
 
-Not yet completed. This plan remains active while the authorized loop runs.
+The twelve-review improvement effort is completed and stopped by Petr's
+explicit request. The final bounded corrections pass full/default, lint,
+cumulative isolated timing and fresh owned CLI/observability acceptance.
+Delivery follows the separately authorized combined-candidate landing and
+source installation; exact publication and installation evidence is kept in
+the local state and immutable feature landing receipts. No further consultation
+or expansion of the deferred resource/delivery scope is planned.
 The first implementation batch fixes native argument capture, negative report
 durations, successful agent percentiles, rebuild cause cohorts, historical dirty
 identity, command lookup attribution and swallowed metric decode errors. It

@@ -22,6 +22,7 @@ import (
 type queryFramingFixture struct {
 	name, mode, body       string
 	wantError, short, hold bool
+	selectedFields         bool
 	rows                   int
 }
 
@@ -36,7 +37,7 @@ func queryFramingDocument(mode string) string {
 	case "series":
 		return `{"status":"success","data":[{}]}`
 	default:
-		return `{"_msg":"owned-framing","n":9007199254740993}`
+		return `{"_msg":"owned-framing","n":9007199254740993,"fields_json":"{\"n\":9007199254740993,\"nested\":[9007199254740993,1.000000000000000001,1e309],\"control\":\"text\",\"flag\":true,\"empty\":null}"}`
 	}
 }
 
@@ -59,8 +60,16 @@ func proveHarnessQueryFraming(parent context.Context, repo string, artifacts har
 			}
 			fixtures = append(fixtures, item)
 		}
-		fixtures = append(fixtures, queryFramingFixture{name: mode + "-short-body", mode: mode, body: doc, wantError: true, short: true, rows: 1}, queryFramingFixture{name: mode + "-healthy-retry", mode: mode, body: doc, rows: 1})
+		shortRows := 1
 		if mode == "logs" || mode == "tail" {
+			shortRows = 0
+		}
+		fixtures = append(fixtures, queryFramingFixture{name: mode + "-short-body", mode: mode, body: doc, wantError: true, short: true, rows: shortRows}, queryFramingFixture{name: mode + "-healthy-retry", mode: mode, body: doc, rows: 1})
+		if mode == "logs" || mode == "tail" {
+			fixtures = append(fixtures,
+				queryFramingFixture{name: mode + "-short-completed", mode: mode, body: doc + "\n", wantError: true, short: true, rows: 1},
+				queryFramingFixture{name: mode + "-short-prefix-fragment", mode: mode, body: doc + "\n" + doc, wantError: true, short: true, rows: 1},
+				queryFramingFixture{name: mode + "-selected-fields", mode: mode, body: doc, rows: 1, selectedFields: true})
 			for _, prefix := range []struct{ name, value string }{{"leading-VT", "\v"}, {"leading-NBSP", "\u00a0"}, {"Unicode-blank", "\u2003\n"}} {
 				fixtures = append(fixtures, queryFramingFixture{name: mode + "-" + prefix.name, mode: mode, body: prefix.value + doc, wantError: true})
 			}
@@ -173,50 +182,66 @@ func proveHarnessQueryFraming(parent context.Context, repo string, artifacts har
 		child, stop := context.WithCancel(ctx)
 		var value any
 		var kind, schema string
-		var queryErr error
+		var queryErr, validationErr error
+		var returnedScope obs.QueryScope
 		var entries []obs.LogsTailEntry
 		callbackErr := errors.New("owned framing callback failure")
+		var fields []string
+		if item.selectedFields {
+			fields = []string{"_msg"}
+		}
 		switch item.mode {
 		case "vector", "matrix":
 			r, e := obs.QueryMetrics(child, obs.MetricsQuery{BaseURL: base, Scope: scope, Bounds: bounds, PromQL: item.name, Instant: item.mode == "vector", Step: 5 * time.Second, Timeout: time.Second, Limit: 1})
 			value, kind, schema, queryErr = r, r.Kind, "scenery.metrics.query", e
+			returnedScope = r.Scope
 			if e == nil {
-				queryErr = validateFramingMetricControl(r, item.mode)
+				validationErr = validateFramingMetricControl(r, item.mode)
 			}
 		case "labels", "series":
 			q := obs.MetricsCatalogQuery{BaseURL: base, Scope: scope, Bounds: bounds, Match: item.name, Timeout: time.Second, Limit: 1}
 			if item.mode == "labels" {
 				r, e := obs.MetricsLabels(child, q)
 				value, kind, schema, queryErr = r, r.Kind, "scenery.metrics.labels", e
+				returnedScope = r.Scope
 				if e == nil && !reflect.DeepEqual(r.Labels, []string{"job"}) {
-					queryErr = errors.New("framing labels changed")
+					validationErr = errors.New("framing labels changed")
 				}
 			} else {
 				r, e := obs.MetricsSeries(child, q)
 				value, kind, schema, queryErr = r, r.Kind, "scenery.metrics.series", e
+				returnedScope = r.Scope
 				if e == nil && (len(r.Series) != 1 || len(r.Series[0]) != 0) {
-					queryErr = errors.New("framing series changed")
+					validationErr = errors.New("framing series changed")
 				}
 			}
 		case "logs":
-			r, e := obs.QueryLogs(child, obs.LogsQuery{BaseURL: base, Scope: scope, Bounds: bounds, Query: item.name, Timeout: time.Second, Limit: 25})
+			r, e := obs.QueryLogs(child, obs.LogsQuery{BaseURL: base, Scope: scope, Bounds: bounds, Query: item.name, Timeout: time.Second, Limit: 25, Fields: fields})
 			value, kind, schema, queryErr = r, r.Kind, "scenery.logs.query", e
+			returnedScope = r.Scope
 			if e == nil {
 				if len(r.Logs) != item.rows {
-					queryErr = errors.New("framing log inventory changed")
+					validationErr = errors.New("framing log inventory changed")
+				}
+				if !reflect.DeepEqual(r.Query.Fields, fields) {
+					validationErr = errors.Join(validationErr, errors.New("framing requested fields changed"))
 				}
 				for _, entry := range r.Logs {
-					queryErr = errors.Join(queryErr, validateFramingLogControl(entry))
+					validationErr = errors.Join(validationErr, validateFramingLogControl(entry, item.selectedFields))
 				}
 			}
 		case "tail":
-			queryErr = obs.TailLogs(child, obs.LogsQuery{BaseURL: base, Scope: scope, Bounds: bounds, Query: item.name, Timeout: time.Second}, func(entry obs.LogsTailEntry) error {
+			queryErr = obs.TailLogs(child, obs.LogsQuery{BaseURL: base, Scope: scope, Bounds: bounds, Query: item.name, Timeout: time.Second, Fields: fields}, func(entry obs.LogsTailEntry) error {
 				entries = append(entries, entry)
-				if e := validateFramingLogControl(entry.Log); e != nil {
-					return e
+				validationErr = validateFramingLogControl(entry.Log, item.selectedFields)
+				if !reflect.DeepEqual(entry.Scope, scope) || !reflect.DeepEqual(entry.Query.Fields, fields) {
+					validationErr = errors.Join(validationErr, errors.New("framing tail scope or requested fields changed"))
 				}
 				if ds := schemacheck.ValidateFile(filepath.Join(repo, "docs/schemas/scenery.logs.tail.entry.schema.json"), entry); len(ds) > 0 {
-					return fmt.Errorf("framing tail schema: %v", ds)
+					validationErr = errors.Join(validationErr, fmt.Errorf("framing tail schema: %v", ds))
+				}
+				if validationErr != nil {
+					return validationErr
 				}
 				if item.name == "tail-held-cancel" {
 					stop()
@@ -233,8 +258,18 @@ func proveHarnessQueryFraming(parent context.Context, repo string, artifacts har
 		if queryErr != nil {
 			errorText = queryErr.Error()
 		}
-		results = append(results, map[string]any{"name": item.name, "mode": item.mode, "result": value, "error": errorText, "tail_emissions": len(entries)})
+		if item.mode != "tail" && queryErr == nil && !reflect.DeepEqual(returnedScope, scope) {
+			validationErr = errors.Join(validationErr, errors.New("framing response scope changed"))
+		}
+		validationText := ""
+		if validationErr != nil {
+			validationText = validationErr.Error()
+		}
+		results = append(results, map[string]any{"name": item.name, "mode": item.mode, "result": value, "error": errorText, "validation_error": validationText, "tail_emissions": len(entries)})
 		proof["results"] = results
+		if e := validateFramingOutcome(item.wantError || item.hold, queryErr, validationErr); e != nil {
+			return proof, fmt.Errorf("framing %s: %w", item.name, e)
+		}
 		if item.hold {
 			wantErr := error(context.Canceled)
 			if item.name == "tail-held-callback" {
@@ -254,9 +289,6 @@ func proveHarnessQueryFraming(parent context.Context, repo string, artifacts har
 			results[len(results)-1]["emitted_before_connection_eof"] = true
 			results[len(results)-1]["peer_request_context_terminated"] = true
 		} else {
-			if (queryErr != nil) != item.wantError || strings.Contains(errorText, "private-framing-token") {
-				return proof, fmt.Errorf("framing %s error outcome wrong: %w", item.name, queryErr)
-			}
 			if item.mode == "tail" && len(entries) != item.rows {
 				return proof, fmt.Errorf("framing %s emitted %d rows, want%d", item.name, len(entries), item.rows)
 			}
@@ -290,10 +322,38 @@ func proveHarnessQueryFraming(parent context.Context, repo string, artifacts har
 	return proof, nil
 }
 
-func validateFramingLogControl(entry obs.LogEntry) error {
+// A probe assertion cannot stand in for the product failure being tested.
+func validateFramingOutcome(wantError bool, queryErr, validationErr error) error {
+	if validationErr != nil {
+		return fmt.Errorf("assertion failed: %w", validationErr)
+	}
+	if queryErr == nil && wantError {
+		return errors.New("expected query failure")
+	}
+	if queryErr != nil && !wantError {
+		return fmt.Errorf("unexpected query failure: %w", queryErr)
+	}
+	if queryErr != nil && strings.Contains(queryErr.Error(), "private-framing-token") {
+		return errors.New("query error exposed response bytes")
+	}
+	return nil
+}
+
+func validateFramingLogControl(entry obs.LogEntry, selected bool) error {
 	n, ok := entry.Raw["n"].(json.Number)
-	if !ok || n.String() != "9007199254740993" || entry.Message != "owned-framing" {
+	if selected {
+		ok = len(entry.Raw) == 1 && entry.Raw["_msg"] == "owned-framing"
+	} else {
+		ok = ok && n.String() == "9007199254740993"
+	}
+	if !ok || entry.Message != "owned-framing" {
 		return errors.New("framing log normalization changed")
+	}
+	want := map[string]any{"n": json.Number("9007199254740993"), "nested": []any{json.Number("9007199254740993"), json.Number("1.000000000000000001"), json.Number("1e309")}, "control": "text", "flag": true, "empty": nil}
+	actualJSON, err := json.Marshal(entry.Fields)
+	wantJSON, _ := json.Marshal(want)
+	if err != nil || !reflect.DeepEqual(entry.Fields, want) || string(actualJSON) != string(wantJSON) {
+		return errors.New("framing structured field numbers changed")
 	}
 	return nil
 }
