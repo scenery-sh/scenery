@@ -533,7 +533,7 @@ func readClaudeTranscript(file io.Reader, visit func(toolCall), sources *Transcr
 				output := limitText(contentText(item.Content))
 				call := toolCall{errored: item.IsError, output: output, at: started.at}
 				if started.command != "" {
-					run := shellRun{command: started.command, exit: -1, output: output, duration: line.Timestamp.Sub(started.at), timed: !started.at.IsZero() && !line.Timestamp.IsZero()}
+					run := shellRun{command: started.command, exit: -1, output: output, duration: line.Timestamp.Sub(started.at), timed: !started.at.IsZero() && !line.Timestamp.IsZero() && !line.Timestamp.Before(started.at)}
 					switch match := claudeExitCode.FindStringSubmatch(output); {
 					case started.background || result.Interrupted:
 						run.timed = false

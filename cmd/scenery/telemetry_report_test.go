@@ -82,6 +82,9 @@ func TestTelemetryReportOutputs(t *testing.T) {
 	transcript := fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"tool_use","id":"a","name":"Bash","input":{"command":"scenery logs --help"}}]}}
 {"type":"user","timestamp":%q,"message":{"content":[{"type":"tool_result","tool_use_id":"a","is_error":true,"content":"Exit code 2\nunknown flag \"--help\""}]}}
 `, base.Format(time.RFC3339Nano), base.Add(time.Second).Format(time.RFC3339Nano))
+	transcript += fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"tool_use","id":"reversed","name":"Bash","input":{"command":"scenery check"}}]}}
+{"type":"user","timestamp":%q,"message":{"content":[{"type":"tool_result","tool_use_id":"reversed","is_error":false,"content":"done"}]}}
+`, base.Add(time.Second).Format(time.RFC3339Nano), base.Format(time.RFC3339Nano))
 	if err := os.WriteFile(claude, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}

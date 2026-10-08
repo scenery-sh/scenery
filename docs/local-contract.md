@@ -70,6 +70,12 @@ those records never contribute to counts, outcome groups or timing samples.
 Query records preserve omitted historical `dirty` identity; new native records
 always contain the explicit build boolean. Agent-command p50 covers timed
 attributable successes only, while waiting time includes timed failures.
+A Claude result timestamp before its call makes that duration unknown; its
+recorded outcome still counts, but no duration is added to waiting time or p50.
+Equal timestamps remain a valid zero-duration sample.
+A missing result timestamp also leaves timing unknown for a call in the window. Transcript `invalid_records`
+continues to count decoding failures; untimed outcomes have no separate timing
+coverage counter and still contribute to attempt/outcome counts.
 Rebuild failure-rate findings select their leading cause from rebuild failures,
 separately from initial-build causes.
 Transcript command-name lookups through `command -v` or `-V` are not execution
