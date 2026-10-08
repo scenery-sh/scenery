@@ -148,8 +148,8 @@ type buildStepData struct {
 }
 
 type buildErrorData struct {
-	OperationID string `json:"operation_id"`
-	Error       string `json:"error"`
+	OperationID string          `json:"operation_id"`
+	Error       json.RawMessage `json:"error"`
 	Diagnostic  struct {
 		Code string `json:"code"`
 	} `json:"diagnostic"`
@@ -462,9 +462,20 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 			recordBlockEvent(blocks, root, data.Type, data.Time, data.Data)
 		case "build.error":
 			var failure buildErrorData
-			if json.Unmarshal(data.Data, &failure) != nil {
+			if json.Unmarshal(data.Data, &failure) != nil || (len(failure.Error) == 0 && failure.Diagnostic.Code == "") {
 				invalidRecord()
 				return
+			}
+			// A missing legacy message can retain a diagnostic code. Explicit
+			// null or another JSON kind must not consume a pending error join.
+			message := ""
+			if len(failure.Error) != 0 {
+				var decoded *string
+				if json.Unmarshal(failure.Error, &decoded) != nil || decoded == nil {
+					invalidRecord()
+					return
+				}
+				message = *decoded
 			}
 			index := awaiting
 			if failure.OperationID != "" {
@@ -476,10 +487,10 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 				index = named
 			}
 			if index >= 0 && !outcomes[index].ok && outcomes[index].cause == "" {
-				outcomes[index].cause = failureCause(failure.Error, failure.Diagnostic.Code)
+				outcomes[index].cause = failureCause(message, failure.Diagnostic.Code)
 			}
 			if index < 0 && failure.OperationID == "" {
-				builds.unstartedCauses[failureCause(failure.Error, failure.Diagnostic.Code)]++
+				builds.unstartedCauses[failureCause(message, failure.Diagnostic.Code)]++
 			}
 			if index == awaiting {
 				awaiting = -1

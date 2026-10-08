@@ -448,15 +448,55 @@ work; completed plans are immutable history.
   Darwin execution does not certify Linux observer execution, a real agent UI,
   normal incidence, atomic contents, totalmemory, delivery or release.
 
+- [x] 2026-10-08 Publish report evidence at `397b058`, verify clean remote,
+  same draft240/base/body and both exact current CI checkouts/logs/trees. Fresh
+  Oracle010 whole final (19133 characters/47 full DOM links) and independent
+  assessment are saved; its exact monitor is removed and absence verified.
+- [x] Independently reproduce residual null/missing error-shape poisoning in
+  ten actual prepared JSON/human report children, preserving known failure1
+  while source/global invalid0 and complete B=S hide the lost later valid cause.
+  Numeric wrong-kind remains a corrected control. All input and exact owned
+  PID/private-root cleanup evidence retained. Input type unchanged at base/prior.
+- [x] Select Oracle010 findings1/3: validate cause evidence before consuming
+  error joins, retain explicit empty strings/diagnostic-only historical causes
+  and optional operation IDs; require full human CLI totals/help outcomes,
+  malformed rebuild/failure/cause counts and actual bare-Claude timing versus
+  unavailable Codex percentile. Red ordinary counterexamples retained; add
+  null-field/null-data fresh named cases and exact source/semantic assertions.
+- [x] Final full/default `20261008T171534.216905000Z`, lint zero issues,
+  formatting and CLI-process `20261008T171757.277154000Z` pass the same stable
+  input `c03479b3`/framework source `64992087`. Full command union/vet/arch/drift/
+  schemas passes; full suite5.322s advisory and12 knowledge warnings are separate
+  from isolated timing, zero errors. Initial staticcheck selector correction
+  was followed by final full/lint; raw attempt evidence retained.
+- [x] Fifty cumulative changed exact roots retain20 isolated serial samples and
+  p95<100ms:25 remeasured after final source edits, maximum40ms;25 unchanged
+  owning/exercised scopes retain original binary identities, maximum90ms.
+  No all-root audit or current whole-binary equivalence.
+- [x] Fresh named acceptance has29 actual report children (18 current-schema
+  JSON/11 human) and four real owned native-shell children. Numeric/null-field/
+  null-data errors all yield global/source invalid1, partial B=S, read-partial0,
+  one known failed outcome and its valid subsequent cause/count1, exit0.
+  Exact CLI totals/help outcomes, rebuild/failure/cause counts and actual Claude
+  elapsed timing versus unavailable Codex percentile pass in fresh human cases.
+  Ordinary controls also preserve explicit empty strings, diagnostic-only
+  historical causes and optional operation IDs. Original snapshot controls,
+  eight ZIP scenarios and supervisor timing/cache/joins remain green. Raw proof
+  is saved; all29 report/four native exact PIDs and29 private fixture roots
+  independently absent. Actual prepared executable SHA `43d0ba9c`, build step
+  17:15:34, producer397b+dirty with Git built-at16:41:03 metadata distinguish
+  the fresh executable from its metadata. No native null-incidence, real agent
+  UI, Linux, complete retention, totalmemory, delivery or release certification.
+
+
 ### Resume here
 
-Petr's loop is active until manual stop. Oracle009 reviewed published draft
-PR #240 at `7bd2f9e` against original base89fdc46 and priorfc7f; whole final and
-assessment are saved, exact monitor removed. Its four independently assessed
-report evidence corrections are implemented and accepted as recorded above.
-Run the documentation checkpoint with unchanged Go/module/schema hashes,
-publish to the same draft, inspect current CI and start fresh revision-bound
-Oracle010.
+Petr's loop is active until manual stop. Oracle010 reviewed published draft
+PR #240 at `397b058` against original base89fdc46 and prior7bd. Whole final and
+assessment are saved; exact monitor removed. Selected report shape/semantic
+assertion changes are implemented and accepted as recorded above. Run the docs
+checkpoint with unchanged source hashes, publish to the same draft, inspect
+current CI and start fresh revision-bound Oracle011.
 Live Git/PR and `.scenery/telemetry-improvements/state.json` own changing heads,
 validation/publication/consultation facts; do not duplicate an active operation.
 Keep source/input identities when reusing successful checks. Older named

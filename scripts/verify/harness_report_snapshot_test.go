@@ -66,6 +66,21 @@ func TestReportSnapshotHumanCoverage(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
+	const cliSource = "  CLI /owned (complete, archived=false): read 1024 / captured 1024 bytes; retained 2, in window 2, duplicate invocations 0, invalid 0; first to last.\n"
+	const cliOutcome = "CLI commands (2 records, 0 failed)\n  help 2 failed 0 timed successes n=2 p50 0ms p95 0ms\n"
+	for name, output := range map[string]string{
+		"valid":            cliSource + cliOutcome,
+		"missing commands": cliSource,
+		"wrong count":      cliSource + strings.Replace(cliOutcome, "help 2", "help 1", 1),
+		"wrong failed":     cliSource + strings.Replace(cliOutcome, "help 2 failed 0", "help 2 failed 1", 1),
+		"wrong timing":     cliSource + strings.Replace(cliOutcome, "p95 0ms", "p95 -", 1),
+		"wrong total":      cliSource + strings.Replace(cliOutcome, "CLI commands (2", "CLI commands (1", 1),
+	} {
+		if err := validateHarnessReportHuman(output, "active-cli-append", "/owned", 1024, 1024, 512); (err == nil) != (name == "valid") {
+			t.Errorf("CLI %s: %v", name, err)
+		}
+	}
+
 	const supervisor = "  Supervisor /owned (partial): read 512 / captured 1024 bytes across 1 segments; retained 1, in window 1, invalid 0.\n  rebuilds 1 failed 0 timed successes n=1 p50 0ms p95 0ms\n"
 	if err := validateHarnessReportHuman(supervisor, "supervisor-truncate", "/owned", 512, 1024, 512); err != nil {
 		t.Fatal(err)

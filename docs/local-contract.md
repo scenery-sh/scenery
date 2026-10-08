@@ -934,7 +934,11 @@ fully read even if invalid rows were separately counted; supervisor invalid
 evidence retains its existing partial-status policy. A malformed nested
 `build.error` payload increments both the global and owning-source invalid
 counts; it preserves known outcomes and valid subsequent error joins without
-incrementing the read-incomplete source count. Equal captured/read byte
+incrementing the read-incomplete source count. Validate the error payload before
+consuming a pending join: whole-data null, explicit null or non-string messages,
+and a missing message without a diagnostic code are invalid. Preserve explicit
+empty strings (unknown cause), diagnostic-code-only historical evidence and
+optional operation IDs; none of these add another completed build. Equal captured/read byte
 counts do not hide an observed read error. These extents are sequential
 observations, not an atomic content snapshot, complete historical retention or a
 total report-memory budget; same-size edits or truncate-and-regrow can escape

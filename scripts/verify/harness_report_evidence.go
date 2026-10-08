@@ -21,7 +21,7 @@ func proveHarnessReportEvidence(parent context.Context, repo string) (map[string
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	cases := map[string]any{}
-	for _, name := range []string{"malformed-error", "bare-claude", "bare-codex"} {
+	for _, name := range []string{"malformed-error", "null-error", "null-data", "bare-claude", "bare-codex"} {
 		for _, format := range []string{"json", "human"} {
 			proof, err := proveHarnessReportEvidenceCase(ctx, repo, name, format)
 			cases[name+"/"+format] = proof
@@ -53,12 +53,19 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 	var native map[string]any
 	var elapsed int64
 	path := f.log
-	transcripts := name != "malformed-error"
+	transcripts := strings.HasPrefix(name, "bare-")
 	if !transcripts {
 		var input bytes.Buffer
+		var malformed any = map[string]any{"operation_id": "failed", "error": 17}
+		switch name {
+		case "null-error":
+			malformed = map[string]any{"operation_id": "failed", "error": nil}
+		case "null-data":
+			malformed = nil
+		}
 		for _, row := range []map[string]any{
 			{"type": "build.step", "data": map[string]any{"operation_id": "failed", "name": "build.request", "ok": false, "duration_ms": 0, "reason": "source_rebuild", "started_at": f.at}},
-			{"type": "build.error", "data": map[string]any{"operation_id": "failed", "error": 17}},
+			{"type": "build.error", "data": malformed},
 			{"type": "build.error", "data": map[string]any{"operation_id": "failed", "error": "owned expected failure"}},
 		} {
 			row["time"], row["app"] = f.at, map[string]string{"root": "/owned", "name": "fixture"}
@@ -137,29 +144,7 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 	}
 	proof["input_unchanged"], proof["input_bytes"] = true, len(original)
 	if format == "human" {
-		output := proof["stdout"].(string)
-		if !transcripts {
-			want := fmt.Sprintf("  Supervisor %s (partial): read %d / captured %d bytes across 1 segments; retained 3, in window 3, invalid 1.\n", path, len(original), len(original))
-			if !strings.Contains(output, want) || !strings.Contains(output, "0 supervisor logs unreadable or read in part; 1 event records with invalid evidence (known outcomes retained).\n") || !strings.Contains(output, "owned expected failure") {
-				return proof, errors.New("human malformed-error source or preserved failure differs")
-			}
-		} else {
-			claude, codex := 0, 1
-			if name == "bare-claude" {
-				claude, codex = 1, 0
-			}
-			if !strings.Contains(output, fmt.Sprintf("%d Claude Code and %d Codex sessions that ran Scenery.", claude, codex)) || !strings.Contains(output, "Agents: 1 tool calls, 0 errors; 1 shell commands ran Scenery (1 invocations): 1 recorded Scenery's own outcome (0 failed); as shell commands 0 failed and 0 recorded no outcome\n") {
-				return proof, errors.New("human bare command session/outcome differs")
-			}
-			found := false
-			for _, line := range strings.Split(output, "\n") {
-				found = found || strings.HasPrefix(strings.Join(strings.Fields(line), " "), "help 1 attributable 1 failed 0 waited ")
-			}
-			if !found {
-				return proof, errors.New("human bare command identity differs")
-			}
-		}
-		return proof, nil
+		return proof, validateHarnessReportEvidenceHuman(proof["stdout"].(string), name, path, int64(len(original)), elapsed)
 	}
 	proof["sources"], proof["builds"], proof["agents"] = r.Sources, r.Builds, r.Agents
 	if !transcripts {
@@ -167,7 +152,7 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 			return proof, errors.New("malformed-error global coverage differs")
 		}
 		s := r.Sources.Supervisor[0]
-		if s.Path != path || s.Status != "partial" || s.Invalid != 1 || !harnessReportExtent(s.SnapshotBytes, s.ReadBytes, int64(len(original))) || r.Builds.Rebuilds.Count != 1 || r.Builds.Rebuilds.FailureCount != 1 || r.Builds.UnmatchedErrors != 0 || len(r.Builds.RebuildFailures) != 1 || r.Builds.RebuildFailures[0].Name != "owned expected failure" {
+		if s.Path != path || s.Status != "partial" || s.Invalid != 1 || s.Records != 3 || s.InWindow != 3 || !harnessReportExtent(s.SnapshotBytes, s.ReadBytes, int64(len(original))) || r.Builds.Rebuilds.Count != 1 || r.Builds.Rebuilds.FailureCount != 1 || r.Builds.Rebuilds.PercentileSampleCount != 0 || r.Builds.UnmatchedErrors != 0 || len(r.Builds.RebuildFailures) != 1 || r.Builds.RebuildFailures[0].Name != "owned expected failure" || r.Builds.RebuildFailures[0].Count != 1 || len(r.Builds.UnstartedErrors) != 0 {
 			return proof, errors.New("malformed-error source or known failure join differs")
 		}
 	} else {
@@ -176,7 +161,7 @@ func proveHarnessReportEvidenceCase(ctx context.Context, repo, name, format stri
 			return proof, errors.New("bare agent session/outcome differs")
 		}
 		c := a.Commands[0]
-		if c.Command != "help" || c.Count != 1 || c.Attributable != 1 || c.FailureCount != 0 || (name == "bare-claude" && (a.ClaudeSessions != 1 || c.P50MS == nil || *c.P50MS != elapsed)) || (name == "bare-codex" && (a.CodexSessions != 1 || c.P50MS != nil)) {
+		if c.Command != "help" || c.Count != 1 || c.Attributable != 1 || c.FailureCount != 0 || (name == "bare-claude" && (a.ClaudeSessions != 1 || c.WallTimeMS != elapsed || c.P50MS == nil || *c.P50MS != elapsed)) || (name == "bare-codex" && (a.CodexSessions != 1 || c.WallTimeMS != 0 || c.P50MS != nil)) {
 			return proof, errors.New("bare help identity or timing differs")
 		}
 	}
