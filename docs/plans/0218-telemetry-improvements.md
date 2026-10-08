@@ -214,7 +214,36 @@ work; completed plans are immutable history.
 - [x] 2026-10-08 Commit independently reviewable fourth-batch fixes:
   `e473e336` refuses non-string metric labels; `2425ed0a` requires complete
   observed telemetry-backend ownership. Only the living-plan checkpoint remains.
-- [ ] Publish the validated fourth batch and start a fresh exact-head review.
+- [x] 2026-10-08 Publish fourth-batch checkpoint
+  `40d126590842a02a9dda444721625ef277016ff6`; documentation quick
+  `20261008T121710.115124000Z` passes. Draft PR #240 exact head/base/body and
+  clean checkout verified. Push CI37775859071 passes on that head; PR
+  CI37775866755 passes on merge a8fba7d9 with the identical tree. Checkout logs
+  are independently opened; neither job runs observability or CLI-process.
+- [x] 2026-10-08 Submit one fresh complete GPT-6 Pro/GitHub review005 at
+  `https://chatgpt.com/c/6ac78b34-44d0-83eb-b40c-e62d9560d5dc`, bound to that
+  target, original base and PR #240 progress. Complete primary text is verified,
+  no attachment/overlay. The entire final answer and immutable/grouped sources
+  are captured and independently assessed; exact telemetry-oracle-005 is
+  deleted with absence verified.
+- [x] 2026-10-08 Complete and publish ZIP no-replace/collision correction as
+  `c90fe94dd439095a8f928c558dc26cae8db2d2fa` on draft PR #240. Final full/default
+  `20261008T125809.219733000Z` and named CLI-process
+  `20261008T125850.233062000Z` pass at stable input
+  `sha256:a6162dc33b6171040267173ab7ac9d1a9b9a0858a0f8aa1dfa48a5cc922baf5e`,
+  compiled framework source
+  `sha256:d4a16821b8645bcba441081244dda76fd534b35cbc2ceb08e241be96d387bed8`.
+  All eight actual CLI publication scenarios pass; two writers are staged and
+  rendezvoused before release, exits 3/0 with one complete hash-matching winner.
+  Existing competitor bytes/inode survive, all owned children/descriptors/stages
+  and temporary roots are cleaned. Lint zero issues, 1,789 Go files format clean.
+  Cumulative 24 changed roots each have 20 isolated serial samples, max p95 90 ms;
+  two ZIP roots are remeasured (90/10 ms), other 22 unchanged scopes reused.
+  Zero errors, 12 knowledge and 5.176 s suite advisories. The first probe failed
+  only because its hash comparison omitted the manifest's existing `sha256:`
+  prefix; correction and final full/lint/probe are complete. Historical
+  observability/source224464 and generator/Bun/TS proof is reused only for
+  unchanged owning scope; it does not share the new ZIP digest.
 - [ ] Complete cumulative validation and update the draft PR for each subsequent
   implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
@@ -222,46 +251,46 @@ work; completed plans are immutable history.
 
 ### Resume here
 
-Petr's loop remains active and unbounded until manual stop. Published head is
-`b996b28815f9a207d099b785ac411386fc23d1a9` on draft PR #240; four entire
-GPT-6 Pro/GitHub reviews are preserved and their exact temporary monitors
-removed. Review 004 at
-`https://chatgpt.com/c/6ac78102-d1f0-83eb-8847-1b0bcc340ff1` is fully assessed.
-Push CI ran that exact head; PR CI ran merge `086143bc` with the identical tree.
-Neither CI job independently ran observability or CLI-process.
+Petr's loop remains active and unbounded until manual stop. ZIP source
+`c90fe94dd439095a8f928c558dc26cae8db2d2fa` is committed/pushed to draft PR #240;
+the following documentation checkpoint records its acceptance. Five whole
+reviews and immutable/grouped sources are saved/assessed, and all exact monitors
+are deleted with absence verified. Review005 at
+`https://chatgpt.com/c/6ac78b34-44d0-83eb-b40c-e62d9560d5dc` confirms ZIP overwrite
+and collision diagnostics, qualifies cleanup/filesystem guarantees, and adds a
+separate source-confirmed negative supervisor build-step timing candidate.
 
-Local fourth-batch source rejects non-string metric labels while preserving
-empty strings, exact timestamps and special values. The admission probe now
-captures complete exact live fingerprints around both metrics requests. Its
-pure comparison tests, full/default `20261008T121438.390242000Z`, lint,
-22 cumulative changed-root timing (20 samples, max p95 10 ms), current strict
-observability `20261008T120919.934915000Z` and CLI-process
-`20261008T121238.958537000Z` pass. The real backend control/counter/readback,
-serving build identity, current generated status client and owned runtime,
-Victoria and PostgreSQL cleanup are verified. An additional owned synthetic HTTP
-responder proves the public label-validation boundary and its sanitized refusal;
-it does not establish malformed Victoria output incidence. The general agent
-owner policy and production export representation are unchanged.
+ZIP full/default, lint, formatting, 24 cumulative changed-root timing and named
+CLI-process acceptance are complete as recorded above. The ordinary local
+Darwin filesystem proof includes fresh/incomplete-evidence ZIPs, existing
+file/directory/live and dangling symlinks, a competing destination after
+staging/input rendezvous, and two staged/rendezvoused actual writers. Payload
+bytes/hash and all ZIP entries/CRC are checked; owned cleanup passes. Best-effort
+staging removal, generic link errors and platform limits remain explicit. No
+Windows, unsupported-filesystem, NFS failure, crash or hostile-parent proof is
+claimed. The prior 40d CI checkpoint is green on exact-head push and same-tree
+PR merge; inspect current source/checkpoint CI before claiming those new jobs
+pass. Neither CI lane runs observability or CLI-process.
 
-Source fixes `e473e336` and `2425ed0a` are committed. Finish the documentation
-checkpoint quick check, commit/push it and update draft PR #240. Then submit one fresh
-revision-bound GPT-6 Pro question with the actual GitHub connector, naming this
-progress and exact current head/base, and install its exact five-minute monitor.
-Keep the independent loop heartbeat active. Retain earlier generator/Bun/TS
-receipts only for unchanged generator/status/client input scope.
+Finish the documentation-only quick checkpoint, update/verify the PR body/head
+and begin fresh Oracle006 against the resulting published exact head, original
+base and PR #240 progress. No consultation is currently pending; create only
+one exact monitor after an accepted canonical conversation. Preserve the
+continuing heartbeat and repeat the loop. Next bounded candidate is malformed
+negative supervisor timing: establish actual report before-proof and preserve
+legitimate zero/outcomes before choosing the correction.
 
-The actual prepared CLI reproduces ZIP publication overwrite using an explicitly
-selected disposable FIFO for deterministic synchronization. Initial existing
-output refusal, complete ZIP/child/staging/temp cleanup are verified. This is
-capability evidence, not regular-file race frequency or production incidence.
-ZIP no-replace correction, N7 snapshots/coverage/aggregate budgets, N8 finite
-query limits, broader redirection attribution and delivery prevention remain
-separate candidates. Do not add arbitrary caps or truncate useful detail.
+N7 snapshots/coverage/aggregate budgets, N8 finite query limits, negative supervisor timing, broader
+redirection attribution and lossless delivery prevention remain separate.
+Do not add arbitrary caps or truncate detail. Generator/status/client inputs
+remain unchanged; reuse their existing generation/Bun/TS receipts only for that
+scope. ZIP output JSON/identity remains unchanged; update owning request and
+publication contracts alongside implementation.
 
 Durable questions, answers, assessments, proofs and active process state live
 under `.scenery/telemetry-improvements/`. Read live Git/PR/scheduler/runtime state
 before relying on this checkpoint. Preserve unrelated data and healthy pending
-generation; repeat the validated publish/review loop until Petr stops.
+generation; repeat validated publish/review cycles until Petr stops.
 
 ## Surprises & Discoveries
 
@@ -363,8 +392,8 @@ in the first batch. The second batch advances the current status schema, registr
 and generated client together for explicit N6 event-loss evidence. Architecture
 boundaries stay unchanged; the TypeScript specification already delegates exact
 status identity to the checked schema. Those owning documents need no additional
-update. Finite-read/report budgets, snapshot coverage, shell redirection and ZIP
-publication remain later milestones, alongside the reproduced backend field cap.
+update. Finite-read/report budgets, snapshot coverage, shell redirection and negative supervisor timing
+remain later milestones, alongside the reproduced backend field cap.
 
 ## Plan of Work
 
