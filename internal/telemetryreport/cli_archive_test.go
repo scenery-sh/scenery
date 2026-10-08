@@ -42,6 +42,12 @@ func TestCLIArchivesPreserveCoverageAndIndependentCohorts(t *testing.T) {
 	if report.CLI.Records != 4 || report.CLI.Failures != 2 || report.CLI.IdentifiedInvocations != 2 || len(report.Sources.CLI) != 2 {
 		t.Fatalf("archive totals = %+v", report.CLI)
 	}
+	for _, source := range report.Sources.CLI {
+		info, err := os.Stat(source.Path)
+		if err != nil || source.SnapshotBytes == nil || *source.SnapshotBytes != info.Size() || source.ReadBytes != info.Size() {
+			t.Fatalf("physical coverage = %+v: %v", source, err)
+		}
+	}
 	coverage := report.Sources.CLI[1]
 	if !coverage.Archived || coverage.Status != "complete" || coverage.Records != 3 || coverage.InWindow != 2 || coverage.Duplicates != 1 || coverage.Invalid != 1 || coverage.First != old.At.Format(time.RFC3339Nano) {
 		t.Fatalf("archive coverage = %+v", coverage)

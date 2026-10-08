@@ -129,7 +129,12 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 	if err != nil {
 		return nil, nil, err
 	}
+	snapshots, err := proveHarnessReportSnapshots(ctx, repoRoot)
+	if err != nil {
+		return map[string]any{"report_snapshot": snapshots}, nil, err
+	}
 	return map[string]any{
+		"report_snapshot":           snapshots,
 		"supervisor_timing":         timing,
 		"proof":                     "real_cli_process_exit_codes_and_per_process_telemetry_verified",
 		"verified_cases":            verified,

@@ -71,6 +71,11 @@ type AgentCommand struct {
 // TranscriptSources tells how completely the transcripts were read, so that
 // no failures found can be told apart from files that were not processed.
 type TranscriptSources struct {
+	// SnapshotBytes is unknown if any selected extent could not be captured.
+	// ReadBytes includes all physical input, including skipped records.
+	SnapshotBytes     *int64 `json:"snapshot_bytes"`
+	ReadBytes         int64  `json:"read_bytes"`
+	byteCountOverflow bool
 	// Read counts the files read to the end, Partial those whose reading
 	// stopped at an error after some records, and Failed those that could
 	// not be opened, including unreadable directories.
@@ -89,6 +94,20 @@ type TranscriptSources struct {
 }
 
 func (s *TranscriptSources) add(other TranscriptSources) {
+	if s.SnapshotBytes != nil && other.SnapshotBytes != nil {
+		total, valid := addReadBytes(*s.SnapshotBytes, *other.SnapshotBytes)
+		if valid {
+			s.SnapshotBytes = &total
+		} else {
+			s.SnapshotBytes = nil
+			s.byteCountOverflow = true
+		}
+	} else {
+		s.SnapshotBytes = nil
+	}
+	var valid bool
+	s.ReadBytes, valid = addReadBytes(s.ReadBytes, other.ReadBytes)
+	s.byteCountOverflow = s.byteCountOverflow || other.byteCountOverflow || !valid
 	s.Read += other.Read
 	s.Partial += other.Partial
 	s.Failed += other.Failed
@@ -221,7 +240,7 @@ type agentTally struct {
 }
 
 func newAgentTally() *agentTally {
-	return &agentTally{kinds: map[string]int{}, classes: map[string]int{}, rejected: map[string]int{}, perCommand: map[string]*commandTally{}}
+	return &agentTally{kinds: map[string]int{}, classes: map[string]int{}, rejected: map[string]int{}, perCommand: map[string]*commandTally{}, sources: TranscriptSources{SnapshotBytes: new(int64)}}
 }
 
 // visit counts one tool call; calls outside the window only tell whether the
@@ -343,6 +362,9 @@ func readAgents(opts Options) (Agents, error) {
 			return Agents{}, err
 		}
 	}
+	if total.sources.byteCountOverflow {
+		return Agents{}, errors.New("transcript byte total is unrepresentable")
+	}
 	agents := Agents{
 		ClaudeSessions: total.claudeSessions, CodexSessions: total.codexSessions,
 		ToolCalls: total.toolCalls, ToolErrors: total.toolErrors,
@@ -379,6 +401,7 @@ func readTranscripts(opts Options, root, agent string, read transcriptReader, to
 			}
 			if errors.Is(err, os.ErrPermission) {
 				total.sources.Failed++
+				total.sources.SnapshotBytes = nil
 				return nil
 			}
 			return err
@@ -386,7 +409,13 @@ func readTranscripts(opts Options, root, agent string, read transcriptReader, to
 		if entry.IsDir() || filepath.Ext(path) != ".jsonl" {
 			return nil
 		}
-		if info, err := entry.Info(); err != nil || (!opts.Since.IsZero() && info.ModTime().Before(opts.Since)) {
+		info, err := entry.Info()
+		if err != nil {
+			total.sources.Failed++
+			total.sources.SnapshotBytes = nil
+			return nil
+		}
+		if !opts.Since.IsZero() && info.ModTime().Before(opts.Since) {
 			return nil
 		}
 		paths = append(paths, path)
@@ -424,10 +453,20 @@ func readTranscript(opts Options, path string, read transcriptReader) *agentTall
 	file, err := os.Open(path)
 	if err != nil {
 		tally.sources.Failed++
+		tally.sources.SnapshotBytes = nil
 		return tally
 	}
 	defer func() { _ = file.Close() }()
-	if err := read(file, func(call toolCall) { tally.visit(opts, call) }, &tally.sources); err != nil {
+	snapshot, _, err := captureSnapshot(file)
+	if err != nil {
+		tally.sources.SnapshotBytes = nil
+		tally.sources.Partial++
+		return tally
+	}
+	tally.sources.SnapshotBytes = &snapshot.size
+	err = read(snapshot, func(call toolCall) { tally.visit(opts, call) }, &tally.sources)
+	tally.sources.ReadBytes = snapshot.readBytes
+	if err != nil {
 		// What was read before the error still counts.
 		tally.sources.Partial++
 		return tally

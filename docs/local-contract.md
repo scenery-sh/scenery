@@ -910,8 +910,33 @@ scenery validate changed [--base <ref>] [--app-root <path>] [-o json] [--write] 
 ```
 
 Report source coverage includes each retained CLI file and logical supervisor
-log, its read status, snapshot size/segments, first/last retained event, in-window
-counts and invalid records. CLI identity duplicates are removed by invocation
+log, its read status, captured extent/segments, actual bytes read, first/last
+retained event, in-window counts and invalid records. Active/archived CLI files,
+unique supervisor segments and opted-in Claude/Codex transcripts read only the
+regular-file extent captured from each opened descriptor. Required nullable
+`snapshot_bytes` distinguishes unknown extent from a captured empty file (zero);
+required nonnegative `read_bytes` counts every returned physical byte, including
+newlines, ignored/out-of-window/duplicate/invalid rows and skipped oversized
+records. Transcript byte coverage is aggregate, with no private path inventory:
+any unknown selected extent makes its captured total null. Byte totals are
+checked against their signed 64-bit representation rather than wrapping.
+Missing, unreadable or uncapturable sources have unknown extents; capture failure
+never selects an unlimited-reader fallback. Ordinary source read failures retain
+previously completed records and appear in data/findings without changing the
+report command's success exit semantics.
+
+A supervisor remains one logical parser across intact captured segments, so a
+single JSON record split by the rotation writer is retained. Premature segment
+EOF is a read failure: stop parsing across the proven gap, retain prior complete
+records and count the read-incomplete logical source once. A genuine captured
+endpoint accepts valid final JSON without a newline. CLI `complete` still means
+fully read even if invalid rows were separately counted; supervisor invalid
+evidence retains its existing partial-status policy. Equal captured/read byte
+counts do not hide an observed read error. These extents are sequential
+observations, not an atomic content snapshot, complete historical retention or a
+total report-memory budget; same-size edits or truncate-and-regrow can escape
+byte-count checks. The standalone `scenery telemetry` query remains outside this
+report-only extent contract. CLI identity duplicates are removed by invocation
 and measurement; legacy rows without identity remain separate. Joint cohorts
 segment app, explicit purpose, producer and dirty state. Unknown legacy purpose
 is preserved. Initial and rebuild failure causes have separate distributions;

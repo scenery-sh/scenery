@@ -78,7 +78,8 @@ type FirstHeaderObservation struct {
 type SupervisorFileCoverage struct {
 	Path          string `json:"path"`
 	Status        string `json:"status"`
-	SnapshotBytes int64  `json:"snapshot_bytes"`
+	SnapshotBytes *int64 `json:"snapshot_bytes"`
+	ReadBytes     int64  `json:"read_bytes"`
 	Segments      int    `json:"segments"`
 	Records       int    `json:"records"`
 	InWindow      int    `json:"in_window"`
@@ -277,6 +278,10 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 	defer func() { builds.coverage = append(builds.coverage, coverage) }()
 	var readers []io.Reader
 	var files []*os.File
+	var snapshots []*snapshotReader
+	var infos []os.FileInfo
+	var snapshotBytes int64
+	var coverageErr error
 	defer func() {
 		for _, file := range files {
 			_ = file.Close()
@@ -289,21 +294,18 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		}
 		if err != nil {
 			coverage.Status = "unreadable"
+			coverage.SnapshotBytes = nil
 			return false, fmt.Errorf("%w %s: %w", errSupervisorLogOpen, filepath.Base(segment), err)
 		}
-		info, err := file.Stat()
+		snapshot, info, err := captureSnapshot(file)
 		if err != nil {
 			coverage.Status = "partial"
+			coverage.SnapshotBytes = nil
 			_ = file.Close()
 			return false, err
 		}
 		duplicate := false
-		for _, opened := range files {
-			previous, err := opened.Stat()
-			if err != nil {
-				_ = file.Close()
-				return false, err
-			}
+		for _, previous := range infos {
 			if os.SameFile(previous, info) {
 				duplicate = true
 				break
@@ -311,14 +313,22 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		}
 		if duplicate {
 			_ = file.Close()
-			builds.partialLogs++
 			coverage.Status = "partial"
+			coverageErr = errors.New("duplicate supervisor segment identity")
 			continue
 		}
 		files = append(files, file)
-		coverage.SnapshotBytes += info.Size()
+		infos = append(infos, info)
+		var valid bool
+		snapshotBytes, valid = addReadBytes(snapshotBytes, snapshot.size)
+		if !valid {
+			coverage.Status, coverage.SnapshotBytes = "partial", nil
+			return false, errors.New("supervisor captured byte total is unrepresentable")
+		}
+		coverage.SnapshotBytes = &snapshotBytes
 		coverage.Segments++
-		readers = append(readers, io.LimitReader(file, info.Size()))
+		snapshots = append(snapshots, snapshot)
+		readers = append(readers, snapshot)
 	}
 	if len(files) == 0 {
 		coverage.Status = "missing"
@@ -541,6 +551,15 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 			}
 		}
 	})
+	for _, snapshot := range snapshots {
+		var valid bool
+		coverage.ReadBytes, valid = addReadBytes(coverage.ReadBytes, snapshot.readBytes)
+		if !valid {
+			coverage.Status = "partial"
+			return inWindow, errors.New("supervisor read byte total is unrepresentable")
+		}
+	}
+	readErr = errors.Join(readErr, coverageErr)
 	builds.invalidRecords += oversized
 	coverage.Invalid += oversized
 	if coverage.Invalid > 0 {

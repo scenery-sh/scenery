@@ -118,7 +118,7 @@ func TestTelemetryReportOutputs(t *testing.T) {
 	if err := writeTelemetryReportHuman(&human, report); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"timed successes n=1", "known outcomes retained", "[critical] scenery system agent failed 61 times", "5 consecutive builds failed in /work/shop", `rejected unknown flag "--help"`} {
+	for _, want := range []string{fmt.Sprintf("read %d / captured %d bytes", cli.Len(), cli.Len()), fmt.Sprintf("read %d / captured %d bytes", log.Len(), log.Len()), fmt.Sprintf("read %d / captured %d bytes", len(transcript), len(transcript)), "timed successes n=1", "known outcomes retained", "[critical] scenery system agent failed 61 times", "5 consecutive builds failed in /work/shop", `rejected unknown flag "--help"`} {
 		if !strings.Contains(human.String(), want) {
 			t.Fatalf("human report lacks %q:\n%s", want, human.String())
 		}

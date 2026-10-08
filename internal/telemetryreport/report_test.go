@@ -180,7 +180,8 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	t.Parallel()
 
 	base := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
-	report, err := Build(newReportFixture(t, base))
+	opts := newReportFixture(t, base)
+	report, err := Build(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +257,8 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	if !slices.Contains(agents.ToolErrorKinds, Count{Name: "edit or write before reading", Count: 1}) {
 		t.Fatalf("tool error kinds = %+v", agents.ToolErrorKinds)
 	}
-	if sources := report.Sources.Transcripts; sources == nil || *sources != (TranscriptSources{Read: 3, InvalidRecords: 1, UnmatchedResults: 1, UnansweredCalls: 1}) {
+	sources := report.Sources.Transcripts
+	if sources == nil || sources.SnapshotBytes == nil || sources.ReadBytes != *sources.SnapshotBytes || sources.ReadBytes == 0 || sources.Read != 3 || sources.Partial != 0 || sources.Failed != 0 || sources.InvalidRecords != 1 || sources.OversizedRecords != 0 || sources.UnmatchedResults != 1 || sources.UnansweredCalls != 1 {
 		t.Fatalf("transcript sources = %+v", sources)
 	}
 	encoded, err := json.Marshal(report)

@@ -27,7 +27,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Active unbounded telemetry review and improvement loop: seven captured Oracle reviews, published supervisor timing correction and validated typed catalog publication checkpoint.",
+      "summary": "Active unbounded telemetry loop on draft PR 240; eight assessed Oracle reviews, report descriptor extents and physical byte coverage validated with actual owned CLI mutation/rotation/transcript proof and cumulative checks; publication and fresh review continue.",
       "tags": [
         "plans",
         "execplans",
@@ -437,9 +437,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
-      "summary": "Machine output of scenery telemetry report: valid timed-success cohorts, retained untimed supervisor outcomes, cache work with explicit timing sample counts and nullable subtotals, source coverage, failure causes/streaks and opt-in agent aggregates.",
+      "last_reviewed": "2026-10-08",
+      "review_after": "2026-11-07",
+      "summary": "Telemetry report contract with independent outcome/timing cohorts and required nullable captured extents/nonnegative physical byte counts for native CLI, supervisor and opt-in transcript sources.",
       "tags": [
         "schemas",
         "telemetry",
@@ -2798,7 +2798,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Current CLI and machine contracts including exact telemetry timing evidence, typed catalog validation and local feature coordination.",
+      "summary": "Local CLI and JSON contracts, including report-only descriptor-bound regular extents, nullable snapshot_bytes, physical read_bytes, partial prefix/gap semantics and checked aggregate transcript totals.",
       "tags": [
         "contract",
         "cli",
@@ -2942,7 +2942,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Cumulative repository verification and named public boundaries, including typed metric catalog HTTP and real-backend controls.",
+      "summary": "Repository validation and named external boundaries; CLI-process proof includes exact owned-child descriptor capture before mutation, report physical byte coverage and genuine retained writer rotation/split controls with verified cleanup.",
       "tags": [
         "harness",
         "agents",

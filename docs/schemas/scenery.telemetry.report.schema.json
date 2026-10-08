@@ -18,7 +18,7 @@
       "const": "scenery.telemetry.report"
     },
     "schema_revision": {
-      "const": "sha256:8269c9d267acbbebf42bb74a608dd6ab3eef9d5afdab719333c4435db7f7048a"
+      "const": "sha256:450fc94a0691497999230d9633c4142f89cbc0f2f2b009508a29b5a272394554"
     },
     "window": {
       "type": "object",
@@ -113,7 +113,7 @@
           "type": "array"
         },
         "supervisor_files": {
-          "description": "Logical session log coverage. Open segments are bounded at their observed size; first/last are retained event cutoffs, not proof of continuous coverage.",
+          "description": "Logical session coverage over unique opened descriptor extents. A premature segment EOF stops parsing across the gap. Byte coverage is not an atomic content snapshot or complete historical retention.",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -143,8 +143,13 @@
                 "type": "integer"
               },
               "snapshot_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
                 "minimum": 0,
-                "type": "integer"
+                "maximum": 9223372036854775807,
+                "description": "Captured regular-file extent, or null if any selected extent is unknown. Zero is a known empty extent."
               },
               "status": {
                 "enum": [
@@ -153,6 +158,12 @@
                   "unreadable",
                   "missing"
                 ]
+              },
+              "read_bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807,
+                "description": "Physical bytes returned by descriptor-bound readers, including invalid, ignored and skipped oversized input."
               }
             },
             "required": [
@@ -162,7 +173,8 @@
               "segments",
               "records",
               "in_window",
-              "invalid"
+              "invalid",
+              "read_bytes"
             ],
             "type": "object"
           },
@@ -950,7 +962,9 @@
         "invalid_records",
         "oversized_records",
         "unmatched_results",
-        "unanswered_calls"
+        "unanswered_calls",
+        "snapshot_bytes",
+        "read_bytes"
       ],
       "additionalProperties": false,
       "properties": {
@@ -981,8 +995,24 @@
         "unanswered_calls": {
           "type": "integer",
           "minimum": 0
+        },
+        "snapshot_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "description": "Captured regular-file extent, or null if any selected extent is unknown. Zero is a known empty extent."
+        },
+        "read_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "description": "Physical bytes returned by descriptor-bound readers, including invalid, ignored and skipped oversized input."
         }
-      }
+      },
+      "description": "Aggregate selected transcript coverage without a private path inventory. Any unknown selected extent makes snapshot_bytes null; checked byte totals never wrap."
     },
     "buildBlock": {
       "type": "object",
@@ -1144,6 +1174,21 @@
             "unreadable",
             "missing"
           ]
+        },
+        "snapshot_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "description": "Captured regular-file extent, or null if any selected extent is unknown. Zero is a known empty extent."
+        },
+        "read_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "description": "Physical bytes returned by descriptor-bound readers, including invalid, ignored and skipped oversized input."
         }
       },
       "required": [
@@ -1153,7 +1198,9 @@
         "records",
         "in_window",
         "duplicates",
-        "invalid"
+        "invalid",
+        "snapshot_bytes",
+        "read_bytes"
       ],
       "type": "object"
     }

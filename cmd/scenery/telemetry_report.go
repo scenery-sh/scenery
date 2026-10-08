@@ -152,6 +152,12 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 	timing := func(name string, t telemetryreport.Timing) []string {
 		return []string{name, fmt.Sprint(t.Count), fmt.Sprintf("failed %d", t.FailureCount), fmt.Sprintf("timed successes n=%d", t.PercentileSampleCount), "p50 " + ms(t.P50MS), "p95 " + ms(t.P95MS)}
 	}
+	extent := func(value *int64) string {
+		if value == nil {
+			return "unknown"
+		}
+		return fmt.Sprint(*value)
+	}
 	line("Scenery telemetry report, %s to %s", firstNonEmpty(report.Window.Since, "the first record"), report.Window.Until)
 	sources := fmt.Sprintf("Sources: %d CLI records, %d supervisor logs", report.Sources.CLIRecords, report.Sources.SupervisorLogs)
 	if report.Sources.AgentTranscripts {
@@ -161,15 +167,18 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 	}
 	line("%s.", sources)
 	for _, source := range report.Sources.CLI {
-		line("  CLI %s (%s, archived=%t): retained %d, in window %d, duplicate invocations %d, invalid %d; %s to %s.", source.Path, source.Status, source.Archived, source.Records, source.InWindow, source.Duplicates, source.Invalid, firstNonEmpty(source.First, "unknown"), firstNonEmpty(source.Last, "unknown"))
+		line("  CLI %s (%s, archived=%t): read %d / captured %s bytes; retained %d, in window %d, duplicate invocations %d, invalid %d; %s to %s.", source.Path, source.Status, source.Archived, source.ReadBytes, extent(source.SnapshotBytes), source.Records, source.InWindow, source.Duplicates, source.Invalid, firstNonEmpty(source.First, "unknown"), firstNonEmpty(source.Last, "unknown"))
+	}
+	for _, source := range report.Sources.Supervisor {
+		line("  Supervisor %s (%s): read %d / captured %s bytes across %d segments; retained %d, in window %d, invalid %d.", source.Path, source.Status, source.ReadBytes, extent(source.SnapshotBytes), source.Segments, source.Records, source.InWindow, source.Invalid)
 	}
 	line("  Identified overlaps are counted once (active file wins); legacy rows without invocation identity are retained separately.")
 	if incomplete := report.Sources.SupervisorLogsFailed + report.Sources.SupervisorLogsPartial; incomplete > 0 || report.Sources.SupervisorInvalid > 0 {
 		line("  %d supervisor logs unreadable or read in part; %d event records with invalid evidence (known outcomes retained).", incomplete, report.Sources.SupervisorInvalid)
 	}
 	if transcripts := report.Sources.Transcripts; transcripts != nil {
-		line("  Transcripts: %d read, %d read in part, %d unreadable; %d invalid and %d oversized records skipped, %d results without a call, %d calls without a result.",
-			transcripts.Read, transcripts.Partial, transcripts.Failed, transcripts.InvalidRecords, transcripts.OversizedRecords, transcripts.UnmatchedResults, transcripts.UnansweredCalls)
+		line("  Transcripts: %d read, %d read in part, %d unreadable; read %d / captured %s bytes; %d invalid and %d oversized records skipped, %d results without a call, %d calls without a result.",
+			transcripts.Read, transcripts.Partial, transcripts.Failed, transcripts.ReadBytes, extent(transcripts.SnapshotBytes), transcripts.InvalidRecords, transcripts.OversizedRecords, transcripts.UnmatchedResults, transcripts.UnansweredCalls)
 	}
 	line("")
 	line("Findings")

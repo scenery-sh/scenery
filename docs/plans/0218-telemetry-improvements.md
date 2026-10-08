@@ -334,56 +334,96 @@ work; completed plans are immutable history.
   `55835630434cac364560d8bee8ae0d8512a67960` is committed locally; its
   documentation-only checkpoint retains the same Go source and acceptance.
 
+- [x] 2026-10-08 Oracle008 completed against published `fc7f545a`/original
+  base and draft PR #240 at
+  `https://chatgpt.com/c/6ac7afa1-cc84-83ed-8e7a-98ad6fd8f8ae`.
+  Whole 34,072-character final, 17 grouped sources and 55 full DOM links saved;
+  independently assessed, exact `telemetry-oracle008` deleted/absence verified.
+  It recommends pre-existing P2 N7a descriptor extents and actual byte coverage;
+  targeted connector review ran no Go/product/OS experiments or local audit.
+- [x] 2026-10-08 Three actual prepared-CLI before proofs confirm N7a: a
+  captured 64 MiB supervisor file truncated after an observed child read retains
+  17,152 of 131,072 valid records yet says complete; a CLI file includes 64 rows
+  appended after reading begins; duplicate hard-link segment names report two
+  partial logs for one logical source. Exact owned-child descriptor/read offset,
+  stop/mutation/resume, producer/source/executable identities and cleanup saved.
+  Initial macOS pathname normalization missed the rendezvous without mutation;
+  excluded preparation/control and all owned roots/children cleaned. This proves
+  capability, not normal incidence, transactional snapshots or exhaustion.
+- [x] Complete N7a report-only captured/read coverage, checked schema identity,
+  focused controls and actual named CLI append/truncate/rotation/transcript proof.
+  Observable acceptance: report JSON/human exposes captured S and consumed B;
+  append after capture is excluded, truncation retains complete prefix and
+  B<S/partial, intact split rotation preserves one logical record, known empty
+  differs from unknown, and byte coverage includes skipped evidence. Preserve
+  timing/outcome/correlation/normal self-recording controls and owned cleanup.
+
+- [x] 2026-10-08 N7a full/default `20261008T155455.481943000Z` and
+  named CLI-process `20261008T155536.906842000Z` pass with stable input
+  `sha256:8db21d15acf0b5d096d875f87be32800044118aa504ce80f6d01dabe6f090118`,
+  compiled source
+  `sha256:a3365780d43f3035f153c9c86d2002b1b70a60d91efe63e3a49b0d419211099e`.
+  Full covers the changed-area Go union, vet, architecture/drift and schemas;
+  lint zero issues and all 1,801 Git-listed Go sources formatted. Both runs
+  have 12 existing knowledge warnings and zero errors; full Go step wall is
+  5.102 seconds, separate from per-root timings and remote CI.
+- [x] 2026-10-08 Eighteen actual prepared report children pass: twelve JSON
+  envelopes/current report schemas and six human invocations with separate
+  fixtures. Active/archive CLI and Claude append bytes remain outside captured
+  extents. Supervisor JSON/human truncation retains 10,223,616/10,158,080 bytes
+  from 67,108,864 captured; Codex retains 6,160,384/6,225,920, preserving the
+  original known command. Strict complete PID/start/executable/command-line
+  fingerprints, confirmed owned child stop and exact opened inode/position
+  establish capture before mutation. Genuine writer rotation after all four
+  descriptors are open retains all 33,554,432 captured bytes; genuine single
+  Write splitting a JSON row and valid final JSON without newline are accepted.
+  Empty zero versus capture-failed null, duplicate logical partial count one,
+  both opt-in transcript formats, valid zero Claude timing and absent Codex
+  timing pass. Native report self-recording stays enabled. All 18 exact PIDs
+  and private roots are independently verified absent after owned cleanup.
+  Raw outputs/identities are in the immutable probe and ignored local receipts.
+- [x] 2026-10-08 Fresh CLI proof also retains the eight actual ZIP publication
+  scenarios and malformed supervisor timing/outcome/cache/zero/fraction/join
+  controls on the current source. Historical CLI binaries do not certify N7a.
+  Final report full-document/static schema identity is
+  `sha256:450fc94a0691497999230d9633c4142f89cbc0f2f2b009508a29b5a272394554`.
+  The first snapshot probe could not observe the fast-filtered Claude input,
+  performed no mutation and failed closed; decoder-engaging ordinary ignored
+  JSON rows fix the fixture without changing the product. Lint corrections
+  were followed by final full/lint/probe runs. Failed fixtures/children cleaned.
+- [x] 2026-10-08 All 45 cumulative changed exact roots retain twenty isolated
+  serial samples and p95 below 100ms. Twenty-one report/CLI/schema roots are
+  remeasured (maximum 50ms), twenty-four unchanged owning/exercised scopes keep
+  original binary identities (retained maximum 90ms). This is not an all-root
+  audit; rounded zero event times do not imply zero wall time. Unchanged
+  observability/runtime/generator/status/client inputs retain earlier named
+  runtime/generation/56 Bun/both TypeScript receipts with their original source
+  and serving identities; no current whole-binary or Darwin/Linux equivalence.
+
 ### Resume here
 
-Petr's loop remains active and unbounded until manual stop. At Oracle007 intake,
-OPEN draft PR #240 was pinned to `2f810c2ad9931fc7e13a3702980a69e036c14913`, original base
-`89fdc46c20527939ee1780a240339ba04aa54ef8`. Supervisor source `c1ff8939`
-completed final full/lint, 30-root isolated timing and named actual CLI acceptance;
-those receipts remain above. Both current CI lanes pass on exact-head push and
-an independently checked identical-tree PR merge; neither runs the named
-observability/CLI-process probes or lint.
+Petr's loop is active until manual stop. Oracle008 reviewed draft PR #240 at
+`fc7f545a` against original base89fdc46; the whole answer/assessment is saved and
+its exact monitor removed. N7a report-only descriptor extents/physical coverage,
+checked schema/model/human/docs, focused roots and actual process acceptance are
+complete as recorded above. Publish this independently reviewed change and its
+documentation checkpoint to the same draft, inspect actual current CI identities,
+then submit fresh complete revision-bound Oracle009 with PR240 progress.
+Live Git/PR and `.scenery/telemetry-improvements/state.json` own changing heads,
+validation/publication/consultation facts; do not duplicate an active operation.
+A later docs-only quick must retain matching Go/source scope when reusing the
+current full/lint/CLI/timing receipts. Keep original identities for older named
+observability and generator/client receipts; their unchanged inputs do not
+certify the changed report reader. Use native running Chrome in the background,
+keep healthy generation, capture whole final/source links before exact monitor
+removal and assess each candidate independently before selecting the next batch.
 
-Oracle007 completed at
-`https://chatgpt.com/c/6ac7a1d0-4c68-83ed-93e2-412a04b8d440` against 2f810/base,
-naming PR240 progress. Its whole final and immutable links are saved/assessed,
-and exact `telemetry-oracle007` is deleted with absence verified. It recommended
-the independently reproduced pre-existing P2 MetricsSeries catalog correction,
-including endpoint/row shape, every omitted label and precise empty controls.
-Its review executed no Go/product tests or local receipt audit.
-
-Catalog source `55835630434cac364560d8bee8ae0d8512a67960` has completed the
-acceptance recorded above. This record forms its documentation-only checkpoint;
-publication and the next consultation are changing facts owned by live Git/PR
-and `.scenery/telemetry-improvements/state.json`.
-Raw JSON rows preserve kinds
-until the consuming endpoint validates them. MetricsLabels is explicitly included
-because removal of the shared Strings/Series fallback requires its own typed
-consumer; both endpoints get focused controls and named HTTP acceptance.
-Do not describe an actual public Go call as a malformed-input CLI exit proof.
-Keep current series/labels/query schemas and identity literals unchanged when
-their existing public shape is enforced. The named segment records HTTP request
-scope/selector/bounds, exact controls/schema/identity, sanitized errors and joined
-owned cleanup, separately from the healthy real-Victoria metrics series CLI path.
-Cumulative validation and fresh boundary acceptance are complete above.
-After verifying this checkpoint is published, continue with fresh revision-bound
-Oracle008. Reuse a healthy pending consultation when live state records one.
-The CI recorded above belongs to2f810; inspect each new head's actual runs rather
-than treating prior green checks as its evidence.
-
-N7 snapshot/coverage/aggregate budgets, N8 finite query limits, broader redirection
-attribution and lossless delivery prevention remain separate. Raw retention and
-emitted-only normalization do not bound successful-response input memory.
-Catalog/query changes require new named observability; retain historical receipt
-identities only for unchanged owning/exercised inputs. Generator/status/client and
-CLI-process behavior are unchanged, so any reuse must state that scope and must
-not claim a historical binary/digest is the newly compiled whole product.
-Do not add arbitrary caps, truncate detail, modify VNEXT or restart a live agent.
-
-Durable questions, answers, assessments, proofs and active process state live
-under `.scenery/telemetry-improvements/`. Read live Git/PR/scheduler/runtime state
-before relying on this checkpoint. Preserve unrelated data and healthy pending
-generation; repeat validated publish/review cycles until Petr stops.
+Standalone telemetry query, N7b aggregate/state budgets, N8 finite backend
+responses, outer metrics/log framing, active redirection attribution and delivery
+prevention remain separately scoped. These file extents do not prove atomic
+content, all-reader/total-memory bounds or complete retention. Retain other
+receipts only for unchanged owning/exercised scope with original identities.
+Do not truncate detail, add arbitrary caps, edit VNEXT or restart a live agent.
 
 ## Surprises & Discoveries
 
