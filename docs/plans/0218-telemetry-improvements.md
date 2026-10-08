@@ -63,22 +63,28 @@ work; completed plans are immutable history.
   most 30 ms. Observability verified native/SQL/HTTP traces, scoped RPC queries,
   structured logs and duration metrics, with source build-input identity and
   cleanup of its runtime, Victoria processes and PostgreSQL cluster.
-- [ ] Complete cumulative validation and update the draft PR.
+- [x] 2026-10-08 Published the first validated implementation batch as
+  `35d94253caa2538d2d938d058bed86f8c23498c0` and updated draft PR #240.
+- [ ] Complete cumulative validation and update the draft PR for each subsequent
+  implementation batch.
 - [ ] Start the next consultation with the draft PR number and exact current
   head, repeating until Petr stops the loop.
 
 ### Resume here
 
-2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) is
-published. The first review is complete and captured; its exact monitor was
-deleted. Native command privacy and negative report duration fixes are in the
-worktree. Initial full/default validation, lint and CLI-process proof passed;
-later nested-catalog and serialized-record assertions need final validation.
-The small batch now also implements N2/N4/N5/N9 and narrow N3. Source validation,
-lint and both named probes passed with explicit warnings and cleanup. This
-checkpoint updates validation documentation after those receipts; reclassify
-that final documentation update, then publish the batch. N6-N8, general wrapper/redirection
-semantics and ZIP publication remain explicit later milestones.
+2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) contains
+the first validated source batch at `35d94253caa2538d2d938d058bed86f8c23498c0`.
+The first review is complete and captured; its exact monitor was deleted. N1,
+N2, narrow N3, N4, N5, N9 and the independent negative-duration defect are fixed.
+Final full/default archive `20261008T084548.900946000Z` covers the changed-area
+union with zero errors, 12 existing knowledge warnings and a 15.257 s whole-suite
+advisory warning. Lint and both named probes passed; their compiled framework
+digest matches the final verifier, and owned runtime cleanup is confirmed.
+This publication-status update is documentation only against the source commit;
+verify that delta before its checkpoint. Then start a fresh second review of the
+exact latest published head, or recover its accepted conversation from durable
+state if already pending. N6-N8, general wrapper/redirection semantics and ZIP
+publication remain explicit later milestones.
 The independent `telemetry-improvements-loop` heartbeat persists until Petr
 stops. Local durable state, actual submission limits, complete-answer capture
 location, assessment and synthetic proof live under
