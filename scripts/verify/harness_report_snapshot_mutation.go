@@ -21,11 +21,54 @@ type harnessReportDescriptor struct {
 	Offset int64  `json:"offset"`
 	Size   int64  `json:"size"`
 	Inode  string `json:"inode"`
+	Device string `json:"device"`
+	Mode   string `json:"mode"`
 }
 
-// A positive descriptor position proves capture occurred in the unmodified
-// product before mutation. Stop only the exec.Cmd child owned by this probe.
-func stopHarnessReportAtRead(ctx context.Context, c *harnessReportChild, paths []string) (map[string]any, []harnessReportDescriptor, error) {
+// A stopped read inventory must match every selected inode and extent, with
+// consumption started and selected bytes still unread. Endpoint or writer
+// observations cannot establish the required mutation schedule.
+func validateHarnessReportRead(rows, selected []harnessReportDescriptor) error {
+	if len(rows) != len(selected) || len(selected) == 0 {
+		return errors.New("selected descriptor inventory differs")
+	}
+	seenPaths, seenFDs := map[string]bool{}, map[string]bool{}
+	started, remaining := false, false
+	for _, want := range selected {
+		if seenPaths[want.Path] {
+			return errors.New("duplicate selected path")
+		}
+		seenPaths[want.Path] = true
+		matches := 0
+		for _, row := range rows {
+			if row.Path != want.Path {
+				continue
+			}
+			matches++
+			if row.FD == "" || seenFDs[row.FD] || row.Mode != "read" || row.Inode == "" || row.Inode != want.Inode || row.Device == "" || row.Device != want.Device || row.Size != want.Size || row.Offset < 0 || row.Offset > want.Size {
+				return errors.New("selected descriptor identity, mode or extent differs")
+			}
+			seenFDs[row.FD] = true
+			started = started || row.Offset > 0
+			remaining = remaining || row.Offset < want.Size
+		}
+		if matches != 1 {
+			return errors.New("missing or duplicate selected descriptor")
+		}
+	}
+	if !started || !remaining {
+		return errors.New("read rendezvous has no started and remaining selected bytes")
+	}
+	return nil
+}
+
+// Stop only the exec.Cmd child owned by this probe and validate the inventory
+// again after the stop is confirmed, before allowing any fixture mutation.
+func stopHarnessReportAtRead(ctx context.Context, c *harnessReportChild, selected []harnessReportDescriptor) (map[string]any, []harnessReportDescriptor, error) {
+	paths := make([]string, len(selected))
+	for i, row := range selected {
+		paths[i] = row.Path
+	}
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -34,10 +77,10 @@ func stopHarnessReportAtRead(ctx context.Context, c *harnessReportChild, paths [
 			return nil, nil, err
 		}
 		started := false
-		for _, d := range descriptors {
-			started = started || d.Offset > 0
+		for _, row := range descriptors {
+			started = started || row.Offset > 0
 		}
-		if len(descriptors) == len(paths) && started {
+		if len(descriptors) == len(selected) && started {
 			owner := localagent.CaptureOwner(c.command.Process.Pid, "owned report snapshot probe")
 			if owner.StartedAt == "" || owner.Exe == "" || owner.CmdlineHash == "" {
 				return nil, nil, errors.New("owned report child fingerprint unavailable")
@@ -67,10 +110,16 @@ func stopHarnessReportAtRead(ctx context.Context, c *harnessReportChild, paths [
 				return nil, nil, errors.New("owned report child fingerprint changed")
 			}
 			descriptors, err = observeHarnessReportDescriptors(ctx, owner.PID, paths)
-			if err != nil || len(descriptors) != len(paths) {
-				return nil, nil, fmt.Errorf("stopped descriptor inventory changed: %w", err)
+			proof := map[string]any{"owner": owner, "observed_stopped_owner": stopped, "stopped_state_confirmed": true, "descriptors": descriptors, "selected": selected, "mutation_performed": false}
+			if err != nil {
+				return proof, descriptors, err
 			}
-			return map[string]any{"owner": owner, "observed_stopped_owner": stopped, "stopped_state_confirmed": true, "descriptors": descriptors}, descriptors, nil
+			if err := validateHarnessReportRead(descriptors, selected); err != nil {
+				proof["rejected_observation"] = err.Error()
+				return proof, descriptors, err
+			}
+			proof["read_inventory_accepted"] = true
+			return proof, descriptors, nil
 		}
 		select {
 		case <-ctx.Done():
@@ -163,15 +212,20 @@ func proveHarnessReportMutation(ctx context.Context, repo, name, format string) 
 		paths = rotatinglog.Segments(path)
 	}
 	infos := make([]os.FileInfo, len(paths))
-	for i, selected := range paths {
-		infos[i], err = os.Stat(selected)
+	selected := make([]harnessReportDescriptor, len(paths))
+	for i, selectedPath := range paths {
+		infos[i], err = os.Stat(selectedPath)
+		if err != nil {
+			return nil, err
+		}
+		selected[i], err = harnessReportSelectedDescriptor(selectedPath, infos[i])
 		if err != nil {
 			return nil, err
 		}
 	}
 	readBytes := wantSize
 	mutate := func(c *harnessReportChild) (map[string]any, error) {
-		captured, descriptors, err := stopHarnessReportAtRead(ctx, c, paths)
+		captured, descriptors, err := stopHarnessReportAtRead(ctx, c, selected)
 		if err != nil {
 			return captured, err
 		}
@@ -219,6 +273,7 @@ func proveHarnessReportMutation(ctx context.Context, repo, name, format string) 
 			captured["active_inode_changed"] = true
 		}
 		captured["selected_bytes"], captured["expected_read_bytes"] = wantSize, readBytes
+		captured["mutation_performed"] = true
 		return captured, harnessReportResume(c.command.Process)
 	}
 	r, proof, err := f.run(ctx, repo, format, transcripts, mutate)
@@ -226,11 +281,8 @@ func proveHarnessReportMutation(ctx context.Context, repo, name, format string) 
 		return proof, err
 	}
 	if format == "human" {
-		if !strings.Contains(proof["stdout"].(string), fmt.Sprintf("read %d / captured %d bytes", readBytes, wantSize)) {
-			return proof, errors.New("human physical coverage differs from captured source extent")
-		}
-		if strings.HasSuffix(name, "truncate") && !strings.Contains(proof["stdout"].(string), "read in part") {
-			return proof, errors.New("human partial evidence missing")
+		if err := validateHarnessReportHuman(proof["stdout"].(string), name, path, readBytes, wantSize, rowSize); err != nil {
+			return proof, err
 		}
 		return proof, nil
 	}

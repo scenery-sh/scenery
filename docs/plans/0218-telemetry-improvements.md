@@ -400,23 +400,70 @@ work; completed plans are immutable history.
   runtime/generation/56 Bun/both TypeScript receipts with their original source
   and serving identities; no current whole-binary or Darwin/Linux equivalence.
 
+- [x] 2026-10-08 Publish N7a at `7bd2f9e` and verify draft PR240,
+  remote ref, body and both current CI checkouts/logs/identical immutable trees.
+  Fresh Oracle009 used actual GitHub/GPT6 Pro with one complete primary; its
+  whole final (25139 characters/42 complete source links) and assessment are
+  saved, exact monitor deleted and absence verified.
+- [x] 2026-10-08 Independently reproduce two pre-existing report defects:
+  actual prepared JSON/human supervisor input gives global invalid1 but
+  source invalid0/complete; actual shell bare native help records help, while
+  four Claude/Codex JSON/human reports omit sole-invocation sessions. Inputs,
+  actual outputs/producer/children and owned cleanup are retained privately.
+- [x] Implement Oracle009's bounded report evidence corrections: shared
+  invalid accounting, bare invocation help identity/session inclusion, exact
+  post-stop read descriptor/extent/remaining-byte validation, and source-bound
+  numeric human expectations. Add focused ordinary fixtures plus actual CLI
+  malformed-error/native-help/transcript and late-read rejection controls.
+- [x] Initial full/lint and24 remeasured root timings pass; named CLI
+  acceptance rejects its extra late-case fixture because the child completed
+  between redundant descriptor observations. No mutation occurred, raw evidence
+  and cleanup are preserved. Reject an already observed endpoint with the same
+  typed predicate before any unneeded stop; accepted mutation cases still
+  require confirmed-stop validation. This corrects the probe schedule only.
+- [x] Final full/default `20261008T163646.095234000Z`, lint zero issues and
+  CLI-process `20261008T163722.157983000Z` pass stable input `d155d0aa`,
+  framework source `32bf0347`. Full suite advisory5.014s and12 existing
+  knowledge warnings are separate from isolated p95; zero errors. Gofmt1806
+  Go sources passes. Forty-nine cumulative exact roots each retain20 isolated
+  serial samples/p95<100ms:24 remeasured maximum40ms,25 unchanged scoped
+  receipts keep original binary identities/maximum90ms. The later late-fixture
+  correction changes no exercised ordinary predicate/report/CLI test source.
+- [x] Fresh named report acceptance covers25 actual report children (16 JSON
+  with current envelope/report schemas,9 human on separate fixtures) and four
+  actual owned shell bare-native children. Malformed error yields global/source
+  invalid1, partial source, physical B=S, read-partial0, valid failure join and
+  exit0. Bare native help records actual telemetry, keeps sole-invocation
+  Claude/Codex sessions and identity/outcome; actual elapsed Claude versus nil
+  Codex timing and earlier zero-duration controls remain distinct.
+  Every accepted mutation rechecks selected read-only inode/device/extent
+  inventory after confirmed stop, with consumed and remaining bytes; actual
+  read endpoint is rejected by the same predicate before an unneeded stop,
+  without mutation. Exact numeric human source/status/outcome controls pass.
+  Original18 snapshot controls, eight actual ZIP scenarios and supervisor
+  timing/cache/joins remain green. Raw before/failure/after evidence is saved;
+  all25 report/four native exact PIDs and owned fixture roots independently
+  absent. Producer7bd+dirty retains Git metadata built-at16:00:08; actual build
+  step16:36:46 and executable SHA `6af7f010` establish this fresh binary.
+  Darwin execution does not certify Linux observer execution, a real agent UI,
+  normal incidence, atomic contents, totalmemory, delivery or release.
+
 ### Resume here
 
-Petr's loop is active until manual stop. Oracle008 reviewed draft PR #240 at
-`fc7f545a` against original base89fdc46; the whole answer/assessment is saved and
-its exact monitor removed. N7a report-only descriptor extents/physical coverage,
-checked schema/model/human/docs, focused roots and actual process acceptance are
-complete as recorded above. Publish this independently reviewed change and its
-documentation checkpoint to the same draft, inspect actual current CI identities,
-then submit fresh complete revision-bound Oracle009 with PR240 progress.
+Petr's loop is active until manual stop. Oracle009 reviewed published draft
+PR #240 at `7bd2f9e` against original base89fdc46 and priorfc7f; whole final and
+assessment are saved, exact monitor removed. Its four independently assessed
+report evidence corrections are implemented and accepted as recorded above.
+Run the documentation checkpoint with unchanged Go/module/schema hashes,
+publish to the same draft, inspect current CI and start fresh revision-bound
+Oracle010.
 Live Git/PR and `.scenery/telemetry-improvements/state.json` own changing heads,
 validation/publication/consultation facts; do not duplicate an active operation.
-A later docs-only quick must retain matching Go/source scope when reusing the
-current full/lint/CLI/timing receipts. Keep original identities for older named
-observability and generator/client receipts; their unchanged inputs do not
-certify the changed report reader. Use native running Chrome in the background,
-keep healthy generation, capture whole final/source links before exact monitor
-removal and assess each candidate independently before selecting the next batch.
+Keep source/input identities when reusing successful checks. Older named
+observability and generator/client receipts retain original identities and
+apply only to unchanged owners, not the changed report binary. Use native
+running Chrome in the background, preserve healthy generation, capture whole
+final/source links before exact monitor removal and assess advice independently.
 
 Standalone telemetry query, N7b aggregate/state budgets, N8 finite backend
 responses, outer metrics/log framing, active redirection attribution and delivery

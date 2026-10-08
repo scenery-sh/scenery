@@ -266,6 +266,7 @@ func sceneryAttempts(shell string, families map[string][]string) ([]string, bool
 	var result []string
 	for _, invocation := range invocations {
 		if len(invocation.args) == 0 {
+			result = append(result, "help")
 			continue
 		}
 		word := invocation.args[0]

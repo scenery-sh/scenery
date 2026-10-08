@@ -97,10 +97,10 @@ func (f *harnessReportFixture) run(ctx context.Context, repo, format string, tra
 	}()
 	if mutate != nil {
 		mutation, err := mutate(c)
+		proof["capture_before_mutation"] = mutation
 		if err != nil {
 			return report, proof, err
 		}
-		proof["capture_before_mutation"] = mutation
 	}
 	select {
 	case <-ctx.Done():
@@ -166,6 +166,11 @@ func proveHarnessReportSnapshots(parent context.Context, repo string) (map[strin
 			}
 			proofs[name+"/"+format] = proof
 		}
+	}
+	late, err := proveHarnessReportLateObservation(ctx, repo)
+	proofs["late-read-rejected"] = late
+	if err != nil {
+		return map[string]any{"cases": proofs, "failed_case": "late-read-rejected"}, err
 	}
 	return map[string]any{"cases": proofs, "proof": "actual_report_cli_descriptor_bound_extents_and_physical_byte_coverage", "limits": "owned synthetic input and schedules; no production incidence, atomic contents, total-memory, or cross-platform execution guarantee"}, nil
 }

@@ -363,8 +363,7 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		}
 		var event supervisorEvent
 		if json.Unmarshal(line, &event) != nil {
-			builds.invalidRecords++
-			coverage.Invalid++
+			invalidRecord()
 			return
 		}
 		if event.Data.Type == "" {
@@ -464,7 +463,7 @@ func readSupervisorLog(opts Options, path string, worktree func(root, name strin
 		case "build.error":
 			var failure buildErrorData
 			if json.Unmarshal(data.Data, &failure) != nil {
-				builds.invalidRecords++
+				invalidRecord()
 				return
 			}
 			index := awaiting

@@ -18,13 +18,21 @@ import (
 func harnessReportStop(process *os.Process) error   { return process.Signal(syscall.SIGSTOP) }
 func harnessReportResume(process *os.Process) error { return process.Signal(syscall.SIGCONT) }
 
+func harnessReportSelectedDescriptor(path string, info os.FileInfo) (harnessReportDescriptor, error) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() {
+		return harnessReportDescriptor{}, errors.New("selected file identity unavailable")
+	}
+	return harnessReportDescriptor{Path: path, Size: info.Size(), Inode: strconv.FormatUint(uint64(stat.Ino), 10), Device: strconv.FormatUint(uint64(stat.Dev), 10)}, nil
+}
+
 // Observe the exact child's opened inode and kernel position, rather than
 // inferring capture from elapsed time or from a pathname's current contents.
 func observeHarnessReportDescriptors(ctx context.Context, pid int, paths []string) ([]harnessReportDescriptor, error) {
 	if runtime.GOOS == "linux" {
 		return observeHarnessReportProcDescriptors(pid, paths)
 	}
-	output, err := exec.CommandContext(ctx, "/usr/sbin/lsof", "-a", "-p", strconv.Itoa(pid), "-o", "-FfonsDi").Output()
+	output, err := exec.CommandContext(ctx, "/usr/sbin/lsof", "-a", "-p", strconv.Itoa(pid), "-o", "-FafonsDi").Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -47,6 +55,12 @@ func observeHarnessReportDescriptors(ctx context.Context, pid int, paths []strin
 			}
 			value := field[1:]
 			switch field[0] {
+			case 'a':
+				if value == "r" {
+					row.Mode = "read"
+				} else {
+					row.Mode = value
+				}
 			case 'n':
 				row.Path = value
 			case 'i':
@@ -78,6 +92,7 @@ func observeHarnessReportDescriptors(ctx context.Context, pid int, paths []strin
 			stat, ok := info.Sys().(*syscall.Stat_t)
 			if row.Path == canonical && ok && row.Inode == strconv.FormatUint(uint64(stat.Ino), 10) && device == uint64(stat.Dev) {
 				row.Path = path
+				row.Device = strconv.FormatUint(device, 10)
 				rows = append(rows, row)
 			}
 		}
@@ -112,13 +127,29 @@ func observeHarnessReportProcDescriptors(pid int, paths []string) ([]harnessRepo
 			if err != nil {
 				continue
 			}
-			row := harnessReportDescriptor{Path: path, FD: entry.Name(), Size: opened.Size()}
+			row, err := harnessReportSelectedDescriptor(path, opened)
+			if err != nil {
+				return nil, err
+			}
+			row.FD = entry.Name()
 			for _, field := range strings.Split(string(data), "\n") {
 				if value, ok := strings.CutPrefix(field, "pos:"); ok {
 					row.Offset, err = strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 				}
 				if value, ok := strings.CutPrefix(field, "ino:"); ok {
 					row.Inode = strings.TrimSpace(value)
+				}
+				if value, ok := strings.CutPrefix(field, "flags:"); ok {
+					var flags uint64
+					flags, err = strconv.ParseUint(strings.TrimSpace(value), 8, 64)
+					if flags&uint64(syscall.O_ACCMODE) == uint64(syscall.O_RDONLY) {
+						row.Mode = "read"
+					} else {
+						row.Mode = "write"
+					}
+				}
+				if err != nil {
+					return nil, err
 				}
 			}
 			if err != nil {

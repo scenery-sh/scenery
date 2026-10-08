@@ -27,7 +27,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Active unbounded telemetry loop on draft PR 240; eight assessed Oracle reviews, report descriptor extents and physical byte coverage validated with actual owned CLI mutation/rotation/transcript proof and cumulative checks; publication and fresh review continue.",
+      "summary": "Active unbounded telemetry loop on draft PR 240; nine assessed Oracle reviews, published report extent coverage and bounded report evidence/accounting/proof corrections validated with25 actual report/four native children; publication and fresh review continue.",
       "tags": [
         "plans",
         "execplans",
@@ -2798,7 +2798,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Local CLI and JSON contracts, including report-only descriptor-bound regular extents, nullable snapshot_bytes, physical read_bytes, partial prefix/gap semantics and checked aggregate transcript totals.",
+      "summary": "Local CLI and JSON contracts, including descriptor-bound report extents/physical bytes, malformed supervisor payload source accounting and bare executable help identity/session inclusion.",
       "tags": [
         "contract",
         "cli",
@@ -2942,7 +2942,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Repository validation and named external boundaries; CLI-process proof includes exact owned-child descriptor capture before mutation, report physical byte coverage and genuine retained writer rotation/split controls with verified cleanup.",
+      "summary": "Repository validation and named external boundaries; report process proof requires exact post-stop read inventories with remaining bytes, late rejection without mutation, owning-source numeric human coverage and actual native/help/transcript evidence with cleanup.",
       "tags": [
         "harness",
         "agents",
