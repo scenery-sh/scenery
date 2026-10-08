@@ -2278,6 +2278,13 @@ The response uses `scenery.metrics.query`, echoes scope and bounds, reports
 the backend `result_type`, and returns normalized metric series and samples.
 Malformed backend result structures fail decoding and propagate a query error;
 they never produce a successful empty or partially decoded metric result.
+Query results support vector or matrix series (range queries require a matrix).
+Every series requires a metric object and every sample exactly a numeric
+Unix-seconds timestamp and a numeric value string. Timestamps must be finite and
+representable as signed 64-bit nanoseconds; metric values retain valid `NaN`,
+`+Inf` and `-Inf` strings. Validate all series, including those beyond `--limit`,
+before success. The limit counts output series, not samples; finite input and
+output resource budgets remain a separately tracked improvement.
 `scenery metrics labels -o json --since 1h --match 'scenery_request_duration_seconds'` emits `scenery.metrics.labels`.
 `scenery metrics series -o json --match 'scenery_request_duration_seconds'` emits
 `scenery.metrics.series`.

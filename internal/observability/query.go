@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -126,6 +127,7 @@ type MetricsQuery struct {
 	Timeout  time.Duration
 	Limit    int
 	Warnings []string
+	client   *http.Client
 }
 
 type MetricsQueryRecord struct {
@@ -276,12 +278,22 @@ func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, erro
 		values.Set("end", formatVictoriaTime(q.Bounds.End))
 		values.Set("step", q.Step.String())
 	}
-	payload, err := fetchMetrics(ctx, q.BaseURL, path, values)
+	client := q.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	payload, err := fetchMetricsWithClient(ctx, client, q.BaseURL, path, values)
 	if err != nil {
 		return MetricsQueryResult{}, err
 	}
 	result.ResultType = payload.Data.ResultType
-	result.Series = normalizeMetricResults(payload.Data.Result, q.Limit)
+	if !q.Instant && result.ResultType != "matrix" {
+		return MetricsQueryResult{}, fmt.Errorf("VictoriaMetrics range query requires a matrix result")
+	}
+	result.Series, err = normalizeMetricResults(payload.Data.Result, result.ResultType, q.Limit)
+	if err != nil {
+		return MetricsQueryResult{}, err
+	}
 	return result, nil
 }
 
@@ -548,12 +560,16 @@ func catalogValues(q MetricsCatalogQuery) url.Values {
 }
 
 func fetchMetrics(ctx context.Context, baseURL, path string, values url.Values) (victoriaMetricsResponse, error) {
+	return fetchMetricsWithClient(ctx, http.DefaultClient, baseURL, path, values)
+}
+
+func fetchMetricsWithClient(ctx context.Context, client *http.Client, baseURL, path string, values url.Values) (victoriaMetricsResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+path, strings.NewReader(values.Encode()))
 	if err != nil {
 		return victoriaMetricsResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return victoriaMetricsResponse{}, err
 	}
@@ -614,38 +630,72 @@ type victoriaMetricResult struct {
 	Values [][]any           `json:"values"`
 }
 
-func normalizeMetricResults(items []victoriaMetricResult, limit int) []MetricSeries {
+func normalizeMetricResults(items []victoriaMetricResult, resultType string, limit int) ([]MetricSeries, error) {
+	if resultType != "vector" && resultType != "matrix" {
+		return nil, fmt.Errorf("VictoriaMetrics query returned unsupported result type")
+	}
+	if items == nil {
+		return nil, fmt.Errorf("VictoriaMetrics query requires a result array")
+	}
 	out := make([]MetricSeries, 0, len(items))
 	for _, item := range items {
-		series := MetricSeries{Metric: item.Metric}
-		if sample := metricSample(item.Value); sample != nil {
-			series.Value = sample
+		if item.Metric == nil {
+			return nil, fmt.Errorf("VictoriaMetrics result requires a metric object")
 		}
-		for _, raw := range item.Values {
-			if sample := metricSample(raw); sample != nil {
+		series := MetricSeries{Metric: item.Metric}
+		if resultType == "vector" {
+			if item.Values != nil {
+				return nil, fmt.Errorf("VictoriaMetrics vector requires value rather than values")
+			}
+			sample, err := metricSample(item.Value)
+			if err != nil {
+				return nil, err
+			}
+			series.Value = sample
+		} else {
+			if item.Values == nil || item.Value != nil {
+				return nil, fmt.Errorf("VictoriaMetrics matrix requires a values array")
+			}
+			for _, raw := range item.Values {
+				sample, err := metricSample(raw)
+				if err != nil {
+					return nil, err
+				}
 				series.Values = append(series.Values, *sample)
 			}
 		}
-		out = append(out, series)
-		if limit > 0 && len(out) >= limit {
-			break
+		// Validate even omitted series: a malformed response is never a
+		// successful partial result merely because the output limit is small.
+		if limit <= 0 || len(out) < limit {
+			out = append(out, series)
 		}
 	}
-	return out
+	return out, nil
 }
 
-func metricSample(raw []any) *MetricSample {
-	if len(raw) < 2 {
-		return nil
+func metricSample(raw []any) (*MetricSample, error) {
+	if len(raw) != 2 {
+		return nil, fmt.Errorf("VictoriaMetrics sample requires a timestamp/value pair")
 	}
 	timestamp, ok := numberAsFloat(raw[0])
+	nanos := timestamp * 1e9
+	if !ok || math.IsNaN(timestamp) || math.IsInf(timestamp, 0) || nanos < float64(math.MinInt64) || nanos >= float64(math.MaxInt64) {
+		return nil, fmt.Errorf("VictoriaMetrics sample timestamp is not a representable nanosecond time")
+	}
+	value, ok := raw[1].(string)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("VictoriaMetrics sample value requires a numeric string")
 	}
+	// Prometheus represents NaN and infinities as strings too. They are valid
+	// metric values even though timestamps must be finite and representable.
+	if _, err := strconv.ParseFloat(value, 64); err != nil {
+		return nil, fmt.Errorf("VictoriaMetrics sample value requires a numeric string")
+	}
+	seconds, fraction := math.Modf(timestamp)
 	return &MetricSample{
-		Time:  time.Unix(0, int64(timestamp*1e9)).UTC().Format(time.RFC3339Nano),
-		Value: fmt.Sprint(raw[1]),
-	}
+		Time:  time.Unix(int64(seconds), int64(fraction*1e9)).UTC().Format(time.RFC3339Nano),
+		Value: value,
+	}, nil
 }
 
 func numberAsFloat(value any) (float64, bool) {
@@ -654,9 +704,6 @@ func numberAsFloat(value any) (float64, bool) {
 		return v, true
 	case json.Number:
 		n, err := v.Float64()
-		return n, err == nil
-	case string:
-		n, err := strconv.ParseFloat(v, 64)
 		return n, err == nil
 	default:
 		return 0, false
