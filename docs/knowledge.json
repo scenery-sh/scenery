@@ -27,7 +27,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-08",
       "review_after": "2026-11-07",
-      "summary": "Active unbounded telemetry review and improvement loop: seven captured Oracle reviews, published supervisor timing correction and pending typed catalog acceptance.",
+      "summary": "Active unbounded telemetry review and improvement loop: seven captured Oracle reviews, published supervisor timing correction and validated typed catalog publication checkpoint.",
       "tags": [
         "plans",
         "execplans",

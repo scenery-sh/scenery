@@ -305,14 +305,39 @@ work; completed plans are immutable history.
   valid empty distinctions, ordering, literal contents and current public shapes.
   Five service-free public roots and the existing catalog test pass, with request
   scope/bounds, cancellation, body closure and valid calls after rejection.
-- [ ] Complete cumulative full/lint, affected exact-root isolated timing and fresh
-  named observability HTTP/real-Victoria/CLI/owned-cleanup acceptance for the
-  catalog correction before updating the draft and starting Oracle008.
+- [x] 2026-10-08 Final full/default `20261008T142427.364255000Z` and named
+  observability `20261008T142758.183438000Z` pass at stable input
+  `sha256:516148bb204d7858506aec0c634cbba0621ab54ba7a6fdcaaf4c456fabdd5e0c`
+  with shared compiled framework source
+  `sha256:5360ce90d6b66095e1b793008a596075a95f2d1f9e82867f7f3cee75c923fd0a`.
+  Summary-first/full-context command union is covered by the full Go suite and
+  matching-input lint (exit0); all 1,795 Git-listed Go sources are format-clean.
+  Thirty genuine public catalog HTTP cases verify method/path/selector/bounds/
+  repeated scope, every malformed omitted row, precise empty/string controls,
+  current schemas/identities, private-detail-free validation errors and joined
+  listener/server cleanup. The actual real-Victoria CLI series control returns
+  18 series with enforced scope/current identity. Preserve evidence distinction:
+  synthetic public Go calls do not establish malformed-input CLI exit behavior.
+- [x] 2026-10-08 Current named runtime host PID23996/service PID23969, 28 spans
+  and build-input identity
+  `sha256:e46d8f714907e2a0f52fec15d34d96314958d60a5897322e8e9aa4d446243144`
+  bind SQL/HTTP/log/metric/RPC/generated-client/trace-buffer/admission evidence.
+  Capacity evicts7, natural TTL evicts1, backend independently refuses1 row;
+  existing complete owner fingerprints/units remain explicit. Owned runtime,
+  Victoria and PostgreSQL cleanup succeeds and the owned root is verified absent.
+- [x] 2026-10-08 All 36 cumulative exact changed roots retain 20 isolated serial
+  samples/p95<100ms (maximum retained90ms). Remeasure the10 query/catalog roots
+  against current inputs; their event-rounded p95 is0s, not an exact wall-time
+  claim. Reuse26 unchanged owning/exercised scopes with historical binary/source
+  identities. Full has12 existing knowledge warnings and a7.955s suite advisory;
+  named observability has12 knowledge warnings/zero errors. Source correction
+  `55835630434cac364560d8bee8ae0d8512a67960` is committed locally; its
+  documentation-only checkpoint retains the same Go source and acceptance.
 
 ### Resume here
 
-Petr's loop remains active and unbounded until manual stop. Published draft
-PR #240 is OPEN at `2f810c2ad9931fc7e13a3702980a69e036c14913`, original base
+Petr's loop remains active and unbounded until manual stop. At Oracle007 intake,
+OPEN draft PR #240 was pinned to `2f810c2ad9931fc7e13a3702980a69e036c14913`, original base
 `89fdc46c20527939ee1780a240339ba04aa54ef8`. Supervisor source `c1ff8939`
 completed final full/lint, 30-root isolated timing and named actual CLI acceptance;
 those receipts remain above. Both current CI lanes pass on exact-head push and
@@ -327,7 +352,11 @@ the independently reproduced pre-existing P2 MetricsSeries catalog correction,
 including endpoint/row shape, every omitted label and precise empty controls.
 Its review executed no Go/product tests or local receipt audit.
 
-The local catalog correction is not yet published. Raw JSON rows preserve kinds
+Catalog source `55835630434cac364560d8bee8ae0d8512a67960` has completed the
+acceptance recorded above. This record forms its documentation-only checkpoint;
+publication and the next consultation are changing facts owned by live Git/PR
+and `.scenery/telemetry-improvements/state.json`.
+Raw JSON rows preserve kinds
 until the consuming endpoint validates them. MetricsLabels is explicitly included
 because removal of the shared Strings/Series fallback requires its own typed
 consumer; both endpoints get focused controls and named HTTP acceptance.
@@ -336,8 +365,11 @@ Keep current series/labels/query schemas and identity literals unchanged when
 their existing public shape is enforced. The named segment records HTTP request
 scope/selector/bounds, exact controls/schema/identity, sanitized errors and joined
 owned cleanup, separately from the healthy real-Victoria metrics series CLI path.
-Finish cumulative validation and update this checkpoint before publishing the
-same draft, then start a fresh revision-bound Oracle008 review.
+Cumulative validation and fresh boundary acceptance are complete above.
+After verifying this checkpoint is published, continue with fresh revision-bound
+Oracle008. Reuse a healthy pending consultation when live state records one.
+The CI recorded above belongs to2f810; inspect each new head's actual runs rather
+than treating prior green checks as its evidence.
 
 N7 snapshot/coverage/aggregate budgets, N8 finite query limits, broader redirection
 attribution and lossless delivery prevention remain separate. Raw retention and
@@ -454,7 +486,8 @@ and generated client together for explicit N6 event-loss evidence. Architecture
 boundaries stay unchanged; the TypeScript specification already delegates exact
 status identity to the checked schema. Those owning documents need no additional
 update. Finite-read/report budgets, snapshot coverage, shell redirection
-remain later milestones; supervisor timing is the current bounded correction, alongside the reproduced backend field cap.
+remain later milestones. Supervisor timing is published; typed catalog validation
+has now completed its own cumulative and actual HTTP/runtime acceptance.
 
 ## Plan of Work
 
