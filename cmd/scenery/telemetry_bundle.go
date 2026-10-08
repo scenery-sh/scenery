@@ -126,8 +126,10 @@ func writeTelemetryBundle(opts telemetryBundleOptions) (telemetryBundle, error) 
 	if err := os.MkdirAll(filepath.Dir(opts.Output), 0o700); err != nil {
 		return result, err
 	}
-	if _, err := os.Lstat(opts.Output); !os.IsNotExist(err) {
-		return result, fmt.Errorf("export destination exists or cannot be inspected: %s", opts.Output)
+	if _, err := os.Lstat(opts.Output); err == nil {
+		return result, preconditionErrorf("export destination already exists: %s", opts.Output)
+	} else if !os.IsNotExist(err) {
+		return result, preconditionErrorf("export destination cannot be inspected: %v", err)
 	}
 	staging, err := os.CreateTemp(filepath.Dir(opts.Output), ".telemetry-export-*.zip")
 	if err != nil {
@@ -282,8 +284,13 @@ func writeTelemetryBundle(opts telemetryBundleOptions) (telemetryBundle, error) 
 	if err := staging.Close(); err != nil {
 		return result, err
 	}
-	if err := os.Rename(staging.Name(), opts.Output); err != nil {
-		return result, err
+	// Publish only the completed archive, without replacing a destination that
+	// appeared after the initial check. Unsupported hard links fail closed.
+	if err := os.Link(staging.Name(), opts.Output); err != nil {
+		if os.IsExist(err) {
+			return result, preconditionErrorf("export destination already exists: %s", opts.Output)
+		}
+		return result, preconditionErrorf("export no-replace publication failed: %v", err)
 	}
 	return result, nil
 }

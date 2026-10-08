@@ -121,8 +121,13 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		}
 		verified = append(verified, test.name)
 	}
+	publication, err := proveHarnessTelemetryPublication(ctx, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
-		"proof":          "real_cli_process_exit_codes_and_per_process_telemetry_verified",
-		"verified_cases": verified,
+		"proof":                     "real_cli_process_exit_codes_and_per_process_telemetry_verified",
+		"verified_cases":            verified,
+		"telemetry_zip_publication": publication,
 	}, nil, nil
 }
