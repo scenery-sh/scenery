@@ -626,9 +626,9 @@ func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
 }
 
 type victoriaMetricResult struct {
-	Metric map[string]string `json:"metric"`
-	Value  []any             `json:"value"`
-	Values [][]any           `json:"values"`
+	Metric map[string]any `json:"metric"`
+	Value  []any          `json:"value"`
+	Values [][]any        `json:"values"`
 }
 
 func normalizeMetricResults(items []victoriaMetricResult, resultType string, limit int) ([]MetricSeries, error) {
@@ -643,7 +643,15 @@ func normalizeMetricResults(items []victoriaMetricResult, resultType string, lim
 		if item.Metric == nil {
 			return nil, fmt.Errorf("VictoriaMetrics result requires a metric object")
 		}
-		series := MetricSeries{Metric: item.Metric}
+		labels := make(map[string]string, len(item.Metric))
+		for name, raw := range item.Metric {
+			value, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Errorf("VictoriaMetrics metric label requires a string")
+			}
+			labels[name] = value
+		}
+		series := MetricSeries{Metric: labels}
 		if resultType == "vector" {
 			if item.Values != nil {
 				return nil, fmt.Errorf("VictoriaMetrics vector requires value rather than values")

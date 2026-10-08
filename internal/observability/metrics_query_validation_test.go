@@ -25,6 +25,13 @@ func TestMetricsQueryRejectsMalformedSamples(t *testing.T) {
 		"null item":               `{"resultType":"vector","result":[null]}`,
 		"missing metric":          `{"resultType":"vector","result":[{"value":[1812450000,"3"]}]}`,
 		"null metric":             `{"resultType":"vector","result":[{"metric":null,"value":[1812450000,"3"]}]}`,
+		"null vector label":       `{"resultType":"vector","result":[{"metric":{"job":null},"value":[1812450000,"3"]}]}`,
+		"null matrix label":       `{"resultType":"matrix","result":[{"metric":{"job":null},"values":[[1812450000,"3"]]}]}`,
+		"null label after limit":  `{"resultType":"vector","result":[{"metric":{},"value":[1812450000,"3"]},{"metric":{"job":null},"value":[1812450000,"4"]}]}`,
+		"numeric label":           `{"resultType":"vector","result":[{"metric":{"job":7},"value":[1812450000,"3"]}]}`,
+		"boolean label":           `{"resultType":"vector","result":[{"metric":{"job":false},"value":[1812450000,"3"]}]}`,
+		"object label":            `{"resultType":"vector","result":[{"metric":{"job":{}},"value":[1812450000,"3"]}]}`,
+		"array label":             `{"resultType":"vector","result":[{"metric":{"job":[]},"value":[1812450000,"3"]}]}`,
 		"short tuple":             `{"resultType":"vector","result":[{"metric":{},"value":[1812450000]}]}`,
 		"long tuple":              `{"resultType":"vector","result":[{"metric":{},"value":[1812450000,"3","extra"]}]}`,
 		"null tuple":              `{"resultType":"matrix","result":[{"metric":{},"values":[null]}]}`,
@@ -65,12 +72,14 @@ func TestMetricsQueryPreservesValidSamples(t *testing.T) {
 		instant bool
 		samples int
 		value   string
+		labels  map[string]string
 	}{
-		{`{"resultType":"vector","result":[{"metric":{"__name__":"x"},"value":[1812450000.125,"3"]}]}`, true, 1, "3"},
-		{`{"resultType":"matrix","result":[{"metric":{},"values":[[1812450000,"NaN"],[1812450001,"+Inf"],[1812450002,"-Inf"]]}]}`, false, 3, ""},
-		{`{"resultType":"matrix","result":[{"metric":{},"values":[]}]}`, true, 0, ""},
-		{`{"resultType":"vector","result":[]}`, true, 0, ""},
-		{`{"resultType":"matrix","result":[]}`, false, 0, ""},
+		{`{"resultType":"vector","result":[{"metric":{"__name__":"x"},"value":[1812450000.125,"3"]}]}`, true, 1, "3", map[string]string{"__name__": "x"}},
+		{`{"resultType":"vector","result":[{"metric":{"job":""},"value":[1812450000.125,"3"]}]}`, true, 1, "3", map[string]string{"job": ""}},
+		{`{"resultType":"matrix","result":[{"metric":{"job":""},"values":[[1812450000,"NaN"],[1812450001,"+Inf"],[1812450002,"-Inf"]]}]}`, false, 3, "", map[string]string{"job": ""}},
+		{`{"resultType":"matrix","result":[{"metric":{},"values":[]}]}`, true, 0, "", nil},
+		{`{"resultType":"vector","result":[]}`, true, 0, "", nil},
+		{`{"resultType":"matrix","result":[]}`, false, 0, "", nil},
 	}
 	for _, fixture := range cases {
 		t.Run(fixture.data, func(t *testing.T) {
@@ -80,6 +89,16 @@ func TestMetricsQueryPreservesValidSamples(t *testing.T) {
 			}
 			count := 0
 			for _, series := range result.Series {
+				if fixture.labels != nil {
+					if len(series.Metric) != len(fixture.labels) {
+						t.Fatalf("label inventory changed: %+v", series.Metric)
+					}
+					for name, want := range fixture.labels {
+						if got, present := series.Metric[name]; !present || got != want {
+							t.Fatalf("label %s=%q present=%t want=%q", name, got, present, want)
+						}
+					}
+				}
 				count += len(series.Values)
 				if series.Value != nil {
 					count++

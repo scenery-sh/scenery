@@ -2279,9 +2279,10 @@ the backend `result_type`, and returns normalized metric series and samples.
 Malformed backend result structures fail decoding and propagate a query error;
 they never produce a successful empty or partially decoded metric result.
 Query results support vector or matrix series (range queries require a matrix).
-Every series requires a metric object and every sample exactly a numeric
-Unix-seconds timestamp and a numeric value string. Timestamps must be finite and
-within the signed 64-bit nanosecond range before conversion. Retain decimal JSON
+Every series requires a metric object whose label values are strings, including
+valid empty strings; null and other JSON kinds are malformed. Every sample has
+exactly a numeric Unix-seconds timestamp and a numeric value string. Timestamps
+must be finite and within the signed 64-bit nanosecond range before conversion. Retain decimal JSON
 numbers exactly through decoding; truncate subnanosecond fractions toward zero
 only after checking both endpoints. Metric values retain valid `NaN`,
 `+Inf` and `-Inf` strings. Validate all series, including those beyond `--limit`,
