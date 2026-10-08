@@ -24,6 +24,11 @@ work; completed plans are immutable history.
 - [x] 2026-10-08 Created registered feature `telemetry-improvements` at
   `/Users/petrbrazdil/Repos/scenery-telemetry-improvements` on
   `feat/telemetry-improvements`, based on that main revision.
+- [x] 2026-10-08 Published draft PR #240, Telemetry Improvements; initial
+  base-scoped quick validation passed with zero errors and 12 existing document
+  freshness warnings. Lint reported zero issues.
+- [x] 2026-10-08 Created the persistent five-minute loop heartbeat
+  `telemetry-improvements-loop`; recorded its ID in the local durable state.
 - [ ] Submit the first complete Oracle question and record its URL/revisions.
 - [ ] Verify actionable advice, select a bounded implementation, and record its
   observable acceptance scenario before editing runtime behavior.
@@ -33,12 +38,17 @@ work; completed plans are immutable history.
 
 ### Resume here
 
-2026-10-08: initial documentation checkpoint; no product changes yet. Validate
-this checkpoint, open the draft PR, then submit the first consultation. Local
-consultation prompts, full answers and scheduler IDs belong under ignored
-`.scenery/telemetry-improvements/`. Recover the recorded conversation before
-resending; a pending generation never authorizes a duplicate request. Read live
-Git/PR/scheduler state before relying on recorded status.
+2026-10-08: draft [PR #240](https://github.com/scenery-sh/scenery/pull/240) is
+published; no product changes yet. The prepared first question and exact
+source/validation/scheduler state are under ignored
+`.scenery/telemetry-improvements/`. It has not been submitted: the new ChatGPT
+picker verifies Pro (5 of 5), but displays no 6 or Latest identity. Petr has a
+pending clarification about accepting this current Pro selection. Resolve that
+model identity before sending, refresh the question's exact published target,
+verify its actual GitHub chip, and submit once. No consultation monitor exists
+until submission; the separate loop heartbeat is active. Recover any recorded
+conversation before resending. Read live Git/PR/scheduler state before relying
+on this checkpoint.
 
 ## Surprises & Discoveries
 
