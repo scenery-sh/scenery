@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -236,12 +237,29 @@ func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, li
 		return "", err
 	}
 	defaultPath := defaultWorktreePath(appRoot, cleanName)
+	matches := make(map[string]string)
 	for _, wt := range worktrees {
 		if cleanAbsPath(wt.Path) == cleanAbsPath(defaultPath) || strings.TrimPrefix(wt.Branch, "refs/heads/") == cleanName || filepath.Base(wt.Path) == cleanName {
-			return wt.Path, nil
+			path := cleanAbsPath(wt.Path)
+			if _, exists := matches[path]; !exists {
+				matches[path] = wt.Path
+			}
 		}
 	}
-	return "", fmt.Errorf("git worktree %q is not registered", cleanName)
+	if len(matches) == 0 {
+		return "", fmt.Errorf("git worktree %q is not registered", cleanName)
+	}
+	if len(matches) == 1 {
+		for _, path := range matches {
+			return path, nil
+		}
+	}
+	paths := make([]string, 0, len(matches))
+	for path := range matches {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	return "", preconditionErrorf("git worktree %q is ambiguous; matching paths: %q", cleanName, paths)
 }
 
 func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, error) {

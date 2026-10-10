@@ -204,6 +204,76 @@ func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	}
 }
 
+func TestWorktreeRemoveRequiresUniqueRegisteredTarget(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(canonicalTestDir(t), "demo")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	defaultPath := defaultWorktreePath(root, "target")
+	branchPath := filepath.Join(filepath.Dir(root), "by-branch")
+	basenamePath := filepath.Join(filepath.Dir(root), "target")
+	defaultMatch := worktreeRecord{Path: defaultPath, Branch: "other"}
+	branchMatch := worktreeRecord{Path: branchPath, Branch: "refs/heads/target"}
+	listFailure := errors.New("Git inventory unavailable")
+	ambiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{branchPath, defaultPath})
+	for _, tc := range []struct {
+		name      string
+		worktrees []worktreeRecord
+		listErr   error
+		wantPath  string
+		wantError string
+		ambiguous bool
+	}{
+		{name: "default path", worktrees: []worktreeRecord{defaultMatch}, wantPath: defaultPath},
+		{name: "branch", worktrees: []worktreeRecord{branchMatch}, wantPath: branchPath},
+		{name: "basename", worktrees: []worktreeRecord{{Path: basenamePath, Branch: "other"}}, wantPath: basenamePath},
+		{name: "one path matches multiple rules", worktrees: []worktreeRecord{{Path: defaultPath, Branch: "target"}}, wantPath: defaultPath},
+		{name: "duplicate normalized path", worktrees: []worktreeRecord{branchMatch, {Path: branchPath + "/.", Branch: "target"}}, wantPath: branchPath},
+		{name: "ambiguous", worktrees: []worktreeRecord{branchMatch, defaultMatch}, wantError: ambiguity, ambiguous: true},
+		{name: "ambiguous reversed", worktrees: []worktreeRecord{defaultMatch, branchMatch}, wantError: ambiguity, ambiguous: true},
+		{name: "unregistered", worktrees: []worktreeRecord{{Path: root, Branch: "main"}}, wantError: `git worktree "target" is not registered`},
+		{name: "inventory failure", listErr: listFailure, wantError: listFailure.Error()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			calls := 0
+			err := runWorktreeRemoveWithGit(t.Context(), &output, worktreeOptions{Name: "target", AppRoot: root, JSON: true},
+				func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
+					if gotRoot != root {
+						t.Fatalf("inventory root = %q, want %q", gotRoot, root)
+					}
+					return tc.worktrees, tc.listErr
+				}, func(_ context.Context, args ...string) error {
+					calls++
+					want := []string{"-C", root, "worktree", "remove", tc.wantPath}
+					if tc.wantPath == "" || !slices.Equal(args, want) {
+						t.Fatalf("unexpected mutation: %#v, want %#v", args, want)
+					}
+					return nil
+				})
+			if tc.wantError != "" {
+				if err == nil || err.Error() != tc.wantError || calls != 0 || output.Len() != 0 {
+					t.Fatalf("refusal = %v, mutations = %d, output = %s", err, calls, &output)
+				}
+				if tc.ambiguous && (cliExitCode(err) != 3 || cliErrorDiagnostic(err).Code != "SCN8003") {
+					t.Fatalf("ambiguity is not a precondition: %v", err)
+				}
+				if tc.listErr != nil && !errors.Is(err, listFailure) {
+					t.Fatalf("inventory error was lost: %v", err)
+				}
+				return
+			}
+			var removed worktreeRemoveResult
+			if err != nil || calls != 1 {
+				t.Fatalf("unique removal = %v, mutations = %d", err, calls)
+			}
+			if err := decodeCLIJSON(output.Bytes(), &removed); err != nil || !removed.OK || removed.Path != tc.wantPath {
+				t.Fatalf("unique result = %+v, decode error = %v", removed, err)
+			}
+		})
+	}
+}
+
 func evalPathForTest(t *testing.T, path string) string {
 	t.Helper()
 	evaluated, err := filepath.EvalSymlinks(path)

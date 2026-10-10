@@ -1091,6 +1091,12 @@ still discovers the enclosing application.
 
 `scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from `git worktree list --porcelain`. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
 
+Worktree removal matches the sanitized name against the default sibling path,
+branch name and checkout basename. Exactly one distinct normalized registered
+path must match; multiple paths are refused with `SCN8003` (exit 3) and sorted
+candidate paths before any Git removal. A single checkout matching several rules
+is still one target. Git-only selection and removal allocate no worktree state.
+
 `scenery worktree upgrade -o json` previews an explicit same-schema upgrade of
 the selected stopped root's worktree record, stopped session registry and all
 retained managed-storage owner/generation/reference metadata. Preview is

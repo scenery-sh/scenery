@@ -230,7 +230,7 @@ release certification. Failed steps identify their focused rerun command.
 | `dev-cleanup` | Session cleanup |
 | `inspect-go` | Go-package documentation inspection |
 | `toolchain-build` | Source toolchain builds |
-| `worktree-git` | Git worktree lifecycle |
+| `worktree-git` | Real Git create/list/remove lifecycle and dirty-checkout byte preservation; conflicting branch/default-path matches refuse with `SCN8003`/exit 3 while both checkout contents and registrations survive, followed by a unique-target removal control. Private retained sentinel bytes remain unchanged, no worktree authority is allocated, and owned fixture removal errors fail the probe with root absence verified |
 | `feature` | Five-feature ledger, exact/partial checkpoints, conflict/batch landing, revision refusal, failed/unknown push recovery, raw input checks, publication exclusion, shared probe admission across dead owners and owned cleanup |
 | `edge` | Caddy/publication HTTP and TLS behavior |
 | `generation` | Generated-package/source-only compilation |
