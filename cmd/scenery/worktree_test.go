@@ -255,6 +255,9 @@ func TestWorktreeRemoveRequiresUniqueRegisteredTarget(t *testing.T) {
 	basenamePath := filepath.Join(filepath.Dir(root), "target")
 	defaultMatch := worktreeRecord{Path: defaultPath, Branch: "other"}
 	branchMatch := worktreeRecord{Path: branchPath, Branch: "refs/heads/target"}
+	spacePath := defaultPath + " "
+	spaceMatch := worktreeRecord{Path: spacePath, Branch: "target"}
+	spaceAmbiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{defaultPath, spacePath})
 	listFailure := errors.New("Git inventory unavailable")
 	ambiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{branchPath, defaultPath})
 	for _, tc := range []struct {
@@ -272,6 +275,10 @@ func TestWorktreeRemoveRequiresUniqueRegisteredTarget(t *testing.T) {
 		{name: "duplicate normalized path", worktrees: []worktreeRecord{branchMatch, {Path: branchPath + "/.", Branch: "target"}}, wantPath: branchPath},
 		{name: "ambiguous", worktrees: []worktreeRecord{branchMatch, defaultMatch}, wantError: ambiguity, ambiguous: true},
 		{name: "ambiguous reversed", worktrees: []worktreeRecord{defaultMatch, branchMatch}, wantError: ambiguity, ambiguous: true},
+		{name: "trailing-space ambiguity", worktrees: []worktreeRecord{defaultMatch, spaceMatch}, wantError: spaceAmbiguity, ambiguous: true},
+		{name: "trailing-space ambiguity reversed", worktrees: []worktreeRecord{spaceMatch, defaultMatch}, wantError: spaceAmbiguity, ambiguous: true},
+		{name: "unique trailing-space branch", worktrees: []worktreeRecord{spaceMatch}, wantPath: spacePath},
+		{name: "trailing-space path is not default", worktrees: []worktreeRecord{{Path: spacePath, Branch: "other"}}, wantError: `git worktree "target" is not registered`},
 		{name: "unregistered", worktrees: []worktreeRecord{{Path: root, Branch: "main"}}, wantError: `git worktree "target" is not registered`},
 		{name: "inventory failure", listErr: listFailure, wantError: listFailure.Error()},
 	} {

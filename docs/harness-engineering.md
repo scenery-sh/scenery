@@ -102,9 +102,12 @@ including stale-approval refusal, exact metadata backup and unchanged SQL data;
 its nested scope segment proves configured name-only child selection, strict
 AppID mismatch refusal, enclosing discovery from ordinary subdirectories, and
 child-scoped refusal after marker/checkout deletion between exact parent preview
-controls. Every preview/refusal preserves both private inventories and metadata
-bytes without new backups or guards; the owned synthetic child and shortened
-socket locator must be removed and verified through their recorded spellings.
+controls. Distinct retained roots ending in space/newline preserve exact
+root/key/revision, including equivalent trailing-separator spellings, against the
+valid root without the suffix. Every preview/refusal preserves all private
+inventories and metadata bytes without new backups or guards; the owned synthetic
+children and shortened
+socket locators must be removed and verified through their recorded spellings.
 The storage probe verifies unchanged object payload hashes across that upgrade.
 Its pre-cutover lane additionally requires the pinned Docker-in-Docker and Go
 images; the historical binary runs only on that disposable nested daemon,
@@ -236,7 +239,7 @@ release certification. Failed steps identify their focused rerun command.
 | `dev-cleanup` | Session cleanup |
 | `inspect-go` | Go-package documentation inspection |
 | `toolchain-build` | Source toolchain builds |
-| `worktree-git` | Real Git create/list/remove lifecycle and dirty-checkout byte preservation; exact public list paths for newline, space, tab, quote and Unicode checkouts, successful branch-selected newline removal with its exact returned path and registration gone, while four control registrations and bytes remain; conflicting branch/default-path matches refuse with `SCN8003`/exit 3 while both checkout contents and registrations survive, followed by a unique-target removal control. Private retained sentinel bytes remain unchanged, no worktree authority is allocated, and owned fixture removal errors fail the probe with original and canonical root absence verified |
+| `worktree-git` | Real Git create/list/remove lifecycle and dirty-checkout byte preservation; exact public list paths for newline, space, tab, quote and Unicode checkouts, successful branch-selected newline removal with its exact returned path and registration gone, while four control registrations and bytes remain; distinct branch/default-path matches differing only by a trailing space refuse with `SCN8003`/exit 3 while both checkout contents and registrations survive, followed by a unique-target removal control. Private retained sentinel bytes remain unchanged, no worktree authority is allocated, and owned fixture removal errors fail the probe with original and canonical root absence verified |
 | `feature` | Five-feature ledger, exact/partial checkpoints, conflict/batch landing, revision refusal, failed/unknown push recovery, raw input checks, publication exclusion, shared probe admission across dead owners and owned cleanup |
 | `edge` | Caddy/publication HTTP and TLS behavior |
 | `generation` | Generated-package/source-only compilation |

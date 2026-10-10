@@ -299,8 +299,8 @@ func checkHarnessWorktreePathFidelity(ctx context.Context, repoRoot, appRoot, ho
 }
 
 func checkHarnessWorktreeAmbiguity(ctx context.Context, repoRoot, appRoot, home string) (map[string]any, error) {
-	branchPath := filepath.Join(filepath.Dir(appRoot), "aaa")
 	defaultPath := filepath.Join(filepath.Dir(appRoot), "demo-target")
+	branchPath := defaultPath + " "
 	for _, args := range [][]string{
 		{"worktree", "add", "-b", "target", branchPath},
 		{"worktree", "add", "-b", "different-branch", defaultPath},

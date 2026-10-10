@@ -41,6 +41,35 @@ func TestResolveStatusAppRootUsesMarkerWhenDesiredConfigIsMalformed(t *testing.T
 	}
 }
 
+func TestResolveStatusAppRootPreservesLiteralPathWhitespace(t *testing.T) {
+	fixture, home := canonicalTestDir(t), canonicalTestDir(t)
+	t.Chdir(fixture)
+	t.Setenv("SCENERY_AGENT_HOME", home)
+	writeTestAppFile(t, fixture, ".scenery.json", `{"name":"enclosing"}`)
+	writeTestAppFile(t, filepath.Join(fixture, "app"), ".scenery.json", `{"name":"alternate"}`)
+	for _, name := range []string{"app ", "app\t", "app\n", " app", " "} {
+		root := filepath.Join(fixture, name)
+		writeTestAppFile(t, root, ".scenery.json", `{"name":"selected"}`)
+		paths, err := commandWorktreePaths(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(paths.Directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// Path selection must not decode retained mutation authority.
+		if err := os.WriteFile(paths.Record, []byte("invalid retained sentinel"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, selected := range []string{root, root + string(filepath.Separator), name} {
+			got, err := resolveStatusAppRoot(selected)
+			if err != nil || got != paths.AppRoot {
+				t.Errorf("literal selection %q = %q, %v; want %q", selected, got, err, paths.AppRoot)
+			}
+		}
+	}
+}
+
 func TestDiscoverRuntimeAppIdentityPreservesSelectedScope(t *testing.T) {
 	home := canonicalTestDir(t)
 	t.Setenv("SCENERY_AGENT_HOME", home)

@@ -1077,7 +1077,9 @@ retained state location exists. Invalid, incompatible or pending state remains
 scoped to that root and is handled by the existing retained-state reader; it
 never redirects control to an enclosing application. Root selection allocates
 no state. An existing ordinary subdirectory without its own retained state
-still discovers the enclosing application.
+still discovers the enclosing application. Literal leading and trailing pathname
+whitespace is preserved; an empty root argument retains implicit current-directory
+discovery. A trailing separator does not change the selected canonical root.
 
 Plain `scenery logs`, its `--follow` form and `scenery console` retain this
 selected root through both retained-identity reading and strict pre-start
@@ -1107,7 +1109,10 @@ Worktree removal matches the sanitized name against the default sibling path,
 branch name and checkout basename. Exactly one distinct normalized registered
 path must match; multiple paths are refused with `SCN8003` (exit 3) and sorted
 candidate paths before any Git removal. A single checkout matching several rules
-is still one target. Git-only selection and removal allocate no worktree state.
+is still one target. Lexical normalization preserves literal pathname whitespace:
+registered checkouts differing by a trailing space remain distinct candidates,
+and neither becomes a false default-path match. Git-only selection and removal
+allocate no worktree state.
 
 `scenery worktree upgrade -o json` previews an explicit same-schema upgrade of
 the selected stopped root's worktree record, stopped session registry and all

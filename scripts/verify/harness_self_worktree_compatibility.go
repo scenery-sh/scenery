@@ -108,9 +108,17 @@ func (p *worktreeRuntimeProbe) retainedUpgradeScope(parent localagent.WorktreePa
 	if err != nil {
 		return evidence, err
 	}
-	owned := []string{childRoot, child.Directory}
-	if child.SocketDir != child.Directory {
-		owned = append(owned, child.SocketDir)
+	roots := []localagent.WorktreePaths{child}
+	for _, suffix := range []string{" ", "\n"} {
+		paths, err := localagent.PathsForWorktree(p.home, childRoot+suffix)
+		if err != nil {
+			return evidence, err
+		}
+		roots = append(roots, paths)
+	}
+	owned := []string{}
+	for _, paths := range roots {
+		owned = append(owned, paths.AppRoot, paths.Directory, paths.SocketDir)
 	}
 	for _, path := range owned {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
@@ -118,12 +126,14 @@ func (p *worktreeRuntimeProbe) retainedUpgradeScope(parent localagent.WorktreePa
 		}
 	}
 	defer func() {
-		for _, path := range []string{childRoot, child.Directory} {
-			resultErr = errors.Join(resultErr, os.RemoveAll(path))
-		}
-		if child.SocketDir != child.Directory {
-			if err := os.Remove(child.SocketDir); err != nil && !errors.Is(err, os.ErrNotExist) {
-				resultErr = errors.Join(resultErr, err)
+		for _, paths := range roots {
+			for _, path := range []string{paths.AppRoot, paths.Directory} {
+				resultErr = errors.Join(resultErr, os.RemoveAll(path))
+			}
+			if paths.SocketDir != paths.Directory {
+				if err := os.Remove(paths.SocketDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+					resultErr = errors.Join(resultErr, err)
+				}
 			}
 		}
 		for _, path := range owned {
@@ -134,48 +144,58 @@ func (p *worktreeRuntimeProbe) retainedUpgradeScope(parent localagent.WorktreePa
 		evidence["cleanup_paths"] = owned
 		evidence["cleanup_verified"] = resultErr == nil
 	}()
-	if err := os.Mkdir(childRoot, 0o700); err != nil {
-		return evidence, err
-	}
-	if err := child.Prepare(); err != nil {
-		return evidence, err
-	}
-	for _, path := range append([]string{childRoot, child.Directory, child.SocketDir}, filepath.Join(p.home, "worktrees", child.Key)) {
-		canonical, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			return evidence, err
-		}
-		owned = append(owned, path, canonical)
-	}
-	for _, acquire := range []func() (*localagent.ProcessLock, error){child.AcquireLiveLock, child.AcquireOperationLock} {
-		lock, err := acquire()
-		if err != nil {
-			return evidence, err
-		}
-		if err := lock.Release(); err != nil {
-			return evidence, err
-		}
-	}
 	const childID = "upgrade-scope-child"
-	config := []byte(`{"name":"` + childID + `","envs":{"local":{"default":true}}}`)
 	configPath := filepath.Join(childRoot, ".scenery.json")
-	if err := os.WriteFile(configPath, config, 0o600); err != nil {
-		return evidence, err
-	}
-	record := localagent.NewWorktreeRecord(child, childID)
-	record.SpecRevision = "sha256:" + strings.Repeat("b", 64)
-	data, err := json.Marshal(record)
-	if err != nil {
-		return evidence, err
-	}
-	if err := os.WriteFile(child.Record, data, 0o600); err != nil {
-		return evidence, err
+	for i, paths := range roots {
+		if err := os.Mkdir(paths.AppRoot, 0o700); err != nil {
+			return evidence, err
+		}
+		if err := paths.Prepare(); err != nil {
+			return evidence, err
+		}
+		for _, path := range append([]string{paths.AppRoot, paths.Directory, paths.SocketDir}, filepath.Join(p.home, "worktrees", paths.Key)) {
+			canonical, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return evidence, err
+			}
+			owned = append(owned, path, canonical)
+		}
+		for _, acquire := range []func() (*localagent.ProcessLock, error){paths.AcquireLiveLock, paths.AcquireOperationLock} {
+			lock, err := acquire()
+			if err != nil {
+				return evidence, err
+			}
+			if err := lock.Release(); err != nil {
+				return evidence, err
+			}
+		}
+		appID := childID
+		if i > 0 {
+			appID = fmt.Sprintf("%s-%d", childID, i)
+		}
+		config := []byte(`{"name":"` + appID + `","envs":{"local":{"default":true}}}`)
+		if err := os.WriteFile(filepath.Join(paths.AppRoot, ".scenery.json"), config, 0o600); err != nil {
+			return evidence, err
+		}
+		record := localagent.NewWorktreeRecord(paths, appID)
+		record.SpecRevision = "sha256:" + strings.Repeat("b", 64)
+		data, err := json.Marshal(record)
+		if err != nil {
+			return evidence, err
+		}
+		if err := os.WriteFile(paths.Record, data, 0o600); err != nil {
+			return evidence, err
+		}
 	}
 	// Compare every private file and directory entry after each invocation,
 	// including preexisting parent metadata, locks, backup and guard inventory.
 	snapshot := func() (map[string]string, error) {
 		files := map[string]string{}
-		for _, root := range []string{parent.Directory, child.Directory} {
+		privateRoots := []string{parent.Directory}
+		for _, paths := range roots {
+			privateRoots = append(privateRoots, paths.Directory)
+		}
+		for _, root := range privateRoots {
 			if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 				if err != nil {
 					return err
@@ -237,6 +257,17 @@ func (p *worktreeRuntimeProbe) retainedUpgradeScope(parent localagent.WorktreePa
 	}
 	if _, err := preview("configured name-only child", childRoot, child, "", 0); err != nil {
 		return evidence, err
+	}
+	for i, paths := range roots[1:] {
+		label := fmt.Sprintf("literal whitespace child %d", i)
+		revision, err := preview(label, paths.AppRoot, paths, "", 0)
+		if err != nil {
+			return evidence, err
+		}
+		aliasRevision, err := preview(label+" trailing separator", paths.AppRoot+string(filepath.Separator), paths, "", 0)
+		if err != nil || aliasRevision != revision {
+			return evidence, fmt.Errorf("whitespace path spellings changed selection: %v", err)
+		}
 	}
 	// Ordinary existing subdirectories still discover their enclosing app.
 	ordinary := filepath.Join(parent.AppRoot, "upgrade-scope-ordinary")

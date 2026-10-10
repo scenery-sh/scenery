@@ -19,6 +19,7 @@ import (
 func TestWorktreeUpgradeKeepsExplicitRootBeforeAdmission(t *testing.T) {
 	for _, test := range []struct {
 		name      string
+		suffix    string
 		missing   bool
 		retained  bool
 		malformed bool
@@ -27,6 +28,9 @@ func TestWorktreeUpgradeKeepsExplicitRootBeforeAdmission(t *testing.T) {
 		{name: "missing checkout", missing: true, retained: true},
 		{name: "missing checkout without state", missing: true},
 		{name: "malformed marker", retained: true, malformed: true},
+		{name: "missing marker trailing space", suffix: " ", retained: true},
+		{name: "missing checkout trailing tab", suffix: "\t", missing: true, retained: true},
+		{name: "malformed marker trailing newline", suffix: "\n", retained: true, malformed: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := t.TempDir()
@@ -37,7 +41,7 @@ func TestWorktreeUpgradeKeepsExplicitRootBeforeAdmission(t *testing.T) {
 			if err := os.WriteFile(appcfg.ConfigPath(parent), []byte(`{"name":"parent","envs":{"local":{"default":true}}}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			child := filepath.Join(parent, "child")
+			child := filepath.Join(parent, "child"+test.suffix)
 			if !test.missing {
 				if err := os.Mkdir(child, 0o700); err != nil {
 					t.Fatal(err)

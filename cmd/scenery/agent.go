@@ -802,11 +802,12 @@ func pruneSessionEligible(session localagent.Session, cutoff time.Time) bool {
 }
 
 func resolveStatusAppRoot(value string) (string, error) {
-	start := strings.TrimSpace(value)
+	start, err := resolveAppRoot(value)
+	if err != nil {
+		return "", err
+	}
 	explicitRoot := ""
-	if start == "" {
-		start = "."
-	} else {
+	if value != "" {
 		paths, err := commandWorktreePaths(start)
 		if err != nil {
 			return "", err
