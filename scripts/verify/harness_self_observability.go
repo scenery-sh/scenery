@@ -352,6 +352,11 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 	if err != nil {
 		return proof, err
 	}
+	consoleScope, err := proveHarnessConsoleScope(p, root)
+	proof["console_scope"] = consoleScope
+	if err != nil {
+		return proof, err
+	}
 	if err := waitForHarnessCondition(readback, func() bool {
 		output, err := runHarnessAppCLIWithEnv(readback, repo, root, p.env, "metrics", "query", "--promql", `scenery_request_duration_seconds{scenery_trace_type="DB"}`, "--instant", "-o", "json")
 		if err != nil {
