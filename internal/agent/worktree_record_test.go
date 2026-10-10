@@ -3,8 +3,12 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
+	"path/filepath"
 	"testing"
+
+	"scenery.sh/internal/stateupgrade"
 )
 
 func TestWorktreeRecordPreservesOwnership(t *testing.T) {
@@ -40,6 +44,40 @@ func TestWorktreeRecordPreservesOwnership(t *testing.T) {
 	after, err := os.ReadFile(p.Record)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("rejected replacement changed retained state")
+	}
+}
+
+func TestRetainedWorktreeIdentityRefusesPendingUpgrade(t *testing.T) {
+	p, err := PathsForWorktree(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(p.Directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(NewWorktreeRecord(p, "books"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(p.Directory, stateupgrade.PendingName)
+	files := map[string][]byte{p.Record: data, marker: []byte("pending publication guard")}
+	for path, data := range files {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := p.LoadRetainedWorktreeIdentity(); !errors.Is(err, stateupgrade.ErrPrecondition) {
+		t.Fatalf("pending identity admitted: %v", err)
+	}
+	entries, err := os.ReadDir(p.Directory)
+	if err != nil || len(entries) != len(files) {
+		t.Fatalf("reader allocated state: %v, %v", entries, err)
+	}
+	for path, before := range files {
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("reader changed pending metadata: %v", err)
+		}
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/victoria"
 )
@@ -152,34 +153,39 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 // discoverRuntimeAppIdentity prefers the retained worktree record because it
 // is the authority for an existing runtime. This keeps logs usable during a
 // configuration-language transition; an absent retained runtime falls back to
-// strict desired-config discovery for ordinary pre-start diagnostics.
+// strict desired-config reading at the selected root for pre-start diagnostics.
 func discoverRuntimeAppIdentity(appRootOption string) (string, string, error) {
-	start, err := resolveAppRoot(appRootOption)
+	root, err := resolveStatusAppRoot(appRootOption)
 	if err != nil {
 		return "", "", err
 	}
-	root, markerErr := discoverFrameworkRoot(start)
-	if markerErr == nil {
-		paths, pathsErr := commandWorktreePaths(root)
-		if pathsErr != nil {
-			return "", "", pathsErr
-		}
-		record, recordErr := paths.LoadRecord("")
-		if recordErr == nil {
-			return root, record.AppID, nil
-		}
-		if errors.Is(recordErr, os.ErrNotExist) {
-			// No retained owner: ordinary diagnostics fall back to the desired
-			// configuration below.
-		} else if retained, retainedErr := paths.LoadRetainedWorktreeIdentity(); retainedErr == nil {
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		return "", "", err
+	}
+	record, recordErr := paths.LoadRecord("")
+	if recordErr == nil {
+		return root, record.AppID, nil
+	}
+	if !errors.Is(recordErr, os.ErrNotExist) {
+		if retained, retainedErr := paths.LoadRetainedWorktreeIdentity(); retainedErr == nil {
 			return root, retained.AppID, nil
 		} else {
 			return "", "", errors.Join(recordErr, retainedErr)
 		}
 	}
-	root, cfg, configErr := discoverConfiguredApp(start)
-	if configErr != nil {
-		return "", "", configErr
+	// An absent retained owner falls back only to this root's desired config.
+	// Rediscovering here could redirect an explicit orphan request to its parent.
+	data, err := os.ReadFile(app.ConfigPath(root))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", fmt.Errorf("no scenery app found at %s: %w", root, app.ErrRootNotFound)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	cfg, err := app.ParseConfig(root, data)
+	if err != nil {
+		return "", "", err
 	}
 	return root, cfg.AppID(), nil
 }
