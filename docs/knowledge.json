@@ -937,9 +937,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-09",
-      "review_after": "2026-10-09",
-      "summary": "Explicit same-schema in-place metadata preview/apply, quiescence, independent backups, unchanged data identities, exact interruption recovery and runtime acceptance.",
+      "last_reviewed": "2026-10-10",
+      "review_after": "2026-11-09",
+      "summary": "Explicit same-schema in-place metadata preview/apply, quiescence, independent backups, unchanged data identities, exact interruption recovery and runtime acceptance. Preview/apply and pending retry require matching configuration at the exact retained root; missing child markers never select an enclosing app.",
       "tags": ["runbooks", "runtime", "storage", "migration", "ownership"]
     },
     {
@@ -2796,9 +2796,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-08",
-      "review_after": "2026-11-07",
-      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields.",
+      "last_reviewed": "2026-10-10",
+      "review_after": "2026-11-09",
+      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields. Explicit retained lifecycle roots remain scoped after checkout deletion or invalid retained state; Git worktree removal refuses multiple matching checkout paths. Plain logs and interactive console preserve the selected root and refuse pending retained upgrades; console retains valid configured display names. Git inventory uses NUL delimiters to preserve embedded newline and ordinary path bytes. Upgrade preview/apply and pending retry parse configuration at the selected retained root, refusing missing or malformed child markers without parent redirection. Literal selected pathname whitespace is preserved; Git removal normalization keeps trailing-space paths distinct.",
       "tags": [
         "contract",
         "cli",
@@ -2940,9 +2940,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-08",
-      "review_after": "2026-11-07",
-      "summary": "Repository verification matrix and named probes, including failure-aware query framing, exact structured JSON/schema numbers, independent assertion outcomes and complete owned HTTP/runtime cleanup.",
+      "last_reviewed": "2026-10-10",
+      "review_after": "2026-11-09",
+      "summary": "Repository verification matrix and named probes, including failure-aware query framing, exact structured JSON/schema numbers, independent assertion outcomes and complete owned HTTP/runtime cleanup. A12 nested-orphan cleanup preserves continuously serving parent and sibling owners and data; worktree-git proves ambiguity refusal, unique removal, preserved bytes and owned cleanup. Observability proves actual plain-log and raw-terminal console root refusal between positive parent controls, joins PTY children and verifies owned fixture absence. Worktree-git also proves exact newline/space/tab/quote/Unicode paths, branch-selected newline removal and preservation of all four controls. A16 verifies upgrade root selection, strict AppID admission, unchanged private inventories and exact synthetic-child cleanup. A16 preserves distinct space/newline root spellings and equivalent separators; Git ambiguity includes distinct trailing-space candidates.",
       "tags": [
         "harness",
         "agents",

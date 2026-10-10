@@ -27,6 +27,47 @@ func TestParseWorktreeArgs(t *testing.T) {
 	}
 }
 
+func TestParseGitWorktrees(t *testing.T) {
+	t.Parallel()
+
+	const unusualPath = "/tmp/space tab\tquote\"žluťoučký\r\nbranch refs/heads/fake "
+	for _, tc := range []struct {
+		name   string
+		output string
+		want   []worktreeRecord
+	}{
+		{name: "empty"},
+		{
+			name: "records and exact values",
+			output: "HEAD ignored\x00branch ignored\x00\x00worktree " + unusualPath + "\x00HEAD a\x00branch refs/heads/main\x00locked reason\nbranch fake\x00\x00\x00" +
+				"worktree /tmp/detached\x00HEAD b\x00detached\x00prunable reason\x00\x00worktree /tmp/bare\x00bare\x00\x00",
+			want: []worktreeRecord{{Path: unusualPath, Head: "a", Branch: "main"}, {Path: "/tmp/detached", Head: "b"}, {Path: "/tmp/bare", Bare: true}},
+		},
+		{
+			name:   "next record without empty attribute",
+			output: "worktree /tmp/first\x00branch custom/ref\x00worktree /tmp/second\x00HEAD c\x00",
+			want:   []worktreeRecord{{Path: "/tmp/first", Branch: "custom/ref"}, {Path: "/tmp/second", Head: "c"}},
+		},
+		{
+			name:   "final attribute terminator",
+			output: "worktree /tmp/final\x00HEAD d\x00",
+			want:   []worktreeRecord{{Path: "/tmp/final", Head: "d"}},
+		},
+		{
+			name:   "unterminated final attribute",
+			output: "worktree /tmp/final\x00HEAD d",
+			want:   []worktreeRecord{{Path: "/tmp/final", Head: "d"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseGitWorktrees(tc.output)
+			if !slices.Equal(got, tc.want) || (tc.want == nil && got != nil) {
+				t.Fatalf("records = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	t.Parallel()
 
@@ -201,6 +242,83 @@ func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(unlisted, ".scenery", "worktree-db.json")); err != nil {
 		t.Fatalf("unlisted target state was removed: %v", err)
+	}
+}
+
+func TestWorktreeRemoveRequiresUniqueRegisteredTarget(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(canonicalTestDir(t), "demo")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	defaultPath := defaultWorktreePath(root, "target")
+	branchPath := filepath.Join(filepath.Dir(root), "by-branch")
+	basenamePath := filepath.Join(filepath.Dir(root), "target")
+	defaultMatch := worktreeRecord{Path: defaultPath, Branch: "other"}
+	branchMatch := worktreeRecord{Path: branchPath, Branch: "refs/heads/target"}
+	spacePath := defaultPath + " "
+	spaceMatch := worktreeRecord{Path: spacePath, Branch: "target"}
+	spaceAmbiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{defaultPath, spacePath})
+	listFailure := errors.New("Git inventory unavailable")
+	ambiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{branchPath, defaultPath})
+	for _, tc := range []struct {
+		name      string
+		worktrees []worktreeRecord
+		listErr   error
+		wantPath  string
+		wantError string
+		ambiguous bool
+	}{
+		{name: "default path", worktrees: []worktreeRecord{defaultMatch}, wantPath: defaultPath},
+		{name: "branch", worktrees: []worktreeRecord{branchMatch}, wantPath: branchPath},
+		{name: "basename", worktrees: []worktreeRecord{{Path: basenamePath, Branch: "other"}}, wantPath: basenamePath},
+		{name: "one path matches multiple rules", worktrees: []worktreeRecord{{Path: defaultPath, Branch: "target"}}, wantPath: defaultPath},
+		{name: "duplicate normalized path", worktrees: []worktreeRecord{branchMatch, {Path: branchPath + "/.", Branch: "target"}}, wantPath: branchPath},
+		{name: "ambiguous", worktrees: []worktreeRecord{branchMatch, defaultMatch}, wantError: ambiguity, ambiguous: true},
+		{name: "ambiguous reversed", worktrees: []worktreeRecord{defaultMatch, branchMatch}, wantError: ambiguity, ambiguous: true},
+		{name: "trailing-space ambiguity", worktrees: []worktreeRecord{defaultMatch, spaceMatch}, wantError: spaceAmbiguity, ambiguous: true},
+		{name: "trailing-space ambiguity reversed", worktrees: []worktreeRecord{spaceMatch, defaultMatch}, wantError: spaceAmbiguity, ambiguous: true},
+		{name: "unique trailing-space branch", worktrees: []worktreeRecord{spaceMatch}, wantPath: spacePath},
+		{name: "trailing-space path is not default", worktrees: []worktreeRecord{{Path: spacePath, Branch: "other"}}, wantError: `git worktree "target" is not registered`},
+		{name: "unregistered", worktrees: []worktreeRecord{{Path: root, Branch: "main"}}, wantError: `git worktree "target" is not registered`},
+		{name: "inventory failure", listErr: listFailure, wantError: listFailure.Error()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			calls := 0
+			err := runWorktreeRemoveWithGit(t.Context(), &output, worktreeOptions{Name: "target", AppRoot: root, JSON: true},
+				func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
+					if gotRoot != root {
+						t.Fatalf("inventory root = %q, want %q", gotRoot, root)
+					}
+					return tc.worktrees, tc.listErr
+				}, func(_ context.Context, args ...string) error {
+					calls++
+					want := []string{"-C", root, "worktree", "remove", tc.wantPath}
+					if tc.wantPath == "" || !slices.Equal(args, want) {
+						t.Fatalf("unexpected mutation: %#v, want %#v", args, want)
+					}
+					return nil
+				})
+			if tc.wantError != "" {
+				if err == nil || err.Error() != tc.wantError || calls != 0 || output.Len() != 0 {
+					t.Fatalf("refusal = %v, mutations = %d, output = %s", err, calls, &output)
+				}
+				if tc.ambiguous && (cliExitCode(err) != 3 || cliErrorDiagnostic(err).Code != "SCN8003") {
+					t.Fatalf("ambiguity is not a precondition: %v", err)
+				}
+				if tc.listErr != nil && !errors.Is(err, listFailure) {
+					t.Fatalf("inventory error was lost: %v", err)
+				}
+				return
+			}
+			var removed worktreeRemoveResult
+			if err != nil || calls != 1 {
+				t.Fatalf("unique removal = %v, mutations = %d", err, calls)
+			}
+			if err := decodeCLIJSON(output.Bytes(), &removed); err != nil || !removed.OK || removed.Path != tc.wantPath {
+				t.Fatalf("unique result = %+v, decode error = %v", removed, err)
+			}
+		})
 	}
 }
 

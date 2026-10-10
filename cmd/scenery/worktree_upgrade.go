@@ -10,6 +10,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/spec"
 	"scenery.sh/internal/stateupgrade"
 	"scenery.sh/internal/storagefs"
@@ -33,7 +34,18 @@ type worktreeUpgradeResult struct {
 }
 
 func runWorktreeUpgrade(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
-	root, cfg, err := discoverConfiguredApp(opts.AppRoot)
+	root, err := resolveStatusAppRoot(opts.AppRoot)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(appcfg.ConfigPath(root))
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("no scenery app found at %s: %w", root, appcfg.ErrRootNotFound)
+	}
+	if err != nil {
+		return err
+	}
+	cfg, err := appcfg.ParseConfig(root, data)
 	if err != nil {
 		return err
 	}

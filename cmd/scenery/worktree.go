@@ -1,13 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -236,32 +236,52 @@ func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, li
 		return "", err
 	}
 	defaultPath := defaultWorktreePath(appRoot, cleanName)
+	matches := make(map[string]string)
 	for _, wt := range worktrees {
-		if cleanAbsPath(wt.Path) == cleanAbsPath(defaultPath) || strings.TrimPrefix(wt.Branch, "refs/heads/") == cleanName || filepath.Base(wt.Path) == cleanName {
-			return wt.Path, nil
+		path := filepath.Clean(wt.Path)
+		if path == filepath.Clean(defaultPath) || strings.TrimPrefix(wt.Branch, "refs/heads/") == cleanName || filepath.Base(wt.Path) == cleanName {
+			if _, exists := matches[path]; !exists {
+				matches[path] = wt.Path
+			}
 		}
 	}
-	return "", fmt.Errorf("git worktree %q is not registered", cleanName)
+	if len(matches) == 0 {
+		return "", fmt.Errorf("git worktree %q is not registered", cleanName)
+	}
+	if len(matches) == 1 {
+		for _, path := range matches {
+			return path, nil
+		}
+	}
+	paths := make([]string, 0, len(matches))
+	for path := range matches {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	return "", preconditionErrorf("git worktree %q is ambiguous; matching paths: %q", cleanName, paths)
 }
 
 func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, error) {
-	output, err := gitCommandOutput(ctx, appRoot, "worktree", "list", "--porcelain")
+	output, err := gitCommandOutput(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return nil, err
 	}
+	return parseGitWorktrees(output), nil
+}
+
+// NUL-delimited attributes keep newlines and other path bytes inside their value.
+func parseGitWorktrees(output string) []worktreeRecord {
 	var result []worktreeRecord
 	var current *worktreeRecord
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
+	for field := range strings.SplitSeq(output, "\x00") {
+		if field == "" {
 			if current != nil {
 				result = append(result, *current)
 				current = nil
 			}
 			continue
 		}
-		key, value, _ := strings.Cut(line, " ")
+		key, value, _ := strings.Cut(field, " ")
 		if key == "worktree" {
 			if current != nil {
 				result = append(result, *current)
@@ -281,13 +301,10 @@ func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, er
 			current.Bare = true
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
 	if current != nil {
 		result = append(result, *current)
 	}
-	return result, nil
+	return result
 }
 
 func runGitCommand(ctx context.Context, args ...string) error {
