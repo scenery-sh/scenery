@@ -1111,8 +1111,13 @@ is still one target. Git-only selection and removal allocate no worktree state.
 
 `scenery worktree upgrade -o json` previews an explicit same-schema upgrade of
 the selected stopped root's worktree record, stopped session registry and all
-retained managed-storage owner/generation/reference metadata. Preview is
-non-allocating. `--yes --expect-revision <digest>` applies only the exact
+retained managed-storage owner/generation/reference metadata. Preview and apply
+use the retained-root selection above, then require valid `.scenery.json` at
+that exact root with an AppID matching retained ownership. Missing selected
+configuration refuses with `SCN8001`/exit 2; malformed configuration remains
+`SCN8003`/exit 3. Neither case selects a configured parent or infers configuration
+from retained identity. This prerequisite also applies to pending upgrade retry.
+Preview is non-allocating. `--yes --expect-revision <digest>` applies only the exact
 root/spec/metadata-bound selection; both flags are required together. Identical
 artifact kind/schema and valid current payload/ownership are mandatory. Engine
 or data-format changes, live recorded processes, incomplete allocations and

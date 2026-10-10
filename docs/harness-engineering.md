@@ -99,7 +99,13 @@ The enclosing and sibling applications must retain their owners and data and
 serve continuously throughout removal and cleanup.
 Its A16 case also exercises the public same-schema retained-state upgrade,
 including stale-approval refusal, exact metadata backup and unchanged SQL data;
-the storage probe verifies unchanged object payload hashes across that upgrade.
+its nested scope segment proves configured name-only child selection, strict
+AppID mismatch refusal, enclosing discovery from ordinary subdirectories, and
+child-scoped refusal after marker/checkout deletion between exact parent preview
+controls. Every preview/refusal preserves both private inventories and metadata
+bytes without new backups or guards; the owned synthetic child and shortened
+socket locator must be removed and verified through their recorded spellings.
+The storage probe verifies unchanged object payload hashes across that upgrade.
 Its pre-cutover lane additionally requires the pinned Docker-in-Docker and Go
 images; the historical binary runs only on that disposable nested daemon,
 without a host Docker socket or source bind mount. No global developer cluster
