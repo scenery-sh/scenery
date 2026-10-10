@@ -27,6 +27,47 @@ func TestParseWorktreeArgs(t *testing.T) {
 	}
 }
 
+func TestParseGitWorktrees(t *testing.T) {
+	t.Parallel()
+
+	const unusualPath = "/tmp/space tab\tquote\"žluťoučký\r\nbranch refs/heads/fake "
+	for _, tc := range []struct {
+		name   string
+		output string
+		want   []worktreeRecord
+	}{
+		{name: "empty"},
+		{
+			name: "records and exact values",
+			output: "HEAD ignored\x00branch ignored\x00\x00worktree " + unusualPath + "\x00HEAD a\x00branch refs/heads/main\x00locked reason\nbranch fake\x00\x00\x00" +
+				"worktree /tmp/detached\x00HEAD b\x00detached\x00prunable reason\x00\x00worktree /tmp/bare\x00bare\x00\x00",
+			want: []worktreeRecord{{Path: unusualPath, Head: "a", Branch: "main"}, {Path: "/tmp/detached", Head: "b"}, {Path: "/tmp/bare", Bare: true}},
+		},
+		{
+			name:   "next record without empty attribute",
+			output: "worktree /tmp/first\x00branch custom/ref\x00worktree /tmp/second\x00HEAD c\x00",
+			want:   []worktreeRecord{{Path: "/tmp/first", Branch: "custom/ref"}, {Path: "/tmp/second", Head: "c"}},
+		},
+		{
+			name:   "final attribute terminator",
+			output: "worktree /tmp/final\x00HEAD d\x00",
+			want:   []worktreeRecord{{Path: "/tmp/final", Head: "d"}},
+		},
+		{
+			name:   "unterminated final attribute",
+			output: "worktree /tmp/final\x00HEAD d",
+			want:   []worktreeRecord{{Path: "/tmp/final", Head: "d"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseGitWorktrees(tc.output)
+			if !slices.Equal(got, tc.want) || (tc.want == nil && got != nil) {
+				t.Fatalf("records = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	t.Parallel()
 

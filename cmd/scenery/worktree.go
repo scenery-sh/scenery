@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -263,23 +262,26 @@ func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, li
 }
 
 func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, error) {
-	output, err := gitCommandOutput(ctx, appRoot, "worktree", "list", "--porcelain")
+	output, err := gitCommandOutput(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return nil, err
 	}
+	return parseGitWorktrees(output), nil
+}
+
+// NUL-delimited attributes keep newlines and other path bytes inside their value.
+func parseGitWorktrees(output string) []worktreeRecord {
 	var result []worktreeRecord
 	var current *worktreeRecord
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
+	for field := range strings.SplitSeq(output, "\x00") {
+		if field == "" {
 			if current != nil {
 				result = append(result, *current)
 				current = nil
 			}
 			continue
 		}
-		key, value, _ := strings.Cut(line, " ")
+		key, value, _ := strings.Cut(field, " ")
 		if key == "worktree" {
 			if current != nil {
 				result = append(result, *current)
@@ -299,13 +301,10 @@ func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, er
 			current.Bare = true
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
 	if current != nil {
 		result = append(result, *current)
 	}
-	return result, nil
+	return result
 }
 
 func runGitCommand(ctx context.Context, args ...string) error {
