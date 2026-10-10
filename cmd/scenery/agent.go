@@ -803,8 +803,29 @@ func pruneSessionEligible(session localagent.Session, cutoff time.Time) bool {
 
 func resolveStatusAppRoot(value string) (string, error) {
 	start := strings.TrimSpace(value)
+	explicitRoot := ""
 	if start == "" {
 		start = "."
+	} else {
+		paths, err := commandWorktreePaths(start)
+		if err != nil {
+			return "", err
+		}
+		explicitRoot = paths.AppRoot
+		// Retained identity takes precedence over ancestor discovery, even
+		// when its record is pending or invalid. Readers validate it later.
+		if _, err := os.Lstat(paths.Directory); err == nil {
+			return explicitRoot, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		// A deleted checkout must never select an enclosing application's
+		// runtime or data. Existing ordinary subdirectories still discover it.
+		if _, err := os.Stat(explicitRoot); errors.Is(err, os.ErrNotExist) {
+			return explicitRoot, nil
+		} else if err != nil {
+			return "", err
+		}
 	}
 	root, _, err := app.DiscoverRoot(start)
 	if err == nil {
@@ -817,12 +838,8 @@ func resolveStatusAppRoot(value string) (string, error) {
 	if markerRoot, markerErr := discoverFrameworkRoot(start); markerErr == nil {
 		return markerRoot, nil
 	}
-	if value != "" {
-		abs, absErr := filepath.Abs(value)
-		if absErr != nil {
-			return "", errors.Join(err, absErr)
-		}
-		return filepath.Clean(abs), nil
+	if explicitRoot != "" {
+		return explicitRoot, nil
 	}
 	return "", err
 }

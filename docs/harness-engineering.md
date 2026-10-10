@@ -93,6 +93,10 @@ and tests managed PostgreSQL ownership, typed lending races, lifecycle and crash
 recovery, a configured external database that development `up` refuses in every
 worktree, inert restores, optional Victoria recovery, local versus public edge
 exposure, and genuinely different control-protocol binaries.
+Its A12 case removes a nested checkout below a live application, then exercises
+explicit orphan status, idempotent shutdown and retryable exact database prune.
+The enclosing and sibling applications must retain their owners and data and
+serve continuously throughout removal and cleanup.
 Its A16 case also exercises the public same-schema retained-state upgrade,
 including stale-approval refusal, exact metadata backup and unchanged SQL data;
 the storage probe verifies unchanged object payload hashes across that upgrade.
