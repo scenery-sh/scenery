@@ -186,6 +186,69 @@ func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	}
 }
 
+func TestWorktreeCreatePreservesFollowupPath(t *testing.T) {
+	t.Parallel()
+	parent := canonicalTestDir(t)
+	for _, tc := range []struct {
+		name, directory, quotedDirectory, from string
+	}{
+		{"space", "demo space", "demo space", ""},
+		{"tab and newline", "demo\tline\n", "demo\tline\n", "main~0"},
+		{"apostrophes", "demo''", "demo'\"'\"''\"'\"'", "main~0"},
+		{"shell characters", "demo\\$HOME;\"", "demo\\$HOME;\"", "main~0"},
+		{"unicode", "žluťoučký", "žluťoučký", "main~0"},
+		{"leading and trailing space", " demo ", " demo ", " \t "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(parent, tc.directory)
+			writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+			target := filepath.Join(parent, tc.directory+"-pricing-agent")
+			// The variable fixture prefix may itself contain an apostrophe.
+			quotedParent := strings.ReplaceAll(parent, "'", "'\"'\"'")
+			wantCommand := "cd '" + quotedParent + "/" + tc.quotedDirectory + "-pricing-agent' && scenery up"
+			for _, jsonOutput := range []bool{true, false} {
+				var output bytes.Buffer
+				calls := 0
+				opts := worktreeOptions{Name: "pricing agent", AppRoot: root, From: tc.from, JSON: jsonOutput}
+				err := runWorktreeCreateWithGit(t.Context(), &output, opts, func(_ context.Context, args ...string) error {
+					calls++
+					want := []string{"-C", root, "worktree", "add", "-b", "pricing-agent", target}
+					if tc.from == "main~0" {
+						want = append(want, "main~0")
+					}
+					if !slices.Equal(args, want) {
+						t.Fatalf("Git argv = %#v, want %#v", args, want)
+					}
+					return nil
+				})
+				if err != nil || calls != 1 {
+					t.Fatalf("create: %v; Git calls = %d", err, calls)
+				}
+				if jsonOutput {
+					var result worktreeCreateResult
+					if err := decodeCLIJSON(output.Bytes(), &result); err != nil {
+						t.Fatal(err)
+					}
+					if !result.OK || result.Path != target || result.NextCommand != wantCommand || result.From != strings.TrimSpace(tc.from) {
+						t.Fatalf("create result = %+v, want literal path %q and command %q", result, target, wantCommand)
+					}
+				} else if want := "created worktree pricing-agent at " + target + "\nnext: " + wantCommand + "\n"; output.String() != want {
+					t.Fatalf("human output = %q, want %q", output.String(), want)
+				}
+				output.Reset()
+				gitError := errors.New("Git refused creation")
+				err = runWorktreeCreateWithGit(t.Context(), &output, opts, func(context.Context, ...string) error { return gitError })
+				if !errors.Is(err, gitError) || output.Len() != 0 {
+					t.Fatalf("Git failure = %v, output = %q", err, output.String())
+				}
+				if _, err := os.Lstat(target); !os.IsNotExist(err) {
+					t.Fatalf("callback-only create allocated a target: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFailsInProcess(t *testing.T) {
 	t.Parallel()
 

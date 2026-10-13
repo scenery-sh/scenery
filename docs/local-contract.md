@@ -1105,6 +1105,12 @@ identity is available but desired config is absent or invalid, it displays AppID
 
 `scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from NUL-delimited `git worktree list --porcelain -z`, preserving embedded newlines, spaces, tabs, quotes and Unicode in registered checkout paths. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
 
+CREATE returns a shell-style `next_command` and prints the same complete value
+after `next:` in human output. Existing command reproduction formatting quotes
+the literal target as one POSIX shell operand, including spaces, tabs, newlines,
+apostrophes and other shell characters. Git still receives the original path as
+an argv value; safe ordinary-path follow-up text is unchanged.
+
 Worktree removal matches the sanitized name against the default sibling path,
 branch name and checkout basename. Exactly one distinct normalized registered
 path must match; multiple paths are refused with `SCN8003` (exit 3) and sorted

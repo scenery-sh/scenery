@@ -96,6 +96,7 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 	}
 
 	created := make([]worktreeCreateResult, 0, 2)
+	var ordinaryFollowups []map[string]any
 	for _, name := range []string{"pricing-agent", "content-agent"} {
 		var output bytes.Buffer
 		if err := runProduct(ctx, repoRoot, &output, "worktree", "create", name, "--from", "main", "--app-root", appRoot, "-o", "json"); err != nil {
@@ -114,6 +115,11 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 		if _, err := os.Stat(filepath.Join(result.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
 			return nil, nil, fmt.Errorf("create %s unexpectedly wrote database pin: %v", name, err)
 		}
+		observation, err := checkHarnessWorktreeShellFollowup(ctx, result.NextCommand, result.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+		ordinaryFollowups = append(ordinaryFollowups, observation)
 		created = append(created, result)
 	}
 	if created[0].Path == created[1].Path {
@@ -195,6 +201,10 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 	if err != nil {
 		return nil, nil, err
 	}
+	followup, err := checkHarnessWorktreeFollowup(ctx, repoRoot, appRoot, filepath.Join(root, "agent"))
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
 		"proof":                                  "real_git_worktrees_created_listed_removed_with_exact_paths_ambiguity_refusal_and_dirty_bytes_preserved",
 		"created_worktrees":                      []string{"pricing-agent", "content-agent"},
@@ -202,6 +212,8 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 		"failed_remove_sentinel_bytes_preserved": true,
 		"ambiguity":                              ambiguity,
 		"path_fidelity":                          paths,
+		"create_followup":                        followup,
+		"ordinary_followups":                     ordinaryFollowups,
 	}, nil, nil
 }
 
@@ -385,5 +397,138 @@ func checkHarnessWorktreeAmbiguity(ctx context.Context, repoRoot, appRoot, home 
 		"inventory_before": before, "inventory_after_refusal": after, "inventory_after_unique_remove": finalInventory,
 		"checkout_bytes_preserved": true, "retained_sentinel_preserved": true,
 		"unique_remove_passed": true, "worktree_state_allocated": false,
+	}, nil
+}
+
+// The shell-local recorder proves interpretation of public output, not native up.
+func checkHarnessWorktreeFollowup(ctx context.Context, repoRoot, appRoot, home string) (map[string]any, error) {
+	var observations []map[string]any
+	for i, directory := range []string{"demo''", "demo' space\tline\nžluťoučký"} {
+		root := filepath.Join(filepath.Dir(appRoot), directory)
+		if _, err := runHarnessGit(ctx, appRoot, "worktree", "add", "--detach", root, "main"); err != nil {
+			return nil, err
+		}
+		for _, jsonOutput := range []bool{true, false} {
+			name := fmt.Sprintf("followup-%d-%t", i, jsonOutput)
+			target := filepath.Join(filepath.Dir(root), directory+"-"+name)
+			args := []string{"worktree", "create", name, "--from", "main~0", "--app-root", root}
+			if jsonOutput {
+				args = append(args, "-o", "json")
+			}
+			var output bytes.Buffer
+			if err := runProduct(ctx, repoRoot, &output, args...); err != nil {
+				return nil, err
+			}
+			var next string
+			if jsonOutput {
+				var result worktreeCreateResult
+				if err := decodeCLIJSON(output.Bytes(), &result); err != nil || !result.OK || result.Path != target || result.Branch != name || result.From != "main~0" {
+					return nil, fmt.Errorf("literal create = %+v: %v", result, err)
+				}
+				if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRoot, "docs", "schemas", "scenery.worktree.create.schema.json"), result); len(diagnostics) != 0 {
+					return nil, fmt.Errorf("literal create schema: %s", strings.Join(diagnostics, "; "))
+				}
+				next = result.NextCommand
+			} else {
+				prefix := "created worktree " + name + " at " + target + "\nnext: "
+				if !strings.HasPrefix(output.String(), prefix) || !strings.HasSuffix(output.String(), "\n") {
+					return nil, fmt.Errorf("literal human create output = %q", output.String())
+				}
+				next = strings.TrimSuffix(strings.TrimPrefix(output.String(), prefix), "\n")
+			}
+			head, err := runHarnessGit(ctx, root, "rev-parse", "main~0")
+			if err != nil {
+				return nil, err
+			}
+			output.Reset()
+			if err := runProduct(ctx, repoRoot, &output, "worktree", "list", "--app-root", root, "-o", "json"); err != nil {
+				return nil, err
+			}
+			var listed worktreeListResult
+			if err := decodeCLIJSON(output.Bytes(), &listed); err != nil || !listed.OK || listed.AppRoot != root {
+				return nil, fmt.Errorf("literal create list = %+v: %v", listed, err)
+			}
+			found := false
+			for _, record := range listed.Worktrees {
+				if record.Path == target && record.Branch == name && record.Head == strings.TrimSpace(head) {
+					found = true
+				}
+			}
+			inventory, err := runHarnessGit(ctx, root, "worktree", "list", "--porcelain", "-z")
+			if err != nil || !found || !strings.Contains(inventory, "worktree "+target+"\x00") {
+				return nil, fmt.Errorf("literal create registration absent: %v", err)
+			}
+			observation, err := checkHarnessWorktreeShellFollowup(ctx, next, target)
+			if err != nil {
+				return nil, err
+			}
+			observation["json_output"] = jsonOutput
+			observation["branch"] = name
+			observation["head"] = strings.TrimSpace(head)
+			observations = append(observations, observation)
+			if _, err := os.Lstat(filepath.Join(target, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
+				return nil, fmt.Errorf("follow-up create allocated database pin: %v", err)
+			}
+		}
+		before, err := runHarnessGit(ctx, root, "worktree", "list", "--porcelain", "-z")
+		if err != nil {
+			return nil, err
+		}
+		name := fmt.Sprintf("invalid-ref-%d", i)
+		var output bytes.Buffer
+		err = runProduct(ctx, repoRoot, &output, "worktree", "create", name, "--from", "refs/heads/scenery-nonexistent-ref", "--app-root", root, "-o", "json")
+		if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 3 {
+			return nil, fmt.Errorf("invalid ref did not refuse creation: %v", err)
+		}
+		envelope, err := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
+		if err != nil || envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8003" {
+			return nil, fmt.Errorf("invalid ref result = %+v: %v", envelope, err)
+		}
+		after, err := runHarnessGit(ctx, root, "worktree", "list", "--porcelain", "-z")
+		if err != nil || before != after {
+			return nil, fmt.Errorf("invalid ref changed registered worktrees: %v", err)
+		}
+		if _, err := os.Lstat(filepath.Join(filepath.Dir(root), directory+"-"+name)); !os.IsNotExist(err) {
+			return nil, fmt.Errorf("invalid ref allocated a checkout: %v", err)
+		}
+		_, refErr := runHarnessGit(ctx, root, "show-ref", "--verify", "--quiet", "refs/heads/"+name)
+		if exit, ok := errors.AsType[*exec.ExitError](refErr); !ok || exit.ExitCode() != 1 {
+			return nil, fmt.Errorf("invalid-ref branch absence not established for %s: %v", name, refErr)
+		}
+	}
+	contents, err := os.ReadFile(filepath.Join(home, "sentinel"))
+	if err != nil || string(contents) != "private retained sentinel\n" {
+		return nil, fmt.Errorf("follow-up changed retained sentinel: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "worktrees")); !os.IsNotExist(err) {
+		return nil, fmt.Errorf("follow-up commands allocated worktree authority: %v", err)
+	}
+	return map[string]any{
+		"shell_output_interpretation": observations, "public_json_and_human_creates": 4,
+		"invalid_ref_refusals": 2, "registered_paths_and_heads_verified": true,
+		"retained_sentinel_preserved": true, "worktree_state_allocated": false,
+		"native_up_executed": false,
+	}, nil
+}
+
+func checkHarnessWorktreeShellFollowup(ctx context.Context, next, target string) (map[string]any, error) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		return nil, err
+	}
+	const recorder = `scenery() { printf '%s\000' "$PWD" "$#" "$@"; }; `
+	cmd := commandTreeContext(ctx, shell, "-c", recorder+next)
+	cmd.Dir = filepath.Dir(target)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("interpret public follow-up: %w", err)
+	}
+	want := []byte(target + "\x001\x00up\x00")
+	if !bytes.Equal(output, want) {
+		return nil, fmt.Errorf("public follow-up cwd/argc/argv = %q, want %q", output, want)
+	}
+	return map[string]any{
+		"next_command": next, "cwd": target, "argc": 1, "argv": []string{"up"},
+		"shell_pid": cmd.Process.Pid, "shell_process_joined": cmd.ProcessState.Exited(),
 	}, nil
 }

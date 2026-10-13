@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"scenery.sh/internal/harnessevidence"
 )
 
 const worktreeListKind = "scenery.worktree.list"
@@ -157,7 +159,7 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 		Path:               target,
 		Branch:             name,
 		From:               strings.TrimSpace(opts.From),
-		NextCommand:        "cd " + target + " && scenery up",
+		NextCommand:        harnessevidence.ReproCommand([]string{"scenery", "up"}, target),
 	}
 	result.Message = "Git worktree created."
 	if opts.JSON {
