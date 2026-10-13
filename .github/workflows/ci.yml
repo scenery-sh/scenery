@@ -74,7 +74,7 @@ jobs:
 
       - name: Retain verification evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: verification-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
