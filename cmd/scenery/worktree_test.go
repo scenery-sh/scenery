@@ -347,7 +347,7 @@ func TestWorktreeRemoveRequiresUniqueRegisteredTarget(t *testing.T) {
 	branchPath := filepath.Join(filepath.Dir(root), "by-branch")
 	basenamePath := filepath.Join(filepath.Dir(root), "target")
 	defaultMatch := worktreeRecord{Path: defaultPath, Branch: "other"}
-	branchMatch := worktreeRecord{Path: branchPath, Branch: "refs/heads/target"}
+	branchMatch := worktreeRecord{Path: branchPath, Branch: "target"}
 	spacePath := defaultPath + " "
 	spaceMatch := worktreeRecord{Path: spacePath, Branch: "target"}
 	spaceAmbiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{defaultPath, spacePath})
@@ -422,4 +422,49 @@ func evalPathForTest(t *testing.T, path string) string {
 		t.Fatalf("eval symlinks %s: %v", path, err)
 	}
 	return evaluated
+}
+
+func TestWorktreeRemovePreservesParsedBranchName(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(canonicalTestDir(t), "demo")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	prefixed := filepath.Join(filepath.Dir(root), "unrelated")
+	actual := filepath.Join(filepath.Dir(root), "actual-target")
+	prefixedInventory := "worktree " + prefixed + "\x00branch refs/heads/refs/heads/target\x00\x00"
+	actualInventory := "worktree " + actual + "\x00branch refs/heads/target\x00\x00"
+	for _, tc := range []struct {
+		name, request, inventory, wantPath string
+	}{
+		{"prefixed branch is not target", "target", prefixedInventory, ""},
+		{"literal target is unique", "target", prefixedInventory + actualInventory, actual},
+		{"prefixed branch remains selectable by basename", "unrelated", prefixedInventory, prefixed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			calls := 0
+			err := runWorktreeRemoveWithGit(t.Context(), &output, worktreeOptions{Name: tc.request, AppRoot: root, JSON: true},
+				func(context.Context, string) ([]worktreeRecord, error) {
+					return parseGitWorktrees(tc.inventory), nil
+				}, func(_ context.Context, args ...string) error {
+					calls++
+					if !slices.Equal(args, []string{"-C", root, "worktree", "remove", tc.wantPath}) {
+						t.Fatalf("wrong removal argv = %q", args)
+					}
+					return nil
+				})
+			if tc.wantPath == "" {
+				if err == nil || err.Error() != `git worktree "target" is not registered` || calls != 0 || output.Len() != 0 {
+					t.Fatalf("nonmatch = %v, mutations = %d, output = %s", err, calls, &output)
+				}
+				return
+			}
+			var removed worktreeRemoveResult
+			if err != nil || calls != 1 {
+				t.Fatalf("exact removal = %v, mutations = %d", err, calls)
+			}
+			if err := decodeCLIJSON(output.Bytes(), &removed); err != nil || !removed.OK || removed.Path != tc.wantPath {
+				t.Fatalf("exact result = %+v: %v", removed, err)
+			}
+		})
+	}
 }

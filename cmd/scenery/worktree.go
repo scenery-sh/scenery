@@ -242,7 +242,7 @@ func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, li
 	matches := make(map[string]string)
 	for _, wt := range worktrees {
 		path := filepath.Clean(wt.Path)
-		if path == filepath.Clean(defaultPath) || strings.TrimPrefix(wt.Branch, "refs/heads/") == cleanName || filepath.Base(wt.Path) == cleanName {
+		if path == filepath.Clean(defaultPath) || wt.Branch == cleanName || filepath.Base(wt.Path) == cleanName {
 			if _, exists := matches[path]; !exists {
 				matches[path] = wt.Path
 			}

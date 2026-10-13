@@ -219,7 +219,12 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 	if err != nil {
 		return nil, nil, err
 	}
+	branches, err := checkHarnessWorktreeBranchFidelity(ctx, repoRoot, root, filepath.Join(root, "agent"))
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
+		"branch_fidelity":                        branches,
 		"inventory_warning":                      warning,
 		"proof":                                  "real_git_worktrees_created_listed_removed_with_exact_paths_ambiguity_refusal_and_dirty_bytes_preserved",
 		"created_worktrees":                      []string{"pricing-agent", "content-agent"},
@@ -371,6 +376,140 @@ func checkHarnessWorktreeInventoryWarning(ctx context.Context, repoRoot, fixture
 		return nil, fmt.Errorf("warning inventory allocated authority: %v", err)
 	}
 	return map[string]any{"observations": observations, "unique_remove_with_warning": true, "git_failure_json_and_human_preserved": true, "reference_stdout": before, "reference_git_pids": gitPIDs, "retained_sentinel_preserved": true, "worktree_state_allocated": false}, nil
+}
+
+func checkHarnessWorktreeBranchFidelity(ctx context.Context, repoRoot, fixtureRoot, home string) (map[string]any, error) {
+	var observations []map[string]any
+	for i, jsonOutput := range []bool{true, false} {
+		appRoot := filepath.Join(fixtureRoot, fmt.Sprintf("branch-demo-%d", i))
+		prefixed := filepath.Join(fixtureRoot, fmt.Sprintf("unrelated-%d", i))
+		actual := filepath.Join(fixtureRoot, fmt.Sprintf("actual-target-%d", i))
+		config := []byte(`{"name":"demo","envs":{"local":{"default":true}}}`)
+		if err := os.MkdirAll(appRoot, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), config, 0o644); err != nil {
+			return nil, err
+		}
+		for _, args := range [][]string{
+			{"init", "-b", "main"}, {"config", "user.email", "harness@example.invalid"},
+			{"config", "user.name", "Scenery Harness"}, {"add", ".scenery.json"},
+			{"commit", "-m", "branch fixture"}, {"worktree", "add", "-b", "refs/heads/target", prefixed},
+		} {
+			if _, err := runHarnessGit(ctx, appRoot, args...); err != nil {
+				return nil, err
+			}
+		}
+		var output bytes.Buffer
+		if err := runProduct(ctx, repoRoot, &output, "worktree", "list", "--app-root", appRoot, "-o", "json"); err != nil {
+			return nil, err
+		}
+		var listed worktreeListResult
+		if err := decodeCLIJSON(output.Bytes(), &listed); err != nil || !listed.OK || len(listed.Worktrees) != 2 {
+			return nil, fmt.Errorf("prefixed branch inventory = %+v: %v", listed, err)
+		}
+		found := false
+		for _, record := range listed.Worktrees {
+			if record.Path == prefixed && record.Branch == "refs/heads/target" {
+				found = true
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("prefixed branch name not preserved")
+		}
+		before, err := runHarnessGit(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
+		if err != nil {
+			return nil, err
+		}
+		var missingExit int
+		var missingCode string
+		for j, name := range []string{"missing-control", "target"} {
+			output.Reset()
+			args := []string{"worktree", "remove", name, "--app-root", appRoot}
+			if jsonOutput {
+				args = append(args, "-o", "json")
+			}
+			err := runProduct(ctx, repoRoot, &output, args...)
+			exit, ok := errors.AsType[*exec.ExitError](err)
+			if !ok || exit.ExitCode() == 0 {
+				return nil, fmt.Errorf("prefixed nonmatch attempted removal: %v", err)
+			}
+			if j == 0 {
+				missingExit = exit.ExitCode()
+			} else if exit.ExitCode() != missingExit {
+				return nil, fmt.Errorf("prefixed nonmatch changed missing-target exit")
+			}
+			if jsonOutput {
+				envelope, decodeErr := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
+				if decodeErr != nil || envelope.OK || len(envelope.Diagnostics) != 1 {
+					return nil, fmt.Errorf("prefixed nonmatch diagnostic = %+v: %v", envelope, decodeErr)
+				}
+				if j == 0 {
+					missingCode = envelope.Diagnostics[0].Code
+				} else if envelope.Diagnostics[0].Code != missingCode {
+					return nil, fmt.Errorf("prefixed nonmatch changed missing-target diagnostic")
+				}
+			} else if output.Len() != 0 || !strings.Contains(err.Error(), "is not registered") {
+				return nil, fmt.Errorf("prefixed human nonmatch = %v", err)
+			}
+		}
+		after, err := runHarnessGit(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
+		contents, readErr := os.ReadFile(filepath.Join(prefixed, ".scenery.json"))
+		if err != nil || before != after || readErr != nil || !bytes.Equal(contents, config) {
+			return nil, fmt.Errorf("prefixed nonmatch changed registration/bytes: %v: %v", err, readErr)
+		}
+		for _, root := range []string{appRoot, prefixed} {
+			if _, err := os.Lstat(filepath.Join(root, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
+				return nil, fmt.Errorf("literal branch allocated database pin: %v", err)
+			}
+		}
+		if _, err := runHarnessGit(ctx, appRoot, "worktree", "add", "-b", "target", actual); err != nil {
+			return nil, err
+		}
+		for _, target := range []struct{ name, path string }{{"target", actual}, {filepath.Base(prefixed), prefixed}} {
+			output.Reset()
+			args := []string{"worktree", "remove", target.name, "--app-root", appRoot}
+			if jsonOutput {
+				args = append(args, "-o", "json")
+			}
+			if err := runProduct(ctx, repoRoot, &output, args...); err != nil {
+				return nil, err
+			}
+			if jsonOutput {
+				var removed worktreeRemoveResult
+				if err := decodeCLIJSON(output.Bytes(), &removed); err != nil || !removed.OK || removed.Path != target.path {
+					return nil, fmt.Errorf("literal branch removal = %+v: %v", removed, err)
+				}
+			} else if output.String() != "removed worktree "+target.path+"\n" {
+				return nil, fmt.Errorf("literal branch human removal = %q", output.String())
+			}
+			inventory, err := runHarnessGit(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
+			if err != nil || strings.Contains(inventory, "worktree "+target.path+"\x00") {
+				return nil, fmt.Errorf("literal branch registration remains: %v", err)
+			}
+			if _, err := os.Lstat(target.path); !os.IsNotExist(err) {
+				return nil, fmt.Errorf("literal branch checkout remains: %v", err)
+			}
+			for _, control := range []string{appRoot, prefixed} {
+				if control == target.path {
+					continue
+				}
+				contents, err := os.ReadFile(filepath.Join(control, ".scenery.json"))
+				if err != nil || !bytes.Equal(contents, config) || !strings.Contains(inventory, "worktree "+control+"\x00") {
+					return nil, fmt.Errorf("literal branch removal changed control: %v", err)
+				}
+			}
+		}
+		observations = append(observations, map[string]any{"json_output": jsonOutput, "literal_branch_listed": true, "prefixed_nonmatch_preserved": true, "ordinary_missing_exit": missingExit, "ordinary_missing_diagnostic": missingCode, "actual_target_removed": true, "prefixed_basename_remove_passed": true, "main_preserved": true})
+	}
+	contents, err := os.ReadFile(filepath.Join(home, "sentinel"))
+	if err != nil || string(contents) != "private retained sentinel\n" {
+		return nil, fmt.Errorf("literal branch changed retained sentinel: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "worktrees")); !os.IsNotExist(err) {
+		return nil, fmt.Errorf("literal branch allocated authority: %v", err)
+	}
+	return map[string]any{"observations": observations, "retained_sentinel_preserved": true, "worktree_state_allocated": false}, nil
 }
 
 func checkHarnessWorktreePathFidelity(ctx context.Context, repoRoot, appRoot, home string) (map[string]any, error) {
