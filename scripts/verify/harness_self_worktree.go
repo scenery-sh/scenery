@@ -215,7 +215,12 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 	if err != nil {
 		return nil, nil, err
 	}
+	warning, err := checkHarnessWorktreeInventoryWarning(ctx, repoRoot, root, filepath.Join(root, "agent"))
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
+		"inventory_warning":                      warning,
 		"proof":                                  "real_git_worktrees_created_listed_removed_with_exact_paths_ambiguity_refusal_and_dirty_bytes_preserved",
 		"created_worktrees":                      []string{"pricing-agent", "content-agent"},
 		"database_pins":                          0,
@@ -225,6 +230,147 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 		"create_followup":                        followup,
 		"ordinary_followups":                     ordinaryFollowups,
 	}, nil, nil
+}
+
+// Keep the reference porcelain separate from Git's successful warning channel.
+func checkHarnessWorktreeInventoryWarning(ctx context.Context, repoRoot, fixtureRoot, home string) (map[string]any, error) {
+	appRoot := filepath.Join(fixtureRoot, "warning-demo")
+	child := appRoot + "-main"
+	if err := os.MkdirAll(appRoot, 0o755); err != nil {
+		return nil, err
+	}
+	config := []byte(`{"name":"demo","envs":{"local":{"default":true}}}`)
+	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), config, 0o644); err != nil {
+		return nil, err
+	}
+	var gitPIDs []int
+	git := func(args ...string) (string, string, error) {
+		cmd := commandTreeContext(ctx, "git", append([]string{"-C", appRoot}, args...)...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		stdout, err := cmd.Output()
+		if cmd.Process != nil {
+			gitPIDs = append(gitPIDs, cmd.Process.Pid)
+		}
+		return string(stdout), stderr.String(), err
+	}
+	for _, args := range [][]string{
+		{"init", "-b", "main"}, {"config", "user.email", "harness@example.invalid"},
+		{"config", "user.name", "Scenery Harness"}, {"add", ".scenery.json"},
+		{"commit", "-m", "warning fixture"}, {"worktree", "add", "-b", "other", child},
+	} {
+		if _, stderr, err := git(args...); err != nil {
+			return nil, fmt.Errorf("warning fixture git %v: %w: %s", args, err, stderr)
+		}
+	}
+	before, stderr, err := git("worktree", "list", "--porcelain", "-z")
+	if err != nil || stderr != "" {
+		return nil, fmt.Errorf("clean reference inventory: %v: %s", err, stderr)
+	}
+	head, _, err := git("rev-parse", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	var observations []map[string]any
+	for _, warning := range []bool{false, true} {
+		if warning {
+			if _, _, err := git("config", "core.fsyncObjectFiles", "false"); err != nil {
+				return nil, err
+			}
+		}
+		stdout, stderr, err := git("worktree", "list", "--porcelain", "-z")
+		if err != nil || stdout != before || (warning && !strings.Contains(stderr, "core.fsyncObjectFiles")) {
+			return nil, fmt.Errorf("warning reference channels changed: %v: %s", err, stderr)
+		}
+		var output bytes.Buffer
+		if err := runProduct(ctx, repoRoot, &output, "worktree", "list", "--app-root", appRoot, "-o", "json"); err != nil {
+			return nil, err
+		}
+		var listed worktreeListResult
+		if err := decodeCLIJSON(output.Bytes(), &listed); err != nil || !listed.OK || len(listed.Worktrees) != 2 {
+			return nil, fmt.Errorf("warning public inventory = %+v: %v", listed, err)
+		}
+		want := map[string]string{appRoot: "main", child: "other"}
+		for _, record := range listed.Worktrees {
+			if branch, ok := want[record.Path]; !ok || record.Branch != branch || record.Head != strings.TrimSpace(head) {
+				return nil, fmt.Errorf("warning public inventory record = %+v", record)
+			}
+			delete(want, record.Path)
+		}
+		output.Reset()
+		err = runProduct(ctx, repoRoot, &output, "worktree", "remove", "main", "--app-root", appRoot, "-o", "json")
+		if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 3 {
+			return nil, fmt.Errorf("warning ambiguity did not refuse: %v: %s", err, &output)
+		}
+		envelope, err := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
+		if err != nil || envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8003" || !strings.Contains(envelope.Diagnostics[0].Message, "ambiguous") {
+			return nil, fmt.Errorf("warning ambiguity diagnostic = %+v: %v", envelope, err)
+		}
+		after, _, err := git("worktree", "list", "--porcelain", "-z")
+		if err != nil || after != before {
+			return nil, fmt.Errorf("warning ambiguity changed registration: %v", err)
+		}
+		for _, root := range []string{appRoot, child} {
+			contents, err := os.ReadFile(filepath.Join(root, ".scenery.json"))
+			if err != nil || !bytes.Equal(contents, config) {
+				return nil, fmt.Errorf("warning ambiguity changed checkout: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(root, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
+				return nil, fmt.Errorf("warning inventory allocated database pin: %v", err)
+			}
+		}
+		observations = append(observations, map[string]any{"warning_enabled": warning, "stderr": stderr, "worktrees": listed.Worktrees, "ambiguity_refused": true, "registrations_and_bytes_preserved": true})
+	}
+	var output bytes.Buffer
+	if err := runProduct(ctx, repoRoot, &output, "worktree", "remove", "other", "--app-root", appRoot, "-o", "json"); err != nil {
+		return nil, err
+	}
+	var removed worktreeRemoveResult
+	if err := decodeCLIJSON(output.Bytes(), &removed); err != nil || !removed.OK || removed.Path != child {
+		return nil, fmt.Errorf("warning unique removal = %+v: %v", removed, err)
+	}
+	after, _, err := git("worktree", "list", "--porcelain", "-z")
+	contents, readErr := os.ReadFile(filepath.Join(appRoot, ".scenery.json"))
+	if err != nil || readErr != nil || !bytes.Equal(contents, config) || strings.Contains(after, "worktree "+child+"\x00") || !strings.Contains(after, "worktree "+appRoot+"\x00") {
+		return nil, fmt.Errorf("warning unique removal scope: %v: %v", err, readErr)
+	}
+	if _, err := os.Lstat(child); !os.IsNotExist(err) {
+		return nil, fmt.Errorf("warning unique checkout remains: %v", err)
+	}
+	nonGit := filepath.Join(fixtureRoot, "configured-non-git")
+	if err := os.MkdirAll(nonGit, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(nonGit, ".scenery.json"), config, 0o644); err != nil {
+		return nil, err
+	}
+	for _, jsonOutput := range []bool{true, false} {
+		output.Reset()
+		args := []string{"worktree", "list", "--app-root", nonGit}
+		if jsonOutput {
+			args = append(args, "-o", "json")
+		}
+		err := runProduct(ctx, repoRoot, &output, args...)
+		if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 3 {
+			return nil, fmt.Errorf("non-Git list did not refuse: %v", err)
+		}
+		if jsonOutput {
+			envelope, decodeErr := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
+			if decodeErr != nil || envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8003" || !strings.Contains(envelope.Diagnostics[0].Message, "not a git repository") {
+				return nil, fmt.Errorf("non-Git list diagnostic = %+v: %v", envelope, decodeErr)
+			}
+		} else if output.Len() != 0 || !strings.Contains(err.Error(), "not a git repository") {
+			return nil, fmt.Errorf("non-Git human failure lost stderr: %v", err)
+		}
+	}
+	contents, err = os.ReadFile(filepath.Join(home, "sentinel"))
+	if err != nil || string(contents) != "private retained sentinel\n" {
+		return nil, fmt.Errorf("warning inventory changed retained sentinel: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "worktrees")); !os.IsNotExist(err) {
+		return nil, fmt.Errorf("warning inventory allocated authority: %v", err)
+	}
+	return map[string]any{"observations": observations, "unique_remove_with_warning": true, "git_failure_json_and_human_preserved": true, "reference_stdout": before, "reference_git_pids": gitPIDs, "retained_sentinel_preserved": true, "worktree_state_allocated": false}, nil
 }
 
 func checkHarnessWorktreePathFidelity(ctx context.Context, repoRoot, appRoot, home string) (map[string]any, error) {

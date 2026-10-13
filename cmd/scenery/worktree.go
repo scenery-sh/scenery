@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -321,9 +322,11 @@ func runGitCommand(ctx context.Context, args ...string) error {
 func gitCommandOutput(ctx context.Context, appRoot string, args ...string) (string, error) {
 	all := append([]string{"-C", appRoot}, args...)
 	cmd := exec.CommandContext(ctx, "git", all...)
-	output, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
 	if err != nil {
-		return "", preconditionErrorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(string(output)))
+		return "", preconditionErrorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(output), nil
 }
