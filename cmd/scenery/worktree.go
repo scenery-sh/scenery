@@ -145,7 +145,7 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 		return fmt.Errorf("worktree name is empty after sanitization")
 	}
 	target := defaultWorktreePath(appRoot, name)
-	args := []string{"-C", appRoot, "worktree", "add", "-b", name, target}
+	args := []string{"-C", appRoot, "worktree", "add", "-b", name, "--", target}
 	if strings.TrimSpace(opts.From) != "" {
 		args = append(args, opts.From)
 	}

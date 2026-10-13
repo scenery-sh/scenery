@@ -83,16 +83,26 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(appConfig), 0o644); err != nil {
 		return nil, nil, err
 	}
+	if err := os.WriteFile(filepath.Join(appRoot, "revision.txt"), []byte("old revision\n"), 0o644); err != nil {
+		return nil, nil, err
+	}
 	for _, args := range [][]string{
 		{"init", "-b", "main"},
 		{"config", "user.email", "harness@example.invalid"},
 		{"config", "user.name", "Scenery Harness"},
-		{"add", ".scenery.json"},
+		{"add", ".scenery.json", "revision.txt"},
 		{"commit", "-m", "initial"},
 	} {
 		if _, err := runHarnessGit(ctx, appRoot, args...); err != nil {
 			return nil, nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 		}
+	}
+
+	if err := os.WriteFile(filepath.Join(appRoot, "revision.txt"), []byte("current revision\n"), 0o644); err != nil {
+		return nil, nil, err
+	}
+	if _, err := runHarnessGit(ctx, appRoot, "commit", "-am", "advance fixture revision"); err != nil {
+		return nil, nil, err
 	}
 
 	created := make([]worktreeCreateResult, 0, 2)
@@ -411,7 +421,7 @@ func checkHarnessWorktreeFollowup(ctx context.Context, repoRoot, appRoot, home s
 		for _, jsonOutput := range []bool{true, false} {
 			name := fmt.Sprintf("followup-%d-%t", i, jsonOutput)
 			target := filepath.Join(filepath.Dir(root), directory+"-"+name)
-			args := []string{"worktree", "create", name, "--from", "main~0", "--app-root", root}
+			args := []string{"worktree", "create", name, "--from", "main~1", "--app-root", root}
 			if jsonOutput {
 				args = append(args, "-o", "json")
 			}
@@ -422,7 +432,7 @@ func checkHarnessWorktreeFollowup(ctx context.Context, repoRoot, appRoot, home s
 			var next string
 			if jsonOutput {
 				var result worktreeCreateResult
-				if err := decodeCLIJSON(output.Bytes(), &result); err != nil || !result.OK || result.Path != target || result.Branch != name || result.From != "main~0" {
+				if err := decodeCLIJSON(output.Bytes(), &result); err != nil || !result.OK || result.Path != target || result.Branch != name || result.From != "main~1" {
 					return nil, fmt.Errorf("literal create = %+v: %v", result, err)
 				}
 				if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRoot, "docs", "schemas", "scenery.worktree.create.schema.json"), result); len(diagnostics) != 0 {
@@ -436,9 +446,17 @@ func checkHarnessWorktreeFollowup(ctx context.Context, repoRoot, appRoot, home s
 				}
 				next = strings.TrimSuffix(strings.TrimPrefix(output.String(), prefix), "\n")
 			}
-			head, err := runHarnessGit(ctx, root, "rev-parse", "main~0")
+			head, err := runHarnessGit(ctx, root, "rev-parse", "main~1")
 			if err != nil {
 				return nil, err
+			}
+			current, err := runHarnessGit(ctx, root, "rev-parse", "HEAD")
+			if err != nil || strings.TrimSpace(current) == strings.TrimSpace(head) {
+				return nil, fmt.Errorf("non-HEAD ref control is not distinct: %v", err)
+			}
+			content, err := os.ReadFile(filepath.Join(target, "revision.txt"))
+			if err != nil || string(content) != "old revision\n" {
+				return nil, fmt.Errorf("non-HEAD checkout bytes = %q: %v", content, err)
 			}
 			output.Reset()
 			if err := runProduct(ctx, repoRoot, &output, "worktree", "list", "--app-root", root, "-o", "json"); err != nil {
@@ -470,30 +488,47 @@ func checkHarnessWorktreeFollowup(ctx context.Context, repoRoot, appRoot, home s
 				return nil, fmt.Errorf("follow-up create allocated database pin: %v", err)
 			}
 		}
-		before, err := runHarnessGit(ctx, root, "worktree", "list", "--porcelain", "-z")
-		if err != nil {
-			return nil, err
-		}
-		name := fmt.Sprintf("invalid-ref-%d", i)
-		var output bytes.Buffer
-		err = runProduct(ctx, repoRoot, &output, "worktree", "create", name, "--from", "refs/heads/scenery-nonexistent-ref", "--app-root", root, "-o", "json")
-		if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 3 {
-			return nil, fmt.Errorf("invalid ref did not refuse creation: %v", err)
-		}
-		envelope, err := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
-		if err != nil || envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8003" {
-			return nil, fmt.Errorf("invalid ref result = %+v: %v", envelope, err)
-		}
-		after, err := runHarnessGit(ctx, root, "worktree", "list", "--porcelain", "-z")
-		if err != nil || before != after {
-			return nil, fmt.Errorf("invalid ref changed registered worktrees: %v", err)
-		}
-		if _, err := os.Lstat(filepath.Join(filepath.Dir(root), directory+"-"+name)); !os.IsNotExist(err) {
-			return nil, fmt.Errorf("invalid ref allocated a checkout: %v", err)
-		}
-		_, refErr := runHarnessGit(ctx, root, "show-ref", "--verify", "--quiet", "refs/heads/"+name)
-		if exit, ok := errors.AsType[*exec.ExitError](refErr); !ok || exit.ExitCode() != 1 {
-			return nil, fmt.Errorf("invalid-ref branch absence not established for %s: %v", name, refErr)
+		for j, ref := range []struct {
+			value      string
+			jsonOutput bool
+		}{
+			{"refs/heads/scenery-nonexistent-ref", true},
+			{"--no-checkout", true},
+			{"--no-checkout", false},
+		} {
+			before, err := runHarnessGit(ctx, root, "worktree", "list", "--porcelain", "-z")
+			if err != nil {
+				return nil, err
+			}
+			name := fmt.Sprintf("invalid-ref-%d-%d", i, j)
+			var output bytes.Buffer
+			args := []string{"worktree", "create", name, "--from=" + ref.value, "--app-root", root}
+			if ref.jsonOutput {
+				args = append(args, "-o", "json")
+			}
+			err = runProduct(ctx, repoRoot, &output, args...)
+			if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 3 {
+				return nil, fmt.Errorf("invalid ref did not refuse creation: %v", err)
+			}
+			if ref.jsonOutput {
+				envelope, decodeErr := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
+				if decodeErr != nil || envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8003" || strings.Contains(output.String(), "next_command") {
+					return nil, fmt.Errorf("invalid ref result = %+v: %v", envelope, decodeErr)
+				}
+			} else if output.Len() != 0 {
+				return nil, fmt.Errorf("invalid ref human refusal = %q: %v", output.String(), err)
+			}
+			after, err := runHarnessGit(ctx, root, "worktree", "list", "--porcelain", "-z")
+			if err != nil || before != after {
+				return nil, fmt.Errorf("invalid ref changed registered worktrees: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(filepath.Dir(root), directory+"-"+name)); !os.IsNotExist(err) {
+				return nil, fmt.Errorf("invalid ref allocated a checkout: %v", err)
+			}
+			_, refErr := runHarnessGit(ctx, root, "show-ref", "--verify", "--quiet", "refs/heads/"+name)
+			if exit, ok := errors.AsType[*exec.ExitError](refErr); !ok || exit.ExitCode() != 1 {
+				return nil, fmt.Errorf("invalid-ref branch absence not established for %s: %v", name, refErr)
+			}
 		}
 	}
 	contents, err := os.ReadFile(filepath.Join(home, "sentinel"))
@@ -505,7 +540,8 @@ func checkHarnessWorktreeFollowup(ctx context.Context, repoRoot, appRoot, home s
 	}
 	return map[string]any{
 		"shell_output_interpretation": observations, "public_json_and_human_creates": 4,
-		"invalid_ref_refusals": 2, "registered_paths_and_heads_verified": true,
+		"invalid_ref_refusals": 6, "option_shaped_ref_refusals": 4,
+		"non_head_checkout_bytes_verified": true, "registered_paths_and_heads_verified": true,
 		"retained_sentinel_preserved": true, "worktree_state_allocated": false,
 		"native_up_executed": false,
 	}, nil

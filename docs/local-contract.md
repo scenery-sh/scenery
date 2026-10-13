@@ -1111,6 +1111,11 @@ the literal target as one POSIX shell operand, including spaces, tabs, newlines,
 apostrophes and other shell characters. Git still receives the original path as
 an argv value; safe ordinary-path follow-up text is unchanged.
 
+CREATE delegates revision validation to Git. A nonblank `--from` remains a
+revision operand, including literal option-shaped values; invalid refs refuse
+with exit 3 (`SCN8003` in JSON) without creating a checkout or branch. Empty or whitespace-only
+refs retain the existing omitted-ref behavior.
+
 Worktree removal matches the sanitized name against the default sibling path,
 branch name and checkout basename. Exactly one distinct normalized registered
 path must match; multiple paths are refused with `SCN8003` (exit 3) and sorted

@@ -78,8 +78,8 @@ func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
 	worktrees := []worktreeRecord{{Path: root, Branch: "main", Head: strings.Repeat("a", 40)}}
 	runGit := func(_ context.Context, args ...string) error {
-		if len(args) >= 7 && args[0] == "-C" && args[1] == root && args[2] == "worktree" && args[3] == "add" && args[4] == "-b" {
-			name, target := args[5], args[6]
+		if (len(args) == 8 || len(args) == 9) && args[0] == "-C" && args[1] == root && args[2] == "worktree" && args[3] == "add" && args[4] == "-b" && args[6] == "--" {
+			name, target := args[5], args[7]
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
@@ -212,7 +212,7 @@ func TestWorktreeCreatePreservesFollowupPath(t *testing.T) {
 				opts := worktreeOptions{Name: "pricing agent", AppRoot: root, From: tc.from, JSON: jsonOutput}
 				err := runWorktreeCreateWithGit(t.Context(), &output, opts, func(_ context.Context, args ...string) error {
 					calls++
-					want := []string{"-C", root, "worktree", "add", "-b", "pricing-agent", target}
+					want := []string{"-C", root, "worktree", "add", "-b", "pricing-agent", "--", target}
 					if tc.from == "main~0" {
 						want = append(want, "main~0")
 					}
@@ -246,6 +246,36 @@ func TestWorktreeCreatePreservesFollowupPath(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWorktreeCreatePreservesRefOperand(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(canonicalTestDir(t), "demo")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	for _, from := range []string{"", " \t ", "main~1", "--no-checkout", "-", " main "} {
+		var output bytes.Buffer
+		calls := 0
+		err := runWorktreeCommandWithGit(t.Context(), &output,
+			[]string{"create", "operand", "--app-root", root, "--from=" + from, "-o", "json"},
+			func(_ context.Context, args ...string) error {
+				calls++
+				want := []string{"-C", root, "worktree", "add", "-b", "operand", "--", filepath.Join(filepath.Dir(root), "demo-operand")}
+				if strings.TrimSpace(from) != "" {
+					want = append(want, from)
+				}
+				if !slices.Equal(args, want) {
+					t.Fatalf("from %q: Git argv = %#v, want %#v", from, args, want)
+				}
+				return nil
+			}, nil)
+		if err != nil || calls != 1 {
+			t.Fatalf("from %q: create = %v; calls = %d", from, err, calls)
+		}
+		var result worktreeCreateResult
+		if err := decodeCLIJSON(output.Bytes(), &result); err != nil || !result.OK || result.From != strings.TrimSpace(from) {
+			t.Fatalf("from %q: result = %+v: %v", from, result, err)
+		}
 	}
 }
 
