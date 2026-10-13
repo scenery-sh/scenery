@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	appcfg "scenery.sh/internal/app"
 )
 
 func TestParseWorktreeArgs(t *testing.T) {
@@ -24,6 +26,65 @@ func TestParseWorktreeArgs(t *testing.T) {
 	}
 	if _, err := parseWorktreeArgs([]string{"create"}); err == nil || !strings.Contains(err.Error(), "requires <name>") {
 		t.Fatalf("missing name error = %v", err)
+	}
+	for _, command := range []string{"create", "remove"} {
+		for _, args := range [][]string{{command}, {command, " \t"}} {
+			_, err := parseWorktreeArgs(args)
+			if err == nil || cliExitCode(err) != 2 || err.Error() != "scenery worktree "+command+" requires <name>" {
+				t.Fatalf("blank %s request = %v", command, err)
+			}
+		}
+		opts, err := parseWorktreeArgs([]string{command, "!!!"})
+		if err != nil || opts.Name != "!!!" {
+			t.Fatalf("nonblank %s name did not reach discovery: %+v, %v", command, opts, err)
+		}
+	}
+}
+
+func TestWorktreeEmptyNameKeepsDiscoveryPrecedence(t *testing.T) {
+	t.Parallel()
+	for _, config := range []string{`{"name":"demo","envs":{"local":{"default":true}}}`, "", `{"name":`} {
+		root := canonicalTestDir(t)
+		if config != "" {
+			writeTestAppFile(t, root, ".scenery.json", config)
+		}
+		_, _, discoveryErr := discoverConfiguredApp(root)
+		if (config == `{"name":"demo","envs":{"local":{"default":true}}}`) != (discoveryErr == nil) {
+			t.Fatalf("fixture discovery for %q = %v", config, discoveryErr)
+		}
+		for _, command := range []string{"create", "remove"} {
+			for _, jsonOutput := range []bool{false, true} {
+				args := []string{command, "!!!", "--app-root", root}
+				if jsonOutput {
+					args = append(args, "-o", "json")
+				}
+				var output bytes.Buffer
+				gitCalls, inventoryCalls := 0, 0
+				err := runWorktreeCommandWithGit(t.Context(), &output, args,
+					func(context.Context, ...string) error { gitCalls++; return nil },
+					func(context.Context, string) ([]worktreeRecord, error) { inventoryCalls++; return nil, nil })
+				if err == nil || gitCalls != 0 || inventoryCalls != 0 || output.Len() != 0 {
+					t.Fatalf("%s refusal = %v, Git/inventory calls = %d/%d, output = %s", command, err, gitCalls, inventoryCalls, &output)
+				}
+				if discoveryErr == nil {
+					diagnostic := cliErrorDiagnostic(err)
+					if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.ReportToken != "" || diagnostic.Message != "worktree name is empty after sanitization" {
+						t.Fatalf("%s empty name = %v, %+v", command, err, diagnostic)
+					}
+					continue
+				}
+				if err.Error() != discoveryErr.Error() || cliExitCode(err) != cliExitCode(discoveryErr) {
+					t.Fatalf("%s replaced discovery error: %v, want %v", command, err, discoveryErr)
+				}
+				if config == "" {
+					if !errors.Is(err, appcfg.ErrRootNotFound) {
+						t.Fatalf("missing root identity lost: %v", err)
+					}
+				} else if _, ok := errors.AsType[*appcfg.ConfigError](err); !ok {
+					t.Fatalf("invalid config identity lost: %v", err)
+				}
+			}
+		}
 	}
 }
 

@@ -223,7 +223,12 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 	if err != nil {
 		return nil, nil, err
 	}
+	names, err := checkHarnessWorktreeEmptyName(ctx, repoRoot, root, filepath.Join(root, "agent"))
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
+		"empty_name":                             names,
 		"branch_fidelity":                        branches,
 		"inventory_warning":                      warning,
 		"proof":                                  "real_git_worktrees_created_listed_removed_with_exact_paths_ambiguity_refusal_and_dirty_bytes_preserved",
@@ -235,6 +240,111 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 		"create_followup":                        followup,
 		"ordinary_followups":                     ordinaryFollowups,
 	}, nil, nil
+}
+
+func checkHarnessWorktreeEmptyName(ctx context.Context, repoRoot, fixtureRoot, home string) (map[string]any, error) {
+	var observations []map[string]any
+	config := []byte(`{"name":"demo","envs":{"local":{"default":true}}}`)
+	for i, jsonOutput := range []bool{true, false} {
+		appRoot := filepath.Join(fixtureRoot, fmt.Sprintf("empty-name-demo-%d", i))
+		child := appRoot + "-agent"
+		if err := os.MkdirAll(appRoot, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), config, 0o644); err != nil {
+			return nil, err
+		}
+		for _, args := range [][]string{{"init", "-b", "main"}, {"config", "user.email", "harness@example.invalid"}, {"config", "user.name", "Scenery Harness"}, {"add", ".scenery.json"}, {"commit", "-m", "name fixture"}} {
+			if _, err := runHarnessGit(ctx, appRoot, args...); err != nil {
+				return nil, err
+			}
+		}
+		var output bytes.Buffer
+		createArgs := []string{"worktree", "create", "agent", "--app-root", appRoot}
+		if jsonOutput {
+			createArgs = append(createArgs, "-o", "json")
+		}
+		if err := runProduct(ctx, repoRoot, &output, createArgs...); err != nil {
+			return nil, err
+		}
+		before, err := runHarnessGit(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
+		if err != nil {
+			return nil, err
+		}
+		refs, err := runHarnessGit(ctx, appRoot, "show-ref")
+		if err != nil {
+			return nil, err
+		}
+		for _, command := range []string{"create", "remove"} {
+			args := []string{"worktree", command, "!!!", "--app-root", appRoot}
+			if jsonOutput {
+				args = append(args, "-o", "json")
+			}
+			output.Reset()
+			var stderr bytes.Buffer
+			cmd := commandTreeContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), args...)
+			cmd.Dir, cmd.Stdout, cmd.Stderr = repoRoot, &output, &stderr
+			err := cmd.Run()
+			exit, ok := errors.AsType[*exec.ExitError](err)
+			if !ok || exit.ExitCode() != 2 {
+				return nil, fmt.Errorf("empty %s name refusal = %v: %s", command, err, &stderr)
+			}
+			const message = "worktree name is empty after sanitization"
+			if jsonOutput {
+				envelope, decodeErr := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
+				if decodeErr != nil || envelope.OK || envelope.Data != nil || len(envelope.Diagnostics) != 1 || stderr.Len() != 0 {
+					return nil, fmt.Errorf("empty name envelope = %+v: %v: %s", envelope, decodeErr, &stderr)
+				}
+				diagnostic := envelope.Diagnostics[0]
+				if diagnostic.Code != "SCN8001" || diagnostic.Message != message || diagnostic.ReportToken != "" {
+					return nil, fmt.Errorf("empty name diagnostic = %+v", diagnostic)
+				}
+			} else if output.Len() != 0 || stderr.String() != message+"\n" {
+				return nil, fmt.Errorf("empty name human channels = %q / %q", output.String(), stderr.String())
+			}
+			after, err := runHarnessGit(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
+			afterRefs, refErr := runHarnessGit(ctx, appRoot, "show-ref")
+			if err != nil || refErr != nil || before != after || refs != afterRefs {
+				return nil, fmt.Errorf("empty name changed registrations/refs: %v: %v", err, refErr)
+			}
+			for _, root := range []string{appRoot, child} {
+				contents, err := os.ReadFile(filepath.Join(root, ".scenery.json"))
+				if err != nil || !bytes.Equal(contents, config) {
+					return nil, fmt.Errorf("empty name changed checkout bytes: %v", err)
+				}
+				if _, err := os.Lstat(filepath.Join(root, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
+					return nil, fmt.Errorf("empty name allocated database pin: %v", err)
+				}
+			}
+			if _, err := os.Lstat(appRoot + "-"); !os.IsNotExist(err) {
+				return nil, fmt.Errorf("empty name allocated checkout: %v", err)
+			}
+			observations = append(observations, map[string]any{"command": command, "json_output": jsonOutput, "exit": 2, "stdout": output.String(), "stderr": stderr.String(), "pid": cmd.Process.Pid, "process_joined": true, "registrations_refs_bytes_preserved": true})
+		}
+		removeArgs := []string{"worktree", "remove", "agent", "--app-root", appRoot}
+		if jsonOutput {
+			removeArgs = append(removeArgs, "-o", "json")
+		}
+		if err := runProduct(ctx, repoRoot, &bytes.Buffer{}, removeArgs...); err != nil {
+			return nil, err
+		}
+		if _, err := os.Lstat(child); !os.IsNotExist(err) {
+			return nil, fmt.Errorf("ordinary removal retained checkout: %v", err)
+		}
+		contents, err := os.ReadFile(filepath.Join(appRoot, ".scenery.json"))
+		inventory, listErr := runHarnessGit(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
+		if err != nil || listErr != nil || !bytes.Equal(contents, config) || !strings.Contains(inventory, "worktree "+appRoot+"\x00") || strings.Contains(inventory, "worktree "+child+"\x00") {
+			return nil, fmt.Errorf("ordinary removal changed main: %v: %v", err, listErr)
+		}
+	}
+	contents, err := os.ReadFile(filepath.Join(home, "sentinel"))
+	if err != nil || string(contents) != "private retained sentinel\n" {
+		return nil, fmt.Errorf("empty name changed retained sentinel: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "worktrees")); !os.IsNotExist(err) {
+		return nil, fmt.Errorf("empty name allocated authority: %v", err)
+	}
+	return map[string]any{"observations": observations, "ordinary_create_remove_passed": true, "retained_sentinel_preserved": true, "worktree_state_allocated": false}, nil
 }
 
 // Keep the reference porcelain separate from Git's successful warning channel.

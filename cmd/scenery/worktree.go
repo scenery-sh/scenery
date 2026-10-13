@@ -143,7 +143,7 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 	}
 	name := sanitizeWorktreeName(opts.Name)
 	if name == "" {
-		return fmt.Errorf("worktree name is empty after sanitization")
+		return usageErrorf("worktree name is empty after sanitization")
 	}
 	target := defaultWorktreePath(appRoot, name)
 	args := []string{"-C", appRoot, "worktree", "add", "-b", name, "--", target}
@@ -232,7 +232,7 @@ func defaultWorktreePath(appRoot, name string) string {
 func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) (string, error) {
 	cleanName := sanitizeWorktreeName(name)
 	if cleanName == "" {
-		return "", fmt.Errorf("worktree name is empty after sanitization")
+		return "", usageErrorf("worktree name is empty after sanitization")
 	}
 	worktrees, err := listWorktrees(ctx, appRoot)
 	if err != nil {

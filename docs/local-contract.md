@@ -1111,6 +1111,13 @@ the literal target as one POSIX shell operand, including spaces, tabs, newlines,
 apostrophes and other shell characters. Git still receives the original path as
 an argv value; safe ordinary-path follow-up text is unchanged.
 
+For CREATE and REMOVE, a nonblank input that sanitizes to an empty worktree
+name is an invalid request (`SCN8001`, exit 2), with the concrete empty-after-
+sanitization message and no internal report token. This check remains after
+configured-app discovery and before any Git operation or inventory lookup;
+missing or malformed configuration keeps its existing error precedence.
+Missing or whitespace-only names retain their parser-level requires-name error.
+
 CREATE delegates revision validation to Git. A nonblank `--from` remains a
 revision operand, including literal option-shaped values; invalid refs refuse
 with exit 3 (`SCN8003` in JSON) without creating a checkout or branch. Empty or whitespace-only
