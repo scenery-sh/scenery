@@ -423,7 +423,7 @@ func checkHarnessWorktreeBranchFidelity(ctx context.Context, repoRoot, fixtureRo
 		}
 		var missingExit int
 		var missingCode string
-		for j, name := range []string{"missing-control", "target"} {
+		for _, name := range []string{"missing-control", "target"} {
 			output.Reset()
 			args := []string{"worktree", "remove", name, "--app-root", appRoot}
 			if jsonOutput {
@@ -431,25 +431,22 @@ func checkHarnessWorktreeBranchFidelity(ctx context.Context, repoRoot, fixtureRo
 			}
 			err := runProduct(ctx, repoRoot, &output, args...)
 			exit, ok := errors.AsType[*exec.ExitError](err)
-			if !ok || exit.ExitCode() == 0 {
-				return nil, fmt.Errorf("prefixed nonmatch attempted removal: %v", err)
+			if !ok || exit.ExitCode() != 2 {
+				return nil, fmt.Errorf("missing target did not refuse as invalid request: %v", err)
 			}
-			if j == 0 {
-				missingExit = exit.ExitCode()
-			} else if exit.ExitCode() != missingExit {
-				return nil, fmt.Errorf("prefixed nonmatch changed missing-target exit")
-			}
+			missingExit = exit.ExitCode()
+			message := fmt.Sprintf("git worktree %q is not registered", name)
 			if jsonOutput {
 				envelope, decodeErr := machine.Decode[graph.Diagnostic](output.Bytes(), currentMachineSpecRevision())
-				if decodeErr != nil || envelope.OK || len(envelope.Diagnostics) != 1 {
+				if decodeErr != nil || envelope.OK || envelope.Data != nil || len(envelope.Diagnostics) != 1 {
 					return nil, fmt.Errorf("prefixed nonmatch diagnostic = %+v: %v", envelope, decodeErr)
 				}
-				if j == 0 {
-					missingCode = envelope.Diagnostics[0].Code
-				} else if envelope.Diagnostics[0].Code != missingCode {
-					return nil, fmt.Errorf("prefixed nonmatch changed missing-target diagnostic")
+				diagnostic := envelope.Diagnostics[0]
+				if diagnostic.Code != "SCN8001" || diagnostic.Message != message || diagnostic.ReportToken != "" {
+					return nil, fmt.Errorf("missing target request diagnostic = %+v", diagnostic)
 				}
-			} else if output.Len() != 0 || !strings.Contains(err.Error(), "is not registered") {
+				missingCode = diagnostic.Code
+			} else if output.Len() != 0 || !strings.Contains(err.Error(), message) {
 				return nil, fmt.Errorf("prefixed human nonmatch = %v", err)
 			}
 		}

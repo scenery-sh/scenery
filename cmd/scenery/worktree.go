@@ -249,7 +249,7 @@ func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, li
 		}
 	}
 	if len(matches) == 0 {
-		return "", fmt.Errorf("git worktree %q is not registered", cleanName)
+		return "", usageErrorf("git worktree %q is not registered", cleanName)
 	}
 	if len(matches) == 1 {
 		for _, path := range matches {

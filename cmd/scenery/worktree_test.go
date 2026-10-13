@@ -333,6 +333,10 @@ func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "is not registered") {
 		t.Fatalf("remove error = %v", err)
 	}
+	diagnostic := cliErrorDiagnostic(err)
+	if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.Message != err.Error() || diagnostic.ReportToken != "" {
+		t.Fatalf("unregistered target is not an invalid request: %v, %+v", err, diagnostic)
+	}
 	if _, err := os.Stat(filepath.Join(unlisted, ".scenery", "worktree-db.json")); err != nil {
 		t.Fatalf("unlisted target state was removed: %v", err)
 	}
@@ -402,6 +406,12 @@ func TestWorktreeRemoveRequiresUniqueRegisteredTarget(t *testing.T) {
 				if tc.listErr != nil && !errors.Is(err, listFailure) {
 					t.Fatalf("inventory error was lost: %v", err)
 				}
+				if !tc.ambiguous && tc.listErr == nil {
+					diagnostic := cliErrorDiagnostic(err)
+					if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.Message != tc.wantError || diagnostic.ReportToken != "" {
+						t.Fatalf("no match is not an invalid request: %v, %+v", err, diagnostic)
+					}
+				}
 				return
 			}
 			var removed worktreeRemoveResult
@@ -455,6 +465,10 @@ func TestWorktreeRemovePreservesParsedBranchName(t *testing.T) {
 			if tc.wantPath == "" {
 				if err == nil || err.Error() != `git worktree "target" is not registered` || calls != 0 || output.Len() != 0 {
 					t.Fatalf("nonmatch = %v, mutations = %d, output = %s", err, calls, &output)
+				}
+				diagnostic := cliErrorDiagnostic(err)
+				if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.Message != err.Error() || diagnostic.ReportToken != "" {
+					t.Fatalf("literal nonmatch is not an invalid request: %v, %+v", err, diagnostic)
 				}
 				return
 			}

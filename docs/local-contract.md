@@ -1118,7 +1118,9 @@ refs retain the existing omitted-ref behavior.
 
 Worktree removal matches the sanitized name against the default sibling path,
 branch name and checkout basename. Exactly one distinct normalized registered
-path must match; multiple paths are refused with `SCN8003` (exit 3) and sorted
+path must match. A name matching no registered path is an invalid request
+(`SCN8001`, exit 2), with a concrete not-registered message and no internal
+report token. Multiple paths are refused with `SCN8003` (exit 3) and sorted
 candidate paths before any Git removal. A single checkout matching several rules
 is still one target. Lexical normalization preserves literal pathname whitespace:
 registered checkouts differing by a trailing space remain distinct candidates,
