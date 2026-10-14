@@ -172,10 +172,15 @@ func (p *probe) run(name string) (returnErr error) {
 		config.DevBootstrap = auth.DevBootstrapConfig{Enabled: true, DefaultUserEmail: "petr@example.test", DefaultTenantID: configuredTenant}
 	}
 	must(auth.RegisterStandard(config))
+	registerConnectionAuthorityEndpoints()
+	workerService, workerReady, stopWorker := registerConnectionWorker()
+	defer stopWorker()
+	must(envpolicy.Set("SCENERY_ROLE", "all"))
 	done := make(chan error, 1)
 	exited := false
 	go func() { done <- runtime.Main(runtime.AppConfig{Name: "auth-release-probe", ListenAddr: socket}) }()
 	defer func() {
+		stopWorker()
 		if exited {
 			return
 		}
@@ -219,6 +224,7 @@ func (p *probe) run(name string) (returnErr error) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+	p.ctx = connectionWorkerContext(ctx, workerService, workerReady, done)
 	run(p)
 	return nil
 }
@@ -338,6 +344,7 @@ var journeys = map[string]func(*probe){
 	"independent-provider": independentProviderJourney, "connection-isolation": connectionIsolationJourney,
 	"connection-migration": connectionMigrationJourney, "connection-migration-refusal": connectionMigrationRefusalJourney,
 	"connection-process-refresh": connectionProcessRefreshJourney, "connection-process-disconnect": connectionProcessDisconnectJourney, "connection-process-crash": connectionProcessCrashJourney,
+	"connection-authority": connectionAuthorityJourney, "connection-no-expiry": connectionNoExpiryJourney, "connection-repeat-disconnect": connectionRepeatDisconnectJourney,
 }
 
 // deliverAuthConfiguration hands this process its standard-auth

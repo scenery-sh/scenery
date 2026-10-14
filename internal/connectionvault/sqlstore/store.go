@@ -136,10 +136,11 @@ func (l *lease) Save(ctx context.Context, row connectionvault.Connection) error 
 	if err != nil {
 		return err
 	}
-	if row.Status == connectionvault.Disconnected {
-		return l.query.ExpireConnectionStates(ctx, authdb.ExpireConnectionStatesParams{UserID: l.user, ProviderID: l.provider})
-	}
 	return nil
+}
+
+func (l *lease) ExpireStates(ctx context.Context) error {
+	return l.query.ExpireConnectionStates(ctx, authdb.ExpireConnectionStatesParams{UserID: l.user, ProviderID: l.provider})
 }
 
 func (l *lease) Checkpoint(ctx context.Context, row connectionvault.Connection) error {

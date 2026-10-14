@@ -152,26 +152,35 @@ func (v *Validator) key(ctx context.Context, kid string, now time.Time) (*rsa.Pu
 		if entry.Type != "RSA" || entry.Algorithm != "" && entry.Algorithm != "RS256" || entry.Use != "" && entry.Use != "sig" || entry.KeyID == "" {
 			continue
 		}
-		n, err := base64.RawURLEncoding.DecodeString(entry.N)
-		if err != nil || len(n) < 256 || len(n) > 1024 {
+		n, err := decodeUInt(entry.N, 1024)
+		if err != nil || n.BitLen() < 2048 {
 			continue
 		}
-		e, err := base64.RawURLEncoding.DecodeString(entry.E)
-		if err != nil || len(e) == 0 || len(e) > 4 {
+		e, err := decodeUInt(entry.E, 4)
+		if err != nil {
 			continue
 		}
-		exponent := new(big.Int).SetBytes(e).Int64()
+		exponent := e.Int64()
 		if exponent < 3 || exponent > 1<<31-1 || exponent%2 == 0 {
 			continue
 		}
 		if keys[entry.KeyID] != nil {
 			return nil, ErrInvalidIdentity
 		}
-		keys[entry.KeyID] = &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: int(exponent)}
+		keys[entry.KeyID] = &rsa.PublicKey{N: n, E: int(exponent)}
 	}
 	v.keys, v.keysUntil = keys, now.Add(time.Hour)
 	if key := keys[kid]; key != nil {
 		return key, nil
 	}
 	return nil, ErrInvalidIdentity
+}
+
+// RFC 7518 Base64urlUInt uses the minimum number of unsigned big-endian bytes.
+func decodeUInt(encoded string, maximumBytes int) (*big.Int, error) {
+	data, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
+	if err != nil || len(data) == 0 || len(data) > maximumBytes || data[0] == 0 || base64.RawURLEncoding.EncodeToString(data) != encoded {
+		return nil, ErrInvalidIdentity
+	}
+	return new(big.Int).SetBytes(data), nil
 }

@@ -115,8 +115,14 @@ func (v *Vault) Disconnect(ctx context.Context, user, provider string) (connecti
 		return connectionapi.Status{}, storageFailure(err)
 	}
 	defer func() { _ = lease.Close() }()
+	if err := lease.ExpireStates(ctx); err != nil {
+		return connectionapi.Status{}, storageFailure(err)
+	}
 	row, err := lease.Load(ctx)
 	if errors.Is(err, ErrNotConnected) {
+		if err := lease.Commit(); err != nil {
+			return connectionapi.Status{}, storageFailure(err)
+		}
 		return connectionapi.Status{Provider: provider, Status: Disconnected}, nil
 	}
 	if err != nil {

@@ -104,7 +104,8 @@ func captureProcessLinkedCall(ctx context.Context) (*processLinkCallState, error
 // request state for the dispatching goroutine. The returned function restores
 // the previous state.
 func enterProcessLinkedCall(ctx context.Context, invocation runtimeapi.InvocationMetadata, call *processLinkCallState) (context.Context, func(), error) {
-	ctx = runtimeapi.WithInvocation(ctx, runtimeapi.NewInvocationWithMetadata(invocation))
+	token := runtimeapi.NewInvocationWithMetadata(invocation)
+	ctx = runtimeapi.WithInvocation(ctx, token)
 	if call == nil {
 		return ctx, func() {}, nil
 	}
@@ -125,7 +126,7 @@ func enterProcessLinkedCall(ctx context.Context, invocation runtimeapi.Invocatio
 	if source.API != nil {
 		request.API = &shared.APIDesc{Raw: source.API.Raw, Exposed: source.API.Exposed, AuthRequired: source.API.AuthRequired}
 	}
-	state := &requestState{started: source.Started, request: request, auth: auth, logsEnabled: call.LogsEnabled, traceEnabled: call.TraceEnabled, processGeneration: call.Generation}
+	state := &requestState{started: source.Started, request: request, auth: auth, invocation: token, logsEnabled: call.LogsEnabled, traceEnabled: call.TraceEnabled, processGeneration: call.Generation}
 	if call.TraceID != "" && call.SpanID != "" {
 		state.trace = &traceSpan{traceID: call.TraceID, spanID: call.SpanID, service: request.Service, endpoint: request.Endpoint, started: source.Started, requestType: request.Type}
 	}

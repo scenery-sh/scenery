@@ -26,6 +26,8 @@ func ConnectionToken(ctx context.Context, provider string, scopes ...string) (st
 // ConnectionTokenForUser is for trusted server workers. In a request it can
 // access only the authenticated owner's connection; there is no token HTTP API.
 // Applications authorize tenant-scoped work before using a user's connection.
+// Keep the runtime-admitted context when starting a helper goroutine; a bare
+// background context grants no authority to select a connection owner.
 func ConnectionTokenForUser(ctx context.Context, user, provider string, scopes ...string) (string, error) {
 	owner, err := parseUUID(user)
 	if err != nil {

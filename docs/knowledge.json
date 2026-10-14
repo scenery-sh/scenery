@@ -27,7 +27,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Provider-neutral owner-bound bearer access, trusted OAuth2/OIDC and Google declarations, browser administration, encrypted refresh recovery and working examples.",
+      "summary": "Provider-neutral bearer access with runtime invocation authority, trusted OAuth2/OIDC and Google declarations, inspected public callbacks, one-time unknown-expiry issuance, encrypted refresh recovery and transactional disconnect.",
       "tags": [
         "auth",
         "connections",

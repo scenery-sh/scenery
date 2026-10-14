@@ -21,6 +21,7 @@ type fakeOAuth2 struct {
 	challenge, callback, scope string
 	refreshCalls               atomic.Int64
 	beforeRefresh              func(*http.Request)
+	noExpiry                   bool
 }
 
 func newFakeOAuth2() *fakeOAuth2 {
@@ -55,6 +56,7 @@ func (f *fakeOAuth2) serve(w http.ResponseWriter, req *http.Request) {
 		}
 		f.mu.Lock()
 		challenge, callback, scope := f.challenge, f.callback, f.scope
+		noExpiry := f.noExpiry
 		f.mu.Unlock()
 		access, refresh := "independent-access", "independent-refresh"
 		if req.PostForm.Get("grant_type") == "authorization_code" {
@@ -77,7 +79,11 @@ func (f *fakeOAuth2) serve(w http.ResponseWriter, req *http.Request) {
 			access, refresh = "independent-rotated-access", "independent-rotated-refresh"
 		}
 		// This provider deliberately returns no ID token.
-		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": 3600, "scope": scope, "resource": "https://files.example"})
+		grant := map[string]any{"access_token": access, "token_type": "Bearer", "scope": scope, "resource": "https://files.example"}
+		if !noExpiry {
+			grant["refresh_token"], grant["expires_in"] = refresh, 3600
+		}
+		_ = json.NewEncoder(w).Encode(grant)
 	case "/account":
 		if req.Header.Get("Authorization") != "Bearer independent-access" {
 			w.WriteHeader(401)

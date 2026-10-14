@@ -72,13 +72,18 @@ Both return only bearer tokens. Required scopes are permission requirements,
 not a downscoping request. Empty required scopes impose no extra permission
 requirement. Scopes are case-sensitive opaque OAuth tokens; sorting/deduplication
 creates no semantic aliases. Requests cannot select another user's connection,
-even by replacing the argument context. Workers must authorize tenant-scoped work
-before selecting an owner. There is no HTTP token endpoint.
+even by replacing the argument context and starting another goroutine. Runtime
+admission supplies an opaque invocation: authenticated requests remain bound to
+their principal, and admitted background tasks can select an owner. Preserve that
+context in helper goroutines; `context.Background()` and `auth.WithContext` cannot
+grant worker authority. Workers must authorize tenant-scoped work before selecting
+an owner. There is no HTTP token endpoint.
 
 ## Browser administration and status UI
 
-The compiler projects the following authenticated operations into inspection and
-generated clients whenever connections are declared:
+The compiler projects the following routes into inspection whenever connections
+are declared. Generated clients expose the three authenticated administration
+operations; the public browser callback is opaque and excluded from typed calls:
 
 | Method | Route | Result |
 | --- | --- | --- |
@@ -155,6 +160,11 @@ cannot be undone by a late refresh. Revocation results are sanitized (`succeeded
 `unsupported`, `failed`, `configuration_changed`, `credential_unavailable`);
 `pending` records an interrupted revocation attempt after local issuance stopped.
 Previously issued tokens may remain usable at the provider.
+
+Every successful disconnect expires pending browser callbacks in the same local
+transaction, including repeated disconnects and a slot with no connection row.
+The service checks the connection schema once per pool after success; failed or
+canceled checks remain retryable. Schema migration requires stopping writers.
 
 ## Working examples and validation
 

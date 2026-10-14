@@ -46,12 +46,12 @@ func standardAuthProjectionResources(cfg appcfg.AuthConfig, resources []Resource
 	}
 	sort.Slice(gateways, func(i, j int) bool { return gateways[i].Address < gateways[j].Address })
 
-	resources = connectionProjectionResources(authentication, gateways)
+	resources = connectionProjectionResources(cfg, authentication, gateways)
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Address < resources[j].Address })
 	return resources
 }
 
-func connectionProjectionResources(authentication string, gateways []Resource) []Resource {
+func connectionProjectionResources(cfg appcfg.AuthConfig, authentication string, gateways []Resource) []Resource {
 	module := standardAuthProjectionModule
 	serviceAddress := resourceAddress(module, "service", "auth")
 	connectInputAddress := resourceAddress(module, "record", "connection_start_input")
@@ -114,6 +114,26 @@ func connectionProjectionResources(authentication string, gateways []Resource) [
 			frameworkBinding(module, "connection_status_"+suffix+"_http", getOperationAddress, gateway.Address, authentication, "GET", "/auth/connections/{provider}", false),
 			frameworkBinding(module, "connection_disconnect_"+suffix+"_http", disconnectOperationAddress, gateway.Address, authentication, "POST", "/auth/connections/{provider}/disconnect", false),
 		)
+	}
+	for _, provider := range cfg.Connections {
+		name := "connection_callback_" + provider.ID
+		operation := resourceAddress(module, "operation", name)
+		projected = append(projected, Resource{
+			Address: operation, Kind: "scenery.operation", Name: name, Module: module, Origin: framework,
+			Spec: map[string]any{"service": map[string]any{"$ref": serviceAddress}, "handler": map[string]any{"method": "ConnectionCallback_" + provider.ID}},
+		})
+		for _, gateway := range gateways {
+			// Browser callbacks are inspected as opaque framework HTTP endpoints,
+			// which the existing client projection excludes from typed calls.
+			projected = append(projected, Resource{
+				Address: resourceAddress(module, "binding", name+"_"+gateway.Name+"_http"), Kind: "scenery.binding", Name: name + "_" + gateway.Name + "_http", Module: module, Origin: framework,
+				Spec: map[string]any{
+					"gateway": map[string]any{"$ref": gateway.Address}, "operation": map[string]any{"$ref": operation}, "protocol": "http", "delivery": "call",
+					"authentication": map[string]any{"$ref": "std.authentication.none"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"},
+					"http": map[string]any{"method": "GET", "path": "/auth/connections/" + provider.ID + "/callback", "guarantee": "opaque"},
+				},
+			})
+		}
 	}
 	return projected
 }

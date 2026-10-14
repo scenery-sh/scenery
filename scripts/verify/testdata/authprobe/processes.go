@@ -13,6 +13,7 @@ import (
 	"scenery.sh/auth"
 	"scenery.sh/errs"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/runtime"
 )
 
 // Worker output is private parent/child IPC, never an artifact or browser
@@ -27,11 +28,21 @@ func runConnectionWorker(user, endpoint string) {
 	must(auth.RegisterStandard(auth.StandardConfig{Enabled: true, Connections: []auth.ConnectionProvider{{ID: "independent", Protocol: "oauth2", Issuer: endpoint, AuthorizeURL: endpoint + "/authorize", TokenURL: endpoint + "/token", AccountURL: endpoint + "/account", Resource: "https://files.example", AllowedScopes: []string{"files.read", "files.write"}}}}))
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	service, ready, stop := registerConnectionWorker()
+	defer stop()
+	must(envpolicy.Set("SCENERY_ROLE", "worker"))
+	done := make(chan error, 1)
+	go func() { done <- runtime.Main(runtime.AppConfig{Name: "auth-token-worker"}) }()
+	ctx = connectionWorkerContext(ctx, service, ready, done)
 	token, err := auth.ConnectionTokenForUser(ctx, user, "independent", "files.read")
 	result := workerResult{Token: token}
 	if err != nil {
 		result.Code = errs.Code(err)
 	}
+	stop()
+	process := take(os.FindProcess(os.Getpid()))
+	must(process.Signal(os.Interrupt))
+	must(<-done)
 	must(json.NewEncoder(os.Stdout).Encode(result))
 }
 

@@ -124,16 +124,28 @@ func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
 			}, Origin: graph.Origin{Kind: "framework"}},
 		},
 	}
+	result.FrameworkResources = append(result.FrameworkResources,
+		graph.Resource{Address: "scenery_auth/operation/connection_callback_files", Kind: "scenery.operation", Name: "connection_callback_files", Module: "scenery_auth", Origin: graph.Origin{Kind: "framework"}, Spec: map[string]any{
+			"service": map[string]any{"$ref": "scenery_auth/service/auth"}, "handler": map[string]any{"method": "ConnectionCallback_files"},
+		}},
+		graph.Resource{Address: "scenery_auth/binding/connection_callback_files_public_api_http", Kind: "scenery.binding", Name: "connection_callback_files_public_api_http", Module: "scenery_auth", Origin: graph.Origin{Kind: "framework"}, Spec: map[string]any{
+			"protocol": "http", "operation": map[string]any{"$ref": "scenery_auth/operation/connection_callback_files"}, "gateway": map[string]any{"$ref": "app/http_gateway/public_api"}, "authentication": map[string]any{"$ref": "std.authentication.none"},
+			"http": map[string]any{"method": "GET", "path": "/auth/connections/files/callback", "guarantee": "opaque"},
+		}},
+	)
 
 	endpoints, err := inspectEndpoints(result)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(endpoints) != 1 || endpoints[0].ID != "auth.ConnectionStart" || endpoints[0].Access != "auth" || !endpoints[0].Generated {
+	if len(endpoints) != 2 || endpoints[1].ID != "auth.ConnectionStart" || endpoints[1].Access != "auth" || !endpoints[1].Generated {
 		t.Fatalf("framework endpoints = %#v", endpoints)
 	}
+	if endpoint := endpoints[0]; endpoint.ID != "auth.ConnectionCallback_files" || endpoint.Access != "public" || !endpoint.Raw || endpoint.Path != "/auth/connections/files/callback" || len(endpoint.Methods) != 1 || endpoint.Methods[0] != "GET" || endpoint.HasPayload {
+		t.Fatalf("public callback = %#v", endpoint)
+	}
 	services := inspectServices(result)
-	if got := findInspectServiceEndpoints(services, "auth"); len(got) != 1 || got[0] != "ConnectionStart" {
+	if got := findInspectServiceEndpoints(services, "auth"); len(got) != 2 || got[0] != "ConnectionCallback_files" || got[1] != "ConnectionStart" {
 		t.Fatalf("auth endpoints = %#v", got)
 	}
 }

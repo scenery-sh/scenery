@@ -17,10 +17,13 @@ type memoryStore struct {
 	present                                    bool
 	lockErr, saveErr, checkpointErr, commitErr error
 	locks, checkpoints, commits                int
+	pendingStates, expiredStates               int
+	expireErr                                  error
 }
 type memoryLease struct {
 	store  *memoryStore
 	staged *Connection
+	expire bool
 }
 
 func cloneConnection(row Connection) Connection {
@@ -56,6 +59,21 @@ func (l *memoryLease) Save(ctx context.Context, row Connection) error {
 	l.staged = &copy
 	return nil
 }
+func (l *memoryLease) ExpireStates(context.Context) error {
+	if l.store.expireErr != nil {
+		return l.store.expireErr
+	}
+	l.expire = true
+	return nil
+}
+
+func (l *memoryLease) expireStates() {
+	if l.expire {
+		l.store.expiredStates += l.store.pendingStates
+		l.store.pendingStates = 0
+		l.expire = false
+	}
+}
 func (l *memoryLease) Checkpoint(ctx context.Context, row Connection) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -65,6 +83,7 @@ func (l *memoryLease) Checkpoint(ctx context.Context, row Connection) error {
 	}
 	l.store.row, l.store.present = cloneConnection(row), true
 	l.store.checkpoints++
+	l.expireStates()
 	return nil
 }
 func (l *memoryLease) Commit() error {
@@ -75,6 +94,7 @@ func (l *memoryLease) Commit() error {
 		l.store.row, l.store.present = cloneConnection(*l.staged), true
 	}
 	l.store.commits++
+	l.expireStates()
 	return nil
 }
 func (*memoryLease) Close() error { return nil }

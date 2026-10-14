@@ -9,7 +9,7 @@ import (
 	"scenery.sh/internal/connectionapi"
 	"scenery.sh/internal/connectionruntime"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/runtime/shared"
+	"scenery.sh/internal/runtimeapi"
 )
 
 var sdkConnections struct {
@@ -30,13 +30,13 @@ func (sdkHost) RegisterConnections(providers []connectionapi.ProviderConfig, ope
 }
 
 func (sdkHost) ConnectionToken(ctx context.Context, user, provider string, scopes []string) (string, error) {
-	// Keep the goroutine's external request boundary even if application code
-	// replaces the argument context before forwarding it to the worker helper.
-	state := currentState()
-	if state == nil {
-		state = stateFromContext(ctx)
+	// Only runtime admission can grant owner selection. Losing both the calling
+	// goroutine and its context loses authority; it never creates a worker grant.
+	invocation, _ := runtimeapi.InvocationFromContext(ctx)
+	if state := currentState(); state != nil {
+		invocation = state.invocation
 	}
-	if state != nil && (state.auth.UID != "" && state.auth.UID != user || (state.request.Type == shared.APICall || state.request.Type == shared.RawAPICall) && state.auth.UID == "") {
+	if !invocation.Valid() || invocation.Principal() != "" && invocation.Principal() != user || invocation.Principal() == "" && !invocation.ConnectionWorker() {
 		return "", errs.B().Code(errs.PermissionDenied).Msg("connection owner does not match the request").Err()
 	}
 	sdkConnections.RLock()

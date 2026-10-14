@@ -113,12 +113,19 @@ func (v *Vault) Token(ctx context.Context, user, provider string, scopes []strin
 	if !ContainsScopes(row.Scopes, required) {
 		return "", failure(errs.ConnectionScopeMissing, "connection is missing required scopes")
 	}
-	if v.now().Add(time.Minute).Before(row.AccessExpiresAt) && len(row.AccessCiphertext) > 0 {
+	if (row.AccessExpiresAt.IsZero() || v.now().Add(time.Minute).Before(row.AccessExpiresAt)) && len(row.AccessCiphertext) > 0 {
 		token, err := v.cipher.Open(row.AccessCiphertext)
 		if err != nil {
 			return "", failure(errs.ConnectionConfiguration, "connection credential could not be decrypted")
 		}
 		if token != "" {
+			if row.AccessExpiresAt.IsZero() {
+				// Consume an unknown-expiry grant once under the owner lease.
+				row.AccessCiphertext = nil
+				if err := lease.Save(ctx, row); err != nil {
+					return "", storageFailure(err)
+				}
+			}
 			if err := lease.Commit(); err != nil {
 				return "", storageFailure(err)
 			}
@@ -153,6 +160,10 @@ func (v *Vault) Token(ctx context.Context, user, provider string, scopes []strin
 	}
 	row.Status, row.LastRefreshError = Active, ""
 	row.LastRefreshAt, row.UpdatedAt = v.now(), v.now()
+	if row.AccessExpiresAt.IsZero() && strings.EqualFold(row.TokenType, "Bearer") && ContainsScopes(row.Scopes, required) {
+		// This refresh call issues the grant immediately; do not issue it again.
+		row.AccessCiphertext = nil
+	}
 	if err := lease.Save(ctx, row); err != nil {
 		return "", storageFailure(err)
 	}

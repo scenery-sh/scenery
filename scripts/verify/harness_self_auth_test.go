@@ -15,7 +15,7 @@ func TestHarnessStandardAuthCasesAndFailureEvidence(t *testing.T) {
 		}
 		ids[scenario.ID] = true
 	}
-	if len(ids) != 22 || !ids["refresh-replay"] || !ids["token-rotation"] || !ids["user-lifecycle"] {
+	if len(ids) != 25 || !ids["refresh-replay"] || !ids["token-rotation"] || !ids["user-lifecycle"] || !ids["connection-authority"] || !ids["connection-no-expiry"] || !ids["connection-repeat-disconnect"] {
 		t.Fatalf("auth assertion inventory changed: %v", ids)
 	}
 	for _, report := range []harnessAuthCaseReport{

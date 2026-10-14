@@ -43,6 +43,9 @@ var harnessStandardAuthCases = []struct{ ID, Proof string }{
 	{"connection-process-refresh", "IndependentProcessRefreshSerialization"},
 	{"connection-process-disconnect", "IndependentProcessDisconnectSerialization"},
 	{"connection-process-crash", "InterruptedRefreshIntentRecovery"},
+	{"connection-authority", "AdmittedRequestAndWorkerAuthority"},
+	{"connection-no-expiry", "InitialUnknownExpiryGrantIssuance"},
+	{"connection-repeat-disconnect", "PendingCallbackDisconnectInvalidation"},
 }
 
 type harnessAuthCaseReport struct {

@@ -32,7 +32,7 @@ scheduling. Product commands must not import either owner.
   Compact context preserves run/input identity, diagnostics and remaining/conditional
   requirements; unrecorded checks never pass.
 - The `--probe auth` step (also mandatory in release) builds
-  `testdata/authprobe` and runs all 15 inventoried public-boundary journeys
+  `testdata/authprobe` and runs the complete `harnessStandardAuthCases` inventory
   in fresh native processes and owned databases. Missing Docker, incomplete
   assertion reports, failed journeys, or failed cleanup fail closed.
 

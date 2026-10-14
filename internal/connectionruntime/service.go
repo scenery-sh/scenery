@@ -46,6 +46,7 @@ type Service struct {
 	options   Options
 	vault     *connectionvault.Vault
 	providers map[string]configuredProvider
+	schema    schemaChecks
 }
 
 func coded(code errs.ErrCode, message string) error { return errs.B().Code(code).Msg(message).Err() }
@@ -118,7 +119,10 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := authschema.CheckCurrentConnections(ctx, pool); err != nil {
+	if err := s.schema.ensure(ctx, pool, func() error { return authschema.CheckCurrentConnections(ctx, pool) }); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, coded(errs.ConnectionConfiguration, "connection schema requires explicit migration or recovery")
 	}
 	return pool, nil

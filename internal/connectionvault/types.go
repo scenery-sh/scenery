@@ -79,6 +79,8 @@ type Cipher interface {
 type Lease interface {
 	Load(context.Context) (Connection, error)
 	Save(context.Context, Connection) error
+	// ExpireStates invalidates pending browser handshakes in the current transaction.
+	ExpireStates(context.Context) error
 	Checkpoint(context.Context, Connection) error
 	Commit() error
 	Close() error

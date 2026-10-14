@@ -58,15 +58,16 @@ type processLinkConfig struct {
 }
 
 type processLinkInvocation struct {
-	ID            string     `json:"id"`
-	Principal     string     `json:"principal,omitempty"`
-	TenantID      string     `json:"tenant_id,omitempty"`
-	TraceID       string     `json:"trace_id,omitempty"`
-	Deadline      *time.Time `json:"deadline,omitempty"`
-	CallerBinding string     `json:"caller_binding,omitempty"`
-	ExecutionID   string     `json:"execution_id,omitempty"`
-	Deployment    string     `json:"deployment,omitempty"`
-	Locale        string     `json:"locale,omitempty"`
+	ID               string     `json:"id"`
+	Principal        string     `json:"principal,omitempty"`
+	TenantID         string     `json:"tenant_id,omitempty"`
+	TraceID          string     `json:"trace_id,omitempty"`
+	Deadline         *time.Time `json:"deadline,omitempty"`
+	CallerBinding    string     `json:"caller_binding,omitempty"`
+	ExecutionID      string     `json:"execution_id,omitempty"`
+	Deployment       string     `json:"deployment,omitempty"`
+	Locale           string     `json:"locale,omitempty"`
+	ConnectionWorker bool       `json:"connection_worker,omitempty"`
 }
 
 type processLinkEnvelope struct {
@@ -173,6 +174,7 @@ func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConf
 	metadata := processLinkInvocation{
 		ID: invocation.ID(), Principal: invocation.Principal(), TenantID: invocation.TenantID(), TraceID: invocation.TraceID(),
 		CallerBinding: invocation.CallerBinding(), ExecutionID: invocation.ExecutionID(), Deployment: invocation.Deployment(), Locale: invocation.Locale(),
+		ConnectionWorker: invocation.ConnectionWorker(),
 	}
 	if deadline, ok := invocation.Deadline(); ok {
 		metadata.Deadline = &deadline
@@ -270,6 +272,7 @@ func (s *server) handleProcessLinkedBinding(w http.ResponseWriter, req *http.Req
 	metadata := runtimeapi.InvocationMetadata{
 		ID: body.Invocation.ID, Principal: body.Invocation.Principal, TenantID: body.Invocation.TenantID, TraceID: body.Invocation.TraceID,
 		CallerBinding: body.Invocation.CallerBinding, ExecutionID: body.Invocation.ExecutionID, Deployment: body.Invocation.Deployment, Locale: body.Invocation.Locale,
+		ConnectionWorker: body.Invocation.ConnectionWorker,
 	}
 	ctx := req.Context()
 	if body.Invocation.Deadline != nil {

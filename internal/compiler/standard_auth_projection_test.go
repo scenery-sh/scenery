@@ -35,6 +35,8 @@ func TestStandardAuthConnectionProjectionFollowsRuntimeConfig(t *testing.T) {
 		"scenery_auth/operation/connection_start",
 		"scenery_auth/operation/connection_status",
 		"scenery_auth/operation/connection_disconnect",
+		"scenery_auth/operation/connection_callback_google",
+		"scenery_auth/binding/connection_callback_google_public_api_http",
 		"scenery_auth/binding/connection_start_public_api_http",
 		"scenery_auth/record/connection_response",
 	} {
@@ -44,6 +46,16 @@ func TestStandardAuthConnectionProjectionFollowsRuntimeConfig(t *testing.T) {
 	}
 
 	for _, resource := range projected {
+		if resource.Name == "connection_callback_google" {
+			continue
+		}
+		if resource.Name == "connection_callback_google_public_api_http" {
+			httpSpec := resource.Spec["http"].(map[string]any)
+			if httpSpec["method"] != "GET" || httpSpec["path"] != "/auth/connections/google/callback" || httpSpec["guarantee"] != "opaque" || refString(resource.Spec["authentication"]) != "std.authentication.none" {
+				t.Fatal("callback projection differs from the public runtime endpoint")
+			}
+			continue
+		}
 		if resource.Kind == "scenery.operation" && stringValue(namedChildren(resource.Spec, "error")[0]["name"]) != "unavailable" {
 			t.Fatal("missing typed provider/storage failure")
 		}

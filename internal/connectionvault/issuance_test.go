@@ -1,0 +1,81 @@
+package connectionvault
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"scenery.sh/errs"
+)
+
+func TestVaultIssuesUnknownExpiryGrantOnce(t *testing.T) {
+	for _, refreshable := range []bool{false, true} {
+		v, s, p := vaultFixture(t, "independent")
+		p.grant.Issuer, p.grant.Subject, p.grant.ExpiresAt = s.row.Issuer, s.row.Subject, time.Time{}
+		s.row.Status = Disconnected
+		if !refreshable {
+			p.grant.RefreshToken = ""
+		}
+		if err := v.Connect(t.Context(), "owner", "independent", []string{"Read"}, p.grant); err != nil {
+			t.Fatal(err)
+		}
+		if !s.row.AccessExpiresAt.IsZero() {
+			t.Fatal("invented expiry")
+		}
+		token, err := v.Token(t.Context(), "owner", "independent", []string{"Read"})
+		if err != nil || token != p.grant.AccessToken || p.calls != 0 || len(s.row.AccessCiphertext) != 0 {
+			t.Fatalf("initial issuance: %v", err)
+		}
+		for range 2 {
+			token, err = v.Token(t.Context(), "owner", "independent", []string{"Read"})
+			if refreshable {
+				if err != nil || token != p.grant.AccessToken || len(s.row.AccessCiphertext) != 0 {
+					t.Fatalf("refresh issuance: %v", err)
+				}
+			} else if errs.Code(err) != errs.ConnectionReauthRequired || token != "" {
+				t.Fatalf("unknown expiry reused: %v", err)
+			}
+		}
+		if refreshable && p.calls != 2 {
+			t.Fatal("refreshed unknown-expiry token was issued twice")
+		}
+	}
+}
+
+func TestVaultUnknownExpiryIssuanceRequiresCommit(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		v, s, _ := vaultFixture(t, "independent")
+		s.row.AccessExpiresAt = time.Time{}
+		if commit {
+			s.commitErr = errors.New("commit failed")
+		} else {
+			s.saveErr = errors.New("save failed")
+		}
+		if token, err := v.Token(t.Context(), "owner", "independent", nil); token != "" || errs.Code(err) != errs.ConnectionUnavailable {
+			t.Fatalf("uncommitted issuance: %v", err)
+		}
+		if len(s.row.AccessCiphertext) == 0 {
+			t.Fatal("failed transaction changed the grant")
+		}
+	}
+}
+
+func TestVaultDisconnectAlwaysExpiresPendingStates(t *testing.T) {
+	for _, state := range []string{Active, Disconnected, "absent"} {
+		for _, fail := range []bool{false, true} {
+			v, s, p := vaultFixture(t, "independent")
+			s.row.Status, s.present, s.pendingStates = state, state != "absent", 2
+			if fail {
+				s.expireErr = errors.New("expiry failed")
+			}
+			status, err := v.Disconnect(t.Context(), "owner", "independent")
+			if fail {
+				if errs.Code(err) != errs.ConnectionUnavailable || s.pendingStates != 2 || s.checkpoints != 0 || p.revocations != 0 {
+					t.Fatalf("expiry failure: %v", err)
+				}
+			} else if err != nil || status.Status != Disconnected || s.pendingStates != 0 || s.expiredStates != 2 {
+				t.Fatalf("disconnect did not expire pending states: %v", err)
+			}
+		}
+	}
+}
