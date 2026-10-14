@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"scenery.sh/auth"
 	authdb "scenery.sh/auth/db/gen"
@@ -22,6 +24,7 @@ type fakeOAuth2 struct {
 	refreshCalls               atomic.Int64
 	beforeRefresh              func(*http.Request)
 	noExpiry                   bool
+	shortExpiry                bool
 }
 
 func newFakeOAuth2() *fakeOAuth2 {
@@ -57,6 +60,7 @@ func (f *fakeOAuth2) serve(w http.ResponseWriter, req *http.Request) {
 		f.mu.Lock()
 		challenge, callback, scope := f.challenge, f.callback, f.scope
 		noExpiry := f.noExpiry
+		shortExpiry := f.shortExpiry
 		f.mu.Unlock()
 		access, refresh := "independent-access", "independent-refresh"
 		if req.PostForm.Get("grant_type") == "authorization_code" {
@@ -82,6 +86,8 @@ func (f *fakeOAuth2) serve(w http.ResponseWriter, req *http.Request) {
 		grant := map[string]any{"access_token": access, "token_type": "Bearer", "scope": scope, "resource": "https://files.example"}
 		if !noExpiry {
 			grant["refresh_token"], grant["expires_in"] = refresh, 3600
+		} else if shortExpiry {
+			grant["expires_in"] = 30
 		}
 		_ = json.NewEncoder(w).Encode(grant)
 	case "/account":
@@ -151,6 +157,26 @@ func connectionIsolationJourney(p *probe) {
 	other := p.signup("another-owner@example.test", true)
 	status, _ := call[auth.ConnectionResponse](p, http.MethodGet, "/auth/connections/google", nil, session.Token, "")
 	p.check(status.Status == "disconnected", "provider slots do not select another provider's row")
-	_, err := p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: other, ProviderID: "independent"})
+	start, _ = call[auth.ConnectionStartResponse](p, http.MethodPost, "/auth/connections/independent/start", auth.ConnectionStartParams{Scopes: []string{"files.read"}}, session.Token, "")
+	callback = p.independent.authorize(start.AuthorizeURL)
+	_, err := p.db.ExecContext(p.ctx, `CREATE FUNCTION scenery.authprobe_callback_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'owned callback storage failure'; END $$;
+CREATE TRIGGER authprobe_callback_failure BEFORE UPDATE ON scenery.scenery_auth_connection_states FOR EACH ROW EXECUTE FUNCTION scenery.authprobe_callback_failure()`)
+	must(err)
+	dropFailure := func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := p.db.ExecContext(cleanup, `DROP TRIGGER IF EXISTS authprobe_callback_failure ON scenery.scenery_auth_connection_states; DROP FUNCTION IF EXISTS scenery.authprobe_callback_failure()`)
+		must(err)
+	}
+	defer dropFailure()
+	unavailable, body := p.request(http.MethodGet, callback, nil, "", "")
+	p.check(unavailable.StatusCode == 503 && strings.Contains(string(body), "connection_unavailable") && !strings.Contains(string(body), "owned callback storage failure"), "callback reports sanitized storage unavailability rather than invalid state")
+	var pending int
+	must(p.db.QueryRowContext(p.ctx, `SELECT count(*) FROM scenery.scenery_auth_connection_states WHERE user_id=$1 AND provider_id='independent' AND consumed_at IS NULL`, id(session.User.ID)).Scan(&pending))
+	p.check(pending == 1 && len(unavailable.Cookies()) == 0, "failed callback storage leaves one-time state and browser binding intact")
+	dropFailure()
+	retried, _ := p.request(http.MethodGet, callback, nil, "", "")
+	p.check(retried.StatusCode == 302 && strings.Contains(retried.Header.Get("Location"), "connection_connected=independent"), "the same pending callback succeeds after storage recovers")
+	_, err = p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: other, ProviderID: "independent"})
 	p.check(err != nil, "external credentials remain owned by the initiating user")
 }

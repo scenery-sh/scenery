@@ -60,6 +60,39 @@ func TestVaultUnknownExpiryIssuanceRequiresCommit(t *testing.T) {
 	}
 }
 
+func TestVaultUsesNonrefreshableGrantUntilActualExpiry(t *testing.T) {
+	v, s, p := vaultFixture(t, "independent")
+	p.grant.Issuer, p.grant.Subject = s.row.Issuer, s.row.Subject
+	p.grant.ExpiresAt, p.grant.RefreshToken = testNow.Add(30*time.Second), ""
+	s.row.Status = Disconnected
+	if err := v.Connect(t.Context(), "owner", "independent", []string{"Read"}, p.grant); err != nil {
+		t.Fatal(err)
+	}
+	for _, elapsed := range []time.Duration{0, 29 * time.Second, 30 * time.Second, 31 * time.Second} {
+		v.now = func() time.Time { return testNow.Add(elapsed) }
+		token, err := v.Token(t.Context(), "owner", "independent", []string{"Read"})
+		if elapsed < 30*time.Second {
+			if err != nil || token != p.grant.AccessToken {
+				t.Fatalf("valid short grant at %s: %v", elapsed, err)
+			}
+		} else if token != "" || errs.Code(err) != errs.ConnectionReauthRequired {
+			t.Fatalf("expired grant at %s: %v", elapsed, err)
+		}
+	}
+	if p.calls != 0 || !s.row.AccessExpiresAt.Equal(p.grant.ExpiresAt) {
+		t.Fatal("nonrefreshable expiry was changed or provider was refreshed")
+	}
+}
+
+func TestVaultRetainsEarlyRefreshForRefreshableGrants(t *testing.T) {
+	v, s, p := vaultFixture(t, "independent")
+	s.row.AccessExpiresAt = testNow.Add(30 * time.Second)
+	token, err := v.Token(t.Context(), "owner", "independent", []string{"Read"})
+	if err != nil || token != p.grant.AccessToken || p.calls != 1 {
+		t.Fatalf("early refresh: %v, calls=%d", err, p.calls)
+	}
+}
+
 func TestVaultDisconnectAlwaysExpiresPendingStates(t *testing.T) {
 	for _, state := range []string{Active, Disconnected, "absent"} {
 		for _, fail := range []bool{false, true} {

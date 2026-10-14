@@ -64,7 +64,7 @@ func TestForwardedConnectionAuthorityUsesAdmittedPrincipal(t *testing.T) {
 	for _, worker := range []bool{false, true} {
 		principal := "other-owner"
 		if worker {
-			principal = ""
+			principal = "workload:std.workload_identity.scheduler"
 		}
 		ctx, restore, err := enterProcessLinkedCall(t.Context(), runtimeapi.InvocationMetadata{ID: "forwarded", Principal: principal, ConnectionWorker: worker}, &processLinkCallState{
 			Auth: processLinkAuth{UID: "owner"}, Request: processLinkRequestState{Type: shared.InternalCall},

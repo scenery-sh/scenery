@@ -67,6 +67,20 @@ func connectionAuthorityJourney(p *probe) {
 		p.check(result.Issued == scenario.issued && (scenario.issued && result.Code == errs.OK || !scenario.issued && result.Code == errs.PermissionDenied), "helper goroutine enforces "+scenario.access+"/"+scenario.mode+" invocation authority")
 	}
 	p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "independent", "files.read")) == "independent-access", "real queued worker admission allows explicit owner selection")
+	must(p.workloads.bus.Publish(p.ctx, runtime.ContractEventMessage{ID: "connection-event", BusAddress: "probe/event_bus/connections", Channel: "connections", ContractAddress: "probe/event/connection", ContractVersion: 1, Payload: []byte(session.User.ID)}))
+	select {
+	case result := <-p.workloads.events:
+		p.check(result.Issued && result.Code == errs.OK, "admitted event workload identity selects the authorized standard-auth owner")
+	case <-p.ctx.Done():
+		must(p.ctx.Err())
+	}
+	p.workloads.owners <- session.User.ID
+	select {
+	case result := <-p.workloads.schedules:
+		p.check(result.Issued && result.Code == errs.OK, "admitted declared schedule workload identity selects the authorized standard-auth owner")
+	case <-p.ctx.Done():
+		must(p.ctx.Err())
+	}
 }
 
 func connectIndependent(p *probe, session auth.AuthSessionResponse) {
@@ -80,12 +94,21 @@ func connectionNoExpiryJourney(p *probe) {
 	p.independent.noExpiry = true
 	p.independent.mu.Unlock()
 	session, _ := p.signin()
-	connectIndependent(p, session)
-	row := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "independent"}))
-	p.check(!row.AccessTokenExpiresAt.Valid && len(row.RefreshTokenCiphertext) == 0, "optional expiry and refresh are absent without synthetic values")
-	p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "independent", "files.read")) == "independent-access", "fresh unknown-expiry access token is issued once")
-	_, err := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "independent", "files.read")
-	p.check(errs.Code(err) == errs.ConnectionReauthRequired && p.independent.refreshCalls.Load() == 0, "consumed non-refreshable grant requires reauthorization")
+	for _, short := range []bool{false, true} {
+		p.independent.mu.Lock()
+		p.independent.shortExpiry = short
+		p.independent.mu.Unlock()
+		connectIndependent(p, session)
+		row := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "independent"}))
+		p.check(row.AccessTokenExpiresAt.Valid == short && len(row.RefreshTokenCiphertext) == 0, "provider-declared expiry is preserved with no optional refresh credential")
+		p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "independent", "files.read")) == "independent-access", "fresh unknown- or short-expiry non-refreshable token can be issued")
+		if short {
+			_, err := p.db.ExecContext(p.ctx, `UPDATE scenery.scenery_auth_connections SET access_token_expires_at=now()-interval '1 second' WHERE user_id=$1 AND provider_id='independent'`, id(session.User.ID))
+			must(err)
+		}
+		_, err := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "independent", "files.read")
+		p.check(errs.Code(err) == errs.ConnectionReauthRequired && p.independent.refreshCalls.Load() == 0, "consumed unknown-expiry or expired non-refreshable grant requires reauthorization")
+	}
 }
 
 func connectionRepeatDisconnectJourney(p *probe) {

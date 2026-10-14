@@ -113,7 +113,12 @@ func (v *Vault) Token(ctx context.Context, user, provider string, scopes []strin
 	if !ContainsScopes(row.Scopes, required) {
 		return "", failure(errs.ConnectionScopeMissing, "connection is missing required scopes")
 	}
-	if (row.AccessExpiresAt.IsZero() || v.now().Add(time.Minute).Before(row.AccessExpiresAt)) && len(row.AccessCiphertext) > 0 {
+	refreshAhead := time.Minute
+	if len(row.RefreshCiphertext) == 0 {
+		// Without refresh, use a known-expiry grant until its actual expiry.
+		refreshAhead = 0
+	}
+	if (row.AccessExpiresAt.IsZero() || v.now().Add(refreshAhead).Before(row.AccessExpiresAt)) && len(row.AccessCiphertext) > 0 {
 		token, err := v.cipher.Open(row.AccessCiphertext)
 		if err != nil {
 			return "", failure(errs.ConnectionConfiguration, "connection credential could not be decrypted")

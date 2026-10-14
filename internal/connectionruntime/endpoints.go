@@ -2,6 +2,8 @@ package connectionruntime
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -97,7 +99,11 @@ func (s *Service) callback(w http.ResponseWriter, req *http.Request, provider st
 	}
 	state, err := authdb.New(pool).ConsumeConnectionState(ctx, authdb.ConsumeConnectionStateParams{StateHash: hash(req.URL.Query().Get("state")), ProviderID: provider, BrowserHash: hash(cookie.Value), Issuer: cfg.registration.Issuer, Resource: cfg.registration.Resource, ClientID: cfg.clientID, CallbackUri: cfg.callbackURI})
 	if err != nil {
-		errs.HTTPError(w, coded(errs.InvalidArgument, "connection authorization state is invalid or expired"))
+		if errors.Is(err, sql.ErrNoRows) {
+			errs.HTTPError(w, coded(errs.InvalidArgument, "connection authorization state is invalid or expired"))
+		} else {
+			errs.HTTPError(w, coded(errs.ConnectionUnavailable, "connection storage is unavailable"))
+		}
 		return
 	}
 	http.SetCookie(w, clear)

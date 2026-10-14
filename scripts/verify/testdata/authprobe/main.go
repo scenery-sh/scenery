@@ -46,6 +46,7 @@ type probe struct {
 	independent *fakeOAuth2
 	sourceRoot  string
 	assertions  []string
+	workloads   *connectionWorkloads
 	// refreshCookie is the runtime-scoped refresh cookie name learned from the
 	// first issued cookie.
 	refreshCookie  string
@@ -173,6 +174,9 @@ func (p *probe) run(name string) (returnErr error) {
 	}
 	must(auth.RegisterStandard(config))
 	registerConnectionAuthorityEndpoints()
+	if name == "connection-authority" {
+		p.workloads = registerConnectionWorkloads()
+	}
 	workerService, workerReady, stopWorker := registerConnectionWorker()
 	defer stopWorker()
 	must(envpolicy.Set("SCENERY_ROLE", "all"))

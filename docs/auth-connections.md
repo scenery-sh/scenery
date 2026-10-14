@@ -4,6 +4,8 @@ Connections give trusted Go code a bearer token for one standard-auth user and
 one configured external provider. Connecting never creates a login identity or
 changes a profile, tenant, membership or session. Google sign-in remains controlled
 by `auth.google_oauth.enabled`; connection providers are configured independently.
+While `auth.enabled` is false, prepared connection declarations are inactive and
+their credentials are absent from the configuration catalog.
 
 ## Provider declarations and environment credentials
 
@@ -76,8 +78,9 @@ requirement. Scopes are case-sensitive opaque OAuth tokens; sorting/deduplicatio
 creates no semantic aliases. Requests cannot select another user's connection,
 even by replacing the argument context and starting another goroutine. Runtime
 admission supplies an opaque invocation: authenticated requests remain bound to
-their principal, and admitted background tasks can select an owner. Preserve that
-context in helper goroutines; `context.Background()` and `auth.WithContext` cannot
+their principal, and admitted background tasks can select an owner independently
+of their workload principal. This includes event and declared schedule workers.
+Preserve that context in helper goroutines; `context.Background()` and `auth.WithContext` cannot
 grant worker authority. Workers must authorize tenant-scoped work before selecting
 an owner. There is no HTTP token endpoint.
 
@@ -99,6 +102,9 @@ provider, issuer, client, callback, resource and requested scopes. Authorization
 uses PKCE S256. Callback replay, another browser or issuer/provider mismatch fails.
 Return paths must be relative application paths. Connecting an unrelated external
 account does not replace the current login identity.
+An invalid, expired or consumed callback state returns HTTP 400. A callback state
+storage failure returns `connection_unavailable` (HTTP 503), retaining the browser
+binding so a still-pending callback can be retried after recovery.
 
 A status component can use the generated methods without handling credentials:
 
@@ -143,6 +149,9 @@ rotation and effective grant are persisted before a missing-scope error is retur
 Omitted refresh credentials/scopes retain their previous values; explicit empty
 scope narrows the grant. Missing expiry is not invented: an uncached newly obtained
 token may be issued once, then needs refresh or reauthorization.
+When a grant declares an expiry but has no refresh credential, it remains usable
+until its actual expiry; the one-minute early-refresh window applies to
+refreshable grants.
 
 | Error | Meaning |
 | --- | --- |
