@@ -202,7 +202,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	}
 	var merged *compiler.Result
 	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" || opts.Subject == "assistants" || opts.Subject == "generators" {
-		compiled, compileErr := compiler.Compile(appRoot)
+		compiled, compileErr := compileSourcePlan(context.Background(), appRoot)
 		if compileErr != nil {
 			return compileErr
 		}
@@ -257,7 +257,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "generators":
-		resp, err := buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, merged.SQLRequirements)
+		resp, err := buildInspectGeneratorsResponseWithContract(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}

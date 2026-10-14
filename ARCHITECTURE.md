@@ -332,6 +332,24 @@ verification is read-only and generated paths stay beneath declared managed
 roots. Architecture invariant: `internal/generate/api` stays free of
 compiler, parse, TypeScript verification, and generate itself.
 
+### `internal/lifecycle`
+
+The standard-library-only planner validates typed producer dependencies,
+duplicate identities, cycles and overlapping output owners before execution.
+It selects a deterministic serial closure and admits each node's declared
+capabilities before running any action. Pure projection reuse remains in its
+rendering owner; current validation and external effects are never skipped by
+the scheduler. Compiler semantics and workspace transactions stay in their
+existing packages.
+
+Source commands use a read-only compiler closure. Generation, build preparation
+and cached TypeScript preparation select the same rendering/validation nodes.
+SQLC captures declared inputs with compiler membership helpers, renders in a
+private staging tree and publishes one digest-owned artifact set through
+workspacetx. Explicit database operations remain live effects; development
+candidate preparation, verification and activation form their own selected
+closure over the existing runtime owners.
+
 ### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, `internal/mcpgateway`, and `internal/mcpfederation`
 
 These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines

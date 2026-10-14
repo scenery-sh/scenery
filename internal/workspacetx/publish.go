@@ -2,6 +2,7 @@ package workspacetx
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,15 @@ type File struct {
 // transaction boundary. The callback may compile using CurrentOwnerRead.
 // Failed or interrupted publication is recovered by the ordinary source reader.
 func Publish(root string, prepare func() ([]File, error)) error {
+	return PublishContext(context.Background(), root, prepare)
+}
+
+// PublishContext cancels lock admission and staging before publication. An
+// interrupted journal remains subject to ordinary recover-or-reject reads.
+func PublishContext(ctx context.Context, root string, prepare func() ([]File, error)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return err
@@ -58,6 +68,10 @@ func Publish(root string, prepare func() ([]File, error)) error {
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
+		if err := ctx.Err(); err != nil {
+			_ = os.RemoveAll(directory)
+			return err
+		}
 		err = RecoverOrReject(root, NormalRead)
 		var active *activeTransactionError
 		if err != nil && !errors.As(err, &active) {
@@ -78,7 +92,12 @@ func Publish(root string, prepare func() ([]File, error)) error {
 			_ = os.RemoveAll(directory)
 			return fmt.Errorf("failed_precondition: timed out waiting for the workspace transaction owner; retry after the active operation completes")
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			_ = os.RemoveAll(directory)
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	journalWritten := false
 	defer func() {
@@ -91,9 +110,15 @@ func Publish(root string, prepare func() ([]File, error)) error {
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	files = append([]File(nil), files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	for index, file := range files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if index > 0 && files[index-1].Path == file.Path {
 			return fmt.Errorf("failed_precondition: duplicate generated output %s", file.Path)
 		}

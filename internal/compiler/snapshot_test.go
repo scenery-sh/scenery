@@ -134,6 +134,30 @@ func TestSnapshotUnchangedIncludesImplementationBytes(t *testing.T) {
 	}
 }
 
+func TestSnapshotRejectsOldRendererDigestWithNewWorkspaceIdentity(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, appFilename, "application \"snapshot\" {}\nworkspace {\n revision_input \"renderer\" { paths = [\"screen.ts\"] }\n}\n")
+	writeCompilerSnapshotFile(t, root, "screen.ts", "export const value = 1;\n")
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	resources, diagnostics := enrichUIImplementationDigests(root, []Resource{{Address: "app/renderer/screen", Module: "app", Kind: "scenery.renderer", Spec: map[string]any{"module": "screen.ts"}}})
+	if hasErrors(diagnostics) {
+		t.Fatalf("renderer: %v", diagnostics)
+	}
+	result.Manifest.Resources = resources
+	writeCompilerSnapshotFile(t, root, "screen.ts", "export const value = 2;\n")
+	// Model the edit between reading implementation bytes and workspace hashing.
+	if err := RefreshWorkspaceRevision(result); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, err := SnapshotUnchanged(result); err != nil || unchanged {
+		t.Fatalf("old renderer received new workspace identity: %v %v", unchanged, err)
+	}
+}
+
 func TestWorkspaceRevisionInputsTrackAbsentResolverCandidates(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -1,15 +1,18 @@
 package build
 
-import "scenery.sh/internal/generate"
+import (
+	"context"
+	"scenery.sh/internal/generate"
+)
 
 func init() {
 	SetGenerateHooks(GenerateHooks{
 		ApplyPreparedImplementationCheck: generate.ApplyPreparedImplementationCheck,
-		SyncCachedTypeScript: func(result *generate.Result) ([]string, error) {
-			generated, err := generate.SyncCachedTypeScriptClients(result)
+		SyncCachedTypeScript: func(ctx context.Context, result *generate.Result) ([]string, error) {
+			generated, err := generate.SyncCachedTypeScriptClientsContext(ctx, result)
 			return generated.Checked, err
 		},
-		PrepareBuildGoWorkspace: generate.PrepareBuildGoWorkspace,
+		PrepareBuildGoWorkspace: generate.PrepareBuildGoWorkspaceContext,
 		RuntimeIntegrationPlan:  generate.BuildRuntimeIntegrationPlan,
 		RenderAssistantAssets:   generate.RenderAssistantAssetRegistry,
 	})

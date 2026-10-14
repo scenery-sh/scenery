@@ -75,7 +75,7 @@ func PrepareForCompileWithContractSnapshotContext(ctx context.Context, appRoot s
 		return nil, err
 	}
 	projection, err := observeBuild(ctx, "projection.go", func() (generateapi.GoWorkspaceProjection, error) {
-		return generateHooks.PrepareBuildGoWorkspace(contract)
+		return generateHooks.PrepareBuildGoWorkspace(ctx, contract)
 	})
 	if err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func prepareWithContractTarget(appRoot string, cfg app.Config, snapshot *SourceS
 	if err := requireGenerateHooks(); err != nil {
 		return nil, err
 	}
-	projection, err := generateHooks.PrepareBuildGoWorkspace(contract)
+	projection, err := generateHooks.PrepareBuildGoWorkspace(context.Background(), contract)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func prepareWithContractTarget(appRoot string, cfg app.Config, snapshot *SourceS
 // target preparation. Keep that transaction outside the shared workspace phase
 // so ordinary development does not publish the same projection twice.
 func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget, projection generateapi.GoWorkspaceProjection) (*Result, error) {
-	typeScriptPaths, err := observeBuild(ctx, "projection.typescript", func() ([]string, error) { return generateHooks.SyncCachedTypeScript(contract) })
+	typeScriptPaths, err := observeBuild(ctx, "projection.typescript", func() ([]string, error) { return generateHooks.SyncCachedTypeScript(ctx, contract) })
 	if err != nil {
 		return nil, err
 	}

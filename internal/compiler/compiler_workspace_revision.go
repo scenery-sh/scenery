@@ -377,6 +377,22 @@ func workspaceManagedGeneratedRoots(workspace *Block) ([]string, error) {
 	return result, nil
 }
 
+// ManagedGeneratedRoots returns declared publication scopes. Membership remains
+// exact descriptor-owned paths, rather than everything beneath these roots.
+func ManagedGeneratedRoots(result *Result) ([]string, error) {
+	for _, source := range result.Sources {
+		if source == nil || source.External {
+			continue
+		}
+		for _, block := range source.Blocks {
+			if block.Type == "workspace" {
+				return workspaceManagedGeneratedRoots(block)
+			}
+		}
+	}
+	return nil, nil
+}
+
 func workspacePathWithinManagedRoot(path string, roots []string) bool {
 	path = filepath.ToSlash(filepath.Clean(path))
 	for _, root := range roots {

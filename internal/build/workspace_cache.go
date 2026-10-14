@@ -191,7 +191,9 @@ func loadBuildState(root string) (buildState, error) {
 	}
 	var state buildState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return buildState{}, err
+		// This manifest is disposable preparation state. Invalid bytes cannot
+		// provide a hit, but must not prevent current source from rebuilding.
+		return buildState{}, nil
 	}
 	return state, nil
 }
@@ -272,6 +274,24 @@ func loadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
 		reason = "metadata_missing"
 		return nil, false, nil
 	}
+	if !cacheJSONObject(state.Metadata) || !cacheJSONObject(state.APIEncoding) {
+		reason = "metadata_invalid"
+		return nil, false, nil
+	}
+	if len(state.GeneratedFiles) == 0 || len(state.GeneratedStamps) == 0 {
+		reason = "generated_artifact_manifest_missing"
+		return nil, false, nil
+	}
+	if current, err := cachedArtifactSetCurrent(root, state.GeneratedFiles, state.GeneratedStamps); err != nil || !current {
+		reason = "generated_artifacts_changed"
+		return nil, false, err
+	}
+	for _, stamps := range []map[string]string{state.PublicGeneratedStamps, state.CachedTypeScriptStamps} {
+		if current, err := cachedArtifactSetCurrent(appRoot, sortedStampPaths(stamps), stamps); err != nil || !current {
+			reason = "application_artifacts_changed"
+			return nil, false, err
+		}
+	}
 	result := &Result{
 		AppRoot:                   appRoot,
 		AppName:                   cfg.Name,
@@ -309,6 +329,37 @@ func loadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
 		Metadata:    append(json.RawMessage(nil), state.Metadata...),
 		APIEncoding: append(json.RawMessage(nil), state.APIEncoding...),
 	}, true, nil
+}
+
+func cacheJSONObject(data json.RawMessage) bool {
+	var value map[string]json.RawMessage
+	return json.Unmarshal(data, &value) == nil && value != nil
+}
+
+func sortedStampPaths(stamps map[string]string) []string {
+	paths := make([]string, 0, len(stamps))
+	for path := range stamps {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func cachedArtifactSetCurrent(root string, paths []string, expected map[string]string) (bool, error) {
+	if len(paths) != len(expected) {
+		return false, nil
+	}
+	for _, path := range paths {
+		digest, ok := expected[path]
+		if !ok || len(digest) != 64 {
+			return false, nil
+		}
+		if _, err := hex.DecodeString(digest); err != nil {
+			return false, nil
+		}
+	}
+	current, err := artifactPathStamps(root, paths)
+	return err == nil && maps.Equal(current, expected), err
 }
 
 func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
@@ -369,7 +420,7 @@ func prepareCachedWorkspace(ctx context.Context, appRoot string, cfg app.Config,
 		finishStep(ctx, "projection.go", projectionStarted, cache, projectionReason, err)
 		finishStep(ctx, "projection.typescript", projectionStarted, cache, projectionReason, err)
 	} else {
-		current, err = refreshCachedGoProjection(appRoot, result, snapshot, contract)
+		current, err = refreshCachedGoProjectionContext(ctx, appRoot, result, snapshot, contract)
 	}
 	if err != nil || !current {
 		return false, err
@@ -532,6 +583,10 @@ func cachedProjectionCurrent(appRoot string, result *Result, snapshot *SourceSna
 // projection and proving its private workspace still contains those bytes.
 // Cache metadata alone cannot establish this after deletion or a branch switch.
 func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceSnapshot, prepared ...*compiler.Result) (bool, error) {
+	return refreshCachedGoProjectionContext(context.Background(), appRoot, result, snapshot, prepared...)
+}
+
+func refreshCachedGoProjectionContext(ctx context.Context, appRoot string, result *Result, snapshot *SourceSnapshot, prepared ...*compiler.Result) (bool, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return false, err
 	}
@@ -549,11 +604,11 @@ func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceS
 	if !contract.Valid() {
 		return false, nil
 	}
-	projection, err := generateHooks.PrepareBuildGoWorkspace(contract)
+	projection, err := generateHooks.PrepareBuildGoWorkspace(ctx, contract)
 	if err != nil {
 		return false, err
 	}
-	if _, err := generateHooks.SyncCachedTypeScript(contract); err != nil {
+	if _, err := generateHooks.SyncCachedTypeScript(ctx, contract); err != nil {
 		return false, err
 	}
 	for rel, expected := range projection.Files {

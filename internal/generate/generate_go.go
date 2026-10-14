@@ -2,6 +2,7 @@ package generate
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -32,39 +33,18 @@ type generatedFile struct {
 }
 
 func GenerateGoContracts(root string, check bool) (GenerateResult, error) {
-	return generateGoContracts(root, check, false)
+	return GenerateWithContext(context.Background(), root, "contracts", check)
 }
 
 // GenerateAll publishes the ordinary Go packages and selected TypeScript
 // clients as one artifact set. Private executable composition stays in cache.
 func GenerateAll(root string, check bool) (GenerateResult, error) {
-	return generateFromRoot(root, check, "generated artifacts are stale", func(result *compiler.Result) ([]generatedFile, error) {
-		goFiles, err := renderGoContractFiles(result)
-		if err != nil {
-			return nil, err
-		}
-		typeScriptFiles, err := renderTypeScriptClientFiles(result, "")
-		if err != nil {
-			return nil, err
-		}
-		if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, ""), typeScriptFiles); err != nil {
-			return nil, err
-		}
-		return append(goFiles, typeScriptFiles...), nil
-	})
-}
-
-func generateGoContracts(root string, check, allowActiveChangeTransaction bool) (GenerateResult, error) {
-	return generateFromRoot(root, check, "generated contracts are stale", renderGoContractFiles)
+	return GenerateWithContext(context.Background(), root, "", check)
 }
 
 // GenerateGoContractsFromResult renders one immutable compiler snapshot.
 func GenerateGoContractsFromResult(result *compiler.Result, check bool) (GenerateResult, error) {
-	return generateGoContractsFromResult(result, check)
-}
-
-func generateGoContractsFromResult(result *Result, check bool) (GenerateResult, error) {
-	return generateFromResult(result, check, "generated contracts are stale", renderGoContractFiles)
+	return GenerateSnapshotWithContext(context.Background(), result, "contracts", check)
 }
 
 func renderGoContractFiles(result *Result) ([]generatedFile, error) {

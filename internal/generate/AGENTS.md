@@ -32,6 +32,8 @@ CLI wires generation.
   implementation and snapshots on hits; transact only changed output.
 - Reuse `workspacetx` for one serialized, recoverable artifact publication.
   Never replace or delete bytes whose descriptor/digest ownership is unproven.
+- Lifecycle adapters share producers and cancellable checks/publication. Response
+  identity comes from the rendering snapshot; see `docs/local-contract.md`.
 - Graph reads, `check`, and `generate --check` do not repair application output.
   Native ABI checking uses current expected contracts even when local output is
   stale. Contract bootstrap requires a valid graph, not valid implementation.
@@ -39,8 +41,7 @@ CLI wires generation.
   `materialization` mode.
 - Generated `typescript_client` HTTP methods are thin typed wrappers over a
   per-binding descriptor table and `Runtime.invoke` / `Runtime.matchResponse`.
-  Do not inline the request/response machine per method or emit TanStack hooks
-  from this target. Omit empty query and cookie mapping arrays. Emit shared
+  Never inline request machines or emit TanStack hooks. Omit empty query and cookie mapping arrays. Emit shared
   runtime query, binding header/cookie, multipart, retry, and record-validation
   sections only when the covered descriptors, reachable records, or target
   configuration require them. Intern
@@ -69,13 +70,12 @@ CLI wires generation.
 - Emit authored strings in JSX attributes as brace-wrapped JavaScript string expressions (`prop={"..."}`), never HTML-like quoted attributes; keep ordinary quoted literals only inside JavaScript object/array expressions. Generated URL-backed state that creates history entries must also subscribe to `popstate`.
 - Generated React page adapters must preserve typed client failures as data and let transport or decoding exceptions reach TanStack Query for the host retry policy. Map the final query state, including exhausted exceptions, into the page contract's renderable error state.
 - Generated `detail_page` adapters own typed dynamic route parameters and one shared content component used by routed and controlled-dialog wrappers. They compose declared sections, generated form-dialog actions, related table pages with exact input injection, and app-owned typed action slots; mutations invalidate the detail and every related query without moving domain workflows into generation.
-- Generated descriptors carry current machine identity and exact revisions.
-- Keep output beneath compiler-declared managed roots and reject symlinks.
+- Descriptors carry current identities/revisions; output stays beneath declared
+  managed roots and rejects symlinks.
 - Generation checks return diagnostics plus an explicit implementation state:
   native verification is `valid` or `invalid`; compile-only/non-native checks
   remain `not_requested`.
-- Reports use actual renderer selection and changed/checked files. Never manage
-  user workfiles or add editor-workspace APIs.
+- Reports reflect selected renderers and files. Never manage user workfiles.
 - Builds verify default and selected Go targets in the owned private workspace;
   check-only commands use expected overlays. Keep each target's full context.
 

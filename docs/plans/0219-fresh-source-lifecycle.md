@@ -23,14 +23,14 @@ Delivery includes required validation and a pull request.
   stale check snapshot acceptance and authored SQLC schema misclassification.
   Source inspection already follows edits/invalid diagnostics; added coverage
   also exposed missing inspection revision metadata. Drift without repair passed.
-- [ ] Bind generation output and response metadata to one compiler result;
+- [x] 2026-10-14: Bind generation output and response metadata to one compiler result;
   validate membership and bytes at the return/publication boundary.
-- [ ] Harden actual cache consumers against corrupt state and incomplete output.
-- [ ] Add a small typed serial lifecycle planner with dependencies, ownership,
+- [x] 2026-10-14: Corrupt build state becomes a miss; graph hits require complete current output digests and shaped metadata.
+- [x] 2026-10-14: Add a small typed serial lifecycle planner with dependencies, ownership,
   cache policies and capability admission; adapt existing producer owners.
-- [ ] Route source commands, check/generate, SQLC, DB and watch preparation through
+- [x] 2026-10-14: Route source commands, check/generate, SQLC, DB and watch preparation through
   shared planning without adding effects to inspection or check-only execution.
-- [ ] Remove orphaned DB sync composition and prove retired syntax/root rejection.
+- [x] 2026-10-14: Remove orphaned DB sync composition; root-discovery regression added. Canonical CLI rejection proof remains in validation.
 - [ ] Update owning living docs, schemas and plan/index metadata.
 - [ ] Complete cumulative validation, observable CLI/runtime scenarios and PR.
 
@@ -40,6 +40,13 @@ Delivery includes required validation and a pull request.
 binary built at `.scenery/harness/bin/scenery`. Documentation selection is saved
 at `/tmp/scenery-069c-docs.json`. Next: baseline regression tests, then the first
 independently reviewable snapshot/publication fix. No scope choice is pending.
+
+2026-10-14: Implementation now covers shared typed plans, compiler/response
+revision validation, cache output validation and staged SQLC ownership receipts.
+Focused package tests passed; an unchanged Victoria cleanup test transiently
+failed during a parallel package run and passed in isolation. Next: complete
+SQLC/retired-syntax boundary tests, lint, exact regeneration/TypeScript lanes,
+full verifier and named probes, then publication.
 
 ## Surprises & Discoveries
 
@@ -147,7 +154,7 @@ Read the selected full run's `agent-context-summary.json` first, then complete
 the command union in `agent-context.json`; reuse successful same-input checks.
 The full verifier supplies `go test ./...`. No release/benchmark/timing campaign
 is selected. Changes to external CLI/generation/runtime boundaries require the
-named `cli-process`, `native-contract`, `worktree` and `lifecycle` probes from
+named `cli-grammar`, `cli-process`, `generation`, `native-contract`, `worktree` and `dev-process` probes from
 the current catalog; adjust exact IDs from the catalog before execution.
 
 Acceptance covers edits/config/packages/HCL/queries/SQLC config, invalid input,
@@ -170,3 +177,51 @@ freshness. Pure output bytes are immutable and cloned across cache users.
 Generated output repair requires publication authority and descriptor/digest
 evidence. Scratch tools and app DB/runtime ownership are separate capabilities.
 Never adopt mismatched retained data or overwrite unrelated managed-root files.
+
+
+Validation checkpoint 2026-10-14 (not completion):
+
+- First checkpoint commit: `2ee2f8a2991f1be315b7d327bfc886186859337c`.
+- Focused package tests and lint passed. Changed-surface race command passed
+  (compiler/generator/build/workspacetx/CLI/lifecycle).
+- All three exact fixture generation commands passed with `changed: []`;
+  output JSON is `/tmp/scenery-069c-{native,house,assistant}-generation.json`.
+- UI probe's selected TypeScript checks passed in archive
+  `.scenery/harness/runs/20261014T120721.677514000Z`; that overall run failed
+  the subsequently repaired instruction budget and versioned-identity checks.
+- Generation probe passed, including real SQLC and crash/two-writer publication:
+  `.scenery/harness/runs/20261014T121050.148592000Z`. Its detailed proof is
+  `.scenery/harness/ordinary-go-contracts/generation-proof.json`.
+- Full verifier passed with 27 existing knowledge freshness warnings and a
+  cached-suite timing advisory in
+  `.scenery/harness/runs/20261014T121226.674811000Z`. Its compact context was
+  read; the final full context/union still needs review on the latest run.
+- Subsequent source changes prevent treating those runs as final proof:
+  declared input capture no longer hashes directories created solely by owned
+  outputs; graph hits now reject empty generated-output manifests. Re-run the
+  affected checks/full verifier and new real SQLC segment after these edits.
+- Running exec handles: `78773` final full verifier; `65112` focused package
+  checks; `55386` combined native-contract/dev-process/worktree/cli-grammar/
+  cli-process probes. Poll those exact live sessions; do not restart based on
+  elapsed time. `85557` race run completed successfully before the two changes.
+- Still required: completion audit against every guide scenario, current lint
+  and TypeScript proof, named probes and cleanup, final plan/index closure,
+  commit/push, create and attach the requested PR. No PR has been created yet.
+
+
+Latest checkpoint 2026-10-14:
+
+- Focused post-edit package checks passed (`65112` completed).
+- Full post-edit verifier passed with existing knowledge/timing advisories:
+  `.scenery/harness/runs/20261014T121606.089384000Z` (`78773` completed).
+- The combined runtime probe (`55386`) completed but is not valid final proof:
+  repository source changed while it was running. Native-contract, dev-process
+  and CLI grammar segments passed; worktree refused the stale framework binary,
+  CLI report rendezvous failed, and the overall archive explicitly reports
+  changed validation inputs. Archive:
+  `.scenery/harness/runs/20261014T121227.875528000Z`.
+- Re-run the combined named probe against stable final source without edits or
+  another binary build during its execution. Investigate any repeat failure as
+  an actual defect; do not classify the prior unstable run as a pass.
+- Final completion audit, final lint/TypeScript proof, current context union,
+  plan closure and PR publication are still outstanding. Work remains active.

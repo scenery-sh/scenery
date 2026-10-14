@@ -16,8 +16,9 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/generate"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/lifecycle"
 	"scenery.sh/internal/scn"
 )
 
@@ -41,6 +42,7 @@ type generatorGraphResponse struct {
 	App         inspectdata.AppRef       `json:"app"`
 	Generators  []generatorRecord        `json:"generators"`
 	DBArtifacts []databaseArtifactRecord `json:"db_artifacts"`
+	Nodes       []lifecycle.Node         `json:"nodes"`
 }
 
 type generatorRecord struct {
@@ -52,10 +54,14 @@ type generatorRecord struct {
 }
 
 type sqlcGeneratorPlan struct {
-	Record     generatorRecord
-	ConfigPath string
-	Schemas    []sqlcSchemaPlan
-	Queries    []string
+	Record        generatorRecord
+	ConfigPath    string
+	Schemas       []sqlcSchemaPlan
+	Queries       []string
+	ConfigBytes   []byte
+	OutputRoots   []string
+	Contract      *compiler.Result
+	InputRevision string
 }
 
 type sqlcSchemaPlan struct {
@@ -84,12 +90,13 @@ type lifecycleExecRequest struct {
 }
 
 type lifecycleHooks struct {
-	runExec    func(context.Context, lifecycleExecRequest) error
-	outputExec func(context.Context, lifecycleExecRequest) ([]byte, error)
+	runExec      func(context.Context, lifecycleExecRequest) error
+	outputExec   func(context.Context, lifecycleExecRequest) ([]byte, error)
+	toolIdentity func(string) (string, error)
 }
 
 func defaultLifecycleHooks() lifecycleHooks {
-	return lifecycleHooks{runExec: defaultRunLifecycleExec, outputExec: defaultOutputLifecycleExec}
+	return lifecycleHooks{runExec: defaultRunLifecycleExec, outputExec: defaultOutputLifecycleExec, toolIdentity: defaultLifecycleToolIdentity}
 }
 
 func (h lifecycleHooks) withDefaults() lifecycleHooks {
@@ -98,6 +105,9 @@ func (h lifecycleHooks) withDefaults() lifecycleHooks {
 	}
 	if h.outputExec == nil {
 		h.outputExec = defaultOutputLifecycleExec
+	}
+	if h.toolIdentity == nil {
+		h.toolIdentity = defaultLifecycleToolIdentity
 	}
 	return h
 }
@@ -156,13 +166,21 @@ func runGenerateWithHooks(ctx context.Context, stdout io.Writer, args []string, 
 		return err
 	}
 	if opts.DryRun {
+		if opts.JSON && plan.SQLC != nil {
+			return writeSourceResult(stdout, "json", false, plan.SQLC.Contract, plan.Graph)
+		}
 		return renderGeneratorPlan(stdout, opts.JSON, plan.Graph)
 	}
 	if err := executeGeneratorPlan(ctx, stdout, appRoot, opts, plan, hooks); err != nil {
 		return err
 	}
 	if opts.JSON {
-		return writeInspectJSON(stdout, plan.Graph)
+		execution, err := lifecycle.New(sqlcLifecycleNodes(plan.SQLC, nil))
+		if err != nil {
+			return err
+		}
+		plan.Graph.Nodes = execution.Nodes()
+		return writeSourceResult(stdout, "json", false, plan.SQLC.Contract, plan.Graph)
 	}
 	return nil
 }
@@ -226,6 +244,11 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 		} else {
 			plan.SQLC = sqlcPlan
 			plan.Graph.Generators = append(plan.Graph.Generators, sqlcPlan.Record)
+			execution, err := lifecycle.New(sqlcLifecycleNodes(sqlcPlan, nil))
+			if err != nil {
+				return generatorExecutionPlan{}, err
+			}
+			plan.Graph.Nodes = execution.Nodes()
 		}
 	}
 	plan.Graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, plan.SQLC)
@@ -235,12 +258,39 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 	return plan, nil
 }
 
-func buildInspectGeneratorsResponse(appRoot string, cfg appcfg.Config) (generatorGraphResponse, error) {
-	requirements, err := compileSQLRequirements(appRoot)
+func buildInspectGeneratorsResponseWithContract(appRoot string, cfg appcfg.Config, contract *compiler.Result) (generatorGraphResponse, error) {
+	graph, err := buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, contract.SQLRequirements)
 	if err != nil {
-		return generatorGraphResponse{}, err
+		return graph, err
 	}
-	return buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, requirements)
+	nodes, err := generate.GenerationNodes(contract, "", false)
+	if err != nil {
+		return graph, err
+	}
+	graph.Nodes = append(nodes, graph.Nodes...)
+	plan, err := lifecycle.New(graph.Nodes)
+	if err != nil {
+		return graph, err
+	}
+	graph.Nodes = plan.Nodes()
+	for _, node := range nodes {
+		if node.ID == "go.render" || node.ID == "typescript.render" {
+			record := generatorRecord{ID: string(node.ID), Kind: string(node.Kind)}
+			for _, input := range node.Inputs {
+				if input.Path != "" {
+					record.Inputs = append(record.Inputs, input.Path)
+				}
+			}
+			for _, output := range node.Outputs {
+				if output.Path != "" {
+					record.Outputs = append(record.Outputs, output.Path)
+				}
+			}
+			graph.Generators = append(graph.Generators, record)
+		}
+	}
+	sort.Slice(graph.Generators, func(i, j int) bool { return graph.Generators[i].ID < graph.Generators[j].ID })
+	return graph, nil
 }
 
 func buildInspectGeneratorsResponseWithRequirements(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) (generatorGraphResponse, error) {
@@ -251,6 +301,11 @@ func buildInspectGeneratorsResponseWithRequirements(appRoot string, cfg appcfg.C
 	}
 	if ok {
 		graph.Generators = append(graph.Generators, sqlcPlan.Record)
+		plan, err := lifecycle.New(sqlcLifecycleNodes(sqlcPlan, nil))
+		if err != nil {
+			return graph, err
+		}
+		graph.Nodes = plan.Nodes()
 	}
 	graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, sqlcPlan)
 	return graph, nil
@@ -267,6 +322,7 @@ func baseGeneratorGraph(appRoot string, cfg appcfg.Config, hasApp bool) generato
 		},
 		Generators:  []generatorRecord{},
 		DBArtifacts: []databaseArtifactRecord{},
+		Nodes:       []lifecycle.Node{},
 	}
 	if !hasApp {
 		graph.App.ConfigPath = ""
@@ -275,11 +331,15 @@ func baseGeneratorGraph(appRoot string, cfg appcfg.Config, hasApp bool) generato
 }
 
 func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPlan, bool, error) {
-	requirements, err := compileSQLRequirements(appRoot)
+	contract, err := compileSQLContract(appRoot)
 	if err != nil {
 		return nil, false, err
 	}
-	return buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, requirements)
+	plan, ok, err := buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, contract.SQLRequirements)
+	if plan != nil {
+		plan.Contract = contract
+	}
+	return plan, ok, err
 }
 
 func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) (*sqlcGeneratorPlan, bool, error) {
@@ -300,10 +360,11 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		return nil, false, fmt.Errorf("sqlc config %s does not exist", configPath)
 	}
 
-	sqlcCfg, err := readSQLCConfig(configPath)
+	sqlcCfg, configBytes, err := readSQLCConfigBytes(configPath)
 	if err != nil {
 		return nil, false, err
 	}
+	resolveSQLCConfigReferences(&sqlcCfg, configRel)
 	schemaPlans := configuredSQLCSchemaPlans(conf)
 	knownSchemas := map[string]bool{}
 	schemaPlanIndex := map[string]int{}
@@ -362,10 +423,12 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		Tool:    "sqlc",
 	}
 	return &sqlcGeneratorPlan{
-		Record:     record,
-		ConfigPath: filepath.ToSlash(configRel),
-		Schemas:    schemaPlans,
-		Queries:    uniqueSorted(queries),
+		Record:      record,
+		ConfigPath:  filepath.ToSlash(configRel),
+		Schemas:     schemaPlans,
+		Queries:     uniqueSorted(queries),
+		ConfigBytes: configBytes,
+		OutputRoots: sqlcOutputRoots(sqlcCfg),
 	}, true, nil
 }
 
@@ -555,7 +618,9 @@ func inferSQLCSchemaPlan(conf appcfg.SQLCGeneratorConfig, schemaRel string) sqlc
 }
 
 type sqlcConfigFile struct {
-	SQL []sqlcConfigBlock `yaml:"sql"`
+	Version string            `yaml:"version"`
+	SQL     []sqlcConfigBlock `yaml:"sql"`
+	Plugins []sqlcPlugin      `yaml:"plugins"`
 }
 
 type sqlcConfigBlock struct {
@@ -566,7 +631,25 @@ type sqlcConfigBlock struct {
 		Go struct {
 			Out string `yaml:"out"`
 		} `yaml:"go"`
+		JSON struct {
+			Out string `yaml:"out"`
+		} `yaml:"json"`
 	} `yaml:"gen"`
+	Codegen []struct {
+		Out    string `yaml:"out"`
+		Plugin string `yaml:"plugin"`
+	} `yaml:"codegen"`
+}
+
+type sqlcPlugin struct {
+	Name    string `yaml:"name"`
+	Process struct {
+		Cmd string `yaml:"cmd"`
+	} `yaml:"process"`
+	WASM struct {
+		URL    string `yaml:"url"`
+		SHA256 string `yaml:"sha256"`
+	} `yaml:"wasm"`
 }
 
 func validateSQLCSchemaEngines(requirements compiler.SQLRequirements, schemas []sqlcSchemaPlan) error {
@@ -622,15 +705,20 @@ func (l *yamlStringList) UnmarshalYAML(value *yaml.Node) error {
 }
 
 func readSQLCConfig(path string) (sqlcConfigFile, error) {
+	cfg, _, err := readSQLCConfigBytes(path)
+	return cfg, err
+}
+
+func readSQLCConfigBytes(path string) (sqlcConfigFile, []byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return sqlcConfigFile{}, err
+		return sqlcConfigFile{}, nil, err
 	}
 	var cfg sqlcConfigFile
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return sqlcConfigFile{}, fmt.Errorf("parse %s: %w", path, err)
+		return sqlcConfigFile{}, nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	return cfg, nil
+	return cfg, data, nil
 }
 
 func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string, opts generateOptions, plan generatorExecutionPlan, hooks lifecycleHooks) error {
@@ -643,69 +731,7 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 }
 
 func runSQLCGeneratorWithHooks(ctx context.Context, stdout io.Writer, appRoot string, plan *sqlcGeneratorPlan, quiet bool, hooks lifecycleHooks) error {
-	hooks = hooks.withDefaults()
-	env := envpolicy.Environ()
-	for _, schema := range plan.Schemas {
-		if schema.SQLCSchema == "" || schema.AtlasSource == "" {
-			continue
-		}
-		if strings.TrimSpace(schema.AtlasDevURL) == "" {
-			return fmt.Errorf("generators.sqlc schema %s uses atlas_source but no dev_url is configured", schema.SQLCSchema)
-		}
-		sourcePath := schema.AtlasSource
-		if !filepath.IsAbs(sourcePath) {
-			sourcePath = filepath.Join(appRoot, filepath.FromSlash(sourcePath))
-		}
-		out, err := hooks.outputExec(ctx, lifecycleExecRequest{
-			Dir:     appRoot,
-			Env:     env,
-			Program: "atlas",
-			Args: []string{
-				"schema", "inspect",
-				"--url", "file://" + filepath.ToSlash(sourcePath),
-				"--dev-url", schema.AtlasDevURL,
-				"--format", "{{ sql . }}",
-			},
-		})
-		if err != nil {
-			return err
-		}
-		schemaPath := schema.SQLCSchema
-		if !filepath.IsAbs(schemaPath) {
-			schemaPath = filepath.Join(appRoot, filepath.FromSlash(schemaPath))
-		}
-		if err := os.MkdirAll(filepath.Dir(schemaPath), 0o755); err != nil {
-			return err
-		}
-		data := append([]byte("-- GENERATED: do not edit. Run `scenery generate sqlc` to refresh.\n\n"), out...)
-		if len(data) == 0 || data[len(data)-1] != '\n' {
-			data = append(data, '\n')
-		}
-		if err := os.WriteFile(schemaPath, data, 0o644); err != nil {
-			return err
-		}
-		if !quiet {
-			_, _ = fmt.Fprintf(stdout, "scenery: generated SQLC schema at %s\n", schemaPath)
-		}
-	}
-	args := []string{"generate"}
-	if plan.ConfigPath != "" && plan.ConfigPath != "sqlc.yaml" {
-		args = append(args, "-f", plan.ConfigPath)
-	}
-	if err := hooks.runExec(ctx, lifecycleExecRequest{
-		Dir:     appRoot,
-		Env:     env,
-		Program: "sqlc",
-		Args:    args,
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
-	}); err != nil {
-		return err
-	}
-	if !quiet {
-		_, _ = fmt.Fprintln(stdout, "scenery: generated SQLC artifacts")
-	}
-	return nil
+	return runSQLCLifecycle(ctx, stdout, appRoot, plan, quiet, hooks)
 }
 
 func renderGeneratorPlan(stdout io.Writer, jsonMode bool, graph generatorGraphResponse) error {

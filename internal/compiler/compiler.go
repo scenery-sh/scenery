@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"context"
 	"fmt"
 	pathpkg "path"
 	"path/filepath"
@@ -35,19 +36,41 @@ var packageResourceKinds = map[string]bool{
 }
 
 func Compile(root string) (*Result, error) {
-	if err := workspacetx.RecoverOrReject(root, workspacetx.NormalRead); err != nil {
+	return CompileContext(context.Background(), root)
+}
+
+func CompileContext(ctx context.Context, root string) (*Result, error) {
+	return compileValidatedResult(ctx, root, workspacetx.NormalRead)
+}
+
+func compileValidatedResult(ctx context.Context, root string, mode workspacetx.ReadMode) (*Result, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return compileResult(root)
+	if err := workspacetx.RecoverOrReject(root, mode); err != nil {
+		return nil, err
+	}
+	result, err := compileResult(root)
+	if err != nil || !result.Valid() {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	unchanged, err := snapshotUnchanged(result, mode)
+	if err != nil {
+		return result, err
+	}
+	if !unchanged {
+		return result, fmt.Errorf("revision_conflict: application changed during compilation; retry the command")
+	}
+	return result, nil
 }
 
 // CompileDuringChangeTransaction compiles the graph while evolution owns an
 // active source transaction in this process.
 func CompileDuringChangeTransaction(root string) (*Result, error) {
-	if err := workspacetx.RecoverOrReject(root, workspacetx.CurrentOwnerRead); err != nil {
-		return nil, err
-	}
-	return compileResult(root)
+	return compileValidatedResult(context.Background(), root, workspacetx.CurrentOwnerRead)
 }
 
 // CompileContractGraph resolves and validates the canonical contract graph.

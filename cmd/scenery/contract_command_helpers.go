@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"scenery.sh/internal/compiler"
@@ -88,11 +90,11 @@ func compileContractRoot(value string) (*compiler.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compiler.Compile(root)
+	return compileSourcePlan(context.Background(), root)
 }
 
 func checkCompiledContract(root string) (*compiler.Result, error) {
-	result, err := compiler.Compile(root)
+	result, err := compileSourcePlan(context.Background(), root)
 	if err != nil || !result.Valid() {
 		return result, err
 	}
@@ -101,6 +103,22 @@ func checkCompiledContract(root string) (*compiler.Result, error) {
 }
 
 func writeSourceResult(stdout io.Writer, output string, quiet bool, result *compiler.Result, data any) error {
+	if generators, ok := data.(generatorGraphResponse); ok {
+		for _, node := range generators.Nodes {
+			for _, input := range node.Inputs {
+				if input.Kind != "source" || input.Path == "" || input.Digest == "" {
+					continue
+				}
+				contents, err := os.ReadFile(filepath.Join(result.Root, filepath.FromSlash(input.Path)))
+				if err != nil {
+					return err
+				}
+				if sqlcDigest(contents) != input.Digest {
+					return fmt.Errorf("revision_conflict: generator configuration changed before returning the source result; retry the command")
+				}
+			}
+		}
+	}
 	if result.Valid() {
 		unchanged, err := compiler.SnapshotUnchanged(result)
 		if err != nil {

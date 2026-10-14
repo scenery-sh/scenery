@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,10 @@ func RenderGoWorkspaceFiles(result *compiler.Result) (map[string][]byte, error) 
 // bytes with private composition for build and native analysis. Publication
 // retains its fresh snapshot, module ownership and retirement checks.
 func PrepareBuildGoWorkspace(result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
+	return PrepareBuildGoWorkspaceContext(context.Background(), result)
+}
+
+func PrepareBuildGoWorkspaceContext(ctx context.Context, result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
 	var projection generateapi.GoWorkspaceProjection
 	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
 		return projection, fmt.Errorf("cannot render generated Go workspace from invalid contract")
@@ -35,12 +40,17 @@ func PrepareBuildGoWorkspace(result *compiler.Result) (generateapi.GoWorkspacePr
 	if err != nil {
 		return projection, err
 	}
-	_, err = generateFromResult(result, false, "generated contracts are stale", func(current *compiler.Result) ([]generatedFile, error) {
+	op, err := newGenerationOperation(result, "contracts", false)
+	if err != nil {
+		return projection, err
+	}
+	op.goRenderer = func(current *compiler.Result) ([]generatedFile, error) {
 		if err := validateGoPackageLocations(current, files); err != nil {
 			return nil, err
 		}
 		return includeStaleGeneratedFiles(current.Root, cloneProjection(files), goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(current))
-	})
+	}
+	_, err = op.run(ctx, op.plan)
 	if err != nil {
 		return projection, err
 	}
