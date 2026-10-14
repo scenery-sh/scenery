@@ -27,6 +27,8 @@ type Config struct {
 	IssuerAliases, IdentityScopes                 []string
 	AuthorizationParams                           url.Values
 	ConsentPrompt                                 bool
+	// VerifiedEmailOnly omits unverified OIDC email claims from connection grants.
+	VerifiedEmailOnly bool
 }
 
 type Provider struct {
@@ -161,7 +163,7 @@ func (p *Provider) Exchange(ctx context.Context, input connectionvault.CodeExcha
 		if err != nil {
 			return connectionvault.Grant{}, providerError(connectionvault.UnknownOutcome)
 		}
-		grant.Subject, grant.Email = identity.Subject, identity.Email
+		grant.Subject, grant.Email = identity.Subject, p.identityEmail(identity)
 	} else {
 		grant.Subject, grant.Email, err = p.account(ctx, grant.AccessToken)
 		if err != nil {
@@ -186,9 +188,16 @@ func (p *Provider) Refresh(ctx context.Context, refresh string) (connectionvault
 		if err != nil {
 			return connectionvault.Grant{}, providerError(connectionvault.UnknownOutcome)
 		}
-		grant.Subject, grant.Email, grant.Issuer = identity.Subject, identity.Email, p.config.Issuer
+		grant.Subject, grant.Email, grant.Issuer = identity.Subject, p.identityEmail(identity), p.config.Issuer
 	}
 	return grant, nil
+}
+
+func (p *Provider) identityEmail(identity oidc.Identity) string {
+	if p.config.VerifiedEmailOnly && !identity.EmailVerified {
+		return ""
+	}
+	return identity.Email
 }
 
 func (p *Provider) token(ctx context.Context, form url.Values) (tokenResponse, error) {
@@ -223,6 +232,10 @@ func (p *Provider) token(ctx context.Context, form url.Values) (tokenResponse, e
 		return tokenResponse{}, providerError(connectionvault.UnknownOutcome)
 	}
 	defer func() { _ = response.Body.Close() }()
+	// Throttling explicitly refused the request, regardless of the body format.
+	if response.StatusCode == http.StatusTooManyRequests {
+		return tokenResponse{}, providerError(connectionvault.Temporary)
+	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil || len(body) > 1<<20 {
 		if ctx.Err() != nil {

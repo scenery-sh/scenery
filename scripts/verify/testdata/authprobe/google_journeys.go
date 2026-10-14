@@ -100,6 +100,13 @@ func connectionStoreJourney(p *probe) {
 	disconnected, _ := call[auth.ConnectionResponse](p, http.MethodPost, "/auth/connections/google/disconnect", nil, session.Token, "")
 	p.check(disconnected.Status == "disconnected", "HTTP disconnect reports disconnected")
 	p.check(p.google.revokeCalls.Load() == 1, "disconnect revokes the Google token exactly once")
+	p.google.set(func(f *fakeGoogle) { f.email = "unverified-connection@example.test"; f.verified = false })
+	p.connect(session, "/")
+	status, _ = call[auth.ConnectionResponse](p, http.MethodGet, "/auth/connections/google", nil, session.Token, "")
+	row := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "google"}))
+	p.check(status.Status == "active" && status.Email == "" && row.Email == "", "Google connection suppresses unverified email in SQL and public metadata")
+	_, body := p.request(http.MethodGet, "/auth/connections/google", nil, session.Token, "")
+	p.check(!strings.Contains(string(body), "unverified-connection@example.test"), "unverified Google email is never published by connection status")
 }
 
 func connectionErrorJourney(p *probe) {
@@ -151,6 +158,17 @@ func tokenFailureJourney(p *probe) {
 	p.check(errs.Code(temporary) == errs.ConnectionUnavailable && p.google.refreshCalls.Load() == 1, "explicit provider refusal returns without a hidden retry")
 	p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)) == "retried-access", "a later call may retry an explicit protocol refusal")
 	p.check(p.google.refreshCalls.Load() == 2, "transient refresh performs exactly two requests")
+	for _, refusal := range []fakeRefresh{{status: http.StatusTooManyRequests, errorCode: "rate_limit_exceeded"}, {status: http.StatusTooManyRequests, errorBody: "provider throttled this request"}} {
+		p.expire(session.User.ID)
+		before := p.google.refreshCalls.Load()
+		p.google.set(func(f *fakeGoogle) {
+			f.queue = append(f.queue, refusal, fakeRefresh{access: "retried-access", scope: gmailModify})
+		})
+		_, err := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)
+		row := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "google"}))
+		p.check(errs.Code(err) == errs.ConnectionUnavailable && row.Status == "active" && row.LastRefreshError == "provider_unavailable" && p.google.refreshCalls.Load() == before+1, "HTTP 429 preserves active consent without a hidden refresh retry")
+		p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)) == "retried-access" && p.google.refreshCalls.Load() == before+2, "a later caller can refresh after JSON or plain-text throttling")
+	}
 	p.expire(session.User.ID)
 	p.google.set(func(f *fakeGoogle) {
 		f.queue = append(f.queue, fakeRefresh{status: http.StatusBadRequest, errorCode: "invalid_grant"})

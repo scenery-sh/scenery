@@ -148,6 +148,33 @@ func TestProviderFailuresAreSanitizedAndAmbiguousRefreshIsNotRetried(t *testing.
 	}
 }
 
+type trackedBody struct {
+	io.Reader
+	read, closed bool
+}
+
+func (b *trackedBody) Read(p []byte) (int, error) {
+	b.read = true
+	return b.Reader.Read(p)
+}
+func (b *trackedBody) Close() error { b.closed = true; return nil }
+
+func TestProviderThrottlingIsTemporaryRegardlessOfBody(t *testing.T) {
+	for _, body := range []string{`{"error":"rate_limit_exceeded","error_description":"secret-credential"}`, `not-json secret-credential`, `{"error":"invalid_grant"}`, ""} {
+		calls := 0
+		tracked := &trackedBody{Reader: strings.NewReader(body)}
+		p := oauth2.New(oauthConfig(), &http.Client{Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+			calls++
+			return &http.Response{StatusCode: http.StatusTooManyRequests, Body: tracked}, nil
+		})}, nil)
+		_, err := p.Refresh(t.Context(), "refresh")
+		var classified connectionvault.ProviderError
+		if !errors.As(err, &classified) || classified.Kind != connectionvault.Temporary || strings.Contains(err.Error(), "secret-credential") || calls != 1 || tracked.read || !tracked.closed {
+			t.Fatalf("throttling classification/retry/body ownership: %v, calls=%d, read=%t, closed=%t", err, calls, tracked.read, tracked.closed)
+		}
+	}
+}
+
 func fixtureKey(t *testing.T) *rsa.PrivateKey {
 	t.Helper()
 	key, err := x509.ParsePKCS1PrivateKey(signingDER)
@@ -184,10 +211,11 @@ func jwks(t *testing.T, key *rsa.PrivateKey) string {
 
 func TestGooglePresetUsesSharedOIDCProviderAndChecksIdentityBindings(t *testing.T) {
 	key := fixtureKey(t)
-	for _, scenario := range []string{"valid", "issuer", "audience", "expiry", "nonce", "signature"} {
+	for _, scenario := range []string{"valid", "issuer", "audience", "expiry", "nonce", "signature", "unverified_email", "missing_email_verified", "generic_unverified_email"} {
 		t.Run(scenario, func(t *testing.T) {
 			cfg := google.Config("client", "secret", "")
-			claims := map[string]any{"iss": cfg.Issuer, "sub": "provider-account", "aud": "client", "exp": now.Add(time.Hour).Unix(), "iat": now.Unix(), "nonce": "nonce", "email": "person@example.test"}
+			claims := map[string]any{"iss": cfg.Issuer, "sub": "provider-account", "aud": "client", "exp": now.Add(time.Hour).Unix(), "iat": now.Unix(), "nonce": "nonce", "email": "person@example.test", "email_verified": true}
+			wantEmail := "person@example.test"
 			switch scenario {
 			case "issuer":
 				claims["iss"] = "https://wrong.example"
@@ -197,6 +225,14 @@ func TestGooglePresetUsesSharedOIDCProviderAndChecksIdentityBindings(t *testing.
 				claims["exp"] = now.Add(-time.Second).Unix()
 			case "nonce":
 				claims["nonce"] = "wrong"
+			case "unverified_email":
+				claims["email_verified"], wantEmail = false, ""
+			case "missing_email_verified":
+				delete(claims, "email_verified")
+				wantEmail = ""
+			case "generic_unverified_email":
+				cfg.VerifiedEmailOnly = false
+				claims["email_verified"] = false
 			}
 			token := signedIdentity(t, key, claims)
 			if scenario == "signature" {
@@ -230,14 +266,18 @@ func TestGooglePresetUsesSharedOIDCProviderAndChecksIdentityBindings(t *testing.
 			}
 			digest := sha256.Sum256([]byte("nonce"))
 			grant, err := p.Exchange(t.Context(), connectionvault.CodeExchange{Code: "code", Verifier: "verifier", NonceHash: hex.EncodeToString(digest[:]), CallbackURI: "https://app.example/auth/connections/google/callback", Scopes: []string{"https://www.googleapis.com/auth/gmail.modify"}})
-			if scenario != "valid" {
+			if scenario != "valid" && scenario != "unverified_email" && scenario != "missing_email_verified" && scenario != "generic_unverified_email" {
 				if err == nil {
 					t.Fatalf("invalid %s identity accepted", scenario)
 				}
 				return
 			}
-			if err != nil || grant.Subject != "provider-account" || grant.Issuer != cfg.Issuer {
+			if err != nil || grant.Subject != "provider-account" || grant.Issuer != cfg.Issuer || grant.Email != wantEmail {
 				t.Fatalf("OIDC grant: %#v, %v", grant, err)
+			}
+			grant, err = p.Refresh(t.Context(), "refresh")
+			if err != nil || grant.Subject != "provider-account" || grant.Email != wantEmail {
+				t.Fatalf("refreshed OIDC email policy: %#v, %v", grant, err)
 			}
 		})
 	}

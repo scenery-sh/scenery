@@ -41,6 +41,8 @@ party, expiry and nonce. There is no request-controlled discovery. HTTPS is
 required except literal loopback HTTP for local providers. `client_auth` is
 `basic` (default), `post` or `none`. Resource selection is fixed by the declaration.
 Google owns its OIDC/consent/offline/incremental-consent defaults and identity scopes.
+Its connection grants expose an ID-token email only when `email_verified` is true;
+an absent or false claim leaves email metadata empty.
 
 Use the existing selected application/environment store:
 
@@ -151,8 +153,9 @@ token may be issued once, then needs refresh or reauthorization.
 | `connection_configuration` | Key, provider credentials, token type or schema configuration failed |
 | `connection_unavailable` | Storage failure or explicit temporary provider refusal |
 
-Invalid client/key failures do not change consent. An explicit temporary refusal
-can be retried by a later caller. No hidden retry reuses a potentially rotated
+Invalid client/key failures do not change consent. An explicit temporary refusal,
+including HTTP 429 regardless of its response body, can be retried by a later
+caller. No hidden retry reuses a potentially rotated
 credential after a lost response, process interruption or failed final commit:
 reconnect the affected slot. Remote and local commits cannot provide exactly-once
 refresh. Disconnect durably prevents local issuance before remote revocation and

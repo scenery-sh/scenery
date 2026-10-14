@@ -16,6 +16,7 @@ func Config(clientID, clientSecret, resource string) oauth2.Config {
 		ClientID: clientID, ClientSecret: clientSecret, ClientAuth: "post", Resource: resource, OIDC: true,
 		IdentityScopes:      []string{"openid", "email", "profile"},
 		ConsentPrompt:       true,
+		VerifiedEmailOnly:   true,
 		AuthorizationParams: url.Values{"access_type": {"offline"}, "include_granted_scopes": {"true"}},
 	}
 }

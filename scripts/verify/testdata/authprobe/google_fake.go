@@ -37,6 +37,7 @@ type fakeCode struct{ nonce, scope, challenge string }
 type fakeRefresh struct {
 	status                            int
 	access, refresh, scope, errorCode string
+	errorBody                         string
 }
 type roundTrip func(*http.Request) (*http.Response, error)
 
@@ -170,6 +171,10 @@ func (f *fakeGoogle) refreshToken(w http.ResponseWriter, token string) {
 	f.mu.Unlock()
 	if next.status >= 300 {
 		w.WriteHeader(next.status)
+		if next.errorBody != "" {
+			_, _ = io.WriteString(w, next.errorBody)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": next.errorCode, "error_description": "scripted owned refresh failure"})
 		return
 	}
