@@ -7,12 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0219 Fresh Source Snapshots And Shared Lifecycle Planning](0219-fresh-source-lifecycle.md)
-  - Status: active
-  - Owner: scenery compiler / generation / lifecycle
-  - Created: 2026-10-14
-  - Focus: one validated source revision per answer/artifact set, complete cache validation and shared dependency-aware lifecycle planning with explicit effects.
-
 - [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md)
   - Status: active
   - Owner: scenery runtime / telemetry

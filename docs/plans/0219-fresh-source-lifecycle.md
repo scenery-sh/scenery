@@ -3,225 +3,187 @@
 ## Purpose / Big Picture
 
 Implement the supplied Scenery point 1 guide against starting revision
-`67cff8fc292a79ef93025f593ed9cbf1092a9935`. Every successful source-derived
-answer must identify one captured, validated source revision. Invalid source
-must return current diagnostics. Cache state must not change semantics.
-Inspection and check-only commands must never repair app output or start tools
-or infrastructure. Explicit generation publishes one recoverable, owned set.
-The lifecycle must use one dependency-aware plan with explicit capabilities
-across command and development adapters. Canonical syntax stays canonical.
+`67cff8fc292a79ef93025f593ed9cbf1092a9935`: source-derived answers identify one
+captured, validated revision; invalid source never receives stale success;
+inspection/check-only stay read-only; explicit generation publishes a recoverable,
+owned artifact set; lifecycle adapters share a dependency-aware plan and explicit
+capabilities. OAuth, UI redesign, storage drivers and MCP were outside scope.
 
-OAuth, UI redesign, storage drivers and MCP are outside this work. No shared
-CLI installation, merge, deployment or retained-data deletion is authorized.
-Delivery includes required validation and a pull request.
+Implementation ends at `4b3beeba64193871ef91b23bbe5cea592c28a114` and is published
+in [PR 244](https://github.com/scenery-sh/scenery/pull/244). The later completion
+record commit changes documentation only. Merge, shared CLI installation,
+deployment and retained-data deletion are separate, unperformed actions.
 
 ## Progress
 
-- [x] 2026-10-14: Read the supplied guide and repository ownership instructions;
-  confirmed the starting worktree was clean and detached at the revision above.
-- [x] 2026-10-14: Baseline tests reproduced generation-time edit acceptance,
-  stale check snapshot acceptance and authored SQLC schema misclassification.
-  Source inspection already follows edits/invalid diagnostics; added coverage
-  also exposed missing inspection revision metadata. Drift without repair passed.
-- [x] 2026-10-14: Bind generation output and response metadata to one compiler result;
-  validate membership and bytes at the return/publication boundary.
-- [x] 2026-10-14: Corrupt build state becomes a miss; graph hits require complete current output digests and shaped metadata.
-- [x] 2026-10-14: Add a small typed serial lifecycle planner with dependencies, ownership,
-  cache policies and capability admission; adapt existing producer owners.
-- [x] 2026-10-14: Route source commands, check/generate, SQLC, DB and watch preparation through
-  shared planning without adding effects to inspection or check-only execution.
-- [x] 2026-10-14: Remove orphaned DB sync composition; root-discovery regression added. Canonical CLI rejection proof remains in validation.
-- [ ] Update owning living docs, schemas and plan/index metadata.
-- [ ] Complete cumulative validation, observable CLI/runtime scenarios and PR.
+- [x] 2026-10-14: Read the guide and applicable ownership/architecture contracts;
+  confirmed a clean starting worktree and recorded the baseline.
+- [x] 2026-10-14: Add baseline regressions; publish the independently reviewable
+  snapshot/response fix as `2ee2f8a2991f1be315b7d327bfc886186859337c`.
+- [x] 2026-10-14: Validate compiler membership/bytes and consumed SQL/renderer
+  digests; preserve the rendering result in generation response metadata.
+- [x] 2026-10-14: Validate actual cache consumers and complete output digests.
+- [x] 2026-10-14: Add the typed serial planner and command/build/runtime adapters.
+- [x] 2026-10-14: Stage SQLC inputs/output and publish one owned transaction.
+- [x] 2026-10-14: Remove orphaned DB sync composition and reject retired syntax.
+- [x] 2026-10-14: Synchronize living contracts, schema identity and knowledge index.
+- [x] 2026-10-14: Complete package/race/lint/TypeScript, full verifier and named
+  integration proof; verify owned cleanup; create and attach PR 244.
 
 ### Resume here
 
-2026-10-14: branch `feat/fresh-source-lifecycle`, baseline clean. Local product
-binary built at `.scenery/harness/bin/scenery`. Documentation selection is saved
-at `/tmp/scenery-069c-docs.json`. Next: baseline regression tests, then the first
-independently reviewable snapshot/publication fix. No scope choice is pending.
-
-2026-10-14: Implementation now covers shared typed plans, compiler/response
-revision validation, cache output validation and staged SQLC ownership receipts.
-Focused package tests passed; an unchanged Victoria cleanup test transiently
-failed during a parallel package run and passed in isolation. Next: complete
-SQLC/retired-syntax boundary tests, lint, exact regeneration/TypeScript lanes,
-full verifier and named probes, then publication.
+2026-10-14: Implementation and delivery are complete; PR 244 is open against
+`main`, without merge. No implementation task remains. Validation archives below
+are historical exact-input evidence, not permission to adopt/delete runtime data.
+For later revisions, reclassify changed paths and validate their actual inputs.
 
 ## Surprises & Discoveries
 
-- Source inspection already calls the compiler directly; historical graph JSON
-  is not its authority. Public projections already have a bounded process-local
-  SHA-256 cache and generation already uses `internal/workspacetx`.
-- `runContractGenerate` recompiles after publishing to obtain metadata. Its
-  response can therefore describe another revision. `generateFromRoot` renders
-  inside the transaction but does not revalidate after rendering.
-- SQLC currently writes schema output and invokes SQLC directly in the app
-  tree. Its record also classifies an authored SQL schema as an output.
-- `dbSyncCommandWithHooks` is reachable only from a test, not CLI dispatch.
+Source inspection already compiled current source and ignored historical
+`models.json`/`views.json`; source-edit/invalid-input regressions retain that
+behavior. Existing process-local projection caching, exact Go input resolution,
+transaction recovery and descriptor ownership were retained.
+
+Reproduced gaps were acceptance of source changes during rendering, acceptance
+of a stale snapshot by check-only generation, a second compiler read to label
+published output, missing source-inspection revision metadata, authored SQLC
+schema paths classified as outputs, direct SQLC writes into the authored tree,
+and cached graph hits before complete output validation. Consumed renderer/SQL
+bytes are also checked against their graph digests rather than a later workspace
+hash. Generator inspection additionally revalidates its captured YAML bytes.
+
+Two new unit roots exceeded 100 ms isolated p95 because they repeated filesystem
+publication. Their OS publication scenarios remain in the named generation probe;
+unit coverage now checks drift/refusal without repeating those effects. Thirteen
+new roots passed 20 isolated serial samples, maximum p95 70 ms. A new config
+return-boundary regression is also service-free and covered by package/race runs.
+
+An early combined runtime run changed inputs while executing and was rejected;
+it is not acceptance evidence. A later stable run passed every selected runtime
+segment. The CLI report rendezvous occasionally ended before observation; its
+isolated repetition passed with actual child/fixture cleanup. No telemetry
+implementation change was made for that independent probe timing condition.
 
 ## Decision Log
 
-- 2026-10-14: Keep compiler graph semantics, generation rendering, build input
-  resolution, staged TypeScript checking and workspace publication in their
-  existing owners. The planner only validates and schedules direct Go actions.
-- 2026-10-14: Reuse existing source membership and digest helpers, descriptor
-  ownership, projection caches and transaction recovery. Add no persisted IR,
-  independent filesystem walker, lock framework or environment knob.
-- 2026-10-14: Preserve separate semantic contract, exact workspace, Go
-  implementation and deployment identities. A historical `inspect build`
-  remains historical unless explicitly verified.
+- 2026-10-14: Keep semantics in compiler, rendering in generation, Go resolution
+  in build, staged checking in tscheck and publication in workspacetx. The new
+  standard-library-only planner validates and schedules those existing owners.
+- 2026-10-14: Keep semantic contract, exact workspace, implementation and
+  deployment identities distinct. Recorded `inspect build` remains historical
+  unless explicitly verified; ordinary compilation never starts infrastructure.
+- 2026-10-14: Reuse existing SHA-256 projection caches and build fingerprints;
+  add no persisted IR, independent filesystem walker, locks, dependencies or
+  environment knobs. Node keys use domain-separated canonical JSON with schema,
+  producer/configuration/input references and dependency digests; rendering
+  owners retain actual reusable-byte caches. Validation/effects run each time.
+- 2026-10-14: SQLC's private `.scenery/artifacts/sqlc.json` is necessary output
+  ownership evidence, not a cache. Its structural schema, workspace owner,
+  captured input revision, tool digests and complete exact output digests bind
+  the set. Invalid ownership refuses replacement; it never grants adoption.
+- 2026-10-14: Preserve unrelated files inside managed roots. Authored schemas
+  remain inputs; Atlas-produced schema has a producer and explicit scratch
+  authority. First publication does not overwrite an existing authored schema.
 
 ## Outcomes & Retrospective
 
-Not yet completed. Ending revision, PR, reproduced/already-fixed findings,
-cache identities, command paths, removals and exact proof will be recorded here.
+Normal source commands require no `.scenery/gen` deletion. Compiler success and
+response/publication boundaries verify the captured revision; invalid current
+source retains its diagnostics. Generation response identity and coverage come
+from the same result used to render. SQLC's response describes its actual
+captured input digest through planner references.
+
+Source compile/list/get/inspect use the read-only compiler closure. Root,
+snapshot, build-Go and cached-TypeScript adapters use the same selected generator
+nodes. SQLC uses captured inputs, schema/tool producers, validation and one commit.
+DB apply/setup are non-cacheable live effects with existing state/ownership checks.
+Development candidate preparation, source verification and activation form one
+selected closure; failed/superseded candidates do not label last-good serving
+state with their identity. Generator inspection serializes actual planner nodes
+without executing rendering, checking, publication or infrastructure.
+
+Malformed disposable build manifests are misses. Hits require current keys,
+shaped metadata and complete output membership/digests; ownership conflicts and
+unsafe transaction state remain refusals. Process-local renderer outputs are
+cloned and failures are not cached. Identical output bytes are not rewritten.
+Only exact descriptor-owned paths are excluded from authored membership; outputs
+and their newly created directories cannot invalidate tool input keys themselves.
+
+Removed code includes orphaned `dbSyncCommandWithHooks`, its alternate composition,
+unused apply/inspection wrappers, duplicate generation orchestration and the now
+unused first-error helper. No syntax aliases/legacy decoders were introduced.
+Human-owned `VNEXT.md`, completed historical plans, deployment/storage/OAuth/MCP
+contracts and unrelated runtime data remain unchanged.
+
+Remaining qualifications: existing knowledge freshness warnings and the default
+whole-suite timing advisory are not new functional failures. Release certification,
+benchmarks and an all-root timing campaign were not selected. Runtime/SQL/cache
+acceptance is bounded to the actual named probe scenarios and host, not arbitrary
+production capacity or indefinite process lifetime.
 
 ## Plan of Work
 
-Begin with in-process temporary-app regressions beside each existing owner.
-Test cached success followed by declaration edits and invalid source, check-only
-drift without mutation, ignored historical graph files and publication-time
-edits. Use fault hooks for concurrency and external runners; ordinary tests
-remain service-free.
+The work followed five reviewable stages: baseline regressions and freshness fix;
+complete identities/cache checks; typed planner and producer adapters; CLI/watch
+and SQLC publication routing; legacy cleanup, living contracts and validation.
+The implementation preserves the existing package boundaries and canonical CLI.
 
-Bind generation's compiler result to its response rather than recompiling.
-Revalidate full source membership and bytes after rendering and before success
-or commit. Normal readers use recovery/rejection; transaction validation uses
-the current-owner mode. Cancellation must stop a whole attempt. Retain the
-watcher's captured-byte compilation and supersession gate.
-
-Input ownership is conservative and belongs to current resolvers:
-
-| Node family | Required inputs and owner |
+| Input family | Authoritative capture/identity |
 | --- | --- |
-| Contract | Compiler-owned authored `.scn`, resolved package bytes, app config, lock/provider descriptors and absent resolver alternatives |
-| Go verification/build | Build's selected Go package/embeds/native inputs, modules/workspaces/local replacements, toolchain, flags/environment, framework and generated dependencies |
-| Schema/SQLC | Authored HCL/SQL/queries, SQLC/Atlas config and referenced inputs, engines/tool identities; authored schema is input, rendered schema has a producer |
-| TypeScript | Declared targets, client/catalog renderer bytes, app slots, tsconfig/extends, package/lock config, checker and current dependency readiness |
+| Contract | Compiler membership, `.scn`, packages/locks/provider descriptors, config, resolver alternatives/absence, consumed SQL/renderer bytes and workspace revision |
+| Go | Existing selected Go input manifest, modules/workfiles/local replacements, embeds/native inputs, toolchain/flags/target/framework and generated dependency digests |
+| SQLC/Atlas | Exact config, schema/query files/directories/globs, HCL and local plugin inputs; selected scratch configuration; executable digests; complete staged output |
+| TypeScript | Declared targets and graph, renderer/catalog projection inputs; mandatory current staged checker against app slots/aliases, tsconfig/dependencies and managed tool readiness |
 
-Exact descriptor-owned outputs alone are excluded from authored membership.
-Do not exclude entire managed roots or all `_gen.go` files. Hash exact bytes and
-detect membership changes, including absent alternatives and restored-mtime
-edits. Reusable caches validate owner/schema/input identity and complete output
-membership/digests; malformed disposable state is a miss, unsafe ownership is
-a refusal. Never apply disposable-cache recovery to runtime or database state.
-
-Introduce a typed, deterministic serial graph only where no reusable one exists.
-Validate duplicate IDs, missing producers, cycles and overlapping output owners
-before any action. Nodes declare typed inputs/outputs, configuration/tool
-identity, reusable/current-validation/external-effect cache policy and explicit
-read/cache/publication/scratch/database/runtime capabilities. Selected dependency
-closure runs each producer once; no miss grants permission. Existing pure
-projection caches remain with their owners and validations always execute.
-
-Use the same plans for inspect/compile/list/get, check, selected generation,
-SQLC schema production, explicit DB apply/setup and authorized development
-preparation/activation. Inspection never selects implementation/tool/DB/runtime
-effects solely because those nodes exist. Planner-backed `inspect generators`
-must expose deterministic dependencies/effects/ownership with synchronized schema
-and docs. Operational progress stays outside JSON stdout.
-
-Stage SQLC and selected generation before one owned publication. Preserve
-unrelated files, reject unknown ownership, and retire only proven obsolete
-descriptor-owned output. Database application is a separate non-cacheable live
-effect; an unchanged fingerprint cannot establish live synchronization. Atlas
-scratch capability is distinct from app database mutation.
-
-Verify and remove only live orphan/legacy code. Keep completed numbered plans
-and human-owned `VNEXT.md` unchanged. Reject `.config.json` root discovery,
-`gen client`, `generate client`, `db sync` and `--json` without aliases.
+No normalized Go AST or timestamp-only key was introduced. The compiler's
+existing revision walker serves declared tool input capture; only proven exact
+producer outputs are excluded. File presence/membership and restored-mtime edits
+remain part of byte identities.
 
 ## Validation and Acceptance
 
-Run from this repository root, retaining the normal Go test cache:
+Commands ran from the repository root with the normal Go cache and worktree-local
+product binary. Required cumulative proof is complete:
 
-```sh
-go test ./internal/compiler ./internal/parse ./internal/generate ./internal/build ./internal/workspacetx ./internal/tscheck ./cmd/scenery
-go test ./internal/lifecycle
-go test -race ./internal/lifecycle ./internal/compiler ./internal/generate ./internal/build ./internal/workspacetx ./cmd/scenery
-go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json
-go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
-go run ./cmd/scenery generate --target typescript_client.public_api --app-root testdata/assistant -o json
-bun test internal/generate/testdata/typescript_client_conformance.test.ts internal/generate/testdata/dev_runtime_client.test.ts
-tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
-tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
-golangci-lint run ./...
-go run ./scripts/verify --summary --write
-```
+- `go test ./internal/compiler ./internal/generate ./internal/build ./internal/workspacetx ./cmd/scenery ./internal/lifecycle ./internal/machine ./internal/app ./scripts/verify` passed.
+- `go test -race ./internal/lifecycle ./internal/compiler ./internal/generate ./internal/build ./internal/workspacetx ./cmd/scenery` passed.
+- `golangci-lint run ./...` passed, 0 issues.
+- Exact `go run ./cmd/scenery generate --target typescript_client.public_api --app-root <fixture> -o json` for `internal/compiler/testdata/native`, `internal/compiler/testdata/house` and `testdata/assistant` passed with `changed: []`.
+- `bun test internal/generate/testdata/typescript_client_conformance.test.ts internal/generate/testdata/dev_runtime_client.test.ts`: 56 passed, 290 assertions.
+- `tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json` and `-p internal/generate/testdata/tsconfig.catalog.json` passed.
+- `go run ./scripts/verify --summary --write --base 67cff8fc292a79ef93025f593ed9cbf1092a9935` passed, including `go test ./...`, architecture, drift, schemas and isolation. Archive: `.scenery/harness/runs/20261014T123933.331798000Z`.
+- Combined `--probe generation --probe ui --probe cli-grammar --probe cli-process` completed generation/UI/grammar successfully in `.scenery/harness/runs/20261014T123934.167826000Z`; its CLI observation timing failed and is not a pass. Isolated `--probe cli-process` passed in `.scenery/harness/runs/20261014T124137.863563000Z` with verified cleanup.
+- Stable `--probe native-contract --probe dev-process --probe worktree --probe cli-grammar --probe cli-process` passed in `.scenery/harness/runs/20261014T121918.377410000Z`, with matched initial/final input revision and actual served identity/cleanup. Later edits affected only SQLC/CLI return metadata and unit test OS-proof placement; their selected probes/package/race proof are the final-head runs above.
 
-Read the selected full run's `agent-context-summary.json` first, then complete
-the command union in `agent-context.json`; reuse successful same-input checks.
-The full verifier supplies `go test ./...`. No release/benchmark/timing campaign
-is selected. Changes to external CLI/generation/runtime boundaries require the
-named `cli-grammar`, `cli-process`, `generation`, `native-contract`, `worktree` and `dev-process` probes from
-the current catalog; adjust exact IDs from the catalog before execution.
+The written full run's `agent-context-summary.json` was read before
+`agent-context.json`; its changed-area union was fulfilled, reusing same-scope
+successful checks. The later completion/index edit has its own final verifier
+receipt in task-local evidence; it does not alter implementation proof above.
 
-Acceptance covers edits/config/packages/HCL/queries/SQLC config, invalid input,
-membership changes and restored-mtime edits; deleted/tampered cache/output;
-unknown ownership and interrupted/two-writer publication; tool/framework/flag
-selection; current TS staging/dependencies; concurrent edits; pure inspection;
-unchanged reuse with validations; live DB drift; removed targets; invalid DAGs,
-capability refusal and failure/cancellation blocking dependents/publication.
-Name each proving test/probe in the completion record. Unselected or blocked
-integration proof is a coverage gap, never a pass. Demonstrate CLI freshness
-and generation identities on a temporary app, plus existing runtime candidate
-identity/supersession through the named runtime probe.
+| Required failure/behavior family | Proving evidence |
+| --- | --- |
+| Current source/invalid diagnostics, historical JSON ignored | `TestInspectUsesCurrentSourceAfterSuccessfulProjection`, compiler snapshot/input tests, named runtime captured-input matrix |
+| Membership/absence/equal-length restored mtime | compiler snapshot/input-capture tests, build input digest/Go selection/local replacement tests, dev-process native input matrix |
+| Drift/check-only no repair; explicit repair | `TestCheckOnlyReportsDriftWithoutRepair`, owned Go projection tests, generation real SQLC deletion/repair assertions and worktree stale-client regeneration |
+| Cached missing/tampered/corrupt/wrong input | projection-cache tests, cache-validity tests, preparation/output stamp tests and named shared-build cache mutation/rejection cases |
+| One revision across rendering/response | publication snapshot tests, consumed renderer digest regression, generator YAML return-boundary conflict regression, response compiler result ownership |
+| Staging/tool/commit failure and concurrency | injected SQLC failure/edit tests, workspacetx recovery/backup tests, generation killed partial 192-file set and two actual CLI publishers |
+| Ownership/retired targets/authored files | Go projection foreign/edited/missing receipt and retirement tests, SQLC actual authored `_gen.go` preservation/tampered refusal/owned repair |
+| DAG selection/cycles/duplicates/missing producers/capabilities/failure/cancel | lifecycle plan tests, canonical node inspection schema validation and selected production adapters |
+| Tool/framework/target/flags; current TS readiness | node-key tests, exact build-input tests, native/worktree/dev-process proofs, staged TypeScript/UI checks |
+| Pure inspection / live DB effects / last-good runtime identity | read-only source closure and inspect regression; DB apply/setup existing tests; worktree DB/ownership and dev-process failing-candidate proofs |
+| Retired marker/syntax | `TestRetiredConfigMarkerNeverDiscoversOrOverridesAnApp`, `TestRetiredLifecycleSyntaxIsRejectedBeforeWork`, CLI grammar refusal inventory |
 
 ## Idempotence and Recovery
 
-Read and preserve dirty state before editing. Publication uses workspacetx's
-existing journal and reader recovery gate. Retry safe failures after recovering
-or rejecting the exact transaction; do not delete `.scenery/gen` to force
-freshness. Pure output bytes are immutable and cloned across cache users.
-Generated output repair requires publication authority and descriptor/digest
-evidence. Scratch tools and app DB/runtime ownership are separate capabilities.
-Never adopt mismatched retained data or overwrite unrelated managed-root files.
+All filesystem publication uses workspacetx's existing serialized journal and
+normal-reader recover-or-reject gate, with current-owner validation during a
+transaction. Context cancellation stops lock admission/staging before publication;
+once an external action has committed successfully, later cancellation cannot
+relabel it as failed. Reusable renderer bytes are immutable and cloned.
 
-
-Validation checkpoint 2026-10-14 (not completion):
-
-- First checkpoint commit: `2ee2f8a2991f1be315b7d327bfc886186859337c`.
-- Focused package tests and lint passed. Changed-surface race command passed
-  (compiler/generator/build/workspacetx/CLI/lifecycle).
-- All three exact fixture generation commands passed with `changed: []`;
-  output JSON is `/tmp/scenery-069c-{native,house,assistant}-generation.json`.
-- UI probe's selected TypeScript checks passed in archive
-  `.scenery/harness/runs/20261014T120721.677514000Z`; that overall run failed
-  the subsequently repaired instruction budget and versioned-identity checks.
-- Generation probe passed, including real SQLC and crash/two-writer publication:
-  `.scenery/harness/runs/20261014T121050.148592000Z`. Its detailed proof is
-  `.scenery/harness/ordinary-go-contracts/generation-proof.json`.
-- Full verifier passed with 27 existing knowledge freshness warnings and a
-  cached-suite timing advisory in
-  `.scenery/harness/runs/20261014T121226.674811000Z`. Its compact context was
-  read; the final full context/union still needs review on the latest run.
-- Subsequent source changes prevent treating those runs as final proof:
-  declared input capture no longer hashes directories created solely by owned
-  outputs; graph hits now reject empty generated-output manifests. Re-run the
-  affected checks/full verifier and new real SQLC segment after these edits.
-- Running exec handles: `78773` final full verifier; `65112` focused package
-  checks; `55386` combined native-contract/dev-process/worktree/cli-grammar/
-  cli-process probes. Poll those exact live sessions; do not restart based on
-  elapsed time. `85557` race run completed successfully before the two changes.
-- Still required: completion audit against every guide scenario, current lint
-  and TypeScript proof, named probes and cleanup, final plan/index closure,
-  commit/push, create and attach the requested PR. No PR has been created yet.
-
-
-Latest checkpoint 2026-10-14:
-
-- Focused post-edit package checks passed (`65112` completed).
-- Full post-edit verifier passed with existing knowledge/timing advisories:
-  `.scenery/harness/runs/20261014T121606.089384000Z` (`78773` completed).
-- The combined runtime probe (`55386`) completed but is not valid final proof:
-  repository source changed while it was running. Native-contract, dev-process
-  and CLI grammar segments passed; worktree refused the stale framework binary,
-  CLI report rendezvous failed, and the overall archive explicitly reports
-  changed validation inputs. Archive:
-  `.scenery/harness/runs/20261014T121227.875528000Z`.
-- Re-run the combined named probe against stable final source without edits or
-  another binary build during its execution. Investigate any repeat failure as
-  an actual defect; do not classify the prior unstable run as a pass.
-- Final completion audit, final lint/TypeScript proof, current context union,
-  plan closure and PR publication are still outstanding. Work remains active.
+Retry source conflicts against a new capture. Missing/stale disposable cache is
+recomputed; invalid source never uses last-good graph state. Output repair and
+retirement require exact descriptor/digest evidence. SQLC scratch tools, app DB
+mutation and runtime control are distinct capabilities. No retained data is
+reinterpreted as disposable cache, adopted, reset or deleted by this work.
