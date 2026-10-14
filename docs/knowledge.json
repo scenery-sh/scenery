@@ -2797,7 +2797,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Code map including shared lifecycle planning, same-owner nested scopes, captured generation and ownership-bound publication.",
+      "summary": "Code map including shared lifecycle planning, explicit publication owners, captured generation and ownership-bound publication.",
       "tags": [
         "architecture",
         "agents",
@@ -2816,7 +2816,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Source/diagnostic revision consistency, selected planner scopes, config-relative SQLC execution with distinct Atlas producers, read-only input capture and complete ownership-bound publication.",
+      "summary": "Source disappearance conflicts, disjoint generator scopes with shared SQLC/Atlas publication, captured config-relative local plugins and generation-independent seed discovery.",
       "tags": [
         "contract",
         "cli",
@@ -2960,7 +2960,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Repository validation and named probes including real SQLC generation with nested config paths and publication ownership proof.",
+      "summary": "Repository validation and named probes including real SQLC generation with nested config paths, captured local plugins and publication ownership proof.",
       "tags": [
         "harness",
         "agents",
@@ -4087,6 +4087,23 @@
         "schema",
         "features",
         "validation"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.inspect.generators.schema.json",
+      "title": "scenery.inspect.generators Schema",
+      "owner": "scenery CLI / lifecycle",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
+      "summary": "Generator graph with source digests, managed destination outputs and explicit shared publication owners.",
+      "tags": [
+        "schemas",
+        "cli",
+        "generation",
+        "lifecycle"
       ]
     }
   ],

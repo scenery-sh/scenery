@@ -97,3 +97,21 @@ func TestSourceResponseRejectsEditedInvalidSnapshot(t *testing.T) {
 		t.Fatalf("implementation diagnostics invalidated an unchanged contract: %v %v", unchanged, err)
 	}
 }
+
+func TestSourceResponseClassifiesMissingPackageAsConflict(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestAppFile(t, root, "app.scn", "application \"snapshot\" {}\nmodule \"child\" { source = \"./child\" }\n")
+	writeTestAppFile(t, root, "child/package.scn", "package \"child\" {}\n")
+	compiled, err := compileSourcePlan(t.Context(), root)
+	if err != nil || !compiled.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "child")); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	if err := writeSourceResult(&output, "json", false, compiled, nil); err == nil || cliErrorDiagnostic(err).Code != "SCN8002" || output.Len() != 0 {
+		t.Fatalf("missing source classification: %v %s", err, output.String())
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,13 +29,20 @@ func SnapshotUnchangedDuringChangeTransaction(result *Result) (bool, error) {
 	return snapshotUnchanged(result, workspacetx.CurrentOwnerRead)
 }
 
-func snapshotUnchanged(result *Result, mode workspacetx.ReadMode) (bool, error) {
+func snapshotUnchanged(result *Result, mode workspacetx.ReadMode) (unchanged bool, returnErr error) {
 	if result == nil {
 		return false, nil
 	}
 	if err := workspacetx.RecoverOrReject(result.Root, mode); err != nil {
 		return false, err
 	}
+	// A captured file or directory disappearing is a changed snapshot. Preserve
+	// other I/O failures so callers do not mislabel them as concurrent edits.
+	defer func() {
+		if errors.Is(returnErr, os.ErrNotExist) {
+			unchanged, returnErr = false, nil
+		}
+	}()
 	if result.ContractStatus != "valid" || result.Manifest == nil {
 		// Invalid graphs may stop before loading every module. Re-run the raw
 		// reader so diagnostic-only results also verify their captured inputs.

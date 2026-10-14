@@ -83,6 +83,34 @@ func TestOneOwnerMayDeclareNestedOutputRoots(t *testing.T) {
 	}
 }
 
+func TestSharedOutputOwnerMustPublishEveryProducer(t *testing.T) {
+	t.Parallel()
+	schema := testNode("schema")
+	schema.Outputs = []Reference{{Name: "schema", Kind: "file", Path: "gen/schema.sql", Ownership: Managed, Owner: "publish"}}
+	code := testNode("code", "schema")
+	code.Outputs = []Reference{{Name: "code", Kind: "output_root", Path: "gen", Ownership: Managed, Owner: "publish"}}
+	publish := testNode("publish", "code")
+	publish.Cache = ExternalEffect
+	publish.Effects = []Capability{PublishArtifacts}
+	if _, err := New([]Node{schema, code, publish}); err != nil {
+		t.Fatalf("common publication owner rejected: %v", err)
+	}
+	other := testNode("other")
+	other.Outputs = []Reference{{Name: "other", Kind: "output_root", Path: "gen/client", Ownership: Managed}}
+	if _, err := New([]Node{schema, code, publish, other}); err == nil {
+		t.Fatal("independent owner admitted inside publication scope")
+	}
+	for _, invalid := range []Node{testNode("publish", "unrelated"), testNode("publish", "code"), testNode("publish")} {
+		invalid.Cache = ExternalEffect
+		if len(invalid.Dependencies) == 0 || invalid.Dependencies[0] != "code" {
+			invalid.Effects = []Capability{PublishArtifacts}
+		}
+		if _, err := New([]Node{schema, code, invalid, testNode("unrelated")}); err == nil {
+			t.Fatal("owner without publication capability or producer dependency admitted")
+		}
+	}
+}
+
 func TestFailuresAndCancellationBlockDependents(t *testing.T) {
 	t.Parallel()
 	for _, cancel := range []bool{false, true} {

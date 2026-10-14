@@ -16,6 +16,19 @@ type sqlcInputSnapshot struct {
 	excluded   map[string]bool
 }
 
+func sqlcLocalPluginInputs(config sqlcConfigFile) []string {
+	var paths []string
+	for _, plugin := range selectedSQLCPlugins(config) {
+		if strings.HasPrefix(plugin.WASM.URL, "file://") {
+			paths = append(paths, strings.TrimPrefix(plugin.WASM.URL, "file://"))
+		}
+		if plugin.Process.LocalPath != "" {
+			paths = append(paths, plugin.Process.LocalPath)
+		}
+	}
+	return uniqueSorted(paths)
+}
+
 // Planning and execution share this read-only input capture. It neither starts
 // tools nor creates staging, and only excludes currently authorized outputs.
 func readSQLCInputSnapshot(root string, spec *sqlcGeneratorPlan) (*sqlcInputSnapshot, error) {
@@ -52,14 +65,29 @@ func readSQLCInputSnapshot(root string, spec *sqlcGeneratorPlan) (*sqlcInputSnap
 			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema.AtlasSource})
 		}
 	}
-	for _, plugin := range selectedSQLCPlugins(spec.Config) {
-		if strings.HasPrefix(plugin.WASM.URL, "file://") {
-			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: strings.TrimPrefix(plugin.WASM.URL, "file://")})
-		}
+	for _, path := range sqlcLocalPluginInputs(spec.Config) {
+		snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: path})
 	}
 	snapshot.capture, err = compiler.CaptureInputPaths(root, snapshot.selections, snapshot.excluded)
 	if err != nil {
 		return nil, err
+	}
+	if spec.InputSnapshot != nil && snapshot.capture.Digest != spec.InputRevision {
+		return nil, fmt.Errorf("revision_conflict: SQLC inputs changed after capture; retry the command")
+	}
+	for _, plugin := range selectedSQLCPlugins(spec.Config) {
+		if path := plugin.Process.LocalPath; path != "" {
+			info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(path)))
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("capability_unavailable: local SQLC process plugin is missing: %s", path)
+			}
+			if err != nil {
+				return nil, err
+			}
+			if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+				return nil, fmt.Errorf("capability_unavailable: local SQLC process plugin is not executable: %s", path)
+			}
+		}
 	}
 	configPath := filepath.ToSlash(filepath.Clean(firstNonEmpty(spec.ConfigPath, "sqlc.yaml")))
 	if !bytes.Equal(snapshot.capture.Files[configPath], spec.ConfigBytes) {

@@ -252,6 +252,34 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 		}
 	}
 	assertions = append(assertions, "nested default and custom SQLC configs resolve inputs and outputs from their own directory")
+	if err := write("app.scn", strings.Replace(files["app.scn"], "[\"db/gen\"]", "[\"config/gen\", \"config/plugin-gen\"]", 1)); err != nil {
+		return proof, err
+	}
+	localConfig := strings.Replace(nestedConfig, "sql:\n", "plugins:\n - name: local\n   process:\n     cmd: ./tools/plugin\n     format: json\nsql:\n", 1) + "   codegen:\n    - plugin: local\n      out: plugin-gen\n"
+	if err := write("config/codegen.yaml", localConfig); err != nil {
+		return proof, err
+	}
+	for _, output := range []struct{ encoded, contents string }{
+		{"bG9jYWwgcGx1Z2luCg==", "local plugin\n"},
+		{"bG9jYWwgcGx1Z2luIHR3bwo=", "local plugin two\n"},
+	} {
+		plugin := "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"files\":[{\"name\":\"plugin.txt\",\"contents\":\"" + output.encoded + "\"}]}'\n"
+		if err := write("config/tools/plugin", plugin); err != nil {
+			return proof, err
+		}
+		if err := os.Chmod(filepath.Join(root, "config/tools/plugin"), 0o755); err != nil {
+			return proof, err
+		}
+		if _, err := run(); err != nil {
+			return proof, err
+		}
+		data, err := os.ReadFile(filepath.Join(root, "config/plugin-gen/plugin.txt"))
+		if err != nil || string(data) != output.contents {
+			return proof, fmt.Errorf("captured config-relative plugin did not refresh output: %q %v", data, err)
+		}
+	}
+	assertions = append(assertions, "config-relative process plugin runs from captured executable bytes when CLI starts outside the app")
+	assertions = append(assertions, "editing a local process plugin refreshes its generated output")
 	proof["assertions"] = assertions
 	proof["assertion_count"] = len(assertions)
 	proof["proof"] = "passed"

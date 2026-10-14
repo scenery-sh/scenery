@@ -111,6 +111,23 @@ func TestSnapshotUnchangedVerifiesMembershipAndBytes(t *testing.T) {
 	check(false)
 }
 
+func TestSnapshotTreatsMissingPackageDirectoryAsChange(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, "app.scn", "application \"snapshot\" {}\nmodule \"child\" { source = \"./child\" }\n")
+	writeCompilerSnapshotFile(t, root, "child/package.scn", "package \"child\" {}\n")
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "child")); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, err := SnapshotUnchanged(result); err != nil || unchanged {
+		t.Fatalf("missing captured package: unchanged=%v, error=%v", unchanged, err)
+	}
+}
+
 func TestInvalidSnapshotVerifiesCapturedSourceBytes(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

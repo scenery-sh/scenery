@@ -159,9 +159,9 @@ sql:
 		var roots []string
 		for _, node := range graph.Nodes {
 			if node.ID == "sqlc" {
-				for _, input := range node.Inputs {
-					if input.Kind == "output_root" {
-						roots = append(roots, input.Path)
+				for _, output := range node.Outputs {
+					if output.Kind == "output_root" {
+						roots = append(roots, output.Path)
 					}
 				}
 			}
@@ -204,10 +204,12 @@ func TestSQLCAtlasSchemaHasOneProducer(t *testing.T) {
 				}
 			}
 			if node.ID == "sqlc" {
-				for _, input := range node.Inputs {
-					if input.Kind == "output_root" {
-						roots = append(roots, input.Path)
+				for _, output := range node.Outputs {
+					if output.Kind == "output_root" {
+						roots = append(roots, output.Path)
 					}
+				}
+				for _, input := range node.Inputs {
 					if input.Kind == "sql_schema" && input.Path == "auth/db/gen/schema.sql" && input.Producer == "sqlc.schema.render.0" {
 						schemaInputs++
 					}
@@ -318,7 +320,8 @@ func TestSQLCInspectionBindsAndRevalidatesToolInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, "sqlc.yaml", strings.Replace(string(source), "    gen:\n", "    codegen:\n      - plugin: wasm\n        out: auth/db/gen/wasm\n    gen:\n", 1))
+	configWithPlugin := strings.Replace(string(source), "    gen:\n", "    codegen:\n      - plugin: wasm\n        out: auth/db/gen/wasm\n    gen:\n", 1)
+	writeTestAppFile(t, root, "sqlc.yaml", strings.Replace(configWithPlugin, `out: "auth/db/gen"`, `out: "auth/db/gen/go"`, 1))
 	writeTestAppFile(t, root, "plugin.wasm", "wasm-original")
 	compiled, err := compiler.Compile(root)
 	if err != nil {

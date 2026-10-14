@@ -372,6 +372,9 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		return nil, false, err
 	}
 	resolveSQLCConfigReferences(&sqlcCfg, configRel)
+	if err := validateSQLCCodegenRoots(sqlcCfg); err != nil {
+		return nil, false, err
+	}
 	schemaPlans := configuredSQLCSchemaPlans(conf)
 	knownSchemas := map[string]bool{}
 	schemaPlanIndex := map[string]int{}
@@ -384,6 +387,7 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 	outputs := sqlcOutputRoots(sqlcCfg)
 	var queries []string
 	inputs = append(inputs, filepath.ToSlash(configRel))
+	inputs = append(inputs, sqlcLocalPluginInputs(sqlcCfg)...)
 	for _, block := range sqlcCfg.SQL {
 		engine := normalizeSQLCEngine(block.Engine)
 		for _, query := range block.Queries.Values {
@@ -648,7 +652,8 @@ type sqlcConfigBlock struct {
 type sqlcPlugin struct {
 	Name    string `yaml:"name"`
 	Process struct {
-		Cmd string `yaml:"cmd"`
+		Cmd       string `yaml:"cmd"`
+		LocalPath string `yaml:"-"`
 	} `yaml:"process"`
 	WASM struct {
 		URL    string `yaml:"url"`

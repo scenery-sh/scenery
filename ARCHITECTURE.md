@@ -338,7 +338,11 @@ compiler, parse, TypeScript verification, and generate itself.
 
 The standard-library-only planner validates typed producer dependencies,
 duplicate identities, cycles and overlapping paths of different output owners
-before execution. One owner may describe nested output scopes.
+before execution. One owner may describe nested output scopes. An output can
+name a shared publication node as its owner; that node must declare publication
+capability and depend on every producer whose paths it owns. SQLC and Atlas use
+their common artifact-set publication owner, while other generators retain
+independent destination scopes.
 It selects a deterministic serial closure and admits each node's declared
 capabilities before running any action. Pure projection reuse remains in its
 rendering owner; current validation and external effects are never skipped by

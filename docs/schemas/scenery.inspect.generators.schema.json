@@ -16,7 +16,7 @@
       "const": "scenery.inspect.generators"
     },
     "schema_revision": {
-      "const": "sha256:93255420d92ccf5c562158d363957f10461ca58978263582153c347b82331f85"
+      "const": "sha256:ed1b86180449ebfd88a763ed642b7988d284b8f02f00b649bda1bffc9c1183bc"
     },
     "app": {
       "$ref": "#/$defs/appRef"
@@ -171,6 +171,11 @@
             "managed",
             "external"
           ]
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Shared publication node owning this output path; it must publish a dependency containing the producer."
         }
       },
       "additionalProperties": false

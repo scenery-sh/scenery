@@ -46,6 +46,8 @@ type Reference struct {
 	Digest    string    `json:"digest,omitempty"`
 	Producer  ID        `json:"producer,omitempty"`
 	Ownership Ownership `json:"ownership,omitempty"`
+	// Owner names a shared publication node; otherwise the producer owns its path.
+	Owner ID `json:"owner,omitempty"`
 }
 
 type Node struct {
@@ -160,12 +162,20 @@ func New(nodes []Node) (*Plan, error) {
 			if output.Path == "" {
 				continue
 			}
-			for owned, owner := range owners {
-				if owner != node.ID && (output.Path == owned || strings.HasPrefix(output.Path, owned+"/") || strings.HasPrefix(owned, output.Path+"/")) {
-					return nil, fmt.Errorf("invalid_request: overlapping lifecycle output owners %s and %s", owner, node.ID)
+			owner := node.ID
+			if output.Owner != "" && output.Owner != node.ID {
+				publication, ok := p.nodes[output.Owner]
+				if !ok || !slices.Contains(publication.Effects, PublishArtifacts) || !p.dependsOn(output.Owner, node.ID) {
+					return nil, fmt.Errorf("invalid_request: output owner %s must publish the dependency %s", output.Owner, node.ID)
+				}
+				owner = output.Owner
+			}
+			for owned, existing := range owners {
+				if existing != owner && (output.Path == owned || strings.HasPrefix(output.Path, owned+"/") || strings.HasPrefix(owned, output.Path+"/")) {
+					return nil, fmt.Errorf("invalid_request: overlapping lifecycle output owners %s and %s", existing, owner)
 				}
 			}
-			owners[output.Path] = node.ID
+			owners[output.Path] = owner
 		}
 	}
 	ids := make([]ID, 0, len(p.nodes))
@@ -199,6 +209,23 @@ func New(nodes []Node) (*Plan, error) {
 		}
 	}
 	return p, nil
+}
+
+func (p *Plan) dependsOn(owner, producer ID) bool {
+	pending := []ID{owner}
+	seen := map[ID]bool{}
+	for len(pending) > 0 {
+		id := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if id == producer {
+			return true
+		}
+		if !seen[id] {
+			seen[id] = true
+			pending = append(pending, p.nodes[id].Dependencies...)
+		}
+	}
+	return false
 }
 
 // Nodes returns dependency order for inspection; callers cannot mutate the plan.

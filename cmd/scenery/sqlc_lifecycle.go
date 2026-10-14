@@ -69,6 +69,10 @@ func sqlcBeforeDigest(data []byte) string {
 }
 
 func sqlcOutputRoots(config sqlcConfigFile) []string {
+	return uniqueSorted(sqlcConfiguredOutputRoots(config))
+}
+
+func sqlcConfiguredOutputRoots(config sqlcConfigFile) []string {
 	var roots []string
 	for _, block := range config.SQL {
 		if block.Gen.Go.Out != "" {
@@ -83,7 +87,19 @@ func sqlcOutputRoots(config sqlcConfigFile) []string {
 			}
 		}
 	}
-	return uniqueSorted(roots)
+	return roots
+}
+
+func validateSQLCCodegenRoots(config sqlcConfigFile) error {
+	roots := sqlcConfiguredOutputRoots(config)
+	for i, root := range roots {
+		for _, previous := range roots[:i] {
+			if sqlcPathInRoots(root, []string{previous}) || sqlcPathInRoots(previous, []string{root}) {
+				return fmt.Errorf("invalid_request: overlapping SQLC output roots %s and %s", previous, root)
+			}
+		}
+	}
+	return nil
 }
 
 func selectedSQLCPlugins(config sqlcConfigFile) []sqlcPlugin {
@@ -197,7 +213,7 @@ func (op *sqlcOperation) capture(ctx context.Context) error {
 		}
 	}
 	for _, plugin := range selectedSQLCPlugins(op.config) {
-		if plugin.Process.Cmd != "" {
+		if plugin.Process.Cmd != "" && plugin.Process.LocalPath == "" {
 			programs = append(programs, plugin.Process.Cmd)
 		}
 	}
@@ -227,6 +243,13 @@ func (op *sqlcOperation) capture(ctx context.Context) error {
 	for relative, data := range inputs.Files {
 		if err := op.writeStage(relative, data); err != nil {
 			return err
+		}
+	}
+	for _, plugin := range selectedSQLCPlugins(op.config) {
+		if plugin.Process.LocalPath != "" {
+			if err := os.Chmod(filepath.Join(op.stage, filepath.FromSlash(plugin.Process.LocalPath)), 0o755); err != nil {
+				return err
+			}
 		}
 	}
 	return op.verify(false)
@@ -504,17 +527,17 @@ func sqlcLifecycleNodes(spec *sqlcGeneratorPlan, op *sqlcOperation) []lifecycle.
 	nodes := []lifecycle.Node{{ID: "sqlc.source.capture", Kind: "source_capture", Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache}, Inputs: []lifecycle.Reference{config}, Outputs: []lifecycle.Reference{inputs}}}
 	dependencies := []lifecycle.ID{"sqlc.source.capture"}
 	refs := []lifecycle.Reference{{Name: "sqlc.inputs", Kind: "input_set", Producer: "sqlc.source.capture"}}
-	// Output roots are authored destination scopes for the produced file set,
-	// not overlapping claims against the schema producer's individual files.
+	outputs := []lifecycle.Reference{{Name: "sqlc.files", Kind: "artifact_set", Ownership: lifecycle.Managed}}
+	// Schema and code producers share one artifact-set publication owner.
 	for index, output := range sqlcOutputRoots(spec.Config) {
-		refs = append(refs, lifecycle.Reference{Name: fmt.Sprintf("sqlc.files.root.%d", index), Kind: "output_root", Path: output, Ownership: lifecycle.Managed})
+		outputs = append(outputs, lifecycle.Reference{Name: fmt.Sprintf("sqlc.files.root.%d", index), Kind: "output_root", Path: output, Ownership: lifecycle.Managed, Owner: "sqlc.artifacts.commit"})
 	}
 	for index, schema := range spec.Schemas {
 		if schema.AtlasSource == "" {
 			continue
 		}
 		id := lifecycle.ID(fmt.Sprintf("sqlc.schema.render.%d", index))
-		output := lifecycle.Reference{Name: string(id), Kind: "sql_schema", Path: filepath.ToSlash(filepath.Clean(schema.SQLCSchema)), Ownership: lifecycle.Managed}
+		output := lifecycle.Reference{Name: string(id), Kind: "sql_schema", Path: filepath.ToSlash(filepath.Clean(schema.SQLCSchema)), Ownership: lifecycle.Managed, Owner: "sqlc.artifacts.commit"}
 		node := lifecycle.Node{ID: id, Kind: "schema_render", Cache: lifecycle.ExternalEffect, Dependencies: []lifecycle.ID{"sqlc.source.capture"}, Inputs: []lifecycle.Reference{{Name: "sqlc.inputs", Kind: "input_set", Producer: "sqlc.source.capture"}}, Outputs: []lifecycle.Reference{output}, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}, Identity: map[string]string{"tool": "atlas"}}
 		if op != nil {
 			node.Action = func(ctx context.Context) error { return op.renderSchema(ctx, schema) }
@@ -524,7 +547,7 @@ func sqlcLifecycleNodes(spec *sqlcGeneratorPlan, op *sqlcOperation) []lifecycle.
 		output.Producer = id
 		refs = append(refs, output)
 	}
-	nodes = append(nodes, lifecycle.Node{ID: "sqlc", Kind: "sqlc", Cache: lifecycle.ExternalEffect, Dependencies: dependencies, Inputs: refs, Outputs: []lifecycle.Reference{{Name: "sqlc.files", Kind: "artifact_set", Ownership: lifecycle.Managed}}, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}, Identity: map[string]string{"tool": "sqlc"}})
+	nodes = append(nodes, lifecycle.Node{ID: "sqlc", Kind: "sqlc", Cache: lifecycle.ExternalEffect, Dependencies: dependencies, Inputs: refs, Outputs: outputs, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}, Identity: map[string]string{"tool": "sqlc"}})
 	nodes = append(nodes, lifecycle.Node{ID: "sqlc.source.validate", Kind: "source_validation", Cache: lifecycle.CurrentValidation, Dependencies: []lifecycle.ID{"sqlc"}, Inputs: []lifecycle.Reference{{Name: "sqlc.files", Kind: "artifact_set", Producer: "sqlc"}}, Effects: []lifecycle.Capability{lifecycle.ReadSource}})
 	nodes = append(nodes, lifecycle.Node{ID: "sqlc.artifacts.commit", Kind: "artifact_publication", Cache: lifecycle.ExternalEffect, Dependencies: []lifecycle.ID{"sqlc.source.validate"}, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.PublishArtifacts}})
 	if op != nil {
@@ -560,6 +583,9 @@ func runSQLCLifecycle(ctx context.Context, stdout io.Writer, root string, spec *
 }
 
 func validateSQLCOutputRoots(contract *compiler.Result, config sqlcConfigFile, spec *sqlcGeneratorPlan) error {
+	if err := validateSQLCCodegenRoots(config); err != nil {
+		return err
+	}
 	managed, err := compiler.ManagedGeneratedRoots(contract)
 	if err != nil {
 		return err
@@ -602,6 +628,9 @@ func resolveSQLCConfigReferences(config *sqlcConfigFile, configPath string) {
 	}
 	for i := range config.Plugins {
 		plugin := &config.Plugins[i]
+		if !filepath.IsAbs(plugin.Process.Cmd) && strings.ContainsAny(plugin.Process.Cmd, "/\\") {
+			plugin.Process.LocalPath = resolve(plugin.Process.Cmd)
+		}
 		if strings.HasPrefix(plugin.WASM.URL, "file://") {
 			plugin.WASM.URL = "file://" + resolve(strings.TrimPrefix(plugin.WASM.URL, "file://"))
 		}
