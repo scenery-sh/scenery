@@ -505,14 +505,21 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 - `generators.sqlc` is a beta lifecycle config for SQLC generation. `provider` may be empty or `sqlc`; `config` defaults to `sqlc.yaml`; schema files listed in `sqlc.yaml` are treated as inputs. Explicit `atlas_source` schemas are refreshed only when an explicit `dev_url` is configured; `postgres://`, `postgresql://`, and `docker://` Atlas dev URLs pass through to Atlas unchanged. SQLC schema blocks whose schema path belongs to a configured database service must use a Postgres SQLC engine (`postgresql`/`postgres`). SQLC generation is a generated-source lifecycle and must not apply database schema or seed data.
 - SQLC version-2 configuration references resolve relative to the selected
   config file. Inputs and outputs must be confined non-symlink workspace paths;
-  output scopes must be declared in `workspace.managed_generated_roots`. Authored
-  SQL schemas are inputs, while Atlas-produced schemas have explicit producers
+  output scopes must be declared in `workspace.managed_generated_roots`. The
+  generator inspection reports every Go, JSON and plugin output scope, including
+  the file producer's destination references. Only plugins selected by
+  `sql[].codegen[].plugin` contribute local plugin inputs and executable identities.
+  Authored SQL schemas are inputs, while Atlas-produced schemas have explicit producers
   and scratch-infrastructure authority. Code generation runs against captured
   bytes in private staging, then revalidates inputs and tool identities before
   one recoverable artifact publication. Tool progress uses stderr in JSON mode.
   `.scenery/artifacts/sqlc.json` is a private structural-schema ownership receipt
-  for the complete output set, not a reusable computation cache. Missing owned
-  output can be regenerated; modified/unknown ownership is refused. Retirement
+  for the complete output set, not a reusable computation cache. Missing
+  receipts provide no classification authority; malformed receipts are refused
+  by the same decoder used for publication. Identical existing SQLC output can
+  be claimed by its first receipt; the JSON response uses the post-publication
+  membership captured under the transaction owner, retaining the rendered graph.
+  Missing owned output can be regenerated; modified/unknown ownership is refused. Retirement
   deletes only matching descriptor-owned files and preserves unrelated authored
   files in the same directory. First publication never overwrites an existing
   authored schema to turn it into generated output.
@@ -707,7 +714,8 @@ source; ordinary application commits need not track it.
 
 Source-derived inspection and contract commands report the captured workspace
 and semantic contract revisions in their envelope. They validate source membership
-and exact bytes before returning success. Generation uses the compiler result
+and exact bytes before returning either success or invalid-source diagnostics.
+Generation uses the compiler result
 that rendered its artifacts for response revisions and coverage; it never
 recompiles afterward to label earlier output. A source edit during rendering or
 before snapshot reuse returns `SCN8002` / exit 3 and publishes nothing from the

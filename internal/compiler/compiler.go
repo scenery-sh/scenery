@@ -51,7 +51,7 @@ func compileValidatedResult(ctx context.Context, root string, mode workspacetx.R
 		return nil, err
 	}
 	result, err := compileResult(root)
-	if err != nil || !result.Valid() {
+	if err != nil {
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {

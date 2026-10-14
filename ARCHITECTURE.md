@@ -293,6 +293,8 @@ spelling cannot silently drift.
 source, effective, and expanded graph snapshots. Before any ordinary source
 read, it uses `internal/workspacetx` to recover an abandoned source transaction
 or reject a live owner; staged validation admits only that transaction's owner.
+The compiler owns the shared SQLC ownership-receipt decoder used by both source
+classification and CLI publication, so malformed claims never suppress inputs.
 
 Architecture invariant: compiler depends on the foundational source/spec/graph
 packages and `internal/gotarget`. It does not import `internal/parse`.

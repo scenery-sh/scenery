@@ -2797,7 +2797,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Code map including shared typed lifecycle planning and captured, ownership-safe generation.",
+      "summary": "Code map including shared typed lifecycle planning, captured generation and one SQLC ownership-receipt decoder.",
       "tags": [
         "architecture",
         "agents",
@@ -2816,7 +2816,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Source revision consistency, planner-backed generator inspection and staged SQLC publication with explicit ownership and effects.",
+      "summary": "Source and invalid-diagnostic revision consistency, complete planner output scopes and staged SQLC publication with validated ownership and selected plugin inputs.",
       "tags": [
         "contract",
         "cli",

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"scenery.sh/internal/dirlisting"
-	"scenery.sh/internal/scn"
 )
 
 // GeneratedPaths reads exact descriptor claims for source classification and
@@ -31,28 +30,12 @@ func ReconcileGeneratedPaths(root string) (map[string]bool, error) {
 
 func generatedPaths(root string, fresh bool) (map[string]bool, error) {
 	paths := map[string]bool{}
-	receiptPath := filepath.Join(root, ".scenery", "artifacts", "sqlc.json")
-	if err := scn.RejectPathSymlinks(root, receiptPath); err != nil && !os.IsNotExist(err) {
+	receipt, err := ReadSQLCArtifactReceipt(root)
+	if err != nil {
 		return nil, err
 	}
-	// SQLC publishes one private ownership manifest for its multi-directory set.
-	// Like public descriptors, this only classifies exact paths, never mutation.
-	if data, err := os.ReadFile(receiptPath); err == nil {
-		var receipt struct {
-			Kind  string            `json:"kind"`
-			Owner string            `json:"owner"`
-			Files map[string]string `json:"files"`
-		}
-		if json.Unmarshal(data, &receipt) == nil && receipt.Kind == "scenery.sqlc-generated" && filepath.Clean(receipt.Owner) == filepath.Clean(root) {
-			for path := range receipt.Files {
-				clean := filepath.ToSlash(filepath.Clean(path))
-				if path == clean && path != "." && path != ".." && !filepath.IsAbs(path) && !strings.HasPrefix(path, "../") && !strings.Contains(path, "\\") {
-					paths[path] = true
-				}
-			}
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, err
+	for path := range receipt.Files {
+		paths[path] = true
 	}
 	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
 		return paths, nil

@@ -63,6 +63,114 @@ func TestGeneratorInspectionRejectsConfigEditAfterPlanning(t *testing.T) {
 	}
 }
 
+func TestGeneratorInspectionRejectsConfigRemovalAfterPlanning(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	compiled, err := compiler.Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph, err := buildInspectGeneratorsResponseWithContract(root, appcfg.Config{Name: "demo"}, compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "sqlc.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSourceResult(io.Discard, "json", false, compiled, graph); err == nil || cliErrorDiagnostic(err).Code != "SCN8002" {
+		t.Fatalf("missing captured configuration did not return a revision conflict: %v", err)
+	}
+}
+
+func TestSQLCPluginSelectionFollowsCodegenReferences(t *testing.T) {
+	t.Parallel()
+	config := sqlcConfigFile{Plugins: []sqlcPlugin{{Name: "unused"}, {Name: "process"}, {Name: "wasm"}}}
+	var block sqlcConfigBlock
+	block.Codegen = append(block.Codegen, struct {
+		Out    string `yaml:"out"`
+		Plugin string `yaml:"plugin"`
+	}{Out: "gen/process", Plugin: "process"}, struct {
+		Out    string `yaml:"out"`
+		Plugin string `yaml:"plugin"`
+	}{Out: "gen/wasm", Plugin: "wasm"})
+	config.SQL = []sqlcConfigBlock{block, block}
+	got := selectedSQLCPlugins(config)
+	if len(got) != 2 || got[0].Name != "process" || got[1].Name != "wasm" {
+		t.Fatalf("selected plugins = %+v", got)
+	}
+}
+
+func TestSQLCInspectionReportsEveryOutputRoot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","id":"sqlc-output-roots"}`)
+	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
+plugins:
+  - name: process
+    process:
+      cmd: unavailable-during-inspection
+  - name: wasm
+    wasm:
+      url: file://plugin.wasm
+      sha256: abc
+sql:
+  - engine: postgresql
+    schema: auth/db/gen/schema.sql
+    queries: auth/db/queries.sql
+    gen:
+      go:
+        out: auth/db/gen/go
+      json:
+        out: auth/db/gen/json
+    codegen:
+      - plugin: process
+        out: auth/db/gen/process
+      - plugin: wasm
+        out: auth/db/gen/wasm
+`)
+	want := []string{"auth/db/gen/go", "auth/db/gen/json", "auth/db/gen/process", "auth/db/gen/wasm"}
+	for _, inspect := range []bool{false, true} {
+		var output strings.Builder
+		var err error
+		if inspect {
+			err = runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &output)
+		} else {
+			err = runGenerate(t.Context(), &output, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		var graph generatorGraphResponse
+		if err := decodeCLIJSON([]byte(output.String()), &graph); err != nil {
+			t.Fatal(err)
+		}
+		var outputs []string
+		for _, generator := range graph.Generators {
+			if generator.ID == "sqlc" {
+				outputs = generator.Outputs
+			}
+		}
+		if !reflect.DeepEqual(outputs, want) {
+			t.Fatalf("reported roots = %+v", graph.Generators)
+		}
+		var roots []string
+		for _, node := range graph.Nodes {
+			if node.ID == "sqlc" {
+				for _, input := range node.Inputs {
+					if input.Kind == "output_root" {
+						roots = append(roots, input.Path)
+					}
+				}
+			}
+		}
+		if !reflect.DeepEqual(roots, want) {
+			t.Fatalf("file producer roots = %v", roots)
+		}
+	}
+}
+
 func TestSQLCFailureDoesNotPublishRenderedSchema(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

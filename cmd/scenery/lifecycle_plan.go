@@ -19,9 +19,6 @@ func compileSourcePlan(ctx context.Context, root string) (*compiler.Result, erro
 			return err
 		}},
 		{ID: "source.validate", Kind: "source_validation", Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Dependencies: []lifecycle.ID{"contract.compile"}, Inputs: []lifecycle.Reference{{Name: "contract", Kind: "contract", Producer: "contract.compile"}}, Action: func(ctx context.Context) error {
-			if !result.Valid() {
-				return nil
-			}
 			unchanged, err := compiler.SnapshotUnchanged(result)
 			if err != nil {
 				return err

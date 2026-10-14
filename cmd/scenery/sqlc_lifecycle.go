@@ -22,20 +22,9 @@ import (
 	"scenery.sh/internal/workspacetx"
 )
 
-const sqlcReceiptPath = ".scenery/artifacts/sqlc.json"
-const sqlcReceiptDescriptor = "scenery.sqlc-generated{kind:string,schema_revision:sha256,owner:string,input_revision:sha256,tools:map[string]sha256,roots:[]path,files:map[path]sha256}"
+const sqlcReceiptPath = compiler.SQLCReceiptPath
 
-// This is ownership evidence for published application output, not a reusable
-// computation cache. Losing it never grants authority to overwrite output.
-type sqlcArtifactReceipt struct {
-	Kind           string            `json:"kind"`
-	SchemaRevision string            `json:"schema_revision"`
-	Owner          string            `json:"owner"`
-	InputRevision  string            `json:"input_revision"`
-	Tools          map[string]string `json:"tools"`
-	Roots          []string          `json:"roots"`
-	Files          map[string]string `json:"files"`
-}
+type sqlcArtifactReceipt = compiler.SQLCArtifactReceipt
 
 type sqlcOperation struct {
 	root       string
@@ -89,6 +78,22 @@ func sqlcOutputRoots(config sqlcConfigFile) []string {
 	return uniqueSorted(roots)
 }
 
+func selectedSQLCPlugins(config sqlcConfigFile) []sqlcPlugin {
+	selected := map[string]bool{}
+	for _, block := range config.SQL {
+		for _, codegen := range block.Codegen {
+			selected[codegen.Plugin] = true
+		}
+	}
+	var plugins []sqlcPlugin
+	for _, plugin := range config.Plugins {
+		if selected[plugin.Name] {
+			plugins = append(plugins, plugin)
+		}
+	}
+	return plugins
+}
+
 func newSQLCOperation(root string, spec *sqlcGeneratorPlan, hooks lifecycleHooks, stdout io.Writer, quiet bool) (*sqlcOperation, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -124,7 +129,7 @@ func newSQLCOperation(root string, spec *sqlcGeneratorPlan, hooks lifecycleHooks
 		return nil, err
 	}
 	op := &sqlcOperation{root: root, spec: spec, config: config, contract: contract, hooks: hooks.withDefaults(), tools: map[string]string{}, files: map[string][]byte{}, excluded: map[string]bool{}, stdout: stdout, quiet: quiet}
-	previous, err := readSQLCReceipt(root)
+	previous, err := compiler.ReadSQLCArtifactReceipt(root)
 	if err != nil {
 		return nil, err
 	}
@@ -143,51 +148,6 @@ func newSQLCOperation(root string, spec *sqlcGeneratorPlan, hooks lifecycleHooks
 	return op, nil
 }
 
-func readSQLCReceipt(root string) (sqlcArtifactReceipt, error) {
-	path := filepath.Join(root, filepath.FromSlash(sqlcReceiptPath))
-	if err := scn.RejectPathSymlinks(root, path); err != nil && !os.IsNotExist(err) {
-		return sqlcArtifactReceipt{}, err
-	}
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return sqlcArtifactReceipt{Files: map[string]string{}}, nil
-	}
-	if err != nil {
-		return sqlcArtifactReceipt{}, err
-	}
-	var receipt sqlcArtifactReceipt
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&receipt); err != nil {
-		return receipt, fmt.Errorf("failed_precondition: SQLC output ownership receipt is invalid")
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return receipt, fmt.Errorf("failed_precondition: SQLC output ownership receipt has trailing data")
-	}
-	if receipt.Kind != "scenery.sqlc-generated" || receipt.SchemaRevision != sqlcDigest([]byte(sqlcReceiptDescriptor)) || receipt.Owner != root || receipt.Files == nil || !canonicalSQLCDigest(receipt.InputRevision) {
-		return receipt, fmt.Errorf("failed_precondition: SQLC output ownership receipt does not match this workspace")
-	}
-	for path, digest := range receipt.Files {
-		if !safeSQLCRelative(path) || !canonicalSQLCDigest(digest) || !sqlcPathInRoots(path, receipt.Roots) {
-			return receipt, fmt.Errorf("failed_precondition: unsafe SQLC output ownership receipt")
-		}
-	}
-	for _, root := range receipt.Roots {
-		if !safeSQLCRelative(root) {
-			return receipt, fmt.Errorf("failed_precondition: unsafe SQLC output root")
-		}
-	}
-	return receipt, nil
-}
-
-func canonicalSQLCDigest(digest string) bool {
-	if !strings.HasPrefix(digest, "sha256:") || len(digest) != 71 {
-		return false
-	}
-	decoded, err := hex.DecodeString(digest[7:])
-	return err == nil && hex.EncodeToString(decoded) == digest[7:]
-}
 func safeSQLCRelative(path string) bool {
 	return path != "" && path != "." && !filepath.IsAbs(path) && filepath.ToSlash(filepath.Clean(path)) == path && path != ".." && !strings.HasPrefix(path, "../") && !strings.HasPrefix(path, ".scenery/") && !strings.Contains(path, "\\")
 }
@@ -223,7 +183,7 @@ func (op *sqlcOperation) capture(ctx context.Context) error {
 			op.selections = append(op.selections, compiler.InputSelection{Path: schema.AtlasSource})
 		}
 	}
-	for _, plugin := range op.config.Plugins {
+	for _, plugin := range selectedSQLCPlugins(op.config) {
 		if strings.HasPrefix(plugin.WASM.URL, "file://") {
 			op.selections = append(op.selections, compiler.InputSelection{Path: strings.TrimPrefix(plugin.WASM.URL, "file://")})
 		}
@@ -252,7 +212,7 @@ func (op *sqlcOperation) capture(ctx context.Context) error {
 			break
 		}
 	}
-	for _, plugin := range op.config.Plugins {
+	for _, plugin := range selectedSQLCPlugins(op.config) {
 		if plugin.Process.Cmd != "" {
 			programs = append(programs, plugin.Process.Cmd)
 		}
@@ -406,11 +366,12 @@ func (op *sqlcOperation) publish(ctx context.Context) error {
 		}
 	}
 	roots = uniqueSorted(roots)
-	return workspacetx.PublishContext(ctx, op.root, func() ([]workspacetx.File, error) {
+	var publishedContract *compiler.Result
+	err := workspacetx.PublishContext(ctx, op.root, func() ([]workspacetx.File, error) {
 		if err := op.verify(true); err != nil {
 			return nil, err
 		}
-		current, err := readSQLCReceipt(op.root)
+		current, err := compiler.ReadSQLCArtifactReceipt(op.root)
 		if err != nil {
 			return nil, err
 		}
@@ -428,7 +389,7 @@ func (op *sqlcOperation) publish(ctx context.Context) error {
 			paths = append(paths, path)
 		}
 		slices.Sort(paths)
-		receipt := sqlcArtifactReceipt{Kind: "scenery.sqlc-generated", SchemaRevision: sqlcDigest([]byte(sqlcReceiptDescriptor)), Owner: op.root, InputRevision: op.inputs.Digest, Tools: op.tools, Roots: roots, Files: map[string]string{}}
+		receipt := sqlcArtifactReceipt{Kind: "scenery.sqlc-generated", SchemaRevision: compiler.SQLCReceiptSchemaRevision(), Owner: op.root, InputRevision: op.inputs.Digest, Tools: op.tools, Roots: roots, Files: map[string]string{}}
 		var changes []workspacetx.File
 		for _, relative := range paths {
 			if !safeSQLCRelative(relative) || !sqlcPathInRoots(relative, roots) {
@@ -477,8 +438,43 @@ func (op *sqlcOperation) publish(ctx context.Context) error {
 		}
 		data = append(data, '\n')
 		changes = append(changes, workspacetx.File{Path: sqlcReceiptPath, Bytes: data})
+		// Capture the response revision under the publication owner, using the
+		// membership this receipt establishes. Newly adopted identical outputs
+		// must not remain authored inputs in the post-publication snapshot.
+		for path := range receipt.Files {
+			known[path] = true
+		}
+		inputs, err := compiler.WorkspaceRevisionInputsWithGenerated(op.contract, known)
+		if err != nil {
+			return nil, err
+		}
+		captured := make(map[string][]byte, len(inputs))
+		for _, input := range inputs {
+			if !input.Present {
+				continue
+			}
+			contents, err := os.ReadFile(filepath.Join(op.root, filepath.FromSlash(input.Path)))
+			if err != nil {
+				return nil, err
+			}
+			captured[input.Path] = contents
+		}
+		updated := *op.contract
+		if err := compiler.BindCapturedWorkspaceRevision(&updated, captured); err != nil {
+			return nil, err
+		}
+		// Reject edits during reclassification rather than assigning their bytes
+		// to the already-rendered source snapshot.
+		if err := op.verify(true); err != nil {
+			return nil, err
+		}
+		publishedContract = &updated
 		return changes, nil
 	})
+	if err == nil {
+		op.spec.Contract = publishedContract
+	}
+	return err
 }
 
 func readSQLCOwnedPath(root, relative string) ([]byte, error) {
@@ -505,6 +501,11 @@ func sqlcLifecycleNodes(spec *sqlcGeneratorPlan, op *sqlcOperation) []lifecycle.
 	nodes := []lifecycle.Node{{ID: "sqlc.source.capture", Kind: "source_capture", Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache}, Inputs: []lifecycle.Reference{config}, Outputs: []lifecycle.Reference{inputs}}}
 	dependencies := []lifecycle.ID{"sqlc.source.capture"}
 	refs := []lifecycle.Reference{{Name: "sqlc.inputs", Kind: "input_set", Producer: "sqlc.source.capture"}}
+	// Output roots are authored destination scopes for the produced file set,
+	// not overlapping claims against the schema producer's individual files.
+	for index, output := range spec.Record.Outputs {
+		refs = append(refs, lifecycle.Reference{Name: fmt.Sprintf("sqlc.files.root.%d", index), Kind: "output_root", Path: output, Ownership: lifecycle.Managed})
+	}
 	for index, schema := range spec.Schemas {
 		if schema.AtlasSource == "" {
 			continue

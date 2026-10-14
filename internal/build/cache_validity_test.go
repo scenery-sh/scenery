@@ -37,3 +37,29 @@ func TestMalformedDisposableBuildStateIsAMiss(t *testing.T) {
 		t.Fatalf("corrupt cache prevented rebuilding: %v %v", hit, err)
 	}
 }
+
+func TestCachedArtifactSetAcceptsVerifiedAbsence(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	paths := []string{"retired.ts"}
+	expected := map[string]string{"retired.ts": absentArtifactStamp}
+	check := func(want bool) {
+		t.Helper()
+		got, err := cachedArtifactSetCurrent(root, paths, expected)
+		if err != nil || got != want {
+			t.Fatalf("current = %v, want %v: %v", got, want, err)
+		}
+	}
+	check(true)
+	path := filepath.Join(root, paths[0])
+	if err := os.WriteFile(path, []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	expected[paths[0]] = "invalid"
+	check(false)
+}

@@ -351,7 +351,13 @@ func cachedArtifactSetCurrent(root string, paths []string, expected map[string]s
 	}
 	for _, path := range paths {
 		digest, ok := expected[path]
-		if !ok || len(digest) != 64 {
+		if !ok {
+			return false, nil
+		}
+		if digest == absentArtifactStamp {
+			continue
+		}
+		if len(digest) != 64 {
 			return false, nil
 		}
 		if _, err := hex.DecodeString(digest); err != nil {

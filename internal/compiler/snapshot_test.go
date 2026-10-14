@@ -111,6 +111,25 @@ func TestSnapshotUnchangedVerifiesMembershipAndBytes(t *testing.T) {
 	check(false)
 }
 
+func TestInvalidSnapshotVerifiesCapturedSourceBytes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, appFilename, "application \"invalid\" {\n")
+	result, err := Compile(root)
+	if err != nil || result.Valid() || len(result.Diagnostics) == 0 {
+		t.Fatalf("invalid compile: %v %#v", err, result)
+	}
+	if unchanged, err := SnapshotUnchanged(result); err != nil || !unchanged {
+		t.Fatalf("unchanged invalid snapshot: %v %v", unchanged, err)
+	}
+	for _, contents := range []string{"application \"different\" {\n", "application \"valid\" {}\n"} {
+		writeCompilerSnapshotFile(t, root, appFilename, contents)
+		if unchanged, err := SnapshotUnchanged(result); err != nil || unchanged {
+			t.Fatalf("edited invalid snapshot accepted: %v %v", unchanged, err)
+		}
+	}
+}
+
 func TestSnapshotUnchangedIncludesImplementationBytes(t *testing.T) {
 	root := t.TempDir()
 	source := "application \"snapshot\" {}\nworkspace {\n implementation_root \"go\" {\n path = \".\"\n revision_include = [\"*.go\", \"go.mod\"]\n revision_exclude = []\n }\n}\n"

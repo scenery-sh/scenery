@@ -59,7 +59,6 @@ type sqlcGeneratorPlan struct {
 	Schemas       []sqlcSchemaPlan
 	Queries       []string
 	ConfigBytes   []byte
-	OutputRoots   []string
 	Contract      *compiler.Result
 	InputRevision string
 }
@@ -374,7 +373,7 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		schemaPlanIndex[key] = len(schemaPlanIndex)
 	}
 	var inputs []string
-	var outputs []string
+	outputs := sqlcOutputRoots(sqlcCfg)
 	var queries []string
 	inputs = append(inputs, filepath.ToSlash(configRel))
 	for _, block := range sqlcCfg.SQL {
@@ -395,9 +394,6 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 			} else if idx, ok := schemaPlanIndex[schema]; ok && schemaPlans[idx].Engine == "" {
 				schemaPlans[idx].Engine = engine
 			}
-		}
-		if block.Gen.Go.Out != "" {
-			outputs = append(outputs, filepath.ToSlash(block.Gen.Go.Out))
 		}
 	}
 	if err := validateSQLCSchemaEngines(requirements, schemaPlans); err != nil {
@@ -428,7 +424,6 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		Schemas:     schemaPlans,
 		Queries:     uniqueSorted(queries),
 		ConfigBytes: configBytes,
-		OutputRoots: sqlcOutputRoots(sqlcCfg),
 	}, true, nil
 }
 

@@ -17,10 +17,11 @@ current application graph.
 - Reuse of a local snapshot must verify current source membership and bytes
   plus the full workspace revision. Registry-backed snapshots still require
   ordinary lock/package validation; timestamps never establish equivalence.
-- Successful compilation validates its captured revision before return,
-  including consumed SQL/renderer digests in every graph view. Declared tool
+- Every compilation validates its captured revision before returning its graph
+  or diagnostics, including consumed SQL/renderer digests in every graph view. Declared tool
   input capture reuses compiler membership, path safety and exact-byte hashing.
-  Only exact descriptor-owned SQLC output paths are excluded under managed roots.
+  Only exact SQLC output paths covered by a fully validated ownership receipt
+  are excluded under managed roots; classification and publication share its decoder.
 - Local directory groups prefix HTTP binding/CRUD paths once after patches and
   before expansion. Source paths stay authored; effective paths and provenance
   own routing for every consumer. Registry cache paths never supply URL groups.

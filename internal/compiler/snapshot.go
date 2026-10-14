@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -13,8 +14,8 @@ import (
 
 // SnapshotUnchanged verifies a local immutable result against current source
 // membership, declaration bytes and the complete workspace revision. It does
-// not re-expand an identical graph. Registry-backed results retain full lock
-// and package-cache validation through the ordinary compiler.
+// not re-expand a valid local graph. Invalid and registry-backed results
+// re-read the compiler's complete diagnostic/lock/package validation.
 func SnapshotUnchanged(result *Result) (bool, error) {
 	return snapshotUnchanged(result, workspacetx.NormalRead)
 }
@@ -27,11 +28,30 @@ func SnapshotUnchangedDuringChangeTransaction(result *Result) (bool, error) {
 }
 
 func snapshotUnchanged(result *Result, mode workspacetx.ReadMode) (bool, error) {
-	if result == nil || !result.Valid() {
+	if result == nil {
 		return false, nil
 	}
 	if err := workspacetx.RecoverOrReject(result.Root, mode); err != nil {
 		return false, err
+	}
+	if result.ContractStatus != "valid" || result.Manifest == nil {
+		// Invalid graphs may stop before loading every module. Re-run the raw
+		// reader so diagnostic-only results also verify their captured inputs.
+		current, err := compileResult(result.Root)
+		if err != nil || current.Valid() || current.WorkspaceRevision != result.WorkspaceRevision || len(current.Sources) != len(result.Sources) {
+			return false, err
+		}
+		for i, source := range result.Sources {
+			if current.Sources[i].Path != source.Path || !bytes.Equal(current.Sources[i].Bytes, source.Bytes) {
+				return false, nil
+			}
+		}
+		before, err := json.Marshal(result.Diagnostics)
+		if err != nil {
+			return false, err
+		}
+		after, err := json.Marshal(current.Diagnostics)
+		return err == nil && bytes.Equal(before, after), err
 	}
 	if unchanged, err := consumedResourceBytesUnchanged(result); err != nil || !unchanged {
 		return false, err

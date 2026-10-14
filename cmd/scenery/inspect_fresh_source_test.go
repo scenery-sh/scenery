@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
@@ -65,5 +66,34 @@ func TestInspectUsesCurrentSourceAfterSuccessfulProjection(t *testing.T) {
 		if err != nil || string(bytes) != `{"stale":"do not read"}` {
 			t.Fatalf("inspection modified private historical file: %v", err)
 		}
+	}
+}
+
+func TestSourceResponseRejectsEditedInvalidSnapshot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestAppFile(t, root, "app.scn", "application \"invalid\" {\n")
+	compiled, err := compileSourcePlan(t.Context(), root)
+	if err != nil || compiled.Valid() {
+		t.Fatalf("invalid compile: %v", err)
+	}
+	var output strings.Builder
+	if err := writeSourceResult(&output, "json", false, compiled, nil); err == nil || output.Len() == 0 {
+		t.Fatalf("unchanged invalid source did not return diagnostics: %v", err)
+	}
+	writeTestAppFile(t, root, "app.scn", "application \"valid\" {}\n")
+	output.Reset()
+	if err := writeSourceResult(&output, "json", false, compiled, nil); err == nil || cliErrorDiagnostic(err).Code != "SCN8002" || output.Len() != 0 {
+		t.Fatalf("stale invalid diagnostics escaped the response boundary: %v %s", err, output.String())
+	}
+	// Implementation diagnostics appended after valid compilation do not alter
+	// which source snapshot is validated.
+	compiled, err = compiler.Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled.Diagnostics = append(compiled.Diagnostics, graph.Diagnostic{Code: "SCN9999", Severity: "error", Message: "implementation check failed"})
+	if unchanged, err := compiler.SnapshotUnchanged(compiled); err != nil || !unchanged {
+		t.Fatalf("implementation diagnostics invalidated an unchanged contract: %v %v", unchanged, err)
 	}
 }

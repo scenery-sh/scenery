@@ -110,6 +110,9 @@ func writeSourceResult(stdout io.Writer, output string, quiet bool, result *comp
 					continue
 				}
 				contents, err := os.ReadFile(filepath.Join(result.Root, filepath.FromSlash(input.Path)))
+				if os.IsNotExist(err) {
+					return fmt.Errorf("revision_conflict: generator configuration disappeared before returning the source result; retry the command")
+				}
 				if err != nil {
 					return err
 				}
@@ -119,14 +122,12 @@ func writeSourceResult(stdout io.Writer, output string, quiet bool, result *comp
 			}
 		}
 	}
-	if result.Valid() {
-		unchanged, err := compiler.SnapshotUnchanged(result)
-		if err != nil {
-			return err
-		}
-		if !unchanged {
-			return fmt.Errorf("revision_conflict: application changed before returning the source result; retry the command")
-		}
+	unchanged, err := compiler.SnapshotUnchanged(result)
+	if err != nil {
+		return err
+	}
+	if !unchanged {
+		return fmt.Errorf("revision_conflict: application changed before returning the source result; retry the command")
 	}
 	return writeContractResult(stdout, output, quiet, result, data)
 }

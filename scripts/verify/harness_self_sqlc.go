@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -42,8 +43,8 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 	}
 	files := map[string]string{
 		".scenery.json":             `{"name":"sqlc-probe","id":"sqlc-probe","envs":{"local":{"default":true}},"generators":{"sqlc":{"provider":"sqlc"}}}`,
-		"app.scn":                   "application \"sqlc_probe\" {}\nworkspace { managed_generated_roots = [\"db/gen\"] }\n",
-		"sqlc.yaml":                 "version: \"2\"\nsql:\n - engine: sqlite\n   schema: db/schema.sql\n   queries: db/query.sql\n   gen:\n     go:\n       package: db\n       out: db/gen\n",
+		"app.scn":                   "application \"sqlc_probe\" {}\nworkspace {\n managed_generated_roots = [\"db/gen\"]\n implementation_root \"go\" {\n  path = \".\"\n  revision_include = [\"**/*.go\"]\n  revision_exclude = []\n }\n}\n",
+		"sqlc.yaml":                 "version: \"2\"\nplugins:\n - name: unused\n   process:\n     cmd: scenery-unused-sqlc-plugin-must-not-exist\nsql:\n - engine: sqlite\n   schema: db/schema.sql\n   queries: db/query.sql\n   gen:\n     go:\n       package: db\n       out: db/gen\n",
 		"db/schema.sql":             "create table items (id integer primary key, label text not null);\n",
 		"db/query.sql":              "-- name: ListItems :many\nselect id, label from items;\n",
 		"db/gen/handwritten_gen.go": "package db\nconst authored = true\n",
@@ -70,12 +71,30 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.WorkspaceRevision == "" {
 			return stdout.Bytes(), fmt.Errorf("SQLC JSON channel/revision mismatch: %s", stdout.String())
 		}
+		// Match the CLI's canonical root, including macOS's temporary-dir alias.
+		canonicalRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return stdout.Bytes(), err
+		}
+		current, err := compiler.Compile(canonicalRoot)
+		if err != nil || !current.Valid() || current.WorkspaceRevision != envelope.WorkspaceRevision {
+			return stdout.Bytes(), fmt.Errorf("SQLC response does not identify the published workspace: %v", err)
+		}
 		return stdout.Bytes(), nil
 	}
 	if _, err := run(); err != nil {
 		return proof, err
 	}
 	assertions = append(assertions, "actual CLI and SQLC publish one revision-bound JSON response")
+	assertions = append(assertions, "unused process plugin does not require an installed binary")
+	// Model upgrade from existing SQLC output without private ownership metadata.
+	if err := os.Remove(filepath.Join(root, ".scenery/artifacts/sqlc.json")); err != nil {
+		return proof, err
+	}
+	if _, err := run(); err != nil {
+		return proof, err
+	}
+	assertions = append(assertions, "identical existing output is adopted with a valid post-publication JSON revision")
 	query := filepath.Join(root, "db/gen/query.sql.go")
 	before, err := os.ReadFile(query)
 	if err != nil {
