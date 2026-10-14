@@ -37,7 +37,7 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 - [x] (2026-06-01 09:02Z) Audit legacy async runtime, Postgres, frontend worker runtimes, and other dev services for implicit `PATH` or unpinned Docker image resolution.
 - [x] (2026-06-01 09:02Z) Add docs, schemas, environment contract updates, and knowledge index updates.
 - [x] (2026-06-01 09:02Z) Add tests and self-harness coverage.
-- [x] (2026-06-24) Promote ZeroFS into the frozen toolchain manifest and remove `SCENERY_DEV_ZEROFS_BIN`, `SCENERY_LEGACY_ASYNC_RUNTIME_BIN`, `SCENERY_DEV_POSTGRES_BIN`, and `SCENERY_DEV_POSTGRES_INITDB` as managed-substrate binary overrides. ZeroFS and legacy async runtime CLI now resolve through the managed toolchain store, and managed Postgres starts from the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured.
+- [x] (2026-06-24) Remove `SCENERY_LEGACY_ASYNC_RUNTIME_BIN`, `SCENERY_DEV_POSTGRES_BIN`, and `SCENERY_DEV_POSTGRES_INITDB` as managed-substrate binary overrides. The legacy async runtime CLI now resolves through the managed toolchain store, and managed Postgres starts from the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured.
 - [x] (2026-06-24) Add `scenery upgrade` to fetch a verified release binary, replace the local executable, and run the upgraded binary's managed toolchain sync for already-installed tools by default or the whole manifest with `--toolchain all`.
 - [x] (2026-07-22) Complete validation and update retrospective against the
   current singular toolchain surface; the worktree-local self-harness is the
@@ -88,7 +88,7 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
   Rationale: The user explicitly wants Scenery to avoid system/path binaries even when available. Managed tools should resolve from explicit env override, Scenery store, or manifest-driven download.
   Date/Author: 2026-06-01 / Codex.
 - Decision: Do not expose binary-path env overrides for hidden managed dev-service substrate.
-  Rationale: ZeroFS, legacy async runtime CLI, and managed Postgres are Scenery-owned toolchain/runtime substrate. Agents and target apps should get the frozen version from `scenery.toolchain.json` through the managed store, not configure individual binary paths. Explicit external-service URLs remain valid when the user intentionally points Scenery at infrastructure they own.
+  Rationale: The legacy async runtime CLI and managed Postgres are Scenery-owned toolchain/runtime substrate. Agents and target apps should get the frozen version from `scenery.toolchain.json` through the managed store, not configure individual binary paths. Explicit external-service URLs remain valid when the user intentionally points Scenery at infrastructure they own.
   Date/Author: 2026-06-24 / Codex.
 - Decision: Treat Go modules and UI package-manager files as `source_locks`, not managed toolchain downloads.
   Rationale: `go.mod`, `go.sum`, `package.json`, and package lock files already freeze source dependency graphs. The toolchain manifest should reference and report those lock surfaces without duplicating the entire dependency graph.
@@ -97,7 +97,7 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
   Rationale: Each Scenery release should be auditable. `scenery version --json` should prove which toolchain manifest the binary was built with.
   Date/Author: 2026-06-01 / Codex.
 - Decision: Make `scenery upgrade` run post-install toolchain sync from the upgraded binary.
-  Rationale: The release binary is the source of truth for the frozen manifest. Syncing through the upgraded executable ensures changed ZeroFS, legacy async runtime, Postgres, and other Scenery-owned substrate versions come from the new release instead of the old binary or ambient system tools. The default limits work to tools already present locally; `--toolchain all` is the explicit full pull.
+  Rationale: The release binary is the source of truth for the frozen manifest. Syncing through the upgraded executable ensures changed legacy async runtime, Postgres, and other Scenery-owned substrate versions come from the new release instead of the old binary or ambient system tools. The default limits work to tools already present locally; `--toolchain all` is the explicit full pull.
   Date/Author: 2026-06-24 / Codex.
 - Decision: Leave tag-only image refs as explicit unstable migration metadata for this change.
   Rationale: Digest-pinning every image is desirable, but strict verification already fails on tag-only refs and the manifest exposes the instability instead of hiding it.
@@ -106,7 +106,7 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 Completed 2026-07-22. The frozen manifest, managed artifact store, checksum and
 archive verification, Docker runner injection, version metadata, CLI, upgrade
 sync, and no-ambient-PATH contract are the current implementation. Later
-plans removed Grafana, ZeroFS, and the legacy async runtime; those historical
+plans removed Grafana and the legacy async runtime; those historical
 entries do not remain as compatibility paths. Victoria runs the manifest-owned
 managed binaries. Optional tag-only Victoria image references are deliberately
 non-installable and rejected by strict image verification, so they do not

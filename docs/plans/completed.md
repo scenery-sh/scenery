@@ -1098,16 +1098,6 @@ check/test/build/detached-runtime acceptance with zero regenerated Go trees.
 
 Shipped encrypted per-user offline Google connections, cross-process refresh serialization, explicit reconnect/scope failures, typed token access, and real ONLV Gmail API acceptance. Optional proactive worker refresh remains a downstream product decision.
 
-## Local Filesystem Storage and ZeroFS Removal
-
-- Status: completed
-- Owner: scenery runtime / storage
-- Completed: 2026-07-02
-- Quality: B
-- ExecPlan: [0094 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0094-local-storage-and-zerofs-removal.md)
-
-Promoted the checked-fsync local backend for app and headless runtimes and removed the ZeroFS adapter, process, toolchain artifact, dependency, configuration, and operational surfaces.
-
 ## Local Path Routing
 
 - Status: completed
@@ -1443,18 +1433,17 @@ Validation:
 
 - Passed focused durable/store/runtime/parser/cmd tests, `go test ./...`, docs inspection, `git diff --check`, and `go run ./cmd/scenery harness self --summary --write` with warning-class harness findings only.
 
-## ZeroFS Production Readiness
+## Storage Production Readiness
 
 - Status: completed
 - Owner: scenery runtime / storage
 - Completed: 2026-06-26
 - Quality: B
-- ExecPlan: [0080 ZeroFS Production Readiness](0080-zerofs-production-readiness.md)
+- ExecPlan: [0080 Storage Production Readiness](0080-storage-production-readiness.md)
 
 Shipped:
 
 - Promoted the app-facing `scenery.sh/storage` API, reserved runtime routes, and generated browser helpers for production only when headless runtimes receive explicit operator-provided proxy-backed `SCENERY_STORAGE_CONFIG`.
-- Kept managed ZeroFS, storage CLI/status/Web UI, and inspect lease surfaces beta local-dev/operator tooling because the pinned ZeroFS artifact is AGPL-licensed and P9 fsync is unsafe with the current backend.
 - Added tenant scoping, durable object metadata, atomic `IfNoneMatch` writes, range metadata fixes, headless fail-closed behavior, restart proof, lease-aware cleanup, and CLI import/export/rollback proof.
 
 Validation:
@@ -1630,14 +1619,14 @@ Validation:
 Shipped:
 
 - Added beta `.scenery.json` storage declarations, `scenery.sh/storage`, runtime env injection, reserved storage HTTP routes, generated TypeScript `client.storage` helpers, `scenery inspect storage --json`, and `scenery storage status|webui|ls|stat|put|get|rm --json`.
-- Added managed ZeroFS dev-service planning, startup, attach/reuse, lease accounting, protected Web UI routing, session-local storage proxying, and a pure-Go 9P data-plane adapter so target app packages do not link ZeroFS FFI.
+- Added session-local storage proxying to isolate storage implementation dependencies from target app packages.
 - Made storage cells worktree-shared by default, with durable cell data under the agent storage root and short temp Unix socket paths for macOS 9P/RPC socket limits.
-- Added `testdata/apps/storage-basic`, fixture probes, two-worktree visibility proof, real ZeroFS 1.2.5 self-harness proof when `SCENERY_DEV_ZEROFS_BIN` is available, schemas, docs, environment registry entries, and installable skill guidance.
+- Added `testdata/apps/storage-basic`, fixture probes, two-worktree visibility proof, schemas, docs, environment registry entries, and installable skill guidance.
 - Proved the ONLV replacement path: ONLV declares storage cell `onlv`, backend file helpers and job/map artifacts use `scenery.sh/storage`, and Pulse Drive/viewer/contact/annotation write/list/delete paths use generated `client.storage` helpers.
 
 Validation:
 
-- Scenery passed `go test ./...`, `go test ./cmd/scenery`, `go test ./cmd/scenery ./storage ./internal/storage -count=1`, and `SCENERY_DEV_ZEROFS_BIN=.scenery/harness/zerofs-bin/zerofs go run ./cmd/scenery harness self --summary --write` with only existing warning-class architecture/timing findings.
+- Scenery passed `go test ./...`, `go test ./cmd/scenery`, `go test ./cmd/scenery ./storage ./internal/storage -count=1`, and the then-current self-harness with only existing warning-class architecture/timing findings.
 - ONLV passed local-Scenery `scenery check --json`, `go test ./drive ./maps ./jobs -count=1`, `go test ./...`, `(cd apps/pulse && bun run typecheck)`, `(cd apps/pulse && bun run lint)`, `scenery harness --json --write`, `scenery inspect storage --json`, and an isolated `scenery storage put|get` byte-for-byte smoke. `just repo-harness` was attempted but blocked by pre-existing untracked rooftopology conversation dumps with broken markdown links; those user files were left untouched.
 
 ## Postgres-Only Managed Branching

@@ -20,7 +20,7 @@ This plan adds the first explicit page-record projection seam. A `page.Collectio
 
 ## Surprises & Discoveries
 
-- `docs/plans/0080-zerofs-production-readiness.md` already exists, so this plan uses `0081`.
+- `docs/plans/0080-storage-production-readiness.md` already exists, so this plan uses `0081`.
 - `scenery inspect views` reads `.scenery/gen/views.json` when the cache exists. The local model-dsl cache needed regeneration to show the new projection, but `.scenery/gen` remains ignored generated cache.
 - The generated runtime already had a clean `rows` abstraction; the minimal change was to keep row sources as shape rows and add `materialize()` for page records.
 

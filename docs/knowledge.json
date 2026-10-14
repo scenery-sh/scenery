@@ -3176,20 +3176,19 @@
       ]
     },
     {
-      "path": "docs/plans/0080-zerofs-production-readiness.md",
-      "title": "ZeroFS Production Readiness",
+      "path": "docs/plans/0080-storage-production-readiness.md",
+      "title": "Storage Production Readiness",
       "owner": "scenery runtime / storage",
       "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Completed ExecPlan that hardened the app-facing storage API/runtime-route contract (tenant enforcement, durable metadata, atomic writes, crash/restart proof, fail-closed headless config, cleanup and migration proof). Superseded by plan 0094, which removed ZeroFS entirely and promoted the local filesystem backend to a production-supported kind; current contract lives in docs/local-contract.md.",
+      "summary": "Historical summary of completed app-facing storage hardening: tenant enforcement, durable metadata, atomic writes, range lengths, fail-closed headless configuration, restart, cleanup, and migration proof. Current storage behavior lives in docs/local-contract.md.",
       "tags": [
         "plans",
         "execplans",
         "storage",
-        "zerofs",
         "production",
         "runtime",
         "security"
@@ -3421,26 +3420,6 @@
       ]
     },
     {
-      "path": "docs/plans/0094-local-storage-and-zerofs-removal.md",
-      "title": "Local Filesystem Storage Promotion and Complete ZeroFS Removal",
-      "owner": "scenery runtime / storage",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-07-14",
-      "review_after": "2026-08-13",
-      "summary": "Completed ExecPlan that promoted the local filesystem storage backend to a production-supported kind for app and headless runtime config and removed ZeroFS entirely: 9P adapter, managed service, toolchain artifact, p9 dependency, doctor/inspect/harness surfaces, env vars, schemas, and docs.",
-      "tags": [
-        "plans",
-        "execplans",
-        "storage",
-        "local",
-        "production",
-        "runtime",
-        "s3"
-      ]
-    },
-    {
       "path": "docs/plans/0090-local-path-routing.md",
       "title": "Local Path Routing and Per-Runtime Dev Ports",
       "owner": "scenery runtime / agent DX",
@@ -3487,13 +3466,11 @@
       "freshness": "current",
       "last_reviewed": "2026-06-22",
       "review_after": "2026-07-22",
-      "summary": "Completed ExecPlan that made storage a Scenery-owned beta capability with scenery.sh/storage, shared ZeroFS-backed storage cells, managed ZeroFS process/Web UI attach/reuse, session-local storage proxy, storage CLI/inspect lease surfaces, reserved HTTP storage routes, generated TypeScript browser helpers, docs, schemas, self-harness proof, and an ONLV migration proof.",
+      "summary": "Historical summary of the completed Scenery storage capability: scenery.sh/storage, app declarations, session-local proxy, CLI object operations, reserved HTTP routes, generated TypeScript helpers, fixture proof, and ONLV migration. Current storage behavior lives in docs/local-contract.md.",
       "tags": [
         "plans",
         "execplans",
         "storage",
-        "zerofs",
-        "webui",
         "agents"
       ]
     },
@@ -3788,8 +3765,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Living index of shipped milestones whose linked numbered ExecPlans are immutable historical evidence, excluded from scheduled freshness review while current corrections live in owning contracts or explicit stale metadata.",
       "tags": [
         "plans",

@@ -4,7 +4,7 @@ This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, 
 
 ## Purpose / Big Picture
 
-After plan 0097, every scenery app has exactly one Postgres database (one schema per service plus the `scenery` schema for auth, durable jobs, and the seed ledger). After plan 0094, every app's storage capability is a plain directory tree under the agent storage cell (`<agent-home>/agent/storage/<cell-id>/objects/<store>/` with `__scenery/metadata/` sidecars). Together those two locations hold *all* durable app data — but today there is no single command that captures or restores them:
+After plan 0097, every scenery app has exactly one Postgres database (one schema per service plus the `scenery` schema for auth, durable jobs, and the seed ledger). Each app's storage capability is a plain directory tree under the agent storage cell (`<agent-home>/agent/storage/<cell-id>/objects/<store>/` with `__scenery/metadata/` sidecars). Together those two locations hold *all* durable app data — but today there is no single command that captures or restores them:
 
 * `scenery db snapshot create|restore` covers only the database, only into an unportable app-local directory (`.scenery/db/snapshots/<name>/`), and depends on host-`PATH` `pg_dump`/`pg_restore` that can mismatch the Postgres 18 server.
 * Storage has no bulk export at all — only per-object `scenery storage get/put`.
@@ -27,7 +27,7 @@ When this plan is done: `scenery snapshot save --db --storage --output app.zip` 
 
 ## Progress
 
-* [x] 2026-07-07 - Explored the db CLI (`cmd/scenery/db_cli.go`), storage cell layout (`cmd/scenery/storage_cell.go`, now implemented by `storage/runtime.go`), managed Postgres server state (`cmd/scenery/dev_services_postgres.go`), and prior art (plans 0094, 0097, 0022); settled the four headline decisions with the repo owner; drafted this plan.
+* [x] 2026-07-07 - Explored the db CLI (`cmd/scenery/db_cli.go`), storage cell layout (`cmd/scenery/storage_cell.go`, now implemented by `storage/runtime.go`), managed Postgres server state (`cmd/scenery/dev_services_postgres.go`), and prior art (the storage contract and plans 0097, 0022); settled the four headline decisions with the repo owner; drafted this plan.
 * [x] 2026-07-13 - Milestone 1: added the `scenery snapshot` dispatcher, explicit parsers, help, current JSON identities, checked schemas, and schema examples.
 * [x] 2026-07-13 - Milestone 2: added streaming container-matched Postgres dump/restore with the external host-tool fallback.
 * [x] 2026-07-13 - Milestone 3: implemented checksummed atomic zip save for database dumps and configured storage trees.
@@ -224,7 +224,7 @@ Do not run `go install ./cmd/scenery`; use the self-harness worktree-local binar
 
 ## Artifacts and Notes
 
-* Exploration evidence (2026-07-07): current snapshot mechanics at `cmd/scenery/db_cli.go:297-329, 599-638`; storage cell contract at `cmd/scenery/storage_cell.go` and plan 0094; database-per-worktree naming and `scenery` schema contents per plan 0097's Decision Log.
+* Exploration evidence (2026-07-07): current snapshot mechanics at `cmd/scenery/db_cli.go:297-329, 599-638`; storage cell contract at `cmd/scenery/storage_cell.go` and [the local contract](../local-contract.md#databases-snapshots-and-storage); database-per-worktree naming and `scenery` schema contents per plan 0097's Decision Log.
 * Prior art deliberately not reused: plan 0022's `scenery.data.export.v1` is a records-level fixture format for the data platform, not a byte-faithful backup; the cookbook's rclone/restic recipe remains the *continuous offsite replication* story and is complementary — this plan is the *point-in-time portable archive* story. The cookbook gains a sentence distinguishing the two.
 * The archive intentionally excludes: `.scenery/gen/` (regenerable cache), session state, and Victoria logs/metrics.
 
