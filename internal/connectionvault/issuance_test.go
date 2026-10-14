@@ -16,7 +16,7 @@ func TestVaultIssuesUnknownExpiryGrantOnce(t *testing.T) {
 		if !refreshable {
 			p.grant.RefreshToken = ""
 		}
-		if err := v.Connect(t.Context(), "owner", "independent", []string{"Read"}, p.grant); err != nil {
+		if err := connectGrant(t, v, "owner", "independent", []string{"Read"}, p.grant); err != nil {
 			t.Fatal(err)
 		}
 		if !s.row.AccessExpiresAt.IsZero() {
@@ -65,7 +65,7 @@ func TestVaultUsesNonrefreshableGrantUntilActualExpiry(t *testing.T) {
 	p.grant.Issuer, p.grant.Subject = s.row.Issuer, s.row.Subject
 	p.grant.ExpiresAt, p.grant.RefreshToken = testNow.Add(30*time.Second), ""
 	s.row.Status = Disconnected
-	if err := v.Connect(t.Context(), "owner", "independent", []string{"Read"}, p.grant); err != nil {
+	if err := connectGrant(t, v, "owner", "independent", []string{"Read"}, p.grant); err != nil {
 		t.Fatal(err)
 	}
 	for _, elapsed := range []time.Duration{0, 29 * time.Second, 30 * time.Second, 31 * time.Second} {

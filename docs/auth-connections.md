@@ -58,7 +58,7 @@ scenery config set auth.token_cipher_key --stdin --env production
 The cipher input is a base64-encoded 32-byte key. Credentials reach the runtime
 through its configuration snapshot; never put them in declarations, generated
 code or product tables. Callback defaults to the runtime's advertised API base
-URL plus `/auth/connections/<id>/callback`. Register that exact URI with the
+URL plus `/auth/connections/<id>/callback`, resolved after runtime metadata initialization. Register that exact URI with the
 provider before enabling it. Production requires the cipher key; local development
 preserves the original JWT-derived key and its historical derivation label.
 
@@ -134,9 +134,12 @@ async function reconnectGoogle() {
 }
 ```
 
-Handle each typed failure and transport exception in the consuming app. HTTP 503
-configuration/storage/provider failures use the declared `unavailable` error outcome;
-its problem code preserves the specific connection classification. Keep this
+Handle each typed failure and transport exception in the consuming app. Domain
+responses use declared operation-error outcomes: `invalid_request` (400),
+`unauthenticated` (401), `forbidden` (403), `internal` (500) and `unavailable` (503).
+Their JSON problem codes preserve the specific runtime classification, including
+`connection_not_configured` and `permission_denied`. Declared transport/admission
+failures retain their exact namespaced codes. Keep this
 domain flow in the app's component slot.
 Metadata includes provider/account/resource, effective scopes, timestamps and a
 sanitized reauthorization/revocation reason; never tokens or ciphertext.
@@ -175,6 +178,11 @@ Previously issued tokens may remain usable at the provider.
 
 Every successful disconnect expires pending browser callbacks in the same local
 transaction, including repeated disconnects and a slot with no connection row.
+State creation and callback consumption share the owner/provider lease. A callback
+retains it through remote exchange and grant installation; consumption is committed
+before remote work to prevent replay after a crash. Disconnect waits for an in-flight
+callback, then removes its grant; a completed disconnect cannot be undone by it.
+Expiry cleanup and pending owner/provider invalidation have dedicated SQL indexes.
 The service checks the connection schema once per pool after success; failed or
 canceled checks remain retryable. Schema migration requires stopping writers.
 

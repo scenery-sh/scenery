@@ -402,6 +402,10 @@ INSERT INTO scenery.scenery_auth_connection_states (
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 RETURNING *;
 
+-- name: GetConnectionStateOwner :one
+SELECT user_id FROM scenery.scenery_auth_connection_states
+WHERE state_hash = $1 AND provider_id = $2 AND consumed_at IS NULL AND expires_at > now();
+
 -- name: ConsumeConnectionState :one
 UPDATE scenery.scenery_auth_connection_states AS state
 SET consumed_at = now()

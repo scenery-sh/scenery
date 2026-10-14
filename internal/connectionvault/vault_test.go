@@ -315,13 +315,13 @@ func TestVaultDisconnectCommitsBeforeFailedRevocation(t *testing.T) {
 func TestVaultConnectPreservesSlotAndRequiresExplicitAccountSwitch(t *testing.T) {
 	v, s, p := vaultFixture(t, "independent")
 	p.grant.Subject, p.grant.Issuer = "other-subject", s.row.Issuer
-	if err := v.Connect(t.Context(), "owner", "independent", nil, p.grant); errs.Code(err) != errs.FailedPrecondition {
+	if err := connectGrant(t, v, "owner", "independent", nil, p.grant); errs.Code(err) != errs.FailedPrecondition {
 		t.Fatalf("implicit account switch: %v", err)
 	}
 	if _, err := v.Disconnect(t.Context(), "owner", "independent"); err != nil {
 		t.Fatal(err)
 	}
-	if err := v.Connect(t.Context(), "owner", "independent", []string{"Read"}, p.grant); err != nil {
+	if err := connectGrant(t, v, "owner", "independent", []string{"Read"}, p.grant); err != nil {
 		t.Fatal(err)
 	}
 	if s.row.ID != "stable" || s.row.Subject != "other-subject" || s.row.Status != Active || !s.row.DisconnectedAt.IsZero() {
@@ -356,4 +356,14 @@ func TestScopeTokensRemainOpaqueAndRegistrationIsImmutable(t *testing.T) {
 	if _, _, err := v.Registration("independent", []string{"Read"}); err != nil {
 		t.Fatal("caller mutated registration")
 	}
+}
+
+func connectGrant(t *testing.T, v *Vault, user, provider string, requested []string, grant Grant) error {
+	t.Helper()
+	lease, err := v.store.Lock(t.Context(), user, provider)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lease.Close() }()
+	return v.Connect(t.Context(), lease, user, provider, requested, grant)
 }

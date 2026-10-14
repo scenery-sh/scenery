@@ -48,7 +48,8 @@ migrate an unused table.
    IDs, subjects, scopes, statuses, expiry, timestamps and ciphertext. It expires
    only old connection handshakes, preserving login states and all unrelated auth
    rows. Clean installations use the current schema; unknown/ambiguous families
-   fail closed. A rerun verifies the current family.
+   fail closed. A rerun verifies the current family and installs the expiry and
+   pending owner/provider callback-state indexes on an already current schema.
 5. Verify counts, unique user/provider ownership, schema version and ciphertext
    equality. Decrypt only in memory under the unchanged key. Start one canonical
    implementation, then prove status, cached/rotated token, reconnect and disconnect

@@ -31,12 +31,17 @@ func (configurationTestHost) FrameworkConfigSecret(key string) ([]byte, bool, er
 func TestLegacyLocalCipherAndDefaultCallbackRemainCompatible(t *testing.T) {
 	previous := *appsdk.Metadata()
 	t.Cleanup(func() { appsdk.SetMetadata(previous) })
-	appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: "https://app.example.test/api", Environment: shared.Environment{Cloud: shared.CloudLocal}})
+	appsdk.SetMetadata(shared.AppMetadata{})
 	service, err := New(Options{Host: configurationTestHost{}, Providers: []connectionapi.ProviderConfig{{ID: "google", Preset: "google"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if service.providers["google"].callbackURI != "https://app.example.test/api/auth/connections/google/callback" {
+	appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: "https://app.example.test/api", Environment: shared.Environment{Cloud: shared.CloudLocal}})
+	provider, err := service.provider("google")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.callbackURI != "https://app.example.test/api/auth/connections/google/callback" {
 		t.Fatal("default callback lost the advertised API prefix")
 	}
 	// Frozen version-1 envelope under the original JWT-derived key, with a

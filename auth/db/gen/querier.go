@@ -36,6 +36,7 @@ type Querier interface {
 	GetAuthIdentityByUserProvider(ctx context.Context, arg GetAuthIdentityByUserProviderParams) (ScenerySceneryAuthAuthIdentity, error)
 	GetConnectionByUser(ctx context.Context, arg GetConnectionByUserParams) (ScenerySceneryAuthConnection, error)
 	GetConnectionByUserForUpdate(ctx context.Context, arg GetConnectionByUserForUpdateParams) (ScenerySceneryAuthConnection, error)
+	GetConnectionStateOwner(ctx context.Context, arg GetConnectionStateOwnerParams) (UUID, error)
 	GetEmailIdentityForLogin(ctx context.Context, providerSubject string) (ScenerySceneryAuthAuthIdentity, error)
 	GetRefreshSessionByID(ctx context.Context, id UUID) (ScenerySceneryAuthRefreshSession, error)
 	GetTenantByID(ctx context.Context, id UUID) (ScenerySceneryAuthTenant, error)

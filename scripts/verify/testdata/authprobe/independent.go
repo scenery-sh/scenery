@@ -23,6 +23,7 @@ type fakeOAuth2 struct {
 	challenge, callback, scope string
 	refreshCalls               atomic.Int64
 	beforeRefresh              func(*http.Request)
+	beforeExchange             func(*http.Request)
 	noExpiry                   bool
 	shortExpiry                bool
 }
@@ -61,6 +62,7 @@ func (f *fakeOAuth2) serve(w http.ResponseWriter, req *http.Request) {
 		challenge, callback, scope := f.challenge, f.callback, f.scope
 		noExpiry := f.noExpiry
 		shortExpiry := f.shortExpiry
+		beforeExchange := f.beforeExchange
 		f.mu.Unlock()
 		access, refresh := "independent-access", "independent-refresh"
 		if req.PostForm.Get("grant_type") == "authorization_code" {
@@ -69,6 +71,9 @@ func (f *fakeOAuth2) serve(w http.ResponseWriter, req *http.Request) {
 				w.WriteHeader(400)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
 				return
+			}
+			if beforeExchange != nil {
+				beforeExchange(req)
 			}
 		} else {
 			f.refreshCalls.Add(1)
@@ -105,6 +110,10 @@ func (f *fakeOAuth2) serve(w http.ResponseWriter, req *http.Request) {
 
 func independentProviderJourney(p *probe) {
 	session, _ := p.signin()
+	unknown, unknownBody := p.request(http.MethodPost, "/auth/connections/unknown/start", auth.ConnectionStartParams{}, session.Token, "")
+	p.check(unknown.StatusCode == 400 && unknown.Header.Get("Content-Type") == "application/json" && strings.Contains(string(unknownBody), `"code":"connection_not_configured"`), "unknown provider returns the declared 400 domain problem as JSON")
+	denied, deniedBody := p.request(http.MethodPost, "/auth/connections/independent/start", auth.ConnectionStartParams{Scopes: []string{"forbidden"}}, session.Token, "")
+	p.check(denied.StatusCode == 403 && denied.Header.Get("Content-Type") == "application/json" && strings.Contains(string(deniedBody), `"code":"permission_denied"`), "disallowed scope returns the declared 403 domain problem as JSON")
 	user := take(p.q.GetUserByID(p.ctx, id(session.User.ID)))
 	var identities int
 	must(p.db.QueryRowContext(p.ctx, `SELECT count(*) FROM scenery.scenery_auth_auth_identities WHERE user_id=$1`, id(session.User.ID)).Scan(&identities))

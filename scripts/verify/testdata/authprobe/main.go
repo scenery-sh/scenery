@@ -162,9 +162,10 @@ func (p *probe) run(name string) (returnErr error) {
 	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(state)) }()
 	socket := filepath.Join(state, "api.sock")
 	must(envpolicy.Set("SCENERY_LISTEN_NETWORK", "unix"))
-	must(deliverAuthConfiguration())
+	must(deliverAuthConfiguration(name == "connection-redirect"))
 	must(envpolicy.Set("SCENERY_PUBLIC_APP_URL", "https://app.example.test"))
 	must(envpolicy.Set("SCENERY_API_BASE_URL", "https://api.example.test"))
+	must(envpolicy.Set("SCENERY_PUBLIC_BASE_URL", "https://api.example.test"))
 	config := auth.StandardConfig{Enabled: true, AutoBootstrapDatabase: true, GoogleOAuth: auth.GoogleOAuthConfig{Enabled: true}, Connections: []auth.ConnectionProvider{
 		{ID: "google", Preset: "google", AllowedScopes: []string{gmailModify, gmailRead}},
 		{ID: "independent", Protocol: "oauth2", Issuer: p.independent.server.URL, AuthorizeURL: p.independent.server.URL + "/authorize", TokenURL: p.independent.server.URL + "/token", AccountURL: p.independent.server.URL + "/account", RevokeURL: p.independent.server.URL + "/revoke", SubjectField: "account_id", Resource: "https://files.example", AllowedScopes: []string{"files.read", "files.write"}},
@@ -354,8 +355,8 @@ var journeys = map[string]func(*probe){
 // deliverAuthConfiguration hands this process its standard-auth
 // configuration the way the supervisor does: a snapshot on an inherited pipe
 // named by SCENERY_CONFIG_SNAPSHOT_FD, which the runtime reads once and closes.
-func deliverAuthConfiguration() error {
-	snapshot, err := json.Marshal(runtime.ConfigSnapshot{
+func deliverAuthConfiguration(defaultCallback bool) error {
+	config := runtime.ConfigSnapshot{
 		Kind: runtime.ConfigSnapshotKind, AppID: "auth-release-probe", Environment: "production", Revision: "cfg-auth-release-probe", Consumer: "framework",
 		Values: map[string]json.RawMessage{"auth.google_client_id": json.RawMessage(`"client-id"`), "auth.connections.google.client_id": json.RawMessage(`"client-id"`), "auth.connections.google.callback_uri": json.RawMessage(`"https://api.example.test/auth/connections/google/callback"`), "auth.connections.independent.client_id": json.RawMessage(`"independent-client"`), "auth.connections.independent.callback_uri": json.RawMessage(`"https://api.example.test/auth/connections/independent/callback"`)},
 		Secrets: map[string][]byte{
@@ -364,7 +365,12 @@ func deliverAuthConfiguration() error {
 			"auth.connections.google.client_secret": []byte("client-secret"), "auth.connections.independent.client_secret": []byte("independent-secret"),
 			"auth.token_cipher_key": []byte("MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="),
 		},
-	})
+	}
+	if defaultCallback {
+		delete(config.Values, "auth.connections.google.callback_uri")
+		delete(config.Values, "auth.connections.independent.callback_uri")
+	}
+	snapshot, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}

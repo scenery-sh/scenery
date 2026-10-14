@@ -14,6 +14,7 @@ import (
 	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/connectionapi"
 	"scenery.sh/internal/connectionvault"
+	"scenery.sh/internal/connectionvault/sqlstore"
 	"scenery.sh/internal/runtimeapi"
 )
 
@@ -79,7 +80,11 @@ func (s *Service) Register() {
 }
 
 func (s *Service) callback(w http.ResponseWriter, req *http.Request, provider string) {
-	cfg := s.providers[provider]
+	cfg, err := s.provider(provider)
+	if err != nil {
+		errs.HTTPError(w, err)
+		return
+	}
 	clear := browserCookie(provider, cfg.callbackURI, "", true)
 	cookie, err := req.Cookie(clear.Name)
 	if err != nil || cookie.Value == "" || req.URL.Query().Get("state") == "" {
@@ -88,24 +93,20 @@ func (s *Service) callback(w http.ResponseWriter, req *http.Request, provider st
 	}
 	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
 	defer cancel()
-	pool, err := s.open(ctx)
-	if err != nil {
-		errs.HTTPError(w, coded(errs.ConnectionUnavailable, "connection storage is unavailable"))
-		return
-	}
 	if issuer := req.URL.Query().Get("iss"); issuer != "" && issuer != cfg.registration.Issuer {
 		errs.HTTPError(w, coded(errs.InvalidArgument, "connection issuer does not match"))
 		return
 	}
-	state, err := authdb.New(pool).ConsumeConnectionState(ctx, authdb.ConsumeConnectionStateParams{StateHash: hash(req.URL.Query().Get("state")), ProviderID: provider, BrowserHash: hash(cookie.Value), Issuer: cfg.registration.Issuer, Resource: cfg.registration.Resource, ClientID: cfg.clientID, CallbackUri: cfg.callbackURI})
+	state, lease, err := (sqlstore.Store{Open: s.open}).LockState(ctx, authdb.ConsumeConnectionStateParams{StateHash: hash(req.URL.Query().Get("state")), ProviderID: provider, BrowserHash: hash(cookie.Value), Issuer: cfg.registration.Issuer, Resource: cfg.registration.Resource, ClientID: cfg.clientID, CallbackUri: cfg.callbackURI})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, connectionvault.ErrOwnerUnavailable) {
 			errs.HTTPError(w, coded(errs.InvalidArgument, "connection authorization state is invalid or expired"))
 		} else {
 			errs.HTTPError(w, coded(errs.ConnectionUnavailable, "connection storage is unavailable"))
 		}
 		return
 	}
+	defer func() { _ = lease.Close() }()
 	http.SetCookie(w, clear)
 	if req.URL.Query().Get("error") != "" {
 		s.redirect(w, req, state.RedirectPath, "error", "connection_authorization_denied")
@@ -121,7 +122,7 @@ func (s *Service) callback(w http.ResponseWriter, req *http.Request, provider st
 		s.redirect(w, req, state.RedirectPath, "error", "connection_exchange_failed")
 		return
 	}
-	if err := s.vault.Connect(ctx, idString(state.UserID), provider, scopes, grant); err != nil {
+	if err := s.vault.Connect(ctx, lease, idString(state.UserID), provider, scopes, grant); err != nil {
 		s.redirect(w, req, state.RedirectPath, "error", string(errs.Code(err)))
 		return
 	}

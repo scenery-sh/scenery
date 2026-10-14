@@ -2,8 +2,12 @@ package generate
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/compiler"
 )
 
 func TestTypeScriptClientReturnsDeclaredTransportFailuresAsTypedOutcomes(t *testing.T) {
@@ -400,5 +404,40 @@ func TestStandardTypesRequireExactReferences(t *testing.T) {
 		if got := fmt.Sprint(tsDescriptor(value, "house")); strings.Contains(got, "problem") || strings.Contains(got, "unit") || strings.Contains(got, "execution_receipt") {
 			t.Errorf("descriptor for %q was classified as a standard type: %s", test.reference, got)
 		}
+	}
+}
+
+func TestConnectionProjectionGeneratesDomainErrorOutcomes(t *testing.T) {
+	root := t.TempDir()
+	writeMinimalGenerationFixture(t, root)
+	appendFixtureFile(t, filepath.Join(root, testAppFilename), `
+authentication "standard" {
+  provider = std.provider.standard_auth
+  scheme = "session"
+}
+`)
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"nativeapp","envs":{"local":{"default":true}},"auth":{"enabled":true,"google_oauth":{"enabled":false},"connections":[{"id":"files","preset":"google"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := compiler.Compile(root)
+	if err != nil || compiled == nil || !compiled.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, diagnosticsOf(compiled))
+	}
+	files, err := renderTypeScriptClientFiles(compiled, "public_api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := generatedSourceWithSuffix(files, "client.ts")
+	for _, name := range []string{"invalid_request", "unauthenticated", "forbidden", "internal", "unavailable"} {
+		fragment := `"kind":"error","name":"` + name + `","role":"completion"`
+		if !strings.Contains(client, fragment) {
+			t.Fatalf("connection client omits generic domain outcome %s", name)
+		}
+	}
+	if !strings.Contains(client, `"producedMediaTypes":["application/json"]`) {
+		t.Fatal("connection domain outcomes cannot decode the runtime JSON envelope")
+	}
+	if strings.Contains(client, "connectionCallback") {
+		t.Fatal("opaque browser callbacks became ordinary client calls")
 	}
 }

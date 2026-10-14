@@ -962,6 +962,23 @@ func (q *Queries) GetConnectionByUserForUpdate(ctx context.Context, arg GetConne
 	return i, err
 }
 
+const getConnectionStateOwner = `-- name: GetConnectionStateOwner :one
+SELECT user_id FROM scenery.scenery_auth_connection_states
+WHERE state_hash = $1 AND provider_id = $2 AND consumed_at IS NULL AND expires_at > now()
+`
+
+type GetConnectionStateOwnerParams struct {
+	StateHash  string `json:"state_hash"`
+	ProviderID string `json:"provider_id"`
+}
+
+func (q *Queries) GetConnectionStateOwner(ctx context.Context, arg GetConnectionStateOwnerParams) (UUID, error) {
+	row := q.db.QueryRowContext(ctx, getConnectionStateOwner, arg.StateHash, arg.ProviderID)
+	var user_id UUID
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const getEmailIdentityForLogin = `-- name: GetEmailIdentityForLogin :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 FROM scenery.scenery_auth_auth_identities

@@ -46,6 +46,10 @@ func nullableTime(value time.Time) sql.NullTime {
 func discard(conn *sql.Conn) { _ = conn.Raw(func(any) error { return driver.ErrBadConn }) }
 
 func (s Store) Lock(ctx context.Context, user, provider string) (connectionvault.Lease, error) {
+	return s.lock(ctx, user, provider)
+}
+
+func (s Store) lock(ctx context.Context, user, provider string) (*lease, error) {
 	parsed, err := parseID(user)
 	if err != nil {
 		return nil, connectionvault.ErrOwnerUnavailable
@@ -71,6 +75,51 @@ func (s Store) Lock(ctx context.Context, user, provider string) (connectionvault
 		return nil, err
 	}
 	return l, nil
+}
+
+// LockState consumes the browser handshake under the same owner/provider lease
+// as disconnect. Commit consumption before remote exchange, retaining the lease
+// until the caller installs the grant or abandons it. A crash cannot replay it.
+func (s Store) LockState(ctx context.Context, input authdb.ConsumeConnectionStateParams) (authdb.ScenerySceneryAuthConnectionState, connectionvault.Lease, error) {
+	var state authdb.ScenerySceneryAuthConnectionState
+	pool, err := s.Open(ctx)
+	if err != nil {
+		return state, nil, err
+	}
+	user, err := authdb.New(pool).GetConnectionStateOwner(ctx, authdb.GetConnectionStateOwnerParams{StateHash: input.StateHash, ProviderID: input.ProviderID})
+	if err != nil {
+		return state, nil, err
+	}
+	l, err := s.lock(ctx, idString(user), input.ProviderID)
+	if err != nil {
+		return state, nil, err
+	}
+	state, err = l.query.ConsumeConnectionState(ctx, input)
+	if err == nil {
+		err = l.Commit()
+	}
+	if err == nil {
+		err = l.begin(ctx)
+	}
+	if err != nil {
+		_ = l.Close()
+		return state, nil, err
+	}
+	return state, l, nil
+}
+
+// CreateState serializes new handshakes with disconnect's invalidation. A start
+// that follows disconnect creates a new flow; earlier pending flows are expired.
+func (s Store) CreateState(ctx context.Context, input authdb.CreateConnectionStateParams) error {
+	l, err := s.lock(ctx, idString(input.UserID), input.ProviderID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Close() }()
+	if _, err := l.query.CreateConnectionState(ctx, input); err != nil {
+		return err
+	}
+	return l.Commit()
 }
 
 func (l *lease) begin(ctx context.Context) error {

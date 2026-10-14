@@ -29,7 +29,7 @@ func (*callbackSQL) Prepare(string) (driver.Stmt, error) {
 }
 func (*callbackSQL) Begin() (driver.Tx, error) { return nil, errors.New("unexpected transaction") }
 func (s *callbackSQL) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
-	if !strings.HasPrefix(query, "-- name: ConsumeConnectionState ") {
+	if !strings.HasPrefix(query, "-- name: GetConnectionStateOwner ") {
 		return nil, errors.New("unexpected query")
 	}
 	s.queries++

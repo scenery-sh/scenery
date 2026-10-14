@@ -69,6 +69,7 @@ func connectionMigrationJourney(p *probe) {
 	_, tokenErr := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)
 	p.check(errs.Code(tokenErr) == errs.ConnectionConfiguration, "new runtime refuses unversioned legacy connection data without lazy dual reads")
 	must(p.applyConnectionMigration())
+	p.checkConnectionStateIndexes()
 	p.check(before == p.unrelatedAuthSnapshot(), "transactional connection migration preserves all unrelated auth rows")
 	row := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "google"}))
 	p.check(row.ID == connectionID && row.UserID == id(session.User.ID) && row.ProviderSubject == "google-subject" && row.Issuer == "https://accounts.google.com" && row.Status == "active" && row.Scopes == gmailModify && row.ConnectedAt.Equal(connected) && row.CreatedAt.Equal(connected) && row.UpdatedAt.Equal(connected), "legacy row ID, ownership, account, scopes, status and timestamps survive extension")
@@ -81,7 +82,10 @@ func connectionMigrationJourney(p *probe) {
 	var oldExists bool
 	must(p.db.QueryRowContext(p.ctx, `SELECT to_regclass('scenery.scenery_auth_google_connections') IS NOT NULL`).Scan(&oldExists))
 	p.check(!oldExists, "one canonical table replaces the legacy connection table")
+	_, err = p.db.ExecContext(p.ctx, `DROP INDEX scenery.connection_states_expires_at_idx; DROP INDEX scenery.connection_states_pending_owner_provider_idx`)
+	must(err)
 	must(p.applyConnectionMigration())
+	p.checkConnectionStateIndexes()
 	rerun := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "google"}))
 	p.check(rerun.ID == row.ID && bytes.Equal(rerun.RefreshTokenCiphertext, row.RefreshTokenCiphertext) && before == p.unrelatedAuthSnapshot(), "safe rerun changes no row identity, ciphertext or unrelated data")
 }
@@ -89,6 +93,7 @@ func connectionMigrationJourney(p *probe) {
 func connectionMigrationRefusalJourney(p *probe) {
 	_, _ = p.signin()
 	must(authschema.CheckCurrentConnections(p.ctx, p.db))
+	p.checkConnectionStateIndexes()
 	p.check(true, "empty installation creates the exact versioned generic schema")
 	p.installLegacyConnections()
 	_, err := p.db.ExecContext(p.ctx, `ALTER TABLE scenery.scenery_auth_google_connections ADD COLUMN unknown_shape text`)
@@ -112,4 +117,13 @@ func connectionMigrationRefusalJourney(p *probe) {
 	_, err = p.db.ExecContext(p.ctx, `ALTER TABLE scenery.scenery_auth_connection_states DROP COLUMN unknown_state; ALTER TABLE scenery.scenery_auth_connection_states DROP CONSTRAINT scenery_auth_connection_states_session_id_fkey`)
 	must(err)
 	p.check(p.applyConnectionMigration() != nil && authschema.CheckConnectionBootstrap(p.ctx, p.db) != nil, "migration and bootstrap refuse missing live-session ownership constraints")
+}
+
+func (p *probe) checkConnectionStateIndexes() {
+	var count int
+	must(p.db.QueryRowContext(p.ctx, `SELECT count(*) FROM pg_index idx JOIN pg_class rel ON rel.oid=idx.indexrelid
+WHERE idx.indrelid='scenery.scenery_auth_connection_states'::regclass AND idx.indisvalid AND idx.indisready AND idx.indexprs IS NULL
+AND ((rel.relname='connection_states_expires_at_idx' AND idx.indnatts=1 AND pg_get_indexdef(idx.indexrelid,1,true)='expires_at' AND idx.indpred IS NULL)
+OR (rel.relname='connection_states_pending_owner_provider_idx' AND idx.indnatts=2 AND pg_get_indexdef(idx.indexrelid,1,true)='user_id' AND pg_get_indexdef(idx.indexrelid,2,true)='provider_id' AND pg_get_expr(idx.indpred,idx.indrelid)='(consumed_at IS NULL)'))`).Scan(&count))
+	p.check(count == 2, "clean schema and coordinated migration provide valid expiry and pending owner/provider callback indexes")
 }

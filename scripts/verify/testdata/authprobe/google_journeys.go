@@ -63,8 +63,11 @@ func connectionRedirectJourney(p *probe) {
 	session, _ := p.signin()
 	start, _ := call[auth.ConnectionStartResponse](p, http.MethodPost, "/auth/connections/google/start", auth.ConnectionStartParams{Scopes: []string{gmailModify}}, session.Token, "")
 	authorize := take(url.Parse(start.AuthorizeURL))
-	p.check(authorize.Query().Get("redirect_uri") == "https://api.example.test/auth/connections/google/callback", "Google connection uses the API callback origin")
+	p.check(authorize.Query().Get("redirect_uri") == "https://api.example.test/auth/connections/google/callback", "omitted callback URI resolves to the advertised API origin after runtime startup")
 	p.check(authorize.Host == "accounts.google.com" && authorize.Path == "/o/oauth2/v2/auth", "connection uses the current public Google authorization endpoint")
+	callback := take(url.Parse(p.google.authorize(start.AuthorizeURL)))
+	response, _ := p.request(http.MethodGet, callback.RequestURI(), nil, "", "")
+	p.check(response.StatusCode == 302 && strings.Contains(response.Header.Get("Location"), "connection_connected=google"), "derived callback URI completes the public handshake with its browser cookie")
 }
 
 func (p *probe) connect(session auth.AuthSessionResponse, redirect string) *http.Response {

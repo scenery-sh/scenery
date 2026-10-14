@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS scenery.scenery_auth_connection_states (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS connection_states_expires_at_idx ON scenery.scenery_auth_connection_states (expires_at);
+CREATE INDEX IF NOT EXISTS connection_states_pending_owner_provider_idx ON scenery.scenery_auth_connection_states (user_id, provider_id) WHERE consumed_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS scenery.scenery_auth_connection_schema (
   singleton boolean PRIMARY KEY NOT NULL DEFAULT true CHECK (singleton),

@@ -139,6 +139,10 @@ func connectionProjectionResources(cfg appcfg.AuthConfig, authentication string,
 }
 
 func frameworkOperation(address, name, method, service, input, output string) Resource {
+	var errors []any
+	for _, name := range []string{"unavailable", "invalid_request", "unauthenticated", "forbidden", "internal"} {
+		errors = append(errors, map[string]any{"name": name, "type": map[string]any{"$ref": "std.type.problem"}})
+	}
 	return Resource{
 		Address: address,
 		Kind:    "scenery.operation",
@@ -149,7 +153,7 @@ func frameworkOperation(address, name, method, service, input, output string) Re
 			"input":   map[string]any{"$ref": input},
 			"handler": map[string]any{"method": method},
 			"result":  map[string]any{"name": "success", "type": map[string]any{"$ref": output}},
-			"error":   map[string]any{"name": "unavailable", "type": map[string]any{"$ref": "std.type.problem"}},
+			"error":   errors,
 		},
 		Origin: Origin{Kind: "framework"},
 	}
@@ -165,9 +169,13 @@ func frameworkBinding(module, name, operation, gateway, authentication, method, 
 		"response": []any{
 			frameworkResponse("success", "result.success", "200", "json"),
 			frameworkResponse("invalid_request", "transport.invalid_request", "400", "problem_json"),
+			frameworkResponse("invalid_request", "error.invalid_request", "400", "problem_json"),
 			frameworkResponse("unauthenticated", "admission.unauthenticated", "401", "problem_json"),
+			frameworkResponse("unauthenticated", "error.unauthenticated", "401", "problem_json"),
 			frameworkResponse("forbidden", "admission.forbidden", "403", "problem_json"),
+			frameworkResponse("forbidden", "error.forbidden", "403", "problem_json"),
 			frameworkResponse("internal", "system.internal", "500", "problem_json"),
+			frameworkResponse("internal", "error.internal", "500", "problem_json"),
 			frameworkResponse("unavailable", "error.unavailable", "503", "problem_json"),
 		},
 	}
@@ -206,16 +214,19 @@ func frameworkResponse(name, when, status, codec string) map[string]any {
 		from = "admission.problem"
 	case "system.internal":
 		from = "system.problem"
-	case "error.unavailable":
-		from = "error.unavailable"
+	}
+	if strings.HasPrefix(when, "error.") {
+		from = when
+	}
+	body := map[string]any{"codec": codec, "from": map[string]any{"$ref": from}}
+	if strings.HasPrefix(when, "error.") {
+		// Standard-auth domain errors use errs.HTTPError's JSON envelope.
+		body["produced_media_types"] = []any{"application/json"}
 	}
 	return map[string]any{
 		"name":   name,
 		"when":   map[string]any{"$ref": when},
 		"status": status,
-		"body": map[string]any{
-			"codec": codec,
-			"from":  map[string]any{"$ref": from},
-		},
+		"body":   body,
 	}
 }

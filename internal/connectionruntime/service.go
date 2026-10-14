@@ -88,16 +88,14 @@ func New(options Options) (*Service, error) {
 				config.JWKSURL = definition.JWKSURL
 			}
 		}
-		callback, configured, err := options.Host.FrameworkConfigString(prefix + "callback_uri")
+		callback, _, err := options.Host.FrameworkConfigString(prefix + "callback_uri")
 		if err != nil {
 			return nil, coded(errs.ConnectionConfiguration, "connection callback configuration is unavailable")
 		}
-		if !configured || callback == "" {
-			callback = strings.TrimRight(appsdk.Metadata().APIBaseURL, "/") + "/auth/connections/" + definition.ID + "/callback"
-		}
-		u, err := url.Parse(callback)
-		if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && (u.Scheme != "http" || u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && u.Hostname() != "::1")) || u.RawQuery != "" || u.Fragment != "" || !strings.HasSuffix(u.Path, "/auth/connections/"+definition.ID+"/callback") {
-			return nil, coded(errs.ConnectionConfiguration, "connection callback URI is invalid")
+		if callback != "" {
+			if err := validateCallbackURI(callback, definition.ID); err != nil {
+				return nil, err
+			}
 		}
 		adapter := oauth2.New(config, options.Client, options.Now)
 		r := connectionvault.Registration{ID: definition.ID, Issuer: config.Issuer, Resource: config.Resource, AllowedScopes: definition.AllowedScopes, Provider: adapter}
@@ -112,6 +110,24 @@ func New(options Options) (*Service, error) {
 	}
 	s.vault = v
 	return s, nil
+}
+
+// Registration precedes runtime metadata initialization. Resolve an omitted
+// callback only when handling requests, after the advertised API URL is known.
+func (s *Service) provider(provider string) (configuredProvider, error) {
+	cfg := s.providers[provider]
+	if cfg.callbackURI == "" {
+		cfg.callbackURI = strings.TrimRight(appsdk.Metadata().APIBaseURL, "/") + "/auth/connections/" + provider + "/callback"
+	}
+	return cfg, validateCallbackURI(cfg.callbackURI, provider)
+}
+
+func validateCallbackURI(callback, provider string) error {
+	u, err := url.Parse(callback)
+	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && (u.Scheme != "http" || u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && u.Hostname() != "::1")) || u.RawQuery != "" || u.Fragment != "" || !strings.HasSuffix(u.Path, "/auth/connections/"+provider+"/callback") {
+		return coded(errs.ConnectionConfiguration, "connection callback URI is invalid")
+	}
+	return nil
 }
 
 func (s *Service) open(ctx context.Context) (*sql.DB, error) {
@@ -204,7 +220,10 @@ func (s *Service) start(ctx context.Context, provider string, input *connectiona
 	if err != nil {
 		return nil, err
 	}
-	cfg := s.providers[provider]
+	cfg, err := s.provider(provider)
+	if err != nil {
+		return nil, err
+	}
 	user, session, err := s.options.Principal(ctx)
 	if err != nil {
 		return nil, err
@@ -267,7 +286,7 @@ func (s *Service) start(ctx context.Context, provider string, input *connectiona
 	if err := q.DeleteExpiredConnectionStates(ctx); err != nil {
 		return nil, coded(errs.ConnectionUnavailable, "connection storage is unavailable")
 	}
-	_, err = q.CreateConnectionState(ctx, authdb.CreateConnectionStateParams{ID: authdb.UUID{Bytes: [16]byte(id), Valid: true}, StateHash: hash(state), UserID: userID, SessionID: sessionID, ProviderID: provider, Issuer: r.Issuer, Resource: r.Resource, ClientID: cfg.clientID, BrowserHash: hash(browser), CallbackUri: cfg.callbackURI, RequestedScopes: strings.Join(scopes, " "), PkceVerifier: verifier, NonceHash: hash(nonce), RedirectPath: safePath(input.RedirectPath), ExpiresAt: s.options.Now().Add(10 * time.Minute)})
+	err = (sqlstore.Store{Open: s.open}).CreateState(ctx, authdb.CreateConnectionStateParams{ID: authdb.UUID{Bytes: [16]byte(id), Valid: true}, StateHash: hash(state), UserID: userID, SessionID: sessionID, ProviderID: provider, Issuer: r.Issuer, Resource: r.Resource, ClientID: cfg.clientID, BrowserHash: hash(browser), CallbackUri: cfg.callbackURI, RequestedScopes: strings.Join(scopes, " "), PkceVerifier: verifier, NonceHash: hash(nonce), RedirectPath: safePath(input.RedirectPath), ExpiresAt: s.options.Now().Add(10 * time.Minute)})
 	if err != nil {
 		return nil, coded(errs.ConnectionUnavailable, "connection authorization state could not be stored")
 	}

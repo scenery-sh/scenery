@@ -24,7 +24,7 @@ type workerResult struct {
 }
 
 func runConnectionWorker(user, endpoint string) {
-	must(deliverAuthConfiguration())
+	must(deliverAuthConfiguration(false))
 	must(auth.RegisterStandard(auth.StandardConfig{Enabled: true, Connections: []auth.ConnectionProvider{{ID: "independent", Protocol: "oauth2", Issuer: endpoint, AuthorizeURL: endpoint + "/authorize", TokenURL: endpoint + "/token", AccountURL: endpoint + "/account", Resource: "https://files.example", AllowedScopes: []string{"files.read", "files.write"}}}}))
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

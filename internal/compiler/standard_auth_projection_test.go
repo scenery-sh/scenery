@@ -56,18 +56,21 @@ func TestStandardAuthConnectionProjectionFollowsRuntimeConfig(t *testing.T) {
 			}
 			continue
 		}
-		if resource.Kind == "scenery.operation" && stringValue(namedChildren(resource.Spec, "error")[0]["name"]) != "unavailable" {
-			t.Fatal("missing typed provider/storage failure")
+		if resource.Kind == "scenery.operation" {
+			if len(namedChildren(resource.Spec, "error")) != 5 {
+				t.Fatal("missing typed standard-auth domain errors")
+			}
 		}
 		if resource.Kind == "scenery.binding" {
 			httpSpec, _ := resource.Spec["http"].(map[string]any)
-			found := false
+			found := map[string]bool{}
 			for _, response := range namedChildren(httpSpec, "response") {
-				if stringValue(response["status"]) == "503" {
-					found = true
+				when := refString(response["when"])
+				if when == "error.invalid_request" || when == "error.unauthenticated" || when == "error.forbidden" || when == "error.internal" || when == "error.unavailable" {
+					found[stringValue(response["status"])] = true
 				}
 			}
-			if !found {
+			if len(found) != 5 {
 				t.Fatal("provider/storage failure cannot be decoded by generated clients")
 			}
 		}

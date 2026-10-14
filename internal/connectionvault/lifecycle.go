@@ -10,9 +10,10 @@ import (
 	"scenery.sh/internal/connectionapi"
 )
 
-// Connect installs a verified authorization-code grant. The HTTP owner verifies
-// the one-time handshake before calling this method; no login identity is written.
-func (v *Vault) Connect(ctx context.Context, user, provider string, requested []string, grant Grant) error {
+// Connect installs a verified authorization-code grant under the lease held since
+// consuming its one-time handshake, including the remote exchange. The caller
+// closes the lease; no login identity is written.
+func (v *Vault) Connect(ctx context.Context, lease Lease, user, provider string, requested []string, grant Grant) error {
 	r, required, err := v.Registration(provider, requested)
 	if err != nil {
 		return err
@@ -29,11 +30,6 @@ func (v *Vault) Connect(ctx context.Context, user, provider string, requested []
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	lease, err := v.store.Lock(ctx, user, provider)
-	if err != nil {
-		return storageFailure(err)
-	}
-	defer func() { _ = lease.Close() }()
 	row, err := lease.Load(ctx)
 	if err != nil && !errors.Is(err, ErrNotConnected) {
 		return storageFailure(err)
