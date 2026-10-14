@@ -19,6 +19,24 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0219-fresh-source-lifecycle.md",
+      "title": "Fresh Source Snapshots And Shared Lifecycle Planning",
+      "owner": "scenery compiler / generation / lifecycle",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
+      "summary": "Validated source revisions, snapshot-bound generation responses, recoverable publication and shared typed lifecycle planning with explicit effects.",
+      "tags": [
+        "plans",
+        "execplans",
+        "compiler",
+        "generate",
+        "lifecycle"
+      ]
+    },
+    {
       "path": "docs/plans/0218-telemetry-improvements.md",
       "title": "Telemetry Improvements",
       "owner": "scenery telemetry",

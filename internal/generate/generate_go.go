@@ -20,6 +20,9 @@ import (
 type GenerateResult struct {
 	Changed []string `json:"changed"`
 	Checked []string `json:"checked"`
+	// Compilation is the exact snapshot that produced these artifacts. Response
+	// adapters must use it instead of compiling a potentially newer revision.
+	Compilation *compiler.Result `json:"-"`
 }
 
 type generatedFile struct {

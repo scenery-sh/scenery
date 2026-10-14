@@ -14,57 +14,80 @@ type artifactRenderer func(*compiler.Result) ([]generatedFile, error)
 // Generate under one ownership boundary, including the source snapshot and
 // stale-file inspection. Check-only rendering never acquires a writing lock.
 func generateFromRoot(root string, check bool, message string, render artifactRenderer) (GenerateResult, error) {
-	return publishGenerated(root, check, message, func() ([]generatedFile, error) {
+	var compilation *compiler.Result
+	generated, err := publishGenerated(root, check, message, func() ([]generatedFile, error) {
 		compile := compiler.Compile
 		if !check {
 			compile = compiler.CompileDuringChangeTransaction
 		}
 		result, err := compile(root)
+		compilation = result
 		if err != nil {
 			return nil, err
 		}
 		if result.ContractStatus != "valid" || result.Manifest == nil {
 			return nil, fmt.Errorf("cannot generate from invalid contract: %s", firstError(result.Diagnostics))
 		}
-		return render(result)
+		files, err := render(result)
+		if err != nil {
+			return nil, err
+		}
+		return files, validateGenerationSnapshot(result, !check)
 	})
+	generated.Compilation = compilation
+	return generated, err
 }
 
 func generateFromResult(result *compiler.Result, check bool, message string, render artifactRenderer) (GenerateResult, error) {
 	if result == nil || result.ContractStatus != "valid" || result.Manifest == nil {
 		return GenerateResult{}, fmt.Errorf("cannot generate from invalid contract")
 	}
+	if err := validateGenerationSnapshot(result, false); err != nil {
+		return GenerateResult{Compilation: result}, err
+	}
 	if !check {
 		// Unchanged outputs need validation, not a durable write transaction.
 		// A real update still repeats preparation under the publication lock.
-		unchanged, err := compiler.SnapshotUnchanged(result)
-		if err != nil {
-			return GenerateResult{}, err
-		}
-		if !unchanged {
-			return GenerateResult{}, fmt.Errorf("revision_conflict: application changed after the generation snapshot; retry generation")
-		}
 		files, err := render(result)
 		if err != nil {
 			return GenerateResult{}, err
 		}
 		inspected, err := inspectGeneratedFiles(result.Root, files)
+		inspected.Compilation = result
+		if err == nil {
+			err = validateGenerationSnapshot(result, false)
+		}
 		if err != nil || len(inspected.Changed) == 0 {
 			return inspected, err
 		}
 	}
-	return publishGenerated(result.Root, check, message, func() ([]generatedFile, error) {
-		if !check {
-			current, err := compiler.CompileDuringChangeTransaction(result.Root)
-			if err != nil {
-				return nil, err
-			}
-			if err := requireGenerationSnapshot(result, current); err != nil {
-				return nil, err
-			}
+	generated, err := publishGenerated(result.Root, check, message, func() ([]generatedFile, error) {
+		if err := validateGenerationSnapshot(result, !check); err != nil {
+			return nil, err
 		}
-		return render(result)
+		files, err := render(result)
+		if err != nil {
+			return nil, err
+		}
+		return files, validateGenerationSnapshot(result, !check)
 	})
+	generated.Compilation = result
+	return generated, err
+}
+
+func validateGenerationSnapshot(result *compiler.Result, owner bool) error {
+	verify := compiler.SnapshotUnchanged
+	if owner {
+		verify = compiler.SnapshotUnchangedDuringChangeTransaction
+	}
+	unchanged, err := verify(result)
+	if err != nil {
+		return err
+	}
+	if !unchanged {
+		return fmt.Errorf("revision_conflict: application changed after the generation snapshot; retry generation")
+	}
+	return nil
 }
 
 func requireGenerationSnapshot(expected, current *compiler.Result) error {

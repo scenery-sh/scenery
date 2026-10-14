@@ -100,6 +100,19 @@ func checkCompiledContract(root string) (*compiler.Result, error) {
 	return result, nil
 }
 
+func writeSourceResult(stdout io.Writer, output string, quiet bool, result *compiler.Result, data any) error {
+	if result.Valid() {
+		unchanged, err := compiler.SnapshotUnchanged(result)
+		if err != nil {
+			return err
+		}
+		if !unchanged {
+			return fmt.Errorf("revision_conflict: application changed before returning the source result; retry the command")
+		}
+	}
+	return writeContractResult(stdout, output, quiet, result, data)
+}
+
 func writeContractResult(stdout io.Writer, output string, quiet bool, result *compiler.Result, data any) error {
 	diagnostics := result.Diagnostics
 	if diagnostics == nil {

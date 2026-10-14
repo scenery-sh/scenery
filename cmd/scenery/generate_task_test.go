@@ -52,6 +52,7 @@ func TestBuildSQLCGeneratorPlanUsesSQLCSchemaInput(t *testing.T) {
 		t.Fatalf("schema plan = %+v", plan.Schemas[0])
 	}
 	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/gen/schema.sql")
+	assertStringSliceNotContains(t, plan.Record.Outputs, "auth/db/gen/schema.sql")
 	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/queries.sql")
 	assertStringSliceContains(t, plan.Record.Outputs, "auth/db/gen")
 }

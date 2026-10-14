@@ -201,7 +201,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return err
 	}
 	var merged *compiler.Result
-	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" || opts.Subject == "assistants" {
+	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" || opts.Subject == "assistants" || opts.Subject == "generators" {
 		compiled, compileErr := compiler.Compile(appRoot)
 		if compileErr != nil {
 			return compileErr
@@ -214,21 +214,21 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 
 	switch opts.Subject {
 	case "app":
-		return writeInspectJSON(stdout, buildInspectAppResponse(appRoot, cfg, merged))
+		return writeSourceResult(stdout, "json", false, merged, buildInspectAppResponse(appRoot, cfg, merged))
 	case "services":
-		return writeInspectJSON(stdout, buildInspectServicesResponse(appRoot, cfg, merged))
+		return writeSourceResult(stdout, "json", false, merged, buildInspectServicesResponse(appRoot, cfg, merged))
 	case "routes":
 		response, err := buildInspectRoutesResponse(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}
-		return writeInspectJSON(stdout, response)
+		return writeSourceResult(stdout, "json", false, merged, response)
 	case "endpoints":
 		response, err := buildInspectEndpointsResponse(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}
-		return writeInspectJSON(stdout, response)
+		return writeSourceResult(stdout, "json", false, merged, response)
 	case "build":
 		resp, err := buildInspectBuildResponse(appRoot, cfg)
 		if err != nil {
@@ -257,19 +257,19 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "generators":
-		resp, err := buildInspectGeneratorsResponse(appRoot, cfg)
+		resp, err := buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, merged.SQLRequirements)
 		if err != nil {
 			return err
 		}
-		return writeInspectJSON(stdout, resp)
+		return writeSourceResult(stdout, "json", false, merged, resp)
 	case "durable":
-		return writeInspectJSON(stdout, buildInspectDurableResponse(appRoot, cfg, merged))
+		return writeSourceResult(stdout, "json", false, merged, buildInspectDurableResponse(appRoot, cfg, merged))
 	case "assistants":
 		resp, err := buildInspectAssistantsResponse(appRoot, cfg, merged, opts.Implementation)
 		if err != nil {
 			return err
 		}
-		return writeInspectJSON(stdout, resp)
+		return writeSourceResult(stdout, "json", false, merged, resp)
 	case "storage":
 		plan, err := resolveStorageNamespacePlan(cfg, appRoot, "")
 		if err != nil {

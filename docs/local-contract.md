@@ -692,6 +692,16 @@ gateway/include selectors. Fresh checkouts require explicit generation before
 ordinary Go tools. A published Go module must include its required generated
 source; ordinary application commits need not track it.
 
+Source-derived inspection and contract commands report the captured workspace
+and semantic contract revisions in their envelope. They validate source membership
+and exact bytes before returning success. Generation uses the compiler result
+that rendered its artifacts for response revisions and coverage; it never
+recompiles afterward to label earlier output. A source edit during rendering or
+before snapshot reuse returns `SCN8002` / exit 3 and publishes nothing from the
+superseded attempt. Changes after the validation boundary belong to a later
+revision; a command does not promise to prevent subsequent user edits.
+Check-only commands detect drift without repairing application output.
+
 `provider lock` is an explicit, offline source transaction. It reads root
 provider declarations and creates or refreshes their bundled provider entries
 in `app.lock.scn`; compilation never invokes it. It preserves unrelated module,

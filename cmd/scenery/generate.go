@@ -325,7 +325,6 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		}
 		for _, schema := range block.Schema.Values {
 			schema = filepath.ToSlash(schema)
-			outputs = append(outputs, schema)
 			if !knownSchemas[schema] {
 				plan := inferSQLCSchemaPlan(conf, schema)
 				plan.Engine = engine

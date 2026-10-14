@@ -14,17 +14,32 @@ import (
 // not re-expand an identical graph. Registry-backed results retain full lock
 // and package-cache validation through the ordinary compiler.
 func SnapshotUnchanged(result *Result) (bool, error) {
+	return snapshotUnchanged(result, workspacetx.NormalRead)
+}
+
+// SnapshotUnchangedDuringChangeTransaction validates the captured revision
+// while this process owns source/generated publication. It never reacquires
+// the normal-reader gate against its own transaction.
+func SnapshotUnchangedDuringChangeTransaction(result *Result) (bool, error) {
+	return snapshotUnchanged(result, workspacetx.CurrentOwnerRead)
+}
+
+func snapshotUnchanged(result *Result, mode workspacetx.ReadMode) (bool, error) {
 	if result == nil || !result.Valid() {
 		return false, nil
 	}
-	if err := workspacetx.RecoverOrReject(result.Root, workspacetx.NormalRead); err != nil {
+	if err := workspacetx.RecoverOrReject(result.Root, mode); err != nil {
 		return false, err
 	}
 	sources := make(map[string][]byte)
 	directories := make(map[string]bool)
 	for _, source := range result.Sources {
 		if source.External {
-			current, err := Compile(result.Root)
+			compile := Compile
+			if mode == workspacetx.CurrentOwnerRead {
+				compile = CompileDuringChangeTransaction
+			}
+			current, err := compile(result.Root)
 			return err == nil && current.Manifest != nil && current.WorkspaceRevision == result.WorkspaceRevision && current.Manifest.ContractRevision == result.Manifest.ContractRevision, err
 		}
 		sources[source.Path] = source.Bytes
