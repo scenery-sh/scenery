@@ -104,6 +104,11 @@ func checkCompiledContract(root string) (*compiler.Result, error) {
 
 func writeSourceResult(stdout io.Writer, output string, quiet bool, result *compiler.Result, data any) error {
 	if generators, ok := data.(generatorGraphResponse); ok {
+		if generators.sqlcPlan != nil {
+			if err := generators.sqlcPlan.verifyInputs(result.Root); err != nil {
+				return err
+			}
+		}
 		for _, node := range generators.Nodes {
 			for _, input := range node.Inputs {
 				if input.Kind != "source" || input.Path == "" || input.Digest == "" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -190,6 +191,172 @@ func TestSQLCFailureDoesNotPublishRenderedSchema(t *testing.T) {
 		t.Fatalf("partial schema published: %v", err)
 	}
 	assertSQLCStageClean(t, root)
+}
+
+func TestSQLCPlanningRejectsUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","id":"sqlc-version"}`)
+	writeTestAppFile(t, root, "sqlc.yaml", "version: \"1\"\npackages: []\n")
+	var out strings.Builder
+	if err := runGenerate(t.Context(), &out, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"}); err == nil || cliErrorDiagnostic(err).Code != "SCN8001" {
+		t.Fatalf("unsupported dry-run succeeded: %v", err)
+	}
+	if err := runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &out); err == nil || cliErrorDiagnostic(err).Code != "SCN8001" {
+		t.Fatalf("unsupported inspection succeeded: %v", err)
+	}
+}
+
+func TestSQLCInspectionBindsAndRevalidatesToolInputs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	config, err := os.ReadFile(filepath.Join(root, "sqlc.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppFile(t, root, "sqlc.yaml", string(config)+"\nplugins:\n - name: wasm\n   wasm:\n     url: file://plugin.wasm\n     sha256: abc\n")
+	// Select the local WASM input without executing a plugin during inspection.
+	source, err := os.ReadFile(filepath.Join(root, "sqlc.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppFile(t, root, "sqlc.yaml", strings.Replace(string(source), "    gen:\n", "    codegen:\n      - plugin: wasm\n        out: auth/db/gen/wasm\n    gen:\n", 1))
+	writeTestAppFile(t, root, "plugin.wasm", "wasm-original")
+	compiled, err := compiler.Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func() generatorGraphResponse {
+		t.Helper()
+		graph, err := buildInspectGeneratorsResponseWithContract(root, appcfg.Config{Name: "demo"}, compiled)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if graph.sqlcPlan.InputRevision == "" {
+			t.Fatal("input revision missing from inspection")
+		}
+		for _, node := range graph.Nodes {
+			if node.ID == "sqlc.source.capture" && node.Outputs[0].Digest != graph.sqlcPlan.InputRevision {
+				t.Fatal("inspection omitted the captured input digest")
+			}
+		}
+		return graph
+	}
+	for _, path := range []string{"auth/db/gen/schema.sql", "auth/db/queries.sql", "plugin.wasm"} {
+		before := build()
+		file := filepath.Join(root, path)
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeTestAppFile(t, root, path, string(data)+"\nchanged")
+		if err := writeSourceResult(io.Discard, "json", false, compiled, before); err == nil || cliErrorDiagnostic(err).Code != "SCN8002" {
+			t.Fatalf("input edit escaped response validation: %s %v", path, err)
+		}
+		after := build()
+		if before.sqlcPlan.InputRevision == after.sqlcPlan.InputRevision {
+			t.Fatalf("input edit did not change plan identity: %s", path)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".scenery/staging")); !os.IsNotExist(err) {
+		t.Fatalf("inspection created staging: %v", err)
+	}
+}
+
+func writeSQLCTestReceipt(t *testing.T, root string, files map[string]string, roots []string) {
+	t.Helper()
+	receipt := sqlcArtifactReceipt{Kind: "scenery.sqlc-generated", SchemaRevision: compiler.SQLCReceiptSchemaRevision(), Owner: root, InputRevision: sqlcDigest([]byte("inputs")), Tools: map[string]string{"sqlc": sqlcDigest([]byte("tool"))}, Roots: roots, Files: files}
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppFile(t, root, sqlcReceiptPath, string(data))
+}
+
+func TestSQLCRequiresOutputInEveryRoot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
+sql:
+ - engine: postgresql
+   schema: auth/db/gen/schema.sql
+   queries: auth/db/queries.sql
+   gen:
+     go:
+       out: auth/db/gen/go
+     json:
+       out: auth/db/gen/json
+`)
+	oldJSON := "old JSON output"
+	writeTestAppFile(t, root, "auth/db/gen/json/output.json", oldJSON)
+	writeSQLCTestReceipt(t, root, map[string]string{"auth/db/gen/json/output.json": sqlcDigest([]byte(oldJSON))}, []string{"auth/db/gen/json"})
+	plan, _, err := buildSQLCGeneratorPlan(root, appcfg.Config{Name: "demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks := defaultLifecycleHooks()
+	hooks.toolIdentity = func(string) (string, error) { return sqlcDigest([]byte("tool")), nil }
+	hooks.runExec = func(_ context.Context, req lifecycleExecRequest) error {
+		writeTestAppFile(t, req.Dir, "auth/db/gen/go/db.go", "package db\n")
+		return nil
+	}
+	if err := runSQLCGeneratorWithHooks(t.Context(), io.Discard, root, plan, true, hooks); err == nil || !strings.Contains(err.Error(), "auth/db/gen/json") {
+		t.Fatalf("partial output accepted: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "auth/db/gen/json/output.json"))
+	if err != nil || string(data) != oldJSON {
+		t.Fatalf("missing output retired existing files: %q %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "auth/db/gen/go/db.go")); !os.IsNotExist(err) {
+		t.Fatalf("partial Go output published: %v", err)
+	}
+	assertSQLCStageClean(t, root)
+}
+
+func TestSQLCPublicationBindsVerifiedOutputAndKeepsRevokedRoots(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	owned := map[string]string{}
+	for _, path := range []string{"auth/db/gen/db.go", "auth/db/gen/retired.go", "auth/db/old/db.go"} {
+		writeTestAppFile(t, root, path, "verified")
+		owned[path] = sqlcDigest([]byte("verified"))
+	}
+	writeSQLCTestReceipt(t, root, owned, []string{"auth/db/gen", "auth/db/old"})
+	plan, _, err := buildSQLCGeneratorPlan(root, appcfg.Config{Name: "demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks := stubLifecycleExec(t, nil, nil)
+	op, err := newSQLCOperation(root, plan, hooks, io.Discard, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op.inputs, op.selections, op.excluded = plan.InputSnapshot.capture, plan.InputSnapshot.selections, plan.InputSnapshot.excluded
+	op.files = map[string][]byte{"auth/db/gen/db.go": []byte("replacement"), "auth/db/gen/new.go": []byte("new")}
+	op.tools = map[string]string{"sqlc": sqlcDigest([]byte("in-process tool fixture"))}
+	files, err := op.publicationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]string{"auth/db/gen/db.go": sqlcDigest([]byte("verified")), "auth/db/gen/retired.go": sqlcDigest([]byte("verified")), "auth/db/gen/new.go": "absent"}
+	for _, file := range files {
+		if file.Path == "auth/db/old/db.go" {
+			t.Fatal("revoked output scope admitted for deletion")
+		}
+		if want, ok := expected[file.Path]; ok {
+			if file.ExpectedBeforeDigest != want {
+				t.Fatalf("publication lost verified digest for %s: %s", file.Path, file.ExpectedBeforeDigest)
+			}
+			delete(expected, file.Path)
+		}
+	}
+	if len(expected) != 0 {
+		t.Fatalf("missing publication preconditions: %v", expected)
+	}
 }
 
 func TestSQLCReceiptStructuralDescriptorCoversFields(t *testing.T) {

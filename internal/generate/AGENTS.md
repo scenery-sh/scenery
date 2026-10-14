@@ -75,9 +75,10 @@ CLI wires generation.
 - Generation checks return diagnostics plus an explicit implementation state:
   native verification is `valid` or `invalid`; compile-only/non-native checks
   remain `not_requested`.
-- Reports reflect selected renderers and files. Never manage user workfiles.
-- Builds verify default and selected Go targets in the owned private workspace;
-  check-only commands use expected overlays. Keep each target's full context.
+- Report selected renderers/files; omit TypeScript nodes for empty selections.
+  Never manage user workfiles.
+- Builds verify default/selected Go targets in the owned private workspace;
+  checks use expected overlays and preserve target context.
 
 ## Verification
 

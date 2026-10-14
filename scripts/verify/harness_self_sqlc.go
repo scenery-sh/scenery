@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
@@ -127,6 +129,70 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 		return proof, fmt.Errorf("SQLC generation changed an unrelated authored file")
 	}
 	assertions = append(assertions, "authored _gen.go file in managed root remains unchanged")
+	// A valid empty protobuf response is a successful plugin process with no
+	// files. The complete output-set check must refuse it before retirement.
+	plugin := filepath.Join(root, "empty-plugin")
+	if err := write("empty-plugin", "#!/bin/sh\ncat >/dev/null\n"); err != nil {
+		return proof, err
+	}
+	if err := os.Chmod(plugin, 0o755); err != nil {
+		return proof, err
+	}
+	partialConfig := strings.Replace(files["sqlc.yaml"], "sql:\n", " - name: empty\n   process:\n     cmd: "+plugin+"\nsql:\n", 1)
+	partialConfig += "   codegen:\n    - plugin: empty\n      out: db/plugin\n"
+	if err := write("sqlc.yaml", partialConfig); err != nil {
+		return proof, err
+	}
+	if err := write("app.scn", strings.Replace(files["app.scn"], "[\"db/gen\"]", "[\"db/gen\", \"db/plugin\"]", 1)); err != nil {
+		return proof, err
+	}
+	if err := write("db/plugin/old.txt", "previous plugin output"); err != nil {
+		return proof, err
+	}
+	receiptPath := filepath.Join(root, ".scenery/artifacts/sqlc.json")
+	receiptBytes, err := os.ReadFile(receiptPath)
+	if err != nil {
+		return proof, err
+	}
+	var receipt compiler.SQLCArtifactReceipt
+	if err := json.Unmarshal(receiptBytes, &receipt); err != nil {
+		return proof, err
+	}
+	receipt.Roots = append(receipt.Roots, "db/plugin")
+	receipt.Files["db/plugin/old.txt"] = fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("previous plugin output")))
+	receiptBytes, err = json.Marshal(receipt)
+	if err != nil {
+		return proof, err
+	}
+	if err := os.WriteFile(receiptPath, receiptBytes, 0o644); err != nil {
+		return proof, err
+	}
+	if _, err := run(); err == nil || !strings.Contains(err.Error(), "SQLC produced no code output in declared root db/plugin") {
+		return proof, fmt.Errorf("empty successful plugin did not fail the output-set check: %v", err)
+	}
+	unchangedReceipt, err := os.ReadFile(receiptPath)
+	if err != nil || !bytes.Equal(unchangedReceipt, receiptBytes) {
+		return proof, fmt.Errorf("partial SQLC output changed ownership metadata")
+	}
+	pluginOutput, err := os.ReadFile(filepath.Join(root, "db/plugin/old.txt"))
+	if err != nil || string(pluginOutput) != "previous plugin output" {
+		return proof, fmt.Errorf("empty plugin retired its prior output")
+	}
+	assertions = append(assertions, "successful empty plugin refuses partial publication and preserves prior output")
+	if err := write("sqlc.yaml", files["sqlc.yaml"]); err != nil {
+		return proof, err
+	}
+	if err := write("app.scn", files["app.scn"]); err != nil {
+		return proof, err
+	}
+	if _, err := run(); err != nil {
+		return proof, err
+	}
+	pluginOutput, err = os.ReadFile(filepath.Join(root, "db/plugin/old.txt"))
+	if err != nil || string(pluginOutput) != "previous plugin output" {
+		return proof, fmt.Errorf("revoked managed root deleted its old receipt output")
+	}
+	assertions = append(assertions, "revoked managed root retains an unchanged previously owned file")
 	if err := write("db/gen/query.sql.go", "package db\nconst userEdit = true\n"); err != nil {
 		return proof, err
 	}
@@ -138,6 +204,21 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 		return proof, fmt.Errorf("SQLC refusal overwrote tampered output")
 	}
 	assertions = append(assertions, "tampered output is refused without overwriting bytes")
+	// Moving the Go output also retains paths now included as authored Go input.
+	if err := write("app.scn", strings.Replace(files["app.scn"], "[\"db/gen\"]", "[\"db/new\"]", 1)); err != nil {
+		return proof, err
+	}
+	if err := write("sqlc.yaml", strings.Replace(files["sqlc.yaml"], "out: db/gen", "out: db/new", 1)); err != nil {
+		return proof, err
+	}
+	if _, err := run(); err != nil {
+		return proof, err
+	}
+	retained, err := os.ReadFile(query)
+	if err != nil || !bytes.Equal(retained, after) {
+		return proof, fmt.Errorf("output move removed revoked authored Go input")
+	}
+	assertions = append(assertions, "output move preserves former managed Go files and the published source identity")
 	proof["assertions"] = assertions
 	proof["assertion_count"] = len(assertions)
 	proof["proof"] = "passed"

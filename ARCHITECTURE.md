@@ -337,7 +337,8 @@ compiler, parse, TypeScript verification, and generate itself.
 ### `internal/lifecycle`
 
 The standard-library-only planner validates typed producer dependencies,
-duplicate identities, cycles and overlapping output owners before execution.
+duplicate identities, cycles and overlapping paths of different output owners
+before execution. One owner may describe nested output scopes.
 It selects a deterministic serial closure and admits each node's declared
 capabilities before running any action. Pure projection reuse remains in its
 rendering owner; current validation and external effects are never skipped by
@@ -346,9 +347,10 @@ existing packages.
 
 Source commands use a read-only compiler closure. Generation, build preparation
 and cached TypeScript preparation select the same rendering/validation nodes.
-SQLC captures declared inputs with compiler membership helpers, renders in a
+SQLC captures declared inputs read-only during planning with compiler membership
+helpers, revalidates that digest during execution and response, renders in a
 private staging tree and publishes one digest-owned artifact set through
-workspacetx. Explicit database operations remain live effects; development
+workspacetx with the verified original-file preconditions. Explicit database operations remain live effects; development
 candidate preparation, verification and activation form their own selected
 closure over the existing runtime owners.
 

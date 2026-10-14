@@ -43,6 +43,7 @@ type generatorGraphResponse struct {
 	Generators  []generatorRecord        `json:"generators"`
 	DBArtifacts []databaseArtifactRecord `json:"db_artifacts"`
 	Nodes       []lifecycle.Node         `json:"nodes"`
+	sqlcPlan    *sqlcGeneratorPlan
 }
 
 type generatorRecord struct {
@@ -59,8 +60,10 @@ type sqlcGeneratorPlan struct {
 	Schemas       []sqlcSchemaPlan
 	Queries       []string
 	ConfigBytes   []byte
+	Config        sqlcConfigFile
 	Contract      *compiler.Result
 	InputRevision string
+	InputSnapshot *sqlcInputSnapshot
 }
 
 type sqlcSchemaPlan struct {
@@ -242,6 +245,7 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 			}
 		} else {
 			plan.SQLC = sqlcPlan
+			plan.Graph.sqlcPlan = sqlcPlan
 			plan.Graph.Generators = append(plan.Graph.Generators, sqlcPlan.Record)
 			execution, err := lifecycle.New(sqlcLifecycleNodes(sqlcPlan, nil))
 			if err != nil {
@@ -258,7 +262,7 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 }
 
 func buildInspectGeneratorsResponseWithContract(appRoot string, cfg appcfg.Config, contract *compiler.Result) (generatorGraphResponse, error) {
-	graph, err := buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, contract.SQLRequirements)
+	graph, err := buildInspectGeneratorsResponseCore(appRoot, cfg, contract)
 	if err != nil {
 		return graph, err
 	}
@@ -292,13 +296,17 @@ func buildInspectGeneratorsResponseWithContract(appRoot string, cfg appcfg.Confi
 	return graph, nil
 }
 
-func buildInspectGeneratorsResponseWithRequirements(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) (generatorGraphResponse, error) {
+func buildInspectGeneratorsResponseCore(appRoot string, cfg appcfg.Config, contract *compiler.Result) (generatorGraphResponse, error) {
 	graph := baseGeneratorGraph(appRoot, cfg, true)
-	sqlcPlan, ok, err := buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, requirements)
+	sqlcPlan, ok, err := buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, contract.SQLRequirements)
 	if err != nil {
 		return generatorGraphResponse{}, err
 	}
 	if ok {
+		if err := sqlcPlan.captureInputs(appRoot, contract); err != nil {
+			return graph, err
+		}
+		graph.sqlcPlan = sqlcPlan
 		graph.Generators = append(graph.Generators, sqlcPlan.Record)
 		plan, err := lifecycle.New(sqlcLifecycleNodes(sqlcPlan, nil))
 		if err != nil {
@@ -335,8 +343,8 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 		return nil, false, err
 	}
 	plan, ok, err := buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, contract.SQLRequirements)
-	if plan != nil {
-		plan.Contract = contract
+	if err == nil && plan != nil {
+		err = plan.captureInputs(appRoot, contract)
 	}
 	return plan, ok, err
 }
@@ -424,6 +432,7 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		Schemas:     schemaPlans,
 		Queries:     uniqueSorted(queries),
 		ConfigBytes: configBytes,
+		Config:      sqlcCfg,
 	}, true, nil
 }
 
@@ -712,6 +721,9 @@ func readSQLCConfigBytes(path string) (sqlcConfigFile, []byte, error) {
 	var cfg sqlcConfigFile
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return sqlcConfigFile{}, nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if cfg.Version != "2" {
+		return sqlcConfigFile{}, nil, fmt.Errorf("invalid_request: sqlc configuration must use version 2")
 	}
 	return cfg, data, nil
 }

@@ -161,7 +161,7 @@ func New(nodes []Node) (*Plan, error) {
 				continue
 			}
 			for owned, owner := range owners {
-				if output.Path == owned || strings.HasPrefix(output.Path, owned+"/") || strings.HasPrefix(owned, output.Path+"/") {
+				if owner != node.ID && (output.Path == owned || strings.HasPrefix(output.Path, owned+"/") || strings.HasPrefix(owned, output.Path+"/")) {
 					return nil, fmt.Errorf("invalid_request: overlapping lifecycle output owners %s and %s", owner, node.ID)
 				}
 			}

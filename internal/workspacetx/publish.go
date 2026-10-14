@@ -21,6 +21,25 @@ type File struct {
 	Path   string
 	Bytes  []byte
 	Remove bool
+	// ExpectedBeforeDigest binds the caller's verified bytes to staging. Empty
+	// means unspecified; AbsentDigest requires the path to remain absent.
+	ExpectedBeforeDigest string
+}
+
+const AbsentDigest = "absent"
+
+func verifyExpectedBefore(file File, exists bool, before []byte) error {
+	if file.ExpectedBeforeDigest == "" {
+		return nil
+	}
+	actual := AbsentDigest
+	if exists {
+		actual = digest(before)
+	}
+	if actual != file.ExpectedBeforeDigest {
+		return fmt.Errorf("failed_precondition: generated output changed after ownership verification: %s", file.Path)
+	}
+	return nil
 }
 
 // Publish serializes preparation and publication on the existing workspace
@@ -143,6 +162,9 @@ func PublishContext(ctx context.Context, root string, prepare func() ([]File, er
 			if err != nil {
 				return err
 			}
+		}
+		if err := verifyExpectedBefore(file, exists, before); err != nil {
+			return err
 		}
 		if file.Remove && !exists || !file.Remove && exists && bytes.Equal(before, file.Bytes) {
 			continue

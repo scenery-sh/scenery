@@ -389,7 +389,7 @@ func discoverDBSeedPlansForContract(appRoot string, cfg appcfg.Config, environme
 	if !cfg.Database.Seed.IsEnabled() {
 		return nil, nil
 	}
-	graph, err := buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, compiled.SQLRequirements)
+	graph, err := buildInspectGeneratorsResponseCore(appRoot, cfg, compiled)
 	if err != nil {
 		return nil, err
 	}

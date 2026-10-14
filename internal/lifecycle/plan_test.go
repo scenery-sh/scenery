@@ -69,6 +69,20 @@ func TestSelectedClosureAndCapabilities(t *testing.T) {
 	}
 }
 
+func TestOneOwnerMayDeclareNestedOutputRoots(t *testing.T) {
+	t.Parallel()
+	node := testNode("typescript.render")
+	node.Outputs = []Reference{{Name: "public", Kind: "client", Path: "clients/generated", Ownership: Managed}, {Name: "admin", Kind: "client", Path: "clients/generated/admin", Ownership: Managed}}
+	if _, err := New([]Node{node}); err != nil {
+		t.Fatalf("same-owner nested roots rejected: %v", err)
+	}
+	other := testNode("other.render")
+	other.Outputs = []Reference{{Name: "other", Kind: "client", Path: "clients/generated/admin/other", Ownership: Managed}}
+	if _, err := New([]Node{node, other}); err == nil {
+		t.Fatal("different owner admitted inside nested roots")
+	}
+}
+
 func TestFailuresAndCancellationBlockDependents(t *testing.T) {
 	t.Parallel()
 	for _, cancel := range []bool{false, true} {

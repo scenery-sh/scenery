@@ -130,6 +130,20 @@ func TestInvalidSnapshotVerifiesCapturedSourceBytes(t *testing.T) {
 	}
 }
 
+func TestInvalidSnapshotAcceptsReorderedDiagnostics(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, appFilename, "application \"invalid\" {}\nhttp_gateway \"api\" { exposure = \"internet\" }\n")
+	result, err := compileResult(root)
+	if err != nil || len(result.Diagnostics) < 2 {
+		t.Fatalf("invalid fixture: %v %#v", err, result)
+	}
+	slices.Reverse(result.Diagnostics)
+	if unchanged, err := SnapshotUnchanged(result); err != nil || !unchanged {
+		t.Fatalf("diagnostic order invalidated identical source: %v %v", unchanged, err)
+	}
+}
+
 func TestSnapshotUnchangedIncludesImplementationBytes(t *testing.T) {
 	root := t.TempDir()
 	source := "application \"snapshot\" {}\nworkspace {\n implementation_root \"go\" {\n path = \".\"\n revision_include = [\"*.go\", \"go.mod\"]\n revision_exclude = []\n }\n}\n"

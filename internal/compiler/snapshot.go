@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/workspacetx"
@@ -46,11 +47,11 @@ func snapshotUnchanged(result *Result, mode workspacetx.ReadMode) (bool, error) 
 				return false, nil
 			}
 		}
-		before, err := json.Marshal(result.Diagnostics)
+		before, err := canonicalDiagnosticSet(result.Diagnostics)
 		if err != nil {
 			return false, err
 		}
-		after, err := json.Marshal(current.Diagnostics)
+		after, err := canonicalDiagnosticSet(current.Diagnostics)
 		return err == nil && bytes.Equal(before, after), err
 	}
 	if unchanged, err := consumedResourceBytesUnchanged(result); err != nil || !unchanged {
@@ -107,6 +108,21 @@ func snapshotUnchanged(result *Result, mode workspacetx.ReadMode) (bool, error) 
 	}
 	revision, err := computeWorkspaceRevision(result.Root, result.Sources)
 	return err == nil && revision == result.WorkspaceRevision, err
+}
+
+// Schema validation may enumerate independent errors in a different order.
+// Their order cannot turn identical captured inputs into a revision conflict.
+func canonicalDiagnosticSet(diagnostics []Diagnostic) ([]byte, error) {
+	items := make([]string, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		data, err := json.Marshal(diagnostic)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, string(data))
+	}
+	slices.Sort(items)
+	return json.Marshal(items)
 }
 
 // SQL and renderer digests describe bytes consumed before expansion, rather

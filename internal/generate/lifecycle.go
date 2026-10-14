@@ -134,11 +134,11 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 		rendered = append(rendered, output)
 		dependencies = append(dependencies, "go.render")
 	}
-	if op.selector != "contracts" {
-		targets := typescriptTargets(compiled.Manifest.Resources, op.selector)
-		if op.cachedOnly {
-			targets = cacheTypeScriptTargets(targets)
-		}
+	targets := typescriptTargets(compiled.Manifest.Resources, op.selector)
+	if op.cachedOnly {
+		targets = cacheTypeScriptTargets(targets)
+	}
+	if op.selector != "contracts" && len(targets) > 0 {
 		outputs := []lifecycle.Reference{{Name: "typescript.files", Kind: "artifact_set", Ownership: lifecycle.Managed}}
 		for _, target := range targets {
 			root, err := typeScriptOutputRoot(compiled, target)

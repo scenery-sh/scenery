@@ -504,15 +504,20 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 
 - `generators.sqlc` is a beta lifecycle config for SQLC generation. `provider` may be empty or `sqlc`; `config` defaults to `sqlc.yaml`; schema files listed in `sqlc.yaml` are treated as inputs. Explicit `atlas_source` schemas are refreshed only when an explicit `dev_url` is configured; `postgres://`, `postgresql://`, and `docker://` Atlas dev URLs pass through to Atlas unchanged. SQLC schema blocks whose schema path belongs to a configured database service must use a Postgres SQLC engine (`postgresql`/`postgres`). SQLC generation is a generated-source lifecycle and must not apply database schema or seed data.
 - SQLC version-2 configuration references resolve relative to the selected
-  config file. Inputs and outputs must be confined non-symlink workspace paths;
+  config file; unsupported versions are rejected while planning, including
+  dry-run and inspection. Inputs and outputs must be confined non-symlink workspace paths;
   output scopes must be declared in `workspace.managed_generated_roots`. The
   generator inspection reports every Go, JSON and plugin output scope, including
   the file producer's destination references. Only plugins selected by
   `sql[].codegen[].plugin` contribute local plugin inputs and executable identities.
+  Read-only planning captures the exact schema/query/local-plugin input digest,
+  and response validation checks it again even outside compiler revision membership.
   Authored SQL schemas are inputs, while Atlas-produced schemas have explicit producers
   and scratch-infrastructure authority. Code generation runs against captured
   bytes in private staging, then revalidates inputs and tool identities before
-  one recoverable artifact publication. Tool progress uses stderr in JSON mode.
+  one recoverable artifact publication. Every declared code-output root must
+  contain produced files; a successful empty plugin cannot retire prior output.
+  Tool progress uses stderr in JSON mode.
   `.scenery/artifacts/sqlc.json` is a private structural-schema ownership receipt
   for the complete output set, not a reusable computation cache. Missing
   receipts provide no classification authority; malformed receipts are refused
@@ -520,9 +525,13 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
   be claimed by its first receipt; the JSON response uses the post-publication
   membership captured under the transaction owner, retaining the rendered graph.
   Missing owned output can be regenerated; modified/unknown ownership is refused. Retirement
-  deletes only matching descriptor-owned files and preserves unrelated authored
+  deletes only matching descriptor-owned files still inside current managed roots,
+  preserving output in revoked scopes and unrelated authored
   files in the same directory. First publication never overwrites an existing
   authored schema to turn it into generated output.
+  Publication carries the verified original digest or absence into transaction
+  staging for each output, retirement and receipt, including unchanged output;
+  an intervening edit refuses the entire set and preserves the editor's bytes.
 - `database.apply` is a beta DB lifecycle escape hatch with an explicit shell `command`, optional `cwd`, and string `env` overlay. The accepted split lifecycle moves database mutation to `scenery db apply`; SQLC refresh stays under `scenery generate sqlc`.
 - `database.migrations` selects ordered app-authored SQL with `{ "service": "projects", "directory": "projects/db/migrations" }` per distinct compiled application SQL binding. It is mutually exclusive with `database.apply.command`. Files are workspace-contained, non-symlink regular files named `0001_description.sql`, contiguous from 0001, with at most 256 files per service, 4 MiB per file and 16 MiB per service. Missing, unsafe, unordered, or invalid source inputs fail before database allocation. Scenery owns transaction and session control; migration files contain SQL transformations, not `BEGIN`, `COMMIT`, `ROLLBACK`, session-control statements or psql commands.
 - Service-local `SERVICE/db/seed.sql` files are immutable initial data. They are not Atlas schema input or SQLC input. The accepted lifecycle applies seed data through `scenery db seed`. The implementation fails closed on changed previously-applied seed files and obviously destructive seed SQL rather than adding force or reseed escape hatches. Large validated reference datasets can instead use a named `database.seed.commands` entry with a target service and explicit regular, non-symlink workspace input files. Its fingerprint includes the normalized command definition and complete input contents. The command runs after SQL and typed-fixture seeds with `DATABASE_URL` pinned to the target service; success replaces its prior command hash, unchanged inputs skip, and failure retains the prior hash. Commands must make their own data mutation atomic or idempotent because process success and ledger recording cannot share one database transaction.
@@ -722,6 +731,9 @@ before snapshot reuse returns `SCN8002` / exit 3 and publishes nothing from the
 superseded attempt. Changes after the validation boundary belong to a later
 revision; a command does not promise to prevent subsequent user edits.
 Check-only commands detect drift without repairing application output.
+TypeScript rendering/check nodes exist only for a nonempty selected target set.
+Multiple TypeScript targets may use nested output roots within the same renderer;
+different lifecycle owners may not claim overlapping output paths.
 
 `provider lock` is an explicit, offline source transaction. It reads root
 provider declarations and creates or refreshes their bundled provider entries
