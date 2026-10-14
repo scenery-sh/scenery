@@ -14,6 +14,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/tscheck"
+	"scenery.sh/internal/uigen"
 )
 
 func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResult, error) {
@@ -267,11 +268,15 @@ func renderTypeScriptTargetWithCatalog(result *Result, target Resource, root str
 	if typeScriptDevRuntimeEnabled(target) {
 		files = append(files, renderTypeScriptDevRuntimeFile(root))
 	}
-	reactFiles, catalogRoots, err := renderTypeScriptReactWithCatalog(result, target, root, bindings, assistants, catalog)
+	uiCatalog := make([]uigen.File, len(catalog))
+	for i, file := range catalog {
+		uiCatalog[i] = uigen.File{Path: file.Path, Bytes: file.Bytes}
+	}
+	reactFiles, catalogRoots, err := uigen.Render(&uigen.Input{Root: result.Root, Manifest: result.Manifest}, target, root, bindings, assistants, uiCatalog)
 	if err != nil {
 		return nil, err
 	}
-	files = append(files, reactFiles...)
+	files = append(files, uiProjectionFiles(reactFiles)...)
 	descriptor := addGeneratedArtifactIdentity(map[string]any{
 		"target": target.Address, "package": target.Spec["package"],
 		"contract_revision": result.Manifest.ContractRevision, "typescript_client_revision": revision, "content_digest": artifactDigest(root, files),

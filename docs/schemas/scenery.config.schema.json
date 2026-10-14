@@ -141,6 +141,15 @@
         },
         "dev_bootstrap": {
           "$ref": "#/$defs/authDevBootstrap"
+        },
+        "connections": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/authConnectionProvider"
+          }
         }
       },
       "additionalProperties": false
@@ -567,15 +576,6 @@
       "properties": {
         "enabled": {
           "type": "boolean"
-        },
-        "allowed_scopes": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
         }
       },
       "additionalProperties": false
@@ -594,6 +594,77 @@
         },
         "default_tenant_id": {
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "authConnectionProvider": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        },
+        "preset": {
+          "type": "string",
+          "enum": [
+            "google"
+          ]
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "oauth2",
+            "oidc"
+          ]
+        },
+        "issuer": {
+          "type": "string"
+        },
+        "authorize_url": {
+          "type": "string"
+        },
+        "token_url": {
+          "type": "string"
+        },
+        "revoke_url": {
+          "type": "string"
+        },
+        "jwks_url": {
+          "type": "string"
+        },
+        "account_url": {
+          "type": "string"
+        },
+        "subject_field": {
+          "type": "string"
+        },
+        "email_field": {
+          "type": "string"
+        },
+        "client_auth": {
+          "type": "string",
+          "enum": [
+            "basic",
+            "post",
+            "none"
+          ]
+        },
+        "resource": {
+          "type": "string"
+        },
+        "allowed_scopes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "additionalProperties": false

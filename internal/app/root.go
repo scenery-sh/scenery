@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	goruntime "runtime"
+	"scenery.sh/internal/connectionapi"
 	"slices"
 	"sort"
 	"strings"
@@ -378,15 +379,15 @@ type ValidationCommandConfig struct {
 }
 
 type AuthConfig struct {
-	Enabled               bool             `json:"enabled"`
-	AutoBootstrapDatabase bool             `json:"auto_bootstrap_database"`
-	GoogleOAuth           AuthGoogleConfig `json:"google_oauth"`
-	DevBootstrap          AuthDevBootstrap `json:"dev_bootstrap"`
+	Enabled               bool                           `json:"enabled"`
+	AutoBootstrapDatabase bool                           `json:"auto_bootstrap_database"`
+	GoogleOAuth           AuthGoogleConfig               `json:"google_oauth"`
+	Connections           []connectionapi.ProviderConfig `json:"connections,omitempty"`
+	DevBootstrap          AuthDevBootstrap               `json:"dev_bootstrap"`
 }
 
 type AuthGoogleConfig struct {
-	Enabled       bool     `json:"enabled"`
-	AllowedScopes []string `json:"allowed_scopes"`
+	Enabled bool `json:"enabled"`
 }
 
 type AuthDevBootstrap struct {
@@ -477,6 +478,9 @@ func readConfigCandidate(dir string) (string, []byte, error) {
 }
 
 func (c Config) Validate() error {
+	if err := connectionapi.ValidateProviders(c.Auth.Connections); err != nil {
+		return err
+	}
 	if len(c.Database.Migrations) > 0 && strings.TrimSpace(c.Database.Apply.Command) != "" {
 		return fmt.Errorf("database.migrations and database.apply.command are mutually exclusive schema owners")
 	}

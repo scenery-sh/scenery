@@ -111,13 +111,13 @@ func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
 		}},
 		FrameworkResources: []graph.Resource{
 			{Address: "scenery_auth/service/auth", Kind: "scenery.service", Name: "auth", Module: "scenery_auth", Spec: map[string]any{}, Origin: graph.Origin{Kind: "framework"}},
-			{Address: "scenery_auth/operation/google_connect_start", Kind: "scenery.operation", Name: "google_connect_start", Module: "scenery_auth", Spec: map[string]any{
+			{Address: "scenery_auth/operation/connection_start", Kind: "scenery.operation", Name: "connection_start", Module: "scenery_auth", Spec: map[string]any{
 				"service": map[string]any{"$ref": "scenery_auth/service/auth"},
-				"handler": map[string]any{"method": "GoogleConnectStart"},
+				"handler": map[string]any{"method": "ConnectionStart"},
 			}, Origin: graph.Origin{Kind: "framework"}},
-			{Address: "scenery_auth/binding/google_connect_start_public_api_http", Kind: "scenery.binding", Name: "google_connect_start_public_api_http", Module: "scenery_auth", Spec: map[string]any{
+			{Address: "scenery_auth/binding/connection_start_public_api_http", Kind: "scenery.binding", Name: "connection_start_public_api_http", Module: "scenery_auth", Spec: map[string]any{
 				"protocol":       "http",
-				"operation":      map[string]any{"$ref": "scenery_auth/operation/google_connect_start"},
+				"operation":      map[string]any{"$ref": "scenery_auth/operation/connection_start"},
 				"gateway":        map[string]any{"$ref": "app/http_gateway/public_api"},
 				"authentication": map[string]any{"$ref": "app/authentication/standard"},
 				"http":           map[string]any{"method": "POST", "path": "/auth/google/connect/start", "body": map[string]any{}},
@@ -129,11 +129,11 @@ func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(endpoints) != 1 || endpoints[0].ID != "auth.GoogleConnectStart" || endpoints[0].Access != "auth" || !endpoints[0].Generated {
+	if len(endpoints) != 1 || endpoints[0].ID != "auth.ConnectionStart" || endpoints[0].Access != "auth" || !endpoints[0].Generated {
 		t.Fatalf("framework endpoints = %#v", endpoints)
 	}
 	services := inspectServices(result)
-	if got := findInspectServiceEndpoints(services, "auth"); len(got) != 1 || got[0] != "GoogleConnectStart" {
+	if got := findInspectServiceEndpoints(services, "auth"); len(got) != 1 || got[0] != "ConnectionStart" {
 		t.Fatalf("auth endpoints = %#v", got)
 	}
 }

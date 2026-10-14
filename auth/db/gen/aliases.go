@@ -1,5 +1,4 @@
 package authdb
 
-type SceneryAuthGoogleConnection = ScenerySceneryAuthGoogleConnection
 type SceneryAuthRefreshSession = ScenerySceneryAuthRefreshSession
 type SceneryAuthUser = ScenerySceneryAuthUser

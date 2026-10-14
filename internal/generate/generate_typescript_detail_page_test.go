@@ -10,6 +10,7 @@ import (
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/tscheck"
+	"scenery.sh/internal/uigen"
 )
 
 func TestRenderReactDetailPageUsesTypedParamsSharedContentAndRelatedTable(t *testing.T) {
@@ -30,14 +31,21 @@ func TestRenderReactDetailPageUsesTypedParamsSharedContentAndRelatedTable(t *tes
 	resources := append([]Resource(nil), result.Manifest.Resources...)
 	resources = append(resources, result.FrameworkResources...)
 	bindings := publicHTTPBindings(resources, target)
-	tablePages := selectedReactTablePages(result.Manifest.Resources, bindings)
-	details := selectedReactDetailPages(result.Manifest.Resources, bindings, tablePages)
-	if len(details) != 1 {
-		t.Fatalf("detail pages = %#v", details)
-	}
-	source, err := renderReactDetailPage(result, target, filepath.Join(result.Root, "clients", "generated", "public_api", "react"), details[0], bindings)
+	files, _, err := uigen.Render(&uigen.Input{Root: result.Root, Manifest: result.Manifest}, target, filepath.Join(result.Root, "clients", "generated", "public_api"), bindings, nil, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var source, routeSource string
+	for _, file := range files {
+		switch filepath.Base(file.Path) {
+		case "scene_detail.generated.tsx":
+			source = string(file.Bytes)
+		case "routes.generated.ts":
+			routeSource = string(file.Bytes)
+		}
+	}
+	if source == "" {
+		t.Fatal("detail page missing")
 	}
 	for _, fragment := range []string{
 		"export type SceneDetailParams",
@@ -69,8 +77,6 @@ func TestRenderReactDetailPageUsesTypedParamsSharedContentAndRelatedTable(t *tes
 		}
 	}
 
-	routes := appendReactDetailRoutePages(nil, details)
-	routeSource := renderReactRoutes(result, routes)
 	for _, fragment := range []string{
 		`path: "/house/scenes/$scene_id"`,
 		`params: ["scene_id"]`,

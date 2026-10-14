@@ -26,7 +26,7 @@ type SecretBackend interface {
 	Ready(ctx context.Context) error
 	// Create stores a new immutable version of key.
 	Create(ctx context.Context, environment, key string, value []byte) (SecretVersion, error)
-	// Resolve returns the plaintext of one version.
+	// Resolve returns a caller-owned plaintext buffer of one version.
 	Resolve(ctx context.Context, environment, key string, version SecretVersion) ([]byte, error)
 	// Remove deletes one version that no retained revision references.
 	Remove(ctx context.Context, environment, key string, version SecretVersion) error

@@ -61,17 +61,17 @@ func oauthBrowserJourney(p *probe) {
 
 func connectionRedirectJourney(p *probe) {
 	session, _ := p.signin()
-	start, _ := call[auth.GoogleConnectStartResponse](p, http.MethodPost, "/auth/google/connect/start", auth.GoogleConnectStartParams{Scopes: []string{gmailModify}}, session.Token, "")
+	start, _ := call[auth.ConnectionStartResponse](p, http.MethodPost, "/auth/connections/google/start", auth.ConnectionStartParams{Scopes: []string{gmailModify}}, session.Token, "")
 	authorize := take(url.Parse(start.AuthorizeURL))
-	p.check(authorize.Query().Get("redirect_uri") == "https://api.example.test/auth/google/callback", "Google connection uses the API callback origin")
+	p.check(authorize.Query().Get("redirect_uri") == "https://api.example.test/auth/connections/google/callback", "Google connection uses the API callback origin")
 	p.check(authorize.Host == "accounts.google.com" && authorize.Path == "/o/oauth2/v2/auth", "connection uses the current public Google authorization endpoint")
 }
 
 func (p *probe) connect(session auth.AuthSessionResponse, redirect string) *http.Response {
-	start, _ := call[auth.GoogleConnectStartResponse](p, http.MethodPost, "/auth/google/connect/start", auth.GoogleConnectStartParams{Scopes: []string{gmailModify}, RedirectPath: redirect}, session.Token, "")
+	start, _ := call[auth.ConnectionStartResponse](p, http.MethodPost, "/auth/connections/google/start", auth.ConnectionStartParams{Scopes: []string{gmailModify}, RedirectPath: redirect}, session.Token, "")
 	callback := take(url.Parse(p.google.authorize(start.AuthorizeURL)))
 	response, _ := p.request(http.MethodGet, callback.RequestURI(), nil, "", "")
-	p.check(response.StatusCode == http.StatusFound && strings.Contains(response.Header.Get("Location"), "google_connected=1"), "authenticated connection callback succeeds")
+	p.check(response.StatusCode == http.StatusFound && strings.Contains(response.Header.Get("Location"), "connection_connected=google"), "authenticated connection callback succeeds")
 	return response
 }
 
@@ -83,36 +83,36 @@ func (p *probe) connection() auth.AuthSessionResponse {
 }
 
 func (p *probe) expire(userID string) {
-	_, err := p.db.ExecContext(p.ctx, `update scenery.scenery_auth_google_connections set access_token_expires_at = now() - interval '1 minute' where user_id = $1`, id(userID))
+	_, err := p.db.ExecContext(p.ctx, `update scenery.scenery_auth_connections set access_token_expires_at = now() - interval '1 minute' where user_id = $1`, id(userID))
 	must(err)
 }
 
 func connectionStoreJourney(p *probe) {
 	session := p.connection()
-	connection := take(p.q.GetGoogleConnectionByUser(p.ctx, id(session.User.ID)))
+	connection := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "google"}))
 	p.check(connection.Status == "active" && connection.Email == "person@example.test" && containsScope(strings.Fields(connection.Scopes), gmailModify), "persisted connection keeps email, active status and granted scope")
 	p.check(len(connection.RefreshTokenCiphertext) > 0 && !strings.Contains(string(connection.RefreshTokenCiphertext), "initial-refresh"), "refresh token is not persisted in plaintext")
 	p.expire(session.User.ID)
-	_ = take(auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailModify))
+	_ = take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify))
 	p.check(p.google.usedRefresh("initial-refresh"), "public token refresh decrypts the exact persisted refresh token")
-	status, _ := call[auth.GoogleConnectionResponse](p, http.MethodGet, "/auth/google/connection", nil, session.Token, "")
+	status, _ := call[auth.ConnectionResponse](p, http.MethodGet, "/auth/connections/google", nil, session.Token, "")
 	p.check(status.Status == "active" && containsScope(status.Scopes, gmailModify), "HTTP connection status exposes active granted scopes")
-	disconnected, _ := call[auth.GoogleConnectionResponse](p, http.MethodPost, "/auth/google/connection/disconnect", nil, session.Token, "")
+	disconnected, _ := call[auth.ConnectionResponse](p, http.MethodPost, "/auth/connections/google/disconnect", nil, session.Token, "")
 	p.check(disconnected.Status == "disconnected", "HTTP disconnect reports disconnected")
 	p.check(p.google.revokeCalls.Load() == 1, "disconnect revokes the Google token exactly once")
 }
 
 func connectionErrorJourney(p *probe) {
 	session, _ := p.signin()
-	start, _ := call[auth.GoogleConnectStartResponse](p, http.MethodPost, "/auth/google/connect/start", auth.GoogleConnectStartParams{Scopes: []string{gmailModify}, RedirectPath: "/settings"}, session.Token, "")
+	start, _ := call[auth.ConnectionStartResponse](p, http.MethodPost, "/auth/connections/google/start", auth.ConnectionStartParams{Scopes: []string{gmailModify}, RedirectPath: "/settings"}, session.Token, "")
 	authorize := take(url.Parse(start.AuthorizeURL))
-	response, _ := p.request(http.MethodGet, "/auth/google/callback?error=access_denied&state="+url.QueryEscape(authorize.Query().Get("state")), nil, "", "")
-	p.redirect(response, "https://app.example.test/settings?error=google_oauth")
+	response, _ := p.request(http.MethodGet, "/auth/connections/google/callback?error=access_denied&state="+url.QueryEscape(authorize.Query().Get("state")), nil, "", "")
+	p.redirect(response, "https://app.example.test/settings?error=connection_authorization_denied")
 }
 
 func tokenRotationJourney(p *probe) {
 	session := p.connection()
-	p.check(take(auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailModify)) == "initial-access", "cached public access token is returned unchanged")
+	p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)) == "initial-access", "cached public access token is returned unchanged")
 	p.expire(session.User.ID)
 	p.google.set(func(f *fakeGoogle) {
 		f.queue = append(f.queue, fakeRefresh{access: "rotated-access", refresh: "rotated-refresh", scope: gmailModify})
@@ -124,7 +124,7 @@ func tokenRotationJourney(p *probe) {
 	for index := range values {
 		wg.Go(func() {
 			<-start
-			values[index], failures[index] = auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailModify)
+			values[index], failures[index] = auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)
 		})
 	}
 	close(start)
@@ -134,38 +134,40 @@ func tokenRotationJourney(p *probe) {
 		p.check(value == "rotated-access", "concurrent refresh caller receives rotated access token")
 	}
 	p.check(p.google.refreshCalls.Load() == 1, "PostgreSQL row lock single-flights concurrent refresh")
-	connection := take(p.q.GetGoogleConnectionByUser(p.ctx, id(session.User.ID)))
+	connection := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "google"}))
 	p.check(!strings.Contains(string(connection.RefreshTokenCiphertext), "rotated-refresh"), "rotated refresh token remains encrypted")
 	p.expire(session.User.ID)
-	_ = take(auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailModify))
+	_ = take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify))
 	p.check(p.google.usedRefresh("rotated-refresh"), "subsequent refresh consumes the exact rotated persisted token")
 }
 
-func tokenRetryJourney(p *probe) {
+func tokenFailureJourney(p *probe) {
 	session := p.connection()
 	p.expire(session.User.ID)
 	p.google.set(func(f *fakeGoogle) {
 		f.queue = append(f.queue, fakeRefresh{status: http.StatusInternalServerError, errorCode: "server_error"}, fakeRefresh{access: "retried-access", scope: gmailModify})
 	})
-	p.check(take(auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailModify)) == "retried-access", "transient Google error retries to success")
+	_, temporary := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)
+	p.check(errs.Code(temporary) == errs.ConnectionUnavailable && p.google.refreshCalls.Load() == 1, "explicit provider refusal returns without a hidden retry")
+	p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)) == "retried-access", "a later call may retry an explicit protocol refusal")
 	p.check(p.google.refreshCalls.Load() == 2, "transient refresh performs exactly two requests")
 	p.expire(session.User.ID)
 	p.google.set(func(f *fakeGoogle) {
 		f.queue = append(f.queue, fakeRefresh{status: http.StatusBadRequest, errorCode: "invalid_grant"})
 	})
-	_, err := auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailModify)
-	p.check(errs.Code(err) == errs.GoogleReauthRequired, "permanent Google failure requires reauthorization")
-	connection := take(p.q.GetGoogleConnectionByUser(p.ctx, id(session.User.ID)))
-	p.check(connection.Status == "reauth_required" && connection.LastRefreshError == "invalid_grant", "permanent refresh failure is durably persisted")
+	_, err := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)
+	p.check(errs.Code(err) == errs.ConnectionReauthRequired, "permanent Google failure requires reauthorization")
+	connection := take(p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: id(session.User.ID), ProviderID: "google"}))
+	p.check(connection.Status == "reauth_required" && connection.LastRefreshError == "credential_revoked", "permanent refresh failure is durably persisted")
 	before := p.google.refreshCalls.Load()
-	_, err = auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailModify)
-	p.check(errs.Code(err) == errs.GoogleReauthRequired && p.google.refreshCalls.Load() == before, "persisted reauthorization state fails without another Google call")
+	_, err = auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailModify)
+	p.check(errs.Code(err) == errs.ConnectionReauthRequired && p.google.refreshCalls.Load() == before, "persisted reauthorization state fails without another Google call")
 }
 
 func tokenMissingScopeJourney(p *probe) {
 	session := p.connection()
-	_, err := auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, gmailRead)
-	p.check(errs.Code(err) == errs.GoogleScopeMissing, "allowed but ungranted scope is reported as missing")
+	_, err := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", gmailRead)
+	p.check(errs.Code(err) == errs.ConnectionScopeMissing, "allowed but ungranted scope is reported as missing")
 }
 
 func tokenDisallowedScopeJourney(p *probe) {
@@ -176,6 +178,6 @@ func tokenDisallowedScopeJourney(p *probe) {
 		f.scope = gmailModify + " " + calendarEvents
 	})
 	p.connect(session, "/")
-	_, err := auth.GoogleAccessTokenForUser(p.ctx, session.User.ID, calendarEvents)
+	_, err := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "google", calendarEvents)
 	p.check(errs.Code(err) == errs.PermissionDenied, "provider grant cannot bypass the application scope allowlist")
 }

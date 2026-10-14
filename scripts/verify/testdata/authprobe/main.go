@@ -38,15 +38,18 @@ const (
 )
 
 type probe struct {
-	ctx        context.Context
-	db         *sql.DB
-	q          *authdb.Queries
-	client     *http.Client
-	google     *fakeGoogle
-	assertions []string
+	ctx         context.Context
+	db          *sql.DB
+	q           *authdb.Queries
+	client      *http.Client
+	google      *fakeGoogle
+	independent *fakeOAuth2
+	sourceRoot  string
+	assertions  []string
 	// refreshCookie is the runtime-scoped refresh cookie name learned from the
 	// first issued cookie.
-	refreshCookie string
+	refreshCookie  string
+	browserCookies map[string]*http.Cookie
 }
 
 type failure struct{ err error }
@@ -75,7 +78,14 @@ func main() {
 	name := flag.String("case", "", "one release journey")
 	report := flag.String("report", "", "owned JSON report path")
 	list := flag.Bool("list", false, "list release journeys without starting resources")
+	sourceRoot := flag.String("source-root", "", "verified repository source for migration fixtures")
+	worker := flag.String("connection-worker", "", "owned standard-auth user for a token worker")
+	providerURL := flag.String("provider-url", "", "owned provider server for a token worker")
 	flag.Parse()
+	if *worker != "" {
+		runConnectionWorker(*worker, *providerURL)
+		return
+	}
 	if *list {
 		names := make([]string, 0, len(journeys))
 		for name := range journeys {
@@ -89,7 +99,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "case and report are required")
 		os.Exit(2)
 	}
-	p := &probe{}
+	p := &probe{sourceRoot: *sourceRoot}
 	err := p.run(*name)
 	result := struct {
 		Case       string   `json:"case"`
@@ -136,8 +146,16 @@ func (p *probe) run(name string) (returnErr error) {
 	p.q = authdb.New(p.db)
 	p.google = newFakeGoogle()
 	defer p.google.server.Close()
+	p.independent = newFakeOAuth2()
+	defer p.independent.server.Close()
 	originalTransport := http.DefaultTransport
-	http.DefaultTransport = p.google.transport(originalTransport)
+	googleTransport := p.google.transport(originalTransport)
+	http.DefaultTransport = roundTrip(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme+"://"+req.URL.Host == p.independent.server.URL {
+			return originalTransport.RoundTrip(req)
+		}
+		return googleTransport.RoundTrip(req)
+	})
 	defer func() { http.DefaultTransport = originalTransport }()
 	state := take(os.MkdirTemp("", "scenery-auth-probe-runtime-"))
 	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(state)) }()
@@ -146,7 +164,10 @@ func (p *probe) run(name string) (returnErr error) {
 	must(deliverAuthConfiguration())
 	must(envpolicy.Set("SCENERY_PUBLIC_APP_URL", "https://app.example.test"))
 	must(envpolicy.Set("SCENERY_API_BASE_URL", "https://api.example.test"))
-	config := auth.StandardConfig{Enabled: true, AutoBootstrapDatabase: true, GoogleOAuth: auth.GoogleOAuthConfig{Enabled: true, AllowedScopes: []string{gmailModify, gmailRead}}}
+	config := auth.StandardConfig{Enabled: true, AutoBootstrapDatabase: true, GoogleOAuth: auth.GoogleOAuthConfig{Enabled: true}, Connections: []auth.ConnectionProvider{
+		{ID: "google", Preset: "google", AllowedScopes: []string{gmailModify, gmailRead}},
+		{ID: "independent", Protocol: "oauth2", Issuer: p.independent.server.URL, AuthorizeURL: p.independent.server.URL + "/authorize", TokenURL: p.independent.server.URL + "/token", AccountURL: p.independent.server.URL + "/account", RevokeURL: p.independent.server.URL + "/revoke", SubjectField: "account_id", Resource: "https://files.example", AllowedScopes: []string{"files.read", "files.write"}},
+	}}
 	if name == "dev-new" || name == "dev-existing" {
 		config.DevBootstrap = auth.DevBootstrapConfig{Enabled: true, DefaultUserEmail: "petr@example.test", DefaultTenantID: configuredTenant}
 	}
@@ -209,6 +230,11 @@ func (p *probe) request(method, path string, input any, token, refresh string) (
 	}
 	request := take(http.NewRequestWithContext(p.ctx, method, "http://api.example.test"+path, body))
 	request.Header.Set("Content-Type", "application/json")
+	for _, cookie := range p.browserCookies {
+		if request.URL.Path == cookie.Path {
+			request.AddCookie(cookie)
+		}
+	}
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -219,6 +245,18 @@ func (p *probe) request(method, path string, input any, token, refresh string) (
 		request.AddCookie(&http.Cookie{Name: p.refreshCookie, Value: refresh})
 	}
 	response := take(p.client.Do(request))
+	if p.browserCookies == nil {
+		p.browserCookies = map[string]*http.Cookie{}
+	}
+	for _, cookie := range response.Cookies() {
+		if strings.HasPrefix(cookie.Name, "scenery_connection_") {
+			if cookie.MaxAge < 0 {
+				delete(p.browserCookies, cookie.Name)
+			} else {
+				p.browserCookies[cookie.Name] = cookie
+			}
+		}
+	}
 	encoded := take(io.ReadAll(response.Body))
 	must(response.Body.Close())
 	return response, encoded
@@ -293,10 +331,13 @@ var journeys = map[string]func(*probe){
 	"schema": schemaJourney, "dev-new": devNewJourney, "dev-existing": devExistingJourney,
 	"oauth-browser": oauthBrowserJourney, "connection-redirect": connectionRedirectJourney,
 	"connection-store": connectionStoreJourney, "connection-error": connectionErrorJourney,
-	"token-rotation": tokenRotationJourney, "token-retry": tokenRetryJourney,
+	"token-rotation": tokenRotationJourney, "token-failure": tokenFailureJourney,
 	"token-missing-scope": tokenMissingScopeJourney, "token-disallowed-scope": tokenDisallowedScopeJourney,
 	"impersonation": impersonationJourney, "impersonation-privilege": impersonationPrivilegeJourney,
 	"refresh-replay": refreshReplayJourney, "user-lifecycle": userLifecycleJourney,
+	"independent-provider": independentProviderJourney, "connection-isolation": connectionIsolationJourney,
+	"connection-migration": connectionMigrationJourney, "connection-migration-refusal": connectionMigrationRefusalJourney,
+	"connection-process-refresh": connectionProcessRefreshJourney, "connection-process-disconnect": connectionProcessDisconnectJourney, "connection-process-crash": connectionProcessCrashJourney,
 }
 
 // deliverAuthConfiguration hands this process its standard-auth
@@ -305,11 +346,12 @@ var journeys = map[string]func(*probe){
 func deliverAuthConfiguration() error {
 	snapshot, err := json.Marshal(runtime.ConfigSnapshot{
 		Kind: runtime.ConfigSnapshotKind, AppID: "auth-release-probe", Environment: "production", Revision: "cfg-auth-release-probe", Consumer: "framework",
-		Values: map[string]json.RawMessage{"auth.google_client_id": json.RawMessage(`"client-id"`)},
+		Values: map[string]json.RawMessage{"auth.google_client_id": json.RawMessage(`"client-id"`), "auth.connections.google.client_id": json.RawMessage(`"client-id"`), "auth.connections.google.callback_uri": json.RawMessage(`"https://api.example.test/auth/connections/google/callback"`), "auth.connections.independent.client_id": json.RawMessage(`"independent-client"`), "auth.connections.independent.callback_uri": json.RawMessage(`"https://api.example.test/auth/connections/independent/callback"`)},
 		Secrets: map[string][]byte{
-			"auth.jwt_secret":           []byte("owned-auth-release-secret"),
-			"auth.google_client_secret": []byte("client-secret"),
-			"auth.token_cipher_key":     []byte("MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="),
+			"auth.jwt_secret":                       []byte("owned-auth-release-secret"),
+			"auth.google_client_secret":             []byte("client-secret"),
+			"auth.connections.google.client_secret": []byte("client-secret"), "auth.connections.independent.client_secret": []byte("independent-secret"),
+			"auth.token_cipher_key": []byte("MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="),
 		},
 	})
 	if err != nil {

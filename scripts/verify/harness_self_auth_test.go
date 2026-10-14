@@ -8,14 +8,14 @@ import (
 
 func TestHarnessStandardAuthCasesAndFailureEvidence(t *testing.T) {
 	t.Parallel()
-	ids, roots := map[string]bool{}, map[string]bool{}
+	ids := map[string]bool{}
 	for _, scenario := range harnessStandardAuthCases {
-		if scenario.ID == "" || !isExactTopLevelGoTestRoot(scenario.Root) || ids[scenario.ID] || roots[scenario.Root] {
+		if scenario.ID == "" || scenario.Proof == "" || ids[scenario.ID] {
 			t.Fatalf("invalid or duplicate auth scenario: %+v", scenario)
 		}
-		ids[scenario.ID], roots[scenario.Root] = true, true
+		ids[scenario.ID] = true
 	}
-	if len(ids) != 15 || !ids["refresh-replay"] || !ids["token-rotation"] || !ids["user-lifecycle"] {
+	if len(ids) != 22 || !ids["refresh-replay"] || !ids["token-rotation"] || !ids["user-lifecycle"] {
 		t.Fatalf("auth assertion inventory changed: %v", ids)
 	}
 	for _, report := range []harnessAuthCaseReport{

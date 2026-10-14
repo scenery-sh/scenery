@@ -133,7 +133,7 @@ func harnessPublicRuntimePath(path string) bool {
 		"runtime/",
 		"storage/",
 	} {
-		if strings.HasPrefix(path, prefix) {
+		if strings.HasPrefix(path, prefix) || path == strings.TrimSuffix(prefix, "/") {
 			return true
 		}
 	}
@@ -141,6 +141,13 @@ func harnessPublicRuntimePath(path string) bool {
 }
 
 func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands map[string]bool) {
+	if harnessConnectionPath(path) {
+		docs["docs/auth-connections.md"] = true
+		docs["docs/runbooks/auth-connections-migration.md"] = true
+		docs["ARCHITECTURE.md"] = true
+		risks["connection-lifecycle"] = true
+		commands["go run ./scripts/verify --probe auth --summary --write"] = true
+	}
 	if harnessDevEventReadPath(path) {
 		docs["docs/local-contract.md"] = true
 		risks["victoria-dev-event-read-path"] = true
@@ -176,6 +183,12 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 		docs["docs/local-contract.md"] = true
 		risks["runtime-contract"] = true
 	case "internal":
+		if harnessOptionalUIPath(path) {
+			docs["docs/generated-ui.md"] = true
+			docs["ARCHITECTURE.md"] = true
+			risks["optional-ui-projection"] = true
+			commands["go test ./internal/generate ./internal/uigen"] = true
+		}
 		if strings.HasPrefix(path, "internal/build/") {
 			docs["docs/plans/0050-test-suite-speed-hardening.md"] = true
 			risks["build-cache"] = true
@@ -243,4 +256,18 @@ func AppendUniqueSorted(base []string, values ...string) []string {
 		}
 	}
 	return SortedStringSet(set)
+}
+
+// One path classifier is shared by documentation discovery and validation.
+func harnessConnectionPath(path string) bool {
+	for _, prefix := range []string{"auth/", "internal/connectionapi/", "internal/connectionvault/", "internal/connectionruntime/", "internal/authprovider/", "internal/authschema/", "internal/oidc/", "runtime/sdk_connections", "cmd/scenery/config_connections", "internal/appconfig/connection_migration"} {
+		if strings.HasPrefix(path, prefix) || path == strings.TrimSuffix(prefix, "/") {
+			return true
+		}
+	}
+	return false
+}
+
+func harnessOptionalUIPath(path string) bool {
+	return path == "internal/uigen" || strings.HasPrefix(path, "internal/uigen/") || path == "internal/clientprojection" || strings.HasPrefix(path, "internal/clientprojection/")
 }

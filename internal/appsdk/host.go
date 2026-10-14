@@ -2,10 +2,12 @@ package appsdk
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"sync"
 
+	"scenery.sh/internal/connectionapi"
 	"scenery.sh/internal/runtimeapi"
 )
 
@@ -33,6 +35,8 @@ type Host interface {
 	// snapshot; the boolean reports whether the environment configured it.
 	FrameworkConfigSecret(key string) ([]byte, bool, error)
 	FrameworkConfigString(key string) (string, bool, error)
+	RegisterConnections([]connectionapi.ProviderConfig, func(context.Context) (*sql.DB, error), func(context.Context) (string, string, error)) error
+	ConnectionToken(context.Context, string, string, []string) (string, error)
 }
 
 // Auth is the authenticated principal of the current request.

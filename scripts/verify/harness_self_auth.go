@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -19,22 +20,29 @@ import (
 
 const harnessStandardAuthName = "standard auth lifecycle"
 
-var harnessStandardAuthCases = []struct{ ID, Root string }{
+var harnessStandardAuthCases = []struct{ ID, Proof string }{
 	{"schema", "TestStandardAuthBootstrapPostgresSchema"},
 	{"dev-new", "TestDevBootstrapDefaultEmailCreatesUserTenantAndMembership"},
 	{"dev-existing", "TestDevBootstrapAttachesExistingUserToConfiguredTenant"},
 	{"oauth-browser", "TestGoogleOAuthBrowserFlowWithFakeGoogle"},
-	{"connection-redirect", "TestGoogleConnectionStartFallsBackToConfiguredAPIBaseURL"},
-	{"connection-store", "TestGoogleConnectionFlowStoresEncryptedTokenAndDisconnects"},
-	{"connection-error", "TestGoogleConnectionCallbackOAuthErrorUsesStateRedirect"},
-	{"token-rotation", "TestGoogleAccessTokenRefreshesRotatesAndSingleFlights"},
-	{"token-retry", "TestGoogleAccessTokenRetriesTransientAndMarksPermanentRefreshFailures"},
-	{"token-missing-scope", "TestGoogleAccessTokenReportsMissingScopes"},
-	{"token-disallowed-scope", "TestGoogleAccessTokenEnforcesAllowedScopes"},
+	{"connection-redirect", "TestOAuth2OnlyProviderUsesPKCEAndConfiguredAccountIdentity"},
+	{"connection-store", "TestVaultDisconnectCommitsBeforeFailedRevocation"},
+	{"connection-error", "ConnectionCallbackBrowserState"},
+	{"token-rotation", "TestVaultPersistsRotationBeforeDenyingReducedScope"},
+	{"token-failure", "TestVaultRefreshFailureClassificationsAndPersistence"},
+	{"token-missing-scope", "TestVaultPersistsRotationBeforeDenyingReducedScope"},
+	{"token-disallowed-scope", "TestVaultConfigurationAndOwnershipFailuresDoNotChangeConsent"},
 	{"impersonation", "TestPrepareImpersonationTargetAndStartUnverifiedSession"},
 	{"impersonation-privilege", "TestPrepareImpersonationTargetRequiresPrivilege"},
 	{"refresh-replay", "TestRefreshReplayRevokesSessionAcrossTransaction"},
 	{"user-lifecycle", "TestUserLifecyclePostgres"},
+	{"independent-provider", "ConfiguredOAuth2PublicJourney"},
+	{"connection-isolation", "ProviderBrowserReplayIsolation"},
+	{"connection-migration", "LegacyConnectionTransactionalMigration"},
+	{"connection-migration-refusal", "UnknownConnectionSchemaRefusal"},
+	{"connection-process-refresh", "IndependentProcessRefreshSerialization"},
+	{"connection-process-disconnect", "IndependentProcessDisconnectSerialization"},
+	{"connection-process-crash", "InterruptedRefreshIntentRecovery"},
 }
 
 type harnessAuthCaseReport struct {
@@ -130,8 +138,8 @@ func runHarnessStandardAuth(parent context.Context, repoRoot string) (summary ma
 			return summary, errors.Join(ctx.Err(), errors.Join(failures...))
 		}
 		started := time.Now()
-		report, output, caseErr := runHarnessAuthCase(ctx, admin, database.URL, root, binary, index, scenario.ID, home)
-		row := map[string]any{"id": scenario.ID, "root": scenario.Root, "ok": caseErr == nil, "duration_ms": time.Since(started).Milliseconds(), "assertions": report.Assertions}
+		report, output, caseErr := runHarnessAuthCase(ctx, admin, database.URL, root, binary, index, scenario.ID, home, repoRoot)
+		row := map[string]any{"id": scenario.ID, "proof": scenario.Proof, "ok": caseErr == nil, "duration_ms": time.Since(started).Milliseconds(), "assertions": report.Assertions}
 		if caseErr != nil {
 			row["error"] = caseErr.Error()
 			row["output_tail"] = tailString(string(output), 8192)
@@ -142,7 +150,7 @@ func runHarnessStandardAuth(parent context.Context, repoRoot string) (summary ma
 	return summary, errors.Join(failures...)
 }
 
-func runHarnessAuthCase(ctx context.Context, admin *sql.DB, base, root, binary string, index int, name, home string) (report harnessAuthCaseReport, output []byte, returnErr error) {
+func runHarnessAuthCase(ctx context.Context, admin *sql.DB, base, root, binary string, index int, name, home, sourceRoot string) (report harnessAuthCaseReport, output []byte, returnErr error) {
 	databaseName := fmt.Sprintf("scenery_auth_probe_%d", index)
 	if err := postgresdb.EnsureDatabase(ctx, admin, databaseName); err != nil {
 		return report, nil, err
@@ -158,7 +166,7 @@ func runHarnessAuthCase(ctx context.Context, admin *sql.DB, base, root, binary s
 	}
 	u.Path = "/" + databaseName
 	path := filepath.Join(root, name+".json")
-	command := commandTreeContext(ctx, binary, "--case", name, "--report", path)
+	command := commandTreeContext(ctx, binary, "--case", name, "--report", path, "--source-root", sourceRoot)
 	command.Dir = root
 	command.Env = envWithOverrides(harnessAppEnv(home), "DATABASE_URL="+u.String(), "SCENERY_DATABASE_JSON=", "SCENERY_ROLE=", "SCENERY_LISTEN_NETWORK=", "SCENERY_DURABLE_ENDPOINT=")
 	output, commandErr := command.CombinedOutput()
@@ -166,12 +174,21 @@ func runHarnessAuthCase(ctx context.Context, admin *sql.DB, base, root, binary s
 	if readErr != nil {
 		return report, output, errors.Join(commandErr, readErr)
 	}
+	// The native fixture emits actual runtime logs/trace summaries. Scan both
+	// channels before retaining them; public status responses are checked inside
+	// the journeys. Known credentials may exist only in private in-memory IPC.
+	for _, credential := range []string{"initial-access", "initial-refresh", "rotated-access", "rotated-refresh", "refreshed-access-", "retried-access", "independent-access", "independent-refresh", "independent-rotated-access", "independent-rotated-refresh", "client-secret", "independent-secret", "owned-auth-release-secret", "legacy-access", "legacy-refresh"} {
+		if bytes.Contains(output, []byte(credential)) || bytes.Contains(encoded, []byte(credential)) {
+			return report, nil, errors.New("auth fixture exposed credential material in logs, traces or retained evidence")
+		}
+	}
 	if err := json.Unmarshal(encoded, &report); err != nil {
 		return report, output, errors.Join(commandErr, err)
 	}
 	if err := validateHarnessAuthCase(name, report); err != nil {
 		return report, output, errors.Join(commandErr, err)
 	}
+	report.Assertions = append(report.Assertions, "runtime logs, traces and retained inspection evidence exclude fixture credentials")
 	return report, output, commandErr
 }
 

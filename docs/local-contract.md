@@ -407,9 +407,9 @@ Current shape:
     "enabled": true,
     "auto_bootstrap_database": true,
     "google_oauth": {
-      "enabled": false,
-      "allowed_scopes": ["https://www.googleapis.com/auth/gmail.modify"]
+      "enabled": false
     },
+    "connections": [{"id":"google","preset":"google","allowed_scopes":["https://www.googleapis.com/auth/gmail.modify"]}],
     "dev_bootstrap": {
       "enabled": true,
       "default_user_email": "owner@example.test",
@@ -514,8 +514,8 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 - Declaring `storage.stores` is sufficient for managed `scenery up`; storage has no separately managed process, database, index or catalog. The retained root owns `<agent-home>/worktrees/<worktree-key>/storage/` with stable maintenance/mutation lock files, an incarnation owner and generation directories. Normal callers never select those internals. Uploads stream to private immutable versions; atomic references publish complete metadata and bytes. Reads retain shared maintenance ownership through stream close. Capture/restore/reclamation acquire exclusive maintenance, and offline lifecycle operations also hold the verified stopped worktree's live and operation locks. Unknown/corrupt material is not inferred to be absent. Clones are independent files, never hardlinks or live cache references.
 - Standard auth uses the `scenery.sh/auth` top surface and stores DB-backed auth state in the app Postgres database's `scenery` schema.
 - Standard auth owns its framework tenant tables, including `scenery.scenery_auth_tenants`. Apps do not need an app-local `tenants` service, package, or table for standard auth; app-local tenant services are product-domain APIs and schema only.
-- Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, and local `/users/dev-bootstrap`. When `auth.google_oauth.enabled` is true, it also registers raw `GET /auth/google/start`, raw `GET /auth/google/callback`, typed `POST /auth/google/connect/start`, typed `GET /auth/google/connection`, and typed `POST /auth/google/connection/disconnect`.
-- Standard auth endpoints appear in `scenery inspect routes|services|endpoints -o json` and in generated TypeScript clients. Disabled Google OAuth endpoints are absent from inspect output and generated clients. When Google OAuth is enabled but `GOOGLE_OAUTH_CLIENT_ID` or `GOOGLE_OAUTH_CLIENT_SECRET` is missing, `scenery check -o json` returns an `auth` warning. `auth.google_oauth.allowed_scopes` declares the Google API scopes an app may request through the connection flow. `POST /auth/google/connect/start` returns a Google authorize URL whose `redirect_uri` is the shared `/auth/google/callback`; the callback dispatches connection states by OAuth state purpose so apps can reuse the sign-in redirect URI registered in Google Cloud. `AUTH_TOKEN_CIPHER_KEY` is the canonical base64 32-byte AES-GCM key used to encrypt stored Google refresh/access tokens; local development derives a dev key from the local JWT secret when this env is absent.
+- Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, and local `/users/dev-bootstrap`. `auth.google_oauth.enabled` adds raw `GET /auth/google/start` and `/auth/google/callback` for sign-in only. Declared `auth.connections` independently adds typed start/status/disconnect at `/auth/connections/{provider}` and distinct raw callbacks. See [user connections](auth-connections.md).
+- Standard auth endpoints appear in `scenery inspect routes|services|endpoints -o json` and generated TypeScript clients. Disabled capabilities are absent. Missing Google sign-in credentials produce an `auth` warning in `check`. Provider declarations carry permission allowlists and trusted endpoints; credentials/callbacks use `auth.connections.<id>.client_id`, `.client_secret`, `.callback_uri` in the authoritative environment store. `auth.token_cipher_key` is the base64 32-byte AES-GCM key; supported local JWT derivation retains the historical input. Existing connections require the [explicit coordinated cutover](runbooks/auth-connections-migration.md).
 - `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
 - Generated binaries accept `SCENERY_ROLE=all|api|worker`. `scenery up` uses the default combined role. `scenery worker` uses `worker`.
 - Native durable executions and schedules are declared in package `.scn` files and register through the generated application composition. Runtime startup requires `DATABASE_URL` and reconciles those declarations into the app Postgres database's `scenery` schema. Generated `all` and `worker` roles run one local acquisition loop per durable task, each running up to the task's `concurrency.limit` attempts at once (one without a limit), so a long attempt of one task never delays another task; the `api` role does not execute durable jobs; service views share one dedicated notification connection outside the ten-connection SQL query pool. An idle local acquisition loop sleeps until the store's Postgres notification (`scenery_durable_<service>`, sent when a job is queued, requeued or finished), the next known delayed retry/lease/timeout deadline, or a ten-second reconciliation fallback. Acquisition recovers expired jobs only for its task, retaining atomic SQL concurrency admission. A notification connection becoming ready wakes current observers to recheck transitions missed during setup/reconnect. A caller waiting for a result retains a one-second fallback. Observers release their subscription on every exit; notification delivery is a latency hint, not durable authority. A failed attempt records its reason with the handler's error text (at most 4 KiB), which `scenery worker durable jobs list|inspect` show; those commands and `token create` resolve the worktree's managed database like the `db` commands when no `sql.database_url` is configured. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. Remote-worker endpoints require bearer tokens stored only as hashes; a lease names its `task_name` and `worker_id`, and heartbeat/complete/fail are fenced with `worker_id` plus `lease_id`. `scenery inspect durable -o json` emits `scenery.inspect.durable` with native declarations, service schemas, and redacted app database metadata.
@@ -591,6 +591,7 @@ scenery doctor [--app-root <path>] [-o json]
 scenery config show [KEY] [--env <name>] [--app-root <path>] [-o json]
 scenery config set KEY [VALUE] --env <name> [--stdin | --null] [--expect-revision <revision>] [--app-root <path>] [-o json]
 scenery config unset KEY --env <name> [--expect-revision <revision>] [--app-root <path>] [-o json]
+scenery config migrate-connections --env <name> [--expect-revision <revision>] [--app-root <path>] [-o json]
 ```
 
 See [Environment Configuration](#environment-configuration).
@@ -1413,7 +1414,7 @@ Standard auth:
   a server error, not a rejected user credential.
 - Standard auth tenant state is framework-owned and lives in `scenery_auth.tenants`; an app-local `tenants` service or table is only an app-domain concern.
 - Refresh sessions are stored in PostgreSQL and rotate by hashing refresh tokens. Deployed runtimes read, issue, and clear only `scenery_refresh`; cookie naming is not configurable. A local runtime scopes the name to its public base URL as `scenery_refresh_<host>_<port>` (non-alphanumeric characters become `_`), because browsers ignore the port when storing cookies and two local runtimes on different `localhost` ports would otherwise replace each other's refresh session. Each local runtime reads only its own scoped cookie.
-- Google connections are per standard-auth user and live in `scenery.scenery_auth_google_connections`. The raw Google refresh token is encrypted at rest and never returned to clients. `GET /auth/google/connection` returns `{status, email, scopes, connected_at, last_refresh_at, reauth_reason}` with status `active`, `reauth_required`, or `disconnected`. App Go code calls `auth.GoogleAccessToken(ctx, scopes...)` for request-authenticated work or `auth.GoogleAccessTokenForUser(ctx, userID, scopes...)` from workers; requested scopes must be present in `auth.google_oauth.allowed_scopes`. Expired access tokens refresh under a Postgres row lock; permanent Google revocation marks the connection `reauth_required` and returns `google_reauth_required`, while missing grants return `google_scope_missing`.
+- Connections are owned by one standard-auth user and provider ID in `scenery.scenery_auth_connections`. Browser metadata contains no credentials. `auth.ConnectionToken` derives the request owner; `ConnectionTokenForUser` supports trusted workers and rejects another owner in a request. Required scopes are case-sensitive permissions, not downscoping. Row locks/session leases serialize processes; durable refresh intent protects ambiguous remote rotation. Rotation and effective grant persist before scope denial. Invalid keys/clients do not change consent; ambiguous results require reconnect. Disconnect stops local issuance before remote revocation. [User connections](auth-connections.md) owns the route, scope, status and error contract.
 - Email delivery is a pluggable `auth.EmailSender`; the default sender is a no-op.
 - `/users/dev-bootstrap` is local-only. Without `dev_bootstrap.default_user_email`, it can mint a development token without opening PostgreSQL. With `default_user_email`, it opens standard auth lazily and creates the configured default tenant, verified user, and owner membership on first use when missing.
 - DB-backed auth endpoints require the canonical `DATABASE_URL` environment variable.
@@ -1614,8 +1615,9 @@ Catalog:
   `designs.weather_pack_root`), environment secrets (`resource_ref("secret")`
   inputs with `sensitive = true` that source leaves unbound) and framework
   inputs: `auth.jwt_secret`, `auth.cookie_domain`, `auth.email_from`, with
-  Google OAuth `auth.google_client_id`, `auth.google_client_secret`,
-  `auth.token_cipher_key`, and with assistants `assistant.openai_api_key`.
+  Google sign-in `auth.google_client_id`, `auth.google_client_secret`;
+  with connections `auth.connections.<id>.client_id`, `.client_secret`,
+  `.callback_uri`, `auth.token_cipher_key`; with assistants `assistant.openai_api_key`.
 - A configurable input left without a value compiles; a required one fails
   runtime-candidate validation, naming the key. `host_path` is a
   deployment-only absolute path scalar (`SCN1213` rejects it in wire
@@ -1999,7 +2001,7 @@ Implemented now:
 - [scenery.cli.schema.json](schemas/scenery.cli.schema.json)
 - [scenery.cli.event.schema.json](schemas/scenery.cli.event.schema.json)
 - [scenery.config.show.schema.json](schemas/scenery.config.show.schema.json) — `config show` envelope data
-- [scenery.config.change.schema.json](schemas/scenery.config.change.schema.json) — `config set` and `config unset` envelope data
+- [scenery.config.change.schema.json](schemas/scenery.config.change.schema.json) — `config set`, `config unset` and `config migrate-connections` envelope data
 - [scenery.deployment-plan.schema.json](schemas/scenery.deployment-plan.schema.json)
 - [scenery.deployment-receipt.schema.json](schemas/scenery.deployment-receipt.schema.json)
 - [scenery.generated.schema.json](schemas/scenery.generated.schema.json)

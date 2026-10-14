@@ -12,6 +12,7 @@ import (
 
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/internal/appsdk"
+	"scenery.sh/internal/authschema"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/runtimeapi"
@@ -23,13 +24,13 @@ var standardAuthSchema embed.FS
 type StandardConfig struct {
 	Enabled               bool
 	GoogleOAuth           GoogleOAuthConfig
+	Connections           []ConnectionProvider
 	DevBootstrap          DevBootstrapConfig
 	AutoBootstrapDatabase bool
 }
 
 type GoogleOAuthConfig struct {
-	Enabled       bool
-	AllowedScopes []string
+	Enabled bool
 }
 
 type DevBootstrapConfig struct {
@@ -104,6 +105,21 @@ func RegisterStandard(config StandardConfig) error {
 		},
 	})
 	registerStandardAuthEndpoints(host, config)
+	if len(config.Connections) > 0 {
+		return host.RegisterConnections(config.Connections, func(ctx context.Context) (*sql.DB, error) {
+			svc, err := standardAuthService(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return svc.db, nil
+		}, func(ctx context.Context) (string, string, error) {
+			data, ok := currentAuthDataFromContext(ctx)
+			if !ok {
+				return "", "", unauthenticated("connection operation requires standard authentication")
+			}
+			return string(data.UserID), data.SessionID, nil
+		})
+	}
 	return nil
 }
 
@@ -247,15 +263,7 @@ func registerStandardAuthEndpoints(host appsdk.Host, config StandardConfig) {
 		return DevBootstrap(ctx, input)
 	})
 	if config.GoogleOAuth.Enabled {
-		registerStandardJSON(host, "auth", "GoogleConnectStart", runtimeapi.Auth, "/auth/google/connect/start", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *GoogleConnectStartParams) (*GoogleConnectStartResponse, error) {
-			return svc.GoogleConnectStart(ctx, input)
-		})
-		registerStandardEmpty(host, "auth", "GetGoogleConnection", runtimeapi.Auth, "/auth/google/connection", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
-			return svc.GetGoogleConnection(ctx)
-		})
-		registerStandardEmpty(host, "auth", "DisconnectGoogleConnection", runtimeapi.Auth, "/auth/google/connection/disconnect", http.MethodPost, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
-			return svc.DisconnectGoogleConnection(ctx)
-		})
+
 		host.RegisterEndpoint(appsdk.Endpoint{
 			Service:    "auth",
 			Name:       "GoogleStart",
@@ -406,6 +414,10 @@ func bootstrapStandardAuthSchema(ctx context.Context, pool *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('scenery.standard.auth', 0))`); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("lock standard auth schema bootstrap: %w", err)
+	}
+	if err := authschema.CheckConnectionBootstrap(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return err
 	}
 	for _, statement := range splitSQLStatements(string(data)) {
 		if strings.TrimSpace(statement) == "" || strings.HasPrefix(strings.TrimSpace(statement), "--") {

@@ -32,9 +32,12 @@ and resolution in an active plan. `.scenery/gen/` is cache, not an API.
 - `examples/webhook-inbox/AGENTS.md`
 - `internal/app/AGENTS.md`
 - `internal/appconfig/AGENTS.md`
+- `internal/authprovider/AGENTS.md`
 - `internal/parse/AGENTS.md`
 - `internal/agent/AGENTS.md`
 - `internal/compiler/AGENTS.md`
+- `internal/connectionvault/AGENTS.md`
+- `internal/connectionruntime/AGENTS.md`
 - `internal/contractagent/AGENTS.md`
 - `internal/deployplan/AGENTS.md`
 - `internal/devprocess/AGENTS.md`
@@ -52,6 +55,7 @@ and resolution in an active plan. `.scenery/gen/` is cache, not an API.
 - `internal/stateupgrade/AGENTS.md`
 - `internal/testsuite/AGENTS.md`
 - `internal/uireport/AGENTS.md`
+- `internal/uigen/AGENTS.md`
 - `internal/workspacetx/AGENTS.md`
 - `testdata/apps/worktree-postgres/AGENTS.md`
 - `docs/spec/AGENTS.md`

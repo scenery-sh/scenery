@@ -401,7 +401,7 @@ regenerate the declared TypeScript client.
 
 Bindings reference explicit authentication and authorization resources or standard policies. Public endpoints use `std.authentication.none` plus `std.authorization.public`. Protected bindings use the configured standard-auth provider and generated auth context; app code reads request identity through `scenery.sh/auth`.
 
-Standard auth is enabled in app config because it is a runtime capability. Its framework tables live in the app database's `scenery` schema. Google connections expose app-owned access tokens through `auth.GoogleAccessToken`; do not store third-party refresh tokens in product tables.
+Standard auth is enabled in app config because it is a runtime capability. Its framework tables live in the app database's `scenery` schema. Provider-neutral [user connections](auth-connections.md) expose owner-bound bearer tokens through `auth.ConnectionToken` and trusted-worker `ConnectionTokenForUser`; do not store third-party refresh tokens in product tables. See that guide for Google/OAuth2 examples and the coordinated migration. Backend-only and SQL-without-pages examples remain ordinary apps; optional rendering is described in [generated UI](generated-ui.md).
 
 For HTTP, declare the session resource in `app.scn` and pass it into the module:
 

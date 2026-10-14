@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scenery.sh/schemas/scenery.config.change.schema.json",
-  "title": "scenery config set and unset",
+  "title": "scenery environment configuration changes",
   "type": "object",
   "required": [
     "kind",
@@ -23,7 +23,7 @@
       "const": "scenery.config.change"
     },
     "schema_revision": {
-      "const": "sha256:afafdcbcaedca8b4692cf4cac475af54c6ffccd7bd3da09d83d627de771ae887"
+      "const": "sha256:c4aa7dc489b45c7d87a0d72d974829496ebc8b7c01d0cfc06fa1596d46e0cb61"
     },
     "app_id": {
       "type": "string",
@@ -50,7 +50,8 @@
     "operation": {
       "enum": [
         "set",
-        "unset"
+        "unset",
+        "migrate_connections"
       ]
     },
     "changed": {
