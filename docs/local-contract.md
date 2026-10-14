@@ -1071,6 +1071,28 @@ producer may inspect the retained runtime locator by validating its artifact and
 executable bytes without claiming ownership of that runtime; ownership remains
 bound to the retained process records and locks.
 
+For retained lifecycle commands, an explicit `--app-root` selects its exact
+canonical root before ancestor discovery when that root is missing or its
+retained state location exists. Invalid, incompatible or pending state remains
+scoped to that root and is handled by the existing retained-state reader; it
+never redirects control to an enclosing application. Root selection allocates
+no state. An existing ordinary subdirectory without its own retained state
+still discovers the enclosing application. Literal leading and trailing pathname
+whitespace is preserved; an empty root argument retains implicit current-directory
+discovery. A trailing separator does not change the selected canonical root.
+
+Plain `scenery logs`, its `--follow` form and `scenery console` retain this
+selected root through both retained-identity reading and strict pre-start
+configuration fallback. An explicit missing child never reads its enclosing
+application's logs or dashboard. With no retained identity, a missing selected
+config remains `SCN8001`/exit 2 and malformed config remains a configuration
+error. Limited read-only identity inspection across producer specifications
+remains supported, but a pending `spec-upgrade.json` guard blocks that fallback
+too, without modifying metadata or allocating worktree ownership.
+Interactive console uses this same identity before session/backend selection.
+A valid config at the selected root retains its display name; when retained
+identity is available but desired config is absent or invalid, it displays AppID.
+
 `scenery db list -o json` reports the app Postgres database as `scenery.db.list`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the compiled service bindings. `scenery db shell [service]` opens the matching `psql` inside the identity-verified managed PostgreSQL container (external databases use host `psql`); a service argument pins `search_path` to `<service_schema>,scenery`. Put CLI selectors such as `--app-root` before the service; all following arguments are passed directly to `psql`. `scenery db reset [service]` resets one service schema with `ResetSchema` and clears the current app's discovered seed-ledger identities for that service so the following setup reconstructs its initial data; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations require a stopped worktree, hold its exclusive operation lock, and refuse external DSNs. `scenery db server status|start|stop|logs [--app-root <path>]` selects only that worktree's retained cluster. Status is read-only and reports its scope, retained resource identity, and any incomplete restore; stop retains the container, volume, and credentials. `scenery db apply` applies configured migrations or the mutually exclusive `database.apply.command`; it does not run seeds or SQLC generation. Standalone apply/seed holds worktree ownership through all SQL and child commands; `db setup` holds it continuously across both phases.
 
 `scenery snapshot save` writes one current logical ZIP for the selected database and/or configured stores. Storage capture requires a stopped source and retains live, operation and exclusive maintenance ownership throughout database/files capture. Combined capture rejects external databases and starts only an already-owned managed database when needed. Arbitrary external SQL/filesystem writers must be excluded by the operator. The bounded root manifest references checksummed streamed per-store JSONL records; payloads contain logical identities, sizes, hashes, metadata and modification times, never internal owner/reference/lock paths. Managed Postgres tools run in the existing managed container; SQL-only external saves retain host-tool behavior.
@@ -1081,12 +1103,46 @@ bound to the retained process records and locks.
 
 `scenery down` stops the selected worktree's verified runtime children and managed PostgreSQL container, retaining database data and credentials. It is idempotent when no live runtime exists and never allocates an absent cluster. `scenery down --db` additionally drops only the retained app database, not the cluster volume, and refuses external DSNs. `scenery down --state` removes only the selected app root's disposable session state. Durable ownership records remain outside the checkout.
 
-`scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from `git worktree list --porcelain`. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
+`scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from NUL-delimited `git worktree list --porcelain -z`, preserving embedded newlines, spaces, tabs, quotes and Unicode in registered checkout paths. Successful Git warnings on stderr are separate from this inventory, so LIST remains complete and removal still refuses all distinct matching checkouts. Branch selection compares the decoded literal branch name: Git’s `refs/heads/` transport prefix is removed once, so a branch named `refs/heads/target` does not match a `target` request solely by branch. Git failure retains its existing exit-3/JSON-`SCN8003` diagnostic and human stderr. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
+
+CREATE returns a shell-style `next_command` and prints the same complete value
+after `next:` in human output. Existing command reproduction formatting quotes
+the literal target as one POSIX shell operand, including spaces, tabs, newlines,
+apostrophes and other shell characters. Git still receives the original path as
+an argv value; safe ordinary-path follow-up text is unchanged.
+
+For CREATE and REMOVE, a nonblank input that sanitizes to an empty worktree
+name is an invalid request (`SCN8001`, exit 2), with the concrete empty-after-
+sanitization message and no internal report token. This check remains after
+configured-app discovery and before any Git operation or inventory lookup;
+missing or malformed configuration keeps its existing error precedence.
+Missing or whitespace-only names retain their parser-level requires-name error.
+
+CREATE delegates revision validation to Git. A nonblank `--from` remains a
+revision operand, including literal option-shaped values; invalid refs refuse
+with exit 3 (`SCN8003` in JSON) without creating a checkout or branch. Empty or whitespace-only
+refs retain the existing omitted-ref behavior.
+
+Worktree removal matches the sanitized name against the default sibling path,
+branch name and checkout basename. Exactly one distinct normalized registered
+path must match. A name matching no registered path is an invalid request
+(`SCN8001`, exit 2), with a concrete not-registered message and no internal
+report token. Multiple paths are refused with `SCN8003` (exit 3) and sorted
+candidate paths before any Git removal. A single checkout matching several rules
+is still one target. Lexical normalization preserves literal pathname whitespace:
+registered checkouts differing by a trailing space remain distinct candidates,
+and neither becomes a false default-path match. Git-only selection and removal
+allocate no worktree state.
 
 `scenery worktree upgrade -o json` previews an explicit same-schema upgrade of
 the selected stopped root's worktree record, stopped session registry and all
-retained managed-storage owner/generation/reference metadata. Preview is
-non-allocating. `--yes --expect-revision <digest>` applies only the exact
+retained managed-storage owner/generation/reference metadata. Preview and apply
+use the retained-root selection above, then require valid `.scenery.json` at
+that exact root with an AppID matching retained ownership. Missing selected
+configuration refuses with `SCN8001`/exit 2; malformed configuration remains
+`SCN8003`/exit 3. Neither case selects a configured parent or infers configuration
+from retained identity. This prerequisite also applies to pending upgrade retry.
+Preview is non-allocating. `--yes --expect-revision <digest>` applies only the exact
 root/spec/metadata-bound selection; both flags are required together. Identical
 artifact kind/schema and valid current payload/ownership are mandatory. Engine
 or data-format changes, live recorded processes, incomplete allocations and
@@ -1238,7 +1294,7 @@ Command split:
 - Starting `scenery up` for an app root requires exclusive ownership of that app root's live dev runtime. If another verified live owner already controls the same app root, the new invocation does not start a second supervisor and does not steal ownership: it reports the existing runtime and exits `0` (see the `scenery up` and `--detach` entries above). Ownership races that reach session registration still fail closed with an "already running" error. If the recorded owner is dead or its fingerprint no longer matches, the new owner may claim the runtime and clean the stale session's recorded children (app, service processes, workers, assistant helpers and managed frontends), each only while it still verifies against the identity recorded when it was registered. A recorded child stays owned after its supervisor is gone. A process is never selected by its command line, environment, listening port or parent; a process signal reaches a process group only when the recorded PID leads it. It must not clean other app roots, other worktrees, or unrelated user processes.
 - Session owner checks treat `owner_pid` as the effective owner. `owner.pid` is the fingerprint for that same PID, not an independent owner field. If the stored owner fingerprint object points at a different stale PID, Scenery refreshes it on the next registration and must not delete or prune the session while the effective `owner_pid` is still live. Dev supervisors unregister sessions with an owner-conditional delete that includes the recorded owner fingerprint; if an older owner exits after ownership moved, or if the same PID now has a different recorded fingerprint, the delete is ignored and the newer session record remains registered.
 - `scenery help -o json` returns `scenery.help`, the complete machine-readable command manifest for agents and contract checks. `scenery help <command> -o json` returns the same payload identity with exactly one command descriptor; unknown topics fail instead of falling back to unrelated human help. The `build` descriptor records exact usage variants, flags and required combinations, side-effect class, app-root requirement, mode-specific output schema identities, stability, common exit categories, and related inspection or validation commands. Human root help remains intentionally orienting; use `scenery help all` for the grouped reference and `scenery help <command>` for human-readable flags and subcommands. `-h` or `--help` anywhere before a `--` on a built-in command path is the same request as `scenery help <path>` (with `-o json` it returns that command's `scenery.help` descriptor) and never runs the command; the path is the longest prefix of its leading words that names a command, so an operand such as a key or an SSH target is left out, and `scenery -h` is `scenery help`. An app's CLI bindings keep their own `--help`. An unknown command, help topic or subcommand is an invalid request whose message suggests the closest known names (`did you mean "up"?`) and the `scenery help` command that lists them; a suggestion is only printed, never run. A subcommand is checked against the help catalog before the command runs only when every usage line of that command starts with one of its listed subcommands; a command that takes an operand in that position parses its own words. `scenery deploy` refuses an operand within a small edit distance of one of its commands (`statsu`) as an unknown deploy command with a suggestion, unless the app lists it in `envs.<name>.deploy.ssh`, the only targets it deploys to.
-- `scenery ps` discovers retained worktree roots without ensuring any agent or database. Its `scenery.agent.status` JSON contains `worktrees`, each with its exact root/key, ownership status, and sessions. It distinguishes live, stopped, orphaned, absent, unavailable, and incompatible-or-invalid state; a corrupt retained record is reported without repair. Live sessions use their private current control endpoint and expose effective process health. Duplicate startup prevention uses the lifetime lock and verified owner identity, never shell text. Root-scoped database status separately reports retained SQL identity and incomplete restore state without allocating resources.
+- `scenery ps` discovers retained worktree roots without ensuring any agent or database. Its `scenery.agent.status` JSON contains `worktrees`, each with its exact root/key, ownership status, and sessions. `sessions` is always an array, including an empty successful list or a list failure reported as unavailable. Global discovery admits only canonical 64-character lowercase hexadecimal keys; noncanonical locator names are ignored without changing their files. Canonical entries with corrupt or incompatible records remain visible without repair. It distinguishes live, stopped, orphaned, absent, unavailable, and incompatible-or-invalid state. Live sessions use their private current control endpoint and expose effective process health. Duplicate startup prevention uses the lifetime lock and verified owner identity, never shell text. Root-scoped database status separately reports retained SQL identity and incomplete restore state without allocating resources.
 - Each worktree owner starts its own runtime control backend (the internal `dashboard` backend) and serves the [development runtime RPC](#development-runtime-rpc) through `/runtime` on its localhost base URL. Scenery serves no dashboard UI. The private Unix control API remains protected by filesystem permissions. Explicit machine edge/deploy control backends do not become owners of worktree runtime state.
 - A process-model development session can fail selected work on purpose through the host's private control listener: `PUT /__scenery/process/v1/faults` replaces the session's rules and `GET` lists them. A rule selects work by service process, internal binding address or request path prefix, applies at most `count` times (one by default), and either refuses the work (`unavailable` with `delivery: not_sent`), delays it by `delay_ms` (its caller's deadline decides the outcome), or loses its answer (`delivery: unknown`). A rule whose path is a prefix of `/__scenery/process/v1/generations` applies only to the supervisor's generation control, never to work: `abort` then applies the publication, status read or retirement and loses its answer. Rules live only in that session's host process and never exist in a production build.
 - In a process-model development session the host adds `X-Scenery-Process-Generation` to every answer it serves, naming the published application generation that answered, beside the serving process's own identity headers. Its private generation status lists, for each retained generation, every instance's process name, PID and linked identity, so a check can bind its evidence to the exact implementation set it exercised.

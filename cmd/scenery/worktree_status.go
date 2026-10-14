@@ -162,6 +162,9 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 		} else if len(entry.BuildBlocks) > 0 {
 			entry.SourceFreshness = "blocked"
 		}
+		if entry.Sessions == nil {
+			entry.Sessions = []localagent.Session{}
+		}
 		result = append(result, entry)
 	}
 	return result, nil

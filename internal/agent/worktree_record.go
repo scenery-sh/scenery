@@ -50,6 +50,9 @@ type RetainedWorktreeIdentity struct {
 // commands to an older retained owner without migrating its durable state.
 func (p WorktreePaths) LoadRetainedWorktreeIdentity() (RetainedWorktreeIdentity, error) {
 	var identity RetainedWorktreeIdentity
+	if err := stateupgrade.CheckPending(p.Directory); err != nil {
+		return identity, fmt.Errorf("failed_precondition: %w", err)
+	}
 	if err := checkPrivateWorktreeFile(p.Record); err != nil {
 		return identity, err
 	}

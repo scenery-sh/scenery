@@ -58,6 +58,7 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 	if err != nil {
 		return proof, err
 	}
+	proof["owned_fixture_root"] = base
 	root, home := filepath.Join(base, "app"), filepath.Join(base, "home")
 	p := &worktreeRuntimeProbe{ctx: ctx, repo: repo, root: base, home: home, binary: harnessLocalSceneryBinaryPath(repo), env: harnessAppEnv(home)}
 	restore := patchEnv(map[string]*string{"SCENERY_AGENT_HOME": stringPtr(home), "DATABASE_URL": nil})
@@ -80,6 +81,13 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		resultErr = errors.Join(resultErr, cleanupErr)
 		if resultErr == nil {
 			resultErr = os.RemoveAll(base)
+			if resultErr == nil {
+				if _, err := os.Lstat(base); !errors.Is(err, os.ErrNotExist) {
+					resultErr = fmt.Errorf("observability probe root remains after cleanup: %s: %v", base, err)
+				} else {
+					proof["owned_fixture_root_absent"] = true
+				}
+			}
 		}
 		if resultErr != nil {
 			proof["retained_probe_root"] = base
@@ -339,6 +347,16 @@ func runHarnessObservabilityProbe(parent context.Context, repo string, artifactC
 		return proof, fmt.Errorf("log readback: %w: %v", err, observationErr)
 	}
 	proof["correlated_structured_logs"] = true
+	logsScope, err := proveHarnessPlainLogsScope(p, root)
+	proof["plain_logs_scope"] = logsScope
+	if err != nil {
+		return proof, err
+	}
+	consoleScope, err := proveHarnessConsoleScope(p, root)
+	proof["console_scope"] = consoleScope
+	if err != nil {
+		return proof, err
+	}
 	if err := waitForHarnessCondition(readback, func() bool {
 		output, err := runHarnessAppCLIWithEnv(readback, repo, root, p.env, "metrics", "query", "--promql", `scenery_request_duration_seconds{scenery_trace_type="DB"}`, "--instant", "-o", "json")
 		if err != nil {

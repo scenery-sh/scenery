@@ -12,6 +12,12 @@ separately reviewed [PostgreSQL](worktree-postgres-migration.md) or
 
 - Select the same canonical app root and agent home that own the data. Do not
   create another checkout, home, allocation, volume or storage namespace.
+- Keep valid `.scenery.json` at that selected root, with its configured AppID
+  matching retained ownership. Explicit missing or retained roots never select
+  an enclosing app when their marker disappears: missing configuration refuses
+  with `SCN8001`/exit 2 and malformed configuration with `SCN8003`/exit 3.
+  Restore the matching configuration before preview, apply or pending retry;
+  retained identity alone does not authorize this metadata migration.
 - Stop its runtime with the matching old binary. Exclude external SQL and
   filesystem writers; the upgrade checks existing live/operation locks and
   retained process fingerprints and holds storage maintenance exclusion.

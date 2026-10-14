@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	appcfg "scenery.sh/internal/app"
 )
 
 func TestParseWorktreeArgs(t *testing.T) {
@@ -25,6 +27,106 @@ func TestParseWorktreeArgs(t *testing.T) {
 	if _, err := parseWorktreeArgs([]string{"create"}); err == nil || !strings.Contains(err.Error(), "requires <name>") {
 		t.Fatalf("missing name error = %v", err)
 	}
+	for _, command := range []string{"create", "remove"} {
+		for _, args := range [][]string{{command}, {command, " \t"}} {
+			_, err := parseWorktreeArgs(args)
+			if err == nil || cliExitCode(err) != 2 || err.Error() != "scenery worktree "+command+" requires <name>" {
+				t.Fatalf("blank %s request = %v", command, err)
+			}
+		}
+		opts, err := parseWorktreeArgs([]string{command, "!!!"})
+		if err != nil || opts.Name != "!!!" {
+			t.Fatalf("nonblank %s name did not reach discovery: %+v, %v", command, opts, err)
+		}
+	}
+}
+
+func TestWorktreeEmptyNameKeepsDiscoveryPrecedence(t *testing.T) {
+	t.Parallel()
+	for _, config := range []string{`{"name":"demo","envs":{"local":{"default":true}}}`, "", `{"name":`} {
+		root := canonicalTestDir(t)
+		if config != "" {
+			writeTestAppFile(t, root, ".scenery.json", config)
+		}
+		_, _, discoveryErr := discoverConfiguredApp(root)
+		if (config == `{"name":"demo","envs":{"local":{"default":true}}}`) != (discoveryErr == nil) {
+			t.Fatalf("fixture discovery for %q = %v", config, discoveryErr)
+		}
+		for _, command := range []string{"create", "remove"} {
+			for _, jsonOutput := range []bool{false, true} {
+				args := []string{command, "!!!", "--app-root", root}
+				if jsonOutput {
+					args = append(args, "-o", "json")
+				}
+				var output bytes.Buffer
+				gitCalls, inventoryCalls := 0, 0
+				err := runWorktreeCommandWithGit(t.Context(), &output, args,
+					func(context.Context, ...string) error { gitCalls++; return nil },
+					func(context.Context, string) ([]worktreeRecord, error) { inventoryCalls++; return nil, nil })
+				if err == nil || gitCalls != 0 || inventoryCalls != 0 || output.Len() != 0 {
+					t.Fatalf("%s refusal = %v, Git/inventory calls = %d/%d, output = %s", command, err, gitCalls, inventoryCalls, &output)
+				}
+				if discoveryErr == nil {
+					diagnostic := cliErrorDiagnostic(err)
+					if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.ReportToken != "" || diagnostic.Message != "worktree name is empty after sanitization" {
+						t.Fatalf("%s empty name = %v, %+v", command, err, diagnostic)
+					}
+					continue
+				}
+				if err.Error() != discoveryErr.Error() || cliExitCode(err) != cliExitCode(discoveryErr) {
+					t.Fatalf("%s replaced discovery error: %v, want %v", command, err, discoveryErr)
+				}
+				if config == "" {
+					if !errors.Is(err, appcfg.ErrRootNotFound) {
+						t.Fatalf("missing root identity lost: %v", err)
+					}
+				} else if _, ok := errors.AsType[*appcfg.ConfigError](err); !ok {
+					t.Fatalf("invalid config identity lost: %v", err)
+				}
+			}
+		}
+	}
+}
+
+func TestParseGitWorktrees(t *testing.T) {
+	t.Parallel()
+
+	const unusualPath = "/tmp/space tab\tquote\"žluťoučký\r\nbranch refs/heads/fake "
+	for _, tc := range []struct {
+		name   string
+		output string
+		want   []worktreeRecord
+	}{
+		{name: "empty"},
+		{
+			name: "records and exact values",
+			output: "HEAD ignored\x00branch ignored\x00\x00worktree " + unusualPath + "\x00HEAD a\x00branch refs/heads/main\x00locked reason\nbranch fake\x00\x00\x00" +
+				"worktree /tmp/detached\x00HEAD b\x00detached\x00prunable reason\x00\x00worktree /tmp/bare\x00bare\x00\x00",
+			want: []worktreeRecord{{Path: unusualPath, Head: "a", Branch: "main"}, {Path: "/tmp/detached", Head: "b"}, {Path: "/tmp/bare", Bare: true}},
+		},
+		{
+			name:   "next record without empty attribute",
+			output: "worktree /tmp/first\x00branch custom/ref\x00worktree /tmp/second\x00HEAD c\x00",
+			want:   []worktreeRecord{{Path: "/tmp/first", Branch: "custom/ref"}, {Path: "/tmp/second", Head: "c"}},
+		},
+		{
+			name:   "final attribute terminator",
+			output: "worktree /tmp/final\x00HEAD d\x00",
+			want:   []worktreeRecord{{Path: "/tmp/final", Head: "d"}},
+		},
+		{
+			name:   "unterminated final attribute",
+			output: "worktree /tmp/final\x00HEAD d",
+			want:   []worktreeRecord{{Path: "/tmp/final", Head: "d"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseGitWorktrees(tc.output)
+			if !slices.Equal(got, tc.want) || (tc.want == nil && got != nil) {
+				t.Fatalf("records = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
@@ -37,8 +139,8 @@ func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
 	worktrees := []worktreeRecord{{Path: root, Branch: "main", Head: strings.Repeat("a", 40)}}
 	runGit := func(_ context.Context, args ...string) error {
-		if len(args) >= 7 && args[0] == "-C" && args[1] == root && args[2] == "worktree" && args[3] == "add" && args[4] == "-b" {
-			name, target := args[5], args[6]
+		if (len(args) == 8 || len(args) == 9) && args[0] == "-C" && args[1] == root && args[2] == "worktree" && args[3] == "add" && args[4] == "-b" && args[6] == "--" {
+			name, target := args[5], args[7]
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
@@ -145,6 +247,99 @@ func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	}
 }
 
+func TestWorktreeCreatePreservesFollowupPath(t *testing.T) {
+	t.Parallel()
+	parent := canonicalTestDir(t)
+	for _, tc := range []struct {
+		name, directory, quotedDirectory, from string
+	}{
+		{"space", "demo space", "demo space", ""},
+		{"tab and newline", "demo\tline\n", "demo\tline\n", "main~0"},
+		{"apostrophes", "demo''", "demo'\"'\"''\"'\"'", "main~0"},
+		{"shell characters", "demo\\$HOME;\"", "demo\\$HOME;\"", "main~0"},
+		{"unicode", "žluťoučký", "žluťoučký", "main~0"},
+		{"leading and trailing space", " demo ", " demo ", " \t "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(parent, tc.directory)
+			writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+			target := filepath.Join(parent, tc.directory+"-pricing-agent")
+			// The variable fixture prefix may itself contain an apostrophe.
+			quotedParent := strings.ReplaceAll(parent, "'", "'\"'\"'")
+			wantCommand := "cd '" + quotedParent + "/" + tc.quotedDirectory + "-pricing-agent' && scenery up"
+			for _, jsonOutput := range []bool{true, false} {
+				var output bytes.Buffer
+				calls := 0
+				opts := worktreeOptions{Name: "pricing agent", AppRoot: root, From: tc.from, JSON: jsonOutput}
+				err := runWorktreeCreateWithGit(t.Context(), &output, opts, func(_ context.Context, args ...string) error {
+					calls++
+					want := []string{"-C", root, "worktree", "add", "-b", "pricing-agent", "--", target}
+					if tc.from == "main~0" {
+						want = append(want, "main~0")
+					}
+					if !slices.Equal(args, want) {
+						t.Fatalf("Git argv = %#v, want %#v", args, want)
+					}
+					return nil
+				})
+				if err != nil || calls != 1 {
+					t.Fatalf("create: %v; Git calls = %d", err, calls)
+				}
+				if jsonOutput {
+					var result worktreeCreateResult
+					if err := decodeCLIJSON(output.Bytes(), &result); err != nil {
+						t.Fatal(err)
+					}
+					if !result.OK || result.Path != target || result.NextCommand != wantCommand || result.From != strings.TrimSpace(tc.from) {
+						t.Fatalf("create result = %+v, want literal path %q and command %q", result, target, wantCommand)
+					}
+				} else if want := "created worktree pricing-agent at " + target + "\nnext: " + wantCommand + "\n"; output.String() != want {
+					t.Fatalf("human output = %q, want %q", output.String(), want)
+				}
+				output.Reset()
+				gitError := errors.New("Git refused creation")
+				err = runWorktreeCreateWithGit(t.Context(), &output, opts, func(context.Context, ...string) error { return gitError })
+				if !errors.Is(err, gitError) || output.Len() != 0 {
+					t.Fatalf("Git failure = %v, output = %q", err, output.String())
+				}
+				if _, err := os.Lstat(target); !os.IsNotExist(err) {
+					t.Fatalf("callback-only create allocated a target: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWorktreeCreatePreservesRefOperand(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(canonicalTestDir(t), "demo")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	for _, from := range []string{"", " \t ", "main~1", "--no-checkout", "-", " main "} {
+		var output bytes.Buffer
+		calls := 0
+		err := runWorktreeCommandWithGit(t.Context(), &output,
+			[]string{"create", "operand", "--app-root", root, "--from=" + from, "-o", "json"},
+			func(_ context.Context, args ...string) error {
+				calls++
+				want := []string{"-C", root, "worktree", "add", "-b", "operand", "--", filepath.Join(filepath.Dir(root), "demo-operand")}
+				if strings.TrimSpace(from) != "" {
+					want = append(want, from)
+				}
+				if !slices.Equal(args, want) {
+					t.Fatalf("from %q: Git argv = %#v, want %#v", from, args, want)
+				}
+				return nil
+			}, nil)
+		if err != nil || calls != 1 {
+			t.Fatalf("from %q: create = %v; calls = %d", from, err, calls)
+		}
+		var result worktreeCreateResult
+		if err := decodeCLIJSON(output.Bytes(), &result); err != nil || !result.OK || result.From != strings.TrimSpace(from) {
+			t.Fatalf("from %q: result = %+v: %v", from, result, err)
+		}
+	}
+}
+
 func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFailsInProcess(t *testing.T) {
 	t.Parallel()
 
@@ -199,8 +394,95 @@ func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "is not registered") {
 		t.Fatalf("remove error = %v", err)
 	}
+	diagnostic := cliErrorDiagnostic(err)
+	if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.Message != err.Error() || diagnostic.ReportToken != "" {
+		t.Fatalf("unregistered target is not an invalid request: %v, %+v", err, diagnostic)
+	}
 	if _, err := os.Stat(filepath.Join(unlisted, ".scenery", "worktree-db.json")); err != nil {
 		t.Fatalf("unlisted target state was removed: %v", err)
+	}
+}
+
+func TestWorktreeRemoveRequiresUniqueRegisteredTarget(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(canonicalTestDir(t), "demo")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	defaultPath := defaultWorktreePath(root, "target")
+	branchPath := filepath.Join(filepath.Dir(root), "by-branch")
+	basenamePath := filepath.Join(filepath.Dir(root), "target")
+	defaultMatch := worktreeRecord{Path: defaultPath, Branch: "other"}
+	branchMatch := worktreeRecord{Path: branchPath, Branch: "target"}
+	spacePath := defaultPath + " "
+	spaceMatch := worktreeRecord{Path: spacePath, Branch: "target"}
+	spaceAmbiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{defaultPath, spacePath})
+	listFailure := errors.New("Git inventory unavailable")
+	ambiguity := fmt.Sprintf("git worktree %q is ambiguous; matching paths: %q", "target", []string{branchPath, defaultPath})
+	for _, tc := range []struct {
+		name      string
+		worktrees []worktreeRecord
+		listErr   error
+		wantPath  string
+		wantError string
+		ambiguous bool
+	}{
+		{name: "default path", worktrees: []worktreeRecord{defaultMatch}, wantPath: defaultPath},
+		{name: "branch", worktrees: []worktreeRecord{branchMatch}, wantPath: branchPath},
+		{name: "basename", worktrees: []worktreeRecord{{Path: basenamePath, Branch: "other"}}, wantPath: basenamePath},
+		{name: "one path matches multiple rules", worktrees: []worktreeRecord{{Path: defaultPath, Branch: "target"}}, wantPath: defaultPath},
+		{name: "duplicate normalized path", worktrees: []worktreeRecord{branchMatch, {Path: branchPath + "/.", Branch: "target"}}, wantPath: branchPath},
+		{name: "ambiguous", worktrees: []worktreeRecord{branchMatch, defaultMatch}, wantError: ambiguity, ambiguous: true},
+		{name: "ambiguous reversed", worktrees: []worktreeRecord{defaultMatch, branchMatch}, wantError: ambiguity, ambiguous: true},
+		{name: "trailing-space ambiguity", worktrees: []worktreeRecord{defaultMatch, spaceMatch}, wantError: spaceAmbiguity, ambiguous: true},
+		{name: "trailing-space ambiguity reversed", worktrees: []worktreeRecord{spaceMatch, defaultMatch}, wantError: spaceAmbiguity, ambiguous: true},
+		{name: "unique trailing-space branch", worktrees: []worktreeRecord{spaceMatch}, wantPath: spacePath},
+		{name: "trailing-space path is not default", worktrees: []worktreeRecord{{Path: spacePath, Branch: "other"}}, wantError: `git worktree "target" is not registered`},
+		{name: "unregistered", worktrees: []worktreeRecord{{Path: root, Branch: "main"}}, wantError: `git worktree "target" is not registered`},
+		{name: "inventory failure", listErr: listFailure, wantError: listFailure.Error()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			calls := 0
+			err := runWorktreeRemoveWithGit(t.Context(), &output, worktreeOptions{Name: "target", AppRoot: root, JSON: true},
+				func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
+					if gotRoot != root {
+						t.Fatalf("inventory root = %q, want %q", gotRoot, root)
+					}
+					return tc.worktrees, tc.listErr
+				}, func(_ context.Context, args ...string) error {
+					calls++
+					want := []string{"-C", root, "worktree", "remove", tc.wantPath}
+					if tc.wantPath == "" || !slices.Equal(args, want) {
+						t.Fatalf("unexpected mutation: %#v, want %#v", args, want)
+					}
+					return nil
+				})
+			if tc.wantError != "" {
+				if err == nil || err.Error() != tc.wantError || calls != 0 || output.Len() != 0 {
+					t.Fatalf("refusal = %v, mutations = %d, output = %s", err, calls, &output)
+				}
+				if tc.ambiguous && (cliExitCode(err) != 3 || cliErrorDiagnostic(err).Code != "SCN8003") {
+					t.Fatalf("ambiguity is not a precondition: %v", err)
+				}
+				if tc.listErr != nil && !errors.Is(err, listFailure) {
+					t.Fatalf("inventory error was lost: %v", err)
+				}
+				if !tc.ambiguous && tc.listErr == nil {
+					diagnostic := cliErrorDiagnostic(err)
+					if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.Message != tc.wantError || diagnostic.ReportToken != "" {
+						t.Fatalf("no match is not an invalid request: %v, %+v", err, diagnostic)
+					}
+				}
+				return
+			}
+			var removed worktreeRemoveResult
+			if err != nil || calls != 1 {
+				t.Fatalf("unique removal = %v, mutations = %d", err, calls)
+			}
+			if err := decodeCLIJSON(output.Bytes(), &removed); err != nil || !removed.OK || removed.Path != tc.wantPath {
+				t.Fatalf("unique result = %+v, decode error = %v", removed, err)
+			}
+		})
 	}
 }
 
@@ -211,4 +493,53 @@ func evalPathForTest(t *testing.T, path string) string {
 		t.Fatalf("eval symlinks %s: %v", path, err)
 	}
 	return evaluated
+}
+
+func TestWorktreeRemovePreservesParsedBranchName(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(canonicalTestDir(t), "demo")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	prefixed := filepath.Join(filepath.Dir(root), "unrelated")
+	actual := filepath.Join(filepath.Dir(root), "actual-target")
+	prefixedInventory := "worktree " + prefixed + "\x00branch refs/heads/refs/heads/target\x00\x00"
+	actualInventory := "worktree " + actual + "\x00branch refs/heads/target\x00\x00"
+	for _, tc := range []struct {
+		name, request, inventory, wantPath string
+	}{
+		{"prefixed branch is not target", "target", prefixedInventory, ""},
+		{"literal target is unique", "target", prefixedInventory + actualInventory, actual},
+		{"prefixed branch remains selectable by basename", "unrelated", prefixedInventory, prefixed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			calls := 0
+			err := runWorktreeRemoveWithGit(t.Context(), &output, worktreeOptions{Name: tc.request, AppRoot: root, JSON: true},
+				func(context.Context, string) ([]worktreeRecord, error) {
+					return parseGitWorktrees(tc.inventory), nil
+				}, func(_ context.Context, args ...string) error {
+					calls++
+					if !slices.Equal(args, []string{"-C", root, "worktree", "remove", tc.wantPath}) {
+						t.Fatalf("wrong removal argv = %q", args)
+					}
+					return nil
+				})
+			if tc.wantPath == "" {
+				if err == nil || err.Error() != `git worktree "target" is not registered` || calls != 0 || output.Len() != 0 {
+					t.Fatalf("nonmatch = %v, mutations = %d, output = %s", err, calls, &output)
+				}
+				diagnostic := cliErrorDiagnostic(err)
+				if cliExitCode(err) != 2 || diagnostic.Code != "SCN8001" || diagnostic.Message != err.Error() || diagnostic.ReportToken != "" {
+					t.Fatalf("literal nonmatch is not an invalid request: %v, %+v", err, diagnostic)
+				}
+				return
+			}
+			var removed worktreeRemoveResult
+			if err != nil || calls != 1 {
+				t.Fatalf("exact removal = %v, mutations = %d", err, calls)
+			}
+			if err := decodeCLIJSON(output.Bytes(), &removed); err != nil || !removed.OK || removed.Path != tc.wantPath {
+				t.Fatalf("exact result = %+v: %v", removed, err)
+			}
+		})
+	}
 }

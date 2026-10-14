@@ -27,7 +27,7 @@ func DiscoverWorktrees(home string) ([]WorktreeDiscovery, error) {
 	}
 	result := make([]WorktreeDiscovery, 0, len(entries))
 	for _, entry := range entries {
-		if decoded, err := hex.DecodeString(entry.Name()); err != nil || len(decoded) != 32 {
+		if decoded, err := hex.DecodeString(entry.Name()); err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != entry.Name() {
 			continue
 		}
 		item := WorktreeDiscovery{Key: entry.Name(), Status: "incompatible-or-invalid"}

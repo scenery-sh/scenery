@@ -63,6 +63,13 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 	ctx, cancel := context.WithTimeout(parent, 45*time.Minute)
 	defer cancel()
 	summary = map[string]any{"acceptance_plan": "0167", "candidate": harnessLocalSceneryBinaryPath(repoRoot)}
+	if !measureCosts {
+		status, err := checkHarnessWorktreeStatusSchema(ctx, repoRoot)
+		summary["status_schema"] = status
+		if err != nil {
+			return summary, err.Error()
+		}
+	}
 	if !harnessDockerAvailable(ctx) {
 		return summary, "Docker is unavailable; mandatory worktree managed-runtime acceptance did not run"
 	}

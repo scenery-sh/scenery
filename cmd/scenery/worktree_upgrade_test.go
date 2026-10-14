@@ -4,14 +4,117 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/stateupgrade"
 )
+
+func TestWorktreeUpgradeKeepsExplicitRootBeforeAdmission(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		suffix    string
+		missing   bool
+		retained  bool
+		malformed bool
+	}{
+		{name: "missing marker", retained: true},
+		{name: "missing checkout", missing: true, retained: true},
+		{name: "missing checkout without state", missing: true},
+		{name: "malformed marker", retained: true, malformed: true},
+		{name: "missing marker trailing space", suffix: " ", retained: true},
+		{name: "missing checkout trailing tab", suffix: "\t", missing: true, retained: true},
+		{name: "malformed marker trailing newline", suffix: "\n", retained: true, malformed: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := t.TempDir()
+			parent, home := filepath.Join(fixture, "parent"), filepath.Join(fixture, "home")
+			if err := os.MkdirAll(parent, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(appcfg.ConfigPath(parent), []byte(`{"name":"parent","envs":{"local":{"default":true}}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			child := filepath.Join(parent, "child"+test.suffix)
+			if !test.missing {
+				if err := os.Mkdir(child, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			paths, err := localagent.PathsForWorktree(home, child)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.retained {
+				if err := os.MkdirAll(paths.Directory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				// Selection must not decode either sentinel or bypass a pending
+				// upgrade. Missing configuration refuses before mutation authority.
+				for _, name := range []string{paths.Record, filepath.Join(paths.Directory, "spec-upgrade.json")} {
+					if err := os.WriteFile(name, []byte("invalid retained sentinel"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if test.malformed {
+				if err := os.WriteFile(appcfg.ConfigPath(child), []byte("{"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			agentPaths := localagent.PathsForHome(home)
+			commandAgentPathsOverride = &agentPaths
+			t.Cleanup(func() { commandAgentPathsOverride = nil })
+			snapshot := func() map[string]string {
+				files := map[string]string{}
+				if err := filepath.WalkDir(fixture, func(path string, entry fs.DirEntry, err error) error {
+					if err != nil {
+						return err
+					}
+					files[path] = "directory"
+					if !entry.IsDir() {
+						data, err := os.ReadFile(path)
+						if err != nil {
+							return err
+						}
+						files[path] = string(data)
+					}
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+				return files
+			}
+			before := snapshot()
+			for _, apply := range []bool{false, true} {
+				var output bytes.Buffer
+				opts := worktreeOptions{AppRoot: child, JSON: true, Yes: apply, ExpectedRevision: "sha256:" + strings.Repeat("a", 64)}
+				err := runWorktreeUpgrade(t.Context(), &output, opts)
+				wantExit := 2
+				if test.malformed {
+					wantExit = 3
+					if _, ok := errors.AsType[*appcfg.ConfigError](err); !ok {
+						t.Fatalf("malformed selected config: %v", err)
+					}
+				} else if !errors.Is(err, appcfg.ErrRootNotFound) {
+					t.Fatalf("missing selected config: %v", err)
+				}
+				if cliExitCode(err) != wantExit || !strings.Contains(err.Error(), paths.AppRoot) || output.Len() != 0 {
+					t.Fatalf("selected-root refusal (apply=%t): %v, output %q", apply, err, output.String())
+				}
+				if !maps.Equal(before, snapshot()) {
+					t.Fatal("refusal changed fixture bytes or allocated state")
+				}
+			}
+		})
+	}
+}
 
 func TestWorktreeUpgradeArgumentContract(t *testing.T) {
 	preview, err := parseWorktreeArgs([]string{"upgrade", "--app-root", "/app", "-o", "json"})

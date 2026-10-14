@@ -80,11 +80,7 @@ func runSceneryConsoleLogsFallback(ctx context.Context, stdout io.Writer, opts l
 }
 
 func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, opts logsOptions) (err error) {
-	start, err := resolveAppRoot(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	appRoot, cfg, err := app.DiscoverRoot(start)
+	appRoot, appID, appName, err := discoverConsoleAppIdentity(opts.AppRoot)
 	if err != nil {
 		return err
 	}
@@ -119,8 +115,8 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	size := normalizeTerminalSize(getConsoleSize(stdin))
 	state := devConsoleState{
 		opts:      opts,
-		appID:     cfg.AppID(),
-		appName:   cfg.Name,
+		appID:     appID,
+		appName:   appName,
 		appRoot:   appRoot,
 		sessionID: sessionID,
 		selected:  firstNonEmpty(opts.Source, "all"),
@@ -185,6 +181,22 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 			}
 		}
 	}
+}
+
+// Select the retained log identity once; desired config supplies only its
+// display name, so malformed config cannot redirect or strand retained reads.
+func discoverConsoleAppIdentity(option string) (root, appID, appName string, err error) {
+	root, appID, err = discoverRuntimeAppIdentity(option)
+	if err != nil {
+		return "", "", "", err
+	}
+	appName = appID
+	if data, readErr := os.ReadFile(app.ConfigPath(root)); readErr == nil {
+		if cfg, configErr := app.ParseConfig(root, data); configErr == nil {
+			appName = cfg.Name
+		}
+	}
+	return root, appID, appName, nil
 }
 
 type devConsoleState struct {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -12,9 +13,85 @@ import (
 	"testing"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/stateupgrade"
 	"scenery.sh/internal/termstyle"
 )
+
+func TestConsoleIdentityKeepsScopeAndDisplayName(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", canonicalTestDir(t))
+	parent := canonicalTestDir(t)
+	writeTestAppFile(t, parent, ".scenery.json", `{"name":"display-name","id":"stable-id"}`)
+	for _, name := range []string{"configured", "ordinary-subdirectory", "missing-child", "malformed-retained", "pending"} {
+		t.Run(name, func(t *testing.T) {
+			selected, wantRoot, wantID, wantName := parent, parent, "stable-id", "display-name"
+			if name != "configured" {
+				selected = filepath.Join(parent, name)
+			}
+			paths, err := commandWorktreePaths(selected)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := map[string][]byte{}
+			switch name {
+			case "ordinary-subdirectory":
+				if err := os.Mkdir(selected, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			case "malformed-retained", "pending":
+				writeTestAppFile(t, selected, ".scenery.json", `{"name":`)
+				if err := os.MkdirAll(paths.Directory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				data, err := json.Marshal(localagent.NewWorktreeRecord(paths, "retained-id"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				files[paths.Record] = data
+				if name == "pending" {
+					files[filepath.Join(paths.Directory, stateupgrade.PendingName)] = []byte("pending publication")
+				}
+				for path, data := range files {
+					if err := os.WriteFile(path, data, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				wantRoot, wantID, wantName = selected, "retained-id", "retained-id"
+			}
+			root, id, display, err := discoverConsoleAppIdentity(selected)
+			switch name {
+			case "missing-child":
+				if !errors.Is(err, app.ErrRootNotFound) || cliExitCode(err) != 2 || !strings.Contains(err.Error(), selected) {
+					t.Fatalf("missing console root classification: %v", err)
+				}
+			case "pending":
+				if !errors.Is(err, stateupgrade.ErrPrecondition) || cliExitCode(err) != 3 {
+					t.Fatalf("pending console identity admitted: %v", err)
+				}
+			default:
+				if err != nil || root != wantRoot || id != wantID || display != wantName {
+					t.Fatalf("console identity = %q, %q, %q, %v; want %q, %q, %q", root, id, display, err, wantRoot, wantID, wantName)
+				}
+			}
+			entries, readErr := os.ReadDir(paths.Directory)
+			if len(files) == 0 {
+				if !errors.Is(readErr, os.ErrNotExist) {
+					t.Fatalf("console allocated retained authority: %v", readErr)
+				}
+			} else if readErr != nil || len(entries) != len(files) {
+				t.Fatalf("console changed retained directory: %v, %v", entries, readErr)
+			}
+			for path, before := range files {
+				after, err := os.ReadFile(path)
+				if err != nil || !bytes.Equal(before, after) {
+					t.Fatalf("console changed retained metadata: %v", err)
+				}
+			}
+		})
+	}
+}
 
 func TestRenderDevConsoleShowsSourcesLogsAndExpandedJSON(t *testing.T) {
 	t.Parallel()

@@ -1,15 +1,18 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
+
+	"scenery.sh/internal/harnessevidence"
 )
 
 const worktreeListKind = "scenery.worktree.list"
@@ -140,10 +143,10 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 	}
 	name := sanitizeWorktreeName(opts.Name)
 	if name == "" {
-		return fmt.Errorf("worktree name is empty after sanitization")
+		return usageErrorf("worktree name is empty after sanitization")
 	}
 	target := defaultWorktreePath(appRoot, name)
-	args := []string{"-C", appRoot, "worktree", "add", "-b", name, target}
+	args := []string{"-C", appRoot, "worktree", "add", "-b", name, "--", target}
 	if strings.TrimSpace(opts.From) != "" {
 		args = append(args, opts.From)
 	}
@@ -157,7 +160,7 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 		Path:               target,
 		Branch:             name,
 		From:               strings.TrimSpace(opts.From),
-		NextCommand:        "cd " + target + " && scenery up",
+		NextCommand:        harnessevidence.ReproCommand([]string{"scenery", "up"}, target),
 	}
 	result.Message = "Git worktree created."
 	if opts.JSON {
@@ -229,39 +232,59 @@ func defaultWorktreePath(appRoot, name string) string {
 func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) (string, error) {
 	cleanName := sanitizeWorktreeName(name)
 	if cleanName == "" {
-		return "", fmt.Errorf("worktree name is empty after sanitization")
+		return "", usageErrorf("worktree name is empty after sanitization")
 	}
 	worktrees, err := listWorktrees(ctx, appRoot)
 	if err != nil {
 		return "", err
 	}
 	defaultPath := defaultWorktreePath(appRoot, cleanName)
+	matches := make(map[string]string)
 	for _, wt := range worktrees {
-		if cleanAbsPath(wt.Path) == cleanAbsPath(defaultPath) || strings.TrimPrefix(wt.Branch, "refs/heads/") == cleanName || filepath.Base(wt.Path) == cleanName {
-			return wt.Path, nil
+		path := filepath.Clean(wt.Path)
+		if path == filepath.Clean(defaultPath) || wt.Branch == cleanName || filepath.Base(wt.Path) == cleanName {
+			if _, exists := matches[path]; !exists {
+				matches[path] = wt.Path
+			}
 		}
 	}
-	return "", fmt.Errorf("git worktree %q is not registered", cleanName)
+	if len(matches) == 0 {
+		return "", usageErrorf("git worktree %q is not registered", cleanName)
+	}
+	if len(matches) == 1 {
+		for _, path := range matches {
+			return path, nil
+		}
+	}
+	paths := make([]string, 0, len(matches))
+	for path := range matches {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	return "", preconditionErrorf("git worktree %q is ambiguous; matching paths: %q", cleanName, paths)
 }
 
 func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, error) {
-	output, err := gitCommandOutput(ctx, appRoot, "worktree", "list", "--porcelain")
+	output, err := gitCommandOutput(ctx, appRoot, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return nil, err
 	}
+	return parseGitWorktrees(output), nil
+}
+
+// NUL-delimited attributes keep newlines and other path bytes inside their value.
+func parseGitWorktrees(output string) []worktreeRecord {
 	var result []worktreeRecord
 	var current *worktreeRecord
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
+	for field := range strings.SplitSeq(output, "\x00") {
+		if field == "" {
 			if current != nil {
 				result = append(result, *current)
 				current = nil
 			}
 			continue
 		}
-		key, value, _ := strings.Cut(line, " ")
+		key, value, _ := strings.Cut(field, " ")
 		if key == "worktree" {
 			if current != nil {
 				result = append(result, *current)
@@ -281,13 +304,10 @@ func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, er
 			current.Bare = true
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
 	if current != nil {
 		result = append(result, *current)
 	}
-	return result, nil
+	return result
 }
 
 func runGitCommand(ctx context.Context, args ...string) error {
@@ -302,9 +322,11 @@ func runGitCommand(ctx context.Context, args ...string) error {
 func gitCommandOutput(ctx context.Context, appRoot string, args ...string) (string, error) {
 	all := append([]string{"-C", appRoot}, args...)
 	cmd := exec.CommandContext(ctx, "git", all...)
-	output, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
 	if err != nil {
-		return "", preconditionErrorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(string(output)))
+		return "", preconditionErrorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(output), nil
 }
