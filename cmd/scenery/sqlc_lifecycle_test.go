@@ -172,6 +172,102 @@ sql:
 	}
 }
 
+func TestSQLCAtlasSchemaHasOneProducer(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","id":"sqlc-atlas","generators":{"sqlc":{"provider":"sqlc","dev_url":"postgres://scratch","schemas":[{"sqlc_schema":"auth/db/gen/schema.sql","atlas_source":"auth/db/schema.hcl"}]}}}`)
+	if err := os.Remove(filepath.Join(root, "auth/db/gen/schema.sql")); err != nil {
+		t.Fatal(err)
+	}
+	for _, inspect := range []bool{false, true} {
+		var output strings.Builder
+		var err error
+		if inspect {
+			err = runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &output)
+		} else {
+			err = runGenerate(t.Context(), &output, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		var graph generatorGraphResponse
+		if err := decodeCLIJSON([]byte(output.String()), &graph); err != nil {
+			t.Fatal(err)
+		}
+		var roots []string
+		var schemaOwners, schemaInputs int
+		for _, node := range graph.Nodes {
+			for _, output := range node.Outputs {
+				if output.Path == "auth/db/gen/schema.sql" && output.Kind == "sql_schema" {
+					schemaOwners++
+				}
+			}
+			if node.ID == "sqlc" {
+				for _, input := range node.Inputs {
+					if input.Kind == "output_root" {
+						roots = append(roots, input.Path)
+					}
+					if input.Kind == "sql_schema" && input.Path == "auth/db/gen/schema.sql" && input.Producer == "sqlc.schema.render.0" {
+						schemaInputs++
+					}
+				}
+			}
+		}
+		if !reflect.DeepEqual(roots, []string{"auth/db/gen"}) || schemaOwners != 1 || schemaInputs != 1 {
+			t.Fatalf("roots = %v, schema owners = %d, schema inputs = %d", roots, schemaOwners, schemaInputs)
+		}
+	}
+}
+
+func TestSQLCRunsFromSelectedConfigDirectory(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"sqlc.yaml", "queries.yaml"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestAppFile(t, root, "app.scn", "application \"demo\" {}\nworkspace { managed_generated_roots = [\"config/gen\"] }\n")
+			writeTestAppFile(t, root, "config/"+name, "version: \"2\"\nsql:\n - engine: sqlite\n   schema: schema.sql\n   queries: queries.sql\n   gen:\n     go:\n       out: gen\n")
+			writeTestAppFile(t, root, "config/schema.sql", "create table items (id integer primary key);\n")
+			writeTestAppFile(t, root, "config/queries.sql", "-- name: ListItems :many\nselect id from items;\n")
+			cfg := appcfg.Config{Name: "demo"}
+			cfg.Generators.SQLC.Config = "config/" + name
+			plan, _, err := buildSQLCGeneratorPlan(root, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var op *sqlcOperation
+			hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+				wantArgs := []string{"generate"}
+				if name != "sqlc.yaml" {
+					wantArgs = append(wantArgs, "-f", name)
+				}
+				if req.Dir != filepath.Join(op.stage, "config") || !reflect.DeepEqual(req.Args, wantArgs) {
+					t.Fatalf("SQLC directory = %q, args = %v", req.Dir, req.Args)
+				}
+				return nil
+			}, nil)
+			op, err = newSQLCOperation(root, plan, hooks, io.Discard, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := os.RemoveAll(op.stage); err != nil {
+					t.Error(err)
+				}
+			}()
+			if err := op.capture(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if err := op.renderSQLC(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := op.files["config/gen/db.go"]; !ok {
+				t.Fatalf("staged output = %v", op.files)
+			}
+		})
+	}
+}
+
 func TestSQLCFailureDoesNotPublishRenderedSchema(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -2816,7 +2816,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Source/diagnostic revision consistency, selected planner scopes, read-only SQLC input capture and complete publication with current-scope ownership and original-byte preconditions.",
+      "summary": "Source/diagnostic revision consistency, selected planner scopes, config-relative SQLC execution with distinct Atlas producers, read-only input capture and complete ownership-bound publication.",
       "tags": [
         "contract",
         "cli",
@@ -2960,7 +2960,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "Repository validation and named probes including real SQLC generation and publication ownership proof.",
+      "summary": "Repository validation and named probes including real SQLC generation with nested config paths and publication ownership proof.",
       "tags": [
         "harness",
         "agents",

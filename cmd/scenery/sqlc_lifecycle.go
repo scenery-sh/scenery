@@ -267,11 +267,12 @@ func (op *sqlcOperation) renderSchema(ctx context.Context, schema sqlcSchemaPlan
 }
 
 func (op *sqlcOperation) renderSQLC(ctx context.Context) error {
+	configPath := filepath.FromSlash(firstNonEmpty(op.spec.ConfigPath, "sqlc.yaml"))
 	args := []string{"generate"}
-	if op.spec.ConfigPath != "" && op.spec.ConfigPath != "sqlc.yaml" {
-		args = append(args, "-f", op.spec.ConfigPath)
+	if name := filepath.Base(configPath); name != "sqlc.yaml" {
+		args = append(args, "-f", name)
 	}
-	if err := op.hooks.runExec(ctx, lifecycleExecRequest{Dir: op.stage, Env: envpolicy.Environ(), Program: "sqlc", Args: args, Stdout: os.Stderr, Stderr: os.Stderr}); err != nil {
+	if err := op.hooks.runExec(ctx, lifecycleExecRequest{Dir: filepath.Join(op.stage, filepath.Dir(configPath)), Env: envpolicy.Environ(), Program: "sqlc", Args: args, Stdout: os.Stderr, Stderr: os.Stderr}); err != nil {
 		return err
 	}
 	// SQLC may not mutate captured authored inputs or its schema producer's bytes.
@@ -505,7 +506,7 @@ func sqlcLifecycleNodes(spec *sqlcGeneratorPlan, op *sqlcOperation) []lifecycle.
 	refs := []lifecycle.Reference{{Name: "sqlc.inputs", Kind: "input_set", Producer: "sqlc.source.capture"}}
 	// Output roots are authored destination scopes for the produced file set,
 	// not overlapping claims against the schema producer's individual files.
-	for index, output := range spec.Record.Outputs {
+	for index, output := range sqlcOutputRoots(spec.Config) {
 		refs = append(refs, lifecycle.Reference{Name: fmt.Sprintf("sqlc.files.root.%d", index), Kind: "output_root", Path: output, Ownership: lifecycle.Managed})
 	}
 	for index, schema := range spec.Schemas {

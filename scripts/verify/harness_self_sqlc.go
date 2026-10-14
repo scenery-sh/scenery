@@ -219,6 +219,39 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 		return proof, fmt.Errorf("output move removed revoked authored Go input")
 	}
 	assertions = append(assertions, "output move preserves former managed Go files and the published source identity")
+	// The staged tool must resolve relative paths from the selected config's
+	// directory, matching the read-only plan for either config filename.
+	if err := write("app.scn", strings.Replace(files["app.scn"], "[\"db/gen\"]", "[\"config/gen\"]", 1)); err != nil {
+		return proof, err
+	}
+	for path, contents := range map[string]string{
+		"config/schema.sql": files["db/schema.sql"],
+		"config/query.sql":  files["db/query.sql"],
+	} {
+		if err := write(path, contents); err != nil {
+			return proof, err
+		}
+	}
+	nestedConfig := "version: \"2\"\nsql:\n - engine: sqlite\n   schema: schema.sql\n   queries: query.sql\n   gen:\n     go:\n       package: db\n       out: gen\n"
+	for _, name := range []string{"sqlc.yaml", "codegen.yaml"} {
+		if err := write("config/"+name, nestedConfig); err != nil {
+			return proof, err
+		}
+		if err := write(".scenery.json", strings.Replace(files[".scenery.json"], `"provider":"sqlc"`, `"provider":"sqlc","config":"config/`+name+`"`, 1)); err != nil {
+			return proof, err
+		}
+		if _, err := run(); err != nil {
+			return proof, err
+		}
+		generated, err := os.ReadFile(filepath.Join(root, "config/gen/query.sql.go"))
+		if err != nil || !bytes.Contains(generated, []byte("ListItems")) {
+			return proof, fmt.Errorf("nested SQLC config %s did not publish in its declared root: %v", name, err)
+		}
+		if _, err := os.Lstat(filepath.Join(root, "gen")); !os.IsNotExist(err) {
+			return proof, fmt.Errorf("nested SQLC config %s wrote into the workspace root", name)
+		}
+	}
+	assertions = append(assertions, "nested default and custom SQLC configs resolve inputs and outputs from their own directory")
 	proof["assertions"] = assertions
 	proof["assertion_count"] = len(assertions)
 	proof["proof"] = "passed"

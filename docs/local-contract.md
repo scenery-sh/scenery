@@ -504,7 +504,8 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 
 - `generators.sqlc` is a beta lifecycle config for SQLC generation. `provider` may be empty or `sqlc`; `config` defaults to `sqlc.yaml`; schema files listed in `sqlc.yaml` are treated as inputs. Explicit `atlas_source` schemas are refreshed only when an explicit `dev_url` is configured; `postgres://`, `postgresql://`, and `docker://` Atlas dev URLs pass through to Atlas unchanged. SQLC schema blocks whose schema path belongs to a configured database service must use a Postgres SQLC engine (`postgresql`/`postgres`). SQLC generation is a generated-source lifecycle and must not apply database schema or seed data.
 - SQLC version-2 configuration references resolve relative to the selected
-  config file; unsupported versions are rejected while planning, including
+  config file, and the staged SQLC command runs from that file's directory;
+  unsupported versions are rejected while planning, including
   dry-run and inspection. Inputs and outputs must be confined non-symlink workspace paths;
   output scopes must be declared in `workspace.managed_generated_roots`. The
   generator inspection reports every Go, JSON and plugin output scope, including
@@ -513,7 +514,8 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
   Read-only planning captures the exact schema/query/local-plugin input digest,
   and response validation checks it again even outside compiler revision membership.
   Authored SQL schemas are inputs, while Atlas-produced schemas have explicit producers
-  and scratch-infrastructure authority. Code generation runs against captured
+  and scratch-infrastructure authority. Atlas schema files are producer outputs,
+  not SQLC code-output roots. Code generation runs against captured
   bytes in private staging, then revalidates inputs and tool identities before
   one recoverable artifact publication. Every declared code-output root must
   contain produced files; a successful empty plugin cannot retire prior output.

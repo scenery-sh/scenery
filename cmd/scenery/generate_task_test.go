@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/lifecycle"
 )
 
 func TestParseGenerateArgs(t *testing.T) {
@@ -243,13 +245,18 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "auth/db/gen/schema.sql")); err != nil {
 		t.Fatal(err)
 	}
-	plan := &sqlcGeneratorPlan{
-		ConfigPath: "sqlc.yaml",
-		Schemas: []sqlcSchemaPlan{{
+	cfg := appcfg.Config{Name: "demo"}
+	cfg.Generators.SQLC = appcfg.SQLCGeneratorConfig{
+		Config: "sqlc.yaml",
+		Schemas: []appcfg.SQLCGeneratorSchema{{
 			SQLCSchema:  "auth/db/gen/schema.sql",
 			AtlasSource: "auth/db/schema.hcl",
 			AtlasDevURL: "postgres://dev",
 		}},
+	}
+	plan, _, err := buildSQLCGeneratorPlan(root, cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	var ran []lifecycleExecRequest
@@ -263,14 +270,23 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 		return []byte("create schema scenery_auth;\n"), nil
 	})
 
-	var out bytes.Buffer
-	if err := runSQLCGeneratorWithHooks(context.Background(), &out, root, plan, false, hooks); err != nil {
-		t.Fatalf("runSQLCGenerator returned error: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(root, "auth/db/gen/schema.sql"))
+	op, err := newSQLCOperation(root, plan, hooks, io.Discard, true)
 	if err != nil {
-		t.Fatalf("read generated schema: %v", err)
+		t.Fatal(err)
 	}
+	defer func() {
+		if err := os.RemoveAll(op.stage); err != nil {
+			t.Error(err)
+		}
+	}()
+	graph, err := lifecycle.New(sqlcLifecycleNodes(plan, op))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := graph.Run(t.Context(), []lifecycle.ID{"sqlc.source.validate"}, []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}); err != nil {
+		t.Fatalf("SQLC render plan returned error: %v", err)
+	}
+	data := op.files["auth/db/gen/schema.sql"]
 	if text := string(data); !strings.Contains(text, "scenery generate sqlc") || !strings.Contains(text, "create schema scenery_auth") {
 		t.Fatalf("schema text = %q", text)
 	}
