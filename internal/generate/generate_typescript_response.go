@@ -557,10 +557,13 @@ func tsResponseStatus(response map[string]any) int {
 	return status
 }
 
+// tsResponseLimitBytes is the binding's effective response body limit, the
+// one its generated server handler enforces, so the client accepts every body
+// the server may send.
 func tsResponseLimitBytes(httpSpec map[string]any) int {
 	maximum := 16 << 20
 	if limits, _ := httpSpec["response_limit"].(map[string]any); limits != nil {
-		if value, ok := integerValue(limits["bytes"]); ok && value > 0 {
+		if value, ok := integerValue(limits["body_bytes"]); ok && value > 0 {
 			maximum = value
 		}
 	}
