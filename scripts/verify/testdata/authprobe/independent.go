@@ -188,4 +188,6 @@ CREATE TRIGGER authprobe_callback_failure BEFORE UPDATE ON scenery.scenery_auth_
 	p.check(retried.StatusCode == 302 && strings.Contains(retried.Header.Get("Location"), "connection_connected=independent"), "the same pending callback succeeds after storage recovers")
 	_, err = p.q.GetConnectionByUser(p.ctx, authdb.GetConnectionByUserParams{UserID: other, ProviderID: "independent"})
 	p.check(err != nil, "external credentials remain owned by the initiating user")
+	connectionStartCookieJourney(p, session)
+	connectionStartStorageJourney(p, session)
 }

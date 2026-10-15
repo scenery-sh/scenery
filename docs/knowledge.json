@@ -25,9 +25,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-14",
-      "review_after": "2026-11-13",
-      "summary": "Provider-neutral bearer access with request and admitted workload authority, trusted OAuth2/OIDC and Google verified-email metadata, retryable callback storage failures, actual expiry for nonrefreshable grants, retryable throttling, initialization-safe callback defaults, typed domain failures and serialized callback/disconnect lifecycle.",
+      "last_reviewed": "2026-10-15",
+      "review_after": "2026-11-14",
+      "summary": "Provider-neutral bearer access with request and admitted workload authority, trusted OAuth2/OIDC and Google verified-email metadata, retryable callback storage failures, actual expiry for nonrefreshable grants, retryable throttling, initialization-safe callback defaults, hostname-bound browser cookies, retryable session reads, persisted exhausted-grant status, typed domain failures and serialized callback/disconnect lifecycle.",
       "tags": [
         "auth",
         "connections",

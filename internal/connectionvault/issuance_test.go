@@ -32,8 +32,11 @@ func TestVaultIssuesUnknownExpiryGrantOnce(t *testing.T) {
 				if err != nil || token != p.grant.AccessToken || len(s.row.AccessCiphertext) != 0 {
 					t.Fatalf("refresh issuance: %v", err)
 				}
-			} else if errs.Code(err) != errs.ConnectionReauthRequired || token != "" {
-				t.Fatalf("unknown expiry reused: %v", err)
+			} else {
+				status, statusErr := v.Status(t.Context(), "owner", "independent")
+				if errs.Code(err) != errs.ConnectionReauthRequired || token != "" || statusErr != nil || status.Status != ReauthRequired || status.ReauthReason != "refresh_credential_missing" {
+					t.Fatalf("exhausted unknown-expiry grant: %v, status=%#v, statusErr=%v", err, status, statusErr)
+				}
 			}
 		}
 		if refreshable && p.calls != 2 {
@@ -75,8 +78,11 @@ func TestVaultUsesNonrefreshableGrantUntilActualExpiry(t *testing.T) {
 			if err != nil || token != p.grant.AccessToken {
 				t.Fatalf("valid short grant at %s: %v", elapsed, err)
 			}
-		} else if token != "" || errs.Code(err) != errs.ConnectionReauthRequired {
-			t.Fatalf("expired grant at %s: %v", elapsed, err)
+		} else {
+			status, statusErr := v.Status(t.Context(), "owner", "independent")
+			if token != "" || errs.Code(err) != errs.ConnectionReauthRequired || statusErr != nil || status.Status != ReauthRequired || status.ReauthReason != "refresh_credential_missing" {
+				t.Fatalf("expired grant at %s: %v, status=%#v, statusErr=%v", elapsed, err, status, statusErr)
+			}
 		}
 	}
 	if p.calls != 0 || !s.row.AccessExpiresAt.Equal(p.grant.ExpiresAt) {
@@ -109,6 +115,21 @@ func TestVaultDisconnectAlwaysExpiresPendingStates(t *testing.T) {
 			} else if err != nil || status.Status != Disconnected || s.pendingStates != 0 || s.expiredStates != 2 {
 				t.Fatalf("disconnect did not expire pending states: %v", err)
 			}
+		}
+	}
+}
+
+func TestVaultExhaustedGrantRequiresCommittedReauthStatus(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		v, s, p := vaultFixture(t, "independent")
+		s.row.AccessExpiresAt, s.row.RefreshCiphertext = testNow, nil
+		if commit {
+			s.commitErr = errors.New("commit failed")
+		} else {
+			s.saveErr = errors.New("save failed")
+		}
+		if token, err := v.Token(t.Context(), "owner", "independent", nil); token != "" || errs.Code(err) != errs.ConnectionUnavailable || s.row.Status != Active || p.calls != 0 {
+			t.Fatalf("uncommitted reauth transition: token=%q err=%v status=%s", token, err, s.row.Status)
 		}
 	}
 }

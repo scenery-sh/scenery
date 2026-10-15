@@ -58,9 +58,11 @@ scenery config set auth.token_cipher_key --stdin --env production
 The cipher input is a base64-encoded 32-byte key. Credentials reach the runtime
 through its configuration snapshot; never put them in declarations, generated
 code or product tables. Callback defaults to the runtime's advertised API base
-URL plus `/auth/connections/<id>/callback`, resolved after runtime metadata initialization. Register that exact URI with the
-provider before enabling it. Production requires the cipher key; local development
-preserves the original JWT-derived key and its historical derivation label.
+URL plus `/auth/connections/<id>/callback`, resolved after runtime metadata
+initialization. Register that exact URI with the provider before enabling it. Call `/start` through that callback hostname; another
+gateway hostname is rejected before creating state or setting its host-only browser
+cookie. Cookies are shared across ports on the same hostname. Production requires
+the cipher key; local development preserves the original JWT-derived key and its historical derivation label.
 
 ## Request and worker token calls
 
@@ -104,7 +106,9 @@ Return paths must be relative application paths. Connecting an unrelated externa
 account does not replace the current login identity.
 An invalid, expired or consumed callback state returns HTTP 400. A callback state
 storage failure returns `connection_unavailable` (HTTP 503), retaining the browser
-binding so a still-pending callback can be retried after recovery.
+binding so a still-pending callback can be retried after recovery. Start also
+returns `connection_unavailable` for session/owner storage failures; a missing,
+revoked or expired session remains `unauthenticated`.
 
 A status component can use the generated methods without handling credentials:
 
@@ -154,7 +158,10 @@ scope narrows the grant. Missing expiry is not invented: an uncached newly obtai
 token may be issued once, then needs refresh or reauthorization.
 When a grant declares an expiry but has no refresh credential, it remains usable
 until its actual expiry; the one-minute early-refresh window applies to
-refreshable grants.
+refreshable grants. When an exhausted grant has no refresh credential, token
+issuance commits `reauth_required` with reason `refresh_credential_missing` before
+returning its reauthorization error, so status clients can offer reconnect. Failed
+status writes or commits return storage unavailability and remain retryable.
 
 | Error | Meaning |
 | --- | --- |

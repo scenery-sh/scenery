@@ -244,10 +244,16 @@ func (s *Service) start(ctx context.Context, provider string, input *connectiona
 	}
 	q := authdb.New(pool)
 	refresh, err := q.GetRefreshSessionByID(ctx, sessionID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, coded(errs.ConnectionUnavailable, "connection storage is unavailable")
+	}
 	if err != nil || refresh.UserID != userID || refresh.RevokedAt.Valid || !s.options.Now().Before(refresh.ExpiresAt) {
 		return nil, coded(errs.Unauthenticated, "connection browser session is unavailable")
 	}
 	owner, err := q.GetUserByID(ctx, userID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, coded(errs.ConnectionUnavailable, "connection storage is unavailable")
+	}
 	if err != nil || owner.DisabledAt.Valid {
 		return nil, coded(errs.PermissionDenied, "connection owner is unavailable")
 	}

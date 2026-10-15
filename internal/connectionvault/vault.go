@@ -142,6 +142,13 @@ func (v *Vault) Token(ctx context.Context, user, provider string, scopes []strin
 		return "", failure(errs.ConnectionConfiguration, "connection credential could not be decrypted")
 	}
 	if refresh == "" {
+		row.Status, row.LastRefreshError, row.UpdatedAt = ReauthRequired, "refresh_credential_missing", v.now()
+		if err := lease.Save(ctx, row); err != nil {
+			return "", storageFailure(err)
+		}
+		if err := lease.Commit(); err != nil {
+			return "", storageFailure(err)
+		}
 		return "", failure(errs.ConnectionReauthRequired, "connection has no refresh credential")
 	}
 	row.Status, row.LastRefreshError = RefreshPending, string(UnknownOutcome)

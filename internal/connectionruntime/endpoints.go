@@ -30,6 +30,18 @@ func (s *Service) Register() {
 			Decode: func(req *http.Request, values map[string]string) (any, []any, error) {
 				var payload any
 				if body {
+					if _, configured := s.providers[values["provider"]]; configured {
+						cfg, err := s.provider(values["provider"])
+						if err != nil {
+							return nil, nil, err
+						}
+						callback, _ := url.Parse(cfg.callbackURI)
+						// A host-only binding cookie cannot follow a callback to
+						// another hostname. Forwarded headers cannot grant it scope.
+						if !strings.EqualFold((&url.URL{Host: req.Host}).Hostname(), callback.Hostname()) {
+							return nil, nil, coded(errs.InvalidArgument, "connection start must use the configured callback hostname")
+						}
+					}
 					input := &connectionapi.StartParams{}
 					if err := host.DecodeJSON(req, input); err != nil {
 						return nil, nil, err

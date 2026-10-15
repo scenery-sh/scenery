@@ -110,6 +110,8 @@ func connectionNoExpiryJourney(p *probe) {
 		}
 		_, err := auth.ConnectionTokenForUser(p.ctx, session.User.ID, "independent", "files.read")
 		p.check(errs.Code(err) == errs.ConnectionReauthRequired && p.independent.refreshCalls.Load() == 0, "consumed unknown-expiry or expired non-refreshable grant requires reauthorization")
+		status, _ := call[auth.ConnectionResponse](p, http.MethodGet, "/auth/connections/independent", nil, session.Token, "")
+		p.check(status.Status == "reauth_required" && status.ReauthReason == "refresh_credential_missing", "status exposes committed reauthorization state so the client can offer reconnect")
 	}
 }
 
