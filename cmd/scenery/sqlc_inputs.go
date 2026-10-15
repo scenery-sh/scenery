@@ -51,22 +51,29 @@ func readSQLCInputSnapshot(root string, spec *sqlcGeneratorPlan) (*sqlcInputSnap
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
+	var producedSchemas []string
+	required := spec.InputSnapshot == nil
+	for _, schema := range spec.Schemas {
+		if schema.AtlasSource != "" {
+			producedSchemas = append(producedSchemas, filepath.ToSlash(filepath.Clean(schema.SQLCSchema)))
+		}
+	}
 	for _, block := range spec.Config.SQL {
 		for _, query := range block.Queries.Values {
-			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: query, Suffix: ".sql"})
+			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: query, Suffix: ".sql", Required: required})
 		}
 		for _, schema := range block.Schema.Values {
-			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema, Suffix: ".sql"})
+			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema, Suffix: ".sql", Required: required, Produced: producedSchemas})
 		}
 	}
 	for _, schema := range spec.Schemas {
 		if schema.AtlasSource != "" {
 			snapshot.excluded[filepath.ToSlash(filepath.Clean(schema.SQLCSchema))] = true
-			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema.AtlasSource})
+			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema.AtlasSource, Required: required})
 		}
 	}
 	for _, path := range sqlcLocalPluginInputs(spec.Config) {
-		snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: path})
+		snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: path, Required: required})
 	}
 	snapshot.capture, err = compiler.CaptureInputPaths(root, snapshot.selections, snapshot.excluded)
 	if err != nil {
@@ -75,25 +82,36 @@ func readSQLCInputSnapshot(root string, spec *sqlcGeneratorPlan) (*sqlcInputSnap
 	if spec.InputSnapshot != nil && snapshot.capture.Digest != spec.InputRevision {
 		return nil, fmt.Errorf("revision_conflict: SQLC inputs changed after capture; retry the command")
 	}
-	for _, plugin := range selectedSQLCPlugins(spec.Config) {
-		if path := plugin.Process.LocalPath; path != "" {
-			info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(path)))
-			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("capability_unavailable: local SQLC process plugin is missing: %s", path)
-			}
-			if err != nil {
-				return nil, err
-			}
-			if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-				return nil, fmt.Errorf("capability_unavailable: local SQLC process plugin is not executable: %s", path)
-			}
-		}
+	if err := validateSQLCPluginExecutables(root, spec.Config, spec.InputSnapshot != nil); err != nil {
+		return nil, err
 	}
 	configPath := filepath.ToSlash(filepath.Clean(firstNonEmpty(spec.ConfigPath, "sqlc.yaml")))
 	if !bytes.Equal(snapshot.capture.Files[configPath], spec.ConfigBytes) {
 		return nil, fmt.Errorf("revision_conflict: SQLC configuration changed after planning; retry the command")
 	}
 	return snapshot, nil
+}
+
+func validateSQLCPluginExecutables(root string, config sqlcConfigFile, captured bool) error {
+	classification := "capability_unavailable"
+	if captured {
+		classification = "revision_conflict"
+	}
+	for _, plugin := range selectedSQLCPlugins(config) {
+		if path := plugin.Process.LocalPath; path != "" {
+			info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(path)))
+			if os.IsNotExist(err) {
+				return fmt.Errorf("%s: local SQLC process plugin is missing: %s", classification, path)
+			}
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+				return fmt.Errorf("%s: local SQLC process plugin is not executable: %s", classification, path)
+			}
+		}
+	}
+	return nil
 }
 
 func (spec *sqlcGeneratorPlan) captureInputs(root string, contract *compiler.Result) error {

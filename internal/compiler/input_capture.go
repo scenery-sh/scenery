@@ -12,7 +12,30 @@ import (
 // InputSelection extends compiler-owned membership resolution for a tool's
 // declared files/directories/globs. Suffix applies to directory/glob selection;
 // an explicitly named file always contributes its exact bytes.
-type InputSelection struct{ Path, Suffix string }
+type InputSelection struct {
+	Path, Suffix string
+	Required     bool
+	// Produced paths satisfy a required selection without reading future bytes.
+	Produced []string
+}
+
+func (selection InputSelection) requireFiles(found bool) error {
+	if !selection.Required || found {
+		return nil
+	}
+	clean := filepath.ToSlash(filepath.Clean(selection.Path))
+	patterns := []string{clean}
+	if !strings.ContainsAny(clean, "*?{[") {
+		patterns = append(patterns, clean+"/**")
+	}
+	matcher := newGlobMatcher(patterns)
+	for _, produced := range selection.Produced {
+		if produced == clean || (selection.Suffix == "" || strings.HasSuffix(produced, selection.Suffix)) && matcher.matches(produced) {
+			return nil
+		}
+	}
+	return fmt.Errorf("failed_precondition: required declared input contains no files: %s", selection.Path)
+}
 
 type InputCapture struct {
 	Files       map[string][]byte
@@ -27,6 +50,7 @@ func CaptureInputPaths(root string, selections []InputSelection, excluded map[st
 	entries := map[string][]byte{}
 	directories := map[string]bool{}
 	for _, selection := range selections {
+		found := false
 		clean := filepath.ToSlash(filepath.Clean(selection.Path))
 		if selection.Path == "" || filepath.IsAbs(selection.Path) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || forbiddenWorkspacePath(clean) {
 			return nil, fmt.Errorf("invalid_request: unsafe declared input %s", selection.Path)
@@ -48,6 +72,9 @@ func CaptureInputPaths(root string, selections []InputSelection, excluded map[st
 				return nil, err
 			}
 			if excluded[clean] {
+				if err := selection.requireFiles(false); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			data, err := os.ReadFile(path)
@@ -61,6 +88,13 @@ func CaptureInputPaths(root string, selections []InputSelection, excluded map[st
 		}
 		matcher := newGlobMatcher([]string{clean})
 		walkRoot := root
+		if statErr != nil && !strings.ContainsAny(clean, "*?{[") {
+			for _, produced := range selection.Produced {
+				if strings.HasPrefix(produced, clean+"/") {
+					entries["\x00selection:"+clean+":"+selection.Suffix] = []byte("directory")
+				}
+			}
+		}
 		if statErr == nil {
 			if err := rejectPathSymlinks(root, path); err != nil {
 				return nil, err
@@ -102,8 +136,12 @@ func CaptureInputPaths(root string, selections []InputSelection, excluded map[st
 			}
 			capture.Files[relative] = data
 			entries[relative] = data
+			found = true
 			return nil
 		}); err != nil {
+			return nil, err
+		}
+		if err := selection.requireFiles(found); err != nil {
 			return nil, err
 		}
 	}

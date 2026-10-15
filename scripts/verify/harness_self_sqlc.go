@@ -57,14 +57,17 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 		}
 	}
 	var assertions []string
-	run := func() ([]byte, error) {
-		cmd := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), "generate", "sqlc", "--app-root", root, "-o", "json")
+	runWithFormat := func(format string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), "generate", "sqlc", "--app-root", root, "-o", format)
 		cmd.Env = append(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_HOME"), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
 			return stdout.Bytes(), fmt.Errorf("SQLC generation: %w: stdout=%s stderr=%s", err, stdout.String(), stderr.String())
+		}
+		if format != "json" {
+			return stdout.Bytes(), nil
 		}
 		var envelope struct {
 			OK                bool   `json:"ok"`
@@ -84,6 +87,7 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 		}
 		return stdout.Bytes(), nil
 	}
+	run := func() ([]byte, error) { return runWithFormat("json") }
 	if _, err := run(); err != nil {
 		return proof, err
 	}
@@ -280,6 +284,36 @@ func runHarnessSQLCLifecycle(ctx context.Context, repoRoot, root string) (proof 
 	}
 	assertions = append(assertions, "config-relative process plugin runs from captured executable bytes when CLI starts outside the app")
 	assertions = append(assertions, "editing a local process plugin refreshes its generated output")
+	beforeReceipt, err := os.ReadFile(receiptPath)
+	if err != nil {
+		return proof, err
+	}
+	// The staged executable removes the origin's permission after capture.
+	// Its bytes remain unchanged, so only the pre-commit mode check can refuse it.
+	for _, format := range []string{"human", "json"} {
+		origin := filepath.Join(root, "config/tools/plugin")
+		plugin := "#!/bin/sh\nchmod 0644 '" + origin + "'\ncat >/dev/null\nprintf '%s' '{\"files\":[{\"name\":\"plugin.txt\",\"contents\":\"cmVmdXNlZA==\"}]}'\n"
+		if err := write("config/tools/plugin", plugin); err != nil {
+			return proof, err
+		}
+		if err := os.Chmod(origin, 0o755); err != nil {
+			return proof, err
+		}
+		_, err := runWithFormat(format)
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 3 || format == "json" && !strings.Contains(err.Error(), "SCN8002") {
+			return proof, fmt.Errorf("%s SQLC did not report a revision conflict for lost executable permission: %v", format, err)
+		}
+		receipt, err := os.ReadFile(receiptPath)
+		if err != nil || !bytes.Equal(receipt, beforeReceipt) {
+			return proof, fmt.Errorf("%s refusal changed SQLC ownership metadata", format)
+		}
+		output, err := os.ReadFile(filepath.Join(root, "config/plugin-gen/plugin.txt"))
+		if err != nil || string(output) != "local plugin two\n" {
+			return proof, fmt.Errorf("%s refusal changed SQLC output", format)
+		}
+	}
+	assertions = append(assertions, "human and JSON generation refuse executable-mode loss before changing output or ownership metadata")
 	proof["assertions"] = assertions
 	proof["assertion_count"] = len(assertions)
 	proof["proof"] = "passed"

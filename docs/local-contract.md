@@ -520,9 +520,14 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
   Relative process commands containing a path separator resolve from the selected
   config directory and contribute exact workspace input bytes. They must be regular,
   non-symlink executables and are copied with executable permissions into staging;
+  executable permission is checked again before publication, so a mode-only edit
+  cannot produce a successful human response or a JSON failure after publication.
   bare commands use the external tool lookup and identity checks.
   Read-only planning captures the exact schema/query/local-plugin input digest,
   and response validation checks it again even outside compiler revision membership.
+  Each required SQL selection must resolve to at least one file. Missing files,
+  empty directories and unmatched globs fail planning; explicitly declared Atlas
+  schema outputs may satisfy schema selections before their bytes exist.
   Authored SQL schemas are inputs, while Atlas-produced schemas have explicit producers
   and scratch-infrastructure authority. Atlas schema files are producer outputs,
   not SQLC code-output roots. Code generation runs against captured
@@ -751,6 +756,11 @@ Check-only commands detect drift without repairing application output.
 TypeScript rendering/check nodes exist only for a nonempty selected target set.
 Multiple TypeScript targets may use nested output roots within the same renderer;
 different lifecycle owners may not claim overlapping output paths.
+Go renderer inspection lists the selected package destination roots and exact
+contract/descriptor paths using the renderer's layout, without rendering bytes.
+The TypeScript library APIs select TypeScript clients only, including an empty
+selector for all clients; refreshing a UI catalog does not compare or publish Go
+contracts. Ordinary default generation still selects both renderers.
 
 `provider lock` is an explicit, offline source transaction. It reads root
 provider declarations and creates or refreshes their bundled provider entries

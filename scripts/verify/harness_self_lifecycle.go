@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/generate"
 	"scenery.sh/internal/workspacetx"
 )
 
@@ -39,7 +41,12 @@ func runHarnessLifecycleBoundaries(ctx context.Context, repoRoot, root string) (
 		return os.WriteFile(path, []byte(data), 0o644)
 	}
 	source := `application "nested_clients" {}
-workspace { managed_generated_roots = ["clients/generated", "race"] }
+workspace { managed_generated_roots = ["clients/generated", "shared/scenerycontract", "race"] }
+go_module "application" {
+ root = "."
+ import_path = "example.test/lifecycle"
+}
+module "shared" { source = "./shared" }
 http_gateway "api" {
  exposure = "internet"
  base_path = "/"
@@ -65,6 +72,19 @@ typescript_client "admin_api" {
 	if err := write(filepath.Join(root, "app.scn"), source); err != nil {
 		return proof, err
 	}
+	if err := write(filepath.Join(root, "go.mod"), "module example.test/lifecycle\n\ngo 1.27.0\n"); err != nil {
+		return proof, err
+	}
+	if err := write(filepath.Join(root, "shared/package.scn"), `package "shared" {
+ go_contract { import_path = "example.test/lifecycle/shared" }
+}
+record "item" {
+ field "id" { type = string }
+}
+export "item" { value = record.item }
+`); err != nil {
+		return proof, err
+	}
 	if err := write(filepath.Join(root, ".scenery.json"), `{"name":"nested-clients","id":"nested-clients","envs":{"local":{"default":true}}}`); err != nil {
 		return proof, err
 	}
@@ -76,6 +96,30 @@ typescript_client "admin_api" {
 		if err := cmd.Run(); err != nil {
 			return proof, fmt.Errorf("nested client %v: %w: stdout=%s stderr=%s", args, err, stdout.String(), stderr.String())
 		}
+		if args[0] == "inspect" {
+			var envelope struct {
+				Data struct {
+					Generators []struct {
+						ID      string   `json:"id"`
+						Outputs []string `json:"outputs"`
+					} `json:"generators"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+				return proof, err
+			}
+			found := false
+			for _, generator := range envelope.Data.Generators {
+				if generator.ID == "go.render" {
+					for _, output := range generator.Outputs {
+						found = found || output == "shared/scenerycontract/types.gen.go"
+					}
+				}
+			}
+			if !found {
+				return proof, fmt.Errorf("generator inspection omitted selected Go files")
+			}
+		}
 	}
 	for _, output := range []string{"clients/generated", "clients/generated/admin"} {
 		for _, file := range []string{"client.ts", "scenery.typescript-client-generated.json"} {
@@ -85,6 +129,26 @@ typescript_client "admin_api" {
 		}
 	}
 	proof["nested_clients"] = "inspect, actual two-root publication and check-only succeed"
+	goPath := filepath.Join(root, "shared/scenerycontract/contract.gen.go")
+	authored := "package scenerycontract\nconst editorChange = true\n"
+	if err := write(goPath, authored); err != nil {
+		return proof, err
+	}
+	clientPath := filepath.Join(root, "clients/generated/client.ts")
+	if err := os.Remove(clientPath); err != nil {
+		return proof, err
+	}
+	if _, err := generate.GenerateTypeScriptClients(root, "", false); err != nil {
+		return proof, fmt.Errorf("all-client library refresh touched unrelated Go ownership: %w", err)
+	}
+	goBytes, err := os.ReadFile(goPath)
+	if err != nil || string(goBytes) != authored {
+		return proof, fmt.Errorf("all-client library refresh changed Go bytes")
+	}
+	if _, err := os.Stat(clientPath); err != nil {
+		return proof, err
+	}
+	proof["typescript_only"] = "empty-selector library refresh repairs missing client output and preserves edited Go contracts"
 	var assertions []string
 	for _, name := range []string{"replace", "retire", "appear", "no-op"} {
 		path := filepath.Join(root, "race/output.go")

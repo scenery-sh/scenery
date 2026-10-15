@@ -475,6 +475,10 @@ The descriptor records the exact client projection revision and compatibility ca
 
 ## 17. Generation workflow
 
+The TypeScript library entrypoints select only TypeScript renderers. An empty
+selector means all declared TypeScript clients and never selects Go contracts;
+the ordinary default generation command remains the combined Go/TypeScript path.
+
 `scenery check` builds the expected client in an overlay and reports missing/stale selected committed artifacts without modifying files. `scenery generate --target typescript_client.public_api` atomically replaces the descriptor-covered output. `scenery generate --check` verifies byte identity and is suitable for CI.
 
 Unknown files under a generated client root are not adopted or deleted unless the root's ownership policy explicitly makes the entire root generator-owned.

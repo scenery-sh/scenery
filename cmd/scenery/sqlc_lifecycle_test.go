@@ -132,6 +132,7 @@ sql:
         out: auth/db/gen/wasm
 `)
 	want := []string{"auth/db/gen/go", "auth/db/gen/json", "auth/db/gen/process", "auth/db/gen/wasm"}
+	writeTestAppFile(t, root, "plugin.wasm", "inspection fixture")
 	for _, inspect := range []bool{false, true} {
 		var output strings.Builder
 		var err error

@@ -17,10 +17,11 @@ import (
 )
 
 func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResult, error) {
-	if selector != "" && !strings.HasPrefix(selector, "typescript_client.") {
-		selector = "typescript_client." + selector
+	compiled, err := compiler.CompileContext(context.Background(), root)
+	if err != nil {
+		return GenerateResult{Compilation: compiled}, err
 	}
-	return GenerateWithContext(context.Background(), root, selector, check)
+	return GenerateTypeScriptClientsFromResult(compiled, selector, check)
 }
 
 func selectedTypeScriptRenderer(selector string) artifactRenderer {
@@ -41,7 +42,12 @@ func GenerateTypeScriptClientsFromResult(result *compiler.Result, selector strin
 	if selector != "" && !strings.HasPrefix(selector, "typescript_client.") {
 		selector = "typescript_client." + selector
 	}
-	return GenerateSnapshotWithContext(context.Background(), result, selector, check)
+	op, err := newGenerationOperation(result, selector, check)
+	if err != nil {
+		return op.result, err
+	}
+	op.typescriptOnly = true
+	return op.run(context.Background(), op.plan)
 }
 
 // SyncCachedTypeScriptClients refreshes only cache-materialized clients. It is

@@ -343,6 +343,9 @@ name a shared publication node as its owner; that node must declare publication
 capability and depend on every producer whose paths it owns. SQLC and Atlas use
 their common artifact-set publication owner, while other generators retain
 independent destination scopes.
+Go package destination scopes and exact file paths come from the same layout
+used by rendering. TypeScript library entrypoints retain a TypeScript-only
+selection even when selecting every client.
 It selects a deterministic serial closure and admits each node's declared
 capabilities before running any action. Pure projection reuse remains in its
 rendering owner; current validation and external effects are never skipped by

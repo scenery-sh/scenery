@@ -356,12 +356,19 @@ func (op *sqlcOperation) verify(owner bool) error {
 	if !unchanged {
 		return fmt.Errorf("revision_conflict: application changed during SQLC generation; retry generation")
 	}
-	current, err := compiler.CaptureInputPaths(op.root, op.selections, op.excluded)
+	selections := slices.Clone(op.selections)
+	for i := range selections {
+		selections[i].Required = false
+	}
+	current, err := compiler.CaptureInputPaths(op.root, selections, op.excluded)
 	if err != nil {
 		return err
 	}
 	if current.Digest != op.inputs.Digest {
 		return fmt.Errorf("revision_conflict: SQLC inputs changed during generation; retry generation")
+	}
+	if err := validateSQLCPluginExecutables(op.root, op.config, true); err != nil {
+		return err
 	}
 	for program, digest := range op.tools {
 		current, err := op.hooks.toolIdentity(program)

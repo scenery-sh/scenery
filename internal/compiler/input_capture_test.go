@@ -53,3 +53,35 @@ func TestDeclaredInputCaptureTracksBytesMembershipAndExactExclusions(t *testing.
 		t.Fatalf("owned output/parent directory invalidated authored inputs: %v", err)
 	}
 }
+
+func TestRequiredInputSelectionsAcceptFilesOrExplicitProducers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, "queries/ping.sql", "select 1;\n")
+	for _, path := range []string{"missing.sql", "missing/*.sql", "queries/*.missing"} {
+		if _, err := CaptureInputPaths(root, []InputSelection{{Path: path, Required: true}}, nil); err == nil {
+			t.Fatalf("missing required input accepted: %s", path)
+		}
+	}
+	for _, path := range []string{"queries", "queries/*.sql", "queries/ping.sql"} {
+		if _, err := CaptureInputPaths(root, []InputSelection{{Path: path, Suffix: ".sql", Required: true}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{"gen/schema.sql", "gen", "gen/*.sql"} {
+		selection := InputSelection{Path: path, Suffix: ".sql", Required: true, Produced: []string{"gen/schema.sql"}}
+		excluded := map[string]bool{"gen/schema.sql": true}
+		before, err := CaptureInputPaths(root, []InputSelection{selection}, excluded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeCompilerSnapshotFile(t, root, "gen/schema.sql", "generated SQL\n")
+		after, err := CaptureInputPaths(root, []InputSelection{selection}, excluded)
+		if err != nil || before.Digest != after.Digest {
+			t.Fatalf("producer output changed authored input identity for %s: %v", path, err)
+		}
+		if err := os.RemoveAll(filepath.Join(root, "gen")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

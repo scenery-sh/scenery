@@ -355,13 +355,23 @@ func localModuleInstances(resources []Resource) []Resource {
 	return modules
 }
 
+// Planning and rendering use the same public package artifact layout.
+func goPackageArtifactPaths(result *Result, module Resource) []string {
+	source := stringValue(module.Spec["workspace_package_root"])
+	if source == "" {
+		source = stringValue(module.Spec["source"])
+	}
+	root := filepath.Join(result.Root, filepath.FromSlash(source), "scenerycontract")
+	return []string{filepath.Join(root, "types.gen.go"), filepath.Join(root, "contract.gen.go"), filepath.Join(root, "scenery.package-generated.json")}
+}
+
 func generateModuleContract(result *Result, idx *resourceIndex, module Resource) ([]generatedFile, error) {
 	source, _ := module.Spec["workspace_package_root"].(string)
 	if source == "" {
 		source, _ = module.Spec["source"].(string)
 	}
-	dir := filepath.Join(result.Root, filepath.FromSlash(source))
-	contractDir := filepath.Join(dir, "scenerycontract")
+	paths := goPackageArtifactPaths(result, module)
+	contractDir := filepath.Dir(paths[0])
 	resources := idx.moduleResources(moduleInstancePath(module))
 	packageBlock := findPackageBlock(result.Sources, source)
 	importPath := ""
@@ -410,7 +420,7 @@ func generateModuleContract(result *Result, idx *resourceIndex, module Resource)
 	if err != nil {
 		return nil, fmt.Errorf("format %s contract: %w\n%s", moduleInstancePath(module), err, contractSource)
 	}
-	artifactFiles := []generatedFile{{Path: filepath.Join(contractDir, "types.gen.go"), Bytes: formattedTypes}, {Path: filepath.Join(contractDir, "contract.gen.go"), Bytes: formattedContract}}
+	artifactFiles := []generatedFile{{Path: paths[0], Bytes: formattedTypes}, {Path: paths[1], Bytes: formattedContract}}
 	descriptor := addGeneratedArtifactIdentity(map[string]any{
 		"artifact_kind": "go_package_contract",
 		"package":       packageIdentity, "package_identity": packageIdentity,
@@ -422,7 +432,7 @@ func generateModuleContract(result *Result, idx *resourceIndex, module Resource)
 	}, goPackageDescriptorKind, goPackageSchemaDescriptor, result.Manifest.SpecRevision)
 	descriptorBytes, _ := json.MarshalIndent(descriptor, "", "  ")
 	descriptorBytes = append(descriptorBytes, '\n')
-	return append(artifactFiles, generatedFile{Path: filepath.Join(contractDir, "scenery.package-generated.json"), Bytes: descriptorBytes}), nil
+	return append(artifactFiles, generatedFile{Path: paths[2], Bytes: descriptorBytes}), nil
 }
 
 func moduleResources(resources []Resource, module string) []Resource {

@@ -49,6 +49,7 @@ type generationOperation struct {
 	selector         string
 	check            bool
 	cachedOnly       bool
+	typescriptOnly   bool
 	goRenderer       artifactRenderer
 	goFiles, tsFiles []generatedFile
 	result           GenerateResult
@@ -119,9 +120,24 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 	nodes := []lifecycle.Node{{ID: "contract.compile", Kind: "contract", Cache: lifecycle.CurrentValidation, Identity: identity, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Inputs: []lifecycle.Reference{{Name: "source", Kind: "source", Digest: compiled.WorkspaceRevision}}, Outputs: []lifecycle.Reference{contract}, Action: func(context.Context) error { return validateGenerationSnapshot(compiled, owner) }}}
 	rendered := []lifecycle.Reference{}
 	dependencies := []lifecycle.ID{}
-	if !op.cachedOnly && (op.selector == "" || op.selector == "contracts") {
+	if !op.cachedOnly && !op.typescriptOnly && (op.selector == "" || op.selector == "contracts") {
 		output := lifecycle.Reference{Name: "go.files", Kind: "artifact_set", Ownership: lifecycle.Managed}
-		nodes = append(nodes, lifecycle.Node{ID: "go.render", Kind: "go_render", Dependencies: []lifecycle.ID{"contract.compile"}, Inputs: []lifecycle.Reference{{Name: "contract", Kind: "contract", Producer: "contract.compile"}}, Outputs: []lifecycle.Reference{output}, Identity: identity, Cache: lifecycle.Reusable, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Action: func(context.Context) error {
+		outputs := []lifecycle.Reference{output}
+		for _, module := range localModules(compiled.Manifest.Resources) {
+			paths := goPackageArtifactPaths(compiled, module)
+			for i, path := range append([]string{filepath.Dir(paths[0])}, paths...) {
+				relative, err := filepath.Rel(compiled.Root, path)
+				if err != nil {
+					return nil, err
+				}
+				kind := lifecycle.Kind("file")
+				if i == 0 {
+					kind = "output_root"
+				}
+				outputs = append(outputs, lifecycle.Reference{Name: "go.files." + filepath.ToSlash(relative), Kind: kind, Path: filepath.ToSlash(relative), Ownership: lifecycle.Managed})
+			}
+		}
+		nodes = append(nodes, lifecycle.Node{ID: "go.render", Kind: "go_render", Dependencies: []lifecycle.ID{"contract.compile"}, Inputs: []lifecycle.Reference{{Name: "contract", Kind: "contract", Producer: "contract.compile"}}, Outputs: outputs, Identity: identity, Cache: lifecycle.Reusable, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Action: func(context.Context) error {
 			var err error
 			render := op.goRenderer
 			if render == nil {
