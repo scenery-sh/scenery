@@ -8,14 +8,15 @@
     "schema_revision",
     "app",
     "generators",
-    "db_artifacts"
+    "db_artifacts",
+    "nodes"
   ],
   "properties": {
     "kind": {
       "const": "scenery.inspect.generators"
     },
     "schema_revision": {
-      "const": "sha256:0269eee33879a07dc9ecd83d78180fe8e3276f4d948506740bc2586e91625f55"
+      "const": "sha256:ed1b86180449ebfd88a763ed642b7988d284b8f02f00b649bda1bffc9c1183bc"
     },
     "app": {
       "$ref": "#/$defs/appRef"
@@ -30,6 +31,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/dbArtifact"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lifecycleNode"
       }
     }
   },
@@ -130,6 +137,114 @@
         },
         "path": {
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycleReference": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "ownership": {
+          "enum": [
+            "private",
+            "managed",
+            "external"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Shared publication node owning this output path; it must publish a dependency containing the producer."
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycleNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "dependencies",
+        "inputs",
+        "outputs",
+        "cache_policy",
+        "effects"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lifecycleReference"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lifecycleReference"
+          }
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "cache_policy": {
+          "enum": [
+            "reusable",
+            "current_validation",
+            "external_effect"
+          ]
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "source.read",
+              "cache.write",
+              "artifacts.publish",
+              "scratch.use",
+              "database.mutate",
+              "runtime.control"
+            ]
+          },
+          "uniqueItems": true
         }
       },
       "additionalProperties": false

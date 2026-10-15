@@ -47,11 +47,11 @@ func TestCachedPreparationCompilesImplementationEditWithoutFullPrepare(t *testin
 	root, original := ordinaryGoCacheFixture(t)
 	writeBuildTestFile(t, original.Dir, cachedContractPath, cachedContractBytes)
 	goProjectionCalls, typeScriptProjectionCalls := 0, 0
-	generateHooks.PrepareBuildGoWorkspace = func(*compiler.Result) (generateapi.GoWorkspaceProjection, error) {
+	generateHooks.PrepareBuildGoWorkspace = func(context.Context, *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
 		goProjectionCalls++
 		return generateapi.GoWorkspaceProjection{}, nil
 	}
-	generateHooks.SyncCachedTypeScript = func(*compiler.Result) ([]string, error) {
+	generateHooks.SyncCachedTypeScript = func(context.Context, *compiler.Result) ([]string, error) {
 		typeScriptProjectionCalls++
 		return nil, nil
 	}
@@ -103,15 +103,8 @@ func TestCachedPreparationRejectsTamperedPersistedProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	cached, ok, err := LoadCachedPreparationContext(context.Background(), root, appcfg.Config{Name: "buildtest"}, "graph-current", fingerprint, contract)
-	if err != nil || !ok || cached == nil {
-		t.Fatalf("load cached preparation: ok=%v err=%v", ok, err)
-	}
-	prepared, err := PrepareCachedWorkspaceWithSnapshotContext(context.Background(), root, appcfg.Config{Name: "buildtest"}, cached.Result, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if prepared {
-		t.Fatal("tampered persisted projection was accepted")
+	if err != nil || ok || cached != nil {
+		t.Fatalf("tampered persisted projection was a cache hit: ok=%v err=%v", ok, err)
 	}
 }
 
@@ -122,10 +115,10 @@ func ordinaryGoCacheFixture(t *testing.T) (string, *Result) {
 	t.Cleanup(func() { generateHooks = previous })
 	// Test the build-owned hook ordering and byte comparison here. Actual
 	// generator publication through a cached candidate CLI is a release proof.
-	generateHooks.PrepareBuildGoWorkspace = func(contract *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
+	generateHooks.PrepareBuildGoWorkspace = func(_ context.Context, contract *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
 		writeBuildTestFile(t, contract.Root, cachedContractPath, cachedContractBytes)
 		return generateapi.GoWorkspaceProjection{Files: map[string][]byte{cachedContractPath: []byte(cachedContractBytes)}}, nil
 	}
-	generateHooks.SyncCachedTypeScript = func(*compiler.Result) ([]string, error) { return nil, nil }
+	generateHooks.SyncCachedTypeScript = func(context.Context, *compiler.Result) ([]string, error) { return nil, nil }
 	return root, result
 }

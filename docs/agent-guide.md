@@ -50,6 +50,13 @@ scenery explain <address> <pointer> -o json
 
 Source preserves authored expressions. Effective resolves inputs, defaults, and patches. Expanded adds generators. Provenance keys are RFC 6901 pointers into the selected resource spec. Source IDs are opaque; resolve them through `source_map`. Positions use zero-based Unicode-scalar columns and UTF-8 byte offsets.
 
+Source-derived answers report one captured and validated revision. An edit during
+compilation/rendering may return a revision conflict; retry the command against
+the new source. Do not delete `.scenery/gen` to obtain freshness. Inspection and
+check-only commands leave application-generated output unchanged; explicit
+generation and authorized development preparation own publication. `inspect
+generators -o json` describes actual lifecycle nodes without executing them.
+
 ## Native Change Loop
 
 Use this section when changing native declarations or their Go implementation.

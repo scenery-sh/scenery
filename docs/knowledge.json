@@ -19,6 +19,24 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0219-fresh-source-lifecycle.md",
+      "title": "Fresh Source Snapshots And Shared Lifecycle Planning",
+      "owner": "scenery compiler / generation / lifecycle",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
+      "summary": "Completed validated source revisions, shared lifecycle planning and staged SQLC ownership-safe publication with cumulative proof in PR 244.",
+      "tags": [
+        "plans",
+        "execplans",
+        "compiler",
+        "generate",
+        "lifecycle"
+      ]
+    },
+    {
       "path": "docs/auth-connections.md",
       "title": "User Connections",
       "owner": "scenery auth / configuration",
@@ -2538,9 +2556,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-05",
-      "review_after": "2026-10-05",
-      "summary": "Normative deterministic TypeScript client API, type mapping, exact shared outcome unions, removable frozen metadata, compatibility, cancellation, generated route catalogs and synchronous presentation access, independently encoded terminal path-tail segments, the dedicated provider-neutral assistant conversation client with NDJSON cursor events, and capability-projected HTTP and record-validation runtime emission.",
+      "last_reviewed": "2026-10-15",
+      "review_after": "2026-11-14",
+      "summary": "Deterministic TypeScript client API and wire contracts with TypeScript-only library generation, including empty-selector refresh.",
       "tags": [
         "spec",
         "typescript",
@@ -2796,7 +2814,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-14",
       "review_after": "2026-11-13",
-      "summary": "App and repository workflows, local feature integration, application acceptance and input-bound validation context.",
+      "summary": "App and repository workflows, local feature integration, application acceptance, captured source revision conflicts, read-only inspection/check behavior and input-bound validation context.",
       "tags": [
         "agents",
         "cli",
@@ -2850,9 +2868,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-14",
-      "review_after": "2026-11-13",
-      "summary": "Repository code map including local feature coordination independent of app runtime and data ownership.",
+      "last_reviewed": "2026-10-15",
+      "review_after": "2026-11-14",
+      "summary": "Repository code map and local feature coordination independent of app runtime/data ownership, with shared lifecycle planning, explicit publication owners, Go destinations and TypeScript-only library selection.",
       "tags": [
         "architecture",
         "agents",
@@ -2869,9 +2887,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-14",
-      "review_after": "2026-11-13",
-      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields. Explicit retained lifecycle roots remain scoped after checkout deletion or invalid retained state; Git worktree removal refuses multiple matching checkout paths. Plain logs and interactive console preserve the selected root and refuse pending retained upgrades; console retains valid configured display names. Git inventory uses NUL delimiters to preserve embedded newline and ordinary path bytes. Upgrade preview/apply and pending retry parse configuration at the selected retained root, refusing missing or malformed child markers without parent redirection. Literal selected pathname whitespace is preserved; Git removal normalization keeps trailing-space paths distinct. CREATE shell follow-up output preserves the literal target through existing reproduction formatting. CREATE keeps nonblank refs as revision operands; invalid option-shaped values refuse without checkout or branch allocation. Successful Git warnings remain separate from inventory and preserve complete ambiguity admission. Removal compares decoded literal branch names without removing a second transport prefix. Unregistered removal targets are invalid requests with a concrete SCN8001 message and exit 2. CREATE/REMOVE names sanitizing to empty keep configured discovery precedence and refuse as SCN8001/exit 2 before Git. Public ps always returns a sessions array and excludes noncanonical key spellings without modifying locator files; canonical corrupt records remain visible.",
+      "last_reviewed": "2026-10-15",
+      "review_after": "2026-11-14",
+      "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields. Explicit retained lifecycle roots remain scoped after checkout deletion or invalid retained state; Git worktree removal refuses multiple matching checkout paths. Plain logs and interactive console preserve the selected root and refuse pending retained upgrades; console retains valid configured display names. Git inventory uses NUL delimiters to preserve embedded newline and ordinary path bytes. Upgrade preview/apply and pending retry parse configuration at the selected retained root, refusing missing or malformed child markers without parent redirection. Literal selected pathname whitespace is preserved; Git removal normalization keeps trailing-space paths distinct. CREATE shell follow-up output preserves the literal target through existing reproduction formatting. CREATE keeps nonblank refs as revision operands; invalid option-shaped values refuse without checkout or branch allocation. Successful Git warnings remain separate from inventory and preserve complete ambiguity admission. Removal compares decoded literal branch names without removing a second transport prefix. Unregistered removal targets are invalid requests with a concrete SCN8001 message and exit 2. CREATE/REMOVE names sanitizing to empty keep configured discovery precedence and refuse as SCN8001/exit 2 before Git. Public ps always returns a sessions array and excludes noncanonical key spellings without modifying locator files; canonical corrupt records remain visible. Selected Go destinations, TypeScript-only library refresh, required SQLC inputs and executable-mode revalidation retain source/publication ownership contracts.",
       "tags": [
         "contract",
         "cli",
@@ -3013,9 +3031,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-13",
-      "review_after": "2026-11-12",
-      "summary": "Repository verification matrix and named probes, including failure-aware query framing, exact structured JSON/schema numbers, independent assertion outcomes and complete owned HTTP/runtime cleanup. A12 nested-orphan cleanup preserves continuously serving parent and sibling owners and data; worktree-git proves ambiguity refusal, unique removal, preserved bytes and owned cleanup. Observability proves actual plain-log and raw-terminal console root refusal between positive parent controls, joins PTY children and verifies owned fixture absence. Worktree-git also proves exact newline/space/tab/quote/Unicode paths, branch-selected newline removal and preservation of all four controls. A16 verifies upgrade root selection, strict AppID admission, unchanged private inventories and exact synthetic-child cleanup. A16 preserves distinct space/newline root spellings and equivalent separators; Git ambiguity includes distinct trailing-space candidates. Worktree-git also verifies actual JSON/human CREATE shell cwd and argv through a recorder, without native up, and preserves registrations on invalid-ref refusal. Its CREATE controls prove non-HEAD checkout bytes and JSON/human option-shaped ref refusal. Warning-producing LIST preserves complete inventory, ambiguous refusal and unique removal; non-Git failures retain JSON/human diagnostics. Literal prefixed branches do not create false removal matches, while ordinary branch and prefixed-checkout basename controls succeed. Ordinary and prefixed nonmatches assert absolute SCN8001/exit 2, concrete messages, no internal report token and no mutation. Empty-after-sanitization CREATE/REMOVE controls verify exact JSON/human channels, unchanged inventory/refs/bytes and ordinary positive controls. Worktree status controls validate complete public JSON for empty/nil/failed lists and canonical global keys while preserving authority inventories and exact owned cleanup.",
+      "last_reviewed": "2026-10-15",
+      "review_after": "2026-11-14",
+      "summary": "Repository validation and named generation probes for Go inspection, TypeScript-only repair and SQLC executable-mode loss before publication.",
       "tags": [
         "harness",
         "agents",
@@ -4142,6 +4160,23 @@
         "schema",
         "features",
         "validation"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.inspect.generators.schema.json",
+      "title": "scenery.inspect.generators Schema",
+      "owner": "scenery CLI / lifecycle",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
+      "summary": "Generator graph with source digests, managed destination outputs and explicit shared publication owners.",
+      "tags": [
+        "schemas",
+        "cli",
+        "generation",
+        "lifecycle"
       ]
     }
   ],

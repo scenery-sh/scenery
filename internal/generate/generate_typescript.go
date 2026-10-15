@@ -18,15 +18,11 @@ import (
 )
 
 func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResult, error) {
-	return generateTypeScriptClients(root, selector, check, false)
-}
-
-func generateTypeScriptClients(root, selector string, check, allowActiveChangeTransaction bool) (GenerateResult, error) {
-	return generateFromRoot(root, check, "generated TypeScript clients are stale", selectedTypeScriptRenderer(selector))
-}
-
-func generateTypeScriptClientsFromResult(result *Result, selector string, check bool) (GenerateResult, error) {
-	return generateFromResult(result, check, "generated TypeScript clients are stale", selectedTypeScriptRenderer(selector))
+	compiled, err := compiler.CompileContext(context.Background(), root)
+	if err != nil {
+		return GenerateResult{Compilation: compiled}, err
+	}
+	return GenerateTypeScriptClientsFromResult(compiled, selector, check)
 }
 
 func selectedTypeScriptRenderer(selector string) artifactRenderer {
@@ -44,17 +40,34 @@ func selectedTypeScriptRenderer(selector string) artifactRenderer {
 
 // GenerateTypeScriptClientsFromResult renders one immutable compiler snapshot.
 func GenerateTypeScriptClientsFromResult(result *compiler.Result, selector string, check bool) (GenerateResult, error) {
-	return generateTypeScriptClientsFromResult(result, selector, check)
+	if selector != "" && !strings.HasPrefix(selector, "typescript_client.") {
+		selector = "typescript_client." + selector
+	}
+	op, err := newGenerationOperation(result, selector, check)
+	if err != nil {
+		return op.result, err
+	}
+	op.typescriptOnly = true
+	return op.run(context.Background(), op.plan)
 }
 
 // SyncCachedTypeScriptClients refreshes only cache-materialized clients. It is
 // safe for ordinary build/test/up orchestration because every write remains
 // beneath app-local .scenery state.
 func SyncCachedTypeScriptClients(result *compiler.Result) (GenerateResult, error) {
+	return SyncCachedTypeScriptClientsContext(context.Background(), result)
+}
+
+func SyncCachedTypeScriptClientsContext(ctx context.Context, result *compiler.Result) (GenerateResult, error) {
 	if result == nil || !result.Valid() || result.Manifest == nil {
 		return GenerateResult{}, nil
 	}
-	return generateFromResult(result, false, "generated TypeScript cache is stale", renderCachedTypeScriptClients)
+	op, err := newGenerationOperation(result, "", false)
+	if err != nil {
+		return op.result, err
+	}
+	op.cachedOnly = true
+	return op.run(ctx, op.plan)
 }
 
 func renderCachedTypeScriptClients(result *compiler.Result) ([]generatedFile, error) {
@@ -77,13 +90,14 @@ func renderCachedTypeScriptClients(result *compiler.Result) ([]generatedFile, er
 		}
 		files = append(files, targetFiles...)
 	}
-	if err := verifyRenderedTypeScriptReact(result, targets, files); err != nil {
-		return nil, err
-	}
 	return files, nil
 }
 
 func verifyRenderedTypeScriptReact(result *Result, targets []Resource, files []generatedFile) error {
+	return verifyRenderedTypeScriptReactContext(context.Background(), result, targets, files)
+}
+
+func verifyRenderedTypeScriptReactContext(parent context.Context, result *Result, targets []Resource, files []generatedFile) error {
 	var binary string
 	for _, target := range targets {
 		react, ok := target.Spec["react"].(map[string]any)
@@ -104,7 +118,7 @@ func verifyRenderedTypeScriptReact(result *Result, targets []Resource, files []g
 				staged = append(staged, tscheck.File{Path: file.Path, Bytes: file.Bytes})
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 		if binary == "" {
 			binary, err = tscheck.ManagedBinary(ctx, result.Root)
 			if err != nil {

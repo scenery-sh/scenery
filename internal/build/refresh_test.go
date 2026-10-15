@@ -256,17 +256,17 @@ func TestRefreshCachedWorkspaceFallsBackWhenGeneratedFileMissing(t *testing.T) {
 
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 
-	target := filepath.Join(result.Dir, "svc", "scenery.gen.go")
-	if err := os.Remove(target); err != nil {
-		t.Fatalf("remove generated file: %v", err)
-	}
-
 	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
 	if err != nil {
 		t.Fatalf("LoadCachedGraph() error = %v", err)
 	}
 	if !ok || cached == nil || cached.Result == nil {
 		t.Fatal("expected cached graph to load")
+	}
+	// A valid hit must still detect a later deletion before workspace reuse.
+	target := filepath.Join(result.Dir, "svc", "scenery.gen.go")
+	if err := os.Remove(target); err != nil {
+		t.Fatalf("remove generated file: %v", err)
 	}
 
 	reused, err := RefreshCachedWorkspace(appDir, cached.Result)

@@ -389,12 +389,8 @@ func discoverDBSeedPlansForContract(appRoot string, cfg appcfg.Config, environme
 	if !cfg.Database.Seed.IsEnabled() {
 		return nil, nil
 	}
-	graph, err := buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, compiled.SQLRequirements)
-	if err != nil {
-		return nil, err
-	}
 	var plans []dbSeedPlan
-	for _, artifact := range graph.DBArtifacts {
+	for _, artifact := range buildDatabaseArtifactRecords(appRoot, nil) {
 		if artifact.Kind != "seed" || artifact.Role != "initial-data" {
 			continue
 		}

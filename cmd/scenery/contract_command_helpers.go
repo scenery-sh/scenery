@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"scenery.sh/internal/compiler"
@@ -88,16 +90,51 @@ func compileContractRoot(value string) (*compiler.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compiler.Compile(root)
+	return compileSourcePlan(context.Background(), root)
 }
 
 func checkCompiledContract(root string) (*compiler.Result, error) {
-	result, err := compiler.Compile(root)
+	result, err := compileSourcePlan(context.Background(), root)
 	if err != nil || !result.Valid() {
 		return result, err
 	}
 	generate.ApplyImplementationCheck(result)
 	return result, nil
+}
+
+func writeSourceResult(stdout io.Writer, output string, quiet bool, result *compiler.Result, data any) error {
+	if generators, ok := data.(generatorGraphResponse); ok {
+		if generators.sqlcPlan != nil {
+			if err := generators.sqlcPlan.verifyInputs(result.Root); err != nil {
+				return err
+			}
+		}
+		for _, node := range generators.Nodes {
+			for _, input := range node.Inputs {
+				if input.Kind != "source" || input.Path == "" || input.Digest == "" {
+					continue
+				}
+				contents, err := os.ReadFile(filepath.Join(result.Root, filepath.FromSlash(input.Path)))
+				if os.IsNotExist(err) {
+					return fmt.Errorf("revision_conflict: generator configuration disappeared before returning the source result; retry the command")
+				}
+				if err != nil {
+					return err
+				}
+				if sqlcDigest(contents) != input.Digest {
+					return fmt.Errorf("revision_conflict: generator configuration changed before returning the source result; retry the command")
+				}
+			}
+		}
+	}
+	unchanged, err := compiler.SnapshotUnchanged(result)
+	if err != nil {
+		return err
+	}
+	if !unchanged {
+		return fmt.Errorf("revision_conflict: application changed before returning the source result; retry the command")
+	}
+	return writeContractResult(stdout, output, quiet, result, data)
 }
 
 func writeContractResult(stdout io.Writer, output string, quiet bool, result *compiler.Result, data any) error {

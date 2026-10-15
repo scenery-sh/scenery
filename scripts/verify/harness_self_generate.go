@@ -93,6 +93,20 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}()
 	restoreDevCache := devcache.SetRoot(filepath.Join(probeRoot, "build-cache"))
 	defer restoreDevCache()
+	if err := runSegment("nested lifecycle outputs and late ownership edits", func() error {
+		proof, err := runHarnessLifecycleBoundaries(ctx, repoRoot, filepath.Join(probeRoot, "lifecycle"))
+		summary["lifecycle_boundaries"] = proof
+		return err
+	}); err != nil {
+		return summary, nil, err
+	}
+	if err := runSegment("SQLC captured inputs and recoverable owned publication", func() error {
+		proof, err := runHarnessSQLCLifecycle(ctx, repoRoot, filepath.Join(probeRoot, "sqlc"))
+		summary["sqlc_lifecycle"] = proof
+		return err
+	}); err != nil {
+		return summary, nil, err
+	}
 	if err := runSegment("ordinary Go in source-only external Git checkout", func() error {
 		proof, proofErr := runHarnessOrdinaryGoCheckout(ctx, repoRoot, filepath.Join(probeRoot, "ordinary-go"))
 		summary["ordinary_go"] = proof

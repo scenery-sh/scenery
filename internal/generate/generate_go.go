@@ -2,6 +2,7 @@ package generate
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,9 @@ import (
 type GenerateResult struct {
 	Changed []string `json:"changed"`
 	Checked []string `json:"checked"`
+	// Compilation is the exact snapshot that produced these artifacts. Response
+	// adapters must use it instead of compiling a potentially newer revision.
+	Compilation *compiler.Result `json:"-"`
 }
 
 type generatedFile struct {
@@ -29,39 +33,18 @@ type generatedFile struct {
 }
 
 func GenerateGoContracts(root string, check bool) (GenerateResult, error) {
-	return generateGoContracts(root, check, false)
+	return GenerateWithContext(context.Background(), root, "contracts", check)
 }
 
 // GenerateAll publishes the ordinary Go packages and selected TypeScript
 // clients as one artifact set. Private executable composition stays in cache.
 func GenerateAll(root string, check bool) (GenerateResult, error) {
-	return generateFromRoot(root, check, "generated artifacts are stale", func(result *compiler.Result) ([]generatedFile, error) {
-		goFiles, err := renderGoContractFiles(result)
-		if err != nil {
-			return nil, err
-		}
-		typeScriptFiles, err := renderTypeScriptClientFiles(result, "")
-		if err != nil {
-			return nil, err
-		}
-		if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, ""), typeScriptFiles); err != nil {
-			return nil, err
-		}
-		return append(goFiles, typeScriptFiles...), nil
-	})
-}
-
-func generateGoContracts(root string, check, allowActiveChangeTransaction bool) (GenerateResult, error) {
-	return generateFromRoot(root, check, "generated contracts are stale", renderGoContractFiles)
+	return GenerateWithContext(context.Background(), root, "", check)
 }
 
 // GenerateGoContractsFromResult renders one immutable compiler snapshot.
 func GenerateGoContractsFromResult(result *compiler.Result, check bool) (GenerateResult, error) {
-	return generateGoContractsFromResult(result, check)
-}
-
-func generateGoContractsFromResult(result *Result, check bool) (GenerateResult, error) {
-	return generateFromResult(result, check, "generated contracts are stale", renderGoContractFiles)
+	return GenerateSnapshotWithContext(context.Background(), result, "contracts", check)
 }
 
 func renderGoContractFiles(result *Result) ([]generatedFile, error) {
@@ -372,13 +355,23 @@ func localModuleInstances(resources []Resource) []Resource {
 	return modules
 }
 
+// Planning and rendering use the same public package artifact layout.
+func goPackageArtifactPaths(result *Result, module Resource) []string {
+	source := stringValue(module.Spec["workspace_package_root"])
+	if source == "" {
+		source = stringValue(module.Spec["source"])
+	}
+	root := filepath.Join(result.Root, filepath.FromSlash(source), "scenerycontract")
+	return []string{filepath.Join(root, "types.gen.go"), filepath.Join(root, "contract.gen.go"), filepath.Join(root, "scenery.package-generated.json")}
+}
+
 func generateModuleContract(result *Result, idx *resourceIndex, module Resource) ([]generatedFile, error) {
 	source, _ := module.Spec["workspace_package_root"].(string)
 	if source == "" {
 		source, _ = module.Spec["source"].(string)
 	}
-	dir := filepath.Join(result.Root, filepath.FromSlash(source))
-	contractDir := filepath.Join(dir, "scenerycontract")
+	paths := goPackageArtifactPaths(result, module)
+	contractDir := filepath.Dir(paths[0])
 	resources := idx.moduleResources(moduleInstancePath(module))
 	packageBlock := findPackageBlock(result.Sources, source)
 	importPath := ""
@@ -427,7 +420,7 @@ func generateModuleContract(result *Result, idx *resourceIndex, module Resource)
 	if err != nil {
 		return nil, fmt.Errorf("format %s contract: %w\n%s", moduleInstancePath(module), err, contractSource)
 	}
-	artifactFiles := []generatedFile{{Path: filepath.Join(contractDir, "types.gen.go"), Bytes: formattedTypes}, {Path: filepath.Join(contractDir, "contract.gen.go"), Bytes: formattedContract}}
+	artifactFiles := []generatedFile{{Path: paths[0], Bytes: formattedTypes}, {Path: paths[1], Bytes: formattedContract}}
 	descriptor := addGeneratedArtifactIdentity(map[string]any{
 		"artifact_kind": "go_package_contract",
 		"package":       packageIdentity, "package_identity": packageIdentity,
@@ -439,7 +432,7 @@ func generateModuleContract(result *Result, idx *resourceIndex, module Resource)
 	}, goPackageDescriptorKind, goPackageSchemaDescriptor, result.Manifest.SpecRevision)
 	descriptorBytes, _ := json.MarshalIndent(descriptor, "", "  ")
 	descriptorBytes = append(descriptorBytes, '\n')
-	return append(artifactFiles, generatedFile{Path: filepath.Join(contractDir, "scenery.package-generated.json"), Bytes: descriptorBytes}), nil
+	return append(artifactFiles, generatedFile{Path: paths[2], Bytes: descriptorBytes}), nil
 }
 
 func moduleResources(resources []Resource, module string) []Resource {

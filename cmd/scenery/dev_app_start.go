@@ -13,6 +13,7 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/devtelemetry"
+	"scenery.sh/internal/lifecycle"
 	"scenery.sh/internal/workspacetx"
 	"scenery.sh/runtime"
 )
@@ -134,39 +135,54 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		earlyAssistants = s.assistants.beginStage(ctx, captured.contract)
 		defer earlyAssistants.release()
 	}
-	plan, err := s.prepareDevRuntimePlan(ctx, initial, captured)
-	if err != nil {
-		metadata, apiEncoding := devBuildErrorPayload(err)
-		return s.handleCompileError(ctx, metadata, apiEncoding, err)
-	}
-	if initial {
-		if err := s.waitForStartupReady(ctx); err != nil {
+	var plan *devRuntimePlan
+	var current *runningApp
+	var reload bool
+	releasePrepared := func() {}
+	defer func() { releasePrepared() }()
+	preparation := lifecycle.Node{ID: "runtime.prepare", Kind: "runtime_candidate", Cache: lifecycle.ExternalEffect, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.PublishArtifacts, lifecycle.UseScratch, lifecycle.MutateDatabase, lifecycle.ControlRuntime}, Outputs: []lifecycle.Reference{{Name: "candidate", Kind: "runtime_candidate", Ownership: lifecycle.Private}}, Action: func(ctx context.Context) error {
+		var err error
+		plan, err = s.prepareDevRuntimePlan(ctx, initial, captured)
+		if err == nil {
+			releasePrepared = func() { plan.Prepared.release(s) }
+		}
+		return err
+	}}
+	verification := lifecycle.Node{ID: "runtime.verify", Kind: "candidate_validation", Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Dependencies: []lifecycle.ID{"runtime.prepare"}, Inputs: []lifecycle.Reference{{Name: "candidate", Kind: "runtime_candidate", Producer: "runtime.prepare"}}, Outputs: []lifecycle.Reference{{Name: "verified", Kind: "runtime_candidate", Ownership: lifecycle.Private}}, Action: func(ctx context.Context) error {
+		if initial {
+			if err := s.waitForStartupReady(ctx); err != nil {
+				return err
+			}
+		}
+		if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
 			return err
 		}
+		started := time.Now()
+		err := s.requireCurrentBuildSnapshot(captured)
+		build.RecordStep(ctx, build.Step{Name: "supervisor.snapshot_verify", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "source_unchanged_since_capture", OK: err == nil})
+		return err
+	}}
+	activation := lifecycle.Node{ID: "runtime.activate", Kind: "runtime_activation", Cache: lifecycle.ExternalEffect, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.MutateDatabase, lifecycle.ControlRuntime}, Dependencies: []lifecycle.ID{"runtime.verify"}, Inputs: []lifecycle.Reference{{Name: "verified", Kind: "runtime_candidate", Producer: "runtime.verify"}}, Action: func(ctx context.Context) error {
+		started := time.Now()
+		var err error
+		current, reload, err = s.activateDevProcesses(ctx, plan, earlyAssistants)
+		build.RecordStep(ctx, build.Step{Name: "runtime.activation", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "publish_process_generation", OK: err == nil, PackagesRebuilt: plan.Processes.Rebuilt, ContractRevision: plan.Result.Contract.Manifest.ContractRevision})
+		return err
+	}}
+	lifecyclePlan, err := lifecycle.New([]lifecycle.Node{preparation, verification, activation})
+	if err == nil {
+		err = lifecyclePlan.Run(ctx, []lifecycle.ID{"runtime.activate"}, []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.PublishArtifacts, lifecycle.UseScratch, lifecycle.MutateDatabase, lifecycle.ControlRuntime})
 	}
-	if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
-		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
-	}
-	defer plan.Prepared.release(s)
-	snapshotStarted := time.Now()
-	err = s.requireCurrentBuildSnapshot(captured)
-	build.RecordStep(ctx, build.Step{Name: "supervisor.snapshot_verify", StartedAt: snapshotStarted, Duration: time.Since(snapshotStarted), Cache: "not_applicable", Reason: "source_unchanged_since_capture", OK: err == nil})
 	if err != nil {
 		if errors.Is(err, errBuildSuperseded) {
 			s.setCompiling(false, "")
 			_ = s.persistStatus(ctx)
 			return err
 		}
-		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
-	}
-	activationStarted := time.Now()
-	current, reload, err := s.activateDevProcesses(ctx, plan, earlyAssistants)
-	build.RecordStep(ctx, build.Step{
-		Name: "runtime.activation", StartedAt: activationStarted, Duration: time.Since(activationStarted),
-		Cache: "not_applicable", Reason: "publish_process_generation", OK: err == nil, PackagesRebuilt: plan.Processes.Rebuilt,
-		ContractRevision: plan.Result.Contract.Manifest.ContractRevision,
-	})
-	if err != nil {
+		if plan == nil {
+			metadata, apiEncoding := devBuildErrorPayload(err)
+			return s.handleCompileError(ctx, metadata, apiEncoding, err)
+		}
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
 	activated = true

@@ -15,6 +15,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/lifecycle"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/postgresname"
 )
@@ -79,7 +80,9 @@ func runDBApplyWithHooks(ctx context.Context, stdout io.Writer, args []string, h
 	if opts.JSON {
 		applyStdout = io.Discard
 	}
-	if err := runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, cfg.Database.Apply, applyStdout, os.Stderr, hooks); err != nil {
+	if err := runLifecycleEffect(ctx, "database.apply", []lifecycle.Capability{lifecycle.ReadSource, lifecycle.MutateDatabase}, func(ctx context.Context) error {
+		return runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, cfg.Database.Apply, applyStdout, os.Stderr, hooks)
+	}); err != nil {
 		return err
 	}
 	result := buildDBApplyResult(appRoot, cfg)
@@ -87,28 +90,6 @@ func runDBApplyWithHooks(ctx context.Context, stdout io.Writer, args []string, h
 		return writeInspectJSON(stdout, result)
 	}
 	_, _ = fmt.Fprintln(stdout, "scenery: database apply complete")
-	return nil
-}
-
-func dbSyncCommandWithHooks(args []string, hooks lifecycleHooks) error {
-	opts, err := parseDBResetArgs(args)
-	if err != nil {
-		return err
-	}
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	if err := runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, cfg.Database.Apply, hooks); err != nil {
-		return err
-	}
-	if sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg); err != nil {
-		return err
-	} else if ok {
-		return runSQLCGeneratorWithHooks(ctx, os.Stdout, appRoot, sqlcPlan, false, hooks)
-	}
-	_, _ = fmt.Fprintln(os.Stdout, "scenery: database sync complete; no sqlc generator configured")
 	return nil
 }
 
@@ -144,10 +125,6 @@ func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
 			Status:  "applied",
 		},
 	}
-}
-
-func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, hooks lifecycleHooks) error {
-	return runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, apply, os.Stdout, os.Stderr, hooks)
 }
 
 func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, stdout, stderr io.Writer, hooks lifecycleHooks) (returnErr error) {

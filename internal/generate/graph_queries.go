@@ -41,15 +41,6 @@ func contractResourceProjection(resource Resource) (Resource, bool) {
 	return graph.ContractResourceProjection(resource)
 }
 
-func firstError(diagnostics []Diagnostic) string {
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Severity == "error" {
-			return diagnostic.Code + ": " + diagnostic.Message
-		}
-	}
-	return "unknown error"
-}
-
 func canonicalStrings(values []string) []string {
 	set := map[string]bool{}
 	for _, value := range values {

@@ -285,7 +285,7 @@ func runContractGraph(stdout io.Writer, args []string) error {
 		return err
 	}
 	if !result.Valid() {
-		return writeContractResult(stdout, output, quiet, result, nil)
+		return writeSourceResult(stdout, output, quiet, result, nil)
 	}
 	manifest, err := result.ManifestForView(view)
 	if err != nil {
@@ -295,7 +295,7 @@ func runContractGraph(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	return writeContractResult(stdout, output, quiet, result, resourceGraph)
+	return writeSourceResult(stdout, output, quiet, result, resourceGraph)
 }
 
 func runContractDiff(stdout io.Writer, args []string) error {
@@ -414,18 +414,12 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 	} else {
 		result, generateErr = generate.GenerateGoContracts(root, opts.Check)
 	}
-	var compilation *compiler.Result
-	if generateErr == nil {
-		compilation, generateErr = compiler.Compile(root)
-	}
+	compilation := result.Compilation
 	coverage := generate.ClientCoverageFor(compilation, target)
 	if target == "contracts" {
 		coverage = []generate.ClientCoverage{}
 	}
 	if opts.Output == "json" {
-		if compilation == nil {
-			compilation, _ = compiler.Compile(root)
-		}
 		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result, "clients": coverage}, nil)
 		if compilation != nil {
 			envelope.WorkspaceRevision = compilation.WorkspaceRevision
@@ -442,6 +436,9 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 		}
 		if generateErr != nil {
 			code := "SCN6207"
+			if strings.HasPrefix(generateErr.Error(), "revision_conflict:") {
+				code = "SCN8002"
+			}
 			if opts.Check && len(result.Changed) > 0 {
 				code = "SCN6204"
 			}
@@ -556,7 +553,7 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if result.PartialGraph != nil {
 		data["partial_graph"] = result.PartialGraph
 	}
-	return writeContractResult(stdout, opts.Output, opts.Quiet, result, data)
+	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, data)
 }
 
 func contractManifestSummary(manifest *graph.Manifest) map[string]any {
@@ -597,7 +594,7 @@ func runContractCompile(stdout io.Writer, args []string) error {
 	if result.PartialGraph != nil {
 		data["partial_graph"] = result.PartialGraph
 	}
-	return writeContractResult(stdout, opts.Output, opts.Quiet, result, data)
+	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, data)
 }
 
 func runContractList(stdout io.Writer, args []string) error {
@@ -624,7 +621,7 @@ func runContractList(stdout io.Writer, args []string) error {
 			}
 		}
 	}
-	return writeContractResult(stdout, opts.Output, opts.Quiet, result, map[string]any{"view": opts.View, "resources": resources})
+	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, map[string]any{"view": opts.View, "resources": resources})
 }
 
 func runContractGet(stdout io.Writer, args []string, explain bool) error {
@@ -663,7 +660,7 @@ func runContractGet(stdout io.Writer, args []string, explain bool) error {
 	if explain {
 		data["provenance"] = found.Origin
 	}
-	return writeContractResult(stdout, opts.Output, opts.Quiet, result, data)
+	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, data)
 }
 
 func runContractSchema(stdout io.Writer, args []string) error {

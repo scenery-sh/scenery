@@ -30,6 +30,13 @@ func ReconcileGeneratedPaths(root string) (map[string]bool, error) {
 
 func generatedPaths(root string, fresh bool) (map[string]bool, error) {
 	paths := map[string]bool{}
+	receipt, err := ReadSQLCArtifactReceipt(root)
+	if err != nil {
+		return nil, err
+	}
+	for path := range receipt.Files {
+		paths[path] = true
+	}
 	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
 		return paths, nil
 	} else if err != nil {

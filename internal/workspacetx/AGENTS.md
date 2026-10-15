@@ -15,6 +15,8 @@ process ownership checks, and recovery before any compiler source read.
   descriptor/digest ownership before returning updates. Serialize recovery with
   the kernel-owned recovery gate, verify backup bytes, and remove journals before
   committed markers/backups during cleanup.
+- Check supplied `File.ExpectedBeforeDigest` against bytes/presence before
+  no-op detection or staging. The journal then retains that verified before state.
 
 ## Verification
 

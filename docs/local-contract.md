@@ -503,6 +503,55 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 - `split_page` is domain-neutral sidebar/detail composition. It requires `path`, `title`, a call-delivery HTTP `source` whose operation has unit input and one result, and `sidebar` plus `detail` `react_component` slots. Optional `sidebar_actions` and `detail_header` slots receive the same typed raw `{state, selection, onSelectionChange}` props; `selection` is `string | null`, passing `null` to `onSelectionChange` removes the configured query parameter, and generated pages re-read that parameter on `popstate` so Back/Forward navigation updates rendered selection. `sidebar_label` names the sidebar landmark and `query_parameter` controls URL-backed selection. The catalog `SplitPage` defaults its section and sidebar labels from a string `sidebarTitle`; a non-string title requires explicit labels. Its grid fills its own box without requiring a positioned ancestor, and both header rows use one shared height/chrome primitive. Authored strings emitted directly into generated JSX attributes use brace-wrapped JavaScript expressions, so quotes and backslashes remain valid literal content; labels and enum values inside object/array props remain ordinary JavaScript literals. The source operation must also have an inherited internal binding for page loading. Expansion produces the ordinary page plus the built-in split renderer. Scenery owns layout, transport, request state, and selection wiring; each app-owned slot is responsible for rendering loading/error/ready branches and should use the catalog `QueryState` component for consistency. `scenery schema scenery.split-page -o json` exposes the authored grammar.
 
 - `generators.sqlc` is a beta lifecycle config for SQLC generation. `provider` may be empty or `sqlc`; `config` defaults to `sqlc.yaml`; schema files listed in `sqlc.yaml` are treated as inputs. Explicit `atlas_source` schemas are refreshed only when an explicit `dev_url` is configured; `postgres://`, `postgresql://`, and `docker://` Atlas dev URLs pass through to Atlas unchanged. SQLC schema blocks whose schema path belongs to a configured database service must use a Postgres SQLC engine (`postgresql`/`postgres`). SQLC generation is a generated-source lifecycle and must not apply database schema or seed data.
+- SQLC version-2 configuration references resolve relative to the selected
+  config file, and the staged SQLC command runs from that file's directory;
+  unsupported versions are rejected while planning, including
+  dry-run and inspection. Inputs and outputs must be confined non-symlink workspace paths;
+  output scopes must be declared in `workspace.managed_generated_roots`. The
+  generator inspection reports every Go, JSON and plugin output scope, including
+  the file producer's destination outputs. Codegen roots must be disjoint,
+  including across SQL blocks; identical and nested roots are invalid requests.
+  Destination outputs may name a shared publication node in `owner`; it must have
+  publication capability and depend on each producer it owns. Omitted `owner`
+  means the producer owns its output. SQLC code and Atlas schema outputs share the `sqlc.artifacts.commit` publication
+  owner. Their destination scopes still reject overlap with other generators.
+  Only plugins selected by
+  `sql[].codegen[].plugin` contribute local plugin inputs and executable identities.
+  Relative process commands containing a path separator resolve from the selected
+  config directory and contribute exact workspace input bytes. They must be regular,
+  non-symlink executables and are copied with executable permissions into staging;
+  executable permission is checked again before publication, so a mode-only edit
+  cannot produce a successful human response or a JSON failure after publication.
+  bare commands use the external tool lookup and identity checks.
+  Read-only planning captures the exact schema/query/local-plugin input digest,
+  and response validation checks it again even outside compiler revision membership.
+  Each required SQL selection must resolve to at least one file. Missing files,
+  empty directories and unmatched globs fail planning; explicitly declared Atlas
+  schema outputs may satisfy schema selections before their bytes exist.
+  Authored SQL schemas are inputs, while Atlas-produced schemas have explicit producers
+  and scratch-infrastructure authority. Atlas schema files are producer outputs,
+  not SQLC code-output roots. Code generation runs against captured
+  bytes in private staging, then revalidates inputs and tool identities before
+  one recoverable artifact publication. Every declared code-output root must
+  contain produced files; a successful empty plugin cannot retire prior output.
+  Tool progress uses stderr in JSON mode.
+  `.scenery/artifacts/sqlc.json` is a private structural-schema ownership receipt
+  for the complete output set, not a reusable computation cache. Missing
+  receipts provide no classification authority; malformed receipts are refused
+  by the same decoder used for publication. Identical existing SQLC output can
+  be claimed by its first receipt; the JSON response uses the post-publication
+  membership captured under the transaction owner, retaining the rendered graph.
+  Missing owned output can be regenerated; modified/unknown ownership is refused. Retirement
+  deletes only matching descriptor-owned files still inside current managed roots,
+  preserving output in revoked scopes and unrelated authored
+  files in the same directory. First publication never overwrites an existing
+  authored schema to turn it into generated output.
+  Publication carries the verified original digest or absence into transaction
+  staging for each output, retirement and receipt, including unchanged output;
+  an intervening edit refuses the entire set and preserves the editor's bytes.
+- Database seed discovery reads seed artifacts, fixtures and command definitions
+  without planning SQLC or capturing its generation inputs. It still requires a
+  valid current compiler contract; compiler source/classification errors are not bypassed.
 - `database.apply` is a beta DB lifecycle escape hatch with an explicit shell `command`, optional `cwd`, and string `env` overlay. The accepted split lifecycle moves database mutation to `scenery db apply`; SQLC refresh stays under `scenery generate sqlc`.
 - `database.migrations` selects ordered app-authored SQL with `{ "service": "projects", "directory": "projects/db/migrations" }` per distinct compiled application SQL binding. It is mutually exclusive with `database.apply.command`. Files are workspace-contained, non-symlink regular files named `0001_description.sql`, contiguous from 0001, with at most 256 files per service, 4 MiB per file and 16 MiB per service. Missing, unsafe, unordered, or invalid source inputs fail before database allocation. Scenery owns transaction and session control; migration files contain SQL transformations, not `BEGIN`, `COMMIT`, `ROLLBACK`, session-control statements or psql commands.
 - Service-local `SERVICE/db/seed.sql` files are immutable initial data. They are not Atlas schema input or SQLC input. The accepted lifecycle applies seed data through `scenery db seed`. The implementation fails closed on changed previously-applied seed files and obviously destructive seed SQL rather than adding force or reseed escape hatches. Large validated reference datasets can instead use a named `database.seed.commands` entry with a target service and explicit regular, non-symlink workspace input files. Its fingerprint includes the normalized command definition and complete input contents. The command runs after SQL and typed-fixture seeds with `DATABASE_URL` pinned to the target service; success replaces its prior command hash, unchanged inputs skip, and failure retains the prior hash. Commands must make their own data mutation atomic or idempotent because process success and ledger recording cannot share one database transaction.
@@ -692,6 +741,27 @@ HTTP/assistant selection is successful but warns about package exports and
 gateway/include selectors. Fresh checkouts require explicit generation before
 ordinary Go tools. A published Go module must include its required generated
 source; ordinary application commits need not track it.
+
+Source-derived inspection and contract commands report the captured workspace
+and semantic contract revisions in their envelope. They validate source membership
+and exact bytes before returning either success or invalid-source diagnostics.
+Disappearance of a captured source file or package directory is a revision conflict,
+just like changed bytes.
+Generation uses the compiler result
+that rendered its artifacts for response revisions and coverage; it never
+recompiles afterward to label earlier output. A source edit during rendering or
+before snapshot reuse returns `SCN8002` / exit 3 and publishes nothing from the
+superseded attempt. Changes after the validation boundary belong to a later
+revision; a command does not promise to prevent subsequent user edits.
+Check-only commands detect drift without repairing application output.
+TypeScript rendering/check nodes exist only for a nonempty selected target set.
+Multiple TypeScript targets may use nested output roots within the same renderer;
+different lifecycle owners may not claim overlapping output paths.
+Go renderer inspection lists the selected package destination roots and exact
+contract/descriptor paths using the renderer's layout, without rendering bytes.
+The TypeScript library APIs select TypeScript clients only, including an empty
+selector for all clients; refreshing a UI catalog does not compare or publish Go
+contracts. Ordinary default generation still selects both renderers.
 
 `provider lock` is an explicit, offline source transaction. It reads root
 provider declarations and creates or refreshes their bundled provider entries
@@ -1225,7 +1295,7 @@ Inspect rules:
   provide a compact human report by default.
 - `--app-root` is optional. When omitted, scenery walks upward from the current working directory to find the app config.
 - Stable inspect subjects are `app`, `routes`, `services`, `endpoints`, `build`, `paths`, `ui`, and `docs`.
-- `generators`, `durable`, `storage`, `traces`, `metrics`, and `observability` are beta diagnostic subjects. `generators` reports configured graph inputs/outputs; `durable` reports task declarations, schemas and redacted database metadata. `inspect storage` reports declared stores, retained canonical scope, readiness and public recovery instructions. Incarnation/generation are null for a never-initialized namespace. Counts/totals are absent (unknown) unless `--stats` explicitly runs a full metadata scan. Discovery never allocates; retained roots remain inspectable after source removal. `traces`, `metrics`, and `observability` read Scenery-managed data; Victoria is substrate, not the integration API.
+- `generators`, `durable`, `storage`, `traces`, `metrics`, and `observability` are beta diagnostic subjects. `generators` reports the actual planner `nodes` in deterministic dependency order, with typed inputs/outputs, output ownership, dependencies, cache policies and explicit effects. It also retains the renderer `generators` summary and database artifact inventory. Inspection executes no renderer, checker, publication or infrastructure action. `durable` reports task declarations, schemas and redacted database metadata. `inspect storage` reports declared stores, retained canonical scope, readiness and public recovery instructions. Incarnation/generation are null for a never-initialized namespace. Counts/totals are absent (unknown) unless `--stats` explicitly runs a full metadata scan. Discovery never allocates; retained roots remain inspectable after source removal. `traces`, `metrics`, and `observability` read Scenery-managed data; Victoria is substrate, not the integration API.
 - `scenery storage ls|stat|put|get|rm|cleanup -o json` is the worktree storage CLI; discovery is `inspect storage`. Every response echoes canonical scope. `ls` scans reference metadata with bounded keyset pages (default 100, maximum 1000; serialized page at most 64 KiB, including reserved cursor space for each committed object descriptor), counts objects and common prefixes together, and does not hash payloads. Cursors bind root/incarnation/generation, store/tenant, prefix and delimiter; they are not multi-request snapshots. `get` requires a named `--output`; payload never enters JSON stdout. `put` accepts `<file|->`, `--content-type`, case-sensitive `--metadata <json-file>` and mutually exclusive `--if-absent`/`--if-match`. Recursive `rm` previews by default and requires `--yes --expect-revision` for the unchanged selector; stale previews do not mutate. It is not bulk atomic: partial/uncertain progress requires a fresh preview. `cleanup` similarly previews and reclaims only proven unreferenced material; `--purge` additionally requires a stopped verified managed owner and durably retires its incarnation before reclamation. Stable locks/retired identity survive. The runtime's authenticated `/__scenery/storage/<store>/...` routes use the same SDK semantics; private stores are absent from public storage HTTP routes. This revision emits no generated TypeScript storage helper.
 - Storage reclamation normally orders candidates using scratch-backed sorting. If scratch creation or extension fails with `ENOSPC` or `EDQUOT` before any visitor callback, it removes partial runs and switches to bounded ordered rescans without spilling. Candidate order and preview revisions remain unchanged. Other errors and deletion callback failures propagate; failed deletion is never automatically retried.
 - `scenery inspect observability -o json` emits `scenery.inspect.observability` with backend readiness for logs, metrics, and traces; native dialect names; examples; and the exact enforced query scope for the selected app/session.

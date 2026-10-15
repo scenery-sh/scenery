@@ -111,6 +111,56 @@ func TestSnapshotUnchangedVerifiesMembershipAndBytes(t *testing.T) {
 	check(false)
 }
 
+func TestSnapshotTreatsMissingPackageDirectoryAsChange(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, "app.scn", "application \"snapshot\" {}\nmodule \"child\" { source = \"./child\" }\n")
+	writeCompilerSnapshotFile(t, root, "child/package.scn", "package \"child\" {}\n")
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "child")); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, err := SnapshotUnchanged(result); err != nil || unchanged {
+		t.Fatalf("missing captured package: unchanged=%v, error=%v", unchanged, err)
+	}
+}
+
+func TestInvalidSnapshotVerifiesCapturedSourceBytes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, appFilename, "application \"invalid\" {\n")
+	result, err := Compile(root)
+	if err != nil || result.Valid() || len(result.Diagnostics) == 0 {
+		t.Fatalf("invalid compile: %v %#v", err, result)
+	}
+	if unchanged, err := SnapshotUnchanged(result); err != nil || !unchanged {
+		t.Fatalf("unchanged invalid snapshot: %v %v", unchanged, err)
+	}
+	for _, contents := range []string{"application \"different\" {\n", "application \"valid\" {}\n"} {
+		writeCompilerSnapshotFile(t, root, appFilename, contents)
+		if unchanged, err := SnapshotUnchanged(result); err != nil || unchanged {
+			t.Fatalf("edited invalid snapshot accepted: %v %v", unchanged, err)
+		}
+	}
+}
+
+func TestInvalidSnapshotAcceptsReorderedDiagnostics(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, appFilename, "application \"invalid\" {}\nhttp_gateway \"api\" { exposure = \"internet\" }\n")
+	result, err := compileResult(root)
+	if err != nil || len(result.Diagnostics) < 2 {
+		t.Fatalf("invalid fixture: %v %#v", err, result)
+	}
+	slices.Reverse(result.Diagnostics)
+	if unchanged, err := SnapshotUnchanged(result); err != nil || !unchanged {
+		t.Fatalf("diagnostic order invalidated identical source: %v %v", unchanged, err)
+	}
+}
+
 func TestSnapshotUnchangedIncludesImplementationBytes(t *testing.T) {
 	root := t.TempDir()
 	source := "application \"snapshot\" {}\nworkspace {\n implementation_root \"go\" {\n path = \".\"\n revision_include = [\"*.go\", \"go.mod\"]\n revision_exclude = []\n }\n}\n"
@@ -131,6 +181,30 @@ func TestSnapshotUnchangedIncludesImplementationBytes(t *testing.T) {
 	}
 	if ok, err := SnapshotUnchanged(result); err != nil || ok {
 		t.Fatalf("edited implementation: %v %v", ok, err)
+	}
+}
+
+func TestSnapshotRejectsOldRendererDigestWithNewWorkspaceIdentity(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCompilerSnapshotFile(t, root, appFilename, "application \"snapshot\" {}\nworkspace {\n revision_input \"renderer\" { paths = [\"screen.ts\"] }\n}\n")
+	writeCompilerSnapshotFile(t, root, "screen.ts", "export const value = 1;\n")
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	resources, diagnostics := enrichUIImplementationDigests(root, []Resource{{Address: "app/renderer/screen", Module: "app", Kind: "scenery.renderer", Spec: map[string]any{"module": "screen.ts"}}})
+	if hasErrors(diagnostics) {
+		t.Fatalf("renderer: %v", diagnostics)
+	}
+	result.Manifest.Resources = resources
+	writeCompilerSnapshotFile(t, root, "screen.ts", "export const value = 2;\n")
+	// Model the edit between reading implementation bytes and workspace hashing.
+	if err := RefreshWorkspaceRevision(result); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, err := SnapshotUnchanged(result); err != nil || unchanged {
+		t.Fatalf("old renderer received new workspace identity: %v %v", unchanged, err)
 	}
 }
 

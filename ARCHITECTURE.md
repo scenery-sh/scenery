@@ -308,6 +308,8 @@ spelling cannot silently drift.
 source, effective, and expanded graph snapshots. Before any ordinary source
 read, it uses `internal/workspacetx` to recover an abandoned source transaction
 or reject a live owner; staged validation admits only that transaction's owner.
+The compiler owns the shared SQLC ownership-receipt decoder used by both source
+classification and CLI publication, so malformed claims never suppress inputs.
 
 Architecture invariant: compiler depends on the foundational source/spec/graph
 packages and `internal/gotarget`. It does not import `internal/parse`.
@@ -350,6 +352,33 @@ Architecture invariant: render every selected output before one atomic commit;
 verification is read-only and generated paths stay beneath declared managed
 roots. Architecture invariant: `internal/generate/api` stays free of
 compiler, parse, TypeScript verification, and generate itself.
+
+### `internal/lifecycle`
+
+The standard-library-only planner validates typed producer dependencies,
+duplicate identities, cycles and overlapping paths of different output owners
+before execution. One owner may describe nested output scopes. An output can
+name a shared publication node as its owner; that node must declare publication
+capability and depend on every producer whose paths it owns. SQLC and Atlas use
+their common artifact-set publication owner, while other generators retain
+independent destination scopes.
+Go package destination scopes and exact file paths come from the same layout
+used by rendering. TypeScript library entrypoints retain a TypeScript-only
+selection even when selecting every client.
+It selects a deterministic serial closure and admits each node's declared
+capabilities before running any action. Pure projection reuse remains in its
+rendering owner; current validation and external effects are never skipped by
+the scheduler. Compiler semantics and workspace transactions stay in their
+existing packages.
+
+Source commands use a read-only compiler closure. Generation, build preparation
+and cached TypeScript preparation select the same rendering/validation nodes.
+SQLC captures declared inputs read-only during planning with compiler membership
+helpers, revalidates that digest during execution and response, renders in a
+private staging tree and publishes one digest-owned artifact set through
+workspacetx with the verified original-file preconditions. Explicit database operations remain live effects; development
+candidate preparation, verification and activation form their own selected
+closure over the existing runtime owners.
 
 ### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, `internal/mcpgateway`, and `internal/mcpfederation`
 

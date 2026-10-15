@@ -32,6 +32,8 @@ CLI wires generation.
   implementation and snapshots on hits; transact only changed output.
 - Reuse `workspacetx` for one serialized, recoverable artifact publication.
   Never replace or delete bytes whose descriptor/digest ownership is unproven.
+- Lifecycle adapters share producers and cancellable checks/publication. Response
+  identity comes from the rendering snapshot; see `docs/local-contract.md`.
 - Graph reads, `check`, and `generate --check` do not repair application output.
   Native ABI checking uses current expected contracts even when local output is
   stale. Contract bootstrap requires a valid graph, not valid implementation.
@@ -39,8 +41,7 @@ CLI wires generation.
   `materialization` mode.
 - Generated `typescript_client` HTTP methods are thin typed wrappers over a
   per-binding descriptor table and `Runtime.invoke` / `Runtime.matchResponse`.
-  Do not inline the request/response machine per method or emit TanStack hooks
-  from this target. Omit empty query and cookie mapping arrays. Emit shared
+  Never inline request machines or emit TanStack hooks. Omit empty query and cookie mapping arrays. Emit shared
   runtime query, binding header/cookie, multipart, retry, and record-validation
   sections only when the covered descriptors, reachable records, or target
   configuration require them. Intern
@@ -77,10 +78,10 @@ CLI wires generation.
 - Generation checks return diagnostics plus an explicit implementation state:
   native verification is `valid` or `invalid`; compile-only/non-native checks
   remain `not_requested`.
-- Reports use actual renderer selection and changed/checked files. Never manage
-  user workfiles or add editor-workspace APIs.
-- Builds verify default and selected Go targets in the owned private workspace;
-  check-only commands use expected overlays. Keep each target's full context.
+- Report selected renderers/files; omit TypeScript nodes for empty selections.
+  Never manage user workfiles.
+- Builds verify default/selected Go targets in the owned private workspace;
+  checks use expected overlays and preserve target context.
 
 ## Verification
 

@@ -69,7 +69,7 @@ func TestOptionalUIRetirementPreservesCommonClientAndAuthoredSlots(t *testing.T)
 	if removed == 0 {
 		t.Fatal("UI retirement removed no owned output")
 	}
-	if _, err := publishGenerated(root, false, "", func() ([]generatedFile, error) { return retired, nil }); err != nil {
+	if _, err := inspectGeneratedFiles(root, retired); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.ReadFile(slot); err != nil || string(got) != authored {
@@ -86,19 +86,21 @@ func TestUIRenderFailurePublishesNoneOfSharedArtifactSet(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "broken-ui"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	appPath := filepath.Join(root, testAppFilename)
+	appSource, err := os.ReadFile(appPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appSource = bytes.Replace(appSource, []byte(`typescript_client "public_api" {`), []byte("typescript_client \"public_api\" {\n  react { tsconfig = \"tsconfig.json\" }"), 1)
+	if err := os.WriteFile(appPath, appSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf("compile: %v; diagnostics: %v", err, result.Diagnostics)
 	}
-	target := typescriptTargets(result.Manifest.Resources, "public_api")[0]
-	target.Spec = cloneMapValue(target.Spec)
-	target.Spec["react"] = map[string]any{}
-	shared := filepath.Join(root, "house/scenerycontract/shared.go")
-	_, err = publishGenerated(root, false, "", func() ([]generatedFile, error) {
-		files := []generatedFile{{Path: shared, Bytes: []byte("package contract\n")}}
-		uiFiles, err := renderTypeScriptTarget(result, target)
-		return append(files, uiFiles...), err
-	})
+	shared := filepath.Join(root, "house/scenerycontract/types.gen.go")
+	_, err = GenerateSnapshotWithContext(t.Context(), result, "", false)
 	if err == nil || !strings.Contains(err.Error(), "not a UI catalog root") {
 		t.Fatalf("expected UI render failure: %v", err)
 	}

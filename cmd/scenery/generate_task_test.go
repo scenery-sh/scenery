@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/lifecycle"
 )
 
 func TestParseGenerateArgs(t *testing.T) {
@@ -52,6 +54,7 @@ func TestBuildSQLCGeneratorPlanUsesSQLCSchemaInput(t *testing.T) {
 		t.Fatalf("schema plan = %+v", plan.Schemas[0])
 	}
 	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/gen/schema.sql")
+	assertStringSliceNotContains(t, plan.Record.Outputs, "auth/db/gen/schema.sql")
 	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/queries.sql")
 	assertStringSliceContains(t, plan.Record.Outputs, "auth/db/gen")
 }
@@ -215,11 +218,17 @@ select 1;
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if len(payload.Generators) != 1 || payload.Generators[0].ID != "sqlc" {
-		t.Fatalf("generators = %+v", payload.Generators)
+	var sqlc *generatorRecord
+	for i := range payload.Generators {
+		if payload.Generators[i].ID == "sqlc" {
+			sqlc = &payload.Generators[i]
+		}
 	}
-	assertStringSliceNotContains(t, payload.Generators[0].Inputs, "auth/db/seed.sql")
-	assertStringSliceNotContains(t, payload.Generators[0].Outputs, "auth/db/seed.sql")
+	if sqlc == nil || len(payload.Nodes) == 0 {
+		t.Fatalf("missing planner producers: %#v", payload)
+	}
+	assertStringSliceNotContains(t, sqlc.Inputs, "auth/db/seed.sql")
+	assertStringSliceNotContains(t, sqlc.Outputs, "auth/db/seed.sql")
 	assertDBArtifact(t, payload.DBArtifacts, "auth", "schema-source", "schema", "auth/db/schema.hcl")
 	assertDBArtifact(t, payload.DBArtifacts, "auth", "query", "query-generation-input", "auth/db/queries.sql")
 	assertDBArtifact(t, payload.DBArtifacts, "auth", "generated-schema", "generated-source", "auth/db/gen/schema.sql")
@@ -233,13 +242,21 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
-	plan := &sqlcGeneratorPlan{
-		ConfigPath: "sqlc.yaml",
-		Schemas: []sqlcSchemaPlan{{
+	if err := os.Remove(filepath.Join(root, "auth/db/gen/schema.sql")); err != nil {
+		t.Fatal(err)
+	}
+	cfg := appcfg.Config{Name: "demo"}
+	cfg.Generators.SQLC = appcfg.SQLCGeneratorConfig{
+		Config: "sqlc.yaml",
+		Schemas: []appcfg.SQLCGeneratorSchema{{
 			SQLCSchema:  "auth/db/gen/schema.sql",
 			AtlasSource: "auth/db/schema.hcl",
 			AtlasDevURL: "postgres://dev",
 		}},
+	}
+	plan, _, err := buildSQLCGeneratorPlan(root, cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	var ran []lifecycleExecRequest
@@ -253,66 +270,28 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 		return []byte("create schema scenery_auth;\n"), nil
 	})
 
-	var out bytes.Buffer
-	if err := runSQLCGeneratorWithHooks(context.Background(), &out, root, plan, false, hooks); err != nil {
-		t.Fatalf("runSQLCGenerator returned error: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(root, "auth/db/gen/schema.sql"))
+	op, err := newSQLCOperation(root, plan, hooks, io.Discard, true)
 	if err != nil {
-		t.Fatalf("read generated schema: %v", err)
+		t.Fatal(err)
 	}
+	defer func() {
+		if err := os.RemoveAll(op.stage); err != nil {
+			t.Error(err)
+		}
+	}()
+	graph, err := lifecycle.New(sqlcLifecycleNodes(plan, op))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := graph.Run(t.Context(), []lifecycle.ID{"sqlc.source.validate"}, []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}); err != nil {
+		t.Fatalf("SQLC render plan returned error: %v", err)
+	}
+	data := op.files["auth/db/gen/schema.sql"]
 	if text := string(data); !strings.Contains(text, "scenery generate sqlc") || !strings.Contains(text, "create schema scenery_auth") {
 		t.Fatalf("schema text = %q", text)
 	}
 	if len(ran) != 1 || ran[0].Program != "sqlc" || strings.Join(ran[0].Args, " ") != "generate" {
 		t.Fatalf("ran = %+v", ran)
-	}
-}
-
-func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
-	t.Parallel()
-
-	root := canonicalTestDir(t)
-	writeTestAppFile(t, root, ".scenery.json", `{
-  "name": "demo",
-  "database": {
-    "apply": {
-      "command": "./scripts/db-safe-apply.sh",
-      "cwd": "scripts",
-      "env": { "MIGRATION_MODE": "safe" }
-    }
-  },
-  "generators": {
-    "sqlc": { "provider": "sqlc", "config": "sqlc.yaml" }
-  }
-}`)
-	writeSQLCFixture(t, root)
-
-	var ran []lifecycleExecRequest
-	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
-		ran = append(ran, req)
-		return nil
-	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
-		return []byte("create schema scenery_auth;\n"), nil
-	})
-
-	if err := dbSyncCommandWithHooks([]string{"--app-root", root}, hooks); err != nil {
-		t.Fatalf("dbSyncCommand returned error: %v", err)
-	}
-	if len(ran) != 2 {
-		t.Fatalf("ran = %+v", ran)
-	}
-	if ran[0].Dir != filepath.Join(root, "scripts") {
-		t.Fatalf("apply dir = %q", ran[0].Dir)
-	}
-	if runtime.GOOS != "windows" && (ran[0].Program != "/bin/sh" || strings.Join(ran[0].Args, " ") != "-c ./scripts/db-safe-apply.sh") {
-		t.Fatalf("apply command = %+v", ran[0])
-	}
-	if !containsEnv(ran[0].Env, "MIGRATION_MODE=safe") {
-		t.Fatalf("apply env missing overlay: %+v", ran[0].Env)
-	}
-	if ran[1].Program != "sqlc" {
-		t.Fatalf("second command = %+v", ran[1])
 	}
 }
 
@@ -800,7 +779,7 @@ func TestTaskGraphAndRun(t *testing.T) {
 func writeSQLCFixture(t *testing.T, root string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(root, "app.scn")); os.IsNotExist(err) {
-		writeTestAppFile(t, root, "app.scn", "application \"sqlc_fixture\" {}\n")
+		writeTestAppFile(t, root, "app.scn", "application \"sqlc_fixture\" {}\nworkspace { managed_generated_roots = [\"auth/db/gen\"] }\n")
 	}
 	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
 sql:
@@ -852,8 +831,31 @@ func writeSetupCommandFixture(t *testing.T) string {
 func stubLifecycleExec(t *testing.T, run func(context.Context, lifecycleExecRequest) error, output func(context.Context, lifecycleExecRequest) ([]byte, error)) lifecycleHooks {
 	t.Helper()
 	hooks := defaultLifecycleHooks()
+	hooks.toolIdentity = func(string) (string, error) { return sqlcDigest([]byte("in-process tool fixture")), nil }
 	if run != nil {
-		hooks.runExec = run
+		hooks.runExec = func(ctx context.Context, req lifecycleExecRequest) error {
+			if err := run(ctx, req); err != nil {
+				return err
+			}
+			if req.Program == "sqlc" {
+				config := filepath.Join(req.Dir, "sqlc.yaml")
+				for i, arg := range req.Args {
+					if arg == "-f" && i+1 < len(req.Args) {
+						config = filepath.Join(req.Dir, req.Args[i+1])
+					}
+				}
+				parsed, err := readSQLCConfig(config)
+				if err != nil {
+					return err
+				}
+				relative, _ := filepath.Rel(req.Dir, config)
+				resolveSQLCConfigReferences(&parsed, relative)
+				for _, root := range sqlcOutputRoots(parsed) {
+					writeTestAppFile(t, req.Dir, filepath.Join(root, "db.go"), "// Code generated by sqlc. DO NOT EDIT.\npackage db\n")
+				}
+			}
+			return nil
+		}
 	}
 	if output != nil {
 		hooks.outputExec = output

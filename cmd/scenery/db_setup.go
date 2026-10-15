@@ -10,6 +10,7 @@ import (
 
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
+	lifecycleplan "scenery.sh/internal/lifecycle"
 	"scenery.sh/internal/postgresdb"
 )
 
@@ -39,6 +40,10 @@ func runDBSetup(ctx context.Context, stdout io.Writer, args []string) error {
 }
 
 func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, lifecycle lifecycleHooks, seed dbSeedHooks) (returnErr error) {
+	return runLifecycleEffect(ctx, "database.setup", []lifecycleplan.Capability{lifecycleplan.ReadSource, lifecycleplan.MutateDatabase}, func(ctx context.Context) error { return runDBSetupOwnedWithHooks(ctx, stdout, args, lifecycle, seed) })
+}
+
+func runDBSetupOwnedWithHooks(ctx context.Context, stdout io.Writer, args []string, lifecycle lifecycleHooks, seed dbSeedHooks) (returnErr error) {
 	opts, err := parseDBSetupArgs(args)
 	if err != nil {
 		return err
