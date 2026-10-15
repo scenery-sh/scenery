@@ -402,3 +402,34 @@ func TestStandardTypesRequireExactReferences(t *testing.T) {
 		}
 	}
 }
+
+func TestTypeScriptClientAcceptsTheBindingsEffectiveResponseLimit(t *testing.T) {
+	operation := Resource{Address: "house/operation/get", Module: "house", Kind: "scenery.operation", Name: "get", Spec: map[string]any{
+		"input": map[string]any{"$ref": "std.type.unit"}, "result": map[string]any{"name": "found", "type": map[string]any{"$ref": "string"}},
+	}}
+	binding := func(limits map[string]any) Resource {
+		httpSpec := map[string]any{"method": "GET", "path": "/get", "response": []any{
+			map[string]any{"name": "found", "when": map[string]any{"$ref": "result.found"}, "status": "200", "body": map[string]any{"codec": "text", "from": map[string]any{"$ref": "result.found"}}},
+		}}
+		if limits != nil {
+			httpSpec["response_limit"] = limits
+		}
+		return Resource{Address: "house/binding/get", Module: "house", Kind: "scenery.binding", Name: "get", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.get"}, "http": httpSpec,
+		}}
+	}
+	for _, c := range []struct {
+		limits map[string]any
+		want   string
+	}{
+		// The effective limit the server enforces, declared or inherited from
+		// the gateway.
+		{map[string]any{"body_bytes": map[string]any{"$scalar": "int", "value": "209715200"}, "compression_threshold_bytes": map[string]any{"$scalar": "int", "value": "1024"}}, `"responseLimitBytes":209715200`},
+		{nil, `"responseLimitBytes":16777216`},
+	} {
+		client := renderTSClient(Resource{Name: "public"}, []Resource{binding(c.limits)}, []Resource{operation})
+		if !strings.Contains(client, c.want) {
+			t.Fatalf("client for response limit %v missing %s:\n%s", c.limits, c.want, client)
+		}
+	}
+}
