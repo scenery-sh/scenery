@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -83,17 +82,29 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 		}
 	}
 	assertions["A3_product_dependency_closure"] = true
-	sdkDeps, err := run(source, "go", "list", "-deps", ".")
+	sdkDeps, err := run(source, "go", "list", "-deps", ".", "./auth", "./db", "./durable")
 	if err != nil {
 		return summary, err
 	}
 	sdkPackages := strings.Fields(string(sdkDeps))
-	if slices.Contains(sdkPackages, "scenery.sh/runtime") {
-		return summary, fmt.Errorf("public SDK dependency closure retains scenery.sh/runtime")
+	for _, dependency := range sdkPackages {
+		if dependency == "scenery.sh/runtime" || strings.HasPrefix(dependency, "scenery.sh/internal/connectionvault") || strings.HasPrefix(dependency, "scenery.sh/internal/authprovider/") || dependency == "scenery.sh/internal/connectionruntime" {
+			return summary, fmt.Errorf("public SDK dependency closure retains connection implementation %s", dependency)
+		}
 	}
 	assertions["A3_public_sdk_dependency_closure"] = map[string]any{
 		"package_count": len(sdkPackages), "runtime_linked": false,
 	}
+	backendDeps, err := run(source, "go", "list", "-deps", "./runtime")
+	if err != nil {
+		return summary, err
+	}
+	for _, dependency := range append(sdkPackages, strings.Fields(string(backendDeps))...) {
+		if dependency == "scenery.sh/internal/uigen" || dependency == "scenery.sh/ui" {
+			return summary, fmt.Errorf("backend dependency closure retains optional UI dependency %s", dependency)
+		}
+	}
+	assertions["A3_backend_optional_ui_isolation"] = true
 	missingToolchain := filepath.Join(root, "unavailable-toolchain")
 	if err := writeHarnessToolchainSourceFile(filepath.Join(missingToolchain, "go.mod"), "module example.test/unavailable\n\ngo 1.999.99\n", 0o600); err != nil {
 		return summary, err

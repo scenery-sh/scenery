@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"scenery.sh/errs"
 )
 
 type fakeContractEventBus struct {
@@ -37,6 +39,9 @@ func TestContractEventsSubscribeWithTypedIdentityAndPublishMatchedOutcomes(t *te
 			consumed = string(payload)
 			if auth := CurrentAuth(); auth == nil || auth.UID != "std.workload_identity.event_consumer" {
 				return errors.New("event identity was not minted")
+			}
+			if _, err := (sdkHost{}).ConnectionToken(ctx, "owner", "files", nil); errs.Code(err) != errs.ConnectionNotConfigured {
+				t.Fatalf("admitted event owner selection: %v", err)
 			}
 			return nil
 		},

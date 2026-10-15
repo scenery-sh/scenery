@@ -19,6 +19,79 @@
   },
   "documents": [
     {
+      "path": "docs/auth-connections.md",
+      "title": "User Connections",
+      "owner": "scenery auth / configuration",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-15",
+      "review_after": "2026-11-14",
+      "summary": "Provider-neutral bearer access with request and admitted workload authority, trusted OAuth2/OIDC and Google verified-email metadata, retryable callback storage failures, actual expiry for nonrefreshable grants, retryable throttling, initialization-safe callback defaults, hostname-bound browser cookies, retryable session reads, persisted exhausted-grant status, typed domain failures and serialized callback/disconnect lifecycle.",
+      "tags": [
+        "auth",
+        "connections",
+        "configuration",
+        "sdk"
+      ]
+    },
+    {
+      "path": "docs/runbooks/auth-connections-migration.md",
+      "title": "Google Connection Cutover",
+      "owner": "scenery auth / configuration",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
+      "summary": "Explicit coordinated schema, environment credential and API cutover with ciphertext preservation, callback-state indexes, failure recovery and rollback boundaries.",
+      "tags": [
+        "auth",
+        "connections",
+        "migration",
+        "configuration",
+        "runbooks"
+      ]
+    },
+    {
+      "path": "docs/generated-ui.md",
+      "title": "Optional Generated UI",
+      "owner": "scenery generate / UI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
+      "summary": "Optional React/page/catalog projection, pure shared queries, backend dependency isolation and one checked artifact transaction with descriptor-owned retirement.",
+      "tags": [
+        "generate",
+        "typescript",
+        "ui",
+        "contracts",
+        "agents"
+      ]
+    },
+    {
+      "path": "docs/plans/0219-provider-neutral-connections-and-optional-ui.md",
+      "title": "Provider-Neutral Connections And Optional UI",
+      "owner": "scenery auth / generate",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
+      "summary": "Completed provider-neutral encrypted connections, preserving SQL/config cutover, SDK/host isolation and optional UI extraction; cumulative/race/TypeScript/lint plus seven owned named probes and attested runtime/client proof pass. Local source awaits review/landing; production migration remains separate.",
+      "tags": [
+        "plans",
+        "execplans",
+        "auth",
+        "connections",
+        "generate",
+        "typescript",
+        "ui"
+      ]
+    },
+    {
       "path": "docs/plans/0218-telemetry-improvements.md",
       "title": "Telemetry Improvements",
       "owner": "scenery telemetry",
@@ -1021,8 +1094,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-09",
-      "review_after": "2026-10-09",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Operator-owned pre-cutover native database migration into a new root and separate current agent home, preserving the incompatible old home, source, unrelated apps, database owners, grants, extensions and framework ledgers; includes quiescence and rollback limits.",
       "tags": ["runbooks", "runtime", "postgres", "migration", "ownership"]
     },
@@ -2683,8 +2756,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Compact repository instructions with focused registered-feature development and combined landing validation.",
       "tags": [
         "agents",
@@ -2700,8 +2773,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Portable app and local-feature skill router with revision-bound landing, partial-work preservation and observable completion.",
       "tags": [
         "skill",
@@ -2721,8 +2794,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "App and repository workflows, local feature integration, application acceptance and input-bound validation context.",
       "tags": [
         "agents",
@@ -2777,8 +2850,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Repository code map including local feature coordination independent of app runtime and data ownership.",
       "tags": [
         "architecture",
@@ -2796,8 +2869,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-13",
-      "review_after": "2026-11-12",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields. Explicit retained lifecycle roots remain scoped after checkout deletion or invalid retained state; Git worktree removal refuses multiple matching checkout paths. Plain logs and interactive console preserve the selected root and refuse pending retained upgrades; console retains valid configured display names. Git inventory uses NUL delimiters to preserve embedded newline and ordinary path bytes. Upgrade preview/apply and pending retry parse configuration at the selected retained root, refusing missing or malformed child markers without parent redirection. Literal selected pathname whitespace is preserved; Git removal normalization keeps trailing-space paths distinct. CREATE shell follow-up output preserves the literal target through existing reproduction formatting. CREATE keeps nonblank refs as revision operands; invalid option-shaped values refuse without checkout or branch allocation. Successful Git warnings remain separate from inventory and preserve complete ambiguity admission. Removal compares decoded literal branch names without removing a second transport prefix. Unregistered removal targets are invalid requests with a concrete SCN8001 message and exit 2. CREATE/REMOVE names sanitizing to empty keep configured discovery precedence and refuse as SCN8001/exit 2 before Git. Public ps always returns a sessions array and excludes noncanonical key spellings without modifying locator files; canonical corrupt records remain visible.",
       "tags": [
         "contract",
@@ -2967,8 +3040,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-14",
-      "review_after": "2026-10-14",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Practical app recipes with scoped application validation and app-owned browser acceptance.",
       "tags": [
         "cookbook",
@@ -3749,8 +3822,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-07",
-      "review_after": "2026-11-06",
+      "last_reviewed": "2026-10-14",
+      "review_after": "2026-11-13",
       "summary": "Current plans that should inform agent decisions, using permanent historical IDs and links mirrored in docs/knowledge.json; plans with shipped outcomes are pruned to the completed index while explicit open acceptance, measurement, validation, and implementation work remains active.",
       "tags": [
         "plans",

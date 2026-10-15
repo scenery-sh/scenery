@@ -22,6 +22,7 @@ type requestState struct {
 	started      time.Time
 	request      shared.Request
 	auth         AuthInfo
+	invocation   runtimeapi.Invocation
 	trace        *traceSpan
 	startLogged  bool
 	logsEnabled  bool
@@ -85,6 +86,9 @@ func withState(ctx context.Context, state *requestState) context.Context {
 
 func withRuntimeInvocation(ctx context.Context, state *requestState) context.Context {
 	if current, ok := runtimeapi.InvocationFromContext(ctx); ok && current.Valid() {
+		if state != nil {
+			state.invocation = current
+		}
 		return ctx
 	}
 	return withNewRuntimeInvocation(ctx, state)
@@ -109,12 +113,14 @@ func withNewRuntimeInvocation(ctx context.Context, state *requestState) context.
 	if deadline.IsZero() {
 		deadline, _ = ctx.Deadline()
 	}
-	return runtimeapi.WithInvocation(ctx, runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{
+	state.invocation = runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{
 		ID: id, Principal: state.auth.UID, TenantID: tenantID, TraceID: state.request.TraceID,
 		Deadline: deadline, CallerBinding: state.request.CallerBinding,
 		ExecutionID: state.request.ExecutionID, Deployment: state.request.Deployment,
-		Locale: state.request.Locale,
-	}))
+		Locale:           state.request.Locale,
+		ConnectionWorker: state.request.Type == shared.DurableCall || state.request.Type == shared.EventCall || state.request.CronIdempotencyKey != "",
+	})
+	return runtimeapi.WithInvocation(ctx, state.invocation)
 }
 
 func currentState() *requestState {

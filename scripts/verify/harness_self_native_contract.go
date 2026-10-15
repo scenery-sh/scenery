@@ -119,6 +119,11 @@ func runHarnessNativeContractApplicationProbeCheckWithArtifacts(parent context.C
 		if err := decodeCLIJSON(output, &started); err != nil {
 			return err
 		}
+		// Readiness can precede terminal build telemetry. Wait for the queued
+		// operation's completion before evaluating link/reuse evidence.
+		if err := harnessWaitBuildRequest(ctx, started.LogPath, 0, true); err != nil {
+			return err
+		}
 		events, err := harnessWatchEvents(started.LogPath, 0)
 		if err != nil {
 			return err

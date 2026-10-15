@@ -2,7 +2,9 @@
 
 This is an explicit operator procedure, not part of `scenery up`. Keep the old
 source and backup until the operator separately approves their retirement.
-Installing a CLI is not a data migration.
+Installing a CLI is not a data migration. Upgrading legacy Google connection
+tables additionally requires the [connection cutover runbook](auth-connections-migration.md);
+a worktree database copy does not perform that schema/configuration cutover.
 
 If the root already uses per-worktree PostgreSQL and only its metadata's
 specification identity is stale, use the same-root

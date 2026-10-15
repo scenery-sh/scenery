@@ -28,7 +28,7 @@ import (
 const (
 	configRequestKind     = "scenery.config.request"
 	configResponseKind    = "scenery.config.response"
-	configProtocolVersion = 1
+	configProtocolVersion = 2
 	maxConfigRequestBytes = 4 * appconfig.MaxSecretBytes
 	// configRemoteCommand is the fixed command the SSH session runs.
 	configRemoteCommand = "scenery config receive"
@@ -210,7 +210,7 @@ func serveConfigRequest(ctx context.Context, home string, input io.Reader, backe
 	}
 	switch request.Operation {
 	case "read":
-	case "set", "unset":
+	case "set", "unset", "migrate_connections":
 		if err := (deployLayout{home: home, appID: request.AppID, environment: request.Environment}).legacyDeployRootError(); err != nil {
 			return fail("failed_precondition", "%v", err)
 		}
@@ -225,6 +225,9 @@ func serveConfigRequest(ctx context.Context, home string, input io.Reader, backe
 		}
 		if request.Operation == "unset" && (request.Value != nil || request.Secret != nil) {
 			return fail("invalid_request", "unset carries no value")
+		}
+		if request.Operation == "migrate_connections" && (request.Key != "auth.connections.google" || request.Value != nil || request.Secret != nil) {
+			return fail("invalid_request", "connection migration carries only its fixed key mapping")
 		}
 		result, err := applyLocalConfigMutation(ctx, store, request.Environment, request, backend)
 		if err != nil {

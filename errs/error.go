@@ -12,26 +12,31 @@ import (
 type ErrCode string
 
 const (
-	OK                   ErrCode = "ok"
-	Canceled             ErrCode = "canceled"
-	Unknown              ErrCode = "unknown"
-	InvalidArgument      ErrCode = "invalid_argument"
-	DeadlineExceeded     ErrCode = "deadline_exceeded"
-	NotFound             ErrCode = "not_found"
-	AlreadyExists        ErrCode = "already_exists"
-	PermissionDenied     ErrCode = "permission_denied"
-	ResourceExhausted    ErrCode = "resource_exhausted"
-	FailedPrecondition   ErrCode = "failed_precondition"
-	Aborted              ErrCode = "aborted"
-	OutOfRange           ErrCode = "out_of_range"
-	Unimplemented        ErrCode = "unimplemented"
-	Internal             ErrCode = "internal"
-	Unavailable          ErrCode = "unavailable"
-	DataLoss             ErrCode = "data_loss"
-	Unauthenticated      ErrCode = "unauthenticated"
-	Conflict             ErrCode = "conflict"
-	GoogleReauthRequired ErrCode = "google_reauth_required"
-	GoogleScopeMissing   ErrCode = "google_scope_missing"
+	OK                 ErrCode = "ok"
+	Canceled           ErrCode = "canceled"
+	Unknown            ErrCode = "unknown"
+	InvalidArgument    ErrCode = "invalid_argument"
+	DeadlineExceeded   ErrCode = "deadline_exceeded"
+	NotFound           ErrCode = "not_found"
+	AlreadyExists      ErrCode = "already_exists"
+	PermissionDenied   ErrCode = "permission_denied"
+	ResourceExhausted  ErrCode = "resource_exhausted"
+	FailedPrecondition ErrCode = "failed_precondition"
+	Aborted            ErrCode = "aborted"
+	OutOfRange         ErrCode = "out_of_range"
+	Unimplemented      ErrCode = "unimplemented"
+	Internal           ErrCode = "internal"
+	Unavailable        ErrCode = "unavailable"
+	DataLoss           ErrCode = "data_loss"
+	Unauthenticated    ErrCode = "unauthenticated"
+	Conflict           ErrCode = "conflict"
+
+	ConnectionNotConfigured  ErrCode = "connection_not_configured"
+	ConnectionNotConnected   ErrCode = "connection_not_connected"
+	ConnectionReauthRequired ErrCode = "connection_reauth_required"
+	ConnectionScopeMissing   ErrCode = "connection_scope_missing"
+	ConnectionUnavailable    ErrCode = "connection_unavailable"
+	ConnectionConfiguration  ErrCode = "connection_configuration"
 )
 
 type Metadata map[string]any
@@ -174,7 +179,8 @@ func HTTPStatus(err error) int {
 		return http.StatusOK
 	case Canceled:
 		return 499
-	case InvalidArgument, FailedPrecondition, OutOfRange, GoogleReauthRequired, GoogleScopeMissing:
+	case InvalidArgument, FailedPrecondition, OutOfRange,
+		ConnectionNotConfigured, ConnectionNotConnected, ConnectionReauthRequired, ConnectionScopeMissing:
 		return http.StatusBadRequest
 	case DeadlineExceeded:
 		return http.StatusGatewayTimeout
@@ -190,7 +196,7 @@ func HTTPStatus(err error) int {
 		return http.StatusTooManyRequests
 	case Unimplemented:
 		return http.StatusNotImplemented
-	case Unavailable:
+	case Unavailable, ConnectionUnavailable, ConnectionConfiguration:
 		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError

@@ -280,6 +280,7 @@ func inspectEndpoints(result *compiler.Result) ([]inspectdata.EndpointRecord, er
 			group = &endpointGroup{record: inspectdata.EndpointRecord{
 				ID: service.Name + "." + endpointName, Service: service.Name, Endpoint: endpointName, Access: access,
 				Path: effectivePath, Generated: operation.Origin.Kind == "expanded" || operation.Origin.Kind == "framework", HasPayload: hasPayload,
+				Raw:  operation.Origin.Kind == "framework" && inspectString(httpSpec["guarantee"]) == "opaque",
 				File: sourcePaths[operation.Origin.SourceID],
 			}, methods: map[string]bool{}}
 			groups[key] = group

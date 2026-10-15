@@ -12,6 +12,9 @@ authoritative per-application store and the secret-backend adapters.
   `resolve.go`.
 - Store document, history, pins, locks and pruning: `document.go`,
   `store.go`, `lock_*.go`.
+- One-shot connection credential copying: `connection_migration.go`; retain
+  sign-in inputs/cipher key, use this same authority, reject conflicts and resume
+  partial one-key revisions without exporting plaintext.
 - Secret versions: `secrets.go` and one platform adapter per OS
   (`secrets_keychain_darwin.go`, `secrets_systemd_linux.go`).
 - The CLI, SSH receivers, runtime snapshots and deployment releases live in

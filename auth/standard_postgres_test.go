@@ -18,7 +18,7 @@ func TestStandardAuthBootstrapPostgresSchema(t *testing.T) {
 	failure := errors.New("schema execution failed")
 	for _, fail := range []bool{false, true} {
 		t.Run(map[bool]string{false: "commit", true: "rollback"}[fail], func(t *testing.T) {
-			svc, script := authSQLService(t)
+			svc, script := authSQLService(t, authSQLStep{name: "ConnectionSchemaPresence", rows: [][]driver.Value{{false, false, false, false}}})
 			var statements []string
 			script.exec = func(query string, _ []driver.NamedValue) error {
 				statements = append(statements, query)
@@ -29,11 +29,11 @@ func TestStandardAuthBootstrapPostgresSchema(t *testing.T) {
 			}
 			err := bootstrapStandardAuthSchema(t.Context(), svc.db)
 			if fail {
-				if !errors.Is(err, failure) || !reflect.DeepEqual(script.events, []string{"begin", "rollback"}) {
+				if !errors.Is(err, failure) || !reflect.DeepEqual(script.events, []string{"begin", "ConnectionSchemaPresence", "rollback"}) {
 					t.Fatalf("failure=%v events=%v", err, script.events)
 				}
 			} else {
-				if err != nil || !reflect.DeepEqual(script.events, []string{"begin", "commit"}) {
+				if err != nil || !reflect.DeepEqual(script.events, []string{"begin", "ConnectionSchemaPresence", "commit"}) {
 					t.Fatalf("bootstrap=%v events=%v", err, script.events)
 				}
 				if !strings.Contains(strings.Join(statements, "\n"), "CREATE TABLE IF NOT EXISTS scenery.scenery_auth_users") {

@@ -170,6 +170,24 @@ func authConfigLiteral(cfg appcfg.AuthConfig) string {
 	if literal := authGoogleConfigLiteral(cfg.GoogleOAuth); literal != "" {
 		fields = append(fields, "GoogleOAuth: "+literal)
 	}
+	if len(cfg.Connections) > 0 {
+		providers := make([]string, 0, len(cfg.Connections))
+		for _, provider := range cfg.Connections {
+			fields := []string{fmt.Sprintf("ID: %q", provider.ID)}
+			for _, field := range []struct{ name, value string }{{"Preset", provider.Preset}, {"Protocol", provider.Protocol}, {"Issuer", provider.Issuer}, {"AuthorizeURL", provider.AuthorizeURL}, {"TokenURL", provider.TokenURL}, {"RevokeURL", provider.RevokeURL}, {"JWKSURL", provider.JWKSURL}, {"AccountURL", provider.AccountURL}, {"SubjectField", provider.SubjectField}, {"EmailField", provider.EmailField}, {"ClientAuth", provider.ClientAuth}, {"Resource", provider.Resource}} {
+				if field.value != "" {
+					fields = append(fields, fmt.Sprintf("%s: %q", field.name, field.value))
+				}
+			}
+			var scopes []string
+			for _, scope := range provider.AllowedScopes {
+				scopes = append(scopes, fmt.Sprintf("%q", scope))
+			}
+			fields = append(fields, "AllowedScopes: []string{"+strings.Join(scopes, ",")+"}")
+			providers = append(providers, "{"+strings.Join(fields, ",")+"}")
+		}
+		fields = append(fields, "Connections: []sceneryauth.ConnectionProvider{"+strings.Join(providers, ",")+"}")
+	}
 	if literal := authDevBootstrapConfigLiteral(cfg.DevBootstrap); literal != "" {
 		fields = append(fields, "DevBootstrap: "+literal)
 	}
@@ -181,13 +199,7 @@ func authGoogleConfigLiteral(cfg appcfg.AuthGoogleConfig) string {
 	if cfg.Enabled {
 		fields = append(fields, "Enabled: true")
 	}
-	if len(cfg.AllowedScopes) > 0 {
-		quoted := make([]string, 0, len(cfg.AllowedScopes))
-		for _, scope := range cfg.AllowedScopes {
-			quoted = append(quoted, fmt.Sprintf("%q", scope))
-		}
-		fields = append(fields, "AllowedScopes: []string{"+strings.Join(quoted, ", ")+"}")
-	}
+
 	if len(fields) == 0 {
 		return ""
 	}

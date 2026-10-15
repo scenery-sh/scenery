@@ -320,5 +320,5 @@ func compiledCatalog(appRoot string) (appconfig.Catalog, error) {
 	if !result.Valid() {
 		return appconfig.Catalog{}, errors.New("the application does not compile; run scenery check")
 	}
-	return appconfig.BuildCatalog(result.Manifest, appconfig.FrameworkOptions{StandardAuth: cfg.Auth.Enabled, GoogleOAuth: cfg.Auth.Enabled && cfg.Auth.GoogleOAuth.Enabled, SQL: len(result.SQLRequirements) > 0})
+	return appconfig.BuildCatalog(result.Manifest, appconfig.FrameworkOptions{StandardAuth: cfg.Auth.Enabled, GoogleOAuth: cfg.Auth.Enabled && cfg.Auth.GoogleOAuth.Enabled, Connections: cfg.Auth.Connections, SQL: len(result.SQLRequirements) > 0})
 }

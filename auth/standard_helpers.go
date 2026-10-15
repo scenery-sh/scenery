@@ -2,7 +2,6 @@ package auth
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	scenery "scenery.sh"
@@ -49,10 +47,6 @@ func uuidString(id authdb.UUID) string {
 		return ""
 	}
 	return value.String()
-}
-
-func timestamptz(value time.Time) sql.NullTime {
-	return sql.NullTime{Time: value, Valid: !value.IsZero()}
 }
 
 func normalizeEmail(value string) (string, error) {
