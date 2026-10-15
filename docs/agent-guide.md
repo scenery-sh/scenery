@@ -470,7 +470,7 @@ scenery generate --target typescript_client.public_api -o json
 scenery generate --target typescript_client.public_api --check -o json
 ```
 
-Regenerate after changes to reachable types, bindings, codec mappings, authentication, authorization, or gateway behavior. When standard Google OAuth is enabled, Scenery also projects its framework-owned connection start/status/disconnect endpoints into inspection and the native client; use those generated methods instead of app-owned fetch wrappers. Keep app imports pointed at the declared output root.
+Regenerate after changes to reachable types, bindings, codec mappings, authentication, authorization, or gateway behavior. When provider connections are declared, Scenery projects their framework-owned start/status/disconnect endpoints into inspection and the native client; use those generated methods instead of app-owned fetch wrappers. Keep app imports pointed at the declared output root.
 
 For a declarative frontend, add `react { tsconfig = "..." }` to the TypeScript target and put URL search types plus optional navigation placement on each generated page declaration. Generation writes page adapters, `routes.generated.ts`, `app.generated.tsx`, and the binary-owned catalog in one managed transaction. Use `createSceneryApp`; pass its optional `client` when generated pages need the app's authenticated or customized `PublicApiClient`, register app-owned pages through its one descriptor-array extension, and fill the fixed auth/top-bar/content/link/icon slots. The generated layer owns the TanStack route tree, intent preloading, `Outlet`, active navigation, and `ClientAppShell`; do not keep a second route tree, navigation list, or hidden-page mount system. Keep one app-owned `QueryClientProvider`, supply the React/Astryx/StyleX/TanStack peers, and never edit generated output.
 
@@ -876,8 +876,11 @@ runner or measuring it. The timing exception inventory must remain empty.
 
 Standard-auth database and OAuth journeys run in `--probe auth`, also mandatory
 in release as `standard auth lifecycle`. It provisions an owned disposable PostgreSQL
-cluster and executes all 15 cases through a native fixture using public auth
-APIs and real authenticated HTTP, with a local fake Google provider. The
+cluster and executes all 22 cases through a native fixture using public auth
+APIs and real authenticated HTTP, with owned Google and OAuth2-only providers.
+It also proves transactional connection migration and independent-process refresh,
+disconnect and interrupted-refresh recovery. [User connections](auth-connections.md)
+and the [migration runbook](runbooks/auth-connections-migration.md) own those contracts. The
 ordinary auth roots retain in-process SQL/HTTP decision checks; they do not
 need an external database. Missing prerequisites, incomplete assertions or
 cleanup failure cannot produce a passing release result.

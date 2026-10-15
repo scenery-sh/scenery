@@ -158,8 +158,27 @@ var packageLayerRules = []packageLayerRule{
 		// store) into application packages and their tests.
 		Name:             "application SDK packages stay free of the runtime implementation",
 		PathPrefixes:     []string{"auth/", "db/", "durable/", "errs/", "object/", "storage/", "datasource/", "internal/appsdk/", "runtime/shared/"},
-		ForbiddenImports: []string{"scenery.sh/runtime"},
+		ForbiddenImports: []string{"scenery.sh/runtime", "scenery.sh/internal/uigen", "scenery.sh/ui", "scenery.sh/internal/connectionvault", "scenery.sh/internal/connectionvault/sqlstore", "scenery.sh/internal/connectionruntime", "scenery.sh/internal/authprovider/google", "scenery.sh/internal/authprovider/oauth2"},
 		AllowTestImports: []string{"scenery.sh/runtime"},
+	},
+	{
+		Name:             "connection vault stays independent of concrete providers and composition",
+		PathPrefixes:     []string{"internal/connectionvault/"},
+		ForbiddenImports: []string{"scenery.sh/internal/authprovider/google", "scenery.sh/internal/authprovider/oauth2", "scenery.sh/internal/connectionruntime", "scenery.sh/runtime", "scenery.sh/auth", "scenery.sh/internal/compiler", "scenery.sh/internal/generate", "scenery.sh/internal/uigen"},
+	},
+	{
+		Name:         "optional UI consumes the canonical graph without compiler or generation orchestration",
+		PathPrefixes: []string{"internal/uigen/", "internal/clientprojection/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/compiler", "scenery.sh/internal/generate",
+			"scenery.sh/internal/generate/api", "scenery.sh/internal/workspacetx",
+			"scenery.sh/runtime", "scenery.sh/auth",
+		},
+	},
+	{
+		Name:             "backend compilation and runtime stay free of optional UI rendering and assets",
+		PathPrefixes:     []string{"internal/compiler/", "internal/graph/", "runtime/"},
+		ForbiddenImports: []string{"scenery.sh/internal/uigen", "scenery.sh/ui"},
 	},
 	{
 		// Compiler-side packages need only the contract value types, so they

@@ -33,6 +33,10 @@ func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot stri
 		if err := decodeCLIJSON(output, &started); err != nil {
 			return nil, err
 		}
+		// Readiness can precede terminal build telemetry.
+		if err := harnessWaitBuildRequest(ctx, started.LogPath, 0, true); err != nil {
+			return nil, err
+		}
 		events, err := harnessWatchEvents(started.LogPath, 0)
 		if err != nil {
 			return nil, err

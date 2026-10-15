@@ -312,19 +312,6 @@ INSERT INTO scenery.scenery_auth_oauth_states (
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at;
 
--- name: CreateGoogleConnectionOAuthState :one
-INSERT INTO scenery.scenery_auth_oauth_states (
-  id,
-  state_hash,
-  pkce_verifier,
-  nonce_hash,
-  user_id,
-  purpose,
-  redirect_path,
-  expires_at
-)
-VALUES ($1, $2, $3, $4, $5, 'google_connection', $6, $7)
-RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at;
 
 -- name: DeleteExpiredOAuthStates :exec
 DELETE FROM scenery.scenery_auth_oauth_states
@@ -338,81 +325,11 @@ WHERE state_hash = $1
   AND expires_at > now()
 RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at;
 
--- name: GetGoogleConnectionByUser :one
-SELECT id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
-FROM scenery.scenery_auth_google_connections
-WHERE user_id = $1;
 
--- name: GetGoogleConnectionByUserForUpdate :one
-SELECT id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
-FROM scenery.scenery_auth_google_connections
-WHERE user_id = $1
-FOR UPDATE;
 
--- name: UpsertGoogleConnection :one
-INSERT INTO scenery.scenery_auth_google_connections (
-  id,
-  user_id,
-  provider_subject,
-  email,
-  scopes,
-  refresh_token_ciphertext,
-  access_token_ciphertext,
-  access_token_expires_at,
-  status,
-  last_refresh_error,
-  connected_at,
-  disconnected_at
-)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', '', now(), NULL)
-ON CONFLICT (user_id)
-DO UPDATE SET provider_subject = EXCLUDED.provider_subject,
-              email = EXCLUDED.email,
-              scopes = EXCLUDED.scopes,
-              refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
-              access_token_ciphertext = EXCLUDED.access_token_ciphertext,
-              access_token_expires_at = EXCLUDED.access_token_expires_at,
-              status = 'active',
-              last_refresh_error = '',
-              connected_at = now(),
-              disconnected_at = NULL,
-              updated_at = now()
-RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
 
--- name: UpdateGoogleConnectionTokens :one
-UPDATE scenery.scenery_auth_google_connections
-SET scopes = $2,
-    refresh_token_ciphertext = $3,
-    access_token_ciphertext = $4,
-    access_token_expires_at = $5,
-    status = 'active',
-    last_refresh_at = now(),
-    last_refresh_error = '',
-    updated_at = now()
-WHERE user_id = $1
-RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
 
--- name: MarkGoogleConnectionReauthRequired :one
-UPDATE scenery.scenery_auth_google_connections
-SET status = 'reauth_required',
-    access_token_ciphertext = NULL,
-    access_token_expires_at = NULL,
-    last_refresh_error = $2,
-    updated_at = now()
-WHERE user_id = $1
-RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
 
--- name: DisconnectGoogleConnection :one
-UPDATE scenery.scenery_auth_google_connections
-SET status = 'disconnected',
-    refresh_token_ciphertext = NULL,
-    access_token_ciphertext = NULL,
-    access_token_expires_at = NULL,
-    last_refresh_error = '',
-    disconnected_at = now(),
-    updated_at = now()
-WHERE user_id = $1
-RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
 
 -- name: UpsertAuthAttempt :one
 INSERT INTO scenery.scenery_auth_auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)
@@ -442,3 +359,73 @@ INSERT INTO scenery.scenery_auth_auth_events (
   metadata
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
+-- name: GetConnectionByUser :one
+SELECT * FROM scenery.scenery_auth_connections
+WHERE user_id = $1 AND provider_id = $2;
+
+-- name: GetConnectionByUserForUpdate :one
+SELECT * FROM scenery.scenery_auth_connections
+WHERE user_id = $1 AND provider_id = $2 FOR UPDATE;
+
+-- name: SaveConnection :one
+INSERT INTO scenery.scenery_auth_connections (
+  id, user_id, provider_id, issuer, provider_subject, resource, token_type,
+  email, scopes, refresh_token_ciphertext, access_token_ciphertext,
+  access_token_expires_at, status, last_refresh_at, last_refresh_error,
+  revocation_status, connected_at, disconnected_at, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+ON CONFLICT (user_id, provider_id) DO UPDATE SET
+  issuer = EXCLUDED.issuer,
+  provider_subject = EXCLUDED.provider_subject,
+  resource = EXCLUDED.resource,
+  token_type = EXCLUDED.token_type,
+  email = EXCLUDED.email,
+  scopes = EXCLUDED.scopes,
+  refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+  access_token_ciphertext = EXCLUDED.access_token_ciphertext,
+  access_token_expires_at = EXCLUDED.access_token_expires_at,
+  status = EXCLUDED.status,
+  last_refresh_at = EXCLUDED.last_refresh_at,
+  last_refresh_error = EXCLUDED.last_refresh_error,
+  revocation_status = EXCLUDED.revocation_status,
+  connected_at = EXCLUDED.connected_at,
+  disconnected_at = EXCLUDED.disconnected_at,
+  updated_at = EXCLUDED.updated_at
+RETURNING *;
+
+-- name: CreateConnectionState :one
+INSERT INTO scenery.scenery_auth_connection_states (
+  id, state_hash, user_id, session_id, provider_id, issuer, resource, client_id,
+  browser_hash, callback_uri, requested_scopes, pkce_verifier, nonce_hash,
+  redirect_path, expires_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+RETURNING *;
+
+-- name: GetConnectionStateOwner :one
+SELECT user_id FROM scenery.scenery_auth_connection_states
+WHERE state_hash = $1 AND provider_id = $2 AND consumed_at IS NULL AND expires_at > now();
+
+-- name: ConsumeConnectionState :one
+UPDATE scenery.scenery_auth_connection_states AS state
+SET consumed_at = now()
+WHERE state.state_hash = $1 AND state.provider_id = $2
+  AND state.browser_hash = $3 AND state.issuer = $4 AND state.resource = $5
+  AND state.client_id = $6 AND state.callback_uri = $7
+  AND state.purpose = 'connection' AND state.consumed_at IS NULL
+  AND state.expires_at > now()
+  AND EXISTS (
+    SELECT 1 FROM scenery.scenery_auth_refresh_sessions AS session
+    JOIN scenery.scenery_auth_users AS usr ON usr.id = session.user_id
+    WHERE session.id = state.session_id AND session.user_id = state.user_id
+      AND session.revoked_at IS NULL AND session.expires_at > now()
+      AND usr.disabled_at IS NULL
+  )
+RETURNING state.*;
+
+-- name: DeleteExpiredConnectionStates :exec
+DELETE FROM scenery.scenery_auth_connection_states WHERE expires_at <= now();
+
+-- name: ExpireConnectionStates :exec
+UPDATE scenery.scenery_auth_connection_states SET consumed_at = now()
+WHERE user_id = $1 AND provider_id = $2 AND consumed_at IS NULL;

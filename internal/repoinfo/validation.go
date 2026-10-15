@@ -55,6 +55,7 @@ func addHarnessChangedAreaValidation(report *harnessreport.ChangedAreaReport, co
 		}
 		if strings.HasPrefix(file.Path, "internal/compiler/") ||
 			strings.HasPrefix(file.Path, "internal/generate/") ||
+			harnessOptionalUIPath(file.Path) ||
 			strings.HasPrefix(file.Path, "cmd/scenery/generate") {
 			classes[ValidationCompilerGenerator] = true
 		}
@@ -116,7 +117,7 @@ func harnessCLIJSONContractPath(path, category string) bool {
 }
 
 func harnessReleaseSensitivePath(path, category string) bool {
-	if category == "runtime" || category == "dependency" || category == "script" {
+	if category == "runtime" || category == "dependency" || category == "script" || harnessConnectionPath(path) {
 		return true
 	}
 	for _, prefix := range []string{

@@ -42,7 +42,7 @@ func (m *memorySecrets) Resolve(_ context.Context, environment, key string, vers
 	if !ok {
 		return nil, appconfig.ErrSecretBackendUnavailable
 	}
-	return value, nil
+	return append([]byte(nil), value...), nil
 }
 func (m *memorySecrets) Remove(_ context.Context, environment, key string, version appconfig.SecretVersion) error {
 	m.mu.Lock()
@@ -143,6 +143,8 @@ func (e *configTestEnv) run(t *testing.T, stdin string, args ...string) (string,
 		err = configSetCommand(&stdout, args[1:])
 	case "unset":
 		err = configUnsetCommand(&stdout, args[1:])
+	case "migrate-connections":
+		err = configMigrateConnectionsCommand(&stdout, args[1:])
 	}
 	return stdout.String(), err
 }

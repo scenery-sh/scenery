@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"scenery.sh/errs"
 )
 
 func TestContractScheduleRegistersTypedCronInvocation(t *testing.T) {
@@ -14,10 +16,13 @@ func TestContractScheduleRegistersTypedCronInvocation(t *testing.T) {
 		Address: "house/schedule/nightly", Name: "nightly", TriggerKind: "cron", TriggerValue: "0 2 * * *", Timezone: "Europe/Prague",
 		Overlap: "queue", CatchupMaximumAge: 10 * time.Minute, Identity: testWorkloadIdentity(),
 		AuthorizationAddress: "std.authorization.scheduled", PipelineAddress: "std.pipeline.empty",
-		Invoke: func(context.Context) error {
+		Invoke: func(ctx context.Context) error {
 			called = true
 			if auth := CurrentAuth(); auth == nil || auth.UID != "workload:std.workload_identity.scheduler" {
 				t.Fatalf("auth = %#v", auth)
+			}
+			if _, err := (sdkHost{}).ConnectionToken(ctx, "owner", "files", nil); errs.Code(err) != errs.ConnectionNotConfigured {
+				t.Fatalf("admitted schedule owner selection: %v", err)
 			}
 			return nil
 		},

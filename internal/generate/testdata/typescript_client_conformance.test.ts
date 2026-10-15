@@ -757,3 +757,31 @@ describe("Scenery TypeScript client exact codecs", () => {
 	});
 
 });
+
+
+test("connection domain problems decode as operation errors with their actual codes", async () => {
+  const binding: BindingCall = {
+    address: "scenery_auth/binding/connection_start_public_api_http",
+    method: "POST", path: "/auth/connections/{provider}/start",
+    responses: [
+      { status: 400, role: "failure", kind: "failure", name: "invalid_request", problemCode: "transport.invalid_request", body: { codec: "problem_json", producedMediaTypes: ["application/problem+json"], path: [], value: { kind: "primitive", name: "problem" } } },
+      ...([[400, "invalid_request"], [401, "unauthenticated"], [403, "forbidden"], [500, "internal"], [503, "unavailable"]] as const).map(([status, name]) => ({
+        status, role: "completion" as const, kind: "error" as const, name,
+        body: { codec: "problem_json" as const, producedMediaTypes: ["application/json"], path: [], value: { kind: "primitive" as const, name: "problem" as const } },
+      })),
+    ],
+  };
+  for (const [status, code, name] of [
+    [400, "connection_not_configured", "invalid_request"],
+    [400, "connection_scope_missing", "invalid_request"],
+    [400, "invalid_argument", "invalid_request"],
+    [401, "unauthenticated", "unauthenticated"],
+    [403, "permission_denied", "forbidden"],
+    [500, "internal", "internal"],
+    [503, "connection_unavailable", "unavailable"],
+    [503, "connection_configuration", "unavailable"],
+  ] as const) {
+    const problem = { code, message: "sanitized connection failure" };
+    await expect(matchResponse(new Response(JSON.stringify(problem), { status, headers: { "content-type": "application/json" } }), binding, registry)).resolves.toEqual({ kind: "error", name, problem });
+  }
+});

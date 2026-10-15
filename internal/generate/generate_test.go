@@ -850,20 +850,20 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 			Origin:  Origin{Kind: "authored"},
 		},
 		{
-			Address: "scenery_auth/record/google_connect_start_input",
+			Address: "scenery_auth/record/connection_start_input",
 			Module:  "scenery_auth",
 			Kind:    "scenery.record",
-			Name:    "google_connect_start_input",
+			Name:    "connection_start_input",
 			Spec: map[string]any{"field": []any{
 				map[string]any{"name": "scopes", "type": map[string]any{"$expression": "list(string)"}},
 			}},
 			Origin: Origin{Kind: "framework"},
 		},
 		{
-			Address: "scenery_auth/record/google_connect_start_response",
+			Address: "scenery_auth/record/connection_start_response",
 			Module:  "scenery_auth",
 			Kind:    "scenery.record",
-			Name:    "google_connect_start_response",
+			Name:    "connection_start_response",
 			Spec: map[string]any{"field": map[string]any{
 				"name": "authorize_url",
 				"type": map[string]any{"$ref": "string"},
@@ -871,31 +871,31 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 			Origin: Origin{Kind: "framework"},
 		},
 		{
-			Address: "scenery_auth/operation/google_connect_start",
+			Address: "scenery_auth/operation/connection_start",
 			Module:  "scenery_auth",
 			Kind:    "scenery.operation",
-			Name:    "google_connect_start",
+			Name:    "connection_start",
 			Spec: map[string]any{
-				"input":  map[string]any{"$ref": "scenery_auth/record/google_connect_start_input"},
-				"result": map[string]any{"name": "success", "type": map[string]any{"$ref": "scenery_auth/record/google_connect_start_response"}},
+				"input":  map[string]any{"$ref": "scenery_auth/record/connection_start_input"},
+				"result": map[string]any{"name": "success", "type": map[string]any{"$ref": "scenery_auth/record/connection_start_response"}},
 			},
 			Origin: Origin{Kind: "framework"},
 		},
 		{
-			Address: "scenery_auth/binding/google_connect_start_public_http",
+			Address: "scenery_auth/binding/connection_start_public_http",
 			Module:  "scenery_auth",
 			Kind:    "scenery.binding",
-			Name:    "google_connect_start_public_http",
+			Name:    "connection_start_public_http",
 			Spec: map[string]any{
 				"gateway":   map[string]any{"$ref": "app/http_gateway/public"},
-				"operation": map[string]any{"$ref": "scenery_auth/operation/google_connect_start"},
+				"operation": map[string]any{"$ref": "scenery_auth/operation/connection_start"},
 				"protocol":  "http",
 				"http": map[string]any{
 					"method": "POST",
-					"path":   "/auth/google/connect/start",
+					"path":   "/auth/connections/{provider}/start",
 					"body": map[string]any{
 						"codec": "json",
-						"to":    map[string]any{"$ref": "operation.google_connect_start.input"},
+						"to":    map[string]any{"$ref": "operation.connection_start.input"},
 					},
 					"response": map[string]any{
 						"name":   "success",
@@ -920,14 +920,14 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 	typesSource := renderTSTypes(reachable, bindings)
 
 	for _, fragment := range []string{
-		"async googleConnectStart(input: Types.GoogleConnectStartInput",
-		`"/auth/google/connect/start"`,
+		"async connectionStart(input: Types.ConnectionStartInput",
+		`"/auth/connections/{provider}/start"`,
 	} {
 		if !strings.Contains(clientSource, fragment) {
 			t.Fatalf("generated client missing %q:\n%s", fragment, clientSource)
 		}
 	}
-	if !strings.Contains(typesSource, "export interface GoogleConnectStartResponse") {
+	if !strings.Contains(typesSource, "export interface ConnectionStartResponse") {
 		t.Fatalf("generated types omit the framework-owned response:\n%s", typesSource)
 	}
 }

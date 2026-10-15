@@ -15,15 +15,16 @@ type ExecutionReceipt struct {
 }
 
 type invocationState struct {
-	id            string
-	principal     string
-	tenantID      string
-	traceID       string
-	deadline      time.Time
-	callerBinding string
-	executionID   string
-	deployment    string
-	locale        string
+	id               string
+	principal        string
+	tenantID         string
+	traceID          string
+	deadline         time.Time
+	callerBinding    string
+	executionID      string
+	deployment       string
+	locale           string
+	connectionWorker bool
 }
 
 // InvocationMetadata is runtime-internal construction data. The package's Go
@@ -39,6 +40,8 @@ type InvocationMetadata struct {
 	ExecutionID   string
 	Deployment    string
 	Locale        string
+	// ConnectionWorker is granted only at a runtime-owned background admission.
+	ConnectionWorker bool
 }
 
 // Invocation is an opaque, runtime-created authority token for inherited
@@ -56,7 +59,12 @@ func NewInvocationWithMetadata(metadata InvocationMetadata) Invocation {
 		traceID: metadata.TraceID, deadline: metadata.Deadline.UTC(),
 		callerBinding: metadata.CallerBinding, executionID: metadata.ExecutionID,
 		deployment: metadata.Deployment, locale: metadata.Locale,
+		connectionWorker: metadata.ConnectionWorker,
 	}}
+}
+
+func (invocation Invocation) ConnectionWorker() bool {
+	return invocation.state != nil && invocation.state.connectionWorker
 }
 
 func (invocation Invocation) Valid() bool {

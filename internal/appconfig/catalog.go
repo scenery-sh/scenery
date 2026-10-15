@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/connectionapi"
 	"scenery.sh/internal/graph"
 )
 
@@ -89,6 +90,7 @@ func (c Catalog) Lookup(key string) (Input, bool) {
 type FrameworkOptions struct {
 	StandardAuth bool
 	GoogleOAuth  bool
+	Connections  []connectionapi.ProviderConfig
 	// SQL reports that the application has SQL requirements, whose supply
 	// an environment may configure as an external server.
 	SQL bool
@@ -259,7 +261,17 @@ func frameworkInputs(options FrameworkOptions) []Input {
 		inputs = append(inputs,
 			Input{Key: "auth.google_client_id", Owner: owner, Type: "string", Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
 			Input{Key: "auth.google_client_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
-			Input{Key: "auth.token_cipher_key", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
+		)
+	}
+	if len(options.Connections) > 0 {
+		inputs = append(inputs, Input{Key: "auth.token_cipher_key", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer})
+	}
+	for _, provider := range options.Connections {
+		prefix := "auth.connections." + provider.ID + "."
+		inputs = append(inputs,
+			Input{Key: prefix + "client_id", Owner: owner, Type: "string", Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
+			Input{Key: prefix + "client_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: provider.ClientAuth != "none", Consumers: consumer},
+			Input{Key: prefix + "callback_uri", Owner: owner, Type: "string", Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
 		)
 	}
 	return inputs

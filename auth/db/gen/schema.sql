@@ -87,26 +87,36 @@ CREATE INDEX IF NOT EXISTS auth_identities_normalized_email_idx ON scenery.scene
 CREATE UNIQUE INDEX IF NOT EXISTS auth_identities_provider_subject_key ON scenery.scenery_auth_auth_identities (provider, provider_subject);
 CREATE INDEX IF NOT EXISTS auth_identities_user_id_idx ON scenery.scenery_auth_auth_identities (user_id);
 
-CREATE TABLE IF NOT EXISTS scenery.scenery_auth_google_connections (
+CREATE TABLE IF NOT EXISTS scenery.scenery_auth_connections (
   id uuid PRIMARY KEY NOT NULL,
-  user_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES scenery.scenery_auth_users (id) ON DELETE CASCADE,
+  provider_id text NOT NULL,
+  issuer text NOT NULL,
   provider_subject text NOT NULL,
+  resource text NOT NULL DEFAULT '',
+  token_type text NOT NULL DEFAULT 'Bearer',
   email text NOT NULL DEFAULT '',
   scopes text NOT NULL DEFAULT '',
   refresh_token_ciphertext bytea,
   access_token_ciphertext bytea,
   access_token_expires_at timestamptz,
-  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'reauth_required', 'disconnected')),
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'reauth_required', 'disconnected', 'refresh_pending')),
   last_refresh_at timestamptz,
   last_refresh_error text NOT NULL DEFAULT '',
+  revocation_status text NOT NULL DEFAULT '',
   connected_at timestamptz NOT NULL DEFAULT now(),
   disconnected_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (user_id) REFERENCES scenery.scenery_auth_users (id) ON DELETE CASCADE
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS google_connections_user_id_key ON scenery.scenery_auth_google_connections (user_id);
-CREATE INDEX IF NOT EXISTS google_connections_status_idx ON scenery.scenery_auth_google_connections (status);
+CREATE UNIQUE INDEX IF NOT EXISTS connections_user_provider_key ON scenery.scenery_auth_connections (user_id, provider_id);
+CREATE INDEX IF NOT EXISTS connections_status_idx ON scenery.scenery_auth_connections (status);
+
+CREATE TABLE IF NOT EXISTS scenery.scenery_auth_connection_schema (
+  singleton boolean PRIMARY KEY NOT NULL DEFAULT true CHECK (singleton),
+  version integer NOT NULL CHECK (version = 1)
+);
+INSERT INTO scenery.scenery_auth_connection_schema (singleton, version) VALUES (true, 1) ON CONFLICT (singleton) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS scenery.scenery_auth_one_time_tokens (
   id uuid PRIMARY KEY NOT NULL,
@@ -169,3 +179,26 @@ CREATE TABLE IF NOT EXISTS scenery.scenery_auth_refresh_sessions (
 CREATE INDEX IF NOT EXISTS refresh_sessions_active_tenant_id_idx ON scenery.scenery_auth_refresh_sessions (active_tenant_id);
 CREATE UNIQUE INDEX IF NOT EXISTS refresh_sessions_token_hash_key ON scenery.scenery_auth_refresh_sessions (token_hash);
 CREATE INDEX IF NOT EXISTS refresh_sessions_user_id_idx ON scenery.scenery_auth_refresh_sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS scenery.scenery_auth_connection_states (
+  id uuid PRIMARY KEY NOT NULL,
+  state_hash text NOT NULL UNIQUE,
+  purpose text NOT NULL DEFAULT 'connection' CHECK (purpose = 'connection'),
+  user_id uuid NOT NULL REFERENCES scenery.scenery_auth_users (id) ON DELETE CASCADE,
+  session_id uuid NOT NULL REFERENCES scenery.scenery_auth_refresh_sessions (id) ON DELETE CASCADE,
+  provider_id text NOT NULL,
+  issuer text NOT NULL,
+  resource text NOT NULL DEFAULT '',
+  client_id text NOT NULL,
+  browser_hash text NOT NULL,
+  callback_uri text NOT NULL,
+  requested_scopes text NOT NULL,
+  pkce_verifier text NOT NULL,
+  nonce_hash text NOT NULL DEFAULT '',
+  redirect_path text NOT NULL DEFAULT '',
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS connection_states_expires_at_idx ON scenery.scenery_auth_connection_states (expires_at);
+CREATE INDEX IF NOT EXISTS connection_states_pending_owner_provider_idx ON scenery.scenery_auth_connection_states (user_id, provider_id) WHERE consumed_at IS NULL;

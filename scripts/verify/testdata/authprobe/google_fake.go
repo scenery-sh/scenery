@@ -37,6 +37,7 @@ type fakeCode struct{ nonce, scope, challenge string }
 type fakeRefresh struct {
 	status                            int
 	access, refresh, scope, errorCode string
+	errorBody                         string
 }
 type roundTrip func(*http.Request) (*http.Response, error)
 
@@ -152,7 +153,7 @@ func (f *fakeGoogle) token(w http.ResponseWriter, request *http.Request) {
 	if scope == "" {
 		scope = issued.scope
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"id_token": signed, "access_token": access, "refresh_token": refresh, "scope": scope, "expires_in": 3600})
+	_ = json.NewEncoder(w).Encode(map[string]any{"token_type": "Bearer", "id_token": signed, "access_token": access, "refresh_token": refresh, "scope": scope, "expires_in": 3600})
 }
 
 func (f *fakeGoogle) refreshToken(w http.ResponseWriter, token string) {
@@ -170,13 +171,17 @@ func (f *fakeGoogle) refreshToken(w http.ResponseWriter, token string) {
 	f.mu.Unlock()
 	if next.status >= 300 {
 		w.WriteHeader(next.status)
+		if next.errorBody != "" {
+			_, _ = io.WriteString(w, next.errorBody)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": next.errorCode, "error_description": "scripted owned refresh failure"})
 		return
 	}
 	if next.access == "" {
 		next.access = fmt.Sprintf("refreshed-access-%d", call)
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": next.access, "refresh_token": next.refresh, "scope": next.scope, "expires_in": 3600})
+	_ = json.NewEncoder(w).Encode(map[string]any{"token_type": "Bearer", "access_token": next.access, "refresh_token": next.refresh, "scope": next.scope, "expires_in": 3600})
 }
 
 func (f *fakeGoogle) usedRefresh(want string) bool {

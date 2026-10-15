@@ -266,6 +266,21 @@ authentication, standard-auth endpoint and handler registration, JSON contract
 codecs, SQL query tracing, durable signals and steps).
 Importing them therefore never links the runtime's implementation closure.
 
+### Provider-neutral connections
+
+`internal/connectionapi` owns credential-free values shared by configuration,
+compiler projections and the SDK host. `auth` forwards owner-bound token calls
+through `appsdk.Host`; it imports no vault or concrete provider.
+`internal/connectionruntime` composes declarations, existing environment snapshots,
+standard-auth SQL and browser state. `internal/connectionvault` owns encrypted
+lifecycle and injected provider/store/cipher/clock contracts; its SQL adapter uses
+the existing pool and preserves cross-process row/lease serialization. Durable
+refresh intent prevents blind reuse after ambiguous remote rotation.
+`internal/authprovider/oauth2` owns configured OAuth2/OIDC protocol mechanics,
+`internal/oidc` identity verification and `internal/authprovider/google` preset
+behavior. Connecting never mutates sign-in identity. Current schema ownership
+and explicit cutover are documented in [user connections](docs/auth-connections.md).
+
 `internal/contract` owns the contract value types, their canonical JSON wire
 form, schema-directed marshalling, constraint validation, composite keys, and
 approval tokens. `internal/contractpolicy` owns the authorization expression
@@ -304,8 +319,12 @@ compiler results and never sit below it.
 ### `internal/generate`
 
 `internal/generate` renders Go contracts and composition, TypeScript clients,
-OpenAPI projections, generated React page adapters, and the binary-owned
-`@scenery/ui` catalog from one compiler result. `internal/generate/api` is the
+OpenAPI projections from one compiler result. It delegates optional React/page
+and binary-owned `@scenery/ui` catalog rendering to `internal/uigen`, which
+consumes validated canonical graph values and returns in-memory files.
+`internal/clientprojection` shares pure graph and naming queries across common
+clients and UI. Backend runtime/SDK closures never reach the UI renderer/assets.
+`internal/generate/api` is the
 stdlib-only leaf for `RuntimeIntegrationPlan` and assistant-asset descriptor types;
 packages that only need that surface must not import `internal/generate`. The
 catalog materializes its root component barrel and the direct

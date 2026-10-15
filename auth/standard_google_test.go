@@ -6,31 +6,24 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	authdb "scenery.sh/auth/db/gen"
-	"scenery.sh/errs"
 )
-
-const gmailModifyScope = "https://www.googleapis.com/auth/gmail.modify"
-const calendarEventsScope = "https://www.googleapis.com/auth/calendar.events"
 
 // Public HTTP journeys and PostgreSQL row-lock single-flight proof live in the
 // mandatory standard-auth release probe. These roots retain in-process decisions.
 func TestGoogleOAuthBrowserFlowWithFakeGoogle(t *testing.T) {
 	var saved []driver.NamedValue
-	svc, _ := authSQLService(t, authSQLStep{name: "DeleteExpiredOAuthStates"}, authSQLStep{name: "CreateOAuthState", rows: [][]driver.Value{googleOAuthStateRow("")}, check: func(_ string, args []driver.NamedValue) { saved = append([]driver.NamedValue(nil), args...) }})
-	setupGoogleDecisionTest(t, svc)
+	svc, _ := authSQLService(t, authSQLStep{name: "DeleteExpiredOAuthStates"}, authSQLStep{name: "CreateOAuthState", rows: [][]driver.Value{googleLoginStateRow("")}, check: func(_ string, args []driver.NamedValue) { saved = append([]driver.NamedValue(nil), args...) }})
+	setupGoogleSignInTest(t, svc)
 	rec := httptest.NewRecorder()
 	GoogleStart(rec, httptest.NewRequest(http.MethodGet, "https://app.example.test/auth/google/start?redirect_path=/welcome", nil))
 	location, err := url.Parse(rec.Header().Get("Location"))
@@ -47,187 +40,6 @@ func TestGoogleOAuthBrowserFlowWithFakeGoogle(t *testing.T) {
 	}
 }
 
-func TestGoogleConnectionStartFallsBackToConfiguredAPIBaseURL(t *testing.T) {
-	old := secrets
-	t.Cleanup(func() { secrets = old })
-	secrets.APIBaseURL = "https://api.example.test"
-	if got := googleConnectionRedirectURI(nil); got != "https://api.example.test/auth/google/callback" {
-		t.Fatalf("callback=%q", got)
-	}
-	state, verifier, nonce, err := newGoogleOAuthMaterial()
-	if err != nil || len(state) < 32 || len(verifier) < 43 || len(nonce) < 24 || state == verifier || state == nonce {
-		t.Fatalf("OAuth material lengths=%d/%d/%d err=%v", len(state), len(verifier), len(nonce), err)
-	}
-}
-
-func TestGoogleConnectionFlowStoresEncryptedTokenAndDisconnects(t *testing.T) {
-	svc, _ := authSQLService(t)
-	setupGoogleDecisionTest(t, svc)
-	cipher, err := sealGoogleToken("refresh-secret")
-	if err != nil || strings.Contains(string(cipher), "refresh-secret") {
-		t.Fatalf("sealed token=%v", err)
-	}
-	conn := authdb.SceneryAuthGoogleConnection{Status: "active", Scopes: gmailModifyScope, RefreshTokenCiphertext: cipher}
-	if !googleConnectionHasUsableRefresh(conn, []string{gmailModifyScope}) || googleConnectionHasUsableRefresh(conn, []string{calendarEventsScope}) {
-		t.Fatal("usable refresh scope contract")
-	}
-	conn.Status = "disconnected"
-	if googleConnectionHasUsableRefresh(conn, []string{gmailModifyScope}) || disconnectedGoogleConnectionResponse().Status != "disconnected" {
-		t.Fatal("disconnected refresh must not be usable")
-	}
-	calls := 0
-	googleTestHTTP(t, func(req *http.Request) *http.Response {
-		calls++
-		if err := req.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		if req.URL.String() != googleRevokeEndpoint || req.Method != http.MethodPost || req.Form.Get("token") != "refresh-secret" {
-			t.Fatalf("revoke request=%s %s %v", req.Method, req.URL, req.Form)
-		}
-		return googleTestResponse(200, "{}")
-	})
-	if err := revokeGoogleToken(t.Context(), "refresh-secret"); err != nil || calls != 1 {
-		t.Fatalf("revoke=%v calls=%d", err, calls)
-	}
-}
-
-func TestGoogleConnectionCallbackOAuthErrorUsesStateRedirect(t *testing.T) {
-	svc, _ := authSQLService(t, authSQLStep{name: "ConsumeOAuthState", rows: [][]driver.Value{googleOAuthStateRow(googleConnectionOAuthPurpose)}, check: func(_ string, args []driver.NamedValue) {
-		if args[0].Value != tokenHash("state-secret") {
-			t.Fatalf("state lookup=%v", args)
-		}
-	}})
-	setupGoogleDecisionTest(t, svc)
-	rec := httptest.NewRecorder()
-	GoogleCallback(rec, httptest.NewRequest(http.MethodGet, "https://app.example.test/auth/google/callback?error=access_denied&state=state-secret", nil))
-	if got := rec.Header().Get("Location"); rec.Code != http.StatusFound || got != "https://app.example.test/settings?error=google_oauth" {
-		t.Fatalf("callback=%d %q", rec.Code, got)
-	}
-}
-
-func TestGoogleAccessTokenRefreshesRotatesAndSingleFlights(t *testing.T) {
-	svc, script := authSQLService(t)
-	setupGoogleDecisionTest(t, svc)
-	row := googleConnectionRow(t, "active")
-	script.steps = []authSQLStep{
-		googleLockedConnectionStep(t, row),
-		{name: "UpdateGoogleConnectionTokens", rows: [][]driver.Value{row}, check: func(_ string, args []driver.NamedValue) {
-			for i, want := range map[int]string{2: "rotated-refresh", 3: "rotated-access"} {
-				cipher, ok := args[i].Value.([]byte)
-				if !ok {
-					t.Fatalf("token is not ciphertext: %T", args[i].Value)
-				}
-				got, err := openGoogleToken(cipher)
-				if err != nil || got != want || strings.Contains(string(cipher), want) {
-					t.Fatalf("persisted token=%q err=%v", got, err)
-				}
-			}
-			if args[1].Value != gmailModifyScope || args[4].Value != authSQLNow.Add(time.Hour) {
-				t.Fatalf("rotation scope/expiry=%v", args)
-			}
-		}},
-	}
-	calls := 0
-	googleTestHTTP(t, func(req *http.Request) *http.Response {
-		calls++
-		if err := req.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		if req.Form.Get("refresh_token") != "initial-refresh" || req.Form.Get("grant_type") != "refresh_token" {
-			t.Fatalf("refresh form=%v", req.Form)
-		}
-		return googleTestResponse(200, `{"access_token":"rotated-access","refresh_token":"rotated-refresh","expires_in":3600,"scope":"`+gmailModifyScope+`"}`)
-	})
-	token, err := GoogleAccessTokenForUser(t.Context(), authSQLUserID, gmailModifyScope)
-	if err != nil || token != "rotated-access" || calls != 1 || !reflect.DeepEqual(script.events, []string{"begin", "GetGoogleConnectionByUserForUpdate", "UpdateGoogleConnectionTokens", "commit"}) {
-		t.Fatalf("refresh=%q err=%v calls=%d events=%v", token, err, calls, script.events)
-	}
-	row[6], err = sealGoogleToken("cached-access")
-	if err != nil {
-		t.Fatal(err)
-	}
-	row[7] = authSQLNow.Add(time.Hour)
-	script.steps = []authSQLStep{googleLockedConnectionStep(t, row)}
-	token, err = GoogleAccessTokenForUser(t.Context(), authSQLUserID, gmailModifyScope)
-	if err != nil || token != "cached-access" || calls != 1 {
-		t.Fatalf("cache=%q err=%v calls=%d", token, err, calls)
-	}
-}
-
-func TestGoogleAccessTokenRetriesTransientAndMarksPermanentRefreshFailures(t *testing.T) {
-	svc, script := authSQLService(t)
-	setupGoogleDecisionTest(t, svc)
-	oldBackoff := googleRefreshRetryBackoff
-	googleRefreshRetryBackoff = 0
-	t.Cleanup(func() { googleRefreshRetryBackoff = oldBackoff })
-	calls := 0
-	googleTestHTTP(t, func(_ *http.Request) *http.Response {
-		calls++
-		switch calls {
-		case 1:
-			return googleTestResponse(500, `{"error":"server_error"}`)
-		case 2:
-			return googleTestResponse(200, `{"access_token":"retried-access"}`)
-		default:
-			return googleTestResponse(400, `{"error":"invalid_grant"}`)
-		}
-	})
-	token, err := refreshGoogleAccessToken(t.Context(), "initial-refresh")
-	if err != nil || token.AccessToken != "retried-access" || calls != 2 {
-		t.Fatalf("retry=%+v err=%v calls=%d", token, err, calls)
-	}
-	row := googleConnectionRow(t, "active")
-	script.steps = []authSQLStep{googleLockedConnectionStep(t, row), {name: "MarkGoogleConnectionReauthRequired", rows: [][]driver.Value{row}, check: func(_ string, args []driver.NamedValue) {
-		if args[1].Value != "invalid_grant" {
-			t.Fatalf("reauth reason=%v", args)
-		}
-	}}}
-	_, err = GoogleAccessTokenForUser(t.Context(), authSQLUserID, gmailModifyScope)
-	if errs.Code(err) != errs.GoogleReauthRequired || calls != 3 || script.events[len(script.events)-1] != "commit" {
-		t.Fatalf("permanent=%v calls=%d events=%v", err, calls, script.events)
-	}
-	row[8] = "reauth_required"
-	script.steps = []authSQLStep{googleLockedConnectionStep(t, row)}
-	_, err = GoogleAccessTokenForUser(t.Context(), authSQLUserID, gmailModifyScope)
-	if errs.Code(err) != errs.GoogleReauthRequired || calls != 3 {
-		t.Fatalf("reauth=%v calls=%d", err, calls)
-	}
-}
-
-func TestGoogleAccessTokenReportsMissingScopes(t *testing.T) {
-	svc, script := authSQLService(t)
-	setupGoogleDecisionTest(t, svc)
-	script.steps = []authSQLStep{googleLockedConnectionStep(t, googleConnectionRow(t, "active"))}
-	_, err := svc.googleAccessTokenForUser(t.Context(), mustParseAuthUUID(t, authSQLUserID), []string{calendarEventsScope})
-	if errs.Code(err) != errs.GoogleScopeMissing || script.events[len(script.events)-1] != "rollback" {
-		t.Fatalf("missing scope=%v events=%v", err, script.events)
-	}
-}
-
-func TestGoogleAccessTokenEnforcesAllowedScopes(t *testing.T) {
-	svc, script := authSQLService(t)
-	setupGoogleDecisionTest(t, svc)
-	_, err := GoogleAccessTokenForUser(t.Context(), authSQLUserID, calendarEventsScope)
-	if errs.Code(err) != errs.PermissionDenied || len(script.events) != 0 {
-		t.Fatalf("disallowed scope=%v events=%v", err, script.events)
-	}
-}
-
-func setupGoogleDecisionTest(t *testing.T, svc *Service) {
-	t.Helper()
-	installCurrentUserTestService(t, svc)
-	old := secrets
-	t.Cleanup(func() { secrets = old })
-	secrets.GoogleOAuthClientID = "client-id"
-	secrets.GoogleOAuthClientSecret = "client-secret"
-	secrets.APIBaseURL = "https://api.example.test"
-	secrets.PublicAppURL = "https://app.example.test"
-	setConfiguredAuthSecretForTest(t, "auth.token_cipher_key", base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")))
-	standardAuthState.mu.Lock()
-	standardAuthState.cfg = normalizeStandardConfig(StandardConfig{Enabled: true, GoogleOAuth: GoogleOAuthConfig{Enabled: true, AllowedScopes: []string{gmailModifyScope}}})
-	standardAuthState.mu.Unlock()
-}
-
 type googleTestTransport func(*http.Request) *http.Response
 
 func (f googleTestTransport) RoundTrip(req *http.Request) (*http.Response, error) { return f(req), nil }
@@ -236,28 +48,6 @@ func googleTestHTTP(t *testing.T, handler func(*http.Request) *http.Response) {
 	old := googleHTTPClient
 	t.Cleanup(func() { googleHTTPClient = old })
 	googleHTTPClient = &http.Client{Transport: googleTestTransport(handler)}
-}
-func googleTestResponse(status int, body string) *http.Response {
-	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
-}
-func googleOAuthStateRow(purpose string) []driver.Value {
-	return []driver.Value{"11111111-1111-1111-1111-111111111111", "hash", "verifier", "nonce-hash", authSQLUserID, purpose, "/settings", authSQLNow.Add(time.Hour), nil, authSQLNow}
-}
-func googleConnectionRow(t *testing.T, status string) []driver.Value {
-	t.Helper()
-	refresh, err := sealGoogleToken("initial-refresh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return []driver.Value{"11111111-1111-1111-1111-111111111111", authSQLUserID, "google-subject", "person@example.test", gmailModifyScope, refresh, []byte{}, authSQLNow.Add(-time.Minute), status, nil, "", authSQLNow, nil, authSQLNow, authSQLNow}
-}
-func googleLockedConnectionStep(t *testing.T, row []driver.Value) authSQLStep {
-	t.Helper()
-	return authSQLStep{name: "GetGoogleConnectionByUserForUpdate", rows: [][]driver.Value{row}, check: func(query string, _ []driver.NamedValue) {
-		if !strings.Contains(query, "FOR UPDATE") {
-			t.Fatal("refresh must select under a row lock")
-		}
-	}}
 }
 
 type testJWK struct {
@@ -345,42 +135,6 @@ func TestGoogleRedirectURIUsesRequestHostBeforeConfiguredPathModeURL(t *testing.
 
 	if got, want := googleRedirectURI(req), "https://local.clean.tech/api/auth/google/callback"; got != want {
 		t.Fatalf("redirect URI = %q, want %q", got, want)
-	}
-}
-
-func TestGoogleConnectionResponseNormalizesContractDateTimesToUTC(t *testing.T) {
-	location := time.FixedZone("local", 2*60*60)
-	response := googleConnectionResponse(authdb.SceneryAuthGoogleConnection{
-		Status:      "active",
-		ConnectedAt: time.Date(2026, 7, 20, 13, 18, 45, 171981000, location),
-	})
-
-	if response.ConnectedAt == nil {
-		t.Fatal("ConnectedAt is nil")
-	}
-	if got, want := response.ConnectedAt.Format(time.RFC3339Nano), "2026-07-20T11:18:45.171981Z"; got != want {
-		t.Fatalf("ConnectedAt = %q, want %q", got, want)
-	}
-}
-
-func TestGoogleTokenCipherRoundTrip(t *testing.T) {
-	resetStandardAuthStateForTest(t)
-	key := base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
-	setConfiguredAuthSecretForTest(t, "auth.token_cipher_key", key)
-	standardAuthState.mu.Lock()
-	standardAuthState.cfg = normalizeStandardConfig(StandardConfig{Enabled: true, GoogleOAuth: GoogleOAuthConfig{Enabled: true}})
-	standardAuthState.mu.Unlock()
-
-	ciphertext, err := sealGoogleToken("refresh-secret")
-	if err != nil {
-		t.Fatalf("sealGoogleToken: %v", err)
-	}
-	if strings.Contains(string(ciphertext), "refresh-secret") {
-		t.Fatal("ciphertext contains plaintext")
-	}
-	opened, err := openGoogleToken(ciphertext)
-	if err != nil || opened != "refresh-secret" {
-		t.Fatalf("openGoogleToken = %q, %v", opened, err)
 	}
 }
 
@@ -488,4 +242,23 @@ func setConfiguredAuthSecretForTest(t *testing.T, key, value string) {
 		return previous(requested)
 	}
 	t.Cleanup(func() { configuredAuthSecret = previous })
+}
+
+func setupGoogleSignInTest(t *testing.T, svc *Service) {
+	t.Helper()
+	installCurrentUserTestService(t, svc)
+	old := secrets
+	t.Cleanup(func() { secrets = old })
+	secrets.GoogleOAuthClientID = "client-id"
+	secrets.GoogleOAuthClientSecret = "client-secret"
+	secrets.APIBaseURL = "https://api.example.test"
+	secrets.PublicAppURL = "https://app.example.test"
+	setConfiguredAuthSecretForTest(t, "auth.token_cipher_key", base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")))
+	standardAuthState.mu.Lock()
+	standardAuthState.cfg = normalizeStandardConfig(StandardConfig{Enabled: true, GoogleOAuth: GoogleOAuthConfig{Enabled: true}})
+	standardAuthState.mu.Unlock()
+}
+
+func googleLoginStateRow(purpose string) []driver.Value {
+	return []driver.Value{"11111111-1111-1111-1111-111111111111", "hash", "verifier", "nonce-hash", authSQLUserID, purpose, "/settings", authSQLNow.Add(time.Hour), nil, authSQLNow}
 }

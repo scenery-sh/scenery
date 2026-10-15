@@ -2,8 +2,12 @@ package generate
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/compiler"
 )
 
 func TestTypeScriptClientReturnsDeclaredTransportFailuresAsTypedOutcomes(t *testing.T) {
@@ -399,6 +403,72 @@ func TestStandardTypesRequireExactReferences(t *testing.T) {
 		}
 		if got := fmt.Sprint(tsDescriptor(value, "house")); strings.Contains(got, "problem") || strings.Contains(got, "unit") || strings.Contains(got, "execution_receipt") {
 			t.Errorf("descriptor for %q was classified as a standard type: %s", test.reference, got)
+		}
+	}
+}
+
+func TestConnectionProjectionGeneratesDomainErrorOutcomes(t *testing.T) {
+	root := t.TempDir()
+	writeMinimalGenerationFixture(t, root)
+	appendFixtureFile(t, filepath.Join(root, testAppFilename), `
+authentication "standard" {
+  provider = std.provider.standard_auth
+  scheme = "session"
+}
+`)
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"nativeapp","envs":{"local":{"default":true}},"auth":{"enabled":true,"google_oauth":{"enabled":false},"connections":[{"id":"files","preset":"google"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := compiler.Compile(root)
+	if err != nil || compiled == nil || !compiled.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, diagnosticsOf(compiled))
+	}
+	files, err := renderTypeScriptClientFiles(compiled, "public_api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := generatedSourceWithSuffix(files, "client.ts")
+	for _, name := range []string{"invalid_request", "unauthenticated", "forbidden", "internal", "unavailable"} {
+		fragment := `"kind":"error","name":"` + name + `","role":"completion"`
+		if !strings.Contains(client, fragment) {
+			t.Fatalf("connection client omits generic domain outcome %s", name)
+		}
+	}
+	if !strings.Contains(client, `"producedMediaTypes":["application/json"]`) {
+		t.Fatal("connection domain outcomes cannot decode the runtime JSON envelope")
+	}
+	if strings.Contains(client, "connectionCallback") {
+		t.Fatal("opaque browser callbacks became ordinary client calls")
+	}
+}
+
+func TestTypeScriptClientAcceptsTheBindingsEffectiveResponseLimit(t *testing.T) {
+	operation := Resource{Address: "house/operation/get", Module: "house", Kind: "scenery.operation", Name: "get", Spec: map[string]any{
+		"input": map[string]any{"$ref": "std.type.unit"}, "result": map[string]any{"name": "found", "type": map[string]any{"$ref": "string"}},
+	}}
+	binding := func(limits map[string]any) Resource {
+		httpSpec := map[string]any{"method": "GET", "path": "/get", "response": []any{
+			map[string]any{"name": "found", "when": map[string]any{"$ref": "result.found"}, "status": "200", "body": map[string]any{"codec": "text", "from": map[string]any{"$ref": "result.found"}}},
+		}}
+		if limits != nil {
+			httpSpec["response_limit"] = limits
+		}
+		return Resource{Address: "house/binding/get", Module: "house", Kind: "scenery.binding", Name: "get", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.get"}, "http": httpSpec,
+		}}
+	}
+	for _, c := range []struct {
+		limits map[string]any
+		want   string
+	}{
+		// The effective limit the server enforces, declared or inherited from
+		// the gateway.
+		{map[string]any{"body_bytes": map[string]any{"$scalar": "int", "value": "209715200"}, "compression_threshold_bytes": map[string]any{"$scalar": "int", "value": "1024"}}, `"responseLimitBytes":209715200`},
+		{nil, `"responseLimitBytes":16777216`},
+	} {
+		client := renderTSClient(Resource{Name: "public"}, []Resource{binding(c.limits)}, []Resource{operation})
+		if !strings.Contains(client, c.want) {
+			t.Fatalf("client for response limit %v missing %s:\n%s", c.limits, c.want, client)
 		}
 	}
 }

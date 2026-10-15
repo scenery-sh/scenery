@@ -26,11 +26,10 @@ import (
 var googleHTTPClient = &http.Client{Timeout: googleHTTPTimeout}
 
 var (
-	googleAuthEndpoint   = "https://accounts.google.com/o/oauth2/v2/auth"
-	googleTokenEndpoint  = "https://oauth2.googleapis.com/token"
-	googleRevokeEndpoint = "https://oauth2.googleapis.com/revoke"
-	googleJWKSURL        = "https://www.googleapis.com/oauth2/v3/certs"
-	googleJWKSCache      struct {
+	googleAuthEndpoint  = "https://accounts.google.com/o/oauth2/v2/auth"
+	googleTokenEndpoint = "https://oauth2.googleapis.com/token"
+	googleJWKSURL       = "https://www.googleapis.com/oauth2/v3/certs"
+	googleJWKSCache     struct {
 		mu        sync.Mutex
 		url       string
 		fetchedAt time.Time
@@ -102,10 +101,6 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 // GoogleCallback completes the Google OAuth flow, sets the refresh cookie, and redirects to the app.
 func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 	if oauthErr := strings.TrimSpace(req.URL.Query().Get("error")); oauthErr != "" {
-		if redirectPath, ok := consumeGoogleConnectionErrorRedirectPath(req); ok {
-			redirectGoogleConnectionCallbackError(w, req, redirectPath, "google_oauth")
-			return
-		}
 		http.Redirect(w, req, appRedirectURL(req, "/sign-in?error=google_oauth"), http.StatusFound)
 		return
 	}
@@ -124,10 +119,6 @@ func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 	oauthState, err := svc.query.ConsumeOAuthState(req.Context(), tokenHash(state))
 	if err != nil {
 		redirectGoogleCallbackError(w, req, "oauth_state")
-		return
-	}
-	if strings.TrimSpace(oauthState.Purpose) == googleConnectionOAuthPurpose {
-		finishGoogleConnectionCallback(w, req, svc, oauthState, code, googleRedirectURI(req))
 		return
 	}
 	tokenResponse, err := exchangeGoogleCode(req.Context(), code, oauthState.PkceVerifier, googleRedirectURI(req))
@@ -468,10 +459,6 @@ func googleRedirectURI(req *http.Request) string {
 		base = "https://api.scenery.localhost"
 	}
 	return base + "/auth/google/callback"
-}
-
-func googleConnectionRedirectURI(req *http.Request) string {
-	return googleRedirectURI(req)
 }
 
 func requestBaseURL(req *http.Request) string {

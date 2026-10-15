@@ -25,7 +25,8 @@ references when the task crosses their boundary, not as a startup checklist.
 | Understand an app, route, or operation | `scenery inspect app`, `inspect routes`, or `inspect endpoints`, with `-o json` | [Application model](docs/agent-guide.md#current-application-model) |
 | Edit declarations or Go contracts | `scenery check -o json`; generate missing contracts before raw Go tools | [Native change loop](docs/agent-guide.md#native-change-loop) |
 | Start or diagnose a runtime | `scenery ps -o json`; `scenery doctor -o json` for environment failures; bounded `scenery logs -o jsonl --limit 200` | [Runtime command choice](docs/agent-guide.md#runtime-command-choice) |
-| Generate TypeScript or React UI | Regenerate the declared client target; customize app-owned slots | [Client integration](docs/agent-guide.md#typescript-client-integration) |
+| Connect an external user account | Declare a provider and inspect its generated operations | [User connections](docs/auth-connections.md) |
+| Generate TypeScript or React UI | Regenerate the declared client target; customize app-owned slots | [Client integration](docs/agent-guide.md#typescript-client-integration) and [optional UI](docs/generated-ui.md) |
 | Declare or debug an assistant | `scenery inspect assistants -o json` | [Assistant change loop](docs/agent-guide.md#assistant-change-loop) |
 | Change storage, SQL, migrations, or snapshots | Inspect the selected resource and retained owner before mutation | [Storage and databases](docs/agent-guide.md#storage-and-databases) |
 | Plan a semantic mutation | Inspect schemas and capabilities, then review the issued revision-bound plan | [Diagnostics and semantic changes](docs/agent-guide.md#diagnostics-and-semantic-changes) |

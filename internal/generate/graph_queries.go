@@ -2,15 +2,12 @@ package generate
 
 import (
 	"fmt"
-	"maps"
 	"math/big"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/scn"
@@ -30,20 +27,6 @@ var primitiveTypes = map[string]bool{
 	"float64": true, "string": true, "bytes": true, "uuid": true,
 	"date": true, "datetime": true, "duration": true, "size": true,
 	"url": true, "relative_path": true, "json": true,
-}
-
-func resourcesByAddress(manifest *Manifest) map[string]Resource {
-	result := map[string]Resource{}
-	if manifest != nil {
-		for _, resource := range manifest.Resources {
-			result[resource.Address] = resource
-		}
-	}
-	return result
-}
-
-func resourceAddress(module, blockType, name string) string {
-	return graph.ResourceAddress(module, blockType, name)
 }
 
 func isCanonicalSHA256Digest(value string) bool { return graph.IsCanonicalSHA256Digest(value) }
@@ -71,60 +54,6 @@ func canonicalStrings(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-func defaultString(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
-}
-
-func stringValues(value any) []string {
-	items, _ := value.([]any)
-	values := make([]string, 0, len(items))
-	for _, item := range items {
-		if text, ok := item.(string); ok {
-			values = append(values, text)
-			continue
-		}
-		if scalar, ok := item.(map[string]any); ok {
-			if text, ok := scalar["value"].(string); ok {
-				values = append(values, text)
-			}
-		}
-	}
-	return values
-}
-
-func cloneMapValue(value any) map[string]any {
-	result := map[string]any{}
-	if source, ok := value.(map[string]any); ok {
-		maps.Copy(result, source)
-	}
-	return result
-}
-
-func integerValue(value any) (int, bool) {
-	switch typed := value.(type) {
-	case int:
-		return typed, true
-	case int64:
-		return int(typed), true
-	case float64:
-		return int(typed), typed == float64(int(typed))
-	case string:
-		parsed, err := strconv.Atoi(typed)
-		return parsed, err == nil
-	case map[string]any:
-		if typed["$scalar"] != "int" {
-			return 0, false
-		}
-		parsed, err := strconv.Atoi(stringValue(typed["value"]))
-		return parsed, err == nil
-	default:
-		return 0, false
-	}
 }
 
 func nonNegativeInteger(value any) (int64, bool) {
@@ -190,44 +119,6 @@ func literalString(block *Block, name string) (string, bool) { return scn.Litera
 
 func MarshalCanonical(value any) ([]byte, error) { return spec.MarshalCanonical(value) }
 
-type operationInputField struct {
-	Name       string
-	WireName   string
-	Type       any
-	Optional   bool
-	HasDefault bool
-	EnumValues []string
-}
-
-type operationInputShape struct {
-	Type   any
-	Unit   bool
-	Record *Resource
-	Fields map[string]operationInputField
-}
-
-func resolveOperationInputShape(resources map[string]Resource, operation Resource) operationInputShape {
-	shape := operationInputShape{Type: operation.Spec["input"], Fields: map[string]operationInputField{}}
-	reference := refString(shape.Type)
-	if reference == "std.type.unit" {
-		shape.Unit = true
-		return shape
-	}
-	record, ok := resources[resolveResourceRef(operation, reference, "record")]
-	if !ok {
-		return shape
-	}
-	shape.Record = &record
-	for _, field := range namedChildren(record.Spec, "field") {
-		name := stringValue(field["name"])
-		shape.Fields[name] = operationInputField{
-			Name: name, WireName: wireName(field, name), Type: field["type"], Optional: isOptionalType(field["type"]), HasDefault: field["default"] != nil,
-			EnumValues: enumWireValues(resources, operation.Module, field["type"]),
-		}
-	}
-	return shape
-}
-
 func resolveOperationInputTarget(operation Resource, shape operationInputShape, target string) (operationInputField, bool, bool) {
 	prefix := "operation." + operation.Name + ".input"
 	if target == prefix {
@@ -239,35 +130,6 @@ func resolveOperationInputTarget(operation Resource, shape operationInputShape, 
 	}
 	field, ok := shape.Fields[fieldName]
 	return field, false, ok
-}
-
-func enumWireValues(resources map[string]Resource, module string, value any) []string {
-	expression := typeExpression(value)
-	for _, wrapper := range []string{"optional", "nullable", "list", "set"} {
-		for strings.HasPrefix(expression, wrapper+"(") && strings.HasSuffix(expression, ")") {
-			expression = strings.TrimSpace(expression[len(wrapper)+1 : len(expression)-1])
-		}
-	}
-	if !strings.HasPrefix(expression, "enum.") {
-		return nil
-	}
-	enum, ok := resources[graph.ResourceAddress(module, "enum", strings.TrimPrefix(expression, "enum."))]
-	if !ok || enum.Spec["open"] == true {
-		return nil
-	}
-	var values []string
-	for _, value := range namedChildren(enum.Spec, "value") {
-		values = append(values, wireName(value, stringValue(value["name"])))
-	}
-	sort.Strings(values)
-	return values
-}
-
-func moduleInstancePath(resource Resource) string {
-	if resource.Module == "app" || resource.Module == "" {
-		return resource.Name
-	}
-	return resource.Module + "/" + resource.Name
 }
 
 func literalStringList(block *Block, name string) []string {
@@ -288,90 +150,11 @@ func literalStringList(block *Block, name string) []string {
 	return result
 }
 
-func resolveResourceRef(resource Resource, reference, kind string) string {
-	if reference == "" || strings.Contains(reference, "/") {
-		return reference
-	}
-	parts := strings.Split(reference, ".")
-	if len(parts) != 2 {
-		return reference
-	}
-	module := resource.Module
-	switch kind {
-	case "application", "workspace", "go_module", "go_toolchain", "go_target", "http_gateway", "authentication", "authorization", "workload_identity", "pipeline", "provider", "data_source", "execution_engine", "event_bus", "secret_store", "secret", "deployment", "mcp_connection", "mcp_server", "assistant", "typescript_client", "patch":
-		module = "app"
-	}
-	return graph.ResourceAddress(module, parts[0], parts[1])
-}
-
-func refString(value any) string {
-	object, _ := value.(map[string]any)
-	reference, _ := object["$ref"].(string)
-	return reference
-}
-
 func refOrString(value any) string {
 	if reference := refString(value); reference != "" {
 		return reference
 	}
 	return stringValue(value)
-}
-
-func stringValue(value any) string {
-	if text, ok := value.(string); ok {
-		return text
-	}
-	scalar, _ := value.(map[string]any)
-	switch scalar["$scalar"] {
-	case "int":
-		text, _ := scalar["value"].(string)
-		return text
-	case "decimal":
-		coefficient, _ := scalar["coefficient"].(string)
-		scale, err := strconv.Atoi(fmt.Sprint(scalar["scale"]))
-		if err == nil {
-			negative := strings.HasPrefix(coefficient, "-")
-			digits := strings.TrimPrefix(coefficient, "-")
-			for len(digits) <= scale {
-				digits = "0" + digits
-			}
-			if scale > 0 {
-				digits = digits[:len(digits)-scale] + "." + digits[len(digits)-scale:]
-			}
-			if negative {
-				return "-" + digits
-			}
-			return digits
-		}
-	case "duration":
-		nanoseconds, err := strconv.ParseInt(fmt.Sprint(scalar["nanoseconds"]), 10, 64)
-		if err == nil {
-			return time.Duration(nanoseconds).String()
-		}
-	case "size":
-		return fmt.Sprint(scalar["bytes"])
-	default:
-		text, _ := scalar["value"].(string)
-		return text
-	}
-	return ""
-}
-
-func typeExpression(value any) string {
-	if reference := refString(value); reference != "" {
-		return reference
-	}
-	if expression, ok := value.(map[string]any); ok {
-		if raw, ok := expression["$expression"].(string); ok {
-			return strings.TrimSpace(raw)
-		}
-	}
-	return fmt.Sprint(value)
-}
-
-func isOptionalType(value any) bool {
-	expression := strings.TrimSpace(typeExpression(value))
-	return strings.HasPrefix(expression, "optional(") && strings.HasSuffix(expression, ")")
 }
 
 func expressionText(value any) string {
