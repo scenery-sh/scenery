@@ -17,7 +17,7 @@
       "const": "scenery.inspect.docs"
     },
     "schema_revision": {
-      "const": "sha256:3d40c8218ec9c21a781217f914817bcbec8f2c6663f86406493048919dc72334"
+      "const": "sha256:c716c136182c39d5e115f1565467d6e5a440b83ee3d67b669d8bc3301db636bf"
     },
     "repo": {
       "type": "object",
@@ -376,6 +376,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "end_byte": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "text": {
           "type": "string"
         },
@@ -386,6 +390,7 @@
       "required": [
         "text",
         "end_line",
+        "end_byte",
         "truncated",
         "content_revision"
       ],

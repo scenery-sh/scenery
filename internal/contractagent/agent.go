@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/graph"
@@ -178,31 +179,34 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 	case "capabilities":
 		response.Result = agentCapabilities(result.Manifest, execution)
 	case "resources.list":
-		var params struct {
-			Kind   string `json:"kind"`
-			Module string `json:"module"`
-			View   string `json:"view"`
-		}
+		var params graph.ListOptions
 		if err := decodeAgentParams(request.Params, &params); err != nil {
 			response.Error = agentError("invalid_request", err.Error())
 			break
 		}
-		manifest, err := result.ManifestForView(defaultString(params.View, "effective"))
+		params.View = defaultString(params.View, "effective")
+		snapshot, snapshotErr := session.contextSnapshot(result, params.Cursor)
+		if snapshotErr != nil {
+			response.Error = agentError("failed_precondition", snapshotErr.Error())
+			break
+		}
+		manifest := snapshot.Views[params.View]
+		if params.Cursor == "" {
+			var viewErr error
+			if manifest, viewErr = result.ManifestForView(params.View); viewErr != nil {
+				response.Error = agentErrorFrom(viewErr)
+				break
+			}
+		} else if manifest == nil {
+			response.Error = agentError("failed_precondition", "retained snapshot is unavailable for requested view")
+			break
+		}
+		list, err := graph.ListAt(manifest, snapshot.WorkspaceRevision, params, time.Now().UTC())
 		if err != nil {
 			response.Error = agentErrorFrom(err)
 			break
 		}
-		var resources []Resource
-		for _, resource := range manifest.Resources {
-			if (params.Kind == "" || agentKindMatches(resource, params.Kind)) && (params.Module == "" || resource.Module == params.Module) {
-				resources = append(resources, resource)
-			}
-		}
-		if len(resources) > agentMaxResources {
-			response.Error = agentError("invalid_request", "resource result exceeds transport limit; add kind or module filters")
-			break
-		}
-		response.Result = map[string]any{"view": defaultString(params.View, "effective"), "resources": resources, "contract_revision": manifest.ContractRevision}
+		response.Result = list
 	case "resources.get", "resources.explain":
 		var params struct {
 			Addresses []string `json:"addresses"`
@@ -828,10 +832,6 @@ func agentErrorFrom(err error) *AgentError {
 		}
 	}
 	return agentError(kind, message)
-}
-
-func agentKindMatches(resource Resource, value string) bool {
-	return resource.Kind == value || strings.TrimPrefix(resource.Kind, "scenery.") == strings.ReplaceAll(value, "_", "-")
 }
 
 func selectedResources(manifest *Manifest, addresses []string) ([]Resource, error) {

@@ -3457,13 +3457,15 @@ A tool exposing agent read or mutation capabilities uses a machine API suitable 
 |---|---|
 | capabilities | Report current resource and mutation schemas plus transport limits |
 | schema.get | Get a resource, value, diagnostic, or mutation schema |
-| resources.list | List addresses with kind and summary filters |
+| resources.list | List resources by kind and module, one bounded page at a time |
 | resources.get | Read selected resources in a chosen graph view |
 | resources.explain | Read effective value and provenance |
 | graph.get | Get a bounded dependency or dependent closure |
 | revisions.diff | Compare two available semantic graph snapshots |
 | diagnostics.get | Get structured diagnostics |
 | context.get | Get a task-focused context bundle |
+
+resources.list accepts `kind`, `module`, `view`, `limit` (at most the transport resource limit), `summary` and `cursor`. A page reports `truncated`; a truncated page carries `next_cursor`, an opaque token bound to the listed workspace and contract revisions and to the exact query that continues from the same retained snapshot until it expires. `summary = true` returns only address, kind, name and module. A cursor for another snapshot or query, or an expired cursor, MUST fail as failed_precondition.
 
 capabilities MUST return exact resource-schema revisions, codec identities, mutation operations, and transport limits. Agents MUST use advertised resource kinds and schemas rather than infer support from a product version.
 
