@@ -19,6 +19,24 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0220-agent-contract-fidelity.md",
+      "title": "Agent Contract Fidelity And Verified Change Loop",
+      "owner": "scenery mcp / cli / runtime",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-10-19",
+      "review_after": "2026-11-18",
+      "summary": "Align MCP output schemas, problem codes, machine help and bounded context loading with real behavior; add field metadata, revision and durable waits, and live binding invocation with serving identity.",
+      "tags": [
+        "plans",
+        "execplans",
+        "mcp",
+        "cli",
+        "agents"
+      ]
+    },
+    {
       "path": "docs/plans/0219-fresh-source-lifecycle.md",
       "title": "Fresh Source Snapshots And Shared Lifecycle Planning",
       "owner": "scenery compiler / generation / lifecycle",
