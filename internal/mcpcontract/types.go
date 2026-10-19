@@ -18,6 +18,14 @@ const (
 	ToolNamePattern          = `^[a-z][a-z0-9_]{0,127}$`
 	MaximumInputBytes        = 16 << 20
 	MaximumResultBytes       = 16 << 20
+	// AcceptedOutcome names the result of a durable tool call whose work the
+	// runtime accepted; the result carries the execution receipt.
+	AcceptedOutcome = "accepted"
+	// FailedOutcome names a framework failure result. Its problem carries a
+	// stable code (errs codes or InternalErrorCode) and a message. Declared
+	// operation outcomes cannot use either reserved name.
+	FailedOutcome     = "failed"
+	InternalErrorCode = "internal_error"
 )
 
 var ManifestSchemaRevision = string(spec.SchemaRevision(manifestSchemaDescriptor))

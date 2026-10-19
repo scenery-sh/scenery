@@ -617,7 +617,7 @@ func TestGatewayFederationMergesToolsAndPropagatesAssertionContext(t *testing.T)
 	federation := &testFederation{
 		ready:        true,
 		capabilities: []mcpcontract.Capability{remoteCapability},
-		outcome:      mcpcontract.ToolOutcome{Outcome: "processed", Value: json.RawMessage(`{"remote":true}`)},
+		outcome:      mcpcontract.ToolOutcome{Outcome: "processed", Value: json.RawMessage(`{"content":[{"type":"text","text":"found"}],"structuredContent":{"remote":true}}`)},
 	}
 	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1", RequestID: "req-1"}}
 	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Durable: &testDurable{}, Federation: federation})

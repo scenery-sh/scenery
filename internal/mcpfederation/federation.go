@@ -438,9 +438,11 @@ func (f *Federation) Call(ctx context.Context, name string, arguments json.RawMe
 	return b.connection.call(ctx, b.tool, object)
 }
 
-// CallTool implements mcpcontract.ToolDispatcher. The remote result is kept
-// opaque inside the neutral value envelope; remote errors do not become Go
-// errors unless the transport itself failed.
+// CallTool implements mcpcontract.ToolDispatcher. The outcome's value (or
+// problem, for a remote error result) is the remote MCP CallToolResult, which
+// the gateway relays unchanged so the remote output schema and content blocks
+// stay accurate; remote errors do not become Go errors unless the transport
+// itself failed.
 func (f *Federation) CallTool(ctx context.Context, _ mcpcontract.ToolCallContext, name string, arguments json.RawMessage) (mcpcontract.ToolOutcome, error) {
 	result, err := f.Call(ctx, name, arguments)
 	if err != nil {

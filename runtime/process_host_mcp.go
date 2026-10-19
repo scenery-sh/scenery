@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -106,7 +105,7 @@ func (d processHostMCPDispatcher) durable(ctx context.Context, operation string,
 		return nil, err
 	}
 	if !ok || owner.service == "" || owner.taskName == "" {
-		return nil, errors.New("not_found: durable execution not found")
+		return nil, mcpError(errs.NotFound, "durable execution not found")
 	}
 	body, err := json.Marshal(processMCPDurableRequest{Operation: operation, Call: call, ExecutionID: executionID, Service: owner.service, TaskName: owner.taskName})
 	if err != nil {
@@ -127,13 +126,13 @@ func (h *processHost) mcpToolOwner(assistantAddress, name string) (string, error
 	for key, process := range h.mcpTools {
 		if strings.HasSuffix(key, "\x00"+name) && (assistantAddress == "" || strings.HasPrefix(key, assistantAddress+"\x00")) {
 			if match != "" {
-				return "", fmt.Errorf("invalid_argument: MCP tool %s is ambiguous", name)
+				return "", mcpError(errs.InvalidArgument, "MCP tool %s is ambiguous", name)
 			}
 			match = process
 		}
 	}
 	if match == "" {
-		return "", errors.New("not_found: MCP tool not found")
+		return "", mcpError(errs.NotFound, "MCP tool not found")
 	}
 	return match, nil
 }

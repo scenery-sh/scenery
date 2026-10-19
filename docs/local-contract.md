@@ -809,6 +809,18 @@ header backed by a typed Scenery secret; Scenery owns the remote client,
 namespace/filter projection, readiness, and credential handling. The helper
 receives only the private provider-neutral Scenery MCP surface.
 
+Every advertised tool output schema matches the structured results the gateway
+returns: declared outcomes as `{outcome, value|problem}`, durable acceptance as
+`{outcome: "accepted", receipt: {durable_identity, execution_id,
+accepted_revision}}`, and framework failures as `{outcome: "failed", problem:
+{code, message}}` with `isError`. The failure `code` is the typed `errs` code
+(`invalid_argument`, `permission_denied`, `resource_exhausted`, `not_found`,
+`unavailable`, `canceled`, `deadline_exceeded`, …) or `internal_error`, so a
+client decides whether to fix input, wait or stop without parsing messages.
+Federated tools keep their remote output schema; the gateway relays the remote
+content blocks (text, images, resource links), structured content and error
+flag unchanged.
+
 An `assistant` binds one MCP server to an authored implementation and a
 Scenery-owned public conversation surface. The supported source shape is:
 

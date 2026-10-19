@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"scenery.sh/errs"
 	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
 )
@@ -111,8 +112,10 @@ type DurableOperations interface {
 // FederatedTools is the narrow gateway boundary implemented by the external
 // MCP federation.  The gateway consumes only the ready, policy-projected
 // capability inventory and dispatches through the same assertion-derived
-// ToolCallContext used by local operations.  URL and authentication material
-// never cross this interface.
+// ToolCallContext used by local operations.  A successful call carries the
+// remote MCP CallToolResult JSON in the outcome value (problem for a remote
+// error result); the gateway relays it unchanged.  URL and authentication
+// material never cross this interface.
 type FederatedTools interface {
 	Ready() bool
 	Capabilities() []mcpcontract.Capability
@@ -663,7 +666,7 @@ func (g *gateway) toolHandler(capability mcpcontract.Capability) mcp.ToolHandler
 		}
 		args := req.Params.Arguments
 		if len(args) > capability.Limits.MaxInputBytes && capability.Limits.MaxInputBytes > 0 {
-			return errorToolResult(errors.New("tool input exceeds configured limit")), nil
+			return errorToolResult(&errs.Error{Code: errs.ResourceExhausted, Message: "tool input exceeds configured limit"}), nil
 		}
 		// Request IDs are gateway-owned invocation identities. Never honor a
 		// request ID from the signed assertion or an HTTP header supplied by the
@@ -688,7 +691,9 @@ func (g *gateway) toolHandler(capability mcpcontract.Capability) mcp.ToolHandler
 				} else {
 					err = ErrFederationCall
 				}
+				return errorToolResult(err), nil
 			}
+			return federatedToolResult(outcome, capability.Limits.MaxResultBytes), nil
 		} else {
 			outcome, err = g.cfg.Dispatch.CallTool(ctx, callCtx, capability.Name, args)
 		}
@@ -697,23 +702,83 @@ func (g *gateway) toolHandler(capability mcpcontract.Capability) mcp.ToolHandler
 		}
 		result, encoded := outcomeResult(outcome)
 		if limit := capability.Limits.MaxResultBytes; limit > 0 && int64(len(encoded)) > int64(limit) {
-			return errorToolResult(errors.New("tool result exceeds configured limit")), nil
+			return errorToolResult(&errs.Error{Code: errs.ResourceExhausted, Message: "tool result exceeds configured limit"}), nil
 		}
 		return result, nil
 	}
 }
 
+// federatedToolResult relays the remote MCP result the federation carries in
+// the outcome: its content blocks, structured content and error flag reach the
+// client unchanged, so the remote output schema the gateway advertises still
+// describes the structured content and images stay typed content blocks.
+func federatedToolResult(outcome mcpcontract.ToolOutcome, maxResultBytes int) *mcp.CallToolResult {
+	remote := outcome.Value
+	if len(outcome.Problem) > 0 {
+		remote = outcome.Problem
+	}
+	if maxResultBytes > 0 && len(remote) > maxResultBytes {
+		return errorToolResult(&errs.Error{Code: errs.ResourceExhausted, Message: "tool result exceeds configured limit"})
+	}
+	var result mcp.CallToolResult
+	if len(remote) == 0 || json.Unmarshal(remote, &result) != nil {
+		return errorToolResult(ErrFederationCall)
+	}
+	if len(outcome.Problem) > 0 {
+		result.IsError = true
+	}
+	if result.Content == nil {
+		result.Content = []mcp.Content{}
+	}
+	return &result
+}
+
 func errorToolResult(err error) *mcp.CallToolResult {
+	code, message := failureProblem(err)
 	problem, _ := json.Marshal(struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
-	}{Code: "internal_error", Message: err.Error()})
+	}{Code: code, Message: message})
 	result, _ := outcomeResult(mcpcontract.ToolOutcome{
-		Outcome: "failed",
+		Outcome: mcpcontract.FailedOutcome,
 		Problem: problem,
 	})
 	result.IsError = true
 	return result
+}
+
+// problemCoder is implemented by framework transport failures that carry a
+// stable problem code.
+type problemCoder interface{ ProblemCode() string }
+
+// failureProblem reports the stable code of the outermost typed failure in
+// err's chain, so a client can tell a bad argument from an exhausted limit or
+// an internal failure without parsing the message.
+func failureProblem(err error) (string, string) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return string(errs.Canceled), err.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return string(errs.DeadlineExceeded), err.Error()
+	case errors.Is(err, ErrUnauthorized):
+		return string(errs.PermissionDenied), err.Error()
+	case errors.Is(err, ErrFederationCall):
+		return string(errs.Unavailable), err.Error()
+	}
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if coded, ok := current.(problemCoder); ok {
+			if code := coded.ProblemCode(); code != "" {
+				return code, current.Error()
+			}
+		}
+		if typed, ok := current.(*errs.Error); ok && typed.Code != "" {
+			if typed.Code == errs.Internal || typed.Code == errs.Unknown {
+				break
+			}
+			return string(typed.Code), typed.Error()
+		}
+	}
+	return mcpcontract.InternalErrorCode, err.Error()
 }
 
 func outcomeResult(outcome mcpcontract.ToolOutcome) (*mcp.CallToolResult, []byte) {
@@ -776,7 +841,7 @@ func (g *gateway) frameworkCall(ctx context.Context, req *mcp.CallToolRequest, c
 		ExecutionID string `json:"execution_id"`
 	}
 	if err := json.Unmarshal(req.Params.Arguments, &input); err != nil || input.ExecutionID == "" {
-		return errorToolResult(errors.New("execution_id is required")), nil
+		return errorToolResult(&errs.Error{Code: errs.InvalidArgument, Message: "execution_id is required"}), nil
 	}
 	callCtx, ok := ctx.Value(assertionContextKey).(mcpcontract.ToolCallContext)
 	if !ok {
@@ -797,7 +862,7 @@ func (g *gateway) frameworkCall(ctx context.Context, req *mcp.CallToolRequest, c
 	}
 	result, encoded := outcomeResult(mcpcontract.ToolOutcome{Outcome: "completed", Value: value})
 	if int64(len(encoded)) > defaultMaxBodyBytes {
-		return errorToolResult(errors.New("durable result exceeds configured limit")), nil
+		return errorToolResult(&errs.Error{Code: errs.ResourceExhausted, Message: "durable result exceeds configured limit"}), nil
 	}
 	return result, nil
 }

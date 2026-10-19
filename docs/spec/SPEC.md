@@ -1917,6 +1917,22 @@ records; generated MCP projection uses their exact JSON schemas and MUST NOT
 infer a second tool contract. Every call re-evaluates the binding's
 authentication, authorization, pipeline, and sensitive-output policy.
 
+A tool's advertised output schema MUST describe every structured result the
+gateway can return for it. A synchronous tool returns `{outcome, value}` for a
+declared result and `{outcome, problem}` for a declared error. A tool whose
+execution mode is `durable` returns `{outcome: "accepted", receipt}` with the
+execution receipt; its operation outcome is read later through
+`scenery_execution_status`. Every local tool can also return the framework
+failure `{outcome: "failed", problem: {code, message}}` with `isError` set,
+where `code` is the stable `errs` code of the failure (for example
+`invalid_argument`, `permission_denied`, `resource_exhausted`, `not_found`) or
+`internal_error`. Operations projected to MCP therefore MUST NOT declare an
+outcome named `accepted` or `failed`. A tagged union projects its flattened wire
+form: each variant is its record payload plus the discriminator property fixed
+to the variant's wire tag. A federated tool keeps the remote output schema, and
+the gateway relays the remote result's content blocks, structured content and
+error flag unchanged.
+
 An `mcp_server` composes local MCP bindings and optional `mcp_connection`
 resources. A connection currently uses Streamable HTTP only and declares
 `none`, `bearer`, or one named `header` authentication. Bearer tokens and

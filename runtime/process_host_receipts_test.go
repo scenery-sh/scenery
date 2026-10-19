@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"scenery.sh/errs"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -73,7 +74,7 @@ func TestDurableReceiptsStayAuthorizedAcrossHostReplacement(t *testing.T) {
 	_, durable := assistantMCPDispatchers()
 	other := call
 	other.Principal = "principal-2"
-	if _, err := durable.Status(context.Background(), other, "execution-1"); err == nil || !strings.Contains(err.Error(), "not_found") || served.Load() != 0 {
+	if _, err := durable.Status(context.Background(), other, "execution-1"); errs.Code(err) != errs.NotFound || served.Load() != 0 {
 		t.Fatalf("status for another principal after replacement = %v (served %d)", err, served.Load())
 	}
 	// Without a durable store the kept process reports its own store failure,

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"scenery.sh/errs"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/durable/store"
 	"scenery.sh/internal/mcpcontract"
@@ -133,10 +134,10 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 	call.Principal = strings.TrimSpace(call.Principal)
 	call.AssistantAddress = strings.TrimSpace(call.AssistantAddress)
 	if call.Principal == "" {
-		return MCPToolOutcome{}, errors.New("permission_denied: MCP principal is required")
+		return MCPToolOutcome{}, mcpError(errs.PermissionDenied, "MCP principal is required")
 	}
 	if name == "" {
-		return MCPToolOutcome{}, errors.New("invalid_argument: MCP tool name is required")
+		return MCPToolOutcome{}, mcpError(errs.InvalidArgument, "MCP tool name is required")
 	}
 	registration, err := lookupMCPTool(call.AssistantAddress, name)
 	if err != nil {
@@ -144,10 +145,10 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 	}
 	maxInput, maxResult := normalizeMCPToolLimits(registration.Limits)
 	if int64(len(input)) > maxInput {
-		return MCPToolOutcome{}, fmt.Errorf("invalid_argument: MCP tool input exceeds %d bytes", maxInput)
+		return MCPToolOutcome{}, mcpError(errs.InvalidArgument, "MCP tool input exceeds %d bytes", maxInput)
 	}
 	if registration.DecodeInput == nil || registration.EncodeOutput == nil || registration.Invoke == nil {
-		return MCPToolOutcome{}, fmt.Errorf("capability_unavailable: MCP tool %s has incomplete generated registration", name)
+		return MCPToolOutcome{}, mcpError(errs.Unavailable, "MCP tool %s has incomplete generated registration", name)
 	}
 	state := newMCPToolState(call, registration, input)
 	// A tool call a process host forwarded is pinned to the generation the host
@@ -164,7 +165,7 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 
 	typed, err := registration.DecodeInput(input)
 	if err != nil {
-		return MCPToolOutcome{}, fmt.Errorf("invalid_argument: decode MCP tool input: %w", err)
+		return MCPToolOutcome{}, mcpError(errs.InvalidArgument, "decode MCP tool input: %w", err)
 	}
 	state.request.Payload = typed
 	value, err := InvokeContractPolicy(ctx, registration.Policy, typed, func(callCtx context.Context) (any, error) {
@@ -187,7 +188,7 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 		return MCPToolOutcome{}, ContractSystemError(fmt.Errorf("encode MCP tool output: %w", err))
 	}
 	if int64(len(encoded)) > maxResult {
-		return MCPToolOutcome{}, errors.New("resource_exhausted: MCP tool result exceeds its declared limit")
+		return MCPToolOutcome{}, mcpError(errs.ResourceExhausted, "MCP tool result exceeds its declared limit")
 	}
 	kind, outcome, payload, err := contract.DecodeContractOutcomeEnvelope(encoded)
 	if err != nil {
@@ -210,7 +211,7 @@ func (MCPToolDispatcher) DurableStatus(ctx context.Context, request MCPDurableRe
 	request = normalizeMCPDurableRequest(request)
 	owner, ok := mcpDurableOwners.Load(request.Service, request.ExecutionID)
 	if !ok || owner.Principal != request.Principal || owner.TaskName != request.TaskName {
-		return MCPDurableStatus{}, errors.New("not_found: durable execution not found")
+		return MCPDurableStatus{}, mcpError(errs.NotFound, "durable execution not found")
 	}
 	return readMCPDurableStatus(ctx, request)
 }
@@ -222,14 +223,14 @@ func readMCPDurableStatus(ctx context.Context, request MCPDurableRequest) (MCPDu
 	}
 	db, ok := activeDurableStore(request.Service)
 	if !ok {
-		return MCPDurableStatus{}, errors.New("capability_unavailable: durable execution store is unavailable")
+		return MCPDurableStatus{}, mcpError(errs.Unavailable, "durable execution store is unavailable")
 	}
 	job, found, err := db.GetJob(ctx, request.ExecutionID)
 	if err != nil {
 		return MCPDurableStatus{}, err
 	}
 	if !found || job.TaskName != request.TaskName {
-		return MCPDurableStatus{}, errors.New("not_found: durable execution not found")
+		return MCPDurableStatus{}, mcpError(errs.NotFound, "durable execution not found")
 	}
 	status := MCPDurableStatus{Service: request.Service, TaskName: request.TaskName, ExecutionID: job.ID, State: job.State}
 	if job.ResultCodec == "json" && len(job.ResultBlob) > 0 {
@@ -246,7 +247,7 @@ func (MCPToolDispatcher) CancelDurable(ctx context.Context, request MCPDurableRe
 	request = normalizeMCPDurableRequest(request)
 	owner, ok := mcpDurableOwners.Load(request.Service, request.ExecutionID)
 	if !ok || owner.Principal != request.Principal || owner.TaskName != request.TaskName {
-		return errors.New("not_found: durable execution not found")
+		return mcpError(errs.NotFound, "durable execution not found")
 	}
 	return cancelMCPDurable(ctx, request)
 }
@@ -258,7 +259,7 @@ func cancelMCPDurable(ctx context.Context, request MCPDurableRequest) error {
 	}
 	db, ok := activeDurableStore(request.Service)
 	if !ok {
-		return errors.New("capability_unavailable: durable execution store is unavailable")
+		return mcpError(errs.Unavailable, "durable execution store is unavailable")
 	}
 	return db.CancelJob(ctx, request.ExecutionID)
 }
@@ -279,7 +280,7 @@ func (dispatcher MCPToolDispatcher) Status(ctx context.Context, call MCPToolCall
 	executionID = strings.TrimSpace(executionID)
 	owner, ok := mcpDurableOwners.Find(principal, executionID)
 	if !ok {
-		return nil, errors.New("not_found: durable execution not found")
+		return nil, mcpError(errs.NotFound, "durable execution not found")
 	}
 	return mcpDurableStatusPayload(dispatcher.DurableStatus(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID}))
 }
@@ -292,7 +293,7 @@ func (dispatcher MCPToolDispatcher) Cancel(ctx context.Context, call MCPToolCall
 	executionID = strings.TrimSpace(executionID)
 	owner, ok := mcpDurableOwners.Find(principal, executionID)
 	if !ok {
-		return nil, errors.New("not_found: durable execution not found")
+		return nil, mcpError(errs.NotFound, "durable execution not found")
 	}
 	return mcpDurableCancelPayload(executionID, dispatcher.CancelDurable(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID}))
 }
@@ -335,13 +336,13 @@ func lookupMCPTool(assistantAddress, name string) (MCPToolRegistration, error) {
 			continue
 		}
 		if match != nil {
-			return MCPToolRegistration{}, fmt.Errorf("invalid_argument: MCP tool %s is ambiguous", name)
+			return MCPToolRegistration{}, mcpError(errs.InvalidArgument, "MCP tool %s is ambiguous", name)
 		}
 		copy := registration
 		match = &copy
 	}
 	if match == nil {
-		return MCPToolRegistration{}, errors.New("not_found: MCP tool not found")
+		return MCPToolRegistration{}, mcpError(errs.NotFound, "MCP tool not found")
 	}
 	return *match, nil
 }
@@ -481,4 +482,11 @@ func (owners *mcpDurableOwnerStore) Find(principal, executionID string) (mcpDura
 		match = owner
 	}
 	return match, match.ExecutionID != ""
+}
+
+// mcpError is a typed MCP dispatch failure. The gateway reports its code to
+// the client as the problem code, so callers never classify message text.
+func mcpError(code errs.ErrCode, format string, args ...any) error {
+	formatted := fmt.Errorf(format, args...)
+	return &errs.Error{Code: code, Message: formatted.Error(), Cause: errors.Unwrap(formatted)}
 }
