@@ -37,6 +37,14 @@ func contextualizeResourceScalars(resources []Resource) ([]Resource, []Diagnosti
 						field["default"] = value
 					}
 				}
+				if field["examples"] != nil {
+					wire, err := fieldExamplesWire(field, resource.Module, byAddress)
+					if err != nil {
+						diagnostics = append(diagnostics, Diagnostic{Code: "SCN1234", Severity: "error", Message: "field " + stringValue(field["name"]) + " " + err.Error(), Address: resource.Address, Path: "/spec/field/examples"})
+					} else {
+						field["examples"] = wire
+					}
+				}
 			})
 		case "scenery.service":
 			diagnostics = append(diagnostics, contextualizeConfig(resource, byAddress)...)

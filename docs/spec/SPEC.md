@@ -783,6 +783,29 @@ record "run_input" {
 
 Validation expressions MUST be pure and phase-correct.
 
+### 7.5.1 Field documentation
+
+A field MAY declare a short `description` and a list of `examples`. An
+operation result or error MAY declare a `description`. Descriptions state what a
+value means (its object, unit, calendar day versus instant, or the difference
+between an absent and a null value); long guidance belongs in documentation.
+
+~~~hcl
+field "amount" {
+  type        = int64
+  description = "Order amount in minor currency units."
+  examples    = ["1250"]
+}
+~~~
+
+Each example is a value of the field's type. The compiler MUST validate every
+example against the field type and its constraints and report SCN1234 for an
+example that does not match; a tagged-union example names its variant by name
+or wire tag and must match that variant's payload. The effective graph stores
+each example in its exact wire form, and generated MCP and OpenAPI schemas
+publish descriptions and examples unchanged. Descriptions and examples are part
+of the contract revision.
+
 ### 7.6 Enums
 
 ~~~hcl

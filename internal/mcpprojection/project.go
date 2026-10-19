@@ -379,7 +379,7 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 		if child.kind == "error" {
 			fieldName = "problem"
 		}
-		variants = append(variants, map[string]any{
+		variant := map[string]any{
 			"type":                 "object",
 			"additionalProperties": false,
 			"properties": map[string]any{
@@ -387,7 +387,11 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 				fieldName: schema,
 			},
 			"required": []string{"outcome", fieldName},
-		})
+		}
+		if description := stringValue(child.item["description"]); description != "" {
+			variant["description"] = description
+		}
+		variants = append(variants, variant)
 	}
 	variants = append(variants, frameworkFailureSchema())
 	return rawSchema(map[string]any{"type": "object", "oneOf": variants}), sensitive, nil
@@ -693,6 +697,14 @@ func applyConstraints(schema any, field map[string]any) {
 	}
 	if value, exists := field["unique_items"]; exists {
 		object["uniqueItems"] = boolValue(value)
+	}
+	if description := stringValue(field["description"]); description != "" {
+		object["description"] = description
+	}
+	// The compiler validated each example against the field and stored its
+	// exact wire form.
+	if examples, ok := field["examples"].([]any); ok && len(examples) > 0 {
+		object["examples"] = examples
 	}
 }
 
