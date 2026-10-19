@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/machine"
+	"scenery.sh/internal/workspacetx"
 )
 
 // Build block reasons. A blocked build failed for a cause that no ordinary
@@ -128,7 +129,12 @@ func buildBlockKey(reason string, snapshot fileSnapshot) string {
 // the captured snapshot, and reports whether a block was or is in effect, so
 // the status that carries it must be persisted again.
 func (s *devSupervisor) recordBuildOutcome(captured fileSnapshot, err error) bool {
+	attempt := &devBuildAttempt{SourceSnapshotDigest: snapshotFingerprint(captured)}
+	if err != nil && !errors.Is(err, errBuildSuperseded) && !workspacetx.IsActive(err) {
+		attempt.Error = err.Error()
+	}
 	s.mu.Lock()
+	s.lastBuild = attempt
 	previous := s.buildBlock
 	hadBlock := s.buildBlock != nil
 	reason := ""

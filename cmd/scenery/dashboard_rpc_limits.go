@@ -18,9 +18,11 @@ import (
 type runtimeRPCLimits struct {
 	connectionWork    int
 	connectionControl int
+	connectionWait    int
 	appWork           int
 	controlDeadline   time.Duration
 	workDeadline      time.Duration
+	waitDeadline      time.Duration
 	queryRows         int
 	resultBytes       int
 }
@@ -28,9 +30,13 @@ type runtimeRPCLimits struct {
 var defaultRuntimeRPCLimits = runtimeRPCLimits{
 	connectionWork:    6,
 	connectionControl: 4,
+	connectionWait:    2,
 	appWork:           12,
 	controlDeadline:   5 * time.Second,
 	workDeadline:      30 * time.Second,
+	// A wait call bounds itself by its own timeout; the call deadline only
+	// backs that bound up.
+	waitDeadline: maxSourceWaitTimeout + 5*time.Second,
 	queryRows:         5000,
 	resultBytes:       4 << 20,
 }
@@ -40,10 +46,13 @@ type runtimeCallClass string
 const (
 	runtimeControlCall runtimeCallClass = "control"
 	runtimeWorkCall    runtimeCallClass = "work"
+	runtimeWaitCall    runtimeCallClass = "wait"
 )
 
 func runtimeCallClassOf(method string) runtimeCallClass {
 	switch method {
+	case "wait":
+		return runtimeWaitCall
 	case "traces/list", "traces/get", "postgres/tables", "postgres/schema", "postgres/rows", "db/query":
 		return runtimeWorkCall
 	}
@@ -80,12 +89,14 @@ func newRuntimeRPC(limits runtimeRPCLimits) *runtimeRPC {
 type runtimeConnectionSlots struct {
 	work    chan struct{}
 	control chan struct{}
+	wait    chan struct{}
 }
 
 func (r *runtimeRPC) connectionSlots() runtimeConnectionSlots {
 	return runtimeConnectionSlots{
 		work:    make(chan struct{}, r.limits.connectionWork),
 		control: make(chan struct{}, r.limits.connectionControl),
+		wait:    make(chan struct{}, r.limits.connectionWait),
 	}
 }
 
@@ -102,8 +113,11 @@ type runtimeCall struct {
 func (r *runtimeRPC) admit(slots runtimeConnectionSlots, req rpcRequest, defaultApp func() string) (runtimeCall, *runtimeRPCFailure) {
 	class := runtimeCallClassOf(req.Method)
 	connection, limit, deadline := slots.control, r.limits.connectionControl, r.limits.controlDeadline
-	if class == runtimeWorkCall {
+	switch class {
+	case runtimeWorkCall:
 		connection, limit, deadline = slots.work, r.limits.connectionWork, r.limits.workDeadline
+	case runtimeWaitCall:
+		connection, limit, deadline = slots.wait, r.limits.connectionWait, r.limits.waitDeadline
 	}
 	select {
 	case connection <- struct{}{}:
@@ -180,8 +194,11 @@ type runtimeCapacityDetails struct {
 
 func capacityExhausted(class runtimeCallClass, scope string, limit int) *runtimeRPCFailure {
 	calls, where := "control calls", "on this connection"
-	if class == runtimeWorkCall {
+	switch class {
+	case runtimeWorkCall:
 		calls = "database or storage calls"
+	case runtimeWaitCall:
+		calls = "wait calls"
 	}
 	if scope == "app" {
 		where = "for this app"

@@ -65,7 +65,8 @@ CLI wires generation.
   unavailable.
 - `typescript_client.dev_runtime = true` adds the fixed `dev-runtime.ts`
   development runtime RPC client (`dev_runtime_client.ts`), with only the
-  `scenery.dev-runtime.status` schema revision substituted. `index.ts` does not
+  `scenery.dev-runtime.status` and `scenery.dev-runtime.wait` schema revisions
+  substituted. `index.ts` does not
   re-export it; change it together with the RPC contract in
   `docs/local-contract.md` and `cmd/scenery/dashboard_rpc.go`, and test its
   behavior through the generated module (`testdata/dev_runtime_client.test.ts`).
