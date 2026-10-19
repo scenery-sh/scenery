@@ -13,7 +13,7 @@
       "const": "scenery.help"
     },
     "schema_revision": {
-      "const": "sha256:dd5d2e7b08e3ac88e7722ec62c1068ebcb8b1878b5a5269676ad940a1589e5f2"
+      "const": "sha256:bd0a128460478c9cf64c4b5f96a0349a7f1ff684264a3159cc482c8b4b9fe9d0"
     },
     "commands": {
       "type": "array",
@@ -73,7 +73,7 @@
               "properties": {
                 "when": {
                   "type": "string",
-                  "pattern": "^--"
+                  "pattern": "^-"
                 },
                 "requires": {
                   "type": "array",
@@ -81,7 +81,7 @@
                   "uniqueItems": true,
                   "items": {
                     "type": "string",
-                    "pattern": "^--"
+                    "pattern": "^-"
                   }
                 },
                 "conflicts_with": {
@@ -90,7 +90,7 @@
                   "uniqueItems": true,
                   "items": {
                     "type": "string",
-                    "pattern": "^--"
+                    "pattern": "^-"
                   }
                 }
               },
@@ -204,6 +204,134 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "application_binding": {
+            "type": "object",
+            "required": [
+              "address",
+              "operation",
+              "input_type",
+              "outcomes"
+            ],
+            "properties": {
+              "address": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operation": {
+                "type": "string",
+                "minLength": 1
+              },
+              "input_type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "arguments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "required",
+                    "type"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "short": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "field": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "required",
+                    "type"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "short": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "field": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "outcomes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "when",
+                    "exit",
+                    "stream"
+                  ],
+                  "properties": {
+                    "when": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "exit": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "stream": {
+                      "enum": [
+                        "stdout",
+                        "stderr",
+                        "none"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
           },
           "notes": {
             "type": "array",

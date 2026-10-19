@@ -35,6 +35,9 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 		return true, err
 	}
 	if help {
+		if output == "json" {
+			return true, writeScopedHelpJSON(stdout, bindingHelpEntry(result.Manifest.Resources, binding))
+		}
 		writeCLIHelp(stdout, binding)
 		return true, nil
 	}

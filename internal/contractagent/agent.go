@@ -145,8 +145,19 @@ func HandleAgentRequest(result *Result, request AgentRequest) AgentResponse {
 	return NewAgentSession().Handle(result, request)
 }
 
+// MethodNeedsSnapshot reports whether a request reads the application graph.
+// Requests that do not, such as schema.get, are answered from the static
+// catalogs without compiling the application.
+func MethodNeedsSnapshot(method string) bool {
+	return method != "schema.get"
+}
+
 func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentResponse {
 	response := AgentResponse{JSONRPC: "2.0", ID: request.ID}
+	if !MethodNeedsSnapshot(request.Method) {
+		response.Result, response.Error = agentSchemaResult(request.Params)
+		return response
+	}
 	if result == nil {
 		response.Error = agentError("failed_precondition", "no valid manifest is available")
 		return response
@@ -166,20 +177,6 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 	switch request.Method {
 	case "capabilities":
 		response.Result = agentCapabilities(result.Manifest, execution)
-	case "schema.get":
-		var params struct {
-			Kind string `json:"kind"`
-		}
-		if err := decodeAgentParams(request.Params, &params); err != nil {
-			response.Error = agentError("invalid_request", err.Error())
-			break
-		}
-		schema, ok := AgentSchema(params.Kind)
-		if !ok {
-			response.Error = agentError("invalid_request", "schema not found")
-			break
-		}
-		response.Result = schema
 	case "resources.list":
 		var params struct {
 			Kind   string `json:"kind"`
@@ -473,6 +470,20 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 		}
 	}
 	return response
+}
+
+func agentSchemaResult(raw json.RawMessage) (any, *AgentError) {
+	var params struct {
+		Kind string `json:"kind"`
+	}
+	if err := decodeAgentParams(raw, &params); err != nil {
+		return nil, agentError("invalid_request", err.Error())
+	}
+	schema, ok := AgentSchema(params.Kind)
+	if !ok {
+		return nil, agentError("invalid_request", "schema not found")
+	}
+	return schema, nil
 }
 
 func agentMethodAllowsInvalidManifest(method string) bool {
