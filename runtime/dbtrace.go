@@ -60,6 +60,7 @@ func TraceDBQueryStart(ctx context.Context, query string, argsCount int) context
 			endpoint:     operation,
 			started:      started,
 			requestType:  shared.InternalCall,
+			generation:   state.processGeneration,
 		},
 		started:   started,
 		query:     query,
@@ -150,6 +151,7 @@ func TraceDBQueryEnd(ctx context.Context, commandTag string, rowsAffected int64,
 			ServiceName:   trace.span.service,
 			EndpointName:  optionalString(trace.span.endpoint),
 			ParentSpanID:  optionalString(trace.span.parentSpanID),
+			Generation:    trace.span.generation,
 		},
 	})
 }

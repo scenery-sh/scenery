@@ -2435,7 +2435,10 @@ truncated.
 
 A summary contains `trace_id`, `span_id`, optional `parent_span_id`, `session_id`,
 `type`, `is_root`, `is_error`, `started_at` (RFC3339), `duration_nanos`,
-`service_name` and optional `endpoint_name`. `is_root` marks an application
+`service_name` and optional `endpoint_name`. Spans of a request the process host
+forwarded also carry the serving `generation` and the `build_input_digest` of
+the service process that recorded them, taken from the generation the host
+pinned the request to rather than the runtime's current status. `is_root` marks an application
 entrypoint, which may still have a remote parent. Optional provenance includes
 `app_root_hash`, `branch` and `worktree`. A detail span also has `events`, each
 with `time` (RFC3339), `name` and structured `data`. Event data retains the runtime
@@ -2877,7 +2880,7 @@ Example output:
 ```json
 {
   "kind": "scenery.inspect.traces",
-  "schema_revision": "sha256:f3a83468f7bc3d018825b0536c47515a3d6e5e9d053a3e3442a6fa3a6a9bd816",
+  "schema_revision": "sha256:af813a0069ad6f07983cf15ba3c67300dd6952d41a4af67450ef45c3321723be",
   "app": {
     "name": "billing",
     "root": "/repo/billing",

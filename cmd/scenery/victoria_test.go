@@ -621,3 +621,14 @@ func consumeProtoField(msg []byte) (field, wire int, payload, rest []byte, err e
 		return 0, 0, nil, nil, fmt.Errorf("unsupported protobuf wire type %d", wire)
 	}
 }
+
+func TestTraceSummaryAttributesCarryTheServingGeneration(t *testing.T) {
+	attrs := traceSummaryAttributePairs(&devdash.TraceSummary{AppID: "app", Type: "CLI", Generation: 12, BuildInputDigest: "sha256:build"})
+	found := map[string]any{}
+	for _, attr := range attrs {
+		found[attr.Key] = attr.Value
+	}
+	if found["scenery.generation"] != "12" || found["scenery.build_input_digest"] != "sha256:build" {
+		t.Fatalf("attributes = %#v", found)
+	}
+}

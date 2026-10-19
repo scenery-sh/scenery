@@ -38,6 +38,9 @@ type traceSpan struct {
 	started      time.Time
 	requestType  shared.RequestType
 	isRoot       bool
+	// generation is the application generation the span's request was pinned
+	// to by the process host; zero outside a process-linked runtime.
+	generation uint64
 }
 
 type devReporter struct {
@@ -343,6 +346,9 @@ func (r *devReporter) enqueue(env devreport.ReportEnvelope) {
 		if env.TraceSummary.Worktree == "" {
 			env.TraceSummary.Worktree = env.Worktree
 		}
+		if env.TraceSummary.Generation != 0 && env.TraceSummary.BuildInputDigest == "" {
+			env.TraceSummary.BuildInputDigest = CurrentLinkedContractBundle().BuildInputDigest
+		}
 	}
 	if env.TraceEvent != nil {
 		if env.TraceEvent.AppID == "" {
@@ -460,6 +466,7 @@ func startRequestTrace(state *requestState) {
 		started:     state.request.Started,
 		requestType: state.request.Type,
 		isRoot:      true,
+		generation:  state.processGeneration,
 	}
 	if traceID, parentID, ok := parseTraceParent(state.request.Headers.Get("traceparent")); ok {
 		span.traceID, span.parentSpanID = traceID, parentID
@@ -552,6 +559,7 @@ func finishRequestTrace(state *requestState, httpStatus int, err error) {
 		DurationNanos: uint64(duration),
 		ServiceName:   span.service,
 		EndpointName:  endpointName,
+		Generation:    span.generation,
 	}
 	if span.parentSpanID != "" {
 		summary.ParentSpanID = &span.parentSpanID
@@ -583,6 +591,7 @@ func traceAuthCall(ctx context.Context, handler *AuthHandler, invoke func(contex
 		endpoint:     handler.Name,
 		started:      time.Now().UTC(),
 		requestType:  shared.InternalCall,
+		generation:   parent.processGeneration,
 	}
 	clone := *parent
 	clone.trace = child
@@ -655,6 +664,7 @@ func traceAuthCall(ctx context.Context, handler *AuthHandler, invoke func(contex
 				ServiceName:   child.service,
 				EndpointName:  optionalString(child.endpoint),
 				ParentSpanID:  optionalString(child.parentSpanID),
+				Generation:    child.generation,
 			},
 		})
 	}
