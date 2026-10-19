@@ -382,7 +382,7 @@ func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacemen
 	if err != nil || outcome.Outcome != "accepted" || outcome.Receipt == nil || outcome.Receipt.ExecutionID != "execution-1" || calls != 1 {
 		t.Fatalf("forwarded MCP call = %#v, %v (calls %d)", outcome, err, calls)
 	}
-	if _, err := dispatch.CallTool(context.Background(), call, "house__missing", json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "not_found") {
+	if _, err := dispatch.CallTool(context.Background(), call, "house__missing", json.RawMessage(`{}`)); errs.Code(err) != errs.NotFound {
 		t.Fatalf("unknown MCP tool = %v", err)
 	}
 	// A replacement instance starts without the accepting process's receipt
@@ -396,7 +396,7 @@ func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacemen
 	mcpDurableOwners.Unlock()
 	other := call
 	other.Principal = "principal-2"
-	if _, err := durable.Status(context.Background(), other, "execution-1"); err == nil || !strings.Contains(err.Error(), "not_found") || replacementServed.Load() != 0 {
+	if _, err := durable.Status(context.Background(), other, "execution-1"); errs.Code(err) != errs.NotFound || replacementServed.Load() != 0 {
 		t.Fatalf("status for another principal = %v (replacement served %d)", err, replacementServed.Load())
 	}
 	// Without a durable store the replacement reports its own store failure,
