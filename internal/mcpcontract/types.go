@@ -15,6 +15,7 @@ const (
 	ProtocolVersion          = "2025-11-25"
 	StatusToolName           = "scenery_execution_status"
 	CancelToolName           = "scenery_execution_cancel"
+	WaitToolName             = "scenery_execution_wait"
 	ToolNamePattern          = `^[a-z][a-z0-9_]{0,127}$`
 	MaximumInputBytes        = 16 << 20
 	MaximumResultBytes       = 16 << 20
@@ -27,6 +28,22 @@ const (
 	FailedOutcome     = "failed"
 	InternalErrorCode = "internal_error"
 )
+
+// IsFrameworkToolName reports whether name is reserved for a framework-owned
+// durable execution tool.
+func IsFrameworkToolName(name string) bool {
+	return name == StatusToolName || name == CancelToolName || name == WaitToolName
+}
+
+// TerminalExecutionState reports whether a durable execution state is final.
+func TerminalExecutionState(state string) bool {
+	switch state {
+	case "succeeded", "failed", "canceled", "skipped":
+		return true
+	default:
+		return false
+	}
+}
 
 var ManifestSchemaRevision = string(spec.SchemaRevision(manifestSchemaDescriptor))
 
@@ -138,6 +155,16 @@ type ExecutionStatus struct {
 	ExecutionID string          `json:"execution_id"`
 	State       string          `json:"state"`
 	Outcome     json.RawMessage `json:"outcome,omitempty"`
+}
+
+// ExecutionWait is the result of the framework wait tool. Final reports a
+// final execution state; TimedOut reports that the wait ended first, which
+// says nothing about the execution itself.
+type ExecutionWait struct {
+	Status   json.RawMessage `json:"status"`
+	Final    bool            `json:"final"`
+	TimedOut bool            `json:"timed_out"`
+	WaitedMS int64           `json:"waited_ms"`
 }
 
 type CancelResult struct {
