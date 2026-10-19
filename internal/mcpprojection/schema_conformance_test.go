@@ -101,3 +101,35 @@ func TestDurableCapabilityAdvertisesTheAcceptanceResult(t *testing.T) {
 		t.Fatal("durable schema accepted a synchronous outcome")
 	}
 }
+
+func TestFieldDescriptionsAndExamplesReachTheToolSchema(t *testing.T) {
+	resources := taggedUnionResources(false)
+	resources["app/record/order"] = graph.Resource{Address: "app/record/order", Kind: recordKind, Module: "app", Spec: map[string]any{
+		"field": []any{
+			map[string]any{"name": "amount", "type": map[string]any{"$expression": "int64"}, "description": "Order amount in minor currency units.", "examples": []any{"1250"}},
+			map[string]any{"name": "shape", "type": map[string]any{"$ref": "app/union/shape"}, "examples": []any{map[string]any{"kind": "sq", "edge": 2}}},
+		},
+	}}
+	owner := graph.Resource{Address: "app/operation/test", Module: "app"}
+	schema, _, err := schemaForType(owner, map[string]any{"$ref": "app/record/order"}, "app", resources, newSchemaState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	properties := schema.(map[string]any)["properties"].(map[string]any)
+	amount := properties["amount"].(map[string]any)
+	if amount["description"] != "Order amount in minor currency units." {
+		t.Fatalf("amount schema = %#v", amount)
+	}
+	for name, property := range properties {
+		examples, _ := property.(map[string]any)["examples"].([]any)
+		if len(examples) == 0 {
+			t.Fatalf("%s has no examples: %#v", name, property)
+		}
+		for _, example := range examples {
+			encoded, _ := json.Marshal(example)
+			if err := validateInstance(t, property, string(encoded)); err != nil {
+				t.Fatalf("%s example %s does not match its own schema: %v", name, encoded, err)
+			}
+		}
+	}
+}

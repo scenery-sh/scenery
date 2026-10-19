@@ -186,6 +186,7 @@ SCN1230|record_validation_identity|Record validation names are empty or duplicat
 SCN1231|record_validation_shape|A record validation is incomplete or malformed
 SCN1232|record_validation_path|A record validation path does not target its record
 SCN1233|record_validation_expression|A record validation expression is invalid
+SCN1234|record_field_example|A record field example does not match its field type or constraints
 SCN2001|http_binding_shape|An HTTP binding is missing its gateway method or path
 SCN2002|http_route_identity|Two HTTP bindings own the same route
 SCN2003|operation_idempotency|An operation idempotency declaration has an invalid mode or key shape
