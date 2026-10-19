@@ -49,18 +49,26 @@ built from.
   Application CLI bindings answer `help -o json` with `application_binding`.
 - [x] (2026-10-19 15:55Z) Docs excerpts reach oversized lines and report
   `end_byte`; `resources.list` pages with `limit`, `summary` and bound cursors.
-- [ ] Record field `description` and validated `examples` projected to MCP.
-- [ ] Development runtime RPC `wait` for an exact source snapshot.
-- [ ] MCP durable execution wait tool with bounded timeout.
-- [ ] Live CLI binding invocation through the running runtime with invocation,
-  trace and generation identity.
-- [ ] Cumulative validation, runtime demonstration and landing evidence.
+- [x] (2026-10-19 16:20Z) Record fields declare `description` and validated
+  `examples` (SCN1234, exact wire form); outcomes declare `description`; MCP and
+  OpenAPI publish both.
+- [x] (2026-10-19 16:50Z) Development runtime RPC `wait` with its own call class,
+  `scenery ps --wait`, generated `waitForSource` and the checked
+  `scenery.dev-runtime.wait` schema.
+- [x] (2026-10-19 17:00Z) `scenery_execution_wait` framework MCP tool; status,
+  cancel and wait advertise output schemas.
+- [x] (2026-10-19 17:40Z) `--live` CLI binding invocation through RPC
+  `cli/invoke` and the process host, with invocation, trace, generation and
+  build identity; trace summaries carry the serving generation; development MCP
+  adapter `scenery agent serve --mcp`.
+- [x] (2026-10-19 18:10Z) Runtime acceptance on a copy of `testdata/apps/basic`
+  with a CLI binding, and the selected landing gates (see Outcomes).
 
 ### Resume here
 
-2026-10-19: milestones 1–4 are committed on `feat/agent-contract-fidelity`.
-Next action: field documentation metadata (milestone 5). No unresolved
-authorization; subagents are not authorized.
+2026-10-19: implementation and validation are complete on
+`feat/agent-contract-fidelity`. Next action: the developer decides on landing
+(PR or local landing). Nothing is pushed.
 
 ## Surprises & Discoveries
 
@@ -89,12 +97,35 @@ authorization; subagents are not authorized.
 - 2026-10-19: Help/parser unification uses a test that observes the flag sets
   the real parsers register instead of rewriting 60 parsers onto a new
   declaration table; drift now fails the build either way.
+- 2026-10-19: CLI bindings stay out of the service adapter's covered addresses
+  (that set feeds the service contract revision); service process plans list
+  them separately so the host can route live invocations.
 - 2026-10-19: `resources.list` reuses the context-continuation token format and
   TTL so there is one opaque continuation hash domain.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+All eight review points are implemented. Evidence (2026-10-19):
+
+- Live acceptance (isolated agent home, prepared framework executable): `ps
+  --wait` reported `served` for generation 1; `echo-msg hi --live` returned
+  `echo:hi` with generation 1, invocation and trace IDs; after editing the
+  handler body `ps --wait` reported `served` for generation 2 after ~1 s and the
+  live call returned `echo-v2:hi`; `traces list` showed the CLI traces with
+  generations 1 and 2 and different build digests and the HTTP request trace
+  with generation 2; a compile error made `ps --wait` exit 3 with `failed` and
+  the compiler message while generation 2 kept serving; `help echo-msg -o json`
+  returned `application_binding`; `agent serve --mcp` answered
+  `runtime_status`, `binding_invoke` and `runtime_wait` against the runtime.
+- `go test ./...`, `golangci-lint run ./...` (0 issues),
+  `go run ./scripts/verify --summary --write` (pass with the 27 pre-existing
+  knowledge-freshness warnings and the advisory suite-time warning), the
+  dev-runtime client Bun test, and the landing gates `scripts/feature-check
+  --base 6fbc39e5`, probes `cli-grammar`, `cli-process` and `observability` all
+  passed.
+- Not exercised end to end: the assistant MCP gateway with a live helper (its
+  schemas and results are proven by the gateway conformance tests with a real
+  MCP client and JSON Schema validator).
 
 ## Plan of Work
 
