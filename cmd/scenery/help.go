@@ -254,9 +254,9 @@ var helpCommands = []helpCommandEntry{
 	{Command: "get", Group: "App contract", Summary: "Get one canonical resource.", Usage: []string{"scenery get <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "stable"},
 	{Command: "explain", Group: "App contract", Summary: "Explain a canonical resource and provenance.", Usage: []string{"scenery explain <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "stable"},
 	{
-		Command:   "up",
-		Group:     "Local dev",
-		Summary:   "Start a supervised local dev runtime.",
+		Command: "up",
+		Group:   "Local dev",
+		Summary: "Start a supervised local dev runtime.",
 		Usage: []string{
 			"scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--desktop] [--verbose] [-o human|jsonl]",
 			"scenery up --detach [--wait=ready|registered] [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--desktop] [--verbose] [-o human|json]",
