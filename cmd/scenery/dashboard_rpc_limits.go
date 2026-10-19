@@ -37,8 +37,8 @@ var defaultRuntimeRPCLimits = runtimeRPCLimits{
 	// A wait call bounds itself by its own timeout; the call deadline only
 	// backs that bound up.
 	waitDeadline: maxSourceWaitTimeout + 5*time.Second,
-	queryRows:         5000,
-	resultBytes:       4 << 20,
+	queryRows:    5000,
+	resultBytes:  4 << 20,
 }
 
 type runtimeCallClass string
