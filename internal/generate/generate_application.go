@@ -60,6 +60,7 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 		for _, tool := range adapter.MCPBindings {
 			service.MCPTools = append(service.MCPTools, generateapi.ServiceProcessMCPTool{AssistantAddress: tool.AssistantAddress, Name: tool.Name})
 		}
+		service.CLIBindings = resourceAddresses(cliBindingsForOperations(result.Manifest.Resources, adapter.Operations))
 		for _, binding := range adapter.Bindings {
 			httpSpec, _ := binding.Spec["http"].(map[string]any)
 			service.Routes = append(service.Routes, generateapi.ServiceProcessRoute{

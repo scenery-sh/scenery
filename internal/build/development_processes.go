@@ -204,6 +204,9 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 				bindingOwners[address] = service.Name
 			}
 		}
+		for _, address := range service.CLIBindings {
+			bindingOwners[address] = service.Name
+		}
 	}
 	identityStarted := time.Now()
 	mains := make([]string, len(names))
