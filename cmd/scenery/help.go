@@ -39,6 +39,7 @@ type helpCommandEntry struct {
 	OutputSchemas        []helpOutputSchema        `json:"output_schemas,omitempty"`
 	CommonExitCategories []helpExitCategory        `json:"common_exit_categories,omitempty"`
 	RelatedCommands      []string                  `json:"related_commands,omitempty"`
+	ApplicationBinding   *helpApplicationBinding   `json:"application_binding,omitempty"`
 	Notes                []string                  `json:"notes,omitempty"`
 	JSON                 bool                      `json:"json"`
 	Stability            string                    `json:"stability"`
@@ -256,8 +257,16 @@ var helpCommands = []helpCommandEntry{
 		Command:   "up",
 		Group:     "Local dev",
 		Summary:   "Start a supervised local dev runtime.",
-		Usage:     []string{"scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--verbose] [-o jsonl] [--detach] [--wait=ready|registered]"},
-		Flags:     []string{"--env <name>", "--port <n>", "--listen <addr>", "--app-root <path>", "--claim-aliases", "--verbose", "-o", "json", "--detach", "--wait=ready|registered"},
+		Usage: []string{
+			"scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--desktop] [--verbose] [-o human|jsonl]",
+			"scenery up --detach [--wait=ready|registered] [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--desktop] [--verbose] [-o human|json]",
+		},
+		Flags: []string{"--env <name>", "--port <n>", "--listen <addr>", "--app-root <path>", "--claim-aliases", "--desktop", "--verbose", "-o human|json|jsonl", "--detach", "--wait=ready|registered"},
+		RequiredCombinations: []helpRequiredCombination{
+			{When: "-o json", Requires: []string{"--detach"}},
+			{When: "-o jsonl", ConflictsWith: []string{"--detach"}},
+		},
+		Notes:     []string{"Foreground `up` streams `-o jsonl` events; `--detach` returns one `-o json` result once the runtime reaches the `--wait` state."},
 		JSON:      true,
 		Stability: "stable",
 	},
@@ -278,10 +287,11 @@ var helpCommands = []helpCommandEntry{
 		Usage:       []string{"scenery logs [flags]", "scenery logs query --query <logsql> [flags]", "scenery logs tail --query <logsql> [flags]"},
 		Subcommands: []string{"query", "tail"},
 		Flags: []string{
-			"--app-root <path>", "--since <duration>",
+			"--app-root <path>", "--since <duration>", "--start <time>", "--end <time>",
 			"--limit <n>", "--fields <csv>", "-o", "json", "-o", "jsonl",
-			"--stream all|stdout|stderr", "--source <id>", "--kind <kind>",
-			"--level <level>", "--grep <text>", "--follow",
+			"--stream all|stdout|stderr", "--session <id>", "--source <id>", "--kind <kind>",
+			"--level <level>", "--grep <text>", "--follow", "--tui",
+			"--query <logsql>", "--logql <query>", "--timeout <duration>",
 		},
 		JSON:      true,
 		Stability: "stable",
@@ -324,10 +334,11 @@ var helpCommands = []helpCommandEntry{
 			"scenery db list|shell [--app-root <path>] [service]",
 			"scenery db apply|seed|setup|reset|drop [--app-root <path>] [-o json]",
 			"scenery db migrate [service] [--status | --adopt-initial] [--app-root <path>] [-o json]",
+			"scenery db seed [--env <name>] [--app-root <path>] [-o json]",
 			"scenery db server status|start|stop|logs [--app-root <path>] [-o json]",
 		},
 		Subcommands: []string{"list", "shell", "apply", "migrate", "seed", "setup", "reset", "drop", "server"},
-		Flags:       []string{"--app-root <path>", "-o", "json", "--dry-run", "--yes", "--status"},
+		Flags:       []string{"--app-root <path>", "-o", "json", "--dry-run", "--yes", "--status", "--adopt-initial", "--env <name>"},
 		JSON:        true,
 		Stability:   "stable",
 	},
@@ -391,7 +402,7 @@ var helpCommands = []helpCommandEntry{
 		Summary:     "Generate native contracts, TypeScript targets, SQLC, and configured outputs.",
 		Usage:       []string{"scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]", "scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]"},
 		Subcommands: []string{"sqlc"},
-		Flags:       []string{"--target <target>", "--check", "--app-root <path>", "-o human|json"},
+		Flags:       []string{"--target <target>", "--check", "--non-interactive", "--quiet", "--app-root <path>", "--dry-run", "-o human|json"},
 		JSON:        true,
 		Stability:   "stable",
 	},
@@ -427,9 +438,9 @@ var helpCommands = []helpCommandEntry{
 		Command:     "snapshot",
 		Group:       "Storage",
 		Summary:     "Save, verify, and load portable Postgres and storage snapshots.",
-		Usage:       []string{"scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]", "scenery snapshot verify --input <file.zip> [-o json]", "scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]"},
+		Usage:       []string{"scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]", "scenery snapshot verify --input <file.zip> [--expect-sha256 <digest>] [-o json]", "scenery snapshot load --input <file.zip> [--expect-sha256 <digest>] [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]"},
 		Subcommands: []string{"save", "verify", "load"},
-		Flags:       []string{"--output <file.zip>", "--input <file.zip>", "--db", "--storage", "--mode overwrite|merge", "--on-conflict fail|skip|overwrite", "--yes", "--dry-run", "--app-root <path>", "-o", "json"},
+		Flags:       []string{"--output <file.zip>", "--input <file.zip>", "--db", "--storage", "--mode overwrite|merge", "--on-conflict fail|skip|overwrite", "--yes", "--dry-run", "--expect-sha256 <digest>", "--app-root <path>", "-o", "json"},
 		JSON:        true,
 		Stability:   "beta",
 	},
@@ -535,6 +546,8 @@ var helpCommands = []helpCommandEntry{
 		Summary: "Inspect app models, UI adherence, and diagnostics.",
 		Usage: []string{
 			"scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation|assistants -o json [--app-root <path>]",
+			"scenery inspect storage [--stats] -o json [--app-root <path>]",
+			"scenery inspect observability [--session <id>] -o json [--app-root <path>]",
 			"scenery inspect assistants [--implementation] -o json [--app-root <path>]",
 			"scenery inspect build [--verify-generation] -o json [--app-root <path>]",
 			"scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]",
@@ -543,7 +556,7 @@ var helpCommands = []helpCommandEntry{
 			"scenery inspect report <report-token> -o json",
 		},
 		Subcommands:   []string{"app", "routes", "services", "endpoints", "build", "paths", "generators", "durable", "storage", "observability", "validation", "assistants", "ui", "docs", "harness", "report"},
-		Flags:         []string{"-o", "human|json", "--app-root <path>", "--implementation", "--verify-generation", "--frontend <name>", "--repo-root <path>", "--for-path <path> (repeatable)", "--include-text", "--tag <tag>", "--status active|reference|completed|deprecated", "--review-due", "--all"},
+		Flags:         []string{"-o", "human|json", "--app-root <path>", "--implementation", "--verify-generation", "--frontend <name>", "--repo-root <path>", "--for-path <path> (repeatable)", "--include-text", "--tag <tag>", "--status active|reference|completed|deprecated", "--review-due", "--all", "--stats", "--session <id>", "--severity error|warning", "--top <n>"},
 		OutputSchemas: []helpOutputSchema{{Mode: "assistants", Kind: "scenery.inspect.assistants"}, {Mode: "report", Kind: "scenery.failure.report"}},
 		JSON:          true,
 		Stability:     "stable",
@@ -603,9 +616,9 @@ var helpCommands = []helpCommandEntry{
 		Command:     "traces",
 		Group:       "Observability",
 		Summary:     "List or clear local traces.",
-		Usage:       []string{"scenery traces list [-o json] [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]", "scenery traces clear -o json [--app-root <path>]"},
+		Usage:       []string{"scenery traces list [-o json] [--app-root <path>] [--session <id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]", "scenery traces clear -o json [--app-root <path>]"},
 		Subcommands: []string{"list", "clear"},
-		Flags:       []string{"-o", "json", "--app-root <path>", "--service <name>", "--endpoint <name>", "--trace-id <id>", "--status ok|error", "--min-duration-ms <n>", "--since <duration>", "--limit <n>", "--slowest"},
+		Flags:       []string{"-o", "json", "--app-root <path>", "--session <id>", "--service <name>", "--endpoint <name>", "--trace-id <id>", "--status ok|error", "--min-duration-ms <n>", "--since <duration>", "--limit <n>", "--slowest"},
 		JSON:        true,
 		Stability:   "stable",
 	},
@@ -613,9 +626,9 @@ var helpCommands = []helpCommandEntry{
 		Command:     "metrics",
 		Group:       "Observability",
 		Summary:     "List, query, and inspect local metrics.",
-		Usage:       []string{"scenery metrics list [-o json] [--app-root <path>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]", "scenery metrics query [-o json] [--app-root <path>] --promql <query> [--instant] [--since <duration>] [--start <time>] [--end <time>] [--step <duration>] [--timeout <duration>] [--limit <n>]", "scenery metrics labels|series [-o json] [--app-root <path>] --match <selector> [flags]"},
+		Usage:       []string{"scenery metrics list [-o json] [--app-root <path>] [--session <id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--slowest] [--since <duration>] [--limit <n>]", "scenery metrics query [-o json] [--app-root <path>] --promql <query> [--instant] [--since <duration>] [--start <time>] [--end <time>] [--step <duration>] [--timeout <duration>] [--limit <n>]", "scenery metrics labels|series [-o json] [--app-root <path>] --match <selector> [flags]"},
 		Subcommands: []string{"list", "query", "labels", "series"},
-		Flags:       []string{"-o", "json", "--app-root <path>", "--promql <query>", "--match <selector>", "--instant", "--since <duration>", "--start <time>", "--end <time>", "--step <duration>", "--timeout <duration>", "--limit <n>"},
+		Flags:       []string{"-o", "json", "--app-root <path>", "--promql <query>", "--match <selector>", "--instant", "--session <id>", "--service <name>", "--endpoint <name>", "--trace-id <id>", "--status ok|error", "--min-duration-ms <n>", "--slowest", "--since <duration>", "--start <time>", "--end <time>", "--step <duration>", "--timeout <duration>", "--limit <n>"},
 		JSON:        true,
 		Stability:   "stable",
 	},
@@ -675,9 +688,9 @@ var helpCommands = []helpCommandEntry{
 		Command:     "system",
 		Group:       "System",
 		Summary:     "Manage agent, edge, trust, and toolchain.",
-		Usage:       []string{"scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--supervised] [-o json]", "scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]", "scenery system agent cleanup [--remove-state] [-o json]", "scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]", "scenery system toolchain list|sync|verify [-o json] [--tool <name>] [--images]", "scenery system toolchain path [-o json] --tool <name>", "scenery system trust [-o json]"},
+		Usage:       []string{"scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--supervised] [-o json]", "scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]", "scenery system agent cleanup [--remove-state] [-o json]", "scenery system edge install|trust|status|restart|uninstall|dns|privileged [--domain <domain>] [-o json]", "scenery system toolchain list|sync|verify [-o json] [--tool <name>] [--images] [--all] [--strict] [--include-source-locks] [--platform <os/arch>]", "scenery system toolchain path [-o json] --tool <name>", "scenery system trust [-o json]"},
 		Subcommands: []string{"agent", "edge", "toolchain", "trust"},
-		Flags:       []string{"--socket <path>", "--router-listen <addr>", "--router-tls", "--router-http", "--trust", "--remove-state", "-o", "json", "--tool <name>", "--images"},
+		Flags:       []string{"--socket <path>", "--router-listen <addr>", "--router-tls", "--router-http", "--trust", "--supervised", "--remove-state", "--domain <domain>", "-o", "json", "--tool <name>", "--images", "--all", "--strict", "--include-source-locks", "--platform <os/arch>"},
 		JSON:        true,
 		Stability:   "stable",
 	},
@@ -704,10 +717,12 @@ func helpCommand(args []string) error {
 	}
 	entry, ok := findHelpCommand(topics)
 	if !ok {
-		if !jsonOutput {
-			if handled, err := runBindingCLI(os.Stdout, os.Stderr, append(append([]string(nil), topics...), "--help")); handled {
+		if jsonOutput {
+			if handled, err := writeBindingHelpJSON(os.Stdout, topics); handled {
 				return err
 			}
+		} else if handled, err := runBindingCLI(os.Stdout, os.Stderr, append(append([]string(nil), topics...), "--help")); handled {
+			return err
 		}
 		return fmt.Errorf("invalid_request: unknown help topic %q; %s", strings.Join(topics, " "), unknownWordHint(topics[0], builtinCommandNames(), "scenery help"))
 	}

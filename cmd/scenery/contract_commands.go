@@ -62,6 +62,7 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 		CheckPredictedTypeScript:  generate.CheckPredictedTypeScriptClients,
 		CheckGenerated:            generate.ApplyImplementationCheck,
 	})
+	snapshots := newAgentServeSnapshots(root)
 	for scanner.Scan() {
 		var request contractagent.AgentRequest
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
@@ -70,7 +71,13 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 			}
 			continue
 		}
-		result, compileErr := compiler.Compile(root)
+		if !contractagent.MethodNeedsSnapshot(request.Method) {
+			if err := encoder.Encode(session.Handle(nil, request)); err != nil {
+				return err
+			}
+			continue
+		}
+		result, compileErr := snapshots.current()
 		if compileErr != nil {
 			return compileErr
 		}
@@ -79,6 +86,40 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 		}
 	}
 	return scanner.Err()
+}
+
+// agentServeSnapshots keeps the last compiled graph of an agent server and
+// reuses it while its captured sources are unchanged, so read-only requests do
+// not re-discover, re-parse and re-expand the application each time.
+type agentServeSnapshots struct {
+	root     string
+	compile  func(string) (*compiler.Result, error)
+	verify   func(*compiler.Result) (bool, error)
+	last     *compiler.Result
+	compiles int
+}
+
+func newAgentServeSnapshots(root string) *agentServeSnapshots {
+	return &agentServeSnapshots{root: root, compile: compiler.Compile, verify: compiler.SnapshotUnchanged}
+}
+
+func (s *agentServeSnapshots) current() (*compiler.Result, error) {
+	if s.last != nil {
+		unchanged, err := s.verify(s.last)
+		if err != nil {
+			return nil, err
+		}
+		if unchanged {
+			return s.last, nil
+		}
+	}
+	result, err := s.compile(s.root)
+	if err != nil {
+		return nil, err
+	}
+	s.last = result
+	s.compiles++
+	return result, nil
 }
 
 func runContractChanges(stdout io.Writer, args []string) error {
