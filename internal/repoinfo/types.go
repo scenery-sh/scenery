@@ -139,6 +139,7 @@ type Section struct {
 type Excerpt struct {
 	Text            string `json:"text"`
 	EndLine         int    `json:"end_line"`
+	EndByte         int    `json:"end_byte"`
 	Truncated       bool   `json:"truncated"`
 	ContentRevision string `json:"content_revision"`
 }

@@ -59,7 +59,65 @@ CLI invocations best-effort append JSON objects to `<agent home>/telemetry.jsonl
 
 `scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--measurement completion|startup]... [--since <duration>] [--limit <n>] [-o human|json]` streams that file and retains at most the requested recent records (default 100, maximum 10,000) while calculating overall, per-app, per-command, and per-measurement timing summaries. App, command, and measurement filters are repeatable OR filters; supplying different filter classes combines them with AND. App filters exactly match configured ID or name. Every timing summary reports all-history count/average/min/max plus exact p50/p95 over the latest at most 10,000 successful matching records, with `percentile_sample_count` making that bound explicit. `--command up --measurement startup` therefore excludes historical or ordinary completion/lifetime timings from startup percentiles. Historical records without app identity remain visible as unattributed when no app filter is selected. JSON data uses kind `scenery.telemetry` and the exact checked schema in `docs/schemas/scenery.telemetry.schema.json`.
 
-`scenery telemetry report [--since <duration>] [--agent-transcripts] [-o human|json]` reconstructs past runs on this host from what they left behind, over the last 30 days unless `--since` selects another window. It reads the active CLI telemetry file and retained `telemetry-archive/*/telemetry.jsonl` files; the event logs of detached `scenery up` supervisors under the agent home (`agent/dev/*.log` and `worktrees/*/control/dev/*.log`; foreground sessions keep none), from which it derives initial and rebuild timings, per-step p50/p95 of successful rebuilds, exactly one failure cause per failed build (its first `build.error`, joined by `operation_id`, or, for an error without one in an older log, the error that follows the failed build; the diagnostic code and first line with digests, addresses, paths and long numbers replaced and credentials redacted; `no error recorded` otherwise), so the causes add up to the failed builds, and streaks of at least 5 consecutive failed builds per session; an error naming an operation no build request in the window has is never charged to another build and is counted as `unmatched_errors`. Only with `--agent-transcripts` it also reads the Claude Code transcripts under `~/.claude/projects` and Codex rollouts under `~/.codex/sessions` modified inside the window, streaming each file through a few workers into compact per-file aggregates. Only agent sessions that attempted Scenery are counted. An attempt is `scenery` at command position of a shell command, found by a scan that skips quoted text, comments and here-document bodies, whether it names a command `scenery help` advertises, a root flag such as `--help`, or an unknown word, reported as `unknown <word>`. A recognized executable with no arguments uses the existing `help` identity and keeps its session eligible. `command -v`/`-V` lookups remain non-executions. A transcript records a shell command's outcome, not Scenery's: `scenery_failed` counts shell commands that attempted Scenery and whose shell reported a failure, `scenery_outcome_unknown` those whose outcome is not recorded (a Claude Code command sent to the background, interrupted, or refused without an exit status; a Codex command still running or whose script printed no result for it), and only an attributable shell command — one simple command running Scenery directly, without pipes, `&&`, `||`, `;`, background jobs, substitutions, compound commands, `sudo` or `go run` — with a recorded outcome gives Scenery's own outcome (`scenery_attributable`, `scenery_attributable_failed`) and, per attempted command, failures, waiting time and p50. Durations come only from Claude Code, spanning a Bash call from its use to its result; Codex records no command duration, so its commands add outcomes but no timings. Codex outcomes are read from the header of an `exec_command` or `shell_command` result and from the JSON results an exec script printed, by field name, attributed only when the script names as many commands as it printed results. It also reports the failure classes of failed shell commands (invalid invocation, failed precondition, capability unavailable, internal failure, application diagnostic, executable not found, timeout, other) and the inputs Scenery rejected as unknown flags or commands. It keeps no command text, output or file content. `sources` states how completely everything was read: supervisor logs that could not be opened or were read only in part and their invalid event lines, and, for transcripts, files read, read in part and unreadable, invalid and oversized (over 8 MiB, skipped) records, results without their call and calls without their result; what a file held before a read error still counts. Percentiles are nearest-rank over successful attempts with valid timing evidence and null when none has a valid duration. CLI records are summarized per app over all records (startup measurements included) and per command over command completions, with `scenery up` startups apart, and with failure bursts: consecutive hours in which one command failed with one exit code at least 60 times. Findings order the conclusions critical, warning, then info, and include incomplete sources and shell commands that did not record Scenery's own outcome. The report reads retained files and inspects verified live worktree owners without mutating runtime state. JSON data uses kind `scenery.telemetry.report` and the exact checked schema in `docs/schemas/scenery.telemetry.report.schema.json`.
+`scenery telemetry report [--since <duration>] [--agent-transcripts] [-o
+human|json]` reconstructs past runs on this host from what they left behind,
+over the last 30 days unless `--since` selects another window. It reads the
+active CLI telemetry file and retained `telemetry-archive/*/telemetry.jsonl`
+files; the event logs of detached `scenery up` supervisors under the agent home
+(`agent/dev/*.log` and `worktrees/*/control/dev/*.log`; foreground sessions keep
+none), from which it derives initial and rebuild timings, per-step p50/p95 of
+successful rebuilds, exactly one failure cause per failed build (its first
+`build.error`, joined by `operation_id`, or, for an error without one in an
+older log, the error that follows the failed build; the diagnostic code and
+first line with digests, addresses, paths and long numbers replaced and
+credentials redacted; `no error recorded` otherwise), so the causes add up to
+the failed builds, and streaks of at least 5 consecutive failed builds per
+session; an error naming an operation no build request in the window has is
+never charged to another build and is counted as `unmatched_errors`. Only with
+`--agent-transcripts` it also reads the Claude Code transcripts under
+`~/.claude/projects` and Codex rollouts under `~/.codex/sessions` modified
+inside the window, streaming each file through a few workers into compact
+per-file aggregates. Only agent sessions that attempted Scenery are counted. An
+attempt is `scenery` at command position of a shell command, found by a scan
+that skips quoted text, comments and here-document bodies, whether it names a
+command `scenery help` advertises, a root flag such as `--help`, or an unknown
+word, reported as `unknown <word>`. A recognized executable with no arguments
+uses the existing `help` identity and keeps its session eligible. `command
+-v`/`-V` lookups remain non-executions. A transcript records a shell command's
+outcome, not Scenery's: `scenery_failed` counts shell commands that attempted
+Scenery and whose shell reported a failure, `scenery_outcome_unknown` those
+whose outcome is not recorded (a Claude Code command sent to the background,
+interrupted, or refused without an exit status; a Codex command still running or
+whose script printed no result for it), and only an attributable shell command —
+one simple command running Scenery directly, without pipes, `&&`, `||`, `;`,
+background jobs, substitutions, compound commands, `sudo` or `go run` — with a
+recorded outcome gives Scenery's own outcome (`scenery_attributable`,
+`scenery_attributable_failed`) and, per attempted command, failures, waiting
+time and p50. Durations come only from Claude Code, spanning a Bash call from
+its use to its result; Codex records no command duration, so its commands add
+outcomes but no timings. Codex outcomes are read from the header of an
+`exec_command` or `shell_command` result and from the JSON results an exec
+script printed, by field name, attributed only when the script names as many
+commands as it printed results. It also reports the failure classes of failed
+shell commands (invalid invocation, failed precondition, capability unavailable,
+internal failure, application diagnostic, executable not found, timeout, other)
+and the inputs Scenery rejected as unknown flags or commands. It keeps no
+command text, output or file content. `sources` states how completely everything
+was read: supervisor logs that could not be opened or were read only in part and
+their invalid event lines, and, for transcripts, files read, read in part and
+unreadable, invalid and oversized (over 8 MiB, skipped) records, results without
+their call and calls without their result; what a file held before a read error
+still counts. Percentiles are nearest-rank over successful attempts with valid
+timing evidence and null when none has a valid duration. CLI records are
+summarized per app over all records (startup measurements included) and per
+command over command completions, with `scenery up` startups apart, and with
+failure bursts: consecutive hours in which one command failed with one exit code
+at least 60 times. Findings order the conclusions critical, warning, then info,
+and include incomplete sources and shell commands that did not record Scenery's
+own outcome. The report reads retained files and inspects verified live worktree
+owners without mutating runtime state. JSON data uses kind
+`scenery.telemetry.report` and the exact checked schema in
+`docs/schemas/scenery.telemetry.report.schema.json`.
 
 Native command classification uses the help catalog's known roots and first
 subcommands. An unrecognized root is recorded as `unknown`; an unrecognized
@@ -136,7 +194,39 @@ includes queueing, build, activation and idle time until traffic arrives; it
 excludes filesystem detection before snapshot capture. Older producers and
 unrequested generations yield no sample. It is not a browser-paint measurement.
 
-The checked-in diagnostic registry is publicly inspectable with `schema.get` using either the manifest's digest `diagnostic_catalog` identity or one `SCNxxxx` code. Request failures use the request-protocol range `SCN8001` through `SCN8099`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause. The process that mints a token keeps the cause where only its operator can read it: the CLI writes `<agent home>/reports/<report-token>.json` (mode 0600, with credentials in the arguments and the cause redacted, newest 200 retained), and `scenery inspect report <report-token> -o json` returns it as `scenery.failure.report` with the code, time, command, arguments, working directory, cause and producer version. A token that is malformed or not recorded in this agent home is an invalid request. An application process logs the cause beside its token (`internal failure` with `report_token`, `code` and `cause`), which is where the operator of a deployed process finds it; under `scenery up` it also reports the cause to its session, authenticated like every development report, and the same command returns it with `origin` `runtime`, the reporting process, app and session instead of a CLI command. A CLI-minted report has `origin` `cli`. Credentials in a cause are redacted, including the password of a URL quoted inside a message. A request the caller wrote wrongly is never internal: an unknown command, subcommand, flag or argument, a missing or malformed flag value, a flag standing where a subcommand is expected, flags that do not belong together, and a named profile, database service or snapshot archive that does not exist are `invalid_request` (`SCN8001`, exit 2) whose message names the mistake in either output mode. A flag followed by another registered flag is reported as missing its value; write `--flag=value` for a value that looks like a flag. A correct request that the host's state refuses is `failed_precondition` (`SCN8003`, exit 3), including a command that needs local runtime state before `scenery up` created it, a worktree command outside a Git repository, and an agent socket path longer than the platform binds. A command of another platform or a missing external tool is `capability_unavailable` (exit 4). Human output prints the message alone on stderr; the exit code carries the class, and a `-o json` or `-o jsonl` request renders the same message in the diagnostic.
+The checked-in diagnostic registry is publicly inspectable with `schema.get`
+using either the manifest's digest `diagnostic_catalog` identity or one
+`SCNxxxx` code. Request failures use the request-protocol range `SCN8001`
+through `SCN8099`; only internal failures use `SCN9000` through `SCN9099`. Every
+internal failure carries an opaque `report_token` and a sanitized stable
+message, never its raw cause. The process that mints a token keeps the cause
+where only its operator can read it: the CLI writes `<agent
+home>/reports/<report-token>.json` (mode 0600, with credentials in the arguments
+and the cause redacted, newest 200 retained), and `scenery inspect report
+<report-token> -o json` returns it as `scenery.failure.report` with the code,
+time, command, arguments, working directory, cause and producer version. A token
+that is malformed or not recorded in this agent home is an invalid request. An
+application process logs the cause beside its token (`internal failure` with
+`report_token`, `code` and `cause`), which is where the operator of a deployed
+process finds it; under `scenery up` it also reports the cause to its session,
+authenticated like every development report, and the same command returns it
+with `origin` `runtime`, the reporting process, app and session instead of a CLI
+command. A CLI-minted report has `origin` `cli`. Credentials in a cause are
+redacted, including the password of a URL quoted inside a message. A request the
+caller wrote wrongly is never internal: an unknown command, subcommand, flag or
+argument, a missing or malformed flag value, a flag standing where a subcommand
+is expected, flags that do not belong together, and a named profile, database
+service or snapshot archive that does not exist are `invalid_request`
+(`SCN8001`, exit 2) whose message names the mistake in either output mode. A
+flag followed by another registered flag is reported as missing its value; write
+`--flag=value` for a value that looks like a flag. A correct request that the
+host's state refuses is `failed_precondition` (`SCN8003`, exit 3), including a
+command that needs local runtime state before `scenery up` created it, a
+worktree command outside a Git repository, and an agent socket path longer than
+the platform binds. A command of another platform or a missing external tool is
+`capability_unavailable` (exit 4). Human output prints the message alone on
+stderr; the exit code carries the class, and a `-o json` or `-o jsonl` request
+renders the same message in the diagnostic.
 
 The current specification includes compilation, Go generation, HTTP and typed path tails, durable execution, events, data, deployment, inspection, agent mutation, patches, UI, semantic evolution, and TypeScript clients. Its `spec_revision` covers resource schemas, structural application/workspace/package/module/input/export schemas, stable diagnostic rules, and explicit revisions for source composition, defaults, expansion, reference resolution, contract projection, evolution, Go generation, and TypeScript generation. Applications cannot select a language version or feature set; resource use determines required behavior. Unavailable future behavior fails explicitly; `extension` and generic `resource` declarations emit `SCN7001 feature_unavailable`, while genuinely unknown syntax remains `SCN1002`.
 
@@ -160,7 +250,35 @@ Local module sources and generated roots are workspace trust boundaries. Before 
 
 External manifest references accept exactly either a current `scenery.manifest` document or a current `scenery.cli` compile envelope. Both paths validate exact identity and producer, diagnostic catalog, known unversioned resource schemas, unique canonical address order, and a recomputed `contract_revision`; unknown fields, trailing values, old envelopes, and heuristic `data.manifest` wrappers fail closed.
 
-The compiler retains lossless CST/source maps and exposes distinct source, effective, and expanded graphs. Source preserves authored `var.*`/export expressions and omits defaults; effective resolves module inputs, applies effective defaults, then applies inheritance/exact patches; expanded adds generated resources. Every graph field carries `origin.field_provenance` keyed by an RFC 6901 pointer that resolves inside that resource's `spec` in the same view; arrays use numeric indexes, never labels. Entries include declaring range/input, supplier, source address, and transformation chain for defaults, inputs/exports, patches, expansions, and provider descriptors. Generated Go config-schema fields point to the exact referenced package-input declaration/attribute, including through config aliases. Portable source IDs are lower-case unpadded base32 SHA-256 identities over a domain-separated, length-framed normalized relative URI; they never sanitize punctuation or path separators into a collision-prone filename. Source-map ranges use zero-based Unicode-scalar lines and columns plus zero-based UTF-8 byte offsets, including for combining marks and CRLF sources. Canonical `contract_revision` excludes implementation and deployment inputs; compilation therefore reports `implementation_revision` as null. `scenery build` selects an exact declared Go target, hashes its complete non-standard package/module/embed/native-input graph, and combines that build-input digest with the resolved target to produce the target-specific `implementation_revision`. The resolved target records the selected Go command and compiler paths and SHA-256 identities; host CGO additionally records the resolved C and C++ compiler paths and identities while ambient compiler, linker, include, library, and pkg-config settings are scrubbed. A fixed non-host target with CGO enabled fails until a native-toolchain schema is available. The runtime bundle is written to `.scenery/build/runtime/<target>.json` and copied beside an explicit build output as `<binary>.scenery.runtime-bundle.json`; its schemas are `scenery.go-build-input-manifest` and `scenery.runtime-bundle`.
+The compiler retains lossless CST/source maps and exposes distinct source,
+effective, and expanded graphs. Source preserves authored `var.*`/export
+expressions and omits defaults; effective resolves module inputs, applies
+effective defaults, then applies inheritance/exact patches; expanded adds
+generated resources. Every graph field carries `origin.field_provenance` keyed
+by an RFC 6901 pointer that resolves inside that resource's `spec` in the same
+view; arrays use numeric indexes, never labels. Entries include declaring
+range/input, supplier, source address, and transformation chain for defaults,
+inputs/exports, patches, expansions, and provider descriptors. Generated Go
+config-schema fields point to the exact referenced package-input
+declaration/attribute, including through config aliases. Portable source IDs are
+lower-case unpadded base32 SHA-256 identities over a domain-separated,
+length-framed normalized relative URI; they never sanitize punctuation or path
+separators into a collision-prone filename. Source-map ranges use zero-based
+Unicode-scalar lines and columns plus zero-based UTF-8 byte offsets, including
+for combining marks and CRLF sources. Canonical `contract_revision` excludes
+implementation and deployment inputs; compilation therefore reports
+`implementation_revision` as null. `scenery build` selects an exact declared Go
+target, hashes its complete non-standard package/module/embed/native-input
+graph, and combines that build-input digest with the resolved target to produce
+the target-specific `implementation_revision`. The resolved target records the
+selected Go command and compiler paths and SHA-256 identities; host CGO
+additionally records the resolved C and C++ compiler paths and identities while
+ambient compiler, linker, include, library, and pkg-config settings are
+scrubbed. A fixed non-host target with CGO enabled fails until a
+native-toolchain schema is available. The runtime bundle is written to
+`.scenery/build/runtime/<target>.json` and copied beside an explicit build
+output as `<binary>.scenery.runtime-bundle.json`; its schemas are
+`scenery.go-build-input-manifest` and `scenery.runtime-bundle`.
 
 Resolved `deployment_revision` and artifact/schema revisions are reported independently. Semantic diff, agent reads, and mutation plans use the same canonical graph and compatibility classifications. Change planning validates optional requested kind/schema identities, canonicalizes typed scalars/references, and returns every normalized operation with mandatory resolved kind, schema revision, and `view: "source"` before hashing it. A containing-module rename derives receipts for every descendant through stable source/package lineage; each receipt records old/new addresses, base/target contract revisions, and a digest in both plan and apply receipt. Diff recomputes the digest and revision bindings, loads matching applied receipts from an app root, or accepts `--rename-receipts`; invalid evidence remains remove-plus-add. A declaration shared by multiple module instances cannot be renamed through one instance address because that would mutate all instances ambiguously. Change and deployment plans are immutable, revision-bound, caller-bound, expiring, single-commit transactions with replayable authenticated receipts. Planning retains the exact canonical issued plan at `.scenery/plans/issued/<family>/<plan-digest>.json` with owner-only permissions. Apply requires an exact canonical retained plan before trusting expiry, approvals, operations, source edits, or provider actions; a caller-recomputed content hash is not proof of plan issuance.
 
@@ -208,7 +326,48 @@ Source, lockfile, and generated-artifact sets use one recoverable per-workspace 
 
 Go generation stages contract packages, provider/application adapters, composition, ABI/provider locks, and descriptor coverage before atomically materializing verified bytes. `std.type.unit` is the exact no-input/no-body type and encodes as `{}` in Go (`scenery.Unit`) and TypeScript (`Unit`); user types merely ending in `unit`, `problem`, or `execution_receipt` are not standard types. Exact sizes accept fractional lexical quantities only when unit conversion produces an integral byte count (`1.5KiB` is `1536`; `0.1B` is invalid). `relative_path` rejects NUL and normalizes each segment with the specification-defined Unicode 17.0 NFC rules. `url` is a normalized hierarchical network URL and rejects opaque or hostless URIs. TypeScript generation provides exact scalar codecs, immutable decoded values, typed outcomes/errors, record constraints and cross-field validation, retry semantics, and metadata. Data, durable, schedule, event, HTTP, CLI, page/renderer, and internal-call runtime adapters register through the same generated composition root.
 
-The HTTP effective graph fixes the current defaults at 64 KiB request headers, 8 MiB buffered request bodies, 16 MiB decompressed requests, 32 MiB multipart bodies, 16 MiB file parts, 1 MiB non-file parts, 128 parts, and 16 MiB buffered responses. Typed responses may split one outcome across body, header, and cookie mappings; generated Go adapters encode every declared scalar and generated TypeScript clients reconstruct the original camel-cased typed payload. Distinct same-status completion mappings are decoded independently and exactly one must validate; the compiler proves disjointness from observable media types and structural wire shapes, never nominal type or destination names, and rejects mappings where overlap cannot be excluded. Multipart clients encode only declared parts and enforce their exact names, kinds, accepted media, byte limits, filename retention, and multiplicity. Optional absent metadata stays absent. Effective response-cookie defaults are path `/`, empty domain, session expiry (`max_age=0`, no `expires`), `secure=true`, `http_only=true`, and `same_site=lax`. Fetch cannot preserve repeated request-header field lines, so a TypeScript target selecting a repeated list/set request header is rejected with `SCN6316`; use explicit comma encoding only when the scalar codec permits it. Scalar response headers consume the standard Fetch combined field value, preserving commas in dates and cache directives. Repeated list/set response headers require a Fetch `Headers.getAll(name)` extension that accepts the header name, and response cookies require `Headers.getSetCookie()`. A `getAll` that rejects the name (Bun and Cloudflare Workers accept only `Set-Cookie`) counts as absent, so scalar headers still decode from the combined value; a runtime that cannot preserve the declared repetitions fails with `unsupported_runtime` instead of silently collapsing values. `std.authorization.none` is a valid explicit deny-all policy; it does not make a binding anonymous. `dispatch.wait_timeout` is the canonical wait outcome. Stream delivery and `server_sent_events` declarations fail with `feature_unavailable` until streaming support is implemented in the current contract. Generated TypeScript sets encode and validate canonical JSON element order by UTF-8 bytes across JSON, query, form, and header mappings. Declared transport, admission, and dispatch failures are returned as closed typed failure outcomes; only undeclared/system failures throw, and clients never add an implicit retry. Public `system.internal` responses always use the stable message `contract implementation failure`; the wrapped implementation cause remains available to internal error handling but is never serialized to the caller. On a typed HTTP endpoint, an unclassified Go error or an `errs` failure whose code maps to HTTP 500, such as `internal`, `unknown`, or `data_loss`, from authentication or decoding answers that `system.internal` problem, including an auth-required binding without a registered auth handler; logs and traces keep the cause. Transport and admission outcomes and other typed `errs` failures, such as an auth handler's `unavailable`, keep their own rendering.
+The HTTP effective graph fixes the current defaults at 64 KiB request headers, 8
+MiB buffered request bodies, 16 MiB decompressed requests, 32 MiB multipart
+bodies, 16 MiB file parts, 1 MiB non-file parts, 128 parts, and 16 MiB buffered
+responses. Typed responses may split one outcome across body, header, and cookie
+mappings; generated Go adapters encode every declared scalar and generated
+TypeScript clients reconstruct the original camel-cased typed payload. Distinct
+same-status completion mappings are decoded independently and exactly one must
+validate; the compiler proves disjointness from observable media types and
+structural wire shapes, never nominal type or destination names, and rejects
+mappings where overlap cannot be excluded. Multipart clients encode only
+declared parts and enforce their exact names, kinds, accepted media, byte
+limits, filename retention, and multiplicity. Optional absent metadata stays
+absent. Effective response-cookie defaults are path `/`, empty domain, session
+expiry (`max_age=0`, no `expires`), `secure=true`, `http_only=true`, and
+`same_site=lax`. Fetch cannot preserve repeated request-header field lines, so a
+TypeScript target selecting a repeated list/set request header is rejected with
+`SCN6316`; use explicit comma encoding only when the scalar codec permits it.
+Scalar response headers consume the standard Fetch combined field value,
+preserving commas in dates and cache directives. Repeated list/set response
+headers require a Fetch `Headers.getAll(name)` extension that accepts the header
+name, and response cookies require `Headers.getSetCookie()`. A `getAll` that
+rejects the name (Bun and Cloudflare Workers accept only `Set-Cookie`) counts as
+absent, so scalar headers still decode from the combined value; a runtime that
+cannot preserve the declared repetitions fails with `unsupported_runtime`
+instead of silently collapsing values. `std.authorization.none` is a valid
+explicit deny-all policy; it does not make a binding anonymous.
+`dispatch.wait_timeout` is the canonical wait outcome. Stream delivery and
+`server_sent_events` declarations fail with `feature_unavailable` until
+streaming support is implemented in the current contract. Generated TypeScript
+sets encode and validate canonical JSON element order by UTF-8 bytes across
+JSON, query, form, and header mappings. Declared transport, admission, and
+dispatch failures are returned as closed typed failure outcomes; only
+undeclared/system failures throw, and clients never add an implicit retry.
+Public `system.internal` responses always use the stable message `contract
+implementation failure`; the wrapped implementation cause remains available to
+internal error handling but is never serialized to the caller. On a typed HTTP
+endpoint, an unclassified Go error or an `errs` failure whose code maps to HTTP
+500, such as `internal`, `unknown`, or `data_loss`, from authentication or
+decoding answers that `system.internal` problem, including an auth-required
+binding without a registered auth handler; logs and traces keep the cause.
+Transport and admission outcomes and other typed `errs` failures, such as an
+auth handler's `unavailable`, keep their own rendering.
 
 Native `protocol = "cli"` bindings execute directly as `scenery <declared command...>` from the app root. Command and flag names are lower-kebab-case, command paths are unique, and their first segment cannot collide with a built-in Scenery command. `--help`, `scenery completion <words...>`, human output, `-o json`, and exit codes are derived from the binding outcome map. `scenery help <declared command...> -o json` and `scenery <declared command...> --help -o json` return the ordinary `scenery.help` payload whose entry carries `application_binding`: the binding and operation addresses, the input type, each argument and flag with its position or short name, requiredness, target field and declared type, and every outcome with its exit code and output stream. Argument and flag values are decoded with the operation's declared type; required fields must be mapped exactly once. Scenery builds the declared development target, mints the local-developer principal from the OS user, injects only runtime-trusted context fields, runs authorization, and invokes call, wait, or enqueue delivery through the generated composition. Caller input cannot overwrite a context-mapped field.
 
@@ -450,7 +609,40 @@ Rules:
 - Scenery-owned Go compilation trims paths: `-trimpath` precedes configured `build.go_flags` in app `go build`, process entrypoint links, generated-workspace `scenery test` and the Go package analysis that loads export data, and the framework producer is compiled the same way. Compiled packages never name the private workspace, owned module generation or framework snapshot directory, so identical source shares Go build cache entries across app roots, worktrees and snapshots, and a new framework snapshot recompiles only the packages whose inputs changed. Panics and `runtime.Caller` report module-relative files such as `clean.tech/agents/agents.go`; `build.go_flags: ["-trimpath=false"]` restores absolute workspace paths for an app.
 - Development `build.step` events may report `files_hashed`, `bytes_hashed`, `files_reused`, and `bytes_reused` for build-input work. These are bounded evidence fields; an omitted zero-valued counter is zero, not an unknown operation.
 - A failed assistant preparation step (`assistant.dependencies`, `assistant.build`, `assistant.cache_restore`, `assistant.cache_publish`, `assistant.stage`) reports `ok: false` at level `error` with `error`, its redacted and bounded cause, and `detail_path`, a private record (`0600`) in the session's assistant state directory that outlives the failed helper overlay. The record (`kind: scenery.assistant.preparation-failure`) names the assistant, the step and the error and keeps a bounded, redacted tail of the provider command's own output (`provider_output_tail`), including a last line without a newline. It describes the step's latest attempt: a step that succeeds removes it, a cancelled attempt leaves it, and a completed preparation of the assistant, by any path, removes all of its records. The assistant's status and its retry are unchanged.
-- Each development build request records `watch.scan` for the scan that captured its source snapshot: `actions` counts the watched files, `cache_hits` the directory listings reused from an earlier scan, `cache_misses` the directories read, and `files_hashed`/`bytes_hashed` the files whose content was read because their metadata changed. A directory listing is reused only while the directory's identity, size, modification time and status-change time are those observed immediately before and after it was read, and only when neither time was within two seconds of that read; restoring a directory's modification time changes its status-change time, so it cannot hide an added, removed or renamed entry. A listing records entry names and types only, and every watched file is still checked by its own current metadata, so a body edit reads no directory and hashes only the edited file. The snapshot verification before activation (`supervisor.snapshot_verify`) reads every directory again instead of reusing listings and replaces the listings it reads; a watcher error discards them. A complete scan evicts the listings of directories it no longer visits, and retained listings are bounded. A scan discovers generated paths beside its walk of the watched tree. Build requests also record `process.plan` (runtime integration plan, made while the workspace is verified and its build inputs are read), `supervisor.database_setup_check` (migration and seed inputs; a rebuild reads them while Go compiles and reads them again when the checked contract differs in revision or SQL requirements), `workspace.verify` (`before_compile` and `after_compile` membership and content checks of the private workspace; a file's content digest, like its Go imports and a framework file's embed directives, is reused within a supervisor only while its stamp, including the status-change time any write changes, is unchanged, and a reused digest costs one metadata read per file. A rebuild whose cached preparation refreshed the workspace keeps the workspace lock from that refresh into the process build and records no `before_compile` check, because the refresh established membership and bytes under the same lock; `after_compile` runs while the linked service executables are retained and preflighted, and always before publication. The workspace's framework fingerprint is the framework source digest that `framework.verify` just checked) and `supervisor.publish` (status, dashboard and session publication after activation).
+- Each development build request records `watch.scan` for the scan that captured
+  its source snapshot: `actions` counts the watched files, `cache_hits` the
+  directory listings reused from an earlier scan, `cache_misses` the directories
+  read, and `files_hashed`/`bytes_hashed` the files whose content was read
+  because their metadata changed. A directory listing is reused only while the
+  directory's identity, size, modification time and status-change time are those
+  observed immediately before and after it was read, and only when neither time
+  was within two seconds of that read; restoring a directory's modification time
+  changes its status-change time, so it cannot hide an added, removed or renamed
+  entry. A listing records entry names and types only, and every watched file is
+  still checked by its own current metadata, so a body edit reads no directory
+  and hashes only the edited file. The snapshot verification before activation
+  (`supervisor.snapshot_verify`) reads every directory again instead of reusing
+  listings and replaces the listings it reads; a watcher error discards them. A
+  complete scan evicts the listings of directories it no longer visits, and
+  retained listings are bounded. A scan discovers generated paths beside its
+  walk of the watched tree. Build requests also record `process.plan` (runtime
+  integration plan, made while the workspace is verified and its build inputs
+  are read), `supervisor.database_setup_check` (migration and seed inputs; a
+  rebuild reads them while Go compiles and reads them again when the checked
+  contract differs in revision or SQL requirements), `workspace.verify`
+  (`before_compile` and `after_compile` membership and content checks of the
+  private workspace; a file's content digest, like its Go imports and a
+  framework file's embed directives, is reused within a supervisor only while
+  its stamp, including the status-change time any write changes, is unchanged,
+  and a reused digest costs one metadata read per file. A rebuild whose cached
+  preparation refreshed the workspace keeps the workspace lock from that refresh
+  into the process build and records no `before_compile` check, because the
+  refresh established membership and bytes under the same lock; `after_compile`
+  runs while the linked service executables are retained and preflighted, and
+  always before publication. The workspace's framework fingerprint is the
+  framework source digest that `framework.verify` just checked) and
+  `supervisor.publish` (status, dashboard and session publication after
+  activation).
 - On macOS every development build request first records a `process.scheduling` build step. Its `reason` is `darwin_background_absent`, `darwin_background_cleared` or `darwin_background_clear_failed` (`ok: false`). The supervisor removes an inherited or self-applied process-level Darwin background policy, such as `taskpolicy -b`, before building, so compiler, linker and application children do not inherit throttled scheduling. A launcher's QoS clamp, such as `taskpolicy -c background`, is not observable without cgo and is not changed. Other platforms emit no `process.scheduling` step.
 - `watch.ignore` is an optional array of app-root-relative exclusion patterns for `scenery up`. Directory patterns such as `reference/` skip that subtree during watcher setup and rebuild fingerprint scans while leaving Git tracking untouched. `watch.ignore` is exclusion-only; use `.gitignore` for Git behavior. Parsed configuration and `.gitignore` rules are reused only while their physical identity, status-change time, size, modification time and parsing base remain unchanged. Missing identity prevents reuse, and a same-size edit with restored modification time still refreshes the rules.
 - Runtime watch snapshots exclude `_test.go` and their test-only embed inputs; ordinary test execution still reads the current test sources. Files explicitly embedded by runtime code remain runtime inputs regardless of their filename. Metadata-only touches or identical-content rewrites do not restart the backend: mtimes decide whether to refresh a content hash, while content, path, permissions and embed ownership decide rebuild identity.
@@ -479,7 +671,55 @@ Rules:
 - Initial `up` source scanning may overlap control-plane setup after lifetime ownership, framework freshness and migration-source checks. The owner joins that invocation-local scan before source consumption and on every failed startup; duplicate acquisition starts no scan. Current generated/workspace validation and readiness remain unchanged.
 - Initial `up` may start an already initialized retained PostgreSQL container during Go preparation, after fresh graph, framework and managed-supply validation. It verifies Docker ownership and authenticated cluster identity under the worktree operation lock, never allocates or recreates resources, and joins before post-build database setup. Database/schema creation, migrations and seeds remain after successful compilation; the consumed endpoint is resolved and verified again. No-SQL or explicit external supply does not trigger this managed-server branch.
 - `scenery up` prepares declared local DB setup before the app process starts. When app config declares `database.apply`, service-local seed files, typed fixtures, or `database.seed.commands`, the supervisor runs the same split lifecycle as `scenery db setup`: apply first, then seed. It passes the same managed database URL env values that the app child receives, so setup targets the dev-runtime database. Successful setup is fingerprinted from `database.apply` config plus every seed SQL, fixture, command definition, and declared command-input hash; ordinary rebuilds skip setup until those inputs change. Apps can set `database.seed.enabled: false` to opt out of every seed kind.
-- Native TypeScript clients are declared with `typescript_client` resources in `app.scn`; `materialization = "source"` writes the managed `output_root`, while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with `scenery generate --target typescript_client.<name>`. Standard Google OAuth contributes framework-owned connection start, connection status, and disconnect resources to inspection and client generation when it is enabled; these describe the existing runtime handlers without adding a second runtime composition path. An optional singleton `react { tsconfig = "path/to/tsconfig.json" }` block adds a managed `react/` subtree: one adapter per declared `content_page`, `table_page`, `split_page`, `workspace_page`, or `detail_page`; typed `routes.generated.ts`; the TanStack-only `app.generated.tsx` route-tree/shell adapter; `index.ts`; and the binary-owned `@scenery/ui` catalog under `react/scenery-ui/`. Generated search validators read each authored query wire name (including snake-case names) and expose its camel-case TypeScript property. Dynamic authored path segments become TanStack route segments and are passed to generated detail components as typed string params. `createSceneryApp` combines generated pages with one app-owned `SceneryRouteDescriptor` array and fixed auth/top-bar/content/link/icon slots. Its optional generated `client` option is passed to every generated page, so one app-owned `PublicApiClient` can supply bearer authentication, custom fetch behavior, or a non-default API base without replacing generated routes. The generated adapter owns the root/shell route tree, `Outlet`, active navigation, intent preloading, and catalog `ClientAppShell`; TanStack Router remains a consuming-app peer and no catalog file imports it. Generated loaders otherwise use the browser-facing `/api/` route on the current origin, accept an optional generated-client `client` prop for app-owned fetch/auth behavior, preserve authored order, and run through the consuming app's TanStack Query client. Stable page-address query keys provide caching, deduplication, retry, and invalidation; typed client failures remain renderable data, while exhausted transport or decoding exceptions map back into the same page error state. Persistent storage is an app-owned QueryClient policy and is not enabled for arbitrary generated results. Reusable catalog components and blessed Astryx primitives are exported from `react/scenery-ui/index.ts`; semantic StyleX variables are the `t` var group in the generated-ownership-marked `react/scenery-ui/tokens.stylex.ts`. Both surfaces keep Astryx, StyleX, React, TanStack Query, and TanStack Router as peers, and the consuming React tree provides one `QueryClientProvider`. A consuming app aliases `@scenery/ui` to the materialized `index.ts` in TypeScript and its bundler. Apps using semantic tokens also alias `@scenery/ui/tokens.stylex` to the materialized defining module in TypeScript, the bundler, and the StyleX compiler plugin's own `aliases` option; a TypeScript-or-bundler-only alias is insufficient because StyleX resolves defining modules independently. Direct Astryx imports remain the escape hatch for unblessed UI. The descriptor records `ui_catalog_roots`. Before any artifact commit, Scenery stages the whole target beside its final root and runs the exact checksummed managed TypeScript 7 `tsc` binary with the declared config; `SCN6320` identifies an incompatible declared override, `SCN6321` an unrelated reachable application error, and `SCN6322` missing checker/config/dependency readiness. Generation never invokes Node, bun, or a `PATH` TypeScript compiler.
+- Native TypeScript clients are declared with `typescript_client` resources in
+  `app.scn`; `materialization = "source"` writes the managed `output_root`,
+  while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with
+  `scenery generate --target typescript_client.<name>`. Standard Google OAuth
+  contributes framework-owned connection start, connection status, and
+  disconnect resources to inspection and client generation when it is enabled;
+  these describe the existing runtime handlers without adding a second runtime
+  composition path. An optional singleton `react { tsconfig =
+  "path/to/tsconfig.json" }` block adds a managed `react/` subtree: one adapter
+  per declared `content_page`, `table_page`, `split_page`, `workspace_page`, or
+  `detail_page`; typed `routes.generated.ts`; the TanStack-only
+  `app.generated.tsx` route-tree/shell adapter; `index.ts`; and the binary-owned
+  `@scenery/ui` catalog under `react/scenery-ui/`. Generated search validators
+  read each authored query wire name (including snake-case names) and expose its
+  camel-case TypeScript property. Dynamic authored path segments become TanStack
+  route segments and are passed to generated detail components as typed string
+  params. `createSceneryApp` combines generated pages with one app-owned
+  `SceneryRouteDescriptor` array and fixed auth/top-bar/content/link/icon slots.
+  Its optional generated `client` option is passed to every generated page, so
+  one app-owned `PublicApiClient` can supply bearer authentication, custom fetch
+  behavior, or a non-default API base without replacing generated routes. The
+  generated adapter owns the root/shell route tree, `Outlet`, active navigation,
+  intent preloading, and catalog `ClientAppShell`; TanStack Router remains a
+  consuming-app peer and no catalog file imports it. Generated loaders otherwise
+  use the browser-facing `/api/` route on the current origin, accept an optional
+  generated-client `client` prop for app-owned fetch/auth behavior, preserve
+  authored order, and run through the consuming app's TanStack Query client.
+  Stable page-address query keys provide caching, deduplication, retry, and
+  invalidation; typed client failures remain renderable data, while exhausted
+  transport or decoding exceptions map back into the same page error state.
+  Persistent storage is an app-owned QueryClient policy and is not enabled for
+  arbitrary generated results. Reusable catalog components and blessed Astryx
+  primitives are exported from `react/scenery-ui/index.ts`; semantic StyleX
+  variables are the `t` var group in the generated-ownership-marked
+  `react/scenery-ui/tokens.stylex.ts`. Both surfaces keep Astryx, StyleX, React,
+  TanStack Query, and TanStack Router as peers, and the consuming React tree
+  provides one `QueryClientProvider`. A consuming app aliases `@scenery/ui` to
+  the materialized `index.ts` in TypeScript and its bundler. Apps using semantic
+  tokens also alias `@scenery/ui/tokens.stylex` to the materialized defining
+  module in TypeScript, the bundler, and the StyleX compiler plugin's own
+  `aliases` option; a TypeScript-or-bundler-only alias is insufficient because
+  StyleX resolves defining modules independently. Direct Astryx imports remain
+  the escape hatch for unblessed UI. The descriptor records `ui_catalog_roots`.
+  Before any artifact commit, Scenery stages the whole target beside its final
+  root and runs the exact checksummed managed TypeScript 7 `tsc` binary with the
+  declared config; `SCN6320` identifies an incompatible declared override,
+  `SCN6321` an unrelated reachable application error, and `SCN6322` missing
+  checker/config/dependency readiness. Generation never invokes Node, bun, or a
+  `PATH` TypeScript compiler.
 
 - Every generated page macro may declare optional opaque, case-sensitive `application_key` and `access_key` strings; blank or whitespace-only values are invalid and nonblank values are preserved exactly. A `workspace_page.tab` may declare the same fields, inherits only its workspace's `application_key`, and never inherits `access_key`. Generated `SceneryRouteDescriptor` values expose `applicationKey` and `accessKey`; `createSceneryApp` returns `{router, App, routes}` and exports `matchSceneryRoute(routes, path)`, whose `$parameter` segments match one nonempty segment, normalize trailing slashes, ignore query/hash suffixes, and lose to an exact static route. `slots.resolveAccess(target, currentPath)` is one synchronous, read-only presentation decision with `allowed`, `pending`, or `denied`; the same result hides navigation and workspace tabs and gates direct routes before their component is invoked. An app-owned `slots.useNavigationRevision()` hook may subscribe the generated shell to external access state; each revision render recomputes the same filtered navigation and side-nav toggle without adding a second navigation source. A denied tab URL is replaced with the first allowed tab; zero allowed tabs render the pending/denied slot. `navigationFilter(route, currentRoute, currentPath)` and `contentGroup(currentRoute, currentPath)` receive descriptors, with no path-only signature. This frontend access surface is not backend authorization: applications still authorize every operation and own entitlements, policy loading, and business scopes.
 
@@ -488,7 +728,62 @@ Rules:
 - `status_map` is reusable presentation metadata: each uniquely named `status` supplies a non-empty label and one current Astryx badge variant. Badge columns and string/enum filters may reference it; generated clients emit typed `StatusMap` constants and compile-time-check the complete variant vocabulary against the catalog `BadgeVariant` type.
 - `form_dialog` binds one mutation HTTP binding whose operation input is a record. Fields derive from that record; optional `field` blocks override labels, placeholders, `text`/`textarea`/`select` control choice, and status-map labels. Current generated controls support string and closed-enum inputs. Typed outcomes and transport failures render inline, success closes the dialog, and the owning table's list and stats queries are invalidated.
 - Table stats tiles support `plain`, `money`, `count`, and `percent` appearances, an optional formatted `sub` field and label, and semantic icons. A table tile can name a declared filter or typed predicate and exactly one typed `value` or `clear = true`; selection and toggle/clear behavior share the table request state. Date/datetime filters can declare labeled `today`, `last_7_days`, and `month_to_date` presets, which calculate local-calendar inclusive bounds and send the existing paired typed inputs.
-- `react_component` declares only a symlink-safe workspace-relative `module` and named export. `table_page` requires `path`, `title`, at least one visible `column`, and either a CRUD `source` with list/HTTP projections or a call-delivery HTTP binding source. A binding source also requires `items`, naming the sole result record's `list(record)` field. It may return that complete list without pagination, or declare `pagination { page, page_size, total }`, mapping two distinct integer operation inputs and one integer result field for numeric page navigation. `metadata = ["summary", "types"]` projects named auxiliary result fields (never `items` or pagination `total`) into typed response-aware slot context. `query { search, sort, direction }` explicitly maps supported query controls to operation inputs; `search_hidden = true` delegates the visible search input to the app toolbar while retaining the same mapped query, debounce, and page reset. Each `filter` may use `input` to map its row field to a different optional/defaulted scalar or list input. A labeled `predicate "input" { value = <typed literal> }` supplies a fixed invisible operation input; mappings and predicates cannot collide. CRUD sources retain their generated cursor contract and accept only generated same-named list filter mappings. The page also accepts `description`, optional `loading_label` and `error_title` request-state copy, positive `page_size` (bounded by a positive CRUD maximum when present), `row_link`, labeled `filter`/`sort`/`group` children, singleton `stats`, `row_detail`, `row_action`, `export`, `toolbar`, `footer`, and `empty` blocks, plus repeated `action` blocks opening `form_dialog` resources. Group declarations are valid only for binding-backed complete-list pages; cursor-paginated CRUD and numeric-page binding tables reject grouping. Each group names a row field, may provide a label, leading section `order`, and one page-wide `default = true`, and produces a runtime Group selector with None plus collapsible counted sections. A stats source is a unit-input call-delivery HTTP binding with one flat numeric/string result record; declared tiles render above the table. Columns may use `appearance = "auto"|"text"|"number"|"datetime"|"badge"`, badge columns may reference a `status_map`, column `hidden = true` keeps an export-only field out of the grid, and `export = false` keeps a display-only/custom field out of CSV. Filters and sorts must be allowlisted by the selected source contract; generated string selectors require a status map for finite options. `filter.hidden = true` preserves the typed query mapping for an app toolbar but omits that filter from built-in selectors, the popover, and chips; it cannot also be pinned. A toolbar defaults to `placement = "header"`; `placement = "content"` renders it immediately above the table. Filters and `empty` receive `TablePageResultContext`; `footer` receives it below the table; toolbar context is optional before the first result. The context contains rows, optional total/truncation metadata, optional typed projected result metadata, filtered state, `isPlaceholderData`, `isRefreshing`, the current query, and controls to set/clear one declared enum-filter value, set search text, or refresh. Filter and search changes reset pagination and row UI; refresh preserves query inputs. Loaded-row CSV is UTF-8 with an Excel-compatible BOM, uses RFC 4180 line endings, leaves empty cells empty unless overridden, hardens spreadsheet formulas, and expands `{date}` from the local calendar. `row_detail.component` receives the exact row type and defaults to `presentation = "inline"`; `presentation = "panel"` opens a resizable right panel. Mutually exclusive `row_action.component` receives `{row, onClose}` and owns selected-row workflow. `QueryTable` owns controlled query state, cursor or numeric pagination, result count, export, complete-list grouping, selection, and request state. Expansion produces the ordinary page plus a built-in web renderer. `scenery schema scenery.table-page -o json` is the authored grammar; `scenery compile --view expanded -o json` exposes the derived resources.
+- `react_component` declares only a symlink-safe workspace-relative `module` and
+  named export. `table_page` requires `path`, `title`, at least one visible
+  `column`, and either a CRUD `source` with list/HTTP projections or a
+  call-delivery HTTP binding source. A binding source also requires `items`,
+  naming the sole result record's `list(record)` field. It may return that
+  complete list without pagination, or declare `pagination { page, page_size,
+  total }`, mapping two distinct integer operation inputs and one integer result
+  field for numeric page navigation. `metadata = ["summary", "types"]` projects
+  named auxiliary result fields (never `items` or pagination `total`) into typed
+  response-aware slot context. `query { search, sort, direction }` explicitly
+  maps supported query controls to operation inputs; `search_hidden = true`
+  delegates the visible search input to the app toolbar while retaining the same
+  mapped query, debounce, and page reset. Each `filter` may use `input` to map
+  its row field to a different optional/defaulted scalar or list input. A
+  labeled `predicate "input" { value = <typed literal> }` supplies a fixed
+  invisible operation input; mappings and predicates cannot collide. CRUD
+  sources retain their generated cursor contract and accept only generated
+  same-named list filter mappings. The page also accepts `description`, optional
+  `loading_label` and `error_title` request-state copy, positive `page_size`
+  (bounded by a positive CRUD maximum when present), `row_link`, labeled
+  `filter`/`sort`/`group` children, singleton `stats`, `row_detail`,
+  `row_action`, `export`, `toolbar`, `footer`, and `empty` blocks, plus repeated
+  `action` blocks opening `form_dialog` resources. Group declarations are valid
+  only for binding-backed complete-list pages; cursor-paginated CRUD and
+  numeric-page binding tables reject grouping. Each group names a row field, may
+  provide a label, leading section `order`, and one page-wide `default = true`,
+  and produces a runtime Group selector with None plus collapsible counted
+  sections. A stats source is a unit-input call-delivery HTTP binding with one
+  flat numeric/string result record; declared tiles render above the table.
+  Columns may use `appearance = "auto"|"text"|"number"|"datetime"|"badge"`,
+  badge columns may reference a `status_map`, column `hidden = true` keeps an
+  export-only field out of the grid, and `export = false` keeps a
+  display-only/custom field out of CSV. Filters and sorts must be allowlisted by
+  the selected source contract; generated string selectors require a status map
+  for finite options. `filter.hidden = true` preserves the typed query mapping
+  for an app toolbar but omits that filter from built-in selectors, the popover,
+  and chips; it cannot also be pinned. A toolbar defaults to `placement =
+  "header"`; `placement = "content"` renders it immediately above the table.
+  Filters and `empty` receive `TablePageResultContext`; `footer` receives it
+  below the table; toolbar context is optional before the first result. The
+  context contains rows, optional total/truncation metadata, optional typed
+  projected result metadata, filtered state, `isPlaceholderData`,
+  `isRefreshing`, the current query, and controls to set/clear one declared
+  enum-filter value, set search text, or refresh. Filter and search changes
+  reset pagination and row UI; refresh preserves query inputs. Loaded-row CSV is
+  UTF-8 with an Excel-compatible BOM, uses RFC 4180 line endings, leaves empty
+  cells empty unless overridden, hardens spreadsheet formulas, and expands
+  `{date}` from the local calendar. `row_detail.component` receives the exact
+  row type and defaults to `presentation = "inline"`; `presentation = "panel"`
+  opens a resizable right panel. Mutually exclusive `row_action.component`
+  receives `{row, onClose}` and owns selected-row workflow. `QueryTable` owns
+  controlled query state, cursor or numeric pagination, result count, export,
+  complete-list grouping, selection, and request state. Expansion produces the
+  ordinary page plus a built-in web renderer. `scenery schema scenery.table-page
+  -o json` is the authored grammar; `scenery compile --view expanded -o json`
+  exposes the derived resources.
 
 Generated table pages default to `scroll = "table"`, keeping controls fixed while the grid scrolls. `scroll = "page"` instead delegates vertical scrolling to the page so stats, controls, and rows move as one surface.
 
@@ -567,7 +862,34 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 - Standard auth endpoints appear in `scenery inspect routes|services|endpoints -o json` and generated TypeScript clients. Disabled capabilities are absent. Missing Google sign-in credentials produce an `auth` warning in `check`. Provider declarations carry permission allowlists and trusted endpoints; credentials/callbacks use `auth.connections.<id>.client_id`, `.client_secret`, `.callback_uri` in the authoritative environment store. `auth.token_cipher_key` is the base64 32-byte AES-GCM key; supported local JWT derivation retains the historical input. Existing connections require the [explicit coordinated cutover](runbooks/auth-connections-migration.md).
 - `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
 - Generated binaries accept `SCENERY_ROLE=all|api|worker`. `scenery up` uses the default combined role. `scenery worker` uses `worker`.
-- Native durable executions and schedules are declared in package `.scn` files and register through the generated application composition. Runtime startup requires `DATABASE_URL` and reconciles those declarations into the app Postgres database's `scenery` schema. Generated `all` and `worker` roles run one local acquisition loop per durable task, each running up to the task's `concurrency.limit` attempts at once (one without a limit), so a long attempt of one task never delays another task; the `api` role does not execute durable jobs; service views share one dedicated notification connection outside the ten-connection SQL query pool. An idle local acquisition loop sleeps until the store's Postgres notification (`scenery_durable_<service>`, sent when a job is queued, requeued or finished), the next known delayed retry/lease/timeout deadline, or a ten-second reconciliation fallback. Acquisition recovers expired jobs only for its task, retaining atomic SQL concurrency admission. A notification connection becoming ready wakes current observers to recheck transitions missed during setup/reconnect. A caller waiting for a result retains a one-second fallback. Observers release their subscription on every exit; notification delivery is a latency hint, not durable authority. A failed attempt records its reason with the handler's error text (at most 4 KiB), which `scenery worker durable jobs list|inspect` show; those commands and `token create` resolve the worktree's managed database like the `db` commands when no `sql.database_url` is configured. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. Remote-worker endpoints require bearer tokens stored only as hashes; a lease names its `task_name` and `worker_id`, and heartbeat/complete/fail are fenced with `worker_id` plus `lease_id`. `scenery inspect durable -o json` emits `scenery.inspect.durable` with native declarations, service schemas, and redacted app database metadata.
+- Native durable executions and schedules are declared in package `.scn` files
+  and register through the generated application composition. Runtime startup
+  requires `DATABASE_URL` and reconciles those declarations into the app
+  Postgres database's `scenery` schema. Generated `all` and `worker` roles run
+  one local acquisition loop per durable task, each running up to the task's
+  `concurrency.limit` attempts at once (one without a limit), so a long attempt
+  of one task never delays another task; the `api` role does not execute durable
+  jobs; service views share one dedicated notification connection outside the
+  ten-connection SQL query pool. An idle local acquisition loop sleeps until the
+  store's Postgres notification (`scenery_durable_<service>`, sent when a job is
+  queued, requeued or finished), the next known delayed retry/lease/timeout
+  deadline, or a ten-second reconciliation fallback. Acquisition recovers
+  expired jobs only for its task, retaining atomic SQL concurrency admission. A
+  notification connection becoming ready wakes current observers to recheck
+  transitions missed during setup/reconnect. A caller waiting for a result
+  retains a one-second fallback. Observers release their subscription on every
+  exit; notification delivery is a latency hint, not durable authority. A failed
+  attempt records its reason with the handler's error text (at most 4 KiB),
+  which `scenery worker durable jobs list|inspect` show; those commands and
+  `token create` resolve the worktree's managed database like the `db` commands
+  when no `sql.database_url` is configured. `durable.Step` persists local
+  handler step results by job/key and reuses succeeded results, while
+  `durable.Signal` appends a JSON signal row and event for a run. Remote-worker
+  endpoints require bearer tokens stored only as hashes; a lease names its
+  `task_name` and `worker_id`, and heartbeat/complete/fail are fenced with
+  `worker_id` plus `lease_id`. `scenery inspect durable -o json` emits
+  `scenery.inspect.durable` with native declarations, service schemas, and
+  redacted app database metadata.
 
 ## CLI Grammar
 
@@ -1371,7 +1693,43 @@ Command split:
 - The local agent's start is one phase: binding its listeners, starting its runtime backend and publishing its state in `<agent-home>/run/agent.json`; a failure anywhere in it, including the state write, is a failed start. A failed start is recorded in `<agent-home>/run/agent-start-incident.json` (`scenery.agent.start-incident`): one incident per executable and cause, with its `class`, redacted `cause`, `attempts`, `first_at` and `last_at`; only a complete start removes it. The launchd job and systemd unit run the agent with `--supervised`. A supervised agent contains a failing start instead of letting `KeepAlive`/`Restart=always` restart it forever: it never exits for a failed start. Unreadable retained agent state (`state`), another agent holding the lock (`owner`) and an unusable socket path (`configuration`) block at once; any other failure is retried in the same process after 1 s, doubling to at most 60 s, and blocks at its eighth attempt. The process counts its own attempts, continuing the recorded incident when it can read it, so containment holds even when the incident cannot be written. A blocked agent stays alive idle, holding no lock, address or socket, until `scenery system agent restart` starts it again; its retained state is never deleted or rewritten to make a start succeed. `scenery doctor` reports the incident as check `runtime.agent_start` (a blocked agent is an error) and `scenery ps` shows it first, as `local_agent_start` in JSON. Check `runtime.agent_supervisor` warns when an installed launchd job or systemd unit supervises the agent without `--supervised`, which `scenery system agent restart` corrects.
 - The local agent holds `<agent-home>/run/agent.lock` for its lifetime and never substitutes a random router port when its configured address is occupied. Right after acquiring the lock the agent records its own identity (PID, start time, executable and command fingerprint) in `<agent-home>/run/agent-owner.json` (`scenery.agent.owner`). When the control socket does not answer, agent startup and edge agent restarts may stop only the process that record names, and only while that live process still verifies against it; no command line, router address or port selects a process, so another agent home's agent is never touched, and a process still holding the lock or the router address fails startup with a named error. On Unix the managed Caddy child inherits `<agent-home>/run/edge.lock` for its lifetime; edge operations are serialized and stop only the Caddy PID recorded in edge state, and only while its start time equals the one recorded in `edge-target.json`. `scenery doctor` warns about duplicate owners and foreign listeners on the configured router and edge TCP/UDP ports.
 - Commands that ensure the local agent require its current health kind, schema revision, spec revision, and producer identity. Different CLI builds may share an agent with that exact contract; build age never triggers replacement. Incompatible or unreadable health fails without restarting the agent or changing sessions. Use a matching CLI, or a separate `SCENERY_AGENT_HOME` and explicitly distinct router address; machine-global DNS/privileged edge setup is not isolated by changing agent home. Explicit `scenery system agent restart` remains operator-controlled.
-- `scenery system edge dns install` resolves the managed `dnsmasq` toolchain artifact, syncing/building it automatically unless managed downloads are disabled, starts user-owned dnsmasq for the configured wildcard dev domain plus other Scenery-managed resolver domains already present on the machine, and on macOS invokes a privileged helper only when `/etc/resolver/<domain>` is missing or mismatched. `scenery system edge privileged install` installs the macOS root-owned loopback helper that listens on `127.0.0.1:443` and `[::1]:443` and forwards raw TCP only to a validated user-owned Caddy target recorded under the helper's configured agent run directory. Run it as the normal user; it invokes `sudo` only for the minimal helper install. `scenery system edge privileged uninstall` removes that helper. `scenery system edge install` and `scenery system edge restart` refuse root, start user-owned Caddy on an unprivileged high loopback port, ensure the local agent router is running as an unprivileged HTTP upstream on its internal loopback address, disable Caddy response buffering for streaming routes while preserving upstream cache headers, and write both edge state and helper target metadata under the current agent run directory; when a previously installed macOS privileged helper is bound to another agent home, Scenery also publishes the active Caddy target to that helper's configured metadata path because port `443` is machine-global. If wildcard DNS or the privileged helper is missing or unhealthy, install prepares Caddy but fails with the actionable setup command because browser-ready default-port HTTPS requires both. They resolve Caddy from the managed `caddy` toolchain artifact, syncing it automatically unless managed downloads are disabled. `scenery system edge trust` resolves the same managed Caddy artifact, starts a temporary admin-only Caddy process with `local_certs`, runs Caddy's trust flow against that temporary admin endpoint, and does not require the port-443 edge to be running. `scenery system edge status -o json` reports `scenery.edge.status`, including the privileged helper target metadata path, PID, stamped handoff `contract_revision`, and a loopback TLS probe through port 443: a launchd-running helper that accepts TCP but drops connections before TLS reaches Caddy — while Caddy answers TLS directly — is reported `unhealthy` with the reinstall command instead of `running`. `scenery system edge uninstall` stops user-owned Caddy, removes helper target metadata only when it still points at that Caddy, leaves DNS and the privileged helper alone, and reports `scenery system edge privileged uninstall` as the helper removal command.
+- `scenery system edge dns install` resolves the managed `dnsmasq` toolchain
+  artifact, syncing/building it automatically unless managed downloads are
+  disabled, starts user-owned dnsmasq for the configured wildcard dev domain
+  plus other Scenery-managed resolver domains already present on the machine,
+  and on macOS invokes a privileged helper only when `/etc/resolver/<domain>` is
+  missing or mismatched. `scenery system edge privileged install` installs the
+  macOS root-owned loopback helper that listens on `127.0.0.1:443` and
+  `[::1]:443` and forwards raw TCP only to a validated user-owned Caddy target
+  recorded under the helper's configured agent run directory. Run it as the
+  normal user; it invokes `sudo` only for the minimal helper install. `scenery
+  system edge privileged uninstall` removes that helper. `scenery system edge
+  install` and `scenery system edge restart` refuse root, start user-owned Caddy
+  on an unprivileged high loopback port, ensure the local agent router is
+  running as an unprivileged HTTP upstream on its internal loopback address,
+  disable Caddy response buffering for streaming routes while preserving
+  upstream cache headers, and write both edge state and helper target metadata
+  under the current agent run directory; when a previously installed macOS
+  privileged helper is bound to another agent home, Scenery also publishes the
+  active Caddy target to that helper's configured metadata path because port
+  `443` is machine-global. If wildcard DNS or the privileged helper is missing
+  or unhealthy, install prepares Caddy but fails with the actionable setup
+  command because browser-ready default-port HTTPS requires both. They resolve
+  Caddy from the managed `caddy` toolchain artifact, syncing it automatically
+  unless managed downloads are disabled. `scenery system edge trust` resolves
+  the same managed Caddy artifact, starts a temporary admin-only Caddy process
+  with `local_certs`, runs Caddy's trust flow against that temporary admin
+  endpoint, and does not require the port-443 edge to be running. `scenery
+  system edge status -o json` reports `scenery.edge.status`, including the
+  privileged helper target metadata path, PID, stamped handoff
+  `contract_revision`, and a loopback TLS probe through port 443: a
+  launchd-running helper that accepts TCP but drops connections before TLS
+  reaches Caddy — while Caddy answers TLS directly — is reported `unhealthy`
+  with the reinstall command instead of `running`. `scenery system edge
+  uninstall` stops user-owned Caddy, removes helper target metadata only when it
+  still points at that Caddy, leaves DNS and the privileged helper alone, and
+  reports `scenery system edge privileged uninstall` as the helper removal
+  command.
 - `scenery down` stops only the selected worktree's verified runtime children and managed PostgreSQL container, preserving retained SQL and worktree storage data. `--db` also drops its existing managed app database without deleting the cluster volume or allocating an absent database; external DSNs are refused. `--state` removes the selected disposable `.scenery/sessions/<id>` state, and `--all` enables both. JSON reports `scenery.down`. Neither flag deletes worktree storage data; namespace retirement requires `scenery storage cleanup --purge --yes --expect-revision <digest>` after a fresh preview.
 - `scenery prune --older-than <duration>` prunes eligible inactive worktree session records. Durations accept Go notation such as `336h` and day shorthand such as `14d`; a missing, malformed or non-positive duration is an invalid request that names the flag and an example, not an internal failure. Default prune deletes neither session files nor databases; `--state` adds disposable session files. `--db` requires one exact absolute `--app-root` and removes its entire verified retained cluster, container, and volume, not just the app database; `--all` enables both scopes. A live owner or active restore excludes cleanup. Explicit whole-cluster deletion may abandon an interrupted restore only after acquiring both ownership and operation locks; failed deletion retains the recovery authority. Incompatible, ambiguous, and external targets fail closed. Victoria history and retained storage namespaces remain outside prune. `scenery.prune.resources` identifies each removed root/resource/container/volume and the `worktree-cluster` scope.
 - `scenery prune --older-than <duration> --build-cache` additionally reclaims disposable build state and reports it under `scenery.prune.build_cache` (`null` without the flag; `build_cache_cleanup` records the request). It removes the development cache's private workspaces (`<cache>/build/<app>-<hash>`, see `SCENERY_DEV_CACHE_DIR`) whose recorded app root no longer exists, regardless of age, and those whose build state was last written before the cutoff; every preparation records its app root and name in the workspace's `.scenery-workspace.json`, so a workspace an older Scenery prepared is judged by age alone until its next build. A workspace whose `.scenery-workspace.lock` another process holds, or whose app root has a `running` or `unavailable` worktree runtime, is kept and reported as `locked` or `active`; shared content-addressed binaries and compositions are never touched. With an explicit `--app-root` the scope is that root only: its workspace, and under its `.scenery/framework/` every source snapshot, producer directory and interrupted staging directory that neither `.scenery/build/framework.json` nor `.scenery/build/runtime-framework.json` names, whatever its age. A selection file that exists but cannot be read fails the framework prune closed (exit 3), and a framework state root under preparation is reported `locked`. Each workspace and framework entry carries its path, size in bytes, whether it was removed and why; `bytes_reclaimed` sums the removals. Postgres, Victoria and session state stay under their own flags.
@@ -1385,12 +1743,99 @@ Command split:
 - In a process-model development session every service entrypoint whose linked identity changed is linked by stock `go build`, all such entrypoints of one build together under the host-wide fair link slot, and an entrypoint whose linked identity is unchanged reuses its retained executable; each linked entrypoint records a `build.artifact` build step with `linked_development_process_<entrypoint>`, and the build records `process.reuse` with the number of reused entrypoints as `actions` and the linked ones as `cache_misses`.
 - `scenery up` runs the process model: a process host plus one process per native service, each linked and replaced independently. Production builds link the same application into one executable. Each service process registers and, once its generation activates it, starts the event consumers, event emissions and schedules of its own operations; event delivery depends on a registered event bus. Every background attempt of a service process (an event delivery attempt, a scheduled run or a durable task attempt) is admitted, when it starts, to the newest published generation that includes that process, and its internal calls and their descendants stay in that generation as a forwarded request's do; the admission holds the generation until the attempt ends, so its retirement waits for the attempt unless the supervisor forces it. An attempt no published generation admits does not run and fails as `unavailable` (a durable attempt under its task's retry policy). An attempt whose admission ends first, because its host stopped (including a host replacement that keeps the attempt's process) or its generation's retirement was forced, is interrupted: its context is cancelled and it fails as `unavailable` with `delivery: unknown` under its work's retry policy, even when it returns success after noticing late; it never continues in a newer generation. Interruption is cooperative: cancellation asks the attempt to stop and does not prove that effects it already started did not happen. An application without a native service runs a host alone, which serves framework routes and unmatched requests itself as generation-bound answers with the application's SQL bindings, standard authentication and observability configuration.
 - A process-model rebuild replaces only the service processes whose linked identity changed, unless the environment the processes start with changed (for example a restarted worktree PostgreSQL container on a new port): then the host and every service process start again as a complete generation.
-- A service process's linked identity is its service contract revision, its service-process implementation revision, the build-input digest of its entrypoint's Go import closure and the Go target ([Go implementation](spec/go-implementation.md#17-revision-behavior)); the host's is the application contract revision with the target's implementation projection. A contract change therefore relinks only the host and the services whose contract projection or generated inputs changed. It replaces the host: the new host starts once its predecessor has exited, on the session's same private link, and takes over every running service instance whose linked identity is unchanged, which keeps its PID and its activated background work (an attempt that starts while no host serves is not admitted and fails as `unavailable`); only the other services start. Published generation numbers continue across host replacements and are never proposed twice in a session, including after a publication whose outcome is unknown and a rollback to the previous host. A service replacement whose publication outcome is unknown (neither its answer nor a bounded confirmation of the host's current generation arrived) keeps its candidate instances running and fails the build: the supervisor republishes the known services under a new number, and only after that succeeds retires the unconfirmed generation and stops its candidates, without another edit; while it cannot, the affected services report `degraded` with reason `publication outcome unknown`. Durable receipt authorizations and assistant run scopes are committed to journals in the session's private host state before the host acts on them, and every host incarnation replays them, so a receipt stays authorized for its principal across host replacement. A journal the host cannot append to, rewrite or fully decode before its last newline is poisoned: it authorizes no receipt and no run, the host reports its host state as `unavailable` in its generation status and logs a warning, the operation that failed to commit fails as `unavailable`, and an accepted durable execution whose authorization failed to commit is still reported as accepted, with a warning that its status and cancellation are unavailable. Bytes after a journal's last newline are an uncommitted torn record and are discarded. A host the supervisor is replacing first quiesces: it stops recording authority, so the host state it reports then is final, and it refuses the receipts and runs of requests that arrive afterwards as `unavailable`. Once it has stopped, the supervisor reuses its host state epoch only when that final report says the authority is intact and no poison marker is left; otherwise, including when the host did not report, the next incarnation starts a new, empty epoch, and the earlier epoch's receipts and runs are refused even when the poisoned host could neither mark nor remove its journal. A replaced epoch is removed only after the replacement commits, because a rollback restores the previous host. A service process whose retained executable and start environment already passed its runtime preflight in the session starts without another preflight, recorded as a `process.preflight` build step with cache `hit` and reason `retained_proof_<process>`. An assistant helper is prepared again only when its capability revision or its own definition changed, so a contract change outside its capabilities records an `assistant.stage` build step with cache `hit`.
+- A service process's linked identity is its service contract revision, its
+  service-process implementation revision, the build-input digest of its
+  entrypoint's Go import closure and the Go target ([Go
+  implementation](spec/go-implementation.md#17-revision-behavior)); the host's
+  is the application contract revision with the target's implementation
+  projection. A contract change therefore relinks only the host and the services
+  whose contract projection or generated inputs changed. It replaces the host:
+  the new host starts once its predecessor has exited, on the session's same
+  private link, and takes over every running service instance whose linked
+  identity is unchanged, which keeps its PID and its activated background work
+  (an attempt that starts while no host serves is not admitted and fails as
+  `unavailable`); only the other services start. Published generation numbers
+  continue across host replacements and are never proposed twice in a session,
+  including after a publication whose outcome is unknown and a rollback to the
+  previous host. A service replacement whose publication outcome is unknown
+  (neither its answer nor a bounded confirmation of the host's current
+  generation arrived) keeps its candidate instances running and fails the build:
+  the supervisor republishes the known services under a new number, and only
+  after that succeeds retires the unconfirmed generation and stops its
+  candidates, without another edit; while it cannot, the affected services
+  report `degraded` with reason `publication outcome unknown`. Durable receipt
+  authorizations and assistant run scopes are committed to journals in the
+  session's private host state before the host acts on them, and every host
+  incarnation replays them, so a receipt stays authorized for its principal
+  across host replacement. A journal the host cannot append to, rewrite or fully
+  decode before its last newline is poisoned: it authorizes no receipt and no
+  run, the host reports its host state as `unavailable` in its generation status
+  and logs a warning, the operation that failed to commit fails as
+  `unavailable`, and an accepted durable execution whose authorization failed to
+  commit is still reported as accepted, with a warning that its status and
+  cancellation are unavailable. Bytes after a journal's last newline are an
+  uncommitted torn record and are discarded. A host the supervisor is replacing
+  first quiesces: it stops recording authority, so the host state it reports
+  then is final, and it refuses the receipts and runs of requests that arrive
+  afterwards as `unavailable`. Once it has stopped, the supervisor reuses its
+  host state epoch only when that final report says the authority is intact and
+  no poison marker is left; otherwise, including when the host did not report,
+  the next incarnation starts a new, empty epoch, and the earlier epoch's
+  receipts and runs are refused even when the poisoned host could neither mark
+  nor remove its journal. A replaced epoch is removed only after the replacement
+  commits, because a rollback restores the previous host. A service process
+  whose retained executable and start environment already passed its runtime
+  preflight in the session starts without another preflight, recorded as a
+  `process.preflight` build step with cache `hit` and reason
+  `retained_proof_<process>`. An assistant helper is prepared again only when
+  its capability revision or its own definition changed, so a contract change
+  outside its capabilities records an `assistant.stage` build step with cache
+  `hit`.
 - In a process-model development session, `devdash.AppStatus` exposes `serviceProcesses`: one entry per service process with its name, PID, published generation, implementation revision and `running` or `degraded` state, and the agent session record names each live service process as `service-<label>`, the service process name as a label (for example `service-ahjs-ahjs`), beside `api` and the helper processes; each registration replaces every earlier service entry, so a replaced or stopped service process does not remain in the record. A service is `degraded` when its process stopped and exhausted its restart budget, or while its process serves but has not confirmed the activation of its background work; the second case reports a `reason` beginning with `background work activation unconfirmed`, and the supervisor repeats the activation until the process confirms it or stops being current. A service whose build lacks a capability its background work requires, such as an event consumer whose bus no provider registered, refuses the activation: it keeps serving, is `degraded` with a `reason` beginning with `background work unavailable: capability_unavailable:` and naming the missing capability, and the refusal is not repeated until a new build replaces the process. Control requests to one service process are serialized per process and never hold the process model while waiting, so an unresponsive service delays only its own control; once its background work is drained it is never activated again. Status and session registration read the last committed process-model state and never wait for an activation in progress. Both are absent for a single application process.
 - The direct agent router serves HTTP by default. Path-mode local dev uses the per-runtime localhost listener; only the selected env's successfully validated `domain` causes public app paths to redirect. Edge unreadiness leaves localhost content in place. Host mode (`envs.<name>.mode = "host"`) uses the managed `local.dev` edge/DNS path. Route and alias ownership, trusted edge headers, TLS issuance, and duplicate-session behavior remain exact-registry and fingerprint verified.
 - Reverse proxies rebuild forwarding headers after removing hop-by-hop headers. The agent preserves an incoming `X-Forwarded-For` chain only from an authenticated loopback edge request; other requests derive it from the connecting peer. Local backend proxies discard incoming forwarding chains. Backend URL, original request host, and route-prefix behavior are preserved.
 - Path-mode route manifests contain no dashboard route; `/runtime` and `/runtime/storage` reach the owning worktree's runtime control backend. There is no agent-disabled fallback runtime or global control backend owner for ordinary `up`.
-- `scenery up` exposes worktree-local observability through optional VictoriaMetrics, VictoriaLogs, and VictoriaTraces. Managed lifecycle checks verified owners, component reachability and exits, and serializes bounded recovery. The runtime control backend owns compact JSON runtime metadata and content-addressed app-model blobs; its runtime components submit mutations through the internal control endpoint. Read-only inspection does not create, migrate, or flush that state. App summaries expose `sessionStatus` and `sessionStatusReason` instead of treating stale/degraded ownership as running. Trace/report histories are exported to Victoria rather than duplicated in `devdash.json`. The current runtime report body is `{ "reports": [ReportEnvelope, ...], "dropped"?: uint64 }`, with 1–64 envelopes in array order and no legacy single-envelope decoder. The runtime cheaply refuses an already-full queue before touching or encoding the envelope. Otherwise it encodes each envelope before admission, limits it to 64 KiB, and bounds queued plus in-flight envelope bytes at 4 MiB and queued records at 1,024. It sends already queued envelopes together immediately, without a batching timer, within a 1 MiB request limit. Over-budget or full-queue admission drops are nonblocking; the next successful authenticated batch carries the dropped count (including failed batch records), so a process that never reports again cannot deliver its final drops. The runtime control backend authorizes every record before admitting any record, rejects unknown fields/trailing JSON and oversized records, refuses a batch body over 1 MiB with HTTP 413, and exports accepted reports through a bounded queue of 1,024 reports served by two workers, each sending the reports queued together as one OTLP request per signal with a 2 s deadline; a report arriving at a full queue is dropped, and drops and failed exports are counted in the dev-runtime `status`. Telemetry export never delays report intake or runtime control. Optional observability failure is visible but does not gate required serving readiness. Trace events await their summary in a buffer of at most 4,096 events with a 30-second TTL. Age is checked on buffer add/drain; removed event occurrences increment the separate status `observability.export.trace_buffer_dropped_events` count once each. This counter covers every app/session key in the owning dashboard server and lasts for that server lifetime; it is not a per-app or current-session count. Successful drains do not increment it. This event unit remains separate from existing `dropped` envelope/intake/job counts and `failed` report/signal counts; a trace summary plus its drained events remains one export job. Export transport success does not prove backend admission or stored delivery. In the pinned VictoriaTraces backend, an over-limit span row may be refused after successful request processing; its backend row-rejection counter has a separate unit from Scenery buffer event evictions and report/signal export failures.
+- `scenery up` exposes worktree-local observability through optional
+  VictoriaMetrics, VictoriaLogs, and VictoriaTraces. Managed lifecycle checks
+  verified owners, component reachability and exits, and serializes bounded
+  recovery. The runtime control backend owns compact JSON runtime metadata and
+  content-addressed app-model blobs; its runtime components submit mutations
+  through the internal control endpoint. Read-only inspection does not create,
+  migrate, or flush that state. App summaries expose `sessionStatus` and
+  `sessionStatusReason` instead of treating stale/degraded ownership as running.
+  Trace/report histories are exported to Victoria rather than duplicated in
+  `devdash.json`. The current runtime report body is `{ "reports":
+  [ReportEnvelope, ...], "dropped"?: uint64 }`, with 1–64 envelopes in array
+  order and no legacy single-envelope decoder. The runtime cheaply refuses an
+  already-full queue before touching or encoding the envelope. Otherwise it
+  encodes each envelope before admission, limits it to 64 KiB, and bounds queued
+  plus in-flight envelope bytes at 4 MiB and queued records at 1,024. It sends
+  already queued envelopes together immediately, without a batching timer,
+  within a 1 MiB request limit. Over-budget or full-queue admission drops are
+  nonblocking; the next successful authenticated batch carries the dropped count
+  (including failed batch records), so a process that never reports again cannot
+  deliver its final drops. The runtime control backend authorizes every record
+  before admitting any record, rejects unknown fields/trailing JSON and
+  oversized records, refuses a batch body over 1 MiB with HTTP 413, and exports
+  accepted reports through a bounded queue of 1,024 reports served by two
+  workers, each sending the reports queued together as one OTLP request per
+  signal with a 2 s deadline; a report arriving at a full queue is dropped, and
+  drops and failed exports are counted in the dev-runtime `status`. Telemetry
+  export never delays report intake or runtime control. Optional observability
+  failure is visible but does not gate required serving readiness. Trace events
+  await their summary in a buffer of at most 4,096 events with a 30-second TTL.
+  Age is checked on buffer add/drain; removed event occurrences increment the
+  separate status `observability.export.trace_buffer_dropped_events` count once
+  each. This counter covers every app/session key in the owning dashboard server
+  and lasts for that server lifetime; it is not a per-app or current-session
+  count. Successful drains do not increment it. This event unit remains separate
+  from existing `dropped` envelope/intake/job counts and `failed` report/signal
+  counts; a trace summary plus its drained events remains one export job. Export
+  transport success does not prove backend admission or stored delivery. In the
+  pinned VictoriaTraces backend, an over-limit span row may be refused after
+  successful request processing; its backend row-rejection counter has a
+  separate unit from Scenery buffer event evictions and report/signal export
+  failures.
 - The state home defaults to `~/.scenery` unless `SCENERY_AGENT_HOME` is set. `SCENERY_DEV_CACHE_DIR` does not relocate durable worktree ownership, credentials, or its private runtime metadata.
 - Frontend readiness records listener, representative root-route response and advertised same-origin script availability separately. Route/module responses must succeed after at most five same-origin redirects; an HTML module fallback is not ready. Relative script paths resolve from the final document URL. It does not prove transitive module imports, browser rendering, HMR application or interaction; those require browser evidence. Startup phase IDs and start timestamps are stable; overlapping phase times are not summed. Production frontend rebuilds pair `frontend.rebuild.start` with a terminal `frontend.rebuild.finish` operation ID, outcome and duration. Optional observability records `disabled`, `ready` or `degraded` collection health independently of required serving readiness.
 - `scenery telemetry export --app-root <root> --run <id> --include <file> --output <new.zip> -o json` collects selected immutable repository/application runs and transitive local evidence references, including normalized cases, raw JUnit/TAP/Go streams and confirmation outputs. With no exact IDs it selects at most 20 recent runs; `--limit` accepts 1–100. Latest navigation copies never enter the bundle. Explicitly include selected frontend logs, joined traces, benchmark summaries and external CI evidence. Files have SHA-256, bytes and purpose; missing/unreadable/oversized references set `ok:false` and an explicit missing reason while preserving available files. Limits are 32 MiB per file and 256 MiB total. Publish only a completed, closed archive through a same-filesystem no-replace hard link; the destination must still be absent at publication. Existing files and dangling symlinks, including a destination created after staging begins, are refused with SCN8003 / exit 3 and no internal report token. Hard-link errors return nonzero without a replacing-rename fallback or streaming a partial final archive; a generic filesystem error does not establish that no final name was created. Private staging removal is best effort on ordinary completion or refusal; crashes, cleanup failures and hostile parent-directory changes are outside this guarantee. Workspace symlinks are not followed, and the export is local.
@@ -1426,7 +1871,67 @@ Runtime safety:
 
 - Generated binaries do not expose dev/admin endpoints by default.
 - Dev/admin endpoints such as `/__scenery/config`, `/platform.Stats`, and `/debug/pprof/*` are enabled only for the development child process launched by `scenery up` or when `SCENERY_DEV_ENDPOINTS=1` is set explicitly.
-- Complete linked development runtimes add `X-Scenery-Contract-Revision`, `X-Scenery-Implementation-Revision`, `X-Scenery-Build-Input-Digest`, `X-Scenery-Go-Target`, and `X-Scenery-Process-ID` to HTTP responses, including errors. These identify the serving runtime's linked bundle, never a newer candidate file. The process host of `scenery up` answers every public request: its answers carry the runtime bundle of the build the serving generation was published from, which a single executable linked from the same inputs would carry, and the host's own PID (the session's `app_pid`); the host verified that the answering service instance belongs to that generation. `X-Scenery-Service-Process-ID` and `X-Scenery-Service-Implementation-Revision` name that instance, the latter with its service-process implementation revision. The host also answers its own application endpoints, such as assistant gateways; once a generation is published, such a request holds that generation until its answer ends, and the answer attests it. An assistant run executes its tool calls in the generation current when the host accepted the create or turn request that starts it; the host commits the run before the helper sees that request, and an approval continues its run without changing it. The generated helper runs a conversation's runs one at a time: a run is open from the moment its message reaches the provider until none of its turns runs and none of its approvals is pending, a later run is accepted and waits in the helper until then, and the run's terminal event is published when it closes, not when a turn parks for approval. Every assistant tool call names its run (`run_id` in the signed MCP assertion). The helper attributes a call to the run bound to the provider turn executing it, and binds a turn only by evidence in the provider's event stream (its received message equals the run's message, or it continues an approval of the open run); a turn without evidence gets no assertion, so its calls are refused and its events are not published. A call executes only its run's generation, so a queued, rejected or overlapping turn never redirects another run's calls. A run the helper rejected ends. A cancelled run executes nothing: a run still queued in the helper is never sent, a running turn is cancelled, a run parked on approval has its approvals denied, and a run the provider accepted but has not started yet is cancelled when its turn appears; from the accepted cancellation on, its tool calls are refused. A run whose start outcome is unknown keeps executing until the host observes its events; when it observes none for 30 seconds the run is revoked, which also ends the event read in progress: its calls are refused from then on, whether it started or had effects stays unknown, and it is neither treated as rejected nor started again. The host observes each run's terminal event from the helper's private event stream itself, so a run ends although no client streams, and releases its generation then. A run whose generation's retirement was forced, or that an earlier host incarnation started, is revoked. A tool call that names no run, or a run that is revoked, ended or unknown to the host, fails as `unavailable` and not sent; it never executes the current generation instead, and forgetting a run never makes its calls acceptable again. A session retains at most 4,096 runs: ended and revoked runs make room, and a run beyond the limit is refused. An event stream never selects a generation: it attests the generation of its conversation's latest accepted run while that run can execute (its own otherwise), so overlapping streams agree, and it ends without a failure event when a later run of the conversation is accepted in another generation or its attested generation's retirement is forced, so its client resumes from its cursor under the new attestation. A client that leaves stops the work the helper did for that stream and nothing else. All streams of a conversation read the helper's one normalized history; a stream ends after that history once the conversation has settled (no run is open or about to open, or the open run waits for an unanswered approval), and otherwise follows the conversation until it settles. Before a generation is published, host answers carry no identity. They are absent when dev endpoints are disabled or linked identity is incomplete. Compose the build-input digest with its verified runtime-bundle manifest to identify framework source and CLI executable inputs; a disk bundle alone is not served evidence.
+- Complete linked development runtimes add `X-Scenery-Contract-Revision`,
+  `X-Scenery-Implementation-Revision`, `X-Scenery-Build-Input-Digest`,
+  `X-Scenery-Go-Target`, and `X-Scenery-Process-ID` to HTTP responses, including
+  errors. These identify the serving runtime's linked bundle, never a newer
+  candidate file. The process host of `scenery up` answers every public request:
+  its answers carry the runtime bundle of the build the serving generation was
+  published from, which a single executable linked from the same inputs would
+  carry, and the host's own PID (the session's `app_pid`); the host verified
+  that the answering service instance belongs to that generation.
+  `X-Scenery-Service-Process-ID` and `X-Scenery-Service-Implementation-Revision`
+  name that instance, the latter with its service-process implementation
+  revision. The host also answers its own application endpoints, such as
+  assistant gateways; once a generation is published, such a request holds that
+  generation until its answer ends, and the answer attests it. An assistant run
+  executes its tool calls in the generation current when the host accepted the
+  create or turn request that starts it; the host commits the run before the
+  helper sees that request, and an approval continues its run without changing
+  it. The generated helper runs a conversation's runs one at a time: a run is
+  open from the moment its message reaches the provider until none of its turns
+  runs and none of its approvals is pending, a later run is accepted and waits
+  in the helper until then, and the run's terminal event is published when it
+  closes, not when a turn parks for approval. Every assistant tool call names
+  its run (`run_id` in the signed MCP assertion). The helper attributes a call
+  to the run bound to the provider turn executing it, and binds a turn only by
+  evidence in the provider's event stream (its received message equals the run's
+  message, or it continues an approval of the open run); a turn without evidence
+  gets no assertion, so its calls are refused and its events are not published.
+  A call executes only its run's generation, so a queued, rejected or
+  overlapping turn never redirects another run's calls. A run the helper
+  rejected ends. A cancelled run executes nothing: a run still queued in the
+  helper is never sent, a running turn is cancelled, a run parked on approval
+  has its approvals denied, and a run the provider accepted but has not started
+  yet is cancelled when its turn appears; from the accepted cancellation on, its
+  tool calls are refused. A run whose start outcome is unknown keeps executing
+  until the host observes its events; when it observes none for 30 seconds the
+  run is revoked, which also ends the event read in progress: its calls are
+  refused from then on, whether it started or had effects stays unknown, and it
+  is neither treated as rejected nor started again. The host observes each run's
+  terminal event from the helper's private event stream itself, so a run ends
+  although no client streams, and releases its generation then. A run whose
+  generation's retirement was forced, or that an earlier host incarnation
+  started, is revoked. A tool call that names no run, or a run that is revoked,
+  ended or unknown to the host, fails as `unavailable` and not sent; it never
+  executes the current generation instead, and forgetting a run never makes its
+  calls acceptable again. A session retains at most 4,096 runs: ended and
+  revoked runs make room, and a run beyond the limit is refused. An event stream
+  never selects a generation: it attests the generation of its conversation's
+  latest accepted run while that run can execute (its own otherwise), so
+  overlapping streams agree, and it ends without a failure event when a later
+  run of the conversation is accepted in another generation or its attested
+  generation's retirement is forced, so its client resumes from its cursor under
+  the new attestation. A client that leaves stops the work the helper did for
+  that stream and nothing else. All streams of a conversation read the helper's
+  one normalized history; a stream ends after that history once the conversation
+  has settled (no run is open or about to open, or the open run waits for an
+  unanswered approval), and otherwise follows the conversation until it settles.
+  Before a generation is published, host answers carry no identity. They are
+  absent when dev endpoints are disabled or linked identity is incomplete.
+  Compose the build-input digest with its verified runtime-bundle manifest to
+  identify framework source and CLI executable inputs; a disk bundle alone is
+  not served evidence.
 - When a raw HTTP endpoint fails before its handler writes a status, because authentication fails with an error that maps to HTTP 500 or the handler panics, the runtime answers the standard `system.internal` problem with the message `contract implementation failure`. The cause and the panic value reach only logs and traces; other authentication failures keep their `errs` or admission rendering.
 - Runtime CORS reflection is enabled in dev endpoint mode. Outside dev mode, CORS origins must be explicitly allowlisted with `SCENERY_CORS_ALLOW_ORIGINS`.
 - Build workspaces skip local secret and machine artifacts such as `.env`, `.env.*`, `.git`, `.scenery`, `node_modules`, `.DS_Store`, `__MACOSX`, and `coverage`.
@@ -2536,7 +3041,7 @@ Path-query output contains only applicable `AGENTS.md` scopes, the owning
 ExecPlans, related schemas, and applicable verification commands. A completed
 historical plan is omitted unless its own path is queried directly. Ordinary
 single-path queries are capped at eight documents and should remain below 10 KiB without text. Repeated `--for-path` accepts up to 16 paths, normalizes/sorts/deduplicates `query.for_paths`, and unions scopes, documents, sections and required commands; full supersedes quick. This is a union, not an eight-document cap across distinct paths.
-`--include-text` requires a path query and adds `query.include_text` and exact source `section.excerpt` objects; invalid UTF-8 sources are rejected rather than rewritten by JSON encoding. Each excerpt includes the whole-file SHA-256 `content_revision`, its actual included `end_line`, and `truncated`; text is bounded to 2,048 UTF-8 bytes per section / 8,192 across the response, stopping at complete lines. An oversized first line or exhausted budget yields empty text with an explicit truncated marker. Read the original span when the omitted contract matters. A directly queried document uses an empty anchor to mean the complete file span. Relevant active plans expose their `Resume here` section when present. Owned public TypeScript renderer paths select normative scalar/composite/record/API sections instead of unrelated runtime-keyword matches.
+`--include-text` requires a path query and adds `query.include_text` and exact source `section.excerpt` objects; invalid UTF-8 sources are rejected rather than rewritten by JSON encoding. Each excerpt includes the whole-file SHA-256 `content_revision`, its last complete included `end_line`, the exclusive source byte offset `end_byte` where the text stops, and `truncated`; text is bounded to 2,048 UTF-8 bytes per section / 8,192 across the response, stopping at complete lines. A first line longer than the section budget yields its leading text up to a UTF-8 (preferably word) boundary, so `end_byte` then lies inside line `end_line + 1`; only an exhausted response budget yields empty text. Continue from `end_byte` in the file whose digest equals `content_revision` when the omitted contract matters. A directly queried document uses an empty anchor to mean the complete file span. Relevant active plans expose their `Resume here` section when present. Owned public TypeScript renderer paths select normative scalar/composite/record/API sections instead of unrelated runtime-keyword matches.
 
 Routing and commands reuse self-harness changed-area logic. The command list
 is prospective for the queried path, not proof of execution or a classification
