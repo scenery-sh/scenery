@@ -122,6 +122,9 @@ func invokeContractCLIBinding(ctx context.Context, address string, input []byte)
 		auth:        AuthInfo{UID: "local:" + identity.Uid, Data: map[string]any{"local_developer": true, "username": identity.Username}},
 		logsEnabled: true, traceEnabled: true,
 	}
+	// A live call the process host forwarded is pinned to the generation it
+	// selected, and so are the internal calls the operation makes.
+	state.processGeneration, _ = ctx.Value(processGenerationKey{}).(uint64)
 	service, attributes := operationTraceIdentity(registration.Policy, "cli", nil)
 	ctx, end := beginOperationTrace(withState(ctx, state), "CLI", service, address, attributes)
 	defer finishOperation(end, &resultErr)

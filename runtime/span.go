@@ -52,6 +52,7 @@ func (applicationSpanStarter) StartApplicationSpan(ctx context.Context, name str
 		endpoint:     name,
 		started:      started,
 		requestType:  shared.InternalCall,
+		generation:   state.processGeneration,
 	}
 	clone := *state
 	clone.trace = child
@@ -119,6 +120,7 @@ func finishApplicationSpan(reporter *devReporter, span *traceSpan, err error) {
 			ServiceName:   span.service,
 			EndpointName:  optionalString(span.endpoint),
 			ParentSpanID:  optionalString(span.parentSpanID),
+			Generation:    span.generation,
 		},
 	})
 }

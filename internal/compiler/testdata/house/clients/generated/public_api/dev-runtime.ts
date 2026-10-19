@@ -40,6 +40,10 @@ export interface DevRuntimeTraceSpan {
  readonly src_file?: string;
  readonly src_line?: number;
  readonly caller_event_id?: number;
+ /** The application generation that served the span in a process-linked runtime. */
+ readonly generation?: number;
+ /** The build input digest of the service process that recorded the span. */
+ readonly build_input_digest?: string;
 }
 export interface DevRuntimeTraceEvent {
  readonly time: string;

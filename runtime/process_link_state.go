@@ -128,7 +128,7 @@ func enterProcessLinkedCall(ctx context.Context, invocation runtimeapi.Invocatio
 	}
 	state := &requestState{started: source.Started, request: request, auth: auth, invocation: token, logsEnabled: call.LogsEnabled, traceEnabled: call.TraceEnabled, processGeneration: call.Generation}
 	if call.TraceID != "" && call.SpanID != "" {
-		state.trace = &traceSpan{traceID: call.TraceID, spanID: call.SpanID, service: request.Service, endpoint: request.Endpoint, started: source.Started, requestType: request.Type}
+		state.trace = &traceSpan{traceID: call.TraceID, spanID: call.SpanID, service: request.Service, endpoint: request.Endpoint, started: source.Started, requestType: request.Type, generation: call.Generation}
 	}
 	return withState(ctx, state), enterState(state), nil
 }

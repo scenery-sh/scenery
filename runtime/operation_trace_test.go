@@ -169,3 +169,33 @@ func TestTraceParentRejectsMalformedIdentities(t *testing.T) {
 		}
 	}
 }
+
+func TestLiveCLITraceRecordsTheServingGeneration(t *testing.T) {
+	defer replaceGlobalRegistryForTest()()
+	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
+	defer setTestReporter(reporter)()
+	if err := RegisterContractCLIBinding(ContractCLIBindingRegistration{Address: "app/binding/cli", Command: []string{"probe"}, Invoke: func(ctx context.Context, _ []byte) (ContractCLIOutcome, error) {
+		TraceDBQueryEnd(TraceDBQueryStart(ctx, "SELECT 1", 0), "SELECT 1", 1, nil)
+		return ContractCLIOutcome{Kind: "result", Name: "ok", Payload: []byte(`{}`)}, nil
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(context.Background(), processGenerationKey{}, uint64(7))
+	_, invocation, err := invokeContractCLIBinding(ctx, "app/binding/cli", []byte(`{}`))
+	if err != nil || invocation == nil || invocation.TraceID == "" {
+		t.Fatalf("invocation = %+v, %v", invocation, err)
+	}
+	summaries := 0
+	for len(reporter.queue) > 0 {
+		report := decodeQueuedReport(t, <-reporter.queue)
+		if s := report.TraceSummary; s != nil {
+			summaries++
+			if s.Generation != 7 || s.TraceID != invocation.TraceID {
+				t.Fatalf("summary %s generation %d trace %s, want 7 and %s", s.Type, s.Generation, s.TraceID, invocation.TraceID)
+			}
+		}
+	}
+	if summaries != 2 {
+		t.Fatalf("summaries = %d, want the CLI root and its SQL child", summaries)
+	}
+}
