@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/build"
@@ -30,72 +31,54 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 		return false, nil
 	}
 	cli, _ := binding.Spec["cli"].(map[string]any)
-	remaining, output, help, err := parseCLIControlFlags(arguments[commandLength:])
+	control, err := parseCLIControlFlags(arguments[commandLength:])
 	if err != nil {
 		return true, err
 	}
-	if help {
-		if output == "json" {
+	if control.help {
+		if control.output == "json" {
 			return true, writeScopedHelpJSON(stdout, bindingHelpEntry(result.Manifest.Resources, binding))
 		}
 		writeCLIHelp(stdout, binding)
 		return true, nil
 	}
-	input, err := buildCLIInput(result.Manifest.Resources, binding, remaining)
+	input, err := buildCLIInput(result.Manifest.Resources, binding, control.remaining)
 	if err != nil {
 		return true, fmt.Errorf("invalid_request: %w", err)
 	}
-	request, err := os.CreateTemp("", ".scenery-contract-cli-*.json")
+	encodedInput, err := json.Marshal(input)
 	if err != nil {
 		return true, err
 	}
-	requestPath := request.Name()
-	defer func() { _ = os.Remove(requestPath) }()
-	if err = request.Chmod(0o600); err == nil {
-		var encodedInput []byte
-		encodedInput, err = json.Marshal(input)
-		if err == nil {
-			err = json.NewEncoder(request).Encode(sceneryruntime.ContractCLIRequest{
-				Kind: sceneryruntime.ContractCLIRequestKind, SchemaRevision: sceneryruntime.ContractCLIRequestSchemaRevision,
-				SpecRevision: result.Manifest.SpecRevision, Producer: cliProducer(), Binding: binding.Address, Input: encodedInput,
-			})
-		}
+	request := sceneryruntime.ContractCLIRequest{
+		Kind: sceneryruntime.ContractCLIRequestKind, SchemaRevision: sceneryruntime.ContractCLIRequestSchemaRevision,
+		SpecRevision: result.Manifest.SpecRevision, Producer: cliProducer(), Binding: binding.Address, Input: encodedInput,
 	}
-	if closeErr := request.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return true, err
-	}
-	built, err := build.AppForTarget(root, cfg, "")
-	if err != nil {
-		return true, err
-	}
-	command := exec.CommandContext(context.Background(), built.Binary, "--scenery-contract-cli-request", requestPath)
-	command.Dir = root
-	baseEnv := envpolicy.Environ()
-	storageEnv, err := storageCapabilityEnv(context.Background(), root, cfg, nil, baseEnv, "")
-	if err != nil {
-		return true, err
-	}
-	storageLease, err := storageTaskLease(context.Background(), storageEnv)
-	if err != nil {
-		return true, err
-	}
-	if storageLease != nil {
-		defer func() { _ = storageLease.Close() }()
-	}
-	command.Env = envWithOverrides(baseEnv, append(storageEnv, "SCENERY_APP_ID="+cfg.AppID(), "SCENERY_APP_ROOT="+root)...)
-	var responseBytes, processStderr bytes.Buffer
-	command.Stdout, command.Stderr = &responseBytes, &processStderr
-	if err := command.Run(); err != nil {
-		return true, fmt.Errorf("internal: contract CLI runtime failed: %w: %s", err, strings.TrimSpace(processStderr.String()))
-	}
+	execution := map[string]any{"mode": "standalone"}
 	var response sceneryruntime.ContractCLIResponse
-	decoder := json.NewDecoder(&responseBytes)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&response); err != nil || sceneryruntime.ValidateContractCLIResponse(response, result.Manifest.SpecRevision) != nil {
+	implementationRevision := any(nil)
+	if control.live {
+		live, err := invokeLiveBindingCLI(root, request)
+		if err != nil {
+			return true, err
+		}
+		response = live.Response
+		execution = map[string]any{"mode": "live", "generation": live.Generation, "process": live.Process, "contract_revision": live.ContractRevision, "implementation_revision": live.ImplementationRevision, "build_input_digest": live.BuildInputDigest}
+	} else {
+		standalone, revisions, err := invokeStandaloneBindingCLI(root, cfg, request)
+		if err != nil {
+			return true, err
+		}
+		response, implementationRevision = standalone, revisions
+	}
+	if err := sceneryruntime.ValidateContractCLIResponse(response, result.Manifest.SpecRevision); err != nil {
 		return true, fmt.Errorf("internal: invalid contract CLI runtime response")
+	}
+	if invocation := response.Invocation; invocation != nil {
+		execution["invocation_id"] = invocation.InvocationID
+		if invocation.TraceID != "" {
+			execution["trace_id"] = invocation.TraceID
+		}
 	}
 	if response.Problem != nil {
 		return true, &codedCLIError{err: fmt.Errorf("%s: %s", response.Problem.Code, response.Problem.Message), code: contractCLIProblemExit(response.Problem.Code)}
@@ -119,11 +102,11 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 	if err != nil {
 		return true, err
 	}
-	if output == "json" {
-		envelope := newCLIEnvelope(exit == 0, map[string]any{"binding": binding.Address, "outcome": condition, "value": payload}, nil)
+	if control.output == "json" {
+		envelope := newCLIEnvelope(exit == 0, map[string]any{"binding": binding.Address, "outcome": condition, "value": payload, "execution": execution}, nil)
 		envelope.WorkspaceRevision = result.WorkspaceRevision
 		envelope.ContractRevision = result.Manifest.ContractRevision
-		envelope.ImplementationRevision = built.ImplementationRevisions
+		envelope.ImplementationRevision = implementationRevision
 		err = json.NewEncoder(stdout).Encode(envelope)
 	} else if payload != nil {
 		stream := stdout
@@ -143,6 +126,82 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 		return true, &silentCLIError{err: fmt.Errorf("CLI outcome %s", condition), code: exit}
 	}
 	return true, nil
+}
+
+// invokeStandaloneBindingCLI builds the development target and runs the
+// request in a new application process.
+func invokeStandaloneBindingCLI(root string, cfg appcfg.Config, request sceneryruntime.ContractCLIRequest) (sceneryruntime.ContractCLIResponse, any, error) {
+	file, err := os.CreateTemp("", ".scenery-contract-cli-*.json")
+	if err != nil {
+		return sceneryruntime.ContractCLIResponse{}, nil, err
+	}
+	requestPath := file.Name()
+	defer func() { _ = os.Remove(requestPath) }()
+	if err = file.Chmod(0o600); err == nil {
+		err = json.NewEncoder(file).Encode(request)
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return sceneryruntime.ContractCLIResponse{}, nil, err
+	}
+	built, err := build.AppForTarget(root, cfg, "")
+	if err != nil {
+		return sceneryruntime.ContractCLIResponse{}, nil, err
+	}
+	command := exec.CommandContext(context.Background(), built.Binary, "--scenery-contract-cli-request", requestPath)
+	command.Dir = root
+	baseEnv := envpolicy.Environ()
+	storageEnv, err := storageCapabilityEnv(context.Background(), root, cfg, nil, baseEnv, "")
+	if err != nil {
+		return sceneryruntime.ContractCLIResponse{}, nil, err
+	}
+	storageLease, err := storageTaskLease(context.Background(), storageEnv)
+	if err != nil {
+		return sceneryruntime.ContractCLIResponse{}, nil, err
+	}
+	if storageLease != nil {
+		defer func() { _ = storageLease.Close() }()
+	}
+	command.Env = envWithOverrides(baseEnv, append(storageEnv, "SCENERY_APP_ID="+cfg.AppID(), "SCENERY_APP_ROOT="+root)...)
+	var responseBytes, processStderr bytes.Buffer
+	command.Stdout, command.Stderr = &responseBytes, &processStderr
+	if err := command.Run(); err != nil {
+		return sceneryruntime.ContractCLIResponse{}, nil, fmt.Errorf("internal: contract CLI runtime failed: %w: %s", err, strings.TrimSpace(processStderr.String()))
+	}
+	var response sceneryruntime.ContractCLIResponse
+	decoder := json.NewDecoder(&responseBytes)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&response); err != nil {
+		return sceneryruntime.ContractCLIResponse{}, nil, fmt.Errorf("internal: invalid contract CLI runtime response")
+	}
+	return response, built.ImplementationRevisions, nil
+}
+
+// invokeLiveBindingCLI waits until the running scenery up serves the source
+// as it is now, then runs the request in the binding's service process of the
+// serving generation.
+func invokeLiveBindingCLI(root string, request sceneryruntime.ContractCLIRequest) (runtimeLiveCLIResult, error) {
+	ctx := context.Background()
+	wait, err := waitForWorktreeSource(ctx, root, defaultSourceWaitTimeout)
+	if err != nil {
+		return runtimeLiveCLIResult{}, err
+	}
+	if !wait.OK {
+		detail := wait.CompileError
+		if wait.BuildBlock != nil {
+			detail = wait.BuildBlock.Cause
+		}
+		return runtimeLiveCLIResult{}, &codedCLIError{err: fmt.Errorf("failed_precondition: the running scenery up does not serve the current source (%s after %dms): %s", wait.Outcome, wait.WaitedMS, detail), code: 3}
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	var live runtimeLiveCLIResult
+	if err := worktreeRuntimeCall(callCtx, root, "cli/invoke", map[string]any{"request": request}, &live); err != nil {
+		return runtimeLiveCLIResult{}, err
+	}
+	return live, nil
 }
 
 func loadCLIBindings() (string, appcfg.Config, *compiler.Result, []graph.Resource, error) {
@@ -191,26 +250,36 @@ func matchCLICommand(bindings []graph.Resource, arguments []string) (graph.Resou
 	return matched, matchedLength
 }
 
-func parseCLIControlFlags(arguments []string) ([]string, string, bool, error) {
-	remaining := make([]string, 0, len(arguments))
-	output, help := "human", false
+// cliControlFlags are the Scenery-owned flags of an application CLI binding
+// invocation; the rest are the binding's own arguments.
+type cliControlFlags struct {
+	remaining []string
+	output    string
+	help      bool
+	live      bool
+}
+
+func parseCLIControlFlags(arguments []string) (cliControlFlags, error) {
+	control := cliControlFlags{remaining: make([]string, 0, len(arguments)), output: "human"}
 	for index := 0; index < len(arguments); index++ {
 		switch {
 		case arguments[index] == "--help" || arguments[index] == "-h":
-			help = true
+			control.help = true
+		case arguments[index] == "--live":
+			control.live = true
 		case arguments[index] == "-o" && index+1 < len(arguments):
 			index++
-			output = arguments[index]
+			control.output = arguments[index]
 		case strings.HasPrefix(arguments[index], "-o="):
-			output = strings.TrimPrefix(arguments[index], "-o=")
+			control.output = strings.TrimPrefix(arguments[index], "-o=")
 		default:
-			remaining = append(remaining, arguments[index])
+			control.remaining = append(control.remaining, arguments[index])
 		}
 	}
-	if output != "human" && output != "json" {
-		return nil, "", false, usageErrorf("unsupported output %q", output)
+	if control.output != "human" && control.output != "json" {
+		return cliControlFlags{}, usageErrorf("unsupported output %q", control.output)
 	}
-	return remaining, output, help, nil
+	return control, nil
 }
 
 func buildCLIInput(resources []graph.Resource, binding graph.Resource, arguments []string) (any, error) {

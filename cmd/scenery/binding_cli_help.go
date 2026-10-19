@@ -81,7 +81,7 @@ func bindingHelpEntry(resources []graph.Resource, binding graph.Resource) helpCo
 			usage += " [" + text + "]"
 		}
 	}
-	flags = append(flags, "-o human|json", "--help")
+	flags = append(flags, "--live", "-o human|json", "--help")
 	for _, outcome := range contractChildren(cli, "outcome") {
 		stream := "none"
 		if outcome["stdout"] != nil {
@@ -95,7 +95,8 @@ func bindingHelpEntry(resources []graph.Resource, binding graph.Resource) helpCo
 		Command:            command,
 		Group:              "Application",
 		Summary:            "Run application operation " + operation.Address + ".",
-		Usage:              []string{usage + " [-o human|json]"},
+		Usage:              []string{usage + " [--live] [-o human|json]"},
+		Notes:              []string{"`--live` waits until the running scenery up serves the source as it is now, then runs the operation in the serving generation instead of a new application process."},
 		Flags:              flags,
 		AppRootRequirement: "required",
 		ApplicationBinding: descriptor,

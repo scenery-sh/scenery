@@ -14,7 +14,7 @@
       "const": "scenery.contract-cli.response"
     },
     "schema_revision": {
-      "const": "sha256:42b3bc64a69833b0456dfaf6d4332fcad6a4eb208fed48b4723f17b1d3360198"
+      "const": "sha256:83fdacc3279a1aec536d13b8efcae59ceb8346126857991d494a857368cf9e01"
     },
     "spec_revision": {
       "type": "string",
@@ -37,8 +37,7 @@
         "name": {
           "type": "string"
         },
-        "payload": {
-        }
+        "payload": {}
       },
       "additionalProperties": false
     },
@@ -57,6 +56,23 @@
         }
       },
       "additionalProperties": false
+    },
+    "invocation": {
+      "type": "object",
+      "required": [
+        "invocation_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trace_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      }
     }
   },
   "additionalProperties": false

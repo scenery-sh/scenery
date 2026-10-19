@@ -82,7 +82,7 @@ func TestBindingHelpDescribesTheParserGrammarInTheHelpSchema(t *testing.T) {
 		},
 	}
 	entry := bindingHelpEntry([]graph.Resource{operation, record}, binding)
-	if entry.Command != "scene process" || entry.Usage[0] != "scenery scene process <scene_id> [--dry-run] [-o human|json]" {
+	if entry.Command != "scene process" || entry.Usage[0] != "scenery scene process <scene_id> [--dry-run] [--live] [-o human|json]" {
 		t.Fatalf("binding help = %#v", entry)
 	}
 	described := entry.ApplicationBinding
