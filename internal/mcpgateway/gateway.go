@@ -772,7 +772,8 @@ func failureProblem(err error) (string, string) {
 				return code, current.Error()
 			}
 		}
-		if typed, ok := current.(*errs.Error); ok && typed.Code != "" {
+		// The loop walks the chain itself so the outermost typed failure wins.
+		if typed, ok := current.(*errs.Error); ok && typed.Code != "" { //nolint:errorlint // inspects one chain link at a time
 			if typed.Code == errs.Internal || typed.Code == errs.Unknown {
 				break
 			}
