@@ -286,6 +286,10 @@ func traceSummaryFromVictoriaSpan(appID string, trace victoriaJaegerTrace, span 
 	if messageID := stringTag(tags, "scenery.message_id"); messageID != "" {
 		summary.MessageID = &messageID
 	}
+	if generation, err := strconv.ParseUint(stringTag(tags, "scenery.generation"), 10, 64); err == nil {
+		summary.Generation = generation
+	}
+	summary.BuildInputDigest = stringTag(tags, "scenery.build_input_digest")
 	for _, ref := range span.References {
 		if ref.SpanID != "" {
 			parent := ref.SpanID

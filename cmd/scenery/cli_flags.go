@@ -41,8 +41,15 @@ func flagBeforeWord(args []string, word string) error {
 func newCLIFlagSet(name string) *flag.FlagSet {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	if observeCLIFlagSet != nil {
+		observeCLIFlagSet(flags)
+	}
 	return flags
 }
+
+// observeCLIFlagSet lets the help drift test see the flag sets the real
+// parsers register. It is nil outside tests.
+var observeCLIFlagSet func(*flag.FlagSet)
 
 // parseCLIFlags keeps the CLI's existing interspersed-flag grammar while using
 // the standard library for flag values, aliases, booleans, and --flag=value.

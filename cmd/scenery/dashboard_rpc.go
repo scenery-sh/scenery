@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
+	sceneryruntime "scenery.sh/runtime"
 )
 
 // The development runtime RPC is the documented JSON-RPC 2.0 contract served
@@ -81,6 +82,43 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			result.Observability.Export.TraceBufferDroppedEvents = s.traces.droppedCount()
 		}
 		return result, nil
+	case "wait":
+		var params struct {
+			AppID     string `json:"app_id"`
+			TimeoutMS int64  `json:"timeout_ms"`
+		}
+		if err := decodeRuntimeParams(raw, &params); err != nil {
+			return nil, err
+		}
+		if params.TimeoutMS < 0 || params.TimeoutMS > maxSourceWaitTimeout.Milliseconds() {
+			return nil, fmt.Errorf("invalid params: timeout_ms must be between 0 and %d", maxSourceWaitTimeout.Milliseconds())
+		}
+		status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
+		if err != nil {
+			return nil, err
+		}
+		supervisor := s.servingSupervisorFor(status)
+		if supervisor == nil {
+			return nil, fmt.Errorf("the selected app is not served by this worktree's running scenery up")
+		}
+		return supervisor.waitForSourceSnapshot(ctx, time.Duration(params.TimeoutMS)*time.Millisecond)
+	case "cli/invoke":
+		var params struct {
+			AppID   string                            `json:"app_id"`
+			Request sceneryruntime.ContractCLIRequest `json:"request"`
+		}
+		if err := decodeRuntimeParams(raw, &params); err != nil {
+			return nil, err
+		}
+		status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
+		if err != nil {
+			return nil, err
+		}
+		supervisor := s.servingSupervisorFor(status)
+		if supervisor == nil {
+			return nil, fmt.Errorf("the selected app is not served by this worktree's running scenery up")
+		}
+		return supervisor.invokeLiveCLI(ctx, params.Request)
 	case "traces/clear":
 		var params struct {
 			AppID string `json:"app_id"`
@@ -258,4 +296,23 @@ func newRuntimeStatus(status devdash.AppStatus) runtimeStatus {
 
 func newRuntimeSignal(state devdash.ObservabilityBackendState) runtimeSignal {
 	return runtimeSignal{Enabled: state.Enabled, Available: state.Available, Status: state.Status, Message: state.Message}
+}
+
+// servingSupervisorFor returns the supervisor that serves status's app and
+// session, or nil when another process owns it.
+func (s *dashboardServer) servingSupervisorFor(status devdash.AppStatus) *devSupervisor {
+	if s.supervisor != nil && status.AppRoot == s.supervisor.root {
+		return s.supervisor
+	}
+	controller, ok := s.controller.(*agentDashboardController)
+	if !ok {
+		return nil
+	}
+	controller.servingMu.RLock()
+	supervisor := controller.servingSupervisor
+	controller.servingMu.RUnlock()
+	if supervisor == nil || status.AppRoot != supervisor.root || status.SessionID != supervisor.currentSessionID() {
+		return nil
+	}
+	return supervisor
 }

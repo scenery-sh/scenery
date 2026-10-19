@@ -42,8 +42,12 @@ type TraceSummary struct {
 	SrcLine        *uint32   `json:"src_line,omitempty"`
 	ParentSpanID   *string   `json:"parent_span_id,omitempty"`
 	CallerEventID  *uint64   `json:"caller_event_id,omitempty"`
-	AppID          string    `json:"-"`
-	TestTrace      bool      `json:"-"`
+	// Generation and BuildInputDigest identify the application generation
+	// that served the span in a process-linked development runtime.
+	Generation       uint64 `json:"generation,omitempty"`
+	BuildInputDigest string `json:"build_input_digest,omitempty"`
+	AppID            string `json:"-"`
+	TestTrace        bool   `json:"-"`
 }
 
 type TraceEvent struct {

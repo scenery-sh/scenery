@@ -28,7 +28,7 @@ func beginOperationTrace(ctx context.Context, kind, service, operation string, a
 	}
 	clone := *state
 	started := time.Now().UTC()
-	span := &traceSpan{traceID: newTraceID(), spanID: newSpanID(), spanType: kind, service: service, endpoint: operation, started: started, isRoot: true, requestType: state.request.Type}
+	span := &traceSpan{traceID: newTraceID(), spanID: newSpanID(), spanType: kind, service: service, endpoint: operation, started: started, isRoot: true, requestType: state.request.Type, generation: state.processGeneration}
 	if traceID, _, ok := parseTraceParent("00-" + state.request.TraceID + "-1111111111111111-01"); ok {
 		span.traceID = traceID
 	}
@@ -58,7 +58,7 @@ func beginOperationTrace(ctx context.Context, kind, service, operation string, a
 			ended := time.Now().UTC()
 			duration := uint64(max(0, ended.Sub(started)))
 			emitOperationEvent(reporter, span, ended, map[string]any{"span_end": map[string]any{"duration_nanos": duration, "status_code": statusCodeName(err), key: data, "error": traceError(err)}})
-			reporter.enqueue(devreport.ReportEnvelope{Type: "trace-summary", AppID: reporter.appID, TraceSummary: &devreport.TraceSummary{AppID: reporter.appID, TraceID: span.traceID, SpanID: span.spanID, Type: kind, IsRoot: span.isRoot, IsError: err != nil, StartedAt: started, DurationNanos: duration, ServiceName: service, EndpointName: optionalString(operation), ParentSpanID: optionalString(span.parentSpanID)}})
+			reporter.enqueue(devreport.ReportEnvelope{Type: "trace-summary", AppID: reporter.appID, TraceSummary: &devreport.TraceSummary{AppID: reporter.appID, TraceID: span.traceID, SpanID: span.spanID, Type: kind, IsRoot: span.isRoot, IsError: err != nil, StartedAt: started, DurationNanos: duration, ServiceName: service, EndpointName: optionalString(operation), ParentSpanID: optionalString(span.parentSpanID), Generation: span.generation}})
 		})
 	}
 }

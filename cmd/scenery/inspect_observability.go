@@ -85,6 +85,8 @@ type inspectTraceRecord struct {
 	StartedAt         string  `json:"started_at"`
 	DurationMS        float64 `json:"duration_ms"`
 	DurationNanos     uint64  `json:"duration_nanos"`
+	Generation        uint64  `json:"generation,omitempty"`
+	BuildInputDigest  string  `json:"build_input_digest,omitempty"`
 	ServiceCatalogURL string  `json:"service_catalog_url,omitempty"`
 }
 
@@ -363,18 +365,20 @@ func buildInspectTraceQueryRecord(appID string, opts inspectTraceQueryOptions) i
 
 func inspectTraceRecordFromSummary(summary *devdash.TraceSummary) inspectTraceRecord {
 	record := inspectTraceRecord{
-		TraceID:       summary.TraceID,
-		SpanID:        summary.SpanID,
-		SessionID:     summary.SessionID,
-		AppRootHash:   summary.AppRootHash,
-		Branch:        summary.Branch,
-		Worktree:      summary.Worktree,
-		Kind:          summary.Type,
-		Status:        "ok",
-		Service:       summary.ServiceName,
-		StartedAt:     summary.StartedAt.UTC().Format(time.RFC3339Nano),
-		DurationMS:    durationMS(summary.DurationNanos),
-		DurationNanos: summary.DurationNanos,
+		TraceID:          summary.TraceID,
+		SpanID:           summary.SpanID,
+		SessionID:        summary.SessionID,
+		AppRootHash:      summary.AppRootHash,
+		Branch:           summary.Branch,
+		Worktree:         summary.Worktree,
+		Kind:             summary.Type,
+		Status:           "ok",
+		Service:          summary.ServiceName,
+		StartedAt:        summary.StartedAt.UTC().Format(time.RFC3339Nano),
+		DurationMS:       durationMS(summary.DurationNanos),
+		DurationNanos:    summary.DurationNanos,
+		Generation:       summary.Generation,
+		BuildInputDigest: summary.BuildInputDigest,
 	}
 	if summary.IsError {
 		record.Status = "error"

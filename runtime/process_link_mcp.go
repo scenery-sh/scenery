@@ -88,6 +88,7 @@ func currentProcessBackground() processBackgroundLifecycle {
 func (s *server) registerProcessServiceRoutes() {
 	registerRoute(s.public, processMCPCallPath, []string{http.MethodPost}, s.handleProcessMCPCall)
 	registerRoute(s.public, processMCPDurablePath, []string{http.MethodPost}, s.handleProcessMCPDurable)
+	registerRoute(s.public, processCLICallPath, []string{http.MethodPost}, s.handleProcessCLICall)
 	registerRoute(s.public, processActivatePath, []string{http.MethodPost}, s.handleProcessActivate)
 	registerRoute(s.public, processDrainPath, []string{http.MethodPost}, s.handleProcessDrain)
 }

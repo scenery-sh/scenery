@@ -28,6 +28,9 @@ func ConfigWireJSON(value any, typeExpression string) ([]byte, error) {
 				return json.Marshal(text)
 			}
 		case "decimal":
+			if typeExpression == "float32" || typeExpression == "float64" {
+				return []byte(stringValue(scalar)), nil
+			}
 			return json.Marshal(stringValue(scalar))
 		case "duration":
 			duration, err := scenery.ParseDuration(stringValue(scalar["nanoseconds"]) + "ns")

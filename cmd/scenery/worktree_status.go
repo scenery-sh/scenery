@@ -31,6 +31,9 @@ func runWorktreeStatus(ctx context.Context, stdout io.Writer, args []string) err
 	if err != nil {
 		return err
 	}
+	if opts.Wait {
+		return runWorktreeSourceWait(ctx, stdout, opts)
+	}
 	for {
 		entries, err := inspectWorktreeOwners(ctx, opts.AppRoot)
 		if err != nil {

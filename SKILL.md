@@ -60,7 +60,9 @@ an unavailable procedure. Practical examples live in the
   pin change, a running `scenery up` prepares and hands off to the newly
   selected framework itself; do not kill it to upgrade.
 - Use `scenery up` for the live loop and another worktree for another code copy.
-  Discover URLs through `scenery ps -o json`. An incompatible owner is not
+  Discover URLs through `scenery ps -o json`; after an edit, `scenery ps --wait
+  -o json` returns once exactly that source is served, and an app CLI binding's
+  `--live` runs in that serving generation. An incompatible owner is not
   permission to replace a live runtime. Installation does not migrate apps/data.
 - Prefer `-o json` and `-o jsonl`. Check schema/spec revisions and producer
   identity, branch on stable `SCNxxxx` diagnostics, and resolve opaque source

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,20 +30,25 @@ type contractOptions struct {
 }
 
 func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) error {
+	const usage = "usage: scenery agent serve --stdio|--mcp [--app-root <path>]"
 	if len(args) == 0 || args[0] != "serve" {
-		return usageErrorf("usage: scenery agent serve --stdio [--app-root <path>]")
+		return usageErrorf(usage)
 	}
 	var appRoot string
-	var stdio bool
+	var stdio, mcpServer bool
 	flags := newCLIFlagSet("agent serve")
 	flags.BoolVar(&stdio, "stdio", false, "")
+	flags.BoolVar(&mcpServer, "mcp", false, "")
 	flags.StringVar(&appRoot, "app-root", "", "")
 	positionals, err := parseCLIFlags(flags, args[1:])
 	if err != nil {
 		return err
 	}
-	if !stdio || len(positionals) != 0 {
-		return usageErrorf("usage: scenery agent serve --stdio [--app-root <path>]")
+	if stdio == mcpServer || len(positionals) != 0 {
+		return usageErrorf(usage)
+	}
+	if mcpServer {
+		return runDevelopmentMCPServer(context.Background(), stdin, stdout, appRoot)
 	}
 	// Resolve the application root before accepting requests. The root is a
 	// process-owned boundary of this stdio server; it must not be selected or
@@ -62,6 +68,7 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 		CheckPredictedTypeScript:  generate.CheckPredictedTypeScriptClients,
 		CheckGenerated:            generate.ApplyImplementationCheck,
 	})
+	snapshots := newAgentServeSnapshots(root)
 	for scanner.Scan() {
 		var request contractagent.AgentRequest
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
@@ -70,7 +77,13 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 			}
 			continue
 		}
-		result, compileErr := compiler.Compile(root)
+		if !contractagent.MethodNeedsSnapshot(request.Method) {
+			if err := encoder.Encode(session.Handle(nil, request)); err != nil {
+				return err
+			}
+			continue
+		}
+		result, compileErr := snapshots.current()
 		if compileErr != nil {
 			return compileErr
 		}
@@ -79,6 +92,40 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 		}
 	}
 	return scanner.Err()
+}
+
+// agentServeSnapshots keeps the last compiled graph of an agent server and
+// reuses it while its captured sources are unchanged, so read-only requests do
+// not re-discover, re-parse and re-expand the application each time.
+type agentServeSnapshots struct {
+	root     string
+	compile  func(string) (*compiler.Result, error)
+	verify   func(*compiler.Result) (bool, error)
+	last     *compiler.Result
+	compiles int
+}
+
+func newAgentServeSnapshots(root string) *agentServeSnapshots {
+	return &agentServeSnapshots{root: root, compile: compiler.Compile, verify: compiler.SnapshotUnchanged}
+}
+
+func (s *agentServeSnapshots) current() (*compiler.Result, error) {
+	if s.last != nil {
+		unchanged, err := s.verify(s.last)
+		if err != nil {
+			return nil, err
+		}
+		if unchanged {
+			return s.last, nil
+		}
+	}
+	result, err := s.compile(s.root)
+	if err != nil {
+		return nil, err
+	}
+	s.last = result
+	s.compiles++
+	return result, nil
 }
 
 func runContractChanges(stdout io.Writer, args []string) error {

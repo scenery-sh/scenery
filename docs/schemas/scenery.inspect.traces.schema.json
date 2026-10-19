@@ -15,7 +15,7 @@
       "const": "scenery.inspect.traces"
     },
     "schema_revision": {
-      "const": "sha256:f3a83468f7bc3d018825b0536c47515a3d6e5e9d053a3e3442a6fa3a6a9bd816"
+      "const": "sha256:af813a0069ad6f07983cf15ba3c67300dd6952d41a4af67450ef45c3321723be"
     },
     "app": {
       "type": "object",
@@ -169,6 +169,14 @@
         },
         "duration_nanos": {
           "type": "integer"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "build_input_digest": {
+          "type": "string",
+          "minLength": 1
         },
         "service_catalog_url": {
           "type": "string"

@@ -89,6 +89,23 @@ func (e *ContractTransportError) Error() string {
 
 func (e *ContractTransportError) Unwrap() error { return e.Cause }
 
+// ProblemCode is the stable code a gateway reports for this failure.
+func (e *ContractTransportError) ProblemCode() string {
+	if e == nil {
+		return ""
+	}
+	switch e.Outcome {
+	case "transport.invalid_request", "transport.not_acceptable", "transport.unsupported_media_type":
+		return "invalid_argument"
+	case "transport.unauthenticated":
+		return "unauthenticated"
+	case "transport.forbidden", "transport.permission_denied":
+		return "permission_denied"
+	default:
+		return "internal_error"
+	}
+}
+
 func contractDiagnosticError(err error) error {
 	var transport *ContractTransportError
 	if errors.As(err, &transport) && transport.Outcome == "system.internal" && transport.Cause != nil {

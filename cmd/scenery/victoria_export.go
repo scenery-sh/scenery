@@ -291,6 +291,12 @@ func traceSummaryAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
 	if summary.MessageID != nil {
 		attrs = append(attrs, otlpAttribute{Key: "scenery.message_id", Value: *summary.MessageID})
 	}
+	if summary.Generation != 0 {
+		attrs = append(attrs, otlpAttribute{Key: "scenery.generation", Value: strconv.FormatUint(summary.Generation, 10)})
+	}
+	if summary.BuildInputDigest != "" {
+		attrs = append(attrs, otlpAttribute{Key: "scenery.build_input_digest", Value: summary.BuildInputDigest})
+	}
 	return attrs
 }
 

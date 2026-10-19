@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0220 Agent Contract Fidelity And Verified Change Loop](0220-agent-contract-fidelity.md)
+  - Status: active
+  - Owner: scenery mcp / cli / runtime
+  - Created: 2026-10-19
+  - Focus: MCP output schemas and problem codes that match real results, parser-checked machine help including application CLI bindings, compile-free repeated agent reads, bounded docs excerpts and resource pages, field descriptions and validated examples, waits for an exact served source snapshot and durable executions, and live CLI binding invocation with generation and trace identity.
+
 - [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md)
   - Status: active
   - Owner: scenery runtime / telemetry

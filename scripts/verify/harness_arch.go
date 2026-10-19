@@ -27,6 +27,7 @@ var allowedDirectGoDeps = map[string]string{
 	"github.com/jackc/pgx/v5":                "database/sql Postgres driver for the plan 0097 Postgres-only data platform",
 	"github.com/golang-jwt/jwt/v5":           "JWT signing and verification for standard auth",
 	"github.com/google/uuid":                 "UUID generation and parsing for standard auth database records",
+	"github.com/google/jsonschema-go":        "test-only JSON Schema validation of MCP results against advertised tool schemas; already required by the MCP go-sdk",
 	"github.com/gorilla/websocket":           "dashboard JSON-RPC websocket transport",
 	"github.com/hashicorp/hcl/v2":            "lossless .scn syntax parsing and deterministic source formatting",
 	"github.com/modelcontextprotocol/go-sdk": "private Streamable HTTP MCP gateway transport and protocol implementation",

@@ -139,6 +139,10 @@ func attachInspectDocsExcerpts(root string, documents []inspectDocsDocument) err
 		}
 		revision := fmt.Sprintf("sha256:%x", sha256.Sum256(data))
 		lines := strings.SplitAfter(string(data), "\n")
+		lineStarts := make([]int, len(lines)+1)
+		for n, line := range lines {
+			lineStarts[n+1] = lineStarts[n] + len(line)
+		}
 		if len(doc.Sections) == 0 {
 			doc.Sections = []inspectDocsSection{{Heading: doc.Title, Anchor: "", StartLine: 1, EndLine: len(lines)}}
 		}
@@ -150,16 +154,41 @@ func attachInspectDocsExcerpts(root string, documents []inspectDocsDocument) err
 			limit := min(remaining, maxInspectDocsExcerptBytes)
 			var text strings.Builder
 			end := section.StartLine - 1
+			endByte := lineStarts[end]
 			for n := section.StartLine - 1; n < section.EndLine; n++ {
 				if text.Len()+len(lines[n]) > limit {
+					if text.Len() == 0 {
+						// A line longer than the whole budget still yields its
+						// leading text; end_byte marks where the rest begins.
+						prefix := excerptLinePrefix(lines[n], limit)
+						text.WriteString(prefix)
+						endByte += len(prefix)
+					}
 					break
 				}
 				text.WriteString(lines[n])
 				end = n + 1
+				endByte = lineStarts[end]
 			}
-			section.Excerpt = &repoinfo.Excerpt{Text: text.String(), EndLine: end, Truncated: end < section.EndLine, ContentRevision: revision}
+			section.Excerpt = &repoinfo.Excerpt{Text: text.String(), EndLine: end, EndByte: endByte, Truncated: end < section.EndLine, ContentRevision: revision}
 			remaining -= text.Len()
 		}
 	}
 	return nil
+}
+
+// excerptLinePrefix returns the longest prefix of line within limit bytes that
+// ends on a UTF-8 boundary, preferring the last word boundary.
+func excerptLinePrefix(line string, limit int) string {
+	if len(line) <= limit {
+		return line
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(line[cut]) {
+		cut--
+	}
+	if space := strings.LastIndexByte(line[:cut], ' '); space > cut/2 {
+		cut = space + 1
+	}
+	return line[:cut]
 }
