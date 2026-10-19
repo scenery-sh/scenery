@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,20 +30,25 @@ type contractOptions struct {
 }
 
 func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) error {
+	const usage = "usage: scenery agent serve --stdio|--mcp [--app-root <path>]"
 	if len(args) == 0 || args[0] != "serve" {
-		return usageErrorf("usage: scenery agent serve --stdio [--app-root <path>]")
+		return usageErrorf(usage)
 	}
 	var appRoot string
-	var stdio bool
+	var stdio, mcpServer bool
 	flags := newCLIFlagSet("agent serve")
 	flags.BoolVar(&stdio, "stdio", false, "")
+	flags.BoolVar(&mcpServer, "mcp", false, "")
 	flags.StringVar(&appRoot, "app-root", "", "")
 	positionals, err := parseCLIFlags(flags, args[1:])
 	if err != nil {
 		return err
 	}
-	if !stdio || len(positionals) != 0 {
-		return usageErrorf("usage: scenery agent serve --stdio [--app-root <path>]")
+	if stdio == mcpServer || len(positionals) != 0 {
+		return usageErrorf(usage)
+	}
+	if mcpServer {
+		return runDevelopmentMCPServer(context.Background(), stdin, stdout, appRoot)
 	}
 	// Resolve the application root before accepting requests. The root is a
 	// process-owned boundary of this stdio server; it must not be selected or

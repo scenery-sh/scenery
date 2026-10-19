@@ -3730,6 +3730,10 @@ A CLI exposing agent read capabilities MUST provide:
 scenery agent serve --stdio
 ~~~
 
+A CLI MAY also expose its development runtime to MCP clients
+(`scenery agent serve --mcp`) through tools that reuse the CLI and development
+runtime handlers; such an adapter MUST NOT own or restart the runtime.
+
 Server mode keeps schemas and the graph cached, watches source revisions, and exposes the agent interface without changing its semantics. Before any
 mutation, the transport or launcher MUST establish a server-owned execution
 context containing the authenticated principal, app root, and granted
