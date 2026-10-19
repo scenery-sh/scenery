@@ -9,13 +9,16 @@ import (
 )
 
 // devRuntimeClientSource is the fixed development runtime RPC client. It does
-// not depend on the application graph; only the status schema revision it
-// verifies is substituted at generation time.
+// not depend on the application graph; only the status and wait schema
+// revisions it verifies are substituted at generation time.
 //
 //go:embed dev_runtime_client.ts
 var devRuntimeClientSource string
 
-const devRuntimeStatusRevisionPlaceholder = "{{dev_runtime_status_revision}}"
+const (
+	devRuntimeStatusRevisionPlaceholder = "{{dev_runtime_status_revision}}"
+	devRuntimeWaitRevisionPlaceholder   = "{{dev_runtime_wait_revision}}"
+)
 
 func typeScriptDevRuntimeEnabled(target Resource) bool {
 	enabled, _ := target.Spec["dev_runtime"].(bool)
@@ -27,6 +30,11 @@ func renderTypeScriptDevRuntimeFile(root string) generatedFile {
 	if !ok {
 		panic("missing scenery.dev-runtime.status schema revision")
 	}
+	waitRevision, ok := machine.PayloadSchemaRevision("scenery.dev-runtime.wait")
+	if !ok {
+		panic("missing scenery.dev-runtime.wait schema revision")
+	}
 	source := strings.Replace(devRuntimeClientSource, devRuntimeStatusRevisionPlaceholder, revision, 1)
+	source = strings.Replace(source, devRuntimeWaitRevisionPlaceholder, waitRevision, 1)
 	return generatedFile{Path: filepath.Join(root, "dev-runtime.ts"), Bytes: []byte(source)}
 }

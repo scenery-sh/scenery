@@ -2308,7 +2308,8 @@ Transport:
   the worktree's runtime control backend. A browser `Origin` must match the
   request host. Requests carry numeric or string `id`s; calls on one connection
   run concurrently, within the execution bounds below, and answer in
-  completion order. The server sends no notifications; clients poll `status`.
+  completion order. The server sends no notifications; clients poll `status`
+  or call `wait` to block until their edit serves.
 - Every method accepts one params object and rejects unknown params
   (`invalid params`); unknown methods answer `method not found`. Failures are
   JSON-RPC errors with code `-32000` and a message. Storage failures and the
@@ -2331,17 +2332,19 @@ Execution bounds:
 
 - Work calls are `postgres/tables`, `postgres/schema`, `postgres/rows`,
   `db/query` and every `storage/` method; they open the app's database or
-  storage. Every other call, including `status`, is a control call.
+  storage. `wait` is a wait call. Every other call, including `status`, is a
+  control call.
 - A connection runs at most 6 work calls at once and, in a separate allowance
   that work calls never use, 4 control calls, so `status` answers while slow
-  statements run. The runtime runs at most 12 work calls per `app_id` across
+  statements run. A third allowance runs at most 2 wait calls per connection.
+  The runtime runs at most 12 work calls per `app_id` across
   all its connections; an omitted `app_id` counts as the worktree's current
   session. A call holds its slot until its answer is written.
 - Admission never waits. A call beyond a limit is refused at once with
   `SCN8011`; nothing is queued, and a client retries after one of its calls
   completes.
-- Control calls have a 5 s deadline and work calls a 30 s deadline, counted
-  from admission. An expired call is cancelled and answers `SCN8012`, except
+- Control calls have a 5 s deadline, work calls a 30 s deadline and wait calls
+  a 125 s deadline that backs up their own `timeout_ms`, counted from admission. An expired call is cancelled and answers `SCN8012`, except
   that a storage failure describing a partial outcome, such as `SCN8010` with
   its progress, keeps its identity. Long-running statements belong in
   `scenery db shell`.
@@ -2374,6 +2377,7 @@ Methods:
 | Method | Params | Result |
 |---|---|---|
 | `status` | `app_id?` | `scenery.dev-runtime.status` ([schema](schemas/scenery.dev-runtime.status.schema.json)): session identity, `running`, `session_status`, `session_status_reason`, `compiling`, `compile_error`, optional `build_block` (`reason`, `cause`, `since`, `prevented_builds`) while builds are blocked, `pid`, optional `serving` publication identity, required `source_freshness`, `routes`, `service_processes` and optional `observability` readiness per signal with `export` loss evidence in distinct counting units (`dropped`: runtime admission/failed-batch drops reported by a later successful batch, reports rejected by intake byte limits, or reports arriving at a full export queue, where a trace summary plus its events is one job; `failed`: exports that failed, one per report and signal; `trace_buffer_dropped_events`: accepted waiting-buffer event occurrences removed by age or capacity across all app/session keys during the owning dashboard server lifetime, counted once on eviction and never on successful drain). It never contains the app model or substrate endpoints. |
+| `wait` | `app_id?`, `timeout_ms?` (default 30,000, maximum 120,000) | Captures the watched source as it is when the call arrives and waits for it. `outcome` is `served` (a generation built from exactly that snapshot serves; `serving` is its identity), `failed` (the build of that snapshot failed; `compile_error`), `blocked` (builds are blocked; `build_block`), `superseded` (a later edit changed the source first; `current_source_snapshot_digest`), `source_missing`, or `timeout`. Every result carries `target_source_snapshot_digest`, `source_freshness`, the latest `serving` identity when one exists, and `waited_ms`. A timeout ends only the wait: the build may still serve the target later. A newer generation of the same source counts as served; a generation number alone never does. |
 | `traces/list` | `app_id`, `since?` (RFC3339), `limit?` (default 100, maximum 500), `service?`, `endpoint?`, `status?` (`ok` or `error`) | `{traces: [...]}`: completed entrypoint summaries in the selected app's current session, newest first; the default window is 15 minutes. |
 | `traces/get` | `app_id`, `trace_id` (32 hexadecimal characters) | `{trace_id, spans: [...]}`: chronological spans with parent IDs and all recorded events, including normalized SQL. Unknown or out-of-scope traces return an empty `spans` array. |
 | `postgres/tables` | `app_id` | Array of `{schema, name, type, row_count?}`; `name` is `schema.table`, `type` is `table`, `view` or `materialized_view`, `row_count` is PostgreSQL's estimate. Lists non-system schemas and `scenery`, excluding `public`. |

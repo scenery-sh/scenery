@@ -188,9 +188,11 @@ func TestRuntimeRPCDocumentedLimitsAndCallClasses(t *testing.T) {
 	want := runtimeRPCLimits{
 		connectionWork:    6,
 		connectionControl: 4,
+		connectionWait:    2,
 		appWork:           12,
 		controlDeadline:   5 * time.Second,
 		workDeadline:      30 * time.Second,
+		waitDeadline:      125 * time.Second,
 		queryRows:         5000,
 		resultBytes:       4 * 1024 * 1024,
 	}
@@ -201,6 +203,7 @@ func TestRuntimeRPCDocumentedLimitsAndCallClasses(t *testing.T) {
 		"status": runtimeControlCall, "traces/clear": runtimeControlCall, "list-apps": runtimeControlCall,
 		"postgres/tables": runtimeWorkCall, "postgres/schema": runtimeWorkCall, "postgres/rows": runtimeWorkCall,
 		"db/query": runtimeWorkCall, "storage/inspect": runtimeWorkCall, "storage/delete-selection": runtimeWorkCall,
+		"wait": runtimeWaitCall,
 	} {
 		if got := runtimeCallClassOf(method); got != class {
 			t.Errorf("%s class = %s, want %s", method, got, class)
