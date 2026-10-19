@@ -911,6 +911,7 @@ scenery logs query [--app-root <path>] --query <logsql> [--since <duration>] [--
 scenery logs tail [--app-root <path>] --query <logsql> [--since <duration>] [--timeout <duration>] [--fields <csv>] [-o jsonl]
 scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 scenery ps [-o json] [--app-root <path>] [--watch]
+scenery ps --wait [--timeout <duration>] [--app-root <path>] [-o json]
 scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
 scenery prune --older-than <duration> [--app-root <path>] [--db] [--state] [--all] [--build-cache] [--preview] [-o json]
 scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
@@ -919,6 +920,14 @@ scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> 
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] -o json
 scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--follow] [-o jsonl]
 ```
+
+`ps --wait` asks the running `scenery up` session of the app root to wait
+until the source as it is now is served, through the development runtime RPC
+`wait` method, and prints its `scenery.dev-runtime.wait` result
+([schema](schemas/scenery.dev-runtime.wait.schema.json)). `--timeout` defaults
+to 30s and is at most 2m. The command exits 0 only for `served`; `failed`,
+`blocked`, `superseded`, `source_missing` and `timeout` exit 3 with `ok:
+false`. It requires exactly one running session for the root.
 
 `ps` reports `root_status`, `source_status`, `owner_status`,
 `metadata_status` and `source_freshness` independently. Its `serving` entries
