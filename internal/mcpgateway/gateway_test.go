@@ -253,8 +253,8 @@ func TestGatewayClientRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 6 { // four generated tools plus framework status/cancel
-		t.Fatalf("tool count = %d, want 6", len(tools.Tools))
+	if len(tools.Tools) != 7 { // four generated tools plus framework status/cancel/wait
+		t.Fatalf("tool count = %d, want 7", len(tools.Tools))
 	}
 
 	for _, test := range []struct {
@@ -631,7 +631,7 @@ func TestGatewayFederationMergesToolsAndPropagatesAssertionContext(t *testing.T)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	wantNames := []string{"docs__search", "enqueue", "read", mcpcontract.CancelToolName, mcpcontract.StatusToolName, "slow", "write"}
+	wantNames := []string{"docs__search", "enqueue", "read", mcpcontract.CancelToolName, mcpcontract.StatusToolName, mcpcontract.WaitToolName, "slow", "write"}
 	if len(tools.Tools) != len(wantNames) {
 		t.Fatalf("tool count=%d names=%#v", len(tools.Tools), tools.Tools)
 	}
@@ -639,7 +639,7 @@ func TestGatewayFederationMergesToolsAndPropagatesAssertionContext(t *testing.T)
 		if tools.Tools[index].Name != want {
 			t.Fatalf("tool[%d]=%q, want %q", index, tools.Tools[index].Name, want)
 		}
-		if tools.Tools[index].Annotations == nil && want != mcpcontract.CancelToolName && want != mcpcontract.StatusToolName {
+		if tools.Tools[index].Annotations == nil && !mcpcontract.IsFrameworkToolName(want) {
 			t.Fatalf("tool[%d]=%q has no policy annotations", index, want)
 		}
 	}

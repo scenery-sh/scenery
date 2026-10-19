@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -187,3 +188,70 @@ type transportFailure struct {
 func (f transportFailure) Error() string       { return "transport failure" }
 func (f transportFailure) Unwrap() error       { return f.cause }
 func (f transportFailure) ProblemCode() string { return f.code }
+
+// finishingDurable reports running until its status has been read finishAfter
+// times, then succeeded.
+type finishingDurable struct {
+	testDurable
+	finishAfter int
+	reads       int
+}
+
+func (d *finishingDurable) Status(_ context.Context, _ mcpcontract.ToolCallContext, id string) (json.RawMessage, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.reads++
+	if d.finishAfter > 0 && d.reads >= d.finishAfter {
+		return json.RawMessage(`{"execution_id":"` + id + `","state":"succeeded","outcome":{"done":true}}`), nil
+	}
+	return json.RawMessage(`{"execution_id":"` + id + `","state":"running"}`), nil
+}
+
+func TestGatewayDurableWaitEndsAtAFinalStateOrItsOwnTimeout(t *testing.T) {
+	previous := durableWaitPoll
+	durableWaitPoll = time.Millisecond
+	t.Cleanup(func() { durableWaitPoll = previous })
+	durable := &finishingDurable{finishAfter: 3}
+	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"}}
+	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Durable: durable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	session := connectTestClient(t, server.URL, "token")
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := advertisedSchema(t, tools.Tools, mcpcontract.WaitToolName)
+	call := func(arguments map[string]any) (*mcp.CallToolResult, map[string]any) {
+		t.Helper()
+		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: mcpcontract.WaitToolName, Arguments: arguments})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value := structured(t, result)
+		if err := schema.Validate(value); err != nil {
+			t.Fatalf("wait result does not match its advertised schema: %v\n%#v", err, value)
+		}
+		return result, value.(map[string]any)
+	}
+	_, finished := call(map[string]any{"execution_id": "job-1", "timeout_ms": 5000})
+	wait := finished["value"].(map[string]any)
+	if wait["final"] != true || wait["timed_out"] != false || wait["status"].(map[string]any)["state"] != "succeeded" {
+		t.Fatalf("finished wait = %#v", wait)
+	}
+	durable.mu.Lock()
+	durable.finishAfter = 0
+	durable.mu.Unlock()
+	_, pending := call(map[string]any{"execution_id": "job-2", "timeout_ms": 5})
+	wait = pending["value"].(map[string]any)
+	if wait["final"] != false || wait["timed_out"] != true || wait["status"].(map[string]any)["state"] != "running" {
+		t.Fatalf("timed-out wait = %#v", wait)
+	}
+	refused, invalid := call(map[string]any{"execution_id": "job-3", "timeout_ms": 999999})
+	if !refused.IsError || invalid["problem"].(map[string]any)["code"] != string(errs.InvalidArgument) {
+		t.Fatalf("oversized timeout = %#v", invalid)
+	}
+}

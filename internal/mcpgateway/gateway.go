@@ -333,7 +333,7 @@ func normalizeConfig(cfg *Config) error {
 		return fmt.Errorf("mcpgateway manifest: %w", err)
 	}
 	for _, capability := range cfg.Manifest.Capabilities {
-		if capability.Name == mcpcontract.StatusToolName || capability.Name == mcpcontract.CancelToolName {
+		if mcpcontract.IsFrameworkToolName(capability.Name) {
 			return fmt.Errorf("mcpgateway manifest reserves framework tool name %q", capability.Name)
 		}
 	}
@@ -620,6 +620,7 @@ func (g *gateway) federatedCapabilities(ctx context.Context, callCtx mcpcontract
 	}
 	localNames[mcpcontract.StatusToolName] = struct{}{}
 	localNames[mcpcontract.CancelToolName] = struct{}{}
+	localNames[mcpcontract.WaitToolName] = struct{}{}
 	seen := make(map[string]struct{}, len(capabilities))
 	visible := make([]mcpcontract.Capability, 0, len(capabilities))
 	for _, capability := range capabilities {
@@ -818,30 +819,65 @@ func hasDurableCapability(ctx context.Context, principal string, capabilities []
 }
 
 func (g *gateway) addFrameworkTools(server *mcp.Server) {
-	statusName := mcpcontract.StatusToolName
-	cancelName := mcpcontract.CancelToolName
-	schema := map[string]any{
-		"type":       "object",
-		"properties": map[string]any{"execution_id": map[string]any{"type": "string"}},
-		"required":   []any{"execution_id"},
+	input := map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{"execution_id": map[string]any{"type": "string"}},
+		"required":             []any{"execution_id"},
+		"additionalProperties": false,
 	}
-	server.AddTool(&mcp.Tool{Name: statusName, Description: "Read durable execution status", InputSchema: schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return g.frameworkCall(ctx, req, false)
+	waitInput := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"execution_id": map[string]any{"type": "string"},
+			"timeout_ms":   map[string]any{"type": "integer", "minimum": 0, "maximum": maxDurableWait.Milliseconds(), "description": "How long to wait; default 30000. A timeout ends only the wait."},
+		},
+		"required":             []any{"execution_id"},
+		"additionalProperties": false,
+	}
+	server.AddTool(&mcp.Tool{Name: mcpcontract.StatusToolName, Description: "Read durable execution status", InputSchema: input, OutputSchema: frameworkOutputSchema(executionStatusSchema())}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return g.frameworkCall(ctx, req, durableStatus)
 	})
-	server.AddTool(&mcp.Tool{Name: cancelName, Description: "Cancel durable execution", InputSchema: schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return g.frameworkCall(ctx, req, true)
+	server.AddTool(&mcp.Tool{Name: mcpcontract.CancelToolName, Description: "Cancel durable execution", InputSchema: input, OutputSchema: frameworkOutputSchema(executionCancelSchema())}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return g.frameworkCall(ctx, req, durableCancel)
+	})
+	server.AddTool(&mcp.Tool{Name: mcpcontract.WaitToolName, Description: "Wait until a durable execution reaches a final state, up to a bounded timeout", InputSchema: waitInput, OutputSchema: frameworkOutputSchema(executionWaitSchema())}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return g.frameworkCall(ctx, req, durableWait)
 	})
 }
 
-func (g *gateway) frameworkCall(ctx context.Context, req *mcp.CallToolRequest, cancel bool) (*mcp.CallToolResult, error) {
+type durableOperation int
+
+const (
+	durableStatus durableOperation = iota
+	durableCancel
+	durableWait
+)
+
+const (
+	defaultDurableWait = 30 * time.Second
+	maxDurableWait     = 120 * time.Second
+)
+
+// durableWaitPoll is how often a wait re-reads execution status.
+var durableWaitPoll = 200 * time.Millisecond
+
+func (g *gateway) frameworkCall(ctx context.Context, req *mcp.CallToolRequest, operation durableOperation) (*mcp.CallToolResult, error) {
 	if req == nil || req.Params == nil {
 		return nil, errors.New("missing execution parameters")
 	}
 	var input struct {
 		ExecutionID string `json:"execution_id"`
+		TimeoutMS   *int64 `json:"timeout_ms"`
 	}
 	if err := json.Unmarshal(req.Params.Arguments, &input); err != nil || input.ExecutionID == "" {
 		return errorToolResult(&errs.Error{Code: errs.InvalidArgument, Message: "execution_id is required"}), nil
+	}
+	timeout := defaultDurableWait
+	if input.TimeoutMS != nil {
+		if operation != durableWait || *input.TimeoutMS < 0 || *input.TimeoutMS > maxDurableWait.Milliseconds() {
+			return errorToolResult(&errs.Error{Code: errs.InvalidArgument, Message: fmt.Sprintf("timeout_ms must be between 0 and %d for %s", maxDurableWait.Milliseconds(), mcpcontract.WaitToolName)}), nil
+		}
+		timeout = time.Duration(*input.TimeoutMS) * time.Millisecond
 	}
 	callCtx, ok := ctx.Value(assertionContextKey).(mcpcontract.ToolCallContext)
 	if !ok {
@@ -852,9 +888,12 @@ func (g *gateway) frameworkCall(ctx context.Context, req *mcp.CallToolRequest, c
 		value json.RawMessage
 		err   error
 	)
-	if cancel {
+	switch operation {
+	case durableCancel:
 		value, err = g.cfg.Durable.Cancel(ctx, callCtx, input.ExecutionID)
-	} else {
+	case durableWait:
+		value, err = g.waitDurable(ctx, callCtx, input.ExecutionID, timeout)
+	default:
 		value, err = g.cfg.Durable.Status(ctx, callCtx, input.ExecutionID)
 	}
 	if err != nil {
@@ -865,6 +904,96 @@ func (g *gateway) frameworkCall(ctx context.Context, req *mcp.CallToolRequest, c
 		return errorToolResult(&errs.Error{Code: errs.ResourceExhausted, Message: "durable result exceeds configured limit"}), nil
 	}
 	return result, nil
+}
+
+// waitDurable re-reads an owned execution's status until it is final or the
+// timeout elapses. A timeout ends only this wait; it never claims that the
+// execution finished or was canceled.
+func (g *gateway) waitDurable(ctx context.Context, callCtx mcpcontract.ToolCallContext, executionID string, timeout time.Duration) (json.RawMessage, error) {
+	started := time.Now()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		status, err := g.cfg.Durable.Status(ctx, callCtx, executionID)
+		if err != nil {
+			return nil, err
+		}
+		var current mcpcontract.ExecutionStatus
+		if err := json.Unmarshal(status, &current); err != nil {
+			return nil, err
+		}
+		final := mcpcontract.TerminalExecutionState(current.State)
+		timedOut := false
+		if !final {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-deadline.C:
+				timedOut = true
+			case <-time.After(durableWaitPoll):
+				continue
+			}
+		}
+		return json.Marshal(mcpcontract.ExecutionWait{Status: status, Final: final, TimedOut: timedOut, WaitedMS: time.Since(started).Milliseconds()})
+	}
+}
+
+func frameworkOutputSchema(value map[string]any) map[string]any {
+	return map[string]any{"type": "object", "oneOf": []any{
+		map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]any{"outcome": map[string]any{"type": "string", "const": "completed"}, "value": value},
+			"required":   []any{"outcome", "value"},
+		},
+		map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]any{
+				"outcome": map[string]any{"type": "string", "const": mcpcontract.FailedOutcome},
+				"problem": map[string]any{
+					"type": "object", "additionalProperties": false,
+					"properties": map[string]any{"code": map[string]any{"type": "string"}, "message": map[string]any{"type": "string"}},
+					"required":   []any{"code", "message"},
+				},
+			},
+			"required": []any{"outcome", "problem"},
+		},
+	}}
+}
+
+func executionStatusSchema() map[string]any {
+	return map[string]any{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]any{
+			"execution_id": map[string]any{"type": "string"},
+			"state":        map[string]any{"type": "string", "description": "queued, running, succeeded, failed, canceled or skipped"},
+			"outcome":      map[string]any{"description": "The execution's result once it succeeded, or {error} once it failed"},
+		},
+		"required": []any{"execution_id", "state"},
+	}
+}
+
+func executionCancelSchema() map[string]any {
+	return map[string]any{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]any{
+			"execution_id": map[string]any{"type": "string"},
+			"state":        map[string]any{"type": "string", "const": "canceled"},
+		},
+		"required": []any{"execution_id", "state"},
+	}
+}
+
+func executionWaitSchema() map[string]any {
+	return map[string]any{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]any{
+			"status":    executionStatusSchema(),
+			"final":     map[string]any{"type": "boolean", "description": "The execution reached a final state"},
+			"timed_out": map[string]any{"type": "boolean", "description": "The wait ended before a final state; the execution continues"},
+			"waited_ms": map[string]any{"type": "integer", "minimum": 0},
+		},
+		"required": []any{"status", "final", "timed_out", "waited_ms"},
+	}
 }
 
 func newRequestID() string {

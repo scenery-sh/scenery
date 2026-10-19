@@ -1153,6 +1153,16 @@ Federated tools keep their remote output schema; the gateway relays the remote
 content blocks (text, images, resource links), structured content and error
 flag unchanged.
 
+When a principal can see a durable tool, the gateway also lists the framework
+tools `scenery_execution_status`, `scenery_execution_cancel` and
+`scenery_execution_wait`, each with an output schema. They accept the
+`execution_id` of a receipt the same principal accepted. `scenery_execution_wait`
+also accepts `timeout_ms` (default 30,000, at most 120,000) and re-reads the
+status until the state is final (`succeeded`, `failed`, `canceled` or
+`skipped`) or the timeout elapses; it answers `{status, final, timed_out,
+waited_ms}`. A timeout ends only the wait and never claims that the execution
+finished or was canceled.
+
 An `assistant` binds one MCP server to an authored implementation and a
 Scenery-owned public conversation surface. The supported source shape is:
 
