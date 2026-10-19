@@ -371,6 +371,19 @@ auth handler's `unavailable`, keep their own rendering.
 
 Native `protocol = "cli"` bindings execute directly as `scenery <declared command...>` from the app root. Command and flag names are lower-kebab-case, command paths are unique, and their first segment cannot collide with a built-in Scenery command. `--help`, `scenery completion <words...>`, human output, `-o json`, and exit codes are derived from the binding outcome map. `scenery help <declared command...> -o json` and `scenery <declared command...> --help -o json` return the ordinary `scenery.help` payload whose entry carries `application_binding`: the binding and operation addresses, the input type, each argument and flag with its position or short name, requiredness, target field and declared type, and every outcome with its exit code and output stream. Argument and flag values are decoded with the operation's declared type; required fields must be mapped exactly once. Scenery builds the declared development target, mints the local-developer principal from the OS user, injects only runtime-trusted context fields, runs authorization, and invokes call, wait, or enqueue delivery through the generated composition. Caller input cannot overwrite a context-mapped field.
 
+By default a binding invocation is standalone: it builds the development target
+and runs the request in a new application process. `--live` instead asks the
+app root's running `scenery up` session to wait until it serves the source as it
+is now (the RPC `wait`, at most 30s; any other outcome exits 3), then sends the
+same `scenery.contract-cli.request` through the RPC `cli/invoke` to the service
+process that owns the binding in the current generation. Both modes use the same
+input decoding, policy, outcome map and exit codes. The `-o json` data carries
+`execution`: `mode` (`standalone` or `live`), the runtime `invocation_id` and
+`trace_id` of the call, and for live calls the serving `generation`, `process`,
+`contract_revision`, `implementation_revision` and `build_input_digest`. A
+live call's `trace_id` selects its spans in `scenery traces list --trace-id` and
+the `traces/get` RPC of the same session.
+
 Fixtures are typed contract resources, not arbitrary SQL. Deployment projection includes only fixtures whose `environments` contain the selected deployment environment. `scenery db seed --env <environment>` uses the same selection and deterministically projects validated PostgreSQL `INSERT`/`ON CONFLICT` statements under `.scenery/fixtures/`; the ordinary seed ledger and destructive-SQL checks still apply.
 
 Generated durable executions may set `external_name` to preserve an existing durable-store task namespace; the name must be unique per engine. The execution `revision` is the persisted input/handler ABI revision. Reusing an external name with an incompatible serialized input requires a new revision and an explicit drain or migration of active jobs; startup reconciliation fails closed when active jobs remain at a different revision.
@@ -2350,8 +2363,8 @@ Transport:
 Execution bounds:
 
 - Work calls are `postgres/tables`, `postgres/schema`, `postgres/rows`,
-  `db/query` and every `storage/` method; they open the app's database or
-  storage. `wait` is a wait call. Every other call, including `status`, is a
+  `db/query`, `cli/invoke` and every `storage/` method; they open the app's
+  database or storage or run application code. `wait` is a wait call. Every other call, including `status`, is a
   control call.
 - A connection runs at most 6 work calls at once and, in a separate allowance
   that work calls never use, 4 control calls, so `status` answers while slow
@@ -2397,6 +2410,7 @@ Methods:
 |---|---|---|
 | `status` | `app_id?` | `scenery.dev-runtime.status` ([schema](schemas/scenery.dev-runtime.status.schema.json)): session identity, `running`, `session_status`, `session_status_reason`, `compiling`, `compile_error`, optional `build_block` (`reason`, `cause`, `since`, `prevented_builds`) while builds are blocked, `pid`, optional `serving` publication identity, required `source_freshness`, `routes`, `service_processes` and optional `observability` readiness per signal with `export` loss evidence in distinct counting units (`dropped`: runtime admission/failed-batch drops reported by a later successful batch, reports rejected by intake byte limits, or reports arriving at a full export queue, where a trace summary plus its events is one job; `failed`: exports that failed, one per report and signal; `trace_buffer_dropped_events`: accepted waiting-buffer event occurrences removed by age or capacity across all app/session keys during the owning dashboard server lifetime, counted once on eviction and never on successful drain). It never contains the app model or substrate endpoints. |
 | `wait` | `app_id?`, `timeout_ms?` (default 30,000, maximum 120,000) | Captures the watched source as it is when the call arrives and waits for it. `outcome` is `served` (a generation built from exactly that snapshot serves; `serving` is its identity), `failed` (the build of that snapshot failed; `compile_error`), `blocked` (builds are blocked; `build_block`), `superseded` (a later edit changed the source first; `current_source_snapshot_digest`), `source_missing`, or `timeout`. Every result carries `target_source_snapshot_digest`, `source_freshness`, the latest `serving` identity when one exists, and `waited_ms`. A timeout ends only the wait: the build may still serve the target later. A newer generation of the same source counts as served; a generation number alone never does. |
+| `cli/invoke` | `app_id?`, `request` (a `scenery.contract-cli.request`) | A work call. The process host serves the request in the service process that owns its binding in the current generation and answers `{response, generation, process, contract_revision, implementation_revision, build_input_digest}`, where `response` is the `scenery.contract-cli.response` with its `invocation` identity. An unknown binding fails `not_found`; a runtime without a process host fails `unavailable`. |
 | `traces/list` | `app_id`, `since?` (RFC3339), `limit?` (default 100, maximum 500), `service?`, `endpoint?`, `status?` (`ok` or `error`) | `{traces: [...]}`: completed entrypoint summaries in the selected app's current session, newest first; the default window is 15 minutes. |
 | `traces/get` | `app_id`, `trace_id` (32 hexadecimal characters) | `{trace_id, spans: [...]}`: chronological spans with parent IDs and all recorded events, including normalized SQL. Unknown or out-of-scope traces return an empty `spans` array. |
 | `postgres/tables` | `app_id` | Array of `{schema, name, type, row_count?}`; `name` is `schema.table`, `type` is `table`, `view` or `materialized_view`, `row_count` is PostgreSQL's estimate. Lists non-system schemas and `scenery`, excluding `public`. |

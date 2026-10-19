@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
+	sceneryruntime "scenery.sh/runtime"
 )
 
 // The development runtime RPC is the documented JSON-RPC 2.0 contract served
@@ -101,6 +102,23 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, fmt.Errorf("the selected app is not served by this worktree's running scenery up")
 		}
 		return supervisor.waitForSourceSnapshot(ctx, time.Duration(params.TimeoutMS)*time.Millisecond)
+	case "cli/invoke":
+		var params struct {
+			AppID   string                            `json:"app_id"`
+			Request sceneryruntime.ContractCLIRequest `json:"request"`
+		}
+		if err := decodeRuntimeParams(raw, &params); err != nil {
+			return nil, err
+		}
+		status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
+		if err != nil {
+			return nil, err
+		}
+		supervisor := s.servingSupervisorFor(status)
+		if supervisor == nil {
+			return nil, fmt.Errorf("the selected app is not served by this worktree's running scenery up")
+		}
+		return supervisor.invokeLiveCLI(ctx, params.Request)
 	case "traces/clear":
 		var params struct {
 			AppID string `json:"app_id"`
