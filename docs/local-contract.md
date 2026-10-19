@@ -37,7 +37,8 @@ scenery get <address> [--view source|effective|expanded] [-o human|json]
 scenery explain <address> [--view source|effective|expanded] [-o human|json]
 scenery diff --semantic <base-manifest-or-revision> <target-manifest-or-revision> [--view source|effective|expanded] [--rename-receipts <change-plan-or-receipt.json>] [--exit-code] [-o human|json]
 scenery graph <address> [--direction dependencies|dependents|both] [--depth <n>] [--max-resources <n>] [-o human|json]
-scenery agent serve [--app-root <path>]
+scenery agent serve --stdio [--app-root <path>]
+scenery agent serve --mcp [--app-root <path>]
 scenery changes plan --changes <file> --base-workspace-revision <rev> --base-contract-revision <rev|null> --out <plan> [-o human|json]
 scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev|null> [--approval-token <file>] [-o human|json]
 scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
@@ -52,6 +53,19 @@ scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-
 scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--measurement completion|startup]... [--since <duration>] [--limit <n>] [-o human|json]
 scenery telemetry report [--since <duration>] [--agent-transcripts] [-o human|json]
 ```
+
+`agent serve --stdio` serves the contract agent JSON-RPC interface; it reuses
+the last compiled graph while its captured sources are unchanged and answers
+`schema.get` without compiling the application. `agent serve --mcp` serves a
+development MCP adapter over stdio (newline-delimited JSON-RPC) for the app
+root's running `scenery up` session. Its tools call the same handlers as the CLI
+and the development runtime RPC: `runtime_status` (the `status` result),
+`runtime_wait` (the `wait` result), `bindings_list` (the application CLI
+bindings' `scenery.help` descriptors), `binding_invoke` (a `--live` binding
+call with its execution identity), `diagnostics` (compile diagnostics and
+revisions) and `trace_get` (the `traces/get` result). Failures set `isError`
+with `{problem: {code, message}}`. `scenery up` keeps owning the runtime
+lifecycle, so replacing service processes never ends the adapter's connection.
 
 `-o json` selects the singular `scenery.cli` envelope. It always carries `kind`, digest `schema_revision` and `spec_revision`, `producer`, `ok`, nullable graph revision fields, `data`, and ordered `diagnostics`; command-specific schemas describe `data`. `workspace_revision` and `contract_revision` are a canonical digest or null. `implementation_revision` and `deployment_revision` are a canonical digest, a target-to-digest object, or null; other JSON shapes fail decoding. `-o jsonl` emits `scenery.cli.event` envelopes with the same identity fields, monotonically increasing sequence numbers, an `event` discriminator, and one terminal summary event. Decoders accept only the exact current schema revision, which is the complete self-normalized digest of the matching checked JSON Schema. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
 

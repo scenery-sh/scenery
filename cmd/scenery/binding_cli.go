@@ -30,7 +30,6 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 	if binding.Address == "" {
 		return false, nil
 	}
-	cli, _ := binding.Spec["cli"].(map[string]any)
 	control, err := parseCLIControlFlags(arguments[commandLength:])
 	if err != nil {
 		return true, err
@@ -42,71 +41,16 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 		writeCLIHelp(stdout, binding)
 		return true, nil
 	}
-	input, err := buildCLIInput(result.Manifest.Resources, binding, control.remaining)
-	if err != nil {
-		return true, fmt.Errorf("invalid_request: %w", err)
-	}
-	encodedInput, err := json.Marshal(input)
+	run, err := executeBindingCLI(root, cfg, result, binding, control.remaining, control.live)
 	if err != nil {
 		return true, err
 	}
-	request := sceneryruntime.ContractCLIRequest{
-		Kind: sceneryruntime.ContractCLIRequestKind, SchemaRevision: sceneryruntime.ContractCLIRequestSchemaRevision,
-		SpecRevision: result.Manifest.SpecRevision, Producer: cliProducer(), Binding: binding.Address, Input: encodedInput,
-	}
-	execution := map[string]any{"mode": "standalone"}
-	var response sceneryruntime.ContractCLIResponse
-	implementationRevision := any(nil)
-	if control.live {
-		live, err := invokeLiveBindingCLI(root, request)
-		if err != nil {
-			return true, err
-		}
-		response = live.Response
-		execution = map[string]any{"mode": "live", "generation": live.Generation, "process": live.Process, "contract_revision": live.ContractRevision, "implementation_revision": live.ImplementationRevision, "build_input_digest": live.BuildInputDigest}
-	} else {
-		standalone, revisions, err := invokeStandaloneBindingCLI(root, cfg, request)
-		if err != nil {
-			return true, err
-		}
-		response, implementationRevision = standalone, revisions
-	}
-	if err := sceneryruntime.ValidateContractCLIResponse(response, result.Manifest.SpecRevision); err != nil {
-		return true, fmt.Errorf("internal: invalid contract CLI runtime response")
-	}
-	if invocation := response.Invocation; invocation != nil {
-		execution["invocation_id"] = invocation.InvocationID
-		if invocation.TraceID != "" {
-			execution["trace_id"] = invocation.TraceID
-		}
-	}
-	if response.Problem != nil {
-		return true, &codedCLIError{err: fmt.Errorf("%s: %s", response.Problem.Code, response.Problem.Message), code: contractCLIProblemExit(response.Problem.Code)}
-	}
-	if response.Outcome == nil {
-		return true, fmt.Errorf("internal: contract CLI runtime returned no outcome")
-	}
-	condition := response.Outcome.Kind + "." + response.Outcome.Name
-	var mapping map[string]any
-	for _, candidate := range contractChildren(cli, "outcome") {
-		if contractReference(candidate["when"]) == condition {
-			mapping = candidate
-			break
-		}
-	}
-	if mapping == nil {
-		return true, fmt.Errorf("internal: CLI outcome %s has no mapping", condition)
-	}
-	exit := contractInteger(mapping["exit"])
-	payload, err := selectCLIOutput(response.Outcome.Payload, condition, mapping)
-	if err != nil {
-		return true, err
-	}
+	condition, exit, payload, mapping := run.Condition, run.Exit, run.Value, run.mapping
 	if control.output == "json" {
-		envelope := newCLIEnvelope(exit == 0, map[string]any{"binding": binding.Address, "outcome": condition, "value": payload, "execution": execution}, nil)
+		envelope := newCLIEnvelope(exit == 0, map[string]any{"binding": binding.Address, "outcome": condition, "value": payload, "execution": run.Execution}, nil)
 		envelope.WorkspaceRevision = result.WorkspaceRevision
 		envelope.ContractRevision = result.Manifest.ContractRevision
-		envelope.ImplementationRevision = implementationRevision
+		envelope.ImplementationRevision = run.implementationRevision
 		err = json.NewEncoder(stdout).Encode(envelope)
 	} else if payload != nil {
 		stream := stdout
@@ -126,6 +70,84 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 		return true, &silentCLIError{err: fmt.Errorf("CLI outcome %s", condition), code: exit}
 	}
 	return true, nil
+}
+
+// bindingCLIRun is one executed application CLI binding: its outcome, the
+// exit code and output the binding maps it to, and the execution identity.
+type bindingCLIRun struct {
+	Binding   string         `json:"binding"`
+	Condition string         `json:"outcome"`
+	Exit      int            `json:"exit"`
+	Value     any            `json:"value"`
+	Execution map[string]any `json:"execution"`
+
+	mapping                map[string]any
+	implementationRevision any
+}
+
+// executeBindingCLI decodes arguments with the binding's declared grammar and
+// runs the request standalone or in the running runtime.
+func executeBindingCLI(root string, cfg appcfg.Config, result *compiler.Result, binding graph.Resource, arguments []string, live bool) (bindingCLIRun, error) {
+	cli, _ := binding.Spec["cli"].(map[string]any)
+	input, err := buildCLIInput(result.Manifest.Resources, binding, arguments)
+	if err != nil {
+		return bindingCLIRun{}, fmt.Errorf("invalid_request: %w", err)
+	}
+	encodedInput, err := json.Marshal(input)
+	if err != nil {
+		return bindingCLIRun{}, err
+	}
+	request := sceneryruntime.ContractCLIRequest{
+		Kind: sceneryruntime.ContractCLIRequestKind, SchemaRevision: sceneryruntime.ContractCLIRequestSchemaRevision,
+		SpecRevision: result.Manifest.SpecRevision, Producer: cliProducer(), Binding: binding.Address, Input: encodedInput,
+	}
+	run := bindingCLIRun{Binding: binding.Address, Execution: map[string]any{"mode": "standalone"}}
+	var response sceneryruntime.ContractCLIResponse
+	if live {
+		served, err := invokeLiveBindingCLI(root, request)
+		if err != nil {
+			return bindingCLIRun{}, err
+		}
+		response = served.Response
+		run.Execution = map[string]any{"mode": "live", "generation": served.Generation, "process": served.Process, "contract_revision": served.ContractRevision, "implementation_revision": served.ImplementationRevision, "build_input_digest": served.BuildInputDigest}
+	} else {
+		standalone, revisions, err := invokeStandaloneBindingCLI(root, cfg, request)
+		if err != nil {
+			return bindingCLIRun{}, err
+		}
+		response, run.implementationRevision = standalone, revisions
+	}
+	if err := sceneryruntime.ValidateContractCLIResponse(response, result.Manifest.SpecRevision); err != nil {
+		return bindingCLIRun{}, fmt.Errorf("internal: invalid contract CLI runtime response")
+	}
+	if invocation := response.Invocation; invocation != nil {
+		run.Execution["invocation_id"] = invocation.InvocationID
+		if invocation.TraceID != "" {
+			run.Execution["trace_id"] = invocation.TraceID
+		}
+	}
+	if response.Problem != nil {
+		return bindingCLIRun{}, &codedCLIError{err: fmt.Errorf("%s: %s", response.Problem.Code, response.Problem.Message), code: contractCLIProblemExit(response.Problem.Code)}
+	}
+	if response.Outcome == nil {
+		return bindingCLIRun{}, fmt.Errorf("internal: contract CLI runtime returned no outcome")
+	}
+	run.Condition = response.Outcome.Kind + "." + response.Outcome.Name
+	for _, candidate := range contractChildren(cli, "outcome") {
+		if contractReference(candidate["when"]) == run.Condition {
+			run.mapping = candidate
+			break
+		}
+	}
+	if run.mapping == nil {
+		return bindingCLIRun{}, fmt.Errorf("internal: CLI outcome %s has no mapping", run.Condition)
+	}
+	run.Exit = contractInteger(run.mapping["exit"])
+	run.Value, err = selectCLIOutput(response.Outcome.Payload, run.Condition, run.mapping)
+	if err != nil {
+		return bindingCLIRun{}, err
+	}
+	return run, nil
 }
 
 // invokeStandaloneBindingCLI builds the development target and runs the
@@ -205,7 +227,13 @@ func invokeLiveBindingCLI(root string, request sceneryruntime.ContractCLIRequest
 }
 
 func loadCLIBindings() (string, appcfg.Config, *compiler.Result, []graph.Resource, error) {
-	start, err := resolveAppRoot("")
+	return loadCLIBindingsAt("")
+}
+
+// loadCLIBindingsAt compiles the app at appRoot (or the working directory)
+// and returns its CLI bindings. An unresolvable root has no bindings.
+func loadCLIBindingsAt(appRoot string) (string, appcfg.Config, *compiler.Result, []graph.Resource, error) {
+	start, err := resolveAppRoot(appRoot)
 	if err != nil {
 		return "", appcfg.Config{}, nil, nil, nil
 	}
