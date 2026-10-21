@@ -26,6 +26,17 @@ optimize a number nothing can explain.
 
 ## Progress
 
+- [x] 2026-10-21: Decomposed the five largest `cmd/scenery` source files
+      (`dev_assistant_supervisor.go`, `watch.go`, `dev_console.go`,
+      `dev_frontends.go`, `deploy.go`) into cohesive focused units well below the
+      1,000-line warning limit (`dev_assistant_supervisor_lifecycle.go`,
+      `watch_fswatcher.go`, `dev_console_render.go`, `dev_frontends_command.go`,
+      `deploy_lifecycle.go`), bringing the largest non-test file in `cmd/scenery`
+      down to 862 lines (`help.go`). Tightened `cmd/scenery` test helper polling
+      intervals (`waitForAgentCommandPing`, `waitForSubstrateStatus`,
+      `TestWaitForEdgeDNSStartupDetectsProcessExitBehindExistingListener`,
+      `TestFollowAlreadyRunningDevSessionDetachesOnInterrupt`) from 20–25ms to
+      2ms / immediate cancellation.
 - [x] 2026-10-03: Reviewed current verifier timing policy and the archived
       default run `20261003T203259.538950000Z` during Plan 0210. Its cached Go
       suite took 7.463s against the unchanged advisory 5s budget. This is not a

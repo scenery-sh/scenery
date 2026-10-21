@@ -175,3 +175,58 @@ func TestCurrentPublishedReleaseRejectsEscapingSymlink(t *testing.T) {
 		t.Fatal("expected escape rejection")
 	}
 }
+
+func TestPublishFrontendArtifactExcludesDotfilesExceptWellKnown(t *testing.T) {
+	source := t.TempDir()
+	root := t.TempDir()
+	writePublishFixture(t, source, map[string]string{
+		"index.html":                      "<html>app</html>",
+		".hidden":                         "secret",
+		".env.production":                 "API_KEY=secret",
+		".git/config":                     "git-config",
+		"assets/.DS_Store":                "ds-store",
+		"assets/app-abc123.js":            "js",
+		".well-known/security.txt":        "Contact: mailto:sec@example.com",
+		".well-known/nested/asset.json":   "{}",
+		".well-known/.secret":             "hidden-in-well-known",
+		".well-known/nested/.hidden-file": "hidden-nested-in-well-known",
+		"nested/.well-known/security.txt": "nested-well-known-not-allowed",
+	})
+	record, err := PublishFrontendArtifact(PublishInput{
+		ArtifactsRoot: root,
+		AppID:         "app",
+		Frontend:      "web",
+		SourceDir:     source,
+		ReleaseID:     "r1",
+	})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if record.Files != 4 {
+		t.Fatalf("expected 4 published files (index.html, app-abc123.js, 2 .well-known files), got %d", record.Files)
+	}
+	for _, allowed := range []string{
+		"index.html",
+		"assets/app-abc123.js",
+		".well-known/security.txt",
+		".well-known/nested/asset.json",
+	} {
+		if _, err := os.Stat(filepath.Join(record.ReleaseDir, filepath.FromSlash(allowed))); err != nil {
+			t.Fatalf("expected %s to be published: %v", allowed, err)
+		}
+	}
+	for _, excluded := range []string{
+		".hidden",
+		".env.production",
+		".git",
+		"assets/.DS_Store",
+		".well-known/.secret",
+		".well-known/nested/.hidden-file",
+		"nested/.well-known",
+	} {
+		if _, err := os.Stat(filepath.Join(record.ReleaseDir, filepath.FromSlash(excluded))); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be excluded from published release, got err=%v", excluded, err)
+		}
+	}
+}
+

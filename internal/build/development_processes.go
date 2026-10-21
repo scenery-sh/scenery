@@ -342,21 +342,43 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 	if err != nil {
 		return err
 	}
-	for _, process := range pending {
-		output := filepath.Join(generation, filepath.Base(process.Package))
-		started := time.Now()
-		digest, size, err := developmentProcessFileDigest(output)
-		if err != nil {
-			return fmt.Errorf("development process %s was not linked: %w", process.Name, err)
+	type publishedArtifact struct {
+		started time.Time
+		elapsed time.Duration
+		digest  string
+		size    int64
+		err     error
+	}
+	artifacts := make([]publishedArtifact, len(pending))
+	var wg sync.WaitGroup
+	for index, process := range pending {
+		wg.Go(func() {
+			output := filepath.Join(generation, filepath.Base(process.Package))
+			started := time.Now()
+			digest, size, err := developmentProcessFileDigest(output)
+			if err != nil {
+				artifacts[index] = publishedArtifact{err: fmt.Errorf("development process %s was not linked: %w", process.Name, err)}
+				return
+			}
+			if err := os.Rename(output, process.Binary); err != nil {
+				artifacts[index] = publishedArtifact{err: err}
+				return
+			}
+			if err := publishDevelopmentProcessDigest(process.Binary, digest); err != nil {
+				artifacts[index] = publishedArtifact{err: err}
+				return
+			}
+			artifacts[index] = publishedArtifact{started: started, elapsed: time.Since(started), digest: digest, size: size}
+		})
+	}
+	wg.Wait()
+	for index, process := range pending {
+		artifact := artifacts[index]
+		if artifact.err != nil {
+			return artifact.err
 		}
-		if err := os.Rename(output, process.Binary); err != nil {
-			return err
-		}
-		if err := publishDevelopmentProcessDigest(process.Binary, digest); err != nil {
-			return err
-		}
-		process.ArtifactDigest = digest
-		RecordStep(ctx, Step{Name: "build.artifact", StartedAt: started, Duration: time.Since(started), Cache: "miss", Reason: "linked_development_process_" + process.Name, OK: true, ExecutableBytes: size})
+		process.ArtifactDigest = artifact.digest
+		RecordStep(ctx, Step{Name: "build.artifact", StartedAt: artifact.started, Duration: artifact.elapsed, Cache: "miss", Reason: "linked_development_process_" + process.Name, OK: true, ExecutableBytes: artifact.size})
 	}
 	return nil
 }
