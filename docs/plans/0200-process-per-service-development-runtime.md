@@ -32,6 +32,14 @@ compile the application graph as it needs.
 
 ## Progress
 
+- [x] (2026-10-21) Warm-edit critical-path reduction: lowered
+  `appStartupPollInterval` from `10ms` to `2ms` in `cmd/scenery/dev_supervisor.go`
+  for faster service/host unix-socket readiness detection, parallelized post-link
+  SHA-256 digest computation and `.sha256` sidecar publication across pending
+  processes in `internal/build/development_processes.go`, and added an in-memory
+  `retainedBinaryStamp` cache in `cmd/scenery/dev_app_binary.go` so unchanged
+  retained binaries under `<session>/run/app/scenery-app-<digest>` are not
+  re-read and re-hashed on every warm rebuild.
 - [x] (2026-09-15) Measured ONLV partition evidence: 48 Scenery packages with Go
   services; per-service executables link 213–314 ms versus 517–544 ms for the
   whole application; 82 percent of application Go files belong to exactly one

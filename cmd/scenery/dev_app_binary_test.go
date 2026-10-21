@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	localagent "scenery.sh/internal/agent"
 )
@@ -74,6 +75,10 @@ func TestSessionAppBinaryUsesValidatedProducerDigest(t *testing.T) {
 		t.Fatalf("retained executable of the same digest = %q, %v; want %q", again, err, path)
 	}
 	if err := os.WriteFile(path, []byte("tampered executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Add(time.Second)
+	if err := os.Chtimes(path, now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := prepareSessionAppBinary(&localagent.Session{StateRoot: filepath.Join(root, "session")}, source, hex.EncodeToString(sum[:])); err == nil {

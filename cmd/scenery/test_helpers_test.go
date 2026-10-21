@@ -375,7 +375,7 @@ func waitForAgentCommandPing(ctx context.Context, client *localagent.Client) err
 		} else {
 			lastErr = err
 		}
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	return lastErr
 }
@@ -496,7 +496,7 @@ func waitForSubstrateStatus(t *testing.T, ctx context.Context, client *localagen
 		} else {
 			lastErr = err
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatalf("substrate %s status = %+v err=%v, want %s", kind, last, lastErr, status)
 	return localagent.Substrate{}

@@ -194,16 +194,26 @@ func writePublicDomainSite(b *strings.Builder, site PublicDomainSite, opts Caddy
 }
 
 // staticFrontendBody renders the shared static file-serving pipeline: GET and
-// HEAD only, concrete files first, SPA index fallback only for extensionless
-// navigations, immutable caching for content-hashed /assets, and revalidation
-// everywhere else. Caddy's file_server keeps validators and byte ranges.
+// HEAD only, dot-segment blocking outside /.well-known, concrete files first,
+// SPA index fallback only for extensionless navigations outside /.well-known,
+// immutable caching for content-hashed /assets, and revalidation everywhere
+// else. Caddy's file_server keeps validators and byte ranges.
 func staticFrontendBody(frontend StaticFrontendRoute) string {
 	name := caddyMatcherLabel(frontend.Name)
 	return fmt.Sprintf(`		root * %s
 		@%s_method not method GET HEAD
 		respond @%s_method "method not allowed" 405
+		@%s_dot {
+			path_regexp /\.(?:[^/]+)(?:/|$)
+			not path /.well-known/*
+		}
+		respond @%s_dot 404
+		@%s_well_known_dot path_regexp ^/\.well-known/(?:.*/)?\.(?:[^/]+)(?:/|$)
+		respond @%s_well_known_dot 404
 		encode zstd gzip
 		@%s_fallback {
+			not path /.well-known /.well-known/*
+			not path_regexp /\.(?:[^/]+)(?:/|$)
 			not path_regexp \.[A-Za-z0-9]+$
 			not file
 		}
@@ -213,7 +223,7 @@ func staticFrontendBody(frontend StaticFrontendRoute) string {
 		@%s_revalidate not path /assets/*
 		header @%s_revalidate Cache-Control "no-cache"
 		file_server
-`, frontend.Root, name, name, name, name, name, name, name, name)
+`, frontend.Root, name, name, name, name, name, name, name, name, name, name, name, name)
 }
 
 func publicAgentProxy(upstream, token string) string {
