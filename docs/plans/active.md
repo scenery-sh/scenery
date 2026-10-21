@@ -11,13 +11,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery runtime / telemetry
   - Created: 2026-09-24
-  - Focus: supervisor job upgrades on restart and in-process bounded start retries for the local agent, telemetry report attribution that separates attempts, shell outcomes and Scenery's own outcomes with source coverage and streaming, and bounded report intake and export with counts in the dev-runtime `status`.
-
-- [0206 Bounded Development Runtime RPC Execution](0206-development-runtime-rpc-bounds.md)
-  - Status: active
-  - Owner: scenery runtime
-  - Created: 2026-09-24
-  - Focus: per-connection and per-app admission for the development runtime RPC with immediate `SCN8011` refusals, a reserved control allowance so `status` stays responsive, call deadlines (`SCN8012`), `db/query` and `postgres/rows` row/byte budgets (`SCN8013`), and disconnect cancellation that reaches PostgreSQL; real-PostgreSQL proof in the `worktree` probe.
+  - Focus: supervisor job upgrades on restart and in-process bounded start retries for the local agent, telemetry report attribution that separates attempts, shell outcomes and Scenery's own outcomes with source coverage and streaming, bounded report intake and export with counts in the dev-runtime `status`, bounded `telemetry.jsonl` archive rotation (`telemetry-archive/<timestamp>/telemetry.jsonl`), and foreground `scenery up` event log emission to `<worktree>/control/dev/<slug>.log`.
 
 - [0205 Environment-Only Application Configuration](0205-environment-configuration.md)
   - Status: active
@@ -30,12 +24,6 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: scenery runtime / build
   - Created: 2026-09-23
   - Focus: a running `scenery up` started by a prepared framework executable follows the app's `go.mod` selection: it prepares a changed framework while serving, then stops and continues as the new producer (exec in the foreground, detached relaunch otherwise); the generated `dev-runtime.ts` explains stale-runtime status mismatches.
-
-- [0202 Development Runtime RPC Contract And Console Removal](0202-development-runtime-rpc-contract.md)
-  - Status: active
-  - Owner: scenery runtime / generate
-  - Created: 2026-09-23
-  - Focus: remove the Scenery dashboard UI and harness, publish the development runtime RPC (`/runtime`, `/runtime/storage`) as a documented contract with an opt-in generated `dev-runtime.ts` client, and move runtime, database and storage tooling into ONLV NextNext's bottom panel.
 
 - [0200 Process-Per-Service Development Runtime](0200-process-per-service-development-runtime.md)
   - Status: active

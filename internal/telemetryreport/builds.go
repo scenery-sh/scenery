@@ -22,9 +22,8 @@ import (
 // stopped accepting every change.
 const failureStreakMinimum = 5
 
-// Builds aggregates the build requests recorded by development supervisors.
-// Only a supervisor started with --detach keeps its event stream in a log, so
-// foreground sessions are absent.
+// Builds aggregates the build requests recorded by development supervisors in
+// each worktree's rotating dev event logs.
 type Builds struct {
 	StartupPhases          []StepTiming `json:"startup_phases"`
 	PhaseBoundary          string       `json:"phase_boundary"`

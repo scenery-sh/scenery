@@ -202,7 +202,9 @@ func prunePublishReleases(frontendDir, currentReleaseID string) error {
 
 // copyPublishTree copies regular files and directories, rejecting symlinks and
 // special files so a published release can never reference paths outside its
-// own root. Files become world-readable for the unprivileged static server.
+// own root. Dotfiles and dot-directories are excluded except non-dotfile
+// entries beneath a top-level .well-known directory. Files become
+// world-readable for the unprivileged static server.
 func copyPublishTree(sourceDir, destDir string) (int, int64, error) {
 	files := 0
 	var total int64
@@ -216,6 +218,12 @@ func copyPublishTree(sourceDir, destDir string) (int, int64, error) {
 		}
 		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("build output path %s escapes the build root", path)
+		}
+		if rel != "." && shouldSkipPublishedRelPath(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		dest := filepath.Join(destDir, rel)
 		switch {
@@ -238,6 +246,20 @@ func copyPublishTree(sourceDir, destDir string) (int, int64, error) {
 		}
 	})
 	return files, total, err
+}
+
+func shouldSkipPublishedRelPath(rel string) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for i, part := range parts {
+		if !strings.HasPrefix(part, ".") {
+			continue
+		}
+		if i == 0 && part == ".well-known" {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func copyPublishFile(source, dest string, mode fs.FileMode) (int64, error) {

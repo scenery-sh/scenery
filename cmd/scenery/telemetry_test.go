@@ -466,3 +466,88 @@ func TestTelemetryPercentilesExcludeFastFailures(t *testing.T) {
 		t.Fatalf("summary = %+v", response.Summary)
 	}
 }
+
+func TestRecordCLITelemetryRotatesArchiveAndLoadReadsArchivedSegments(t *testing.T) {
+	home := t.TempDir()
+	agentHome := filepath.Join(home, ".scenery")
+	t.Setenv("HOME", home)
+	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	originalMax := cliTelemetryRotateMaxBytes
+	cliTelemetryRotateMaxBytes = 250
+	t.Cleanup(func() { cliTelemetryRotateMaxBytes = originalMax })
+
+	base := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	for i := range 4 {
+		recordCLITelemetry(cliTelemetryRecord{
+			InvocationID: fmt.Sprintf("inv-%d", i+1),
+			At:           base.Add(time.Duration(i) * time.Minute),
+			Command:      "check",
+			DurationMS:   int64(10 * (i + 1)),
+			ExitCode:     0,
+			Version:      "dev",
+			Mode:         "oneshot",
+		})
+	}
+
+	archives, err := filepath.Glob(filepath.Join(agentHome, "telemetry-archive", "*", "telemetry.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archives) == 0 {
+		t.Fatal("expected at least one rotated telemetry archive segment")
+	}
+
+	response, err := loadCLITelemetry(filepath.Join(agentHome, "telemetry.jsonl"), telemetryQueryOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Summary.Count != 4 || len(response.Records) != 4 {
+		t.Fatalf("expected 4 records across archive and active telemetry.jsonl, got summary=%+v records=%d", response.Summary, len(response.Records))
+	}
+	if response.Records[0].InvocationID != "inv-4" || response.Records[3].InvocationID != "inv-1" {
+		t.Fatalf("unexpected record order: %+v", response.Records)
+	}
+}
+
+func TestRunConsoleEventLogCapturesForegroundSupervisorEvents(t *testing.T) {
+	t.Parallel()
+	var humanOut, errOut, logOut bytes.Buffer
+	console := newRunConsole(&humanOut, &errOut, false, false, "example-app", "/workspace/example")
+	console.SetEventLog(&logOut)
+
+	if err := console.Phase("Prepare runtime", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	console.Banner(runURLs{API: "http://127.0.0.1:4100"})
+	console.RebuildDetected([]string{"app.scn"})
+	console.Finish(nil)
+
+	if !strings.Contains(humanOut.String(), "scenery development server running") {
+		t.Fatalf("expected human banner on stdout, got %q", humanOut.String())
+	}
+	lines := strings.Split(strings.TrimSpace(logOut.String()), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("expected 5 JSONL event lines in foreground eventLog, got %d:\n%s", len(lines), logOut.String())
+	}
+	var kinds []string
+	for _, line := range lines {
+		var envelope struct {
+			Event string `json:"event"`
+			Data  struct {
+				Type string `json:"type"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+			t.Fatalf("unmarshal event line %q: %v", line, err)
+		}
+		if envelope.Event == "summary" {
+			kinds = append(kinds, "summary")
+		} else {
+			kinds = append(kinds, envelope.Data.Type)
+		}
+	}
+	if got, want := strings.Join(kinds, ","), "phase.start,phase.finish,run.ready,rebuild.detected,summary"; got != want {
+		t.Fatalf("event sequence = %q, want %q", got, want)
+	}
+}
+

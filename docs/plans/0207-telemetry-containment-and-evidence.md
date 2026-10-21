@@ -73,15 +73,24 @@ capture instead of extending historical inference further.
       `golangci-lint run ./...` reported 0 issues; both fixture regenerations
       are stable; the new and changed test roots stay below 60 ms in repeated
       isolated runs.
-- [ ] Commit and review; ONLV adoption and native capture follow separately.
+- [x] 2026-10-21 Native CLI & foreground supervisor telemetry capture: added
+      4 MiB bounded rotation for `<agent-home>/telemetry.jsonl` into
+      `telemetry-archive/<timestamp>/telemetry.jsonl` (retaining up to 8 archive
+      bundles) in `cmd/scenery/telemetry.go` with chronological archive loading
+      in `cmd/scenery/telemetry_command.go`, and wired `runConsole`
+      (`cmd/scenery/console.go`, `cmd/scenery/watch.go`) to emit structured
+      `scenery.run.event` and `summary` envelopes to the worktree's rotating
+      supervisor log (`<worktree>/control/dev/<slug>.log`) during foreground
+      `scenery up` sessions.
+- [ ] ONLV adoption and live installed launchd agent restart (requires explicit user request).
 
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+Checkpoint 2026-10-21; summarizes recorded evidence, not a fresh runtime or remote-state check.
 
-- Current: Implementation and repository proof are recorded as complete; review/merge remains open.
-- Next: Recheck the current diff and merge status before closing; ONLV adoption/native capture are separate follow-ups.
+- Current: Implementation, repository proof, bounded `telemetry.jsonl` rotation, and foreground `scenery up` supervisor event logging are complete.
+- Next: ONLV adoption and live launchd agent restart remain separate follow-ups when explicitly requested.
 - Boundary: The installed launchd agent was not upgraded live. Restarting it still needs an explicit user request.
 - Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
 

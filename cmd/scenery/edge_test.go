@@ -371,7 +371,7 @@ func TestWaitForEdgeDNSStartupDetectsProcessExitBehindExistingListener(t *testin
 	}
 	exitCh := make(chan error, 1)
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 		exitCh <- os.ErrPermission
 	}()
 
