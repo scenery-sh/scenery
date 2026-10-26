@@ -148,7 +148,7 @@ export interface DevRuntimeSourceWait {
 	readonly schema_revision: string;
 	readonly ok: boolean;
 	readonly outcome: "served" | "failed" | "blocked" | "superseded" | "source_missing" | "timeout";
-	readonly target_source_snapshot_digest: string;
+	readonly target_source_snapshot_digest?: string;
 	/** Present for `superseded`: the source a later edit produced. */
 	readonly current_source_snapshot_digest?: string;
 	/** The serving generation's identity; for `served`, the one built from the target. */

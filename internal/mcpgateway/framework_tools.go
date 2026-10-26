@@ -109,31 +109,44 @@ func (g *gateway) frameworkCall(ctx context.Context, req *mcp.CallToolRequest, o
 // execution finished or was canceled.
 func (g *gateway) waitDurable(ctx context.Context, callCtx mcpcontract.ToolCallContext, executionID string, timeout time.Duration) (json.RawMessage, error) {
 	started := time.Now()
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var last json.RawMessage
+	finish := func(final bool) (json.RawMessage, error) {
+		return json.Marshal(mcpcontract.ExecutionWait{Status: last, Final: final, TimedOut: !final, WaitedMS: time.Since(started).Milliseconds()})
+	}
 	for {
-		status, err := g.cfg.Durable.Status(ctx, callCtx, executionID)
+		status, err := g.cfg.Durable.Status(waitCtx, callCtx, executionID)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if waitCtx.Err() != nil {
+				if len(last) > 0 {
+					return finish(false)
+				}
+				return nil, waitCtx.Err()
+			}
 			return nil, err
 		}
 		var current mcpcontract.ExecutionStatus
 		if err := json.Unmarshal(status, &current); err != nil {
 			return nil, err
 		}
-		final := mcpcontract.TerminalExecutionState(current.State)
-		timedOut := false
-		if !final {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-deadline.C:
-				timedOut = true
-			case <-time.After(durableWaitPoll):
-				continue
-			}
+		last = status
+		if mcpcontract.TerminalExecutionState(current.State) {
+			return finish(true)
 		}
-		return json.Marshal(mcpcontract.ExecutionWait{Status: status, Final: final, TimedOut: timedOut, WaitedMS: time.Since(started).Milliseconds()})
+		select {
+		case <-waitCtx.Done():
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return finish(false)
+		case <-time.After(durableWaitPoll):
+		}
 	}
+
 }
 
 func frameworkOutputSchema(value map[string]any) map[string]any {

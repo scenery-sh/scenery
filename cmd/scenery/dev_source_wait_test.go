@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -104,5 +106,35 @@ func TestSourceWaitResultsMatchTheCheckedSchema(t *testing.T) {
 	}
 	if !served.OK || failed.OK {
 		t.Fatalf("ok flags = served %t failed %t", served.OK, failed.OK)
+	}
+}
+
+func TestSourceWaitOmitsUncapturedTarget(t *testing.T) {
+	s, root := sourceWaitSupervisor(t)
+	if err := os.Remove(filepath.Join(root, "app.scn")); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.waitForSourceSnapshot(context.Background(), time.Second)
+	if err != nil || result.Outcome != "source_missing" {
+		t.Fatalf("missing source = %+v, %v", result, err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := fields["target_source_snapshot_digest"]; present {
+		t.Fatalf("uncaptured target = %s", encoded)
+	}
+	schemaPath := filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.dev-runtime.wait.schema.json")
+	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, result); len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	fields["target_source_snapshot_digest"] = ""
+	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, fields); len(diagnostics) == 0 {
+		t.Fatal("schema accepted an empty target digest")
 	}
 }

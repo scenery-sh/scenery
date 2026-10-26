@@ -390,7 +390,10 @@ and runs the request in a new application process. `--live` instead asks the
 app root's running `scenery up` session to wait until it serves the source as it
 is now (the RPC `wait`, at most 30s; any other outcome exits 3), then sends the
 same `scenery.contract-cli.request` through the RPC `cli/invoke` to the service
-process that owns the binding in the current generation. Both modes use the same
+process that owns the binding in the exact generation returned by `wait`. The
+call refuses a changed contract or a generation that has retired; it never
+substitutes a newer generation. `live` is a reserved binding flag name, and
+Scenery control flags are not consumed after `--`. Both modes use the same
 input decoding, policy, outcome map and exit codes. The `-o json` data carries
 `execution`: `mode` (`standalone` or `live`), the runtime `invocation_id` and
 `trace_id` of the call, and for live calls the serving `generation`, `process`,
@@ -1188,7 +1191,9 @@ also accepts `timeout_ms` (default 30,000, at most 120,000) and re-reads the
 status until the state is final (`succeeded`, `failed`, `canceled` or
 `skipped`) or the timeout elapses; it answers `{status, final, timed_out,
 waited_ms}`. A timeout ends only the wait and never claims that the execution
-finished or was canceled.
+finished or was canceled. The deadline also bounds each status read. If no
+status was obtained before it expires, the tool returns `deadline_exceeded`;
+otherwise the timed-out result carries the last observed status.
 
 An `assistant` binds one MCP server to an authored implementation and a
 Scenery-owned public conversation surface. The supported source shape is:
@@ -2423,8 +2428,8 @@ Methods:
 | Method | Params | Result |
 |---|---|---|
 | `status` | `app_id?` | `scenery.dev-runtime.status` ([schema](schemas/scenery.dev-runtime.status.schema.json)): session identity, `running`, `session_status`, `session_status_reason`, `compiling`, `compile_error`, optional `build_block` (`reason`, `cause`, `since`, `prevented_builds`) while builds are blocked, `pid`, optional `serving` publication identity, required `source_freshness`, `routes`, `service_processes` and optional `observability` readiness per signal with `export` loss evidence in distinct counting units (`dropped`: runtime admission/failed-batch drops reported by a later successful batch, reports rejected by intake byte limits, or reports arriving at a full export queue, where a trace summary plus its events is one job; `failed`: exports that failed, one per report and signal; `trace_buffer_dropped_events`: accepted waiting-buffer event occurrences removed by age or capacity across all app/session keys during the owning dashboard server lifetime, counted once on eviction and never on successful drain). It never contains the app model or substrate endpoints. |
-| `wait` | `app_id?`, `timeout_ms?` (default 30,000, maximum 120,000) | Captures the watched source as it is when the call arrives and waits for it. `outcome` is `served` (a generation built from exactly that snapshot serves; `serving` is its identity), `failed` (the build of that snapshot failed; `compile_error`), `blocked` (builds are blocked; `build_block`), `superseded` (a later edit changed the source first; `current_source_snapshot_digest`), `source_missing`, or `timeout`. Every result carries `target_source_snapshot_digest`, `source_freshness`, the latest `serving` identity when one exists, and `waited_ms`. A timeout ends only the wait: the build may still serve the target later. A newer generation of the same source counts as served; a generation number alone never does. |
-| `cli/invoke` | `app_id?`, `request` (a `scenery.contract-cli.request`) | A work call. The process host serves the request in the service process that owns its binding in the current generation and answers `{response, generation, process, contract_revision, implementation_revision, build_input_digest}`, where `response` is the `scenery.contract-cli.response` with its `invocation` identity. An unknown binding fails `not_found`; a runtime without a process host fails `unavailable`. |
+| `wait` | `app_id?`, `timeout_ms?` (default 30,000, maximum 120,000) | Captures the watched source as it is when the call arrives and waits for it. `outcome` is `served` (a generation built from exactly that snapshot serves; `serving` is its identity), `failed` (the build of that snapshot failed; `compile_error`), `blocked` (builds are blocked; `build_block`), `superseded` (a later edit changed the source first; `current_source_snapshot_digest`), `source_missing`, or `timeout`. `target_source_snapshot_digest` is present only after a source snapshot was captured; it is absent for an initially missing source or a timeout during a workspace transaction. Every result carries `source_freshness`, the latest `serving` identity when one exists, and `waited_ms`. A timeout ends only the wait: the build may still serve the target later. A newer generation of the same source counts as served; a generation number alone never does. |
+| `cli/invoke` | `app_id?`, `generation` (nonzero, returned by `wait`), `request` (a `scenery.contract-cli.request`) | A work call. The process host pins the requested generation through dispatch and serves the request in the service process that owns its binding in that generation and answers `{response, generation, process, contract_revision, implementation_revision, build_input_digest}`, where `response` is the `scenery.contract-cli.response` with its `invocation` identity. An unknown binding fails `not_found`; an absent or retired generation or a runtime without a process host fails `unavailable`. Missing or zero `generation` fails `invalid_argument`. Cancellation propagates from the development MCP handler through waiting and invocation. |
 | `traces/list` | `app_id`, `since?` (RFC3339), `limit?` (default 100, maximum 500), `service?`, `endpoint?`, `status?` (`ok` or `error`) | `{traces: [...]}`: completed entrypoint summaries in the selected app's current session, newest first; the default window is 15 minutes. |
 | `traces/get` | `app_id`, `trace_id` (32 hexadecimal characters) | `{trace_id, spans: [...]}`: chronological spans with parent IDs and all recorded events, including normalized SQL. Unknown or out-of-scope traces return an empty `spans` array. |
 | `postgres/tables` | `app_id` | Array of `{schema, name, type, row_count?}`; `name` is `schema.table`, `type` is `table`, `view` or `materialized_view`, `row_count` is PostgreSQL's estimate. Lists non-system schemas and `scenery`, excluding `public`. |

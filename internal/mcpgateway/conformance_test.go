@@ -3,6 +3,7 @@ package mcpgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -253,5 +254,47 @@ func TestGatewayDurableWaitEndsAtAFinalStateOrItsOwnTimeout(t *testing.T) {
 	refused, invalid := call(map[string]any{"execution_id": "job-3", "timeout_ms": 999999})
 	if !refused.IsError || invalid["problem"].(map[string]any)["code"] != string(errs.InvalidArgument) {
 		t.Fatalf("oversized timeout = %#v", invalid)
+	}
+}
+
+// stalledDurable makes either the first or a subsequent status read wait for cancellation.
+type stalledDurable struct {
+	testDurable
+	reads         int
+	initialStatus bool
+}
+
+func (d *stalledDurable) Status(ctx context.Context, _ mcpcontract.ToolCallContext, _ string) (json.RawMessage, error) {
+	d.reads++
+	if d.initialStatus && d.reads == 1 {
+		return json.RawMessage(`{"execution_id":"job","state":"running"}`), nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func TestDurableWaitDeadlineIncludesStatusReads(t *testing.T) {
+	previous := durableWaitPoll
+	durableWaitPoll = time.Millisecond
+	t.Cleanup(func() { durableWaitPoll = previous })
+	for _, initial := range []bool{false, true} {
+		durable := &stalledDurable{initialStatus: initial}
+		gateway := &gateway{cfg: Config{Durable: durable}}
+		parent, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		value, err := gateway.waitDurable(parent, mcpcontract.ToolCallContext{}, "job", 5*time.Millisecond)
+		parentErr := parent.Err()
+		cancel()
+		if parentErr != nil {
+			t.Fatal("status read escaped the wait deadline")
+		}
+		if !initial {
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("uncaptured status = %s, %v", value, err)
+			}
+			continue
+		}
+		var result mcpcontract.ExecutionWait
+		if err != nil || json.Unmarshal(value, &result) != nil || !result.TimedOut || result.Final || len(result.Status) == 0 {
+			t.Fatalf("last known status = %s, %v", value, err)
+		}
 	}
 }

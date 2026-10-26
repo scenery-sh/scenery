@@ -53,7 +53,7 @@ func TestProcessHostServesLiveCLIRequestsInTheOwningProcess(t *testing.T) {
 		Producer: machine.Producer{Version: "test", Toolchain: machine.Toolchain{GoVersion: "go1.27.0"}},
 		Binding:  "house/binding/process_scene_cli", Input: json.RawMessage(`{"scene_id":"s"}`),
 	}
-	result, err := host.invokeCLI(context.Background(), request)
+	result, err := host.invokeCLI(context.Background(), request, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +67,29 @@ func TestProcessHostServesLiveCLIRequestsInTheOwningProcess(t *testing.T) {
 	if response.Invocation == nil || response.Invocation.InvocationID == "" {
 		t.Fatalf("live response has no invocation identity: %#v", response.Invocation)
 	}
+
+	if err := host.publish(processGenerationManifest{
+		Generation: 4, ContractRevision: processHostTestContract, Identity: processHostTestBuild(4),
+		Processes: map[string]processGenerationInstance{"house_house": instance},
+		Bindings:  map[string]string{"house/binding/process_scene_cli": "house_house"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := host.invokeCLI(context.Background(), request, 3)
+	if err != nil || pinned.Generation != 3 || pinned.BuildInputDigest != processHostTestBuild(3).BuildInputDigest {
+		t.Fatalf("pinned invocation = %+v, %v", pinned, err)
+	}
+	before := served.Load()
+	for _, generation := range []uint64{0, 2} {
+		if _, err := host.invokeCLI(context.Background(), request, generation); err == nil {
+			t.Fatalf("generation %d unexpectedly invoked", generation)
+		}
+	}
+	if served.Load() != before {
+		t.Fatal("invalid generation invoked a process")
+	}
 	request.Binding = "house/binding/missing_cli"
-	if _, err := host.invokeCLI(context.Background(), request); errs.Code(err) != errs.NotFound {
+	if _, err := host.invokeCLI(context.Background(), request, 3); errs.Code(err) != errs.NotFound {
 		t.Fatalf("unknown binding = %v", err)
 	}
 }

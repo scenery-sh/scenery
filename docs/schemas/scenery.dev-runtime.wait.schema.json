@@ -9,7 +9,6 @@
     "schema_revision",
     "ok",
     "outcome",
-    "target_source_snapshot_digest",
     "source_freshness",
     "waited_ms"
   ],
@@ -19,7 +18,7 @@
       "const": "scenery.dev-runtime.wait"
     },
     "schema_revision": {
-      "const": "sha256:7c671139232d44cb3b3da57495d0f822f3c433d7e90e75c49b05edfe57bc4eff"
+      "const": "sha256:dc36724d72083795a756f634e96013ebd326eb6f0bbfedaf42b46eefa96ee4e8"
     },
     "ok": {
       "type": "boolean"
@@ -35,7 +34,8 @@
       ]
     },
     "target_source_snapshot_digest": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "current_source_snapshot_digest": {
       "type": "string",
@@ -200,6 +200,25 @@
       "then": {
         "required": [
           "current_source_snapshot_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "served",
+              "failed",
+              "blocked",
+              "superseded"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "target_source_snapshot_digest"
         ]
       }
     }

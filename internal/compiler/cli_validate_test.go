@@ -39,3 +39,15 @@ func TestCLIBindingRejectsReservedAndNonCanonicalCommands(t *testing.T) {
 		})
 	}
 }
+
+func TestCLIBindingReservesLiveFlag(t *testing.T) {
+	operation := Resource{Address: "house/operation/run", Kind: "scenery.operation", Module: "house", Name: "run", Spec: map[string]any{"input": map[string]any{"$ref": "std.type.unit"}}}
+	binding := Resource{Address: "house/binding/run_cli", Kind: "scenery.binding", Module: "house", Name: "run_cli", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.run"}, "protocol": "cli", "delivery": "call", "cli": map[string]any{"command": []any{"run-app"}, "flag": map[string]any{"name": "live"}}}}
+	resources := []Resource{operation, binding}
+	for _, diagnostic := range validateCLIBindings(resources, resourcesByAddress(&Manifest{Resources: resources})) {
+		if diagnostic.Code == "SCN2414" && strings.Contains(diagnostic.Message, "reserved") {
+			return
+		}
+	}
+	t.Fatal("live flag was not rejected as reserved")
+}

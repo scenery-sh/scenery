@@ -107,3 +107,10 @@ func TestBindingHelpDescribesTheParserGrammarInTheHelpSchema(t *testing.T) {
 		t.Fatalf("binding help does not match the help schema: %v", diagnostics)
 	}
 }
+
+func TestCLIControlFlagsRespectLiteralSeparator(t *testing.T) {
+	control, err := parseCLIControlFlags([]string{"--live", "--", "--live", "--help", "-o", "json"})
+	if err != nil || !control.live || control.help || control.output != "human" || !reflect.DeepEqual(control.remaining, []string{"--", "--live", "--help", "-o", "json"}) {
+		t.Fatalf("control = %+v, %v", control, err)
+	}
+}

@@ -19,7 +19,7 @@ type runtimeLiveCLIResult = sceneryruntime.ProcessHostCLIResult
 // invokeLiveCLI sends one validated contract CLI request to the running
 // process host, which serves it in the binding's owning service process of
 // the current generation.
-func (s *devSupervisor) invokeLiveCLI(ctx context.Context, request sceneryruntime.ContractCLIRequest) (runtimeLiveCLIResult, error) {
+func (s *devSupervisor) invokeLiveCLI(ctx context.Context, request sceneryruntime.ProcessHostCLIRequest) (runtimeLiveCLIResult, error) {
 	s.mu.RLock()
 	model := s.processes
 	s.mu.RUnlock()

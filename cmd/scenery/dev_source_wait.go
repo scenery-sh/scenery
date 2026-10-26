@@ -30,7 +30,7 @@ type runtimeSourceWait struct {
 	cliPayloadIdentity
 	OK                          bool                    `json:"ok"`
 	Outcome                     string                  `json:"outcome"`
-	TargetSourceSnapshotDigest  string                  `json:"target_source_snapshot_digest"`
+	TargetSourceSnapshotDigest  string                  `json:"target_source_snapshot_digest,omitempty"`
 	CurrentSourceSnapshotDigest string                  `json:"current_source_snapshot_digest,omitempty"`
 	Serving                     *runtimeServingIdentity `json:"serving,omitempty"`
 	SourceFreshness             string                  `json:"source_freshness"`

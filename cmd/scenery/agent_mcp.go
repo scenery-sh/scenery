@@ -82,7 +82,7 @@ func newDevelopmentMCPServer(root string) *mcp.Server {
 	add(&mcp.Tool{Name: "binding_invoke", Description: "Wait until the running scenery up serves the current source, then run one application CLI binding in its serving generation. Arguments use the binding's own CLI grammar.", InputSchema: object(map[string]any{
 		"command":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "description": "The binding's command words, as bindings_list reports them."},
 		"arguments": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The binding's positional arguments and flags."},
-	}, "command"), Annotations: &mcp.ToolAnnotations{OpenWorldHint: new(false)}}, func(_ context.Context, raw json.RawMessage) (any, error) {
+	}, "command"), Annotations: &mcp.ToolAnnotations{OpenWorldHint: new(false)}}, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var input struct {
 			Command   []string `json:"command"`
 			Arguments []string `json:"arguments"`
@@ -97,7 +97,7 @@ func newDevelopmentMCPServer(root string) *mcp.Server {
 		for _, binding := range bindings {
 			cli, _ := binding.Spec["cli"].(map[string]any)
 			if slices.Equal(contractStrings(cli["command"]), input.Command) {
-				return executeBindingCLI(appRoot, cfg, result, binding, input.Arguments, true)
+				return executeBindingCLI(ctx, appRoot, cfg, result, binding, input.Arguments, true)
 			}
 		}
 		return nil, &errs.Error{Code: errs.NotFound, Message: fmt.Sprintf("no CLI binding has the command %q", strings.Join(input.Command, " "))}
@@ -128,7 +128,7 @@ func newDevelopmentMCPServer(root string) *mcp.Server {
 		ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 		defer cancel()
 		var detail json.RawMessage
-		return detail, worktreeRuntimeCall(ctx, root, "traces/get", map[string]any{"trace_id": input.TraceID}, &detail)
+		return &detail, worktreeRuntimeCall(ctx, root, "traces/get", map[string]any{"trace_id": input.TraceID}, &detail)
 	})
 	return server
 }
@@ -162,7 +162,8 @@ func developmentMCPResult(value any) (*mcp.CallToolResult, error) {
 // client can tell a bad argument from a missing runtime.
 func developmentMCPFailure(err error) *mcp.CallToolResult {
 	code := string(errs.Code(err))
-	if code == "" || code == string(errs.Unknown) {
+	_, typed := errs.As(err)
+	if !typed || code == "" || code == string(errs.Unknown) {
 		code = "internal_error"
 		if prefix, _, found := strings.Cut(err.Error(), ":"); found && slices.Contains([]string{"invalid_request", "failed_precondition", "not_found", "permission_denied", "capability_unavailable", "unavailable", "invalid_argument"}, prefix) {
 			code = prefix

@@ -104,8 +104,9 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		return supervisor.waitForSourceSnapshot(ctx, time.Duration(params.TimeoutMS)*time.Millisecond)
 	case "cli/invoke":
 		var params struct {
-			AppID   string                            `json:"app_id"`
-			Request sceneryruntime.ContractCLIRequest `json:"request"`
+			AppID      string                            `json:"app_id"`
+			Request    sceneryruntime.ContractCLIRequest `json:"request"`
+			Generation uint64                            `json:"generation"`
 		}
 		if err := decodeRuntimeParams(raw, &params); err != nil {
 			return nil, err
@@ -118,7 +119,7 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		if supervisor == nil {
 			return nil, fmt.Errorf("the selected app is not served by this worktree's running scenery up")
 		}
-		return supervisor.invokeLiveCLI(ctx, params.Request)
+		return supervisor.invokeLiveCLI(ctx, sceneryruntime.ProcessHostCLIRequest{Request: params.Request, Generation: params.Generation})
 	case "traces/clear":
 		var params struct {
 			AppID string `json:"app_id"`

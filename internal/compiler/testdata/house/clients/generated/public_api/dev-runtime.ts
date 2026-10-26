@@ -9,7 +9,7 @@
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
 export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:50d87d2565ab839da6883c12d91522fad5f9c9cca1efd93f92e214f8ad8a4b13";
 export const DEV_RUNTIME_WAIT_KIND = "scenery.dev-runtime.wait";
-export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:7c671139232d44cb3b3da57495d0f822f3c433d7e90e75c49b05edfe57bc4eff";
+export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:dc36724d72083795a756f634e96013ebd326eb6f0bbfedaf42b46eefa96ee4e8";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
@@ -148,7 +148,7 @@ export interface DevRuntimeSourceWait {
 	readonly schema_revision: string;
 	readonly ok: boolean;
 	readonly outcome: "served" | "failed" | "blocked" | "superseded" | "source_missing" | "timeout";
-	readonly target_source_snapshot_digest: string;
+	readonly target_source_snapshot_digest?: string;
 	/** Present for `superseded`: the source a later edit produced. */
 	readonly current_source_snapshot_digest?: string;
 	/** The serving generation's identity; for `served`, the one built from the target. */

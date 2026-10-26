@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"scenery.sh/errs"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -67,6 +69,25 @@ func TestDevelopmentMCPAdapterListsToolsAndReportsTypedFailures(t *testing.T) {
 		want := map[string]string{"binding_invoke": "not_found", "diagnostics": "invalid_argument"}[name]
 		if content.Problem.Code != want {
 			t.Fatalf("%s problem = %s, want %s", name, encoded, want)
+		}
+	}
+}
+
+func TestDevelopmentMCPFailurePreservesPlainAndTypedCodes(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("failed_precondition: no runtime"), "failed_precondition"},
+		{&codedCLIError{err: fmt.Errorf("permission_denied: refused"), code: 3}, "permission_denied"},
+		{fmt.Errorf("wrapped: %w", &errs.Error{Code: errs.NotFound, Message: "absent"}), "not_found"},
+		{&errs.Error{Code: errs.Internal, Message: "failure"}, "internal"},
+		{fmt.Errorf("ordinary failure"), "internal_error"},
+	} {
+		result := developmentMCPFailure(tc.err)
+		problem := result.StructuredContent.(map[string]any)["problem"].(map[string]any)
+		if problem["code"] != tc.want {
+			t.Fatalf("%v: code = %v, want %s", tc.err, problem["code"], tc.want)
 		}
 	}
 }

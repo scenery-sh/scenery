@@ -41,7 +41,7 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 		writeCLIHelp(stdout, binding)
 		return true, nil
 	}
-	run, err := executeBindingCLI(root, cfg, result, binding, control.remaining, control.live)
+	run, err := executeBindingCLI(context.Background(), root, cfg, result, binding, control.remaining, control.live)
 	if err != nil {
 		return true, err
 	}
@@ -87,7 +87,7 @@ type bindingCLIRun struct {
 
 // executeBindingCLI decodes arguments with the binding's declared grammar and
 // runs the request standalone or in the running runtime.
-func executeBindingCLI(root string, cfg appcfg.Config, result *compiler.Result, binding graph.Resource, arguments []string, live bool) (bindingCLIRun, error) {
+func executeBindingCLI(ctx context.Context, root string, cfg appcfg.Config, result *compiler.Result, binding graph.Resource, arguments []string, live bool) (bindingCLIRun, error) {
 	cli, _ := binding.Spec["cli"].(map[string]any)
 	input, err := buildCLIInput(result.Manifest.Resources, binding, arguments)
 	if err != nil {
@@ -104,7 +104,7 @@ func executeBindingCLI(root string, cfg appcfg.Config, result *compiler.Result, 
 	run := bindingCLIRun{Binding: binding.Address, Execution: map[string]any{"mode": "standalone"}}
 	var response sceneryruntime.ContractCLIResponse
 	if live {
-		served, err := invokeLiveBindingCLI(root, request)
+		served, err := invokeLiveBindingCLI(ctx, root, result.Manifest.ContractRevision, request)
 		if err != nil {
 			return bindingCLIRun{}, err
 		}
@@ -204,8 +204,7 @@ func invokeStandaloneBindingCLI(root string, cfg appcfg.Config, request sceneryr
 // invokeLiveBindingCLI waits until the running scenery up serves the source
 // as it is now, then runs the request in the binding's service process of the
 // serving generation.
-func invokeLiveBindingCLI(root string, request sceneryruntime.ContractCLIRequest) (runtimeLiveCLIResult, error) {
-	ctx := context.Background()
+func invokeLiveBindingCLI(ctx context.Context, root, contractRevision string, request sceneryruntime.ContractCLIRequest) (runtimeLiveCLIResult, error) {
 	wait, err := waitForWorktreeSource(ctx, root, defaultSourceWaitTimeout)
 	if err != nil {
 		return runtimeLiveCLIResult{}, err
@@ -217,10 +216,13 @@ func invokeLiveBindingCLI(root string, request sceneryruntime.ContractCLIRequest
 		}
 		return runtimeLiveCLIResult{}, &codedCLIError{err: fmt.Errorf("failed_precondition: the running scenery up does not serve the current source (%s after %dms): %s", wait.Outcome, wait.WaitedMS, detail), code: 3}
 	}
+	if wait.Serving == nil || wait.Serving.Generation == 0 || wait.Serving.ContractRevision != contractRevision {
+		return runtimeLiveCLIResult{}, fmt.Errorf("failed_precondition: the served contract differs from the compiled CLI binding; retry the command")
+	}
 	callCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	var live runtimeLiveCLIResult
-	if err := worktreeRuntimeCall(callCtx, root, "cli/invoke", map[string]any{"request": request}, &live); err != nil {
+	if err := worktreeRuntimeCall(callCtx, root, "cli/invoke", map[string]any{"request": request, "generation": wait.Serving.Generation}, &live); err != nil {
 		return runtimeLiveCLIResult{}, err
 	}
 	return live, nil
@@ -291,6 +293,9 @@ func parseCLIControlFlags(arguments []string) (cliControlFlags, error) {
 	control := cliControlFlags{remaining: make([]string, 0, len(arguments)), output: "human"}
 	for index := 0; index < len(arguments); index++ {
 		switch {
+		case arguments[index] == "--":
+			control.remaining = append(control.remaining, arguments[index:]...)
+			index = len(arguments)
 		case arguments[index] == "--help" || arguments[index] == "-h":
 			control.help = true
 		case arguments[index] == "--live":
