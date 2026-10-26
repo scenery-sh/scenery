@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	localagent "scenery.sh/internal/agent"
 )
@@ -121,48 +120,13 @@ func prepareSessionAppBinary(session *localagent.Session, binary, expectedDigest
 		_ = os.Remove(target)
 		return "", errors.Join(syncErr, closeErr)
 	}
-	if stat, statErr := os.Lstat(target); statErr == nil {
-		rememberRetainedAppBinary(target, digest, stat)
-	}
 	return target, nil
-}
-
-type retainedAppBinaryStamp struct {
-	size    int64
-	mode    os.FileMode
-	modNano int64
-	digest  string
-}
-
-var retainedAppBinaryDigests struct {
-	mu     sync.Mutex
-	values map[string]retainedAppBinaryStamp
-}
-
-func rememberRetainedAppBinary(path, digest string, info os.FileInfo) {
-	retainedAppBinaryDigests.mu.Lock()
-	defer retainedAppBinaryDigests.mu.Unlock()
-	if retainedAppBinaryDigests.values == nil {
-		retainedAppBinaryDigests.values = map[string]retainedAppBinaryStamp{}
-	}
-	retainedAppBinaryDigests.values[path] = retainedAppBinaryStamp{
-		size:    info.Size(),
-		mode:    info.Mode(),
-		modNano: info.ModTime().UnixNano(),
-		digest:  digest,
-	}
 }
 
 func verifyRetainedAppBinary(path, digest string) error {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("retained executable is not a regular file: %s", path)
-	}
-	retainedAppBinaryDigests.mu.Lock()
-	remembered, ok := retainedAppBinaryDigests.values[path]
-	retainedAppBinaryDigests.mu.Unlock()
-	if ok && remembered.digest == digest && remembered.size == info.Size() && remembered.mode == info.Mode() && remembered.modNano == info.ModTime().UnixNano() {
-		return nil
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -176,7 +140,6 @@ func verifyRetainedAppBinary(path, digest string) error {
 	if hex.EncodeToString(hash.Sum(nil)) != digest {
 		return fmt.Errorf("retained executable content changed: %s", path)
 	}
-	rememberRetainedAppBinary(path, digest, info)
 	return nil
 }
 

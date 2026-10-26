@@ -219,10 +219,11 @@ func copyPublishTree(sourceDir, destDir string) (int, int64, error) {
 		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("build output path %s escapes the build root", path)
 		}
+		if !d.IsDir() && !d.Type().IsRegular() {
+			return fmt.Errorf("build output entry %s is not a regular file or directory; symlinks and special files are not published", path)
+		}
 		if rel != "." && shouldSkipPublishedRelPath(rel) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
+			// Still walk excluded directories to reject unsafe nested entries.
 			return nil
 		}
 		dest := filepath.Join(destDir, rel)

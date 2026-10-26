@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	localagent "scenery.sh/internal/agent"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -165,6 +166,11 @@ func parseTelemetryArgs(args []string, now time.Time) (telemetryQueryOptions, er
 }
 
 func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryResponse, error) {
+	lock, err := localagent.AcquireProcessLock(path + ".lock")
+	if err != nil {
+		return telemetryResponse{}, fmt.Errorf("lock telemetry snapshot: %w", err)
+	}
+	defer func() { _ = lock.Release() }()
 	response := telemetryResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity(cliTelemetryPayloadKind),
 		Query: telemetryQuery{

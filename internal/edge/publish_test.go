@@ -230,3 +230,20 @@ func TestPublishFrontendArtifactExcludesDotfilesExceptWellKnown(t *testing.T) {
 	}
 }
 
+func TestPublishRejectsHiddenSymlinks(t *testing.T) {
+	for _, name := range []string{".hidden-link", ".git/socket", ".well-known/.secret/link"} {
+		t.Run(name, func(t *testing.T) {
+			source, dest := t.TempDir(), t.TempDir()
+			path := filepath.Join(source, name)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("/outside", path); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := copyPublishTree(source, dest); err == nil {
+				t.Fatal("hidden symlink accepted")
+			}
+		})
+	}
+}

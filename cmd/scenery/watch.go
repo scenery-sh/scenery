@@ -373,6 +373,20 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		output, errorOutput = logWriter, logWriter
 	}
 	console := newRunConsole(output, errorOutput, verbose, jsonMode, cfg.AppID(), root)
+	var foregroundLogPath string
+	if !detachedDevChildMode() {
+		logPath, closeLog, logErr := attachForegroundEventLog(console, root)
+		if logErr != nil {
+			console.Event("log.open_error", map[string]any{"error": logErr.Error()})
+		} else {
+			foregroundLogPath = logPath
+			defer closeLog()
+		}
+	} else if logWriter != nil {
+		if err := rotatinglog.Prune(envpolicy.Get(detachedDevChildEnv)); err != nil {
+			console.Event("log.retention_error", map[string]any{"error": err.Error()})
+		}
+	}
 	defer func() {
 		if _, handoff := errors.AsType[*frameworkHandoff](runErr); handoff {
 			console.Finish(runErr)
@@ -419,20 +433,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		restoreAgentEnv = func() {}
 	}
 	defer restoreAgentEnv()
-	if !detachedDevChildMode() {
-		foregroundLogPath := detachedDevLogPath(preparedSession.Paths, root, time.Now())
-		if foregroundLog, openErr := rotatinglog.Open(foregroundLogPath); openErr == nil {
-			defer func() {
-				console.SetEventLog(nil)
-				_ = foregroundLog.Close()
-			}()
-			console.SetEventLog(foregroundLog)
-			if err := rotatinglog.Prune(foregroundLogPath); err != nil {
-				console.Event("log.retention_error", map[string]any{"error": err.Error()})
-			}
-		}
-	} else if logWriter != nil {
-		if err := rotatinglog.Prune(envpolicy.Get(detachedDevChildEnv)); err != nil {
+	// Only the newly acquired owner may prune session logs. Followers must
+	// preserve the active owner's file even after many duplicate starts.
+	if foregroundLogPath != "" {
+		if err := rotatinglog.Prune(foregroundLogPath); err != nil {
 			console.Event("log.retention_error", map[string]any{"error": err.Error()})
 		}
 	}
@@ -577,4 +581,3 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		}
 	}
 }
-

@@ -87,12 +87,7 @@ capture instead of extending historical inference further.
 
 ### Resume here
 
-Checkpoint 2026-10-21; summarizes recorded evidence, not a fresh runtime or remote-state check.
-
-- Current: Implementation, repository proof, bounded `telemetry.jsonl` rotation, and foreground `scenery up` supervisor event logging are complete.
-- Next: ONLV adoption and live launchd agent restart remain separate follow-ups when explicitly requested.
-- Boundary: The installed launchd agent was not upgraded live. Restarting it still needs an explicit user request.
-- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+Checkpoint 2026-10-26: PR #248 rebased onto merged #247 in `/private/tmp/scenery-pr248-send`. Review fixes are in progress: early foreground sink/summary lifetime, unique logs, write-time rotation, serialized telemetry snapshots, conservative archive pruning, and hidden-entry validation. The unsafe retained-executable stamp cache is removed in favor of hashing bytes. Sol found that duplicate foreground starts could prune the active owner log. Pruning now runs only after session acquisition; a focused test retains more than the session budget when only attaching sinks. Final proof passed: full verifier against origin/main, lint, focused tests, race checks, edge/CLI-process probes, and foreground startup/summary/telemetry query. The optional logs query in the minimal fixture reports VictoriaLogs unavailable; direct session log proof passed. Initial edge probe lacked the managed store and overlapped a documentation edit; rerunning with the existing SCENERY_TOOLCHAIN_DIR and stable inputs passed. Next: push and CI/merge. No installed CLI or live agent replacement is authorized or needed.
 
 ## Surprises & Discoveries
 

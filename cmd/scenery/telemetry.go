@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/machine"
@@ -161,8 +162,13 @@ func recordCLITelemetry(record cliTelemetryRecord) {
 	if err != nil {
 		return
 	}
+	lock, err := localagent.AcquireProcessLock(path + ".lock")
+	if err != nil {
+		return
+	}
+	defer func() { _ = lock.Release() }()
 	line := append(encoded, '\n')
-	rotateCLITelemetryIfNeeded(path, int64(len(line)), record.At)
+	rotateCLITelemetryIfNeeded(path, int64(len(line)), time.Now())
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
@@ -186,7 +192,7 @@ func rotateCLITelemetryIfNeeded(path string, incoming int64, now time.Time) {
 		now = now.UTC()
 	}
 	archiveRoot := filepath.Join(filepath.Dir(path), "telemetry-archive")
-	stamp := now.Format("20060102T150405.000000000Z")
+	stamp := "cli-" + now.Format("20060102T150405.000000000Z")
 	destDir := filepath.Join(archiveRoot, stamp)
 	for suffix := 1; ; suffix++ {
 		if _, err := os.Stat(destDir); os.IsNotExist(err) {
@@ -214,14 +220,21 @@ func pruneCLITelemetryArchives(archiveRoot string) {
 	}
 	var dirs []string
 	for _, entry := range entries {
-		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "cli-") {
 			dirs = append(dirs, entry.Name())
 		}
 	}
 	slices.Sort(dirs)
 	excess := len(dirs) - cliTelemetryMaxArchiveBundles
 	for i := range excess {
-		_ = os.RemoveAll(filepath.Join(archiveRoot, dirs[i]))
+		dir := filepath.Join(archiveRoot, dirs[i])
+		contents, err := os.ReadDir(dir)
+		if err != nil || len(contents) != 1 || contents[0].Name() != "telemetry.jsonl" || !contents[0].Type().IsRegular() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, "telemetry.jsonl")); err == nil {
+			_ = os.Remove(dir)
+		}
 	}
 }
 
