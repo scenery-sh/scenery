@@ -13,6 +13,7 @@ var fieldConstraintKeys = map[string]bool{
 	"minimum": true, "maximum": true, "min_length": true, "max_length": true,
 	"pattern": true, "format": true, "min_items": true, "max_items": true,
 	"unique_items": true, "sensitive": true, "immutable": true, "deprecated": true,
+	"description": true, "examples": true,
 }
 
 func validateConstraints(resources []Resource) []Diagnostic {

@@ -5,6 +5,8 @@ import {
 	DEV_RUNTIME_MAX_REQUEST_BYTES,
 	DEV_RUNTIME_STATUS_KIND,
 	DEV_RUNTIME_STATUS_SCHEMA_REVISION,
+	DEV_RUNTIME_WAIT_KIND,
+	DEV_RUNTIME_WAIT_SCHEMA_REVISION,
 	DevRuntimeClient,
 	DevRuntimeError,
 	storageTarget,
@@ -140,6 +142,20 @@ describe("DevRuntimeClient connection lifecycle", () => {
 			schema_revision: "sha256:93b6ee76b4ef4b5626531207a014791d0c56bbc38419533fa0bb1e505ffd2d2c",
 			observability: { export: { dropped: 7, failed: 3 } },
 		});
+		expect((await stale).code).toBe("protocol");
+		client.dispose();
+	});
+	test("waits for the served source and rejects another wait revision", async () => {
+		const client = runtimeClient();
+		const waiting = client.waitForSource({ appId: "app", timeoutMs: 5000 });
+		socket(0).open();
+		expect(socket(0).sent[0]).toMatchObject({ method: "wait", params: { app_id: "app", timeout_ms: 5000 } });
+		const served = { kind: DEV_RUNTIME_WAIT_KIND, schema_revision: DEV_RUNTIME_WAIT_SCHEMA_REVISION, ok: true, outcome: "served", target_source_snapshot_digest: "abc", source_freshness: "current", waited_ms: 12 };
+		socket(0).reply(socket(0).sent[0], served);
+		expect(await waiting).toEqual(served);
+		const stale = failure(client.waitForSource());
+		expect(socket(0).sent[1]).toMatchObject({ method: "wait", params: {} });
+		socket(0).reply(socket(0).sent[1], { ...served, schema_revision: "sha256:old" });
 		expect((await stale).code).toBe("protocol");
 		client.dispose();
 	});

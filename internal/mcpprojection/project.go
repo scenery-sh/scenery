@@ -6,6 +6,7 @@ package mcpprojection
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"sort"
@@ -249,6 +250,12 @@ func projectCapabilities(server graph.Resource, resources map[string]graph.Resou
 			return nil, projectionErrorAt(projectionTypeCode, binding.Address, "/spec/operation/input", "MCP tool input schema must have an object root")
 		}
 		output, outputSensitive, err := operationOutputSchema(operation, resources)
+		if durable {
+			// A durable tool call returns the acceptance receipt, never the
+			// operation outcome; the outcome is read later through the
+			// framework status tool.
+			output, outputSensitive, err = durableAcceptanceSchema(), false, nil
+		}
 		if err != nil {
 			return nil, projectionErrorAt(projectionTypeCode, binding.Address, "/spec/operation/result", err.Error())
 		}
@@ -322,14 +329,14 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 	results := namedChildren(operation.Spec, "result")
 	errors := namedChildren(operation.Spec, "error")
 	if len(results) == 0 && len(errors) == 0 {
-		return rawSchema(map[string]any{
+		return rawSchema(map[string]any{"type": "object", "oneOf": []any{map[string]any{
 			"type": "object", "additionalProperties": false,
 			"properties": map[string]any{
-				"outcome": map[string]any{"type": "string"},
+				"outcome": map[string]any{"type": "string", "not": map[string]any{"enum": []string{mcpcontract.AcceptedOutcome, mcpcontract.FailedOutcome}}},
 				"value":   map[string]any{"type": "object", "additionalProperties": false, "maxProperties": 0},
 			},
 			"required": []string{"outcome", "value"},
-		}), false, nil
+		}, frameworkFailureSchema()}}), false, nil
 	}
 	type outcome struct {
 		kind string
@@ -356,6 +363,9 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 		if child.name == "" {
 			return nil, false, fmt.Errorf("operation outcome name is required")
 		}
+		if child.name == mcpcontract.AcceptedOutcome || child.name == mcpcontract.FailedOutcome {
+			return nil, false, fmt.Errorf("operation outcome name %s is reserved by the MCP result envelope", child.name)
+		}
 		if scannedNames[child.name] {
 			return nil, false, fmt.Errorf("duplicate operation outcome name %s", child.name)
 		}
@@ -369,7 +379,7 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 		if child.kind == "error" {
 			fieldName = "problem"
 		}
-		variants = append(variants, map[string]any{
+		variant := map[string]any{
 			"type":                 "object",
 			"additionalProperties": false,
 			"properties": map[string]any{
@@ -377,9 +387,56 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 				fieldName: schema,
 			},
 			"required": []string{"outcome", fieldName},
-		})
+		}
+		if description := stringValue(child.item["description"]); description != "" {
+			variant["description"] = description
+		}
+		variants = append(variants, variant)
 	}
+	variants = append(variants, frameworkFailureSchema())
 	return rawSchema(map[string]any{"type": "object", "oneOf": variants}), sensitive, nil
+}
+
+// durableAcceptanceSchema describes the result a durable MCP tool call
+// returns when the runtime accepts the work.
+func durableAcceptanceSchema() json.RawMessage {
+	return rawSchema(map[string]any{"type": "object", "oneOf": []any{map[string]any{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]any{
+			"outcome": map[string]any{"type": "string", "const": mcpcontract.AcceptedOutcome},
+			"receipt": map[string]any{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]any{
+					"durable_identity":  map[string]any{"type": "string"},
+					"execution_id":      map[string]any{"type": "string"},
+					"accepted_revision": map[string]any{"type": "string"},
+				},
+				"required": []string{"accepted_revision", "durable_identity", "execution_id"},
+			},
+		},
+		"required": []string{"outcome", "receipt"},
+	}, frameworkFailureSchema()}})
+}
+
+// frameworkFailureSchema describes the result the gateway returns when the
+// framework, not the operation, fails a call: a stable problem code and a
+// message.
+func frameworkFailureSchema() map[string]any {
+	return map[string]any{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]any{
+			"outcome": map[string]any{"type": "string", "const": mcpcontract.FailedOutcome},
+			"problem": map[string]any{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]any{
+					"code":    map[string]any{"type": "string"},
+					"message": map[string]any{"type": "string"},
+				},
+				"required": []string{"code", "message"},
+			},
+		},
+		"required": []string{"outcome", "problem"},
+	}
 }
 
 func isJSONObjectSchema(schema any) bool {
@@ -523,25 +580,65 @@ func enumSchema(resource graph.Resource) (any, bool, error) {
 	return result, false, nil
 }
 
+// unionSchema projects the flattened tagged-union wire form: each variant is
+// its record payload with the discriminator property set to the variant's
+// wire tag. Open unions also accept any other tag with an opaque payload.
 func unionSchema(resource graph.Resource, resources map[string]graph.Resource, state *schemaState) (any, bool, error) {
 	if state.visiting[resource.Address] {
 		return nil, false, fmt.Errorf("recursive union type %s is not projectable", resource.Address)
 	}
 	state.visiting[resource.Address] = true
 	defer delete(state.visiting, resource.Address)
+	discriminator := stringValue(resource.Spec["discriminator"])
+	if discriminator == "" {
+		return nil, false, fmt.Errorf("union %s has no discriminator", resource.Address)
+	}
 	variants := namedChildren(resource.Spec, "variant")
 	sort.SliceStable(variants, func(i, j int) bool { return stringValue(variants[i]["name"]) < stringValue(variants[j]["name"]) })
-	items := make([]any, 0, len(variants))
+	items := make([]any, 0, len(variants)+1)
+	tags := make([]string, 0, len(variants))
 	sensitive := false
 	for _, variant := range variants {
 		item, itemSensitive, err := schemaForType(resource, variant["type"], resource.Module, resources, state)
 		if err != nil {
 			return nil, false, err
 		}
+		payload, ok := item.(map[string]any)
+		if !ok || payload["type"] != "object" {
+			return nil, false, fmt.Errorf("union %s variant %s must use a record payload", resource.Address, stringValue(variant["name"]))
+		}
+		tag := stringValue(variant["wire_tag"])
+		if tag == "" {
+			tag = stringValue(variant["name"])
+		}
+		properties := map[string]any{}
+		if existing, ok := payload["properties"].(map[string]any); ok {
+			maps.Copy(properties, existing)
+		}
+		if _, collides := properties[discriminator]; collides {
+			return nil, false, fmt.Errorf("union %s discriminator collides with a payload field", resource.Address)
+		}
+		properties[discriminator] = map[string]any{"type": "string", "const": tag}
+		required := []string{discriminator}
+		if existing, ok := payload["required"].([]string); ok {
+			required = append(required, existing...)
+		}
+		sort.Strings(required)
+		flattened := maps.Clone(payload)
+		flattened["properties"] = properties
+		flattened["required"] = required
 		sensitive = sensitive || itemSensitive
-		items = append(items, item)
+		items = append(items, flattened)
+		tags = append(tags, tag)
 	}
-	return map[string]any{"oneOf": items}, sensitive, nil
+	if boolValue(resource.Spec["open"]) {
+		items = append(items, map[string]any{
+			"type":       "object",
+			"properties": map[string]any{discriminator: map[string]any{"type": "string", "not": map[string]any{"enum": tags}}},
+			"required":   []string{discriminator},
+		})
+	}
+	return map[string]any{"type": "object", "oneOf": items}, sensitive, nil
 }
 
 func primitiveSchema(expression string) (any, bool) {
@@ -600,6 +697,14 @@ func applyConstraints(schema any, field map[string]any) {
 	}
 	if value, exists := field["unique_items"]; exists {
 		object["uniqueItems"] = boolValue(value)
+	}
+	if description := stringValue(field["description"]); description != "" {
+		object["description"] = description
+	}
+	// The compiler validated each example against the field and stored its
+	// exact wire form.
+	if examples, ok := field["examples"].([]any); ok && len(examples) > 0 {
+		object["examples"] = examples
 	}
 }
 

@@ -8,6 +8,8 @@
 
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
 export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "{{dev_runtime_status_revision}}";
+export const DEV_RUNTIME_WAIT_KIND = "scenery.dev-runtime.wait";
+export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "{{dev_runtime_wait_revision}}";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
@@ -38,6 +40,10 @@ export interface DevRuntimeTraceSpan {
  readonly src_file?: string;
  readonly src_line?: number;
  readonly caller_event_id?: number;
+ /** The application generation that served the span in a process-linked runtime. */
+ readonly generation?: number;
+ /** The build input digest of the service process that recorded the span. */
+ readonly build_input_digest?: string;
 }
 export interface DevRuntimeTraceEvent {
  readonly time: string;
@@ -130,6 +136,29 @@ export interface DevRuntimeServingIdentity {
 	readonly framework_source_digest: string;
 	readonly source_snapshot_digest: string;
 	readonly published_at: string;
+}
+
+/**
+ * The result of `waitForSource`: whether the watched source captured when the
+ * wait began is served. `ok` is true exactly for `served`. A `timeout` only
+ * ends the wait; the build may still serve the target later.
+ */
+export interface DevRuntimeSourceWait {
+	readonly kind: typeof DEV_RUNTIME_WAIT_KIND;
+	readonly schema_revision: string;
+	readonly ok: boolean;
+	readonly outcome: "served" | "failed" | "blocked" | "superseded" | "source_missing" | "timeout";
+	readonly target_source_snapshot_digest?: string;
+	/** Present for `superseded`: the source a later edit produced. */
+	readonly current_source_snapshot_digest?: string;
+	/** The serving generation's identity; for `served`, the one built from the target. */
+	readonly serving?: DevRuntimeServingIdentity;
+	readonly source_freshness: string;
+	/** Present for `failed`. */
+	readonly compile_error?: string;
+	/** Present for `blocked`. */
+	readonly build_block?: DevRuntimeBuildBlock;
+	readonly waited_ms: number;
 }
 
 export interface DevRuntimeBuildBlock {
@@ -504,6 +533,28 @@ export class DevRuntimeClient {
 			);
 		}
 		return result as DevRuntimeStatus;
+	}
+
+	/**
+	 * Wait until the source as it is now is served by a generation built from
+	 * exactly that snapshot, or its build fails, is blocked or is superseded by
+	 * a later edit. `timeoutMs` defaults to 30,000 and is at most 120,000. The
+	 * runtime runs at most 2 waits per connection.
+	 */
+	async waitForSource(options: { appId?: string; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<DevRuntimeSourceWait> {
+		const params: Record<string, unknown> = {};
+		if (options.appId) params.app_id = options.appId;
+		if (options.timeoutMs !== undefined) params.timeout_ms = options.timeoutMs;
+		const result = await this.#call<unknown>("wait", params, options.signal);
+		const received = typeof result === "object" && result !== null ? (result as Record<string, unknown>) : {};
+		if (received.kind !== DEV_RUNTIME_WAIT_KIND || received.schema_revision !== DEV_RUNTIME_WAIT_SCHEMA_REVISION) {
+			throw new DevRuntimeError(
+				"protocol",
+				`the running Scenery does not serve ${DEV_RUNTIME_WAIT_KIND} ${DEV_RUNTIME_WAIT_SCHEMA_REVISION}; restart scenery up so it runs the Scenery version the app selects`,
+				{ details: { received_kind: received.kind ?? null, received_schema_revision: received.schema_revision ?? null } },
+			);
+		}
+		return result as DevRuntimeSourceWait;
 	}
 
 	/** Read completed roots from the selected app's current session. */

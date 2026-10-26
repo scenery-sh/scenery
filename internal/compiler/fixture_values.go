@@ -250,7 +250,7 @@ func fixtureNumber(value any) (*big.Rat, bool) {
 	switch typed := value.(type) {
 	case map[string]any:
 		if kind := stringValue(typed["$scalar"]); kind == "int" || kind == "decimal" {
-			text = fmt.Sprint(typed["value"])
+			text = stringValue(typed)
 		}
 	case int:
 		text = strconv.Itoa(typed)

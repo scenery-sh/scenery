@@ -783,6 +783,29 @@ record "run_input" {
 
 Validation expressions MUST be pure and phase-correct.
 
+### 7.5.1 Field documentation
+
+A field MAY declare a short `description` and a list of `examples`. An
+operation result or error MAY declare a `description`. Descriptions state what a
+value means (its object, unit, calendar day versus instant, or the difference
+between an absent and a null value); long guidance belongs in documentation.
+
+~~~hcl
+field "amount" {
+  type        = int64
+  description = "Order amount in minor currency units."
+  examples    = ["1250"]
+}
+~~~
+
+Each example is a value of the field's type. The compiler MUST validate every
+example against the field type and its constraints and report SCN1234 for an
+example that does not match; a tagged-union example names its variant by name
+or wire tag and must match that variant's payload. The effective graph stores
+each example in its exact wire form, and generated MCP and OpenAPI schemas
+publish descriptions and examples unchanged. Descriptions and examples are part
+of the contract revision.
+
 ### 7.6 Enums
 
 ~~~hcl
@@ -1916,6 +1939,22 @@ stable tool `name`, optional `title` and `description`, and effect metadata
 records; generated MCP projection uses their exact JSON schemas and MUST NOT
 infer a second tool contract. Every call re-evaluates the binding's
 authentication, authorization, pipeline, and sensitive-output policy.
+
+A tool's advertised output schema MUST describe every structured result the
+gateway can return for it. A synchronous tool returns `{outcome, value}` for a
+declared result and `{outcome, problem}` for a declared error. A tool whose
+execution mode is `durable` returns `{outcome: "accepted", receipt}` with the
+execution receipt; its operation outcome is read later through
+`scenery_execution_status`. Every local tool can also return the framework
+failure `{outcome: "failed", problem: {code, message}}` with `isError` set,
+where `code` is the stable `errs` code of the failure (for example
+`invalid_argument`, `permission_denied`, `resource_exhausted`, `not_found`) or
+`internal_error`. Operations projected to MCP therefore MUST NOT declare an
+outcome named `accepted` or `failed`. A tagged union projects its flattened wire
+form: each variant is its record payload plus the discriminator property fixed
+to the variant's wire tag. A federated tool keeps the remote output schema, and
+the gateway relays the remote result's content blocks, structured content and
+error flag unchanged.
 
 An `mcp_server` composes local MCP bindings and optional `mcp_connection`
 resources. A connection currently uses Streamable HTTP only and declares
@@ -3441,13 +3480,15 @@ A tool exposing agent read or mutation capabilities uses a machine API suitable 
 |---|---|
 | capabilities | Report current resource and mutation schemas plus transport limits |
 | schema.get | Get a resource, value, diagnostic, or mutation schema |
-| resources.list | List addresses with kind and summary filters |
+| resources.list | List resources by kind and module, one bounded page at a time |
 | resources.get | Read selected resources in a chosen graph view |
 | resources.explain | Read effective value and provenance |
 | graph.get | Get a bounded dependency or dependent closure |
 | revisions.diff | Compare two available semantic graph snapshots |
 | diagnostics.get | Get structured diagnostics |
 | context.get | Get a task-focused context bundle |
+
+resources.list accepts `kind`, `module`, `view`, `limit` (at most the transport resource limit), `summary` and `cursor`. A page reports `truncated`; a truncated page carries `next_cursor`, an opaque token bound to the listed workspace and contract revisions and to the exact query that continues from the same retained snapshot until it expires. `summary = true` returns only address, kind, name and module. A cursor for another snapshot or query, or an expired cursor, MUST fail as failed_precondition.
 
 capabilities MUST return exact resource-schema revisions, codec identities, mutation operations, and transport limits. Agents MUST use advertised resource kinds and schemas rather than infer support from a product version.
 
@@ -3688,6 +3729,10 @@ A CLI exposing agent read capabilities MUST provide:
 ~~~text
 scenery agent serve --stdio
 ~~~
+
+A CLI MAY also expose its development runtime to MCP clients
+(`scenery agent serve --mcp`) through tools that reuse the CLI and development
+runtime handlers; such an adapter MUST NOT own or restart the runtime.
 
 Server mode keeps schemas and the graph cached, watches source revisions, and exposes the agent interface without changing its semantics. Before any
 mutation, the transport or launcher MUST establish a server-owned execution

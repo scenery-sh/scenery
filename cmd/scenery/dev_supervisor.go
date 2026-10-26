@@ -100,6 +100,12 @@ type devSupervisor struct {
 	// Serving inputs are captured only after successful publication, under mu.
 	servingSnapshot *fileSnapshot
 	servingIdentity *runtimeServingIdentity
+	// lastBuild is the outcome of the most recent build request, by the
+	// source snapshot it captured; guarded by mu.
+	lastBuild *devBuildAttempt
+	// sourceWaitPoll overrides how often a source wait re-reads state; zero
+	// uses sourceWaitPollInterval.
+	sourceWaitPoll time.Duration
 
 	// rebuildRequests wakes the watch loop for a rebuild that no watched
 	// file change would trigger (e.g. a ui catalog sync succeeding after the

@@ -67,6 +67,9 @@ func validateCLIBindings(resources []Resource, byAddress map[string]Resource) []
 					}
 				case "flag":
 					name, short := stringValue(mapping["name"]), stringValue(mapping["short"])
+					if name == "live" {
+						diagnostics = append(diagnostics, resourceDiagnostic("SCN2414", "CLI flag live is reserved for Scenery runtime invocation", binding))
+					}
 					if !validCLIName(name) || flags[name] || short != "" && (len(short) != 1 || shorts[short]) {
 						diagnostics = append(diagnostics, resourceDiagnostic("SCN2414", "CLI flags require unique portable long names and one-character short names", binding))
 					}

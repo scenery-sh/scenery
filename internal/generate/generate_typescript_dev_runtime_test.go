@@ -33,7 +33,11 @@ func TestTypeScriptDevRuntimeClientIsOptInAndPinsTheStatusRevision(t *testing.T)
 			t.Errorf("generated client does not explain status mismatches with %q", message)
 		}
 	}
-	for _, method := range []string{`"status"`, `"postgres/tables"`, `"postgres/schema"`, `"postgres/rows"`, `"db/query"`, `"storage/inspect"`, `"storage/list"`, `"storage/stat"`, `"storage/delete"`, `"storage/delete-preview"`, `"storage/delete-selection"`, `"/runtime/storage"`} {
+	waitRevision, _ := machine.PayloadSchemaRevision("scenery.dev-runtime.wait")
+	if strings.Contains(source, devRuntimeWaitRevisionPlaceholder) || !strings.Contains(source, `DEV_RUNTIME_WAIT_SCHEMA_REVISION = "`+waitRevision+`"`) {
+		t.Fatalf("generated client does not pin the wait schema revision %s", waitRevision)
+	}
+	for _, method := range []string{`"status"`, `"wait"`, `"postgres/tables"`, `"postgres/schema"`, `"postgres/rows"`, `"db/query"`, `"storage/inspect"`, `"storage/list"`, `"storage/stat"`, `"storage/delete"`, `"storage/delete-preview"`, `"storage/delete-selection"`, `"/runtime/storage"`} {
 		if !strings.Contains(source, method) {
 			t.Errorf("generated client does not call %s", method)
 		}

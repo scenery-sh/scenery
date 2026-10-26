@@ -109,7 +109,7 @@ var (
 	serviceLifecycleSourceSchema = sourceSchema("scenery.service.lifecycle", 0, []string{"start", "stop"}, nil, nil)
 
 	recordFieldSourceSchema = sourceSchema("scenery.record.field", 1,
-		[]string{"type", "wire_name", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "immutable", "deprecated", "replacement"}, []string{"type"}, nil)
+		[]string{"type", "wire_name", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "immutable", "deprecated", "replacement", "description", "examples"}, []string{"type"}, nil)
 	recordValidationSourceSchema = sourceSchema("scenery.record.validation", 1,
 		[]string{"when", "code", "message", "path"}, []string{"when", "code", "message", "path"}, nil)
 	enumValueSourceSchema    = sourceSchema("scenery.enum.value", 1, []string{"wire_value"}, nil, nil)
@@ -117,7 +117,7 @@ var (
 
 	operationHandlerSourceSchema = sourceSchema("scenery.operation.handler", 0,
 		[]string{"method", "adapter"}, []string{"method"}, nil)
-	operationOutcomeSourceSchema     = sourceSchema("scenery.operation.outcome", 1, []string{"type"}, []string{"type"}, nil)
+	operationOutcomeSourceSchema     = sourceSchema("scenery.operation.outcome", 1, []string{"type", "description"}, []string{"type"}, nil)
 	operationIdempotencySourceSchema = sourceSchema("scenery.operation.idempotency", 0, []string{"mode", "key"}, []string{"mode"}, nil)
 
 	// MCP is a binding protocol rather than a parallel tool declaration. The

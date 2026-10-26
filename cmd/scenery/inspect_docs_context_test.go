@@ -1,8 +1,11 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestInspectDocsExcerptsRejectNonUTF8Source(t *testing.T) {
@@ -96,5 +99,26 @@ func TestInspectDocsTypeScriptRuntimeSelectsNormativeScalarSections(t *testing.T
 	}
 	if diagnostics := validateHarnessJSONSchemaFile("../../docs/schemas/scenery.inspect.docs.schema.json", payload); len(diagnostics) > 0 {
 		t.Fatalf("schema: %v", diagnostics)
+	}
+}
+
+func TestInspectDocsExcerptsReachIntoAnOversizedLine(t *testing.T) {
+	root := t.TempDir()
+	long := strings.Repeat("žluťoučký kůň ", 400) + "\n"
+	source := "# Title\n" + long + "tail\n"
+	if err := os.WriteFile(filepath.Join(root, "doc.md"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	documents := []inspectDocsDocument{{Path: "doc.md", Role: "direct", Sections: []inspectDocsSection{{Heading: "Body", StartLine: 2, EndLine: 3}}}}
+	if err := attachInspectDocsExcerpts(root, documents); err != nil {
+		t.Fatal(err)
+	}
+	excerpt := documents[0].Sections[0].Excerpt
+	if excerpt == nil || excerpt.Text == "" || !utf8.ValidString(excerpt.Text) || len(excerpt.Text) > maxInspectDocsExcerptBytes || !excerpt.Truncated {
+		t.Fatalf("oversized line excerpt = %#v", excerpt)
+	}
+	start := len("# Title\n")
+	if excerpt.EndLine != 1 || excerpt.EndByte != start+len(excerpt.Text) || source[start:excerpt.EndByte] != excerpt.Text {
+		t.Fatalf("excerpt end = line %d byte %d, text %d bytes", excerpt.EndLine, excerpt.EndByte, len(excerpt.Text))
 	}
 }

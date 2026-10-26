@@ -36,7 +36,7 @@ func TestProjectNativeFixtureMatchesGolden(t *testing.T) {
 		t.Fatalf("output schema type = %#v", outputSchema["type"])
 	}
 	variants, ok := outputSchema["oneOf"].([]any)
-	if !ok || len(variants) != 1 {
+	if !ok || len(variants) != 2 {
 		t.Fatalf("output schema variants = %#v", outputSchema["oneOf"])
 	}
 	variant, ok := variants[0].(map[string]any)
@@ -120,13 +120,6 @@ func TestSchemaProjectionCoversCompositeShapes(t *testing.T) {
 				map[string]any{"name": "alpha"}, map[string]any{"name": "beta", "wire_value": "b"},
 			}},
 		},
-		"app/union/value": {
-			Address: "app/union/value", Kind: unionKind, Module: "app",
-			Spec: map[string]any{"variant": []any{
-				map[string]any{"name": "text", "type": map[string]any{"$expression": "string"}},
-				map[string]any{"name": "count", "type": map[string]any{"$expression": "int32"}},
-			}},
-		},
 	}
 	owner := graph.Resource{Address: "app/operation/test", Module: "app"}
 	schema, _, err := schemaForType(owner, map[string]any{"$ref": "app/record/input"}, "app", resources, newSchemaState())
@@ -179,17 +172,7 @@ func TestSchemaProjectionCoversCompositeShapes(t *testing.T) {
 	if !ok || !containsString(enumObject["enum"], "alpha") || !containsString(enumObject["enum"], "b") {
 		t.Fatalf("enum schema = %#v", enum)
 	}
-	union, _, err := schemaForType(owner, map[string]any{"$ref": "app/union/value"}, "app", resources, newSchemaState())
-	if err != nil {
-		t.Fatal(err)
-	}
-	unionObject, ok := union.(map[string]any)
-	if !ok {
-		t.Fatalf("union schema = %#v", union)
-	}
-	if variants, ok := unionObject["oneOf"].([]any); !ok || len(variants) != 2 {
-		t.Fatalf("union oneOf = %#v", unionObject["oneOf"])
-	}
+	// Tagged unions are covered by TestTaggedUnionSchemaAcceptsTheFlattenedWireForm.
 
 	operation := graph.Resource{Address: "app/operation/outcomes", Module: "app", Spec: map[string]any{
 		"result": []any{map[string]any{"name": "success", "type": map[string]any{"$ref": "app/record/input"}}},
@@ -204,7 +187,7 @@ func TestSchemaProjectionCoversCompositeShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	outputVariants, ok := outputObject["oneOf"].([]any)
-	if !ok || len(outputVariants) != 2 {
+	if !ok || len(outputVariants) != 3 {
 		t.Fatalf("outcome variants = %#v", outputObject["oneOf"])
 	}
 	for _, raw := range outputVariants {
@@ -220,7 +203,11 @@ func TestSchemaProjectionCoversCompositeShapes(t *testing.T) {
 		if !ok || outcome["const"] == nil {
 			t.Fatalf("outcome discriminator = %#v", properties["outcome"])
 		}
-		if stringValue(outcome["const"]) == "invalid" {
+		if stringValue(outcome["const"]) == mcpcontract.FailedOutcome {
+			if properties["problem"] == nil || !containsString(variant["required"], "problem") {
+				t.Fatalf("framework failure variant = %#v", variant)
+			}
+		} else if stringValue(outcome["const"]) == "invalid" {
 			if properties["problem"] == nil || !containsString(variant["required"], "problem") || containsString(variant["required"], "value") {
 				t.Fatalf("error outcome variant = %#v", variant)
 			}

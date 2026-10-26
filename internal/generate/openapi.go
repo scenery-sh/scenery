@@ -214,7 +214,14 @@ func openAPIComponents(reachable, all []Resource) map[string]any {
 			var required []string
 			for _, field := range namedChildren(resource.Spec, "field") {
 				fieldName := stringValue(field["name"])
-				properties[wireName(field, fieldName)] = openAPISchemaForType(field["type"], resource.Module, all)
+				property := openAPISchemaForType(field["type"], resource.Module, all)
+				if description := stringValue(field["description"]); description != "" {
+					property["description"] = description
+				}
+				if examples, ok := field["examples"].([]any); ok && len(examples) > 0 {
+					property["examples"] = examples
+				}
+				properties[wireName(field, fieldName)] = property
 				if _, optional := optionalInner(field["type"]); !optional {
 					required = append(required, wireName(field, fieldName))
 				}

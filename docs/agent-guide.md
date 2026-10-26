@@ -206,6 +206,10 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Generate/check a TypeScript target | `scenery generate --target typescript_client.<name> [--check] -o json` |
 | Run app validation | `scenery harness -o json --write` |
 | Initialize/sync an assistant | `scenery assistant init|sync|status ... -o json` |
+| Wait until an edit is served | `scenery ps --wait [--timeout <duration>] -o json` |
+| Run an app CLI binding in the running runtime | `scenery <binding command...> --live -o json` |
+| Read an app CLI binding's typed grammar | `scenery help <binding command...> -o json` |
+| Reach the running runtime from an MCP client | `scenery agent serve --mcp` |
 | Follow logs | `scenery logs -o jsonl --limit 200` |
 | Inspect traces and metrics | `scenery traces list -o json`, `scenery metrics list -o json` |
 | Inspect CLI timing by app | `scenery telemetry [--app <id-or-name>] [--since <duration>] -o json` |
@@ -234,6 +238,7 @@ marker is found; it is not evidence that an app can compile or start.
 - Detached startup failures return the supervisor's structured diagnostic and exit classification promptly even after session cleanup. `details.detached_startup` carries the reason (`child_failure`, `child_exit`, `protocol_error`, `timeout`, or `wait_failure`), owner PID, wait mode, and log path. Internal failures retain their original report token; logs are context, never parsed as startup-result authority.
 - `scenery up` reruns against an already-live app root are idempotent instead of failing: human foreground reruns report the existing runtime and attach to its logs (Ctrl+C detaches without stopping it), while `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`).
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
+- After an edit, use `scenery ps --wait -o json` instead of polling `ps`: it captures the source as it is now and returns once a generation built from exactly that snapshot serves (`served`), or reports `failed` with the compile error, `blocked`, `superseded` by a later edit, or `timeout` (which ends only the wait). Then exercise the change, for example with `scenery <binding command...> --live -o json`, which waits the same way, runs the operation in the serving generation and reports its `generation`, `build_input_digest`, `invocation_id` and `trace_id`; `scenery traces list --trace-id <id> -o json` finds that call's spans.
 - Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive. On machines set up with `scenery deploy setup`, the agent is continuously owned by the `dev.scenery.agent` launchd LaunchAgent and restart cooperates with it (`supervised: true` in the JSON payload) and first brings the installed job up to the current agent invocation, including start failure containment (`supervisor_updated: true` when it rewrote the job); `scenery deploy status -o json` reports supervision truth under `agent_supervisor`, reports the login-resume job's state and last exit code, and refuses `ready` when either supervisor is unloaded or the last resume completed unsuccessfully. Public resume is independent of optional `local.dev` wildcard DNS.
 - Use `scenery system agent cleanup` to find same-user processes still tied to the pre-rebrand `~/.onlava` config or socket; it reports them as `running_pids` and never signals them, because Scenery did not record them. Stop them yourself, then pass `--remove-state` to remove that directory explicitly.
 - Inspect `scenery ps -o json` for independent source, owner, metadata and serving freshness; retained candidate files do not attest a published generation. A verified owner stops after persistent source loss and retains separately owned data.
@@ -482,7 +487,41 @@ For a generated one-column screen, use `content_page` with one app-owned `conten
 
 For one routed record, use `detail_page` with a parameterized path, a call-delivery HTTP load binding, and declared field sections. The load operation must declare a business-error variant that this binding maps to HTTP 404; return that generated outcome when the entity is absent so the page renders typed error state instead of `system.internal`. Route parameters map to operation inputs by name or through `param` overrides. `presentation = "page" | "dialog" | "both"` selects the generated routed page, controlled dialog, or both without duplicating content. `hide_empty = true` omits an empty field while preserving zero and false values. Related `table_page` entries map a route parameter into one otherwise-unclaimed table input and render without nested page chrome. Simple declared actions open generated `form_dialog`s; use the typed app-owned `actions` slot for conditional choices, confirmations, or other domain workflows, and call its `onMutated` callback after success.
 
-For a generated operations workbench, choose one explicit list contract. CRUD sources use fingerprint-bound cursor pagination. A call-delivery HTTP binding can either map numeric pagination through `pagination { page, page_size, total }`, or return one complete typed list with no pagination. Set `source` and the result-record `items` field in both binding forms. Use `metadata = ["summary", "types"]` on a binding table to project only those auxiliary operation-result fields into typed `context.metadata`; `items` and pagination `total` cannot be projected again. Map nonstandard operation input names with `query { search, sort, direction }` and `filter.input`; set `query.search_hidden = true` only when an app toolbar owns the visible search input, and drive it through `context.controls.setSearch`. Supply typed invisible fixed inputs with labeled `predicate` blocks. Only complete-list tables may declare `group "field"`, because a cursor or numeric page cannot provide honest section counts. Reuse `status_map` resources for badge/filter/group presentation; set `pinned = true` only on the zero-to-two generated selectors that deserve inline quick access. A filter with `hidden = true` stays typed and query-mapped but is omitted from built-in controls so a custom toolbar can own it. Every non-hidden filter remains in the Filters popover, active values remain visible as removable chips, and group/sort/direction stay separate from the filter count. Filters, toolbar, empty, and footer slots receive `TablePageResultContext` with current rows, optional total/truncation/projected metadata, filtered state, `isPlaceholderData`, `isRefreshing`, query, and query controls for setting/clearing one enum-filter value, setting search, or refreshing. A toolbar defaults to the Page header; use `placement = "content"` for a large workbench above the table. `row_detail` owns inline or panel presentation. Use mutually exclusive `row_action` for a selected-row workflow that receives `row` and `onClose`; it remains mounted outside request-state rendering. Bind `table_page.stats` to a unit-input metrics operation; declare loaded-result CSV `export`; use `hidden = true` for export-only columns and `export = false` for display-only columns. CSV is UTF-8, spreadsheet-formula hardened, and names `{date}` from the user's local calendar. `form_dialog` derives string/enum fields from a mutation input record, table actions open it, failures stay inline, and success invalidates list and stats query keys. `row_detail.dialog` is the inline-only edit path when every mutation input can be seeded from a matching row field. Regenerate instead of editing emitted files.
+For a generated operations workbench, choose one explicit list contract. CRUD
+sources use fingerprint-bound cursor pagination. A call-delivery HTTP binding
+can either map numeric pagination through `pagination { page, page_size, total
+}`, or return one complete typed list with no pagination. Set `source` and the
+result-record `items` field in both binding forms. Use `metadata = ["summary",
+"types"]` on a binding table to project only those auxiliary operation-result
+fields into typed `context.metadata`; `items` and pagination `total` cannot be
+projected again. Map nonstandard operation input names with `query { search,
+sort, direction }` and `filter.input`; set `query.search_hidden = true` only
+when an app toolbar owns the visible search input, and drive it through
+`context.controls.setSearch`. Supply typed invisible fixed inputs with labeled
+`predicate` blocks. Only complete-list tables may declare `group "field"`,
+because a cursor or numeric page cannot provide honest section counts. Reuse
+`status_map` resources for badge/filter/group presentation; set `pinned = true`
+only on the zero-to-two generated selectors that deserve inline quick access. A
+filter with `hidden = true` stays typed and query-mapped but is omitted from
+built-in controls so a custom toolbar can own it. Every non-hidden filter
+remains in the Filters popover, active values remain visible as removable chips,
+and group/sort/direction stay separate from the filter count. Filters, toolbar,
+empty, and footer slots receive `TablePageResultContext` with current rows,
+optional total/truncation/projected metadata, filtered state,
+`isPlaceholderData`, `isRefreshing`, query, and query controls for
+setting/clearing one enum-filter value, setting search, or refreshing. A toolbar
+defaults to the Page header; use `placement = "content"` for a large workbench
+above the table. `row_detail` owns inline or panel presentation. Use mutually
+exclusive `row_action` for a selected-row workflow that receives `row` and
+`onClose`; it remains mounted outside request-state rendering. Bind
+`table_page.stats` to a unit-input metrics operation; declare loaded-result CSV
+`export`; use `hidden = true` for export-only columns and `export = false` for
+display-only columns. CSV is UTF-8, spreadsheet-formula hardened, and names
+`{date}` from the user's local calendar. `form_dialog` derives string/enum
+fields from a mutation input record, table actions open it, failures stay
+inline, and success invalidates list and stats query keys. `row_detail.dialog`
+is the inline-only edit path when every mutation input can be seeded from a
+matching row field. Regenerate instead of editing emitted files.
 
 Tables default to `scroll = "table"`, which keeps page controls fixed and gives the grid the vertical scrollport. Use `scroll = "page"` when stats, controls, and rows should move together in the page scrollport.
 

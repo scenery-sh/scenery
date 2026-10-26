@@ -222,8 +222,10 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return primitive("non_negative_int")
 		case "unique_items", "sensitive", "immutable", "deprecated":
 			return primitive("bool")
-		case "wire_name", "pattern", "format", "replacement":
+		case "wire_name", "pattern", "format", "replacement", "description":
 			return primitive("string")
+		case "examples":
+			return map[string]any{"collection": "list", "items": map[string]any{"value_type_source": "type"}}, "exact"
 		}
 	case "scenery.record.validation":
 		switch name {
@@ -259,6 +261,9 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	case "scenery.operation.outcome":
 		if name == "type" {
 			return typeExpression()
+		}
+		if name == "description" {
+			return primitive("string")
 		}
 	case "scenery.union.variant":
 		if name == "type" {

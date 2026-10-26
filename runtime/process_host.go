@@ -385,6 +385,8 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 		h.dispatch(w, req)
 	case req.URL.Path == processAdmissionsPath && req.Method == http.MethodPost:
 		h.serveAdmission(w, req)
+	case req.URL.Path == processHostCLIPath && req.Method == http.MethodPost:
+		h.serveCLI(w, req)
 	case req.URL.Path == processFaultsPath && (req.Method == http.MethodPut || req.Method == http.MethodGet):
 		h.serveFaults(w, req)
 	case req.URL.Path == processQuiescePath && req.Method == http.MethodPut:

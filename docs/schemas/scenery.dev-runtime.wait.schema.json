@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.dev-runtime.wait.schema.json",
+  "title": "scenery.dev-runtime.wait",
+  "description": "Result of the development runtime wait method and scenery ps --wait: whether the watched source captured when the wait began is served.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "outcome",
+    "source_freshness",
+    "waited_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.dev-runtime.wait"
+    },
+    "schema_revision": {
+      "const": "sha256:dc36724d72083795a756f634e96013ebd326eb6f0bbfedaf42b46eefa96ee4e8"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "outcome": {
+      "enum": [
+        "served",
+        "failed",
+        "blocked",
+        "superseded",
+        "source_missing",
+        "timeout"
+      ]
+    },
+    "target_source_snapshot_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "current_source_snapshot_digest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "serving": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generation",
+        "pid",
+        "contract_revision",
+        "implementation_revision",
+        "build_input_digest",
+        "framework_source_digest",
+        "source_snapshot_digest",
+        "published_at"
+      ],
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pid": {
+          "type": "string"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "contract_revision": {
+          "type": "string"
+        },
+        "implementation_revision": {
+          "type": "string"
+        },
+        "build_input_digest": {
+          "type": "string"
+        },
+        "framework_source_digest": {
+          "type": "string"
+        },
+        "source_snapshot_digest": {
+          "type": "string"
+        }
+      }
+    },
+    "source_freshness": {
+      "enum": [
+        "current",
+        "stale",
+        "source_missing",
+        "blocked",
+        "transaction_pending",
+        "unknown"
+      ]
+    },
+    "compile_error": {
+      "type": "string",
+      "minLength": 1
+    },
+    "build_block": {
+      "description": "Present while builds are blocked by a cause no ordinary edit resolves; the runtime keeps serving its last good generation.",
+      "type": "object",
+      "required": [
+        "reason",
+        "cause",
+        "since",
+        "prevented_builds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "framework_mismatch",
+            "migration_pending",
+            "seed_changed",
+            "generated_clients_stale"
+          ]
+        },
+        "cause": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "prevented_builds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "waited_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "served"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "serving"
+        ]
+      },
+      "else": {
+        "properties": {
+          "ok": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "failed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "compile_error"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "blocked"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "build_block"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "superseded"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "current_source_snapshot_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "served",
+              "failed",
+              "blocked",
+              "superseded"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "target_source_snapshot_digest"
+        ]
+      }
+    }
+  ]
+}

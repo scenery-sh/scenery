@@ -41,6 +41,8 @@ type statusOptions struct {
 	AppRoot string
 	JSON    bool
 	Watch   bool
+	Wait    bool
+	Timeout time.Duration
 }
 
 type downOptions struct {
@@ -541,6 +543,8 @@ func parseStatusArgs(args []string) (statusOptions, error) {
 	flags := newCLIFlagSet("ps")
 	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Watch, "watch", false, "")
+	flags.BoolVar(&opts.Wait, "wait", false, "")
+	flags.DurationVar(&opts.Timeout, "timeout", 0, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
@@ -548,6 +552,12 @@ func parseStatusArgs(args []string) (statusOptions, error) {
 	}
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return statusOptions{}, err
+	}
+	if opts.Wait && opts.Watch {
+		return statusOptions{}, usageErrorf("--wait and --watch cannot be combined")
+	}
+	if cliFlagSet(flags, "timeout") && (!opts.Wait || opts.Timeout <= 0 || opts.Timeout > maxSourceWaitTimeout) {
+		return statusOptions{}, usageErrorf("--timeout requires --wait and must be between 1ms and %s", maxSourceWaitTimeout)
 	}
 	return opts, nil
 }
