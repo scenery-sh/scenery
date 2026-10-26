@@ -632,3 +632,18 @@ func TestTelemetryQueryRefusesConcurrentRotation(t *testing.T) {
 		t.Fatal("query read a snapshot while rotation owned its lock")
 	}
 }
+
+func TestTelemetryRotationSkipsInvalidArchiveDirectory(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "telemetry.jsonl")
+	for _, name := range []string{path, filepath.Join(root, "telemetry-archive")} {
+		if err := os.WriteFile(name, []byte("preserve"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rotateCLITelemetryIfNeeded(path, cliTelemetryRotateBytes, time.Now())
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "preserve" {
+		t.Fatalf("active telemetry changed: %q, %v", data, err)
+	}
+}

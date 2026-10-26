@@ -197,6 +197,8 @@ func rotateCLITelemetryIfNeeded(path string, incoming int64, now time.Time) {
 	for suffix := 1; ; suffix++ {
 		if _, err := os.Stat(destDir); os.IsNotExist(err) {
 			break
+		} else if err != nil {
+			return
 		}
 		destDir = filepath.Join(archiveRoot, stamp+"-"+itoa(suffix))
 	}
