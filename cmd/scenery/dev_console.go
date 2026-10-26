@@ -389,4 +389,3 @@ func (s *devConsoleState) visibleLogRows() int {
 func (s *devConsoleState) handleRune(key rune) bool {
 	return s.handleKey(consoleKey{Kind: consoleKeyRune, Rune: key})
 }
-

@@ -490,4 +490,3 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 	go s.monitorInstance(instance)
 	return nil
 }
-

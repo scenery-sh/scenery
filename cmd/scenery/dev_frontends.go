@@ -475,4 +475,3 @@ func captureManagedFrontendOutput(ctx context.Context, appID, sessionID string, 
 		}(event)
 	}
 }
-

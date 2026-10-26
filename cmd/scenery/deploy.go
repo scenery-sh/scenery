@@ -488,4 +488,3 @@ func deploySetupNeedsHelperReinstall(paths localagent.Paths, currentVersion stri
 	}
 	return deploydiag.HelperDriftFor(deployDiagHelperStatus(helper), currentVersion).ActionRequired
 }
-
