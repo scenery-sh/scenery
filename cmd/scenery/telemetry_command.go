@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	localagent "scenery.sh/internal/agent"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -164,6 +166,11 @@ func parseTelemetryArgs(args []string, now time.Time) (telemetryQueryOptions, er
 }
 
 func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryResponse, error) {
+	lock, err := localagent.AcquireProcessLock(path + ".lock")
+	if err != nil {
+		return telemetryResponse{}, fmt.Errorf("lock telemetry snapshot: %w", err)
+	}
+	defer func() { _ = lock.Release() }()
 	response := telemetryResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity(cliTelemetryPayloadKind),
 		Query: telemetryQuery{
@@ -174,14 +181,12 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 	if !opts.Since.IsZero() {
 		response.Query.Since = opts.Since.Format(time.RFC3339Nano)
 	}
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return response, nil
-	}
+	archives, err := filepath.Glob(filepath.Join(filepath.Dir(path), "telemetry-archive", "*", "telemetry.jsonl"))
 	if err != nil {
-		return telemetryResponse{}, fmt.Errorf("read telemetry: %w", err)
+		return telemetryResponse{}, fmt.Errorf("list telemetry archives: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	sort.Strings(archives)
+	paths := append(archives, path)
 
 	appFilter := stringSet(opts.Apps)
 	commandFilter := stringSet(opts.Commands)
@@ -189,84 +194,106 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 	appGroups := map[string]*telemetryAppStats{}
 	commandGroups := map[string]*telemetryCommandStats{}
 	measurementGroups := map[string]*telemetryMeasurementStats{}
+	seenInvocations := map[string]struct{}{}
 	nextRecord := 0
 	percentileSamples := make([]cliTelemetryRecord, 0, maximumTelemetryLimit)
 	nextPercentileSample := 0
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+	for _, candidate := range paths {
+		file, err := os.Open(candidate)
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		var record cliTelemetryRecord
-		if err := json.Unmarshal([]byte(line), &record); err != nil || !validCLITelemetryRecord(record) {
-			response.Summary.InvalidCount++
+		if err != nil {
+			if candidate == path {
+				return telemetryResponse{}, fmt.Errorf("read telemetry: %w", err)
+			}
 			continue
 		}
-		if !opts.Since.IsZero() && record.At.Before(opts.Since) {
-			continue
-		}
-		if len(commandFilter) > 0 {
-			if _, ok := commandFilter[record.Command]; !ok {
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 4096), 1024*1024)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
 				continue
 			}
-		}
-		measurement := telemetryRecordMeasurement(record)
-		if len(measurementFilter) > 0 {
-			if _, ok := measurementFilter[measurement]; !ok {
+			var record cliTelemetryRecord
+			if err := json.Unmarshal([]byte(line), &record); err != nil || !validCLITelemetryRecord(record) {
+				response.Summary.InvalidCount++
 				continue
 			}
-		}
-		if len(appFilter) > 0 {
-			if record.App == nil || (!telemetrySetContains(appFilter, record.App.ID) && !telemetrySetContains(appFilter, record.App.Name)) {
+			measurement := telemetryRecordMeasurement(record)
+			if record.InvocationID != "" {
+				key := record.InvocationID + "\x00" + measurement
+				if _, duplicate := seenInvocations[key]; duplicate {
+					continue
+				}
+				seenInvocations[key] = struct{}{}
+			}
+			if !opts.Since.IsZero() && record.At.Before(opts.Since) {
 				continue
 			}
-		}
-
-		addTelemetryTiming(&response.Summary.telemetryTimingStats, record)
-		if record.App == nil {
-			response.Summary.UnattributedCount++
-		} else {
-			key := record.App.ID + "\x00" + record.App.Name
-			group := appGroups[key]
-			if group == nil {
-				group = &telemetryAppStats{App: *record.App}
-				appGroups[key] = group
+			if len(commandFilter) > 0 {
+				if _, ok := commandFilter[record.Command]; !ok {
+					continue
+				}
 			}
-			addTelemetryTiming(&group.telemetryTimingStats, record)
-		}
-		commandGroup := commandGroups[record.Command]
-		if commandGroup == nil {
-			commandGroup = &telemetryCommandStats{Command: record.Command}
-			commandGroups[record.Command] = commandGroup
-		}
-		addTelemetryTiming(&commandGroup.telemetryTimingStats, record)
-		measurementGroup := measurementGroups[measurement]
-		if measurementGroup == nil {
-			measurementGroup = &telemetryMeasurementStats{Measurement: measurement}
-			measurementGroups[measurement] = measurementGroup
-		}
-		addTelemetryTiming(&measurementGroup.telemetryTimingStats, record)
+			if len(measurementFilter) > 0 {
+				if _, ok := measurementFilter[measurement]; !ok {
+					continue
+				}
+			}
+			if len(appFilter) > 0 {
+				if record.App == nil || (!telemetrySetContains(appFilter, record.App.ID) && !telemetrySetContains(appFilter, record.App.Name)) {
+					continue
+				}
+			}
 
-		if record.ExitCode != 0 {
-			// Failures count as attempts but never as successful latency samples.
-		} else if len(percentileSamples) < maximumTelemetryLimit {
-			percentileSamples = append(percentileSamples, record)
-		} else {
-			percentileSamples[nextPercentileSample] = record
-			nextPercentileSample = (nextPercentileSample + 1) % maximumTelemetryLimit
-		}
+			addTelemetryTiming(&response.Summary.telemetryTimingStats, record)
+			if record.App == nil {
+				response.Summary.UnattributedCount++
+			} else {
+				key := record.App.ID + "\x00" + record.App.Name
+				group := appGroups[key]
+				if group == nil {
+					group = &telemetryAppStats{App: *record.App}
+					appGroups[key] = group
+				}
+				addTelemetryTiming(&group.telemetryTimingStats, record)
+			}
+			commandGroup := commandGroups[record.Command]
+			if commandGroup == nil {
+				commandGroup = &telemetryCommandStats{Command: record.Command}
+				commandGroups[record.Command] = commandGroup
+			}
+			addTelemetryTiming(&commandGroup.telemetryTimingStats, record)
+			measurementGroup := measurementGroups[measurement]
+			if measurementGroup == nil {
+				measurementGroup = &telemetryMeasurementStats{Measurement: measurement}
+				measurementGroups[measurement] = measurementGroup
+			}
+			addTelemetryTiming(&measurementGroup.telemetryTimingStats, record)
 
-		if len(response.Records) < opts.Limit {
-			response.Records = append(response.Records, record)
-		} else {
-			response.Records[nextRecord] = record
-			nextRecord = (nextRecord + 1) % opts.Limit
+			if record.ExitCode != 0 {
+				// Failures count as attempts but never as successful latency samples.
+			} else if len(percentileSamples) < maximumTelemetryLimit {
+				percentileSamples = append(percentileSamples, record)
+			} else {
+				percentileSamples[nextPercentileSample] = record
+				nextPercentileSample = (nextPercentileSample + 1) % maximumTelemetryLimit
+			}
+
+			if len(response.Records) < opts.Limit {
+				response.Records = append(response.Records, record)
+			} else {
+				response.Records[nextRecord] = record
+				nextRecord = (nextRecord + 1) % opts.Limit
+			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return telemetryResponse{}, fmt.Errorf("read telemetry: %w", err)
+		scanErr := scanner.Err()
+		_ = file.Close()
+		if scanErr != nil && candidate == path {
+			return telemetryResponse{}, fmt.Errorf("read telemetry: %w", scanErr)
+		}
 	}
 	if response.Summary.InvalidCount > 0 {
 		response.Warnings = append(response.Warnings, fmt.Sprintf("skipped %d invalid telemetry records", response.Summary.InvalidCount))

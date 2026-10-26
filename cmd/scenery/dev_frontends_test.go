@@ -528,7 +528,7 @@ func TestManagedFrontendTestServerHelper(t *testing.T) {
 			if _, err := os.Stat(readyFile); err == nil {
 				break
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(2 * time.Millisecond)
 		}
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:"+port)

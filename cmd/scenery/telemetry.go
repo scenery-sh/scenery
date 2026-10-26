@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/machine"
@@ -141,6 +142,13 @@ func telemetryRecordMeasurement(record cliTelemetryRecord) string {
 	return cliTelemetryMeasurementCompletion
 }
 
+const (
+	cliTelemetryRotateBytes       = 4 << 20
+	cliTelemetryMaxArchiveBundles = 8
+)
+
+var cliTelemetryRotateMaxBytes int64 = cliTelemetryRotateBytes
+
 func recordCLITelemetry(record cliTelemetryRecord) {
 	path, err := cliTelemetryPath()
 	if err != nil {
@@ -150,16 +158,100 @@ func recordCLITelemetry(record cliTelemetryRecord) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return
+	}
+	lock, err := localagent.AcquireProcessLock(path + ".lock")
+	if err != nil {
+		return
+	}
+	defer func() { _ = lock.Release() }()
+	line := append(encoded, '\n')
+	rotateCLITelemetryIfNeeded(path, int64(len(line)), time.Now())
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer func() { _ = file.Close() }()
-	encoded, err := json.Marshal(record)
+	_, _ = file.Write(line)
+}
+
+func rotateCLITelemetryIfNeeded(path string, incoming int64, now time.Time) {
+	maxBytes := cliTelemetryRotateMaxBytes
+	if maxBytes <= 0 {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() == 0 || info.Size()+incoming <= maxBytes {
+		return
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	archiveRoot := filepath.Join(filepath.Dir(path), "telemetry-archive")
+	stamp := "cli-" + now.Format("20060102T150405.000000000Z")
+	destDir := filepath.Join(archiveRoot, stamp)
+	for suffix := 1; ; suffix++ {
+		if _, err := os.Stat(destDir); os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			return
+		}
+		destDir = filepath.Join(archiveRoot, stamp+"-"+itoa(suffix))
+	}
+	if err := os.MkdirAll(destDir, 0o700); err != nil {
+		return
+	}
+	if err := os.Rename(path, filepath.Join(destDir, "telemetry.jsonl")); err != nil {
+		_ = os.Remove(destDir)
+		return
+	}
+	pruneCLITelemetryArchives(archiveRoot)
+}
+
+func pruneCLITelemetryArchives(archiveRoot string) {
+	if cliTelemetryMaxArchiveBundles <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(archiveRoot)
 	if err != nil {
 		return
 	}
-	_, _ = file.Write(append(encoded, '\n'))
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "cli-") {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+	slices.Sort(dirs)
+	excess := len(dirs) - cliTelemetryMaxArchiveBundles
+	for i := range excess {
+		dir := filepath.Join(archiveRoot, dirs[i])
+		contents, err := os.ReadDir(dir)
+		if err != nil || len(contents) != 1 || contents[0].Name() != "telemetry.jsonl" || !contents[0].Type().IsRegular() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, "telemetry.jsonl")); err == nil {
+			_ = os.Remove(dir)
+		}
+	}
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }
 
 func cliTelemetryPath() (string, error) {

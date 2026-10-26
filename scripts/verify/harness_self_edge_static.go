@@ -29,10 +29,15 @@ func runHarnessEdgeStaticFrontendProbe(ctx context.Context, root string) (proof 
 	}
 	source := filepath.Join(root, "static-source")
 	for name, body := range map[string]string{
-		"index.html":            "<html>app-platform</html>",
-		"assets/app-abc123.js":  "console.log(1)",
-		"models/scene.glb":      strings.Repeat("g", 4096),
-		"nested/doc/index.html": "<html>nested</html>",
+		"index.html":               "<html>app-platform</html>",
+		"assets/app-abc123.js":     "console.log(1)",
+		"models/scene.glb":         strings.Repeat("g", 4096),
+		"nested/doc/index.html":    "<html>nested</html>",
+		".hidden":                  "secret-dotfile",
+		".env.production":          "SECRET=1",
+		"assets/.DS_Store":         "ds-store",
+		".well-known/security.txt": "Contact: mailto:security@example.com",
+		".well-known/.secret":      "hidden-well-known",
 	} {
 		if err := writeHarnessDesktopFile(filepath.Join(source, name), body, 0o600); err != nil {
 			return nil, err
@@ -46,8 +51,13 @@ func runHarnessEdgeStaticFrontendProbe(ctx context.Context, root string) (proof 
 		return nil, err
 	}
 	// Put a real sentinel outside the served release so traversal cannot pass
-	// merely because there is nothing to disclose.
+	// merely because there is nothing to disclose, and plant a dotfile directly
+	// inside the published release directory so Caddy's HTTP 404 rule is proven
+	// even if a dotfile exists on disk.
 	if err := os.WriteFile(filepath.Join(release.CurrentPath, "..", "..", "secret"), []byte("private-sentinel"), 0o600); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(release.ReleaseDir, ".planted"), []byte("planted-dotfile"), 0o644); err != nil {
 		return nil, err
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +168,12 @@ func runHarnessEdgeStaticFrontendProbe(ctx context.Context, root string) (proof 
 		{method: "POST", path: "/", status: 405},
 		{method: "GET", path: "/api/things", status: 200, body: "agent:/api/things"},
 		{method: "GET", path: "/.hidden", status: 404},
+		{method: "GET", path: "/.planted", status: 404},
+		{method: "GET", path: "/.env.production", status: 404},
+		{method: "GET", path: "/assets/.DS_Store", status: 404},
+		{method: "GET", path: "/.well-known/security.txt", status: 200, body: "Contact: mailto:security@example.com", cache: "no-cache"},
+		{method: "GET", path: "/.well-known/.secret", status: 404},
+		{method: "GET", path: "/.well-known/missing", status: 404},
 	}
 	for _, path := range []string{"/runtime", "/runtime/storage", "/__scenery/config", "/platform/api/x", "/platform/runtime", "/platform/__scenery/config"} {
 		checks = append(checks, httpCheck{method: "GET", path: path, status: 404})

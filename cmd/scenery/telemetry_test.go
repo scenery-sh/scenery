@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/rotatinglog"
 	"strings"
 	"testing"
 	"time"
@@ -464,5 +466,184 @@ func TestTelemetryPercentilesExcludeFastFailures(t *testing.T) {
 	}
 	if response.Summary.Count != 2 || response.Summary.FailureCount != 1 || response.Summary.PercentileSampleCount != 1 || response.Summary.P50DurationMS != 1000 {
 		t.Fatalf("summary = %+v", response.Summary)
+	}
+}
+
+func TestRecordCLITelemetryRotatesArchiveAndLoadReadsArchivedSegments(t *testing.T) {
+	home := t.TempDir()
+	agentHome := filepath.Join(home, ".scenery")
+	t.Setenv("HOME", home)
+	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	originalMax := cliTelemetryRotateMaxBytes
+	cliTelemetryRotateMaxBytes = 250
+	t.Cleanup(func() { cliTelemetryRotateMaxBytes = originalMax })
+
+	base := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	for i := range 4 {
+		recordCLITelemetry(cliTelemetryRecord{
+			InvocationID: fmt.Sprintf("inv-%d", i+1),
+			At:           base.Add(time.Duration(i) * time.Minute),
+			Command:      "check",
+			DurationMS:   int64(10 * (i + 1)),
+			ExitCode:     0,
+			Version:      "dev",
+			Mode:         "oneshot",
+		})
+	}
+
+	archives, err := filepath.Glob(filepath.Join(agentHome, "telemetry-archive", "*", "telemetry.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archives) == 0 {
+		t.Fatal("expected at least one rotated telemetry archive segment")
+	}
+
+	for _, archive := range archives {
+		if !strings.HasPrefix(filepath.Base(filepath.Dir(archive)), "cli-"+time.Now().UTC().Format("20060102")) {
+			t.Fatalf("archive uses invocation start instead of rotation time: %s", archive)
+		}
+	}
+	response, err := loadCLITelemetry(filepath.Join(agentHome, "telemetry.jsonl"), telemetryQueryOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Summary.Count != 4 || len(response.Records) != 4 {
+		t.Fatalf("expected 4 records across archive and active telemetry.jsonl, got summary=%+v records=%d", response.Summary, len(response.Records))
+	}
+	if response.Records[0].InvocationID != "inv-4" || response.Records[3].InvocationID != "inv-1" {
+		t.Fatalf("unexpected record order: %+v", response.Records)
+	}
+}
+
+func TestRunConsoleEventLogCapturesForegroundSupervisorEvents(t *testing.T) {
+	t.Parallel()
+	var humanOut, errOut, logOut bytes.Buffer
+	console := newRunConsole(&humanOut, &errOut, false, false, "example-app", "/workspace/example")
+	console.SetEventLog(&logOut)
+
+	if err := console.Phase("Prepare runtime", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	console.Banner(runURLs{API: "http://127.0.0.1:4100"})
+	console.RebuildDetected([]string{"app.scn"})
+	console.Finish(nil)
+
+	if !strings.Contains(humanOut.String(), "scenery development server running") {
+		t.Fatalf("expected human banner on stdout, got %q", humanOut.String())
+	}
+	lines := strings.Split(strings.TrimSpace(logOut.String()), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("expected 5 JSONL event lines in foreground eventLog, got %d:\n%s", len(lines), logOut.String())
+	}
+	var kinds []string
+	for _, line := range lines {
+		var envelope struct {
+			Event string `json:"event"`
+			Data  struct {
+				Type string `json:"type"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+			t.Fatalf("unmarshal event line %q: %v", line, err)
+		}
+		if envelope.Event == "summary" {
+			kinds = append(kinds, "summary")
+		} else {
+			kinds = append(kinds, envelope.Data.Type)
+		}
+	}
+	if got, want := strings.Join(kinds, ","), "phase.start,phase.finish,run.ready,rebuild.detected,summary"; got != want {
+		t.Fatalf("event sequence = %q, want %q", got, want)
+	}
+}
+
+func TestTelemetryPrunePreservesForeignBundles(t *testing.T) {
+	root := t.TempDir()
+	for i := range cliTelemetryMaxArchiveBundles + 2 {
+		dir := filepath.Join(root, fmt.Sprintf("cli-%03d", i))
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "telemetry.jsonl"), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	foreign := filepath.Join(root, "manual-reset")
+	if err := os.MkdirAll(foreign, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	preserved := filepath.Join(root, "cli-000", "supervisor.log")
+	if err := os.WriteFile(preserved, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pruneCLITelemetryArchives(root)
+	for _, path := range []string{foreign, preserved, filepath.Join(root, "cli-000", "telemetry.jsonl")} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("preserved bundle lost: %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "cli-001")); !os.IsNotExist(err) {
+		t.Fatalf("old owned bundle was not removed: %v", err)
+	}
+}
+
+func TestForegroundLogCapturesStartupAndSummaryInUniqueFiles(t *testing.T) {
+	home, root := t.TempDir(), t.TempDir()
+	t.Setenv("SCENERY_AGENT_HOME", home)
+	for range rotatinglog.Sessions + 2 {
+		var output bytes.Buffer
+		console := newRunConsole(&output, &output, false, false, "app", root)
+		_, closeLog, err := attachForegroundEventLog(console, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			defer closeLog()
+			defer console.Finish(nil)
+			if err := console.Phase("Starting worktree control", func() error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+		}()
+	}
+	logs, err := filepath.Glob(filepath.Join(home, "worktrees", "*", "control", "dev", "*.log"))
+	if err != nil || len(logs) != rotatinglog.Sessions+2 {
+		t.Fatalf("logs=%v err=%v", logs, err)
+	}
+	for _, path := range logs {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte("phase.start")) || !bytes.Contains(data, []byte(`"event":"summary"`)) {
+			t.Fatalf("incomplete events: %s", data)
+		}
+	}
+}
+
+func TestTelemetryQueryRefusesConcurrentRotation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "telemetry.jsonl")
+	lock, err := localagent.AcquireProcessLock(path + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Release() }()
+	if _, err := loadCLITelemetry(path, telemetryQueryOptions{Limit: 10}); err == nil {
+		t.Fatal("query read a snapshot while rotation owned its lock")
+	}
+}
+
+func TestTelemetryRotationSkipsInvalidArchiveDirectory(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "telemetry.jsonl")
+	for _, name := range []string{path, filepath.Join(root, "telemetry-archive")} {
+		if err := os.WriteFile(name, []byte("preserve"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rotateCLITelemetryIfNeeded(path, cliTelemetryRotateBytes, time.Now())
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "preserve" {
+		t.Fatalf("active telemetry changed: %q, %v", data, err)
 	}
 }

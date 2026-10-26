@@ -23,6 +23,7 @@ type runConsole struct {
 	appRoot    string
 	mu         sync.Mutex
 	events     *cliEventWriter
+	eventLog   *cliEventWriter
 	eventCount int
 }
 
@@ -64,27 +65,38 @@ func newRunConsole(out, err io.Writer, verbose, jsonMode bool, appName, appRoot 
 	return console
 }
 
+func (c *runConsole) SetEventLog(w io.Writer) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if w == nil {
+		c.eventLog = nil
+		return
+	}
+	c.eventLog = newCLIEventWriter(w)
+}
+
 func (c *runConsole) Phase(title string, fn func() error) error {
 	if c == nil {
 		return fn()
 	}
 	started := time.Now()
-	if c.json {
-		c.Event("phase.start", map[string]any{
-			"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano),
-		})
-	}
+	c.Event("phase.start", map[string]any{
+		"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano),
+	})
 	err := fn()
+	data := map[string]any{
+		"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano), "boundary": "phase wall interval; overlaps are not summed",
+		"ok":          err == nil,
+		"duration_ms": time.Since(started).Milliseconds(),
+	}
+	if err != nil {
+		data["error"] = err.Error()
+	}
+	c.Event("phase.finish", data)
 	if c.json {
-		data := map[string]any{
-			"title": title, "phase_id": localPhaseID(title), "started_at": started.UTC().Format(time.RFC3339Nano), "boundary": "phase wall interval; overlaps are not summed",
-			"ok":          err == nil,
-			"duration_ms": time.Since(started).Milliseconds(),
-		}
-		if err != nil {
-			data["error"] = err.Error()
-		}
-		c.Event("phase.finish", data)
 		return err
 	}
 	icon := c.palette.Green("✔")
@@ -96,10 +108,10 @@ func (c *runConsole) Phase(title string, fn func() error) error {
 }
 
 func (c *runConsole) RebuildDetected(paths []string) {
+	c.Event("rebuild.detected", map[string]any{
+		"paths": append([]string(nil), paths...),
+	})
 	if c.json {
-		c.Event("rebuild.detected", map[string]any{
-			"paths": append([]string(nil), paths...),
-		})
 		return
 	}
 	c.printf(c.out, "\n  %s\n", c.palette.Bold("Changes detected. Rebuilding..."))
@@ -114,7 +126,7 @@ func (c *runConsole) RebuildDetected(paths []string) {
 }
 
 func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
-	if c.json && err != nil {
+	if err != nil {
 		diagnostic := cliErrorDiagnostic(err)
 		failure := map[string]any{
 			"stage":      "initial",
@@ -132,6 +144,8 @@ func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 		data["diagnostic"] = diagnostic
 		data["exit_code"] = cliExitCode(err)
 		c.Event("run.failed", data)
+	}
+	if c.json && err != nil {
 		return
 	}
 	c.printError("initial build failed", err)
@@ -146,7 +160,7 @@ func (c *runConsole) RebuildFailed(err error) {
 		c.Event("build.superseded", map[string]any{"operation_id": devBuildFailureOperation(err)})
 		return
 	}
-	if c.json && err != nil {
+	if err != nil {
 		failure := map[string]any{
 			"stage":      "rebuild",
 			"error":      err.Error(),
@@ -157,6 +171,8 @@ func (c *runConsole) RebuildFailed(err error) {
 			failure["operation_id"] = operation
 		}
 		c.Event("build.error", failure)
+	}
+	if c.json && err != nil {
 		return
 	}
 	c.printError("rebuild failed", err)
@@ -165,11 +181,11 @@ func (c *runConsole) RebuildFailed(err error) {
 // BuildBlocked reports a rebuild that was not attempted because it would fail
 // for the cause that blocked the last build.
 func (c *runConsole) BuildBlocked(block devBuildBlock) {
+	c.Event("build.blocked", map[string]any{
+		"reason": block.Reason, "cause": block.Cause,
+		"since": block.Since.Format(time.RFC3339Nano), "prevented_builds": block.Prevented,
+	})
 	if c.json {
-		c.Event("build.blocked", map[string]any{
-			"reason": block.Reason, "cause": block.Cause,
-			"since": block.Since.Format(time.RFC3339Nano), "prevented_builds": block.Prevented,
-		})
 		return
 	}
 	c.printf(c.err, "\n  %s\n  %s\n\n",
@@ -180,8 +196,8 @@ func (c *runConsole) BuildBlocked(block devBuildBlock) {
 // FrameworkHandoff announces that the runtime stops so the prepared producer
 // of the app's newly selected Scenery continues this `scenery up`.
 func (c *runConsole) FrameworkHandoff(handoff *frameworkHandoff) {
+	c.Event("framework.handoff", handoff.summary())
 	if c.json {
-		c.Event("framework.handoff", handoff.summary())
 		return
 	}
 	c.printf(c.out, "\n  %s\n  %s\n\n",
@@ -190,8 +206,8 @@ func (c *runConsole) FrameworkHandoff(handoff *frameworkHandoff) {
 }
 
 func (c *runConsole) Banner(urls runURLs) {
+	c.Event("run.ready", runURLData(urls, c.verbose))
 	if c.json {
-		c.Event("run.ready", runURLData(urls, c.verbose))
 		return
 	}
 	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("scenery development server running"))
@@ -203,13 +219,13 @@ func (c *runConsole) Banner(urls runURLs) {
 // idempotent `scenery up` outcome: the runtime keeps its current owner and
 // this invocation only surfaces how to reach, follow, and stop it.
 func (c *runConsole) AlreadyRunning(ownerPID int, status string, urls runURLs, attachCommand, downCommand string) {
+	data := runURLData(urls, c.verbose)
+	data["owner_pid"] = ownerPID
+	data["status"] = status
+	data["attach_command"] = attachCommand
+	data["down_command"] = downCommand
+	c.Event("run.already_running", data)
 	if c.json {
-		data := runURLData(urls, c.verbose)
-		data["owner_pid"] = ownerPID
-		data["status"] = status
-		data["attach_command"] = attachCommand
-		data["down_command"] = downCommand
-		c.Event("run.already_running", data)
 		return
 	}
 	c.printf(c.out, "\n  %s %s\n\n",
@@ -421,7 +437,9 @@ func (c *runConsole) Event(eventType string, data map[string]any) {
 	if c == nil {
 		return
 	}
-	if !c.json {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.events == nil && c.eventLog == nil {
 		return
 	}
 	event := runEvent{
@@ -434,19 +452,24 @@ func (c *runConsole) Event(eventType string, data map[string]any) {
 		},
 		Data: data,
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.events.event(event) == nil {
+	wrote := c.events != nil && c.events.event(event) == nil
+	if c.eventLog != nil && c.eventLog.event(event) == nil {
+		wrote = true
+	}
+	if wrote {
 		c.eventCount++
 	}
 }
 
 func (c *runConsole) Finish(err error) {
-	if c == nil || c.events == nil {
+	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.events == nil && c.eventLog == nil {
+		return
+	}
 	data := map[string]any{"event_count": c.eventCount, "ok": err == nil}
 	if handoff, ok := errors.AsType[*frameworkHandoff](err); ok {
 		// The runtime stopped cleanly; the next producer starts its own stream.
@@ -457,7 +480,12 @@ func (c *runConsole) Finish(err error) {
 		data["diagnostic"] = cliErrorDiagnostic(err)
 		data["exit_code"] = cliExitCode(err)
 	}
-	_ = c.events.write("summary", true, data)
+	if c.events != nil {
+		_ = c.events.write("summary", true, data)
+	}
+	if c.eventLog != nil {
+		_ = c.eventLog.write("summary", true, data)
+	}
 }
 
 type setupOutputWriter struct {

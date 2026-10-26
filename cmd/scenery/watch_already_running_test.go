@@ -7,26 +7,22 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestFollowAlreadyRunningDevSessionDetachesOnInterrupt(t *testing.T) {
 	oldLogs := runSceneryLogsFunc
 	t.Cleanup(func() { runSceneryLogsFunc = oldLogs })
+	ctx, cancel := context.WithCancel(context.Background())
 	var gotArgs []string
 	runSceneryLogsFunc = func(ctx context.Context, stdout io.Writer, args []string) error {
 		gotArgs = args
+		cancel()
 		<-ctx.Done()
 		return ctx.Err()
 	}
 
 	var out bytes.Buffer
 	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", "/tmp/app")
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
 	if err := followAlreadyRunningDevSession(ctx, console, "/tmp/app"); err != nil {
 		t.Fatalf("followAlreadyRunningDevSession = %v, want nil on interrupt", err)
 	}

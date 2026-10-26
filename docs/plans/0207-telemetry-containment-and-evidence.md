@@ -73,17 +73,21 @@ capture instead of extending historical inference further.
       `golangci-lint run ./...` reported 0 issues; both fixture regenerations
       are stable; the new and changed test roots stay below 60 ms in repeated
       isolated runs.
-- [ ] Commit and review; ONLV adoption and native capture follow separately.
+- [x] 2026-10-21 Native CLI & foreground supervisor telemetry capture: added
+      4 MiB bounded rotation for `<agent-home>/telemetry.jsonl` into
+      `telemetry-archive/<timestamp>/telemetry.jsonl` (retaining up to 8 archive
+      bundles) in `cmd/scenery/telemetry.go` with chronological archive loading
+      in `cmd/scenery/telemetry_command.go`, and wired `runConsole`
+      (`cmd/scenery/console.go`, `cmd/scenery/watch.go`) to emit structured
+      `scenery.run.event` and `summary` envelopes to the worktree's rotating
+      supervisor log (`<worktree>/control/dev/<slug>.log`) during foreground
+      `scenery up` sessions.
+- [ ] ONLV adoption and live installed launchd agent restart (requires explicit user request).
 
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
-
-- Current: Implementation and repository proof are recorded as complete; review/merge remains open.
-- Next: Recheck the current diff and merge status before closing; ONLV adoption/native capture are separate follow-ups.
-- Boundary: The installed launchd agent was not upgraded live. Restarting it still needs an explicit user request.
-- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+Checkpoint 2026-10-26: PR #248 rebased onto merged #247 in `/private/tmp/scenery-pr248-send`. Review fixes are in progress: early foreground sink/summary lifetime, unique logs, write-time rotation, serialized telemetry snapshots, conservative archive pruning, and hidden-entry validation. The unsafe retained-executable stamp cache is removed in favor of hashing bytes. Sol found that duplicate foreground starts could prune the active owner log. Pruning now runs only after session acquisition; a focused test retains more than the session budget when only attaching sinks. Final proof passed: full verifier against origin/main, lint, focused tests, race checks, edge/CLI-process probes, and foreground startup/summary/telemetry query. The optional logs query in the minimal fixture reports VictoriaLogs unavailable; direct session log proof passed. Initial edge probe lacked the managed store and overlapped a documentation edit; rerunning with the existing SCENERY_TOOLCHAIN_DIR and stable inputs passed. Next: push and CI/merge. No installed CLI or live agent replacement is authorized or needed.
 
 ## Surprises & Discoveries
 

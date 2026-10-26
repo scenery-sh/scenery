@@ -133,7 +133,7 @@ type devActiveGeneration struct {
 
 const (
 	appStartupTimeout      = 30 * time.Second
-	appStartupPollInterval = 10 * time.Millisecond
+	appStartupPollInterval = 2 * time.Millisecond
 )
 
 func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
