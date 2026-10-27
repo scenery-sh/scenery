@@ -63,6 +63,13 @@ func TestStandardAuthConnectionProjectionFollowsRuntimeConfig(t *testing.T) {
 		}
 		if resource.Kind == "scenery.binding" {
 			httpSpec, _ := resource.Spec["http"].(map[string]any)
+			byAddress := map[string]Resource{}
+			for _, item := range projected {
+				byAddress[item.Address] = item
+			}
+			if diagnostics := validateHTTPInputMappings(byAddress, resource, byAddress[refString(resource.Spec["operation"])], httpSpec); len(diagnostics) != 0 {
+				t.Fatalf("%s maps its input inconsistently: %#v", resource.Name, diagnostics)
+			}
 			found := map[string]bool{}
 			for _, response := range namedChildren(httpSpec, "response") {
 				when := refString(response["when"])

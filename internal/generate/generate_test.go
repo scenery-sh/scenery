@@ -855,6 +855,7 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 			Kind:    "scenery.record",
 			Name:    "connection_start_input",
 			Spec: map[string]any{"field": []any{
+				map[string]any{"name": "provider", "type": map[string]any{"$ref": "string"}},
 				map[string]any{"name": "scopes", "type": map[string]any{"$expression": "list(string)"}},
 			}},
 			Origin: Origin{Kind: "framework"},
@@ -891,11 +892,13 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 				"operation": map[string]any{"$ref": "scenery_auth/operation/connection_start"},
 				"protocol":  "http",
 				"http": map[string]any{
-					"method": "POST",
-					"path":   "/auth/connections/{provider}/start",
+					"method":         "POST",
+					"path":           "/auth/connections/{provider}/start",
+					"path_parameter": map[string]any{"name": "provider", "to": map[string]any{"$ref": "operation.connection_start.input.provider"}},
 					"body": map[string]any{
-						"codec": "json",
-						"to":    map[string]any{"$ref": "operation.connection_start.input"},
+						"codec":   "json",
+						"to":      map[string]any{"$ref": "operation.connection_start.input"},
+						"include": []any{map[string]any{"$ref": "operation.connection_start.input.scopes"}},
 					},
 					"response": map[string]any{
 						"name":   "success",
@@ -922,6 +925,10 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 	for _, fragment := range []string{
 		"async connectionStart(input: Types.ConnectionStartInput",
 		`"/auth/connections/{provider}/start"`,
+		// The framework input is addressed in full: the path parameter keeps
+		// its string field type and the body carries only the selected field.
+		`"pathParameters":[{"name":"provider","property":"provider","value":{"kind":"primitive","name":"string"}}]`,
+		`"select":["scopes"]`,
 	} {
 		if !strings.Contains(clientSource, fragment) {
 			t.Fatalf("generated client missing %q:\n%s", fragment, clientSource)
@@ -929,5 +936,47 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 	}
 	if !strings.Contains(typesSource, "export interface ConnectionStartResponse") {
 		t.Fatalf("generated types omit the framework-owned response:\n%s", typesSource)
+	}
+}
+
+func TestTypeScriptClientSelectsImportedInputFieldsInTheirModule(t *testing.T) {
+	resources := []Resource{
+		{Address: "app/http_gateway/public", Module: "app", Kind: "scenery.http-gateway", Name: "public", Spec: map[string]any{}},
+		{Address: "types/enum/mode", Module: "types", Kind: "scenery.enum", Name: "mode", Spec: map[string]any{"value": []any{map[string]any{"name": "fast"}}}},
+		{Address: "types/record/payload", Module: "types", Kind: "scenery.record", Name: "payload", Spec: map[string]any{"field": []any{
+			map[string]any{"name": "id", "type": map[string]any{"$ref": "string"}},
+			map[string]any{"name": "mode", "type": map[string]any{"$ref": "enum.mode"}},
+		}}},
+		{Address: "consumer/operation/submit", Module: "consumer", Kind: "scenery.operation", Name: "submit", Spec: map[string]any{
+			"input":  map[string]any{"$ref": "types/record/payload"},
+			"result": map[string]any{"name": "success", "type": map[string]any{"$ref": "std.type.unit"}},
+		}},
+		{Address: "consumer/binding/submit_http", Module: "consumer", Kind: "scenery.binding", Name: "submit_http", Spec: map[string]any{
+			"gateway":   map[string]any{"$ref": "app/http_gateway/public"},
+			"operation": map[string]any{"$ref": "consumer/operation/submit"},
+			"protocol":  "http",
+			"http": map[string]any{
+				"method":         "POST",
+				"path":           "/submit/{id}",
+				"path_parameter": map[string]any{"name": "id", "to": map[string]any{"$ref": "operation.submit.input.id"}},
+				"body": map[string]any{
+					"codec":   "json",
+					"to":      map[string]any{"$ref": "operation.submit.input"},
+					"include": []any{map[string]any{"$ref": "operation.submit.input.mode"}},
+				},
+				"response": map[string]any{"name": "success", "when": map[string]any{"$ref": "result.success"}, "status": "204"},
+			},
+		}, Origin: Origin{Kind: "authored"}},
+	}
+	target := Resource{Name: "public", Spec: map[string]any{"gateways": []any{map[string]any{"$ref": "app/http_gateway/public"}}}}
+	bindings := publicHTTPBindings(resources, target)
+	clientSource := renderTSClient(target, bindings, reachableResources(resources, bindings))
+	for _, fragment := range []string{
+		`"pathParameters":[{"name":"id","property":"id","value":{"kind":"primitive","name":"string"}}]`,
+		`"select":["mode"],"value":{"fields":[{"optional":false,"property":"mode","value":{"kind":"named","name":"types/enum/mode"},"wire":"mode"}]`,
+	} {
+		if !strings.Contains(clientSource, fragment) {
+			t.Fatalf("generated client missing %q:\n%s", fragment, clientSource)
+		}
 	}
 }

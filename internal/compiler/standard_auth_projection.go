@@ -181,9 +181,9 @@ func frameworkBinding(module, name, operation, gateway, authentication, method, 
 	}
 	if hasBody {
 		httpSpec["body"] = map[string]any{
-			"codec":  "json",
-			"to":     map[string]any{"$ref": "operation.connection_start.input"},
-			"fields": []any{map[string]any{"$ref": "operation.connection_start.input.scopes"}, map[string]any{"$ref": "operation.connection_start.input.redirect_path"}},
+			"codec":   "json",
+			"to":      map[string]any{"$ref": "operation.connection_start.input"},
+			"include": []any{map[string]any{"$ref": "operation.connection_start.input.scopes"}, map[string]any{"$ref": "operation.connection_start.input.redirect_path"}},
 		}
 	}
 	return Resource{
