@@ -355,10 +355,11 @@ func tsBindingFieldMappings(httpSpec map[string]any, kind string, operation Reso
 }
 
 func tsBindingFieldMapping(mapping map[string]any, operation Resource, resources []Resource, withEncoding bool) map[string]any {
+	fieldType, module := tsOperationFieldType(operation, resources, mapping["to"])
 	result := map[string]any{
 		"name":     stringValue(mapping["name"]),
 		"property": tsInputTargetProperty(mapping["to"]),
-		"value":    tsDescriptor(tsOperationFieldType(operation, resources, mapping["to"]), operation.Module),
+		"value":    tsDescriptor(fieldType, module),
 	}
 	if withEncoding {
 		result["encoding"] = defaultTSQueryEncoding(stringValue(mapping["encoding"]))
@@ -376,8 +377,8 @@ func tsBindingRequestBody(httpSpec map[string]any, operation Resource, resources
 	target := refOrString(body["to"])
 	if target != "" && target != "operation."+operation.Name+".input" {
 		result["property"] = tsInputTargetProperty(body["to"])
-		result["value"] = tsDescriptor(tsOperationFieldType(operation, resources, body["to"]), operation.Module)
-	} else if selected := tsSelectedBodyFields(body, operation, resources); selected != nil {
+		result["value"] = tsDescriptor(tsOperationFieldType(operation, resources, body["to"]))
+	} else if selected, module := tsSelectedBodyFields(body, operation, resources); selected != nil {
 		properties := make([]string, 0, len(selected))
 		fields := make([]any, 0, len(selected))
 		for _, field := range selected {
@@ -387,7 +388,7 @@ func tsBindingRequestBody(httpSpec map[string]any, operation Resource, resources
 			descriptor := map[string]any{
 				"property": property,
 				"wire":     wireName(field, name),
-				"value":    tsDescriptor(field["type"], operation.Module),
+				"value":    tsDescriptor(field["type"], module),
 				"optional": isOptionalType(field["type"]),
 			}
 			if constraints := tsFieldConstraints(field); len(constraints) > 0 {
