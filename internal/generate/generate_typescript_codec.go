@@ -191,23 +191,28 @@ func parseTSExpression(raw string) (string, []string, bool) {
 }
 
 func tsOperationFieldType(operation Resource, resources []Resource, target any) any {
-	targetName := lastRef(refOrString(target))
-	inputRef := refString(operation.Spec["input"])
-	parts := strings.Split(inputRef, ".")
-	if len(parts) != 2 || parts[0] != "record" {
-		return operation.Spec["input"]
-	}
-	for _, resource := range resources {
-		if resource.Module != operation.Module || resource.Kind != "scenery.record" || resource.Name != parts[1] {
-			continue
-		}
-		for _, field := range namedChildren(resource.Spec, "field") {
-			if stringValue(field["name"]) == targetName {
-				return field["type"]
-			}
-		}
+	if field, ok := tsOperationInputFields(operation, resources)[lastRef(refOrString(target))]; ok {
+		return field["type"]
 	}
 	return operation.Spec["input"]
+}
+
+// tsOperationInputFields returns the fields of the operation's record input by
+// name, whether the input is an authored `record.x` reference or a framework
+// projection's full resource address.
+func tsOperationInputFields(operation Resource, resources []Resource) map[string]map[string]any {
+	address := resolveResourceRef(operation, refString(operation.Spec["input"]), "record")
+	for _, resource := range resources {
+		if resource.Address != address || resource.Kind != "scenery.record" {
+			continue
+		}
+		fields := map[string]map[string]any{}
+		for _, field := range namedChildren(resource.Spec, "field") {
+			fields[stringValue(field["name"])] = field
+		}
+		return fields
+	}
+	return nil
 }
 
 func tsMultipartBodyDescriptorValue(httpSpec map[string]any, operation Resource, resources []Resource) map[string]any {
@@ -273,17 +278,9 @@ func tsMultipartBodyDescriptorValue(httpSpec map[string]any, operation Resource,
 }
 
 func tsSelectedBodyFields(body map[string]any, operation Resource, resources []Resource) []map[string]any {
-	inputRef := refString(operation.Spec["input"])
-	parts := strings.Split(inputRef, ".")
-	if len(parts) != 2 || parts[0] != "record" || (body["include"] == nil && body["except"] == nil) {
+	fields := tsOperationInputFields(operation, resources)
+	if fields == nil || (body["include"] == nil && body["except"] == nil) {
 		return nil
-	}
-	var fields []map[string]any
-	for _, resource := range resources {
-		if resource.Module == operation.Module && resource.Kind == "scenery.record" && resource.Name == parts[1] {
-			fields = namedChildren(resource.Spec, "field")
-			break
-		}
 	}
 	include, exclude := map[string]bool{}, map[string]bool{}
 	for _, item := range anyList(body["include"]) {
@@ -292,9 +289,8 @@ func tsSelectedBodyFields(body map[string]any, operation Resource, resources []R
 	for _, item := range anyList(body["except"]) {
 		exclude[lastRef(refOrString(item))] = true
 	}
-	selected := fields[:0]
-	for _, field := range fields {
-		name := stringValue(field["name"])
+	selected := make([]map[string]any, 0, len(fields))
+	for name, field := range fields {
 		if (len(include) == 0 || include[name]) && !exclude[name] {
 			selected = append(selected, field)
 		}

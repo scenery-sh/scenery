@@ -855,6 +855,7 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 			Kind:    "scenery.record",
 			Name:    "connection_start_input",
 			Spec: map[string]any{"field": []any{
+				map[string]any{"name": "provider", "type": map[string]any{"$ref": "string"}},
 				map[string]any{"name": "scopes", "type": map[string]any{"$expression": "list(string)"}},
 			}},
 			Origin: Origin{Kind: "framework"},
@@ -891,11 +892,13 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 				"operation": map[string]any{"$ref": "scenery_auth/operation/connection_start"},
 				"protocol":  "http",
 				"http": map[string]any{
-					"method": "POST",
-					"path":   "/auth/connections/{provider}/start",
+					"method":         "POST",
+					"path":           "/auth/connections/{provider}/start",
+					"path_parameter": map[string]any{"name": "provider", "to": map[string]any{"$ref": "operation.connection_start.input.provider"}},
 					"body": map[string]any{
-						"codec": "json",
-						"to":    map[string]any{"$ref": "operation.connection_start.input"},
+						"codec":   "json",
+						"to":      map[string]any{"$ref": "operation.connection_start.input"},
+						"include": []any{map[string]any{"$ref": "operation.connection_start.input.scopes"}},
 					},
 					"response": map[string]any{
 						"name":   "success",
@@ -922,6 +925,10 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 	for _, fragment := range []string{
 		"async connectionStart(input: Types.ConnectionStartInput",
 		`"/auth/connections/{provider}/start"`,
+		// The framework input is addressed in full: the path parameter keeps
+		// its string field type and the body carries only the selected field.
+		`"pathParameters":[{"name":"provider","property":"provider","value":{"kind":"primitive","name":"string"}}]`,
+		`"select":["scopes"]`,
 	} {
 		if !strings.Contains(clientSource, fragment) {
 			t.Fatalf("generated client missing %q:\n%s", fragment, clientSource)
