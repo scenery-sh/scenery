@@ -190,17 +190,20 @@ func parseTSExpression(raw string) (string, []string, bool) {
 	return name, arguments, true
 }
 
-func tsOperationFieldType(operation Resource, resources []Resource, target any) any {
-	if field, ok := tsOperationInputFields(operation, resources)[lastRef(refOrString(target))]; ok {
-		return field["type"]
+// tsOperationFieldType returns the type of the input field target names and
+// the module its references resolve in.
+func tsOperationFieldType(operation Resource, resources []Resource, target any) (any, string) {
+	fields, module := tsOperationInputFields(operation, resources)
+	if field, ok := fields[lastRef(refOrString(target))]; ok {
+		return field["type"], module
 	}
-	return operation.Spec["input"]
+	return operation.Spec["input"], operation.Module
 }
 
 // tsOperationInputFields returns the fields of the operation's record input by
-// name, whether the input is an authored `record.x` reference or a framework
-// projection's full resource address.
-func tsOperationInputFields(operation Resource, resources []Resource) map[string]map[string]any {
+// name and the record's module, whether the input is an authored `record.x`
+// reference or a full resource address (imported or framework-projected).
+func tsOperationInputFields(operation Resource, resources []Resource) (map[string]map[string]any, string) {
 	address := resolveResourceRef(operation, refString(operation.Spec["input"]), "record")
 	for _, resource := range resources {
 		if resource.Address != address || resource.Kind != "scenery.record" {
@@ -210,9 +213,9 @@ func tsOperationInputFields(operation Resource, resources []Resource) map[string
 		for _, field := range namedChildren(resource.Spec, "field") {
 			fields[stringValue(field["name"])] = field
 		}
-		return fields
+		return fields, resource.Module
 	}
-	return nil
+	return nil, ""
 }
 
 func tsMultipartBodyDescriptorValue(httpSpec map[string]any, operation Resource, resources []Resource) map[string]any {
@@ -277,10 +280,10 @@ func tsMultipartBodyDescriptorValue(httpSpec map[string]any, operation Resource,
 	}
 }
 
-func tsSelectedBodyFields(body map[string]any, operation Resource, resources []Resource) []map[string]any {
-	fields := tsOperationInputFields(operation, resources)
+func tsSelectedBodyFields(body map[string]any, operation Resource, resources []Resource) ([]map[string]any, string) {
+	fields, module := tsOperationInputFields(operation, resources)
 	if fields == nil || (body["include"] == nil && body["except"] == nil) {
-		return nil
+		return nil, ""
 	}
 	include, exclude := map[string]bool{}, map[string]bool{}
 	for _, item := range anyList(body["include"]) {
@@ -296,7 +299,7 @@ func tsSelectedBodyFields(body map[string]any, operation Resource, resources []R
 		}
 	}
 	sort.Slice(selected, func(i, j int) bool { return stringValue(selected[i]["name"]) < stringValue(selected[j]["name"]) })
-	return selected
+	return selected, module
 }
 
 func anyList(value any) []any {
