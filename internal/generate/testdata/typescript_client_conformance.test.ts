@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { PublicApiClient } from "../../compiler/testdata/native/clients/generated/public_api/client.ts";
 import { PublicApiClient as HouseClient } from "../../compiler/testdata/house/clients/generated/public_api/client.ts";
-import { sceneryClientMetadata } from "../../compiler/testdata/house/clients/generated/public_api/metadata.ts";
+import { clientMetadata } from "../../compiler/testdata/house/clients/generated/public_api/metadata.ts";
 import type { URLString } from "../../compiler/testdata/native/clients/generated/public_api/types.ts";
 
 import {
@@ -22,7 +22,7 @@ import {
 	matchResponse,
 	mergeResponseValue,
   parseExactJSON,
-  SceneryClientError,
+  ClientError,
   type BindingCall,
   type TypeDescriptor,
   type TypeRegistry,
@@ -94,10 +94,10 @@ describe("Scenery TypeScript client exact codecs", () => {
  });
 
 	test("keeps imported metadata frozen and removes unused metadata from barrel imports", async () => {
-		expect(Object.isFrozen(sceneryClientMetadata)).toBe(true);
-		expect(Object.isFrozen(sceneryClientMetadata.bindings)).toBe(true);
-		expect(Object.isFrozen(sceneryClientMetadata.operationMethods)).toBe(true);
-		for (const methods of Object.values(sceneryClientMetadata.operationMethods)) expect(Object.isFrozen(methods)).toBe(true);
+		expect(Object.isFrozen(clientMetadata)).toBe(true);
+		expect(Object.isFrozen(clientMetadata.bindings)).toBe(true);
+		expect(Object.isFrozen(clientMetadata.operationMethods)).toBe(true);
+		for (const methods of Object.values(clientMetadata.operationMethods)) expect(Object.isFrozen(methods)).toBe(true);
 		const root = new URL("../../compiler/testdata/house/clients/generated/public_api/", import.meta.url).pathname;
 		async function bundle(exports: string): Promise<string> {
 			const result = await Bun.build({
@@ -113,7 +113,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 			return result.outputs[0].text();
 		}
 		expect(await bundle("PublicApiClient")).not.toContain("operationMethods:");
-		expect(await bundle("PublicApiClient, sceneryClientMetadata")).toContain("operationMethods:");
+		expect(await bundle("PublicApiClient, clientMetadata")).toContain("operationMethods:");
 	});
 
 	test("retains reachable validation on generated multipart calls before fetch", async () => {
@@ -139,9 +139,9 @@ describe("Scenery TypeScript client exact codecs", () => {
 		);
 		expect(appendPathTail("", "asset", stringTail, registry)).toBe("/asset");
 		for (const value of ["/leading", "trailing/", "a//b", ".", "..", "a/../b", "a\\b", "a%2Fb", "%2e%2e", "%00"]) {
-			expect(() => appendPathTail("/drive", value, stringTail, registry)).toThrow(SceneryClientError);
+			expect(() => appendPathTail("/drive", value, stringTail, registry)).toThrow(ClientError);
 		}
-		expect(() => appendPathTail("/drive", "", relativeTail, registry)).toThrow(SceneryClientError);
+		expect(() => appendPathTail("/drive", "", relativeTail, registry)).toThrow(ClientError);
 	});
 
   test("round-trips arbitrary precision JSON numbers without Number", () => {
@@ -152,7 +152,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 
   test("rejects duplicate and prototype-polluting members", () => {
     for (const source of ['{"a":1,"a":2}', '{"__proto__":1}']) {
-      expect(() => parseExactJSON(source)).toThrow(SceneryClientError);
+      expect(() => parseExactJSON(source)).toThrow(ClientError);
     }
   });
 
@@ -162,7 +162,7 @@ describe("Scenery TypeScript client exact codecs", () => {
     }
     expect(parseExactJSON('"\\ud83d\\udc26"')).toBe("🐦");
     for (const source of ["01", "-01", "00.1", "1.", "1e", "+1", "NaN", "1x", "truex", "\uFEFFnull", '"\u0000"', '"\\uD800"', '"\uDC00"', '"\\x00"', '{"a":1,"\\u0061":2}', "[1,]", "{\"a\":1,}"]) {
-      expect(() => parseExactJSON(source)).toThrow(SceneryClientError);
+      expect(() => parseExactJSON(source)).toThrow(ClientError);
     }
     for (const token of ["0", "-0", "1E+3", "-12.50", "9007199254740993123", "1e-100"]) {
       expect(isJsonNumber(parseExactJSON(` \r\n\t${token} `))).toBe(true);
@@ -213,9 +213,9 @@ describe("Scenery TypeScript client exact codecs", () => {
     );
     expect(encodeTypedJSON({ count: 1n, note: null }, valueDescriptor, registry)).toBe('{"count":"1","note":null}');
     expect(() => encodeTypedJSON({ count: 1n, note: undefined, extra: true }, valueDescriptor, registry)).toThrow(
-      SceneryClientError,
+      ClientError,
     );
-    expect(() => encodeTypedJSON({ count: 1n, note: "X" }, valueDescriptor, registry)).toThrow(SceneryClientError);
+    expect(() => encodeTypedJSON({ count: 1n, note: "X" }, valueDescriptor, registry)).toThrow(ClientError);
     expect(() => encodeTypedJSON({ count: 0n }, valueDescriptor, registry)).toThrow(
       expect.objectContaining({ code: "TEST_NON_POSITIVE_COUNT", message: "record.value.count: count must be positive" }),
     );
@@ -296,7 +296,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 			registry,
 		);
 		expect(encoded.body).toBeInstanceOf(ArrayBuffer);
-		expect(encoded.contentType).toStartWith("multipart/form-data; boundary=scenery-boundary");
+		expect(encoded.contentType).toStartWith("multipart/form-data; boundary=app-boundary");
 		const source = new TextDecoder().decode(encoded.body);
 		expect(source).toContain('name="note-field"');
 		expect(source).toContain('name="raw-bytes"\r\nContent-Type: application/octet-stream');
@@ -344,7 +344,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 	test("uses one exact empty-object representation for unit", async () => {
 		const unit: TypeDescriptor = { kind: "primitive", name: "unit" };
 		expect(encodeTypedJSON({}, unit, registry)).toBe("{}");
-		expect(() => encodeTypedJSON({ extra: true }, unit, registry)).toThrow(SceneryClientError);
+		expect(() => encodeTypedJSON({ extra: true }, unit, registry)).toThrow(ClientError);
 		await expect(decodeResponseBody(new Response("{}", { headers: { "content-type": "application/json" } }), "json", ["application/json"], unit, registry, "test/binding/unit", 16)).resolves.toEqual({});
 	});
 
@@ -357,7 +357,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 			expect(encodeTypedJSON(value, descriptor, registry)).toBe(JSON.stringify(value));
 		}
 		for (const value of ["https://Example.com/a", "https://example.com:443/a", "https://[fe80::1%25en0]/", "https://[::::]/"]) {
-			expect(() => encodeTypedJSON(value, descriptor, registry)).toThrow(SceneryClientError);
+			expect(() => encodeTypedJSON(value, descriptor, registry)).toThrow(ClientError);
 		}
 	});
 
@@ -366,7 +366,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 		expect(encodeTypedJSON("018f47a2-6f45-0c4a-8b31-4cbbe3c99a22", descriptor, registry)).toBe(
 			'"018f47a2-6f45-0c4a-8b31-4cbbe3c99a22"',
 		);
-		expect(() => encodeTypedJSON("018f47a2-6f45-7c4a-7b31-4cbbe3c99a22", descriptor, registry)).toThrow(SceneryClientError);
+		expect(() => encodeTypedJSON("018f47a2-6f45-7c4a-7b31-4cbbe3c99a22", descriptor, registry)).toThrow(ClientError);
 	});
 
 	test("rejects non-conforming datetime lexical forms", () => {
@@ -375,7 +375,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 			'"2027-03-14T09:15:30.123Z"',
 		);
 		for (const value of ["2027-03-14T09:15:30,123Z", "2027-03-14T09:15:30.1234567890Z"]) {
-			expect(() => encodeTypedJSON(value, descriptor, registry)).toThrow(SceneryClientError);
+			expect(() => encodeTypedJSON(value, descriptor, registry)).toThrow(ClientError);
 		}
 	});
 
@@ -576,7 +576,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 				registry,
 			),
 		).rejects.toMatchObject({ code: "server", message: "server returned system.internal" });
-		const cancelled = new SceneryClientError("cancelled", "test/binding/system", "request cancelled");
+		const cancelled = new ClientError("cancelled", "test/binding/system", "request cancelled");
 		const originalClone = Response.prototype.clone;
 		Response.prototype.clone = () => {
 			throw cancelled;

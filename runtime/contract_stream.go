@@ -45,7 +45,7 @@ func EncodeContractByteStreamWithOptions(request *http.Request, status int, stre
 	}
 	headers := http.Header{
 		"Content-Type":                   []string{mediaType},
-		"X-Scenery-Contract-Compression": []string{"handled"},
+		"X-Contract-Compression": []string{"handled"},
 	}
 	if len(options.CompressionAlgorithms) > 0 {
 		headers.Set("Vary", "Accept-Encoding")

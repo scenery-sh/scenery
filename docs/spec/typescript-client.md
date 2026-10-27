@@ -10,6 +10,13 @@ This document defines deterministic TypeScript client generation for Scenery pub
 
 The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
+Browser-delivered client source MUST NOT contain the framework name,
+case-insensitively, in generated identifiers, comments or literal metadata.
+The transport error class is `ClientError`, and public metadata is exported as
+`clientMetadata`. Developer-only descriptors retain their machine identities
+and MUST NOT be served or bundled for end users. Existing React adapter and
+catalog violations are tracked in [plan 0221](../plans/0221-public-http-neutrality.md).
+
 ## 2. Dependencies and scope
 
 The generator depends on:
@@ -289,7 +296,7 @@ export type ProcessSceneOutcome =
   | { readonly kind: "error"; readonly name: "invalid_input"; readonly problem: Problem };
 ~~~
 
-A declared mapped admission or transport outcome that the contract exposes to callers is a typed `failure` variant. A network failure, cancellation, malformed server response, unsupported runtime, or server response contradicting the manifest rejects the promise with `SceneryClientError`, whose `code`, `bindingAddress`, safe metadata, and optional cause are stable.
+A declared mapped admission or transport outcome that the contract exposes to callers is a typed `failure` variant. A network failure, cancellation, malformed server response, unsupported runtime, or server response contradicting the manifest rejects the promise with `ClientError`, whose `code`, `bindingAddress`, safe metadata, and optional cause are stable.
 
 Generated methods never infer a business error from HTTP status alone; they use the binding's typed response mapping. Unknown status/body combinations are contract violations.
 
@@ -423,7 +430,7 @@ matched descriptor.
 
 ## 14. Cancellation, time, and retries
 
-`AbortSignal` is the only v1 caller cancellation mechanism. An already-aborted signal performs no request. Cancellation rejects with `SceneryClientError` code `cancelled` and retains the platform cause without exposing secret data.
+`AbortSignal` is the only v1 caller cancellation mechanism. An already-aborted signal performs no request. Cancellation rejects with `ClientError` code `cancelled` and retains the platform cause without exposing secret data.
 
 The generated client does not retry by default. A target may enable only a versioned retry policy that respects operation idempotency, request replay safety, `Retry-After`, deadline, and cancellation. `RetryRuntime`, its `index.ts` type export, and retry implementation are emitted only for a target that enables retry. Retry configuration participates in the client revision.
 
@@ -443,7 +450,7 @@ The client never reads ambient clock, random, locale, or environment state for c
 
 ## 15. Metadata
 
-The package exports immutable `sceneryClientMetadata` containing:
+The package exports immutable `clientMetadata` containing:
 
 - target, gateway, binding, operation, and reachable type addresses;
 - whole `contractRevision`;

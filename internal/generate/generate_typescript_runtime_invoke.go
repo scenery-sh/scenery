@@ -45,8 +45,8 @@ export async function invoke(
     emit("complete", { outcome: kind === "failure" || kind === "error" ? "failure" : "success" });
     return result;
   } catch (cause) {
-    if (cause instanceof SceneryClientError && traceId) cause.traceId = traceId;
-    emit("complete", { outcome: options.signal?.aborted ? "cancelled" : "error", errorCode: cause instanceof SceneryClientError ? cause.code : "unknown" });
+    if (cause instanceof ClientError && traceId) cause.traceId = traceId;
+    emit("complete", { outcome: options.signal?.aborted ? "cancelled" : "error", errorCode: cause instanceof ClientError ? cause.code : "unknown" });
     throw cause;
   }
 }
@@ -58,8 +58,8 @@ async function invokeRequest(
   options: CallOptions,
   registry: TypeRegistry,
 ): Promise<unknown> {
-  if (options.signal?.aborted) throw new SceneryClientError("cancelled", binding.address, "request cancelled");
-  if (options.keepalive !== undefined && typeof options.keepalive !== "boolean") throw new SceneryClientError("invalid_options", binding.address, "keepalive must be a boolean");
+  if (options.signal?.aborted) throw new ClientError("cancelled", binding.address, "request cancelled");
+  if (options.keepalive !== undefined && typeof options.keepalive !== "boolean") throw new ClientError("invalid_options", binding.address, "keepalive must be a boolean");
   const path = buildBindingPath(binding, input, registry);
   const headers = mergeHeaders(transport.headers, options.headers, binding.address);
   if (transport.authentication?.authorization !== undefined) headers.set("authorization", transport.authentication.authorization);
@@ -97,7 +97,7 @@ async function invokeRequest(
     response = await transport.fetch(transport.baseUrl + path, requestInit);
 /*__scenery_runtime_no_retry_end__*/
   } catch (cause) {
-    throw new SceneryClientError(options.signal?.aborted ? "cancelled" : "network", binding.address, "request failed", cause);
+    throw new ClientError(options.signal?.aborted ? "cancelled" : "network", binding.address, "request failed", cause);
   }
   return matchResponse(response, binding, registry);
 }
@@ -105,17 +105,17 @@ async function invokeRequest(
 export async function matchResponse(response: Response, binding: BindingCall, registry: TypeRegistry): Promise<unknown> {
   const cases = binding.responses.filter((candidate) => candidate.status === response.status);
   if (cases.length === 0) {
-    throw new SceneryClientError("contract_violation", binding.address, §unexpected response ${response.status}§);
+    throw new ClientError("contract_violation", binding.address, §unexpected response ${response.status}§);
   }
   for (const candidate of cases) {
     if (candidate.role !== "failure") continue;
     try {
       const payload = await decodeBindingResponse(response.clone(), candidate, binding, registry);
       if (candidate.problemCode === undefined || !isProblemCode(payload, candidate.problemCode)) continue;
-      if (candidate.throwOnMatch) throw new SceneryClientError("server", binding.address, §server returned ${candidate.problemCode}§);
+      if (candidate.throwOnMatch) throw new ClientError("server", binding.address, §server returned ${candidate.problemCode}§);
       return { kind: "failure", name: candidate.name, problem: payload };
     } catch (cause) {
-      if (!(cause instanceof SceneryClientError) || cause.code !== "contract_violation") throw cause;
+      if (!(cause instanceof ClientError) || cause.code !== "contract_violation") throw cause;
     }
   }
   const completionMatches: unknown[] = [];
@@ -124,11 +124,11 @@ export async function matchResponse(response: Response, binding: BindingCall, re
     try {
       completionMatches.push(bindingCompletionOutcome(candidate, await decodeBindingResponse(response.clone(), candidate, binding, registry)));
     } catch (cause) {
-      if (!(cause instanceof SceneryClientError) || cause.code !== "contract_violation") throw cause;
+      if (!(cause instanceof ClientError) || cause.code !== "contract_violation") throw cause;
     }
   }
   if (completionMatches.length === 1) return completionMatches[0];
-  throw new SceneryClientError("contract_violation", binding.address, "response body contradicts the contract");
+  throw new ClientError("contract_violation", binding.address, "response body contradicts the contract");
 }
 
 function bindingInputField(input: unknown, property: string): unknown {
@@ -160,7 +160,7 @@ function encodeBindingBody(binding: BindingCall, input: unknown, headers: Header
   const value = bindingRequestValue(body, input);
 /*__scenery_runtime_multipart_start__*/
   if (body.codec === "multipart") {
-    if (body.multipart === undefined) throw new SceneryClientError("invalid_options", binding.address, "multipart requires a declared part schema");
+    if (body.multipart === undefined) throw new ClientError("invalid_options", binding.address, "multipart requires a declared part schema");
     const encoded = encodeMultipartRequestBody(value, body.multipart, registry);
     headers.set("content-type", encoded.contentType);
     return encoded.body;

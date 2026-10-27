@@ -87,7 +87,7 @@ func TestTypeScriptClientSelectsSameStatusCompletionsByTypedMapping(t *testing.T
 		"const completionMatches: unknown[] = []",
 		"if (completionMatches.length === 1) return completionMatches[0]",
 		"response.clone()",
-		`if (!(cause instanceof SceneryClientError) || cause.code !== "contract_violation") throw cause`,
+		`if (!(cause instanceof ClientError) || cause.code !== "contract_violation") throw cause`,
 	} {
 		if !strings.Contains(runtimeSource, fragment) {
 			t.Fatalf("runtime missing %q", fragment)

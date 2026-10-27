@@ -96,7 +96,7 @@ func setObjectHeaders(header http.Header, obj *Object) {
 // One encoded map preserves exact user metadata keys and arbitrary UTF-8
 // values; HTTP header-name canonicalization must not rewrite those identities.
 func SetMetadataHeaders(header http.Header, metadata map[string]string) {
-	const name = "X-Scenery-Storage-Metadata"
+	const name = "X-Storage-Metadata"
 	if len(metadata) == 0 {
 		header.Del(name)
 		return
@@ -105,11 +105,11 @@ func SetMetadataHeaders(header http.Header, metadata map[string]string) {
 	header.Set(name, base64.RawURLEncoding.EncodeToString(data))
 }
 func MetadataFromHeaders(header http.Header) (map[string]string, error) {
-	raw := header.Get("X-Scenery-Storage-Metadata")
+	raw := header.Get("X-Storage-Metadata")
 	if raw == "" {
 		for name := range header {
-			if strings.HasPrefix(strings.ToLower(name), "x-scenery-storage-meta-") {
-				return nil, fmt.Errorf("%w: use X-Scenery-Storage-Metadata for the encoded metadata map", ErrInvalidInput)
+			if strings.HasPrefix(strings.ToLower(name), "x-storage-meta-") {
+				return nil, fmt.Errorf("%w: use X-Storage-Metadata for the encoded metadata map", ErrInvalidInput)
 			}
 		}
 		return nil, nil

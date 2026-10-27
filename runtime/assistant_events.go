@@ -83,7 +83,7 @@ func beginNDJSON(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", assistantapi.NDJSONContentType+"; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
-	w.Header().Set("X-Scenery-Contract-Compression", "identity")
+	w.Header().Set("X-Contract-Compression", "identity")
 	if flusher, ok := w.(interface{ WriteHeader(int) }); ok {
 		flusher.WriteHeader(http.StatusOK)
 	}

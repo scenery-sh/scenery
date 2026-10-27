@@ -898,7 +898,7 @@ func finishContractRepresentation(status int, mediaType, acceptEncoding string, 
 	if options.MaxBytes > 0 && int64(len(body)) > options.MaxBytes {
 		return ContractHTTPResponse{}, &ContractTransportError{Outcome: "system.internal", Status: http.StatusInternalServerError, Message: "response exceeds binding limit"}
 	}
-	headers := http.Header{"Content-Type": []string{mediaType}, "X-Scenery-Contract-Compression": []string{"handled"}}
+	headers := http.Header{"Content-Type": []string{mediaType}, "X-Contract-Compression": []string{"handled"}}
 	encoding, compressionErr := negotiateContractEncoding(acceptEncoding, options.CompressionAlgorithms)
 	if int64(len(body)) < options.CompressionThreshold {
 		if identity, identityErr := negotiateContractEncoding(acceptEncoding, nil); identityErr == nil {

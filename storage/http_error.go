@@ -11,7 +11,7 @@ import (
 const (
 	// HTTP HEAD responses cannot carry a body, so proxy clients receive the
 	// same bounded failure envelope in a safe, encoded header as GET clients.
-	storageErrorHeader    = "X-Scenery-Storage-Error"
+	storageErrorHeader    = "X-Storage-Error"
 	maxStorageErrorBytes  = 16 << 10
 	maxStorageErrorHeader = 24 << 10
 )

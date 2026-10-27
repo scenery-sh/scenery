@@ -46,7 +46,7 @@ func TestStorageHTTPInternalAuthenticationFailureIsOpaque(t *testing.T) {
 	}
 
 	for _, token := range []string{"database", "internal", "data-loss", "canceled"} {
-		recorder := serveStorageHTTPWithToken(server.Handler, "/__scenery/storage/app/reports/report.txt", token)
+		recorder := serveStorageHTTPWithToken(server.Handler, "/_app/storage/app/reports/report.txt", token)
 		assertStorageInternalFailure(t, recorder, logged, failures[token].Error())
 	}
 
@@ -55,10 +55,10 @@ func TestStorageHTTPInternalAuthenticationFailureIsOpaque(t *testing.T) {
 		path, token, body string
 		status            int
 	}{
-		{"/__scenery/storage/app/reports/report.txt", "expired", `{"code":"unauthenticated","message":"session expired"}`, http.StatusUnauthorized},
-		{"/__scenery/storage/app/reports/report.txt", "unavailable", `{"code":"unavailable","message":"session store is warming up"}`, http.StatusServiceUnavailable},
-		{"/__scenery/storage/app/reports/report.txt", "", `{"code":"unauthenticated","message":"invalid auth param"}`, http.StatusUnauthorized},
-		{"/__scenery/storage/missing", "expired", `{"code":"not_found","message":"storage store \"missing\" is not configured"}`, http.StatusNotFound},
+		{"/_app/storage/app/reports/report.txt", "expired", `{"code":"unauthenticated","message":"session expired"}`, http.StatusUnauthorized},
+		{"/_app/storage/app/reports/report.txt", "unavailable", `{"code":"unavailable","message":"session store is warming up"}`, http.StatusServiceUnavailable},
+		{"/_app/storage/app/reports/report.txt", "", `{"code":"unauthenticated","message":"invalid auth param"}`, http.StatusUnauthorized},
+		{"/_app/storage/missing", "expired", `{"code":"not_found","message":"storage store \"missing\" is not configured"}`, http.StatusNotFound},
 	} {
 		recorder := serveStorageHTTPWithToken(server.Handler, want.path, want.token)
 		if recorder.Code != want.status || recorder.Header().Get("Content-Type") != "application/json" || recorder.Body.String() != want.body+"\n" {
@@ -81,7 +81,7 @@ func TestStorageHTTPRuntimeMisconfigurationIsOpaque(t *testing.T) {
 
 	// An auth store without a registered auth handler.
 	t.Setenv(storageconfig.RuntimeConfigEnv, storageHTTPTestConfig(t.TempDir(), "auth"))
-	recorder := serveStorageHTTPWithToken(server.Handler, "/__scenery/storage/app/reports/report.txt", "token")
+	recorder := serveStorageHTTPWithToken(server.Handler, "/_app/storage/app/reports/report.txt", "token")
 	assertStorageInternalFailure(t, recorder, logged, "auth endpoint configured but no auth handler registered")
 
 	// A runtime storage configuration that does not decode.
@@ -91,7 +91,7 @@ func TestStorageHTTPRuntimeMisconfigurationIsOpaque(t *testing.T) {
 		t.Fatalf("configuration %q decoded", undecodable)
 	}
 	t.Setenv(storageconfig.RuntimeConfigEnv, undecodable)
-	recorder = serveStorageHTTPWithToken(server.Handler, "/__scenery/storage/app", "token")
+	recorder = serveStorageHTTPWithToken(server.Handler, "/_app/storage/app", "token")
 	assertStorageInternalFailure(t, recorder, logged, cause.Error())
 }
 
@@ -110,12 +110,12 @@ func TestStorageHTTPUnencodableResponseIsOpaque(t *testing.T) {
 	}
 
 	list := httptest.NewRecorder()
-	router.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/__scenery/storage/app", nil))
+	router.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/_app/storage/app", nil))
 	assertStorageInternalFailure(t, list, logged, cause.Error())
 
 	// The object is stored, but its answer is not a success with a broken body.
 	put := httptest.NewRecorder()
-	router.ServeHTTP(put, httptest.NewRequest(http.MethodPut, "/__scenery/storage/app/reports/report.txt", strings.NewReader("report")))
+	router.ServeHTTP(put, httptest.NewRequest(http.MethodPut, "/_app/storage/app/reports/report.txt", strings.NewReader("report")))
 	assertStorageInternalFailure(t, put, logged, cause.Error())
 }
 
@@ -177,9 +177,9 @@ func assertStorageInternalFailure(t *testing.T, recorder *httptest.ResponseRecor
 		failure.Message != definition.Meaning || !strings.HasPrefix(failure.ReportToken, "rpt_") || strings.Contains(body, cause) {
 		t.Fatalf("response = %d %q %q, want the opaque internal storage failure without %q", recorder.Code, recorder.Header().Get("Content-Type"), body, cause)
 	}
-	header, err := base64.RawURLEncoding.DecodeString(recorder.Header().Get("X-Scenery-Storage-Error"))
+	header, err := base64.RawURLEncoding.DecodeString(recorder.Header().Get("X-Storage-Error"))
 	if err != nil || string(header)+"\n" != body {
-		t.Fatalf("X-Scenery-Storage-Error = %q (%v), want the body %q", header, err, body)
+		t.Fatalf("X-Storage-Error = %q (%v), want the body %q", header, err, body)
 	}
 	for line := range strings.Lines(logged.String()) {
 		var record map[string]any

@@ -71,7 +71,7 @@ function encodeTypedHTTPValue(value: unknown, descriptor: TypeDescriptor, regist
 function replayableRequestInit(init: RequestInit): RequestInit {
   const body = init.body;
   if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) {
-    throw new SceneryClientError("invalid_options", "", "retry cannot replay a streaming request body");
+    throw new ClientError("invalid_options", "", "retry cannot replay a streaming request body");
   }
   let replayBody = body;
   if (body instanceof ArrayBuffer) replayBody = body.slice(0);
@@ -507,7 +507,7 @@ function validCanonicalURL(value: string): boolean {
 }
 
 function assertSafeKey(key: string): void {
-  if (forbiddenObjectKeys.has(key)) throw new SceneryClientError("invalid_input", "", "unsafe object key");
+  if (forbiddenObjectKeys.has(key)) throw new ClientError("invalid_input", "", "unsafe object key");
   assertUnicodeScalarString(key);
 }
 
@@ -542,11 +542,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function invalid(path: string, message: string): never {
-  throw new SceneryClientError("invalid_input", "", §${path}: ${message}§);
+  throw new ClientError("invalid_input", "", §${path}: ${message}§);
 }
 
 function safeCause(cause: unknown): unknown {
-  return cause instanceof SceneryClientError ? cause : undefined;
+  return cause instanceof ClientError ? cause : undefined;
 }
 `
 }

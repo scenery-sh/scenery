@@ -266,7 +266,7 @@ func publicBanner(ctx context.Context, socket string) (string, error) {
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://runtime/__scenery/public-config", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://runtime/_app/public-config", nil)
 	if err != nil {
 		return "", err
 	}
@@ -279,7 +279,7 @@ func publicBanner(ctx context.Context, socket string) (string, error) {
 		Kind   string            `json:"kind"`
 		Values map[string]string `json:"values"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&document); err != nil || document.Kind != "scenery.public-config" {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&document); err != nil || document.Kind != "app.public-config" {
 		return "", fmt.Errorf("public configuration response: %v", err)
 	}
 	if len(document.Values) != 1 {

@@ -74,7 +74,7 @@ function mediaTypeMatches(actual: string, expected: string): boolean {
 async function readBoundedResponse(response: Response, maximumBytes: number, bindingAddress: string): Promise<Uint8Array> {
   const declared = response.headers.get("content-length");
   if (declared !== null && (!/^(0|[1-9][0-9]*)$/.test(declared) || BigInt(declared) > BigInt(maximumBytes))) {
-    throw new SceneryClientError("contract_violation", bindingAddress, "response exceeds the contract byte limit");
+    throw new ClientError("contract_violation", bindingAddress, "response exceeds the contract byte limit");
   }
   if (response.body === null) return new Uint8Array();
   const reader = response.body.getReader();
@@ -87,7 +87,7 @@ async function readBoundedResponse(response: Response, maximumBytes: number, bin
     total += value.byteLength;
     if (total > maximumBytes) {
       await reader.cancel();
-      throw new SceneryClientError("contract_violation", bindingAddress, "response exceeds the contract byte limit");
+      throw new ClientError("contract_violation", bindingAddress, "response exceeds the contract byte limit");
     }
     chunks.push(value);
   }
@@ -100,23 +100,23 @@ async function readBoundedResponse(response: Response, maximumBytes: number, bin
 export function mergeResponseValue(current: unknown, path: readonly string[], value: unknown, bindingAddress: string): unknown {
 	if (value === undefined && path.length > 0) return current;
   if (path.length === 0) {
-    if (current !== undefined) throw new SceneryClientError("contract_violation", bindingAddress, "response mappings overlap");
+    if (current !== undefined) throw new ClientError("contract_violation", bindingAddress, "response mappings overlap");
     return value;
   }
   const root = current === undefined ? Object.create(null) as Record<string, unknown> : current;
-  if (!isObject(root) || Array.isArray(root)) throw new SceneryClientError("contract_violation", bindingAddress, "response mappings overlap");
+  if (!isObject(root) || Array.isArray(root)) throw new ClientError("contract_violation", bindingAddress, "response mappings overlap");
   let target = root as Record<string, unknown>;
   for (let index = 0; index < path.length - 1; index++) {
     const segment = path[index]!;
     assertSafeKey(segment);
     const existing = target[segment];
     if (existing === undefined) target[segment] = Object.create(null) as Record<string, unknown>;
-    else if (!isObject(existing) || Array.isArray(existing)) throw new SceneryClientError("contract_violation", bindingAddress, "response mappings overlap");
+    else if (!isObject(existing) || Array.isArray(existing)) throw new ClientError("contract_violation", bindingAddress, "response mappings overlap");
     target = target[segment] as Record<string, unknown>;
   }
   const leaf = path[path.length - 1]!;
   assertSafeKey(leaf);
-  if (Object.prototype.hasOwnProperty.call(target, leaf)) throw new SceneryClientError("contract_violation", bindingAddress, "response mappings overlap");
+  if (Object.prototype.hasOwnProperty.call(target, leaf)) throw new ClientError("contract_violation", bindingAddress, "response mappings overlap");
   target[leaf] = value;
   return root;
 }
@@ -151,10 +151,10 @@ function responseHeaderValues(headers: Headers, name: string): ResponseHeaderVal
 function responseHTTPWireValue(value: string, descriptor: TypeDescriptor, registry: TypeRegistry, bindingAddress: string): unknown {
   const resolved = unwrapResponseMetadataDescriptor(descriptor, registry, new Set());
   if (resolved.kind === "enum") return value;
-  if (resolved.kind !== "primitive") throw new SceneryClientError("contract_violation", bindingAddress, "response metadata requires a scalar codec");
+  if (resolved.kind !== "primitive") throw new ClientError("contract_violation", bindingAddress, "response metadata requires a scalar codec");
   switch (resolved.name) {
     case "bool":
-      if (value !== "true" && value !== "false") throw new SceneryClientError("contract_violation", bindingAddress, "malformed boolean response metadata");
+      if (value !== "true" && value !== "false") throw new ClientError("contract_violation", bindingAddress, "malformed boolean response metadata");
       return value === "true";
     case "int32":
     case "uint32":
@@ -207,27 +207,27 @@ export function decodeResponseHeader(
 		const raw = responseHeaderValues(response.headers, name);
 		if (raw.values.length === 0) {
 			if (responseMetadataIsOptional(descriptor, registry, new Set())) return undefined;
-			throw new SceneryClientError("contract_violation", bindingAddress, §required response header ${name} is absent§);
+			throw new ClientError("contract_violation", bindingAddress, §required response header ${name} is absent§);
 		}
     const resolved = unwrapResponseMetadataDescriptor(descriptor, registry, new Set());
     const collection = resolved.kind === "list" || resolved.kind === "set";
     if (encoding === "json") {
-      if (raw.values.length !== 1) throw new SceneryClientError("contract_violation", bindingAddress, §response header ${name} is repeated§);
+      if (raw.values.length !== 1) throw new ClientError("contract_violation", bindingAddress, §response header ${name} is repeated§);
       return decodeTypedValue(parseExactJSON(raw.values[0]!), descriptor, registry, §$headers.${name}§, new Set());
     }
     let values = raw.values;
     if (encoding === "comma") values = raw.values.flatMap((item) => item.split(",").map((part) => part.trim()));
-    else if (encoding !== "repeated") throw new SceneryClientError("contract_violation", bindingAddress, "unsupported response header encoding");
+    else if (encoding !== "repeated") throw new ClientError("contract_violation", bindingAddress, "unsupported response header encoding");
 		if (encoding === "repeated" && collection && !raw.preservesRepetition) {
-			throw new SceneryClientError("unsupported_runtime", bindingAddress, §fetch runtime cannot preserve repeated response header ${name}§);
+			throw new ClientError("unsupported_runtime", bindingAddress, §fetch runtime cannot preserve repeated response header ${name}§);
 		}
-    if (!collection && values.length !== 1) throw new SceneryClientError("contract_violation", bindingAddress, §scalar response header ${name} is repeated§);
+    if (!collection && values.length !== 1) throw new ClientError("contract_violation", bindingAddress, §scalar response header ${name} is repeated§);
     const itemDescriptor = collection ? resolved.value : descriptor;
     const wire = values.map((item) => responseHTTPWireValue(item, itemDescriptor, registry, bindingAddress));
     return decodeTypedValue(collection ? wire : wire[0], descriptor, registry, §$headers.${name}§, new Set());
   } catch (cause) {
-    if (cause instanceof SceneryClientError && cause.bindingAddress === bindingAddress) throw cause;
-    throw new SceneryClientError("contract_violation", bindingAddress, §malformed response header ${name}§, safeCause(cause));
+    if (cause instanceof ClientError && cause.bindingAddress === bindingAddress) throw cause;
+    throw new ClientError("contract_violation", bindingAddress, §malformed response header ${name}§, safeCause(cause));
   }
 }
 /*__scenery_runtime_response_header_end__*/
@@ -242,20 +242,20 @@ export function decodeResponseCookie(
 ): unknown {
 	try {
 		const raw = responseHeaderValues(response.headers, "set-cookie");
-		if (!raw.preservesRepetition) throw new SceneryClientError("unsupported_runtime", bindingAddress, "fetch runtime does not expose Set-Cookie values");
+		if (!raw.preservesRepetition) throw new ClientError("unsupported_runtime", bindingAddress, "fetch runtime does not expose Set-Cookie values");
     const prefix = §${name}=§;
     const matches = raw.values.flatMap((cookie) => {
       const pair = cookie.split(";", 1)[0]!.trim();
       return pair.startsWith(prefix) ? [pair.slice(prefix.length)] : [];
     });
 		if (matches.length === 0 && responseMetadataIsOptional(descriptor, registry, new Set())) return undefined;
-		if (matches.length !== 1) throw new SceneryClientError("contract_violation", bindingAddress, §response cookie ${name} is absent or duplicated§);
+		if (matches.length !== 1) throw new ClientError("contract_violation", bindingAddress, §response cookie ${name} is absent or duplicated§);
     const decoded = decodeURIComponent(matches[0]!);
     const wire = responseHTTPWireValue(decoded, descriptor, registry, bindingAddress);
     return decodeTypedValue(wire, descriptor, registry, §$cookies.${name}§, new Set());
   } catch (cause) {
-    if (cause instanceof SceneryClientError && cause.bindingAddress === bindingAddress) throw cause;
-    throw new SceneryClientError("contract_violation", bindingAddress, §malformed response cookie ${name}§, safeCause(cause));
+    if (cause instanceof ClientError && cause.bindingAddress === bindingAddress) throw cause;
+    throw new ClientError("contract_violation", bindingAddress, §malformed response cookie ${name}§, safeCause(cause));
   }
 }
 /*__scenery_runtime_response_cookie_end__*/
@@ -272,12 +272,12 @@ export async function decodeResponseBody(
   try {
     const media = response.headers.get("content-type") ?? "";
     if (!producedMediaTypes.some((expected) => mediaTypeMatches(media, expected))) {
-      throw new SceneryClientError("contract_violation", bindingAddress, "response content type contradicts the contract");
+      throw new ClientError("contract_violation", bindingAddress, "response content type contradicts the contract");
     }
     const bytes = await readBoundedResponse(response, maximumBytes, bindingAddress);
     if (codec === "bytes") {
       const resolved = resolveDescriptor(descriptor, registry, new Set());
-      if (resolved.kind !== "primitive" || resolved.name !== "bytes") throw new SceneryClientError("contract_violation", bindingAddress, "bytes response contradicts its type");
+      if (resolved.kind !== "primitive" || resolved.name !== "bytes") throw new ClientError("contract_violation", bindingAddress, "bytes response contradicts its type");
       return bytes;
     }
     const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -286,18 +286,18 @@ export async function decodeResponseBody(
       return decodeTypedValue(source, descriptor, registry, "$", new Set());
     }
     if (codec !== "json" && codec !== "problem_json") {
-      throw new SceneryClientError("contract_violation", bindingAddress, "unsupported response codec");
+      throw new ClientError("contract_violation", bindingAddress, "unsupported response codec");
     }
     return decodeTypedValue(parseExactJSON(source), descriptor, registry, "$", new Set());
   } catch (cause) {
-    if (cause instanceof SceneryClientError && cause.bindingAddress === bindingAddress) throw cause;
-    throw new SceneryClientError("contract_violation", bindingAddress, "malformed response body", safeCause(cause));
+    if (cause instanceof ClientError && cause.bindingAddress === bindingAddress) throw cause;
+    throw new ClientError("contract_violation", bindingAddress, "malformed response body", safeCause(cause));
   }
 }
 
 export async function assertEmptyResponse(response: Response, bindingAddress: string, maximumBytes: number): Promise<void> {
   if ((await readBoundedResponse(response, maximumBytes, bindingAddress)).byteLength !== 0) {
-    throw new SceneryClientError("contract_violation", bindingAddress, "response body contradicts the contract");
+    throw new ClientError("contract_violation", bindingAddress, "response body contradicts the contract");
   }
 }
 
@@ -312,7 +312,7 @@ export async function fetchWithRetry(
 ): Promise<Response> {
   let lastCause: unknown;
   for (let attempt = 1; attempt <= policy.maximumAttempts; attempt++) {
-    if (signal?.aborted) throw new SceneryClientError("cancelled", "", "request cancelled", lastCause);
+    if (signal?.aborted) throw new ClientError("cancelled", "", "request cancelled", lastCause);
     try {
       const response = await fetchImplementation(url, replayableRequestInit(init));
       if (attempt === policy.maximumAttempts || !policy.statuses.includes(response.status)) return response;
@@ -320,7 +320,7 @@ export async function fetchWithRetry(
       await response.body?.cancel();
       await runtime.sleep(delay, signal);
     } catch (cause) {
-      if (signal?.aborted) throw new SceneryClientError("cancelled", "", "request cancelled", cause);
+      if (signal?.aborted) throw new ClientError("cancelled", "", "request cancelled", cause);
       lastCause = cause;
       if (attempt === policy.maximumAttempts) throw cause;
       await runtime.sleep(0, signal);
@@ -340,10 +340,10 @@ export function mergeHeaders(
     for (const [rawName, value] of Object.entries(source ?? {})) {
       const name = rawName.toLowerCase();
       if (frameworkHeaders.has(name) || name.startsWith("x-forwarded-")) {
-        throw new SceneryClientError("invalid_options", bindingAddress, "a generic header attempted to override a framework-owned header");
+        throw new ClientError("invalid_options", bindingAddress, "a generic header attempted to override a framework-owned header");
       }
       if (!/^[!#$%&'*+.^_§|~0-9a-z-]+$/.test(name) || /[\r\n]/.test(value)) {
-        throw new SceneryClientError("invalid_options", bindingAddress, "invalid request header");
+        throw new ClientError("invalid_options", bindingAddress, "invalid request header");
       }
       result.set(name, value);
     }
@@ -360,7 +360,7 @@ export function encodeHTTPValue(value: unknown, descriptor?: TypeDescriptor, reg
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "bigint") return value.toString(10);
   if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return String(value);
-  throw new SceneryClientError("invalid_input", "", "HTTP scalar value is missing or invalid");
+  throw new ClientError("invalid_input", "", "HTTP scalar value is missing or invalid");
 }
 
 export function encodeRFC3986(value: string): string {
@@ -373,23 +373,23 @@ export function appendPathTail(prefix: string, value: unknown, descriptor: TypeD
   let semantic: string;
   if (value === undefined) {
     const resolved = resolveDescriptor(descriptor, registry, new Set());
-    if (resolved.kind !== "optional") throw new SceneryClientError("invalid_input", "", "path tail is missing");
+    if (resolved.kind !== "optional") throw new ClientError("invalid_input", "", "path tail is missing");
     return prefix === "" ? "/" : prefix;
   }
   semantic = encodeHTTPValue(value, descriptor, registry);
   if (semantic === "") return prefix === "" ? "/" : prefix;
   const segments = semantic.split("/");
   if (segments.some((segment) => segment === "" || segment === "." || segment === ".." || segment.includes("\\"))) {
-    throw new SceneryClientError("invalid_input", "", "path tail contains an invalid segment");
+    throw new ClientError("invalid_input", "", "path tail contains an invalid segment");
   }
   for (const segment of segments) {
     try {
       const decodedAgain = decodeURIComponent(segment);
       if (decodedAgain === "." || decodedAgain === ".." || /[\\/\0]/.test(decodedAgain)) {
-        throw new SceneryClientError("invalid_input", "", "path tail contains a hazardous encoded segment");
+        throw new ClientError("invalid_input", "", "path tail contains a hazardous encoded segment");
       }
     } catch (error) {
-      if (error instanceof SceneryClientError) throw error;
+      if (error instanceof ClientError) throw error;
     }
   }
   return §${prefix}/${segments.map(encodeRFC3986).join("/")}§;
@@ -421,7 +421,7 @@ export function appendHeader(target: Headers, name: string, value: unknown, enco
   const values = collection.items.map((item) => encodeHTTPValue(item, collection.itemDescriptor, registry));
   if (encoding === "comma") target.set(name, values.join(","));
 	else {
-		if (values.length > 1) throw new SceneryClientError("unsupported_runtime", "", "fetch cannot preserve repeated request header field lines");
+		if (values.length > 1) throw new ClientError("unsupported_runtime", "", "fetch cannot preserve repeated request header field lines");
 		if (values.length === 1) target.set(name, values[0]!);
 	}
 }
@@ -431,7 +431,7 @@ export function appendHeader(target: Headers, name: string, value: unknown, enco
 export function appendCookie(target: string[], name: string, value: unknown, descriptor?: TypeDescriptor, registry: TypeRegistry = Object.freeze({})): void {
   if (value === undefined) return;
   if (!/^[!#$%&'*+.^_§|~0-9A-Za-z-]+$/.test(name)) {
-    throw new SceneryClientError("invalid_input", "", "invalid cookie name");
+    throw new ClientError("invalid_input", "", "invalid cookie name");
   }
   target.push(§${name}=${encodeRFC3986(encodeHTTPValue(value, descriptor, registry))}§);
 }

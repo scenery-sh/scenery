@@ -78,7 +78,7 @@ export function parseExactJSON(source: string): JsonValue {
     }
   };
   const fail = (message: string): never => {
-    throw new SceneryClientError("contract_violation", "", message);
+    throw new ClientError("contract_violation", "", message);
   };
   const parseString = (): string => {
     const start = offset;
@@ -288,7 +288,7 @@ export function encodeMultipartRequestBody(
       if (encodedParts.length > descriptor.maxParts) invalid("$", "multipart part limit exceeded");
     }
   }
-  let boundary = "scenery-boundary";
+  let boundary = "app-boundary";
   while (encodedParts.some((part) => part.header.includes(boundary) || containsByteSequence(part.bytes, encoder.encode(boundary)))) boundary += "x";
   const chunks: Uint8Array[] = [];
   let total = 0;

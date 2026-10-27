@@ -28,7 +28,7 @@ func renderTSFailureSets(resources, bindings []Resource) (string, map[string]str
 	aliases := make(map[string]string, len(sets))
 	var source strings.Builder
 	for i, failures := range sets {
-		alias := fmt.Sprintf("_SceneryFailureSet%d", i)
+		alias := fmt.Sprintf("_FailureSet%d", i)
 		aliases[failures] = alias
 		fmt.Fprintf(&source, "type %s =\n%s;\n\n", alias, failures)
 	}

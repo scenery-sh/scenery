@@ -284,10 +284,10 @@ func call[T any](p *probe, method, path string, input any, token, refresh string
 }
 
 // cookie returns the issued refresh token and records the runtime-scoped
-// cookie name (a local runtime issues scenery_refresh_<host>_<port>).
+// cookie name (a local runtime issues app_refresh_<host>_<port>).
 func (p *probe) cookie(response *http.Response) string {
 	for _, c := range response.Cookies() {
-		if strings.HasPrefix(c.Name, "scenery_refresh") {
+		if strings.HasPrefix(c.Name, "app_refresh") {
 			if p.refreshCookie != "" && p.refreshCookie != c.Name {
 				panic(failure{fmt.Errorf("refresh cookie name changed from %q to %q", p.refreshCookie, c.Name)})
 			}

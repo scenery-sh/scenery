@@ -21,7 +21,7 @@ const (
 
 // canonicalRefreshCookieName is the refresh cookie name of deployed runtimes.
 // Local runtimes scope it by their public host and port; see refreshCookieName.
-const canonicalRefreshCookieName = "scenery_refresh"
+const canonicalRefreshCookieName = "app_refresh"
 
 const (
 	identityProviderEmail  = "email"

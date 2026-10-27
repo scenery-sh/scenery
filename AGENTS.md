@@ -82,6 +82,7 @@ already granted.
 ## Engineering Rules
 
 - Prefer Go's standard library and a small public surface; justify new dependency maintenance costs.
+- End-user HTTP surfaces must not contain "scenery" (case-insensitive): URLs, headers, cookies, response bodies, errors, and generated code/assets delivered to browsers. Use neutral application names. Developer/operator-only tools, diagnostics, private protocols, and source/package names may retain the name; keep them out of end-user responses and bundles.
 - Keep one rolling specification, compiler, runtime and machine protocol. Remove obsolete spellings without compatibility aliases, old decoders or fallback paths. Preserve `app.scn`, `package.scn`, `.scenery.json`, `scenery.sh/...`.
 - Declare service, operation, binding, durable-work, schedule, data, page, renderer and middleware identities in `.scn`; domain UI stays in app-owned slots. Changed persisted input with retained durable `external_name` needs a new `revision` and drained/migrated active rows.
 - Change JSON/model contracts with schemas, docs, tests and harness expectations. Use the checked diagnostic catalog: SCN8000-range request failures; SCN9000-range internal failures expose sanitized messages and opaque report tokens only.

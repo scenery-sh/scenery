@@ -65,15 +65,18 @@ func TestTypeScriptFailureSetsPreserveExactOperationUnions(t *testing.T) {
 		bindings = append(bindings, Resource{Module: "house", Spec: map[string]any{"operation": map[string]any{"$ref": "operation." + name}, "http": map[string]any{"response": responses}}})
 	}
 	source := renderTSTypes(operations, bindings)
+	if strings.Contains(strings.ToLower(source), "scenery") {
+		t.Fatal("shared failure aliases expose framework branding")
+	}
 	shared := "  | { readonly kind: \"failure\"; readonly name: \"invalid_request\"; readonly problem: Problem }\n" +
 		"  | { readonly kind: \"failure\"; readonly name: \"rate_limited\"; readonly problem: Problem }\n"
-	if !strings.Contains(source, "type _SceneryFailureSet0 =\n"+shared+";\n") || strings.Contains(source, "export type _Scenery") {
+	if !strings.Contains(source, "type _FailureSet0 =\n"+shared+";\n") || strings.Contains(source, "export type _FailureSet") {
 		t.Fatalf("failure set is not an exact private union:\n%s", source)
 	}
 	for _, name := range []string{"First", "Second", "Subset", "None"} {
 		_, tail, _ := strings.Cut(source, "export type "+name+"Outcome =\n")
 		outcome, _, _ := strings.Cut(tail, ";\n")
-		if got, want := strings.Contains(outcome, "_SceneryFailureSet0"), name == "First" || name == "Second"; got != want {
+		if got, want := strings.Contains(outcome, "_FailureSet0"), name == "First" || name == "Second"; got != want {
 			t.Fatalf("%s shared failure membership = %v, want %v", name, got, want)
 		}
 		if !strings.Contains(outcome, `readonly kind: "error"; readonly name: "business_error"`) {

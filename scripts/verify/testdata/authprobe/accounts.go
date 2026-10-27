@@ -29,7 +29,7 @@ func devNewJourney(p *probe) {
 	memberships := take(p.q.ListUserMemberships(p.ctx, user.ID))
 	p.check(len(memberships) == 1 && memberships[0].Role == "owner" && idString(memberships[0].TenantID) == configuredTenant, "new dev user has exactly one owner membership")
 	p.check(take(p.q.CountAuthIdentitiesByUser(p.ctx, user.ID)) == 0, "dev bootstrap creates no login provider identity")
-	p.check(strings.Contains(first.SetCookie, "scenery_refresh") && strings.Contains(second.SetCookie, "scenery_refresh"), "both bootstrap calls issue refresh cookies")
+	p.check(strings.Contains(first.SetCookie, "app_refresh") && strings.Contains(second.SetCookie, "app_refresh"), "both bootstrap calls issue refresh cookies")
 	var count int
 	must(p.db.QueryRowContext(p.ctx, `select count(*) from scenery.scenery_auth_users where normalized_primary_email=$1`, "petr@example.test").Scan(&count))
 	p.check(count == 1, "repeated dev bootstrap creates no duplicate user")
@@ -43,7 +43,7 @@ func devExistingJourney(p *probe) {
 	claims := take(auth.ValidateToken(session.Token))
 	p.check(string(claims.UserID) == idString(user.ID) && session.User.ID == idString(user.ID), "dev bootstrap reuses the existing user")
 	p.check(string(claims.TenantID) == configuredTenant, "configured tenant wins over existing unrelated membership")
-	p.check(strings.Contains(session.SetCookie, "scenery_refresh"), "existing dev user receives a refresh cookie")
+	p.check(strings.Contains(session.SetCookie, "app_refresh"), "existing dev user receives a refresh cookie")
 	memberships := take(p.q.ListUserMemberships(p.ctx, user.ID))
 	attached := false
 	for _, membership := range memberships {
