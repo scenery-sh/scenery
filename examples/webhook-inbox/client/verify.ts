@@ -1,5 +1,5 @@
 import { PublicApiClient } from "./generated/client.js";
-import { SceneryClientError } from "./generated/runtime.js";
+import { ClientError } from "./generated/runtime.js";
 import type { URLString } from "./generated/types.js";
 
 // The proof needs only Bun's Node-compatible argv, not a runtime type package.
@@ -41,7 +41,7 @@ let rejectedLocally = false;
 try {
   await client.process({ eventId: "", payload: "invalid" });
 } catch (error) {
-  rejectedLocally = error instanceof SceneryClientError && error.code === "invalid_input";
+  rejectedLocally = error instanceof ClientError && error.code === "invalid_input";
 }
 require(rejectedLocally, "generated min_length must reject before transport");
 console.log("PASS typed client: anonymous/invalid auth, processed/missing outcomes, digest, duplicate admission, local constraints");

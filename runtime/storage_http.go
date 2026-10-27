@@ -32,10 +32,10 @@ type storageHTTPRoutes struct {
 }
 
 func (s storageHTTPRoutes) register(router *routeTable, internal bool) {
-	registerRoute(router, "/__scenery/storage/:store", []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, params routeParams) {
+	registerRoute(router, "/_app/storage/:store", []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, params routeParams) {
 		s.handleStorageList(w, req, params, internal)
 	})
-	registerRoute(router, "/__scenery/storage/:store/*key", []string{http.MethodGet, http.MethodPut, http.MethodDelete}, func(w http.ResponseWriter, req *http.Request, params routeParams) {
+	registerRoute(router, "/_app/storage/:store/*key", []string{http.MethodGet, http.MethodPut, http.MethodDelete}, func(w http.ResponseWriter, req *http.Request, params routeParams) {
 		s.handleStorageObject(w, req, params, internal)
 	})
 }
@@ -174,7 +174,7 @@ func storageHTTPStoreConfig(name string) (storageconfig.RuntimeStoreConfig, Acce
 		name = strings.TrimSpace(cfg.Default)
 	}
 	if name == "" {
-		return storageconfig.RuntimeStoreConfig{}, Auth, errs.B().Code(errs.FailedPrecondition).Msg("scenery storage default store is not configured").Err()
+		return storageconfig.RuntimeStoreConfig{}, Auth, errs.B().Code(errs.FailedPrecondition).Msg("storage default store is not configured").Err()
 	}
 	store, ok := cfg.Stores[name]
 	if !ok {

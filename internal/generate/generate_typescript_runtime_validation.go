@@ -17,7 +17,7 @@ function validateRecordRules(
     const result = evaluateValidation(validation.expression, value, descriptor, registry, path);
     if (typeof result !== "boolean") invalid(path, §validation ${validation.name} did not produce bool§);
     if (result) {
-      throw new SceneryClientError(validation.code, "", §${validation.path || path}: ${validation.message}§);
+      throw new ClientError(validation.code, "", §${validation.path || path}: ${validation.message}§);
     }
   }
 }
@@ -238,7 +238,7 @@ function requireValidationNumber(value: unknown, path: string): ValidationNumber
 }
 
 function validationNumberNormalize(value: ValidationNumber): ValidationNumber {
-  if (value.denominator === 0n) throw new SceneryClientError("invalid_input", "", "validation division by zero");
+  if (value.denominator === 0n) throw new ClientError("invalid_input", "", "validation division by zero");
   let numerator = value.denominator < 0n ? -value.numerator : value.numerator;
   let denominator = value.denominator < 0n ? -value.denominator : value.denominator;
   const divisor = validationGreatestCommonDivisor(numerator < 0n ? -numerator : numerator, denominator);

@@ -39,7 +39,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 	defer server.Close()
 	client := server.Client()
 
-	putReq, err := http.NewRequest(http.MethodPut, server.URL+"/__scenery/storage/app/reports/report.txt", strings.NewReader("storage report"))
+	putReq, err := http.NewRequest(http.MethodPut, server.URL+"/_app/storage/app/reports/report.txt", strings.NewReader("storage report"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 		t.Fatalf("put without auth status = %d, want %d", noAuthResp.StatusCode, http.StatusUnauthorized)
 	}
 
-	putReq, err = http.NewRequest(http.MethodPut, server.URL+"/__scenery/storage/app/reports/report.txt", strings.NewReader("storage report"))
+	putReq, err = http.NewRequest(http.MethodPut, server.URL+"/_app/storage/app/reports/report.txt", strings.NewReader("storage report"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 		t.Fatalf("put object = %+v", putObj)
 	}
 
-	listReq, err := http.NewRequest(http.MethodGet, server.URL+"/__scenery/storage/app?prefix=reports/&delimiter=/", nil)
+	listReq, err := http.NewRequest(http.MethodGet, server.URL+"/_app/storage/app?prefix=reports/&delimiter=/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 		t.Fatalf("list page = %+v", page)
 	}
 
-	headReq, err := http.NewRequest(http.MethodHead, server.URL+"/__scenery/storage/app/reports/report.txt", nil)
+	headReq, err := http.NewRequest(http.MethodHead, server.URL+"/_app/storage/app/reports/report.txt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 		t.Fatalf("head status = %d content-length = %q metadata = %v", headResp.StatusCode, headResp.Header.Get("Content-Length"), metadata)
 	}
 
-	getReq, err := http.NewRequest(http.MethodGet, server.URL+"/__scenery/storage/app/reports/report.txt", nil)
+	getReq, err := http.NewRequest(http.MethodGet, server.URL+"/_app/storage/app/reports/report.txt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 		t.Fatalf("get status = %d body = %q", getResp.StatusCode, got)
 	}
 
-	deleteReq, err := http.NewRequest(http.MethodDelete, server.URL+"/__scenery/storage/app/reports/report.txt", nil)
+	deleteReq, err := http.NewRequest(http.MethodDelete, server.URL+"/_app/storage/app/reports/report.txt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 		t.Fatalf("delete status = %d, want %d", deleteResp.StatusCode, http.StatusNoContent)
 	}
 
-	missingReq, err := http.NewRequest(http.MethodGet, server.URL+"/__scenery/storage/app/reports/report.txt", nil)
+	missingReq, err := http.NewRequest(http.MethodGet, server.URL+"/_app/storage/app/reports/report.txt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestStorageHTTPRoutesDenyPrivateStores(t *testing.T) {
 		t.Fatalf("newServer() error = %v", err)
 	}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/__scenery/storage/app/reports/report.txt", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_app/storage/app/reports/report.txt", nil)
 	httpServer.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("private store status = %d, want %d", rec.Code, http.StatusForbidden)
@@ -220,7 +220,7 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 	if got := getStorageHTTP(t, client, server.URL, "tenant-b", "reports/report.txt"); got != "bravo" {
 		t.Fatalf("tenant B body = %q", got)
 	}
-	forged := httptest.NewRequest(http.MethodGet, "/__scenery/storage/app/reports/report.txt", nil)
+	forged := httptest.NewRequest(http.MethodGet, "/_app/storage/app/reports/report.txt", nil)
 	forged.Header.Set("Authorization", "Bearer tenant-a")
 	forged.Header.Set("X-Scenery-Storage-Tenant", "dGVuYW50LWI")
 	forgedResponse := httptest.NewRecorder()
@@ -228,7 +228,7 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 	if forgedResponse.Code != http.StatusOK || forgedResponse.Body.String() != "alpha" {
 		t.Fatalf("external tenant header overrode authenticated scope: %d %q", forgedResponse.Code, forgedResponse.Body.String())
 	}
-	listReq, err := http.NewRequest(http.MethodGet, server.URL+"/__scenery/storage/app?prefix=reports/", nil)
+	listReq, err := http.NewRequest(http.MethodGet, server.URL+"/_app/storage/app?prefix=reports/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 		t.Fatalf("tenant A page = %+v", page)
 	}
 
-	noTenantReq, err := http.NewRequest(http.MethodPut, server.URL+"/__scenery/storage/app/reports/missing.txt", strings.NewReader("nope"))
+	noTenantReq, err := http.NewRequest(http.MethodPut, server.URL+"/_app/storage/app/reports/missing.txt", strings.NewReader("nope"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestStorageHTTPPrivateStoreServedOnInternalRouter(t *testing.T) {
 	routes.register(s.private, true)
 
 	putRec := httptest.NewRecorder()
-	putReq := httptest.NewRequest(http.MethodPut, "/__scenery/storage/app/reports/report.txt", strings.NewReader("internal report"))
+	putReq := httptest.NewRequest(http.MethodPut, "/_app/storage/app/reports/report.txt", strings.NewReader("internal report"))
 	putReq.Header.Set("Content-Type", "text/plain")
 	s.private.ServeHTTP(putRec, putReq)
 	if putRec.Code != http.StatusCreated {
@@ -288,7 +288,7 @@ func TestStorageHTTPPrivateStoreServedOnInternalRouter(t *testing.T) {
 	}
 
 	getRec := httptest.NewRecorder()
-	getReq := httptest.NewRequest(http.MethodGet, "/__scenery/storage/app/reports/report.txt", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/_app/storage/app/reports/report.txt", nil)
 	s.private.ServeHTTP(getRec, getReq)
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("internal get status = %d, body = %s", getRec.Code, getRec.Body.String())
@@ -298,7 +298,7 @@ func TestStorageHTTPPrivateStoreServedOnInternalRouter(t *testing.T) {
 	}
 
 	publicRec := httptest.NewRecorder()
-	publicReq := httptest.NewRequest(http.MethodGet, "/__scenery/storage/app/reports/report.txt", nil)
+	publicReq := httptest.NewRequest(http.MethodGet, "/_app/storage/app/reports/report.txt", nil)
 	s.public.ServeHTTP(publicRec, publicReq)
 	if publicRec.Code != http.StatusForbidden {
 		t.Fatalf("public get status = %d, want %d", publicRec.Code, http.StatusForbidden)
@@ -315,7 +315,7 @@ func (d storageHTTPAuthData) AuditTenantID() string {
 
 func putStorageHTTP(t *testing.T, client *http.Client, baseURL, token, key, body string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPut, baseURL+"/__scenery/storage/app/"+key, strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, baseURL+"/_app/storage/app/"+key, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func putStorageHTTP(t *testing.T, client *http.Client, baseURL, token, key, body
 
 func getStorageHTTP(t *testing.T, client *http.Client, baseURL, token, key string) string {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/__scenery/storage/app/"+key, nil)
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/_app/storage/app/"+key, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

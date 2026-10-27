@@ -129,7 +129,7 @@ func (w *gzipResponseWriter) close() {
 		w.gzip = nil
 	}
 	if !w.wroteHead {
-		w.Header().Del("X-Scenery-Contract-Compression")
+		w.Header().Del("X-Contract-Compression")
 		w.ResponseWriter.WriteHeader(w.status)
 		w.wroteHead = true
 	}
@@ -151,8 +151,8 @@ func (w *gzipResponseWriter) start() {
 }
 
 func shouldGzipResponse(req *http.Request, status int, headers http.Header) bool {
-	if headers.Get("X-Scenery-Contract-Compression") != "" {
-		headers.Del("X-Scenery-Contract-Compression")
+	if headers.Get("X-Contract-Compression") != "" {
+		headers.Del("X-Contract-Compression")
 		return false
 	}
 	if req == nil || req.Method == http.MethodHead {

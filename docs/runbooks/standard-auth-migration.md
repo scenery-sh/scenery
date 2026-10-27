@@ -73,9 +73,9 @@ their Google account; never copy plaintext into the ciphertext columns.
 
    The command prompts for the secret; do not put it in the command line or this
    runbook. Standard auth ignores the former `JWT_SECRET` process variable.
-   Refresh-cookie naming is not configurable: deployed runtimes accept only `scenery_refresh`,
+   Refresh-cookie naming is not configurable: deployed runtimes accept only `app_refresh`,
    so deployments using another cookie name require an explicit forced-login migration.
-   (Local runtimes use `scenery_refresh_<host>_<port>`; see `docs/local-contract.md`.)
+   (Local runtimes use `app_refresh_<host>_<port>`; see `docs/local-contract.md`.)
 5. Bootstrap the target schema on a copy of production first:
 
    ```sh
@@ -499,9 +499,9 @@ scenery inspect routes -o json
 In staging, verify:
 
 - login with an existing email/password user
-- refresh with an existing `scenery_refresh` browser cookie; the response must rotate it under the same name
-- use an empty or invalid `scenery_refresh` cookie and confirm the request fails
-- logout and confirm one clearing `Set-Cookie` header is emitted for `scenery_refresh`
+- refresh with an existing `app_refresh` browser cookie; the response must rotate it under the same name
+- use an empty or invalid `app_refresh` cookie and confirm the request fails
+- logout and confirm one clearing `Set-Cookie` header is emitted for `app_refresh`
 - `/auth/me`
 - organization list and switch
 - owner-only organization member mutation
@@ -531,8 +531,11 @@ If cutover fails after traffic moves:
 
 ## Notes
 
+- The HTTP branding cutover replaces the former branded refresh cookie with
+  `app_refresh` (`app_refresh_<host>_<port>` locally). Existing browser users
+  must log in again; this does not delete or migrate database sessions.
 - Password hashes are copied as opaque strings. scenery verifies Argon2id hashes and can upgrade hash parameters on successful login.
-- Refresh-session preservation requires the same token shape and the canonical `scenery_refresh` cookie name in deployed environments. Other cookie names are not accepted and require users to log in again.
+- Refresh-session preservation requires the same token shape and the canonical `app_refresh` cookie name in deployed environments. Other cookie names are not accepted and require users to log in again.
 - Access JWTs only survive cutover if the target environment's `auth.jwt_secret`
   holds the same signing secret and the claims are compatible. Otherwise users
   need refresh or login.

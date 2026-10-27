@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0221 Neutral End-User HTTP Surfaces](0221-public-http-neutrality.md)
+  - Status: active
+  - Owner: scenery runtime / auth / generation
+  - Created: 2026-10-27
+  - Focus: remove framework branding from public transports and core browser clients, then migrate optional React/catalog output and verify production assets.
+
 - [0220 Agent Contract Fidelity And Verified Change Loop](0220-agent-contract-fidelity.md)
   - Status: active
   - Owner: scenery mcp / cli / runtime

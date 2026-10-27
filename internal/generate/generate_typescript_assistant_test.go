@@ -29,10 +29,10 @@ func TestReachableAssistantTypeScriptSurfaceIsTargetScoped(t *testing.T) {
 	if !strings.Contains(got, `return new URL(path.replace(/^\//, ""), base).toString();`) {
 		t.Fatalf("assistant URL helper still treats surface paths as origin-absolute:\n%s", got)
 	}
-	if !strings.Contains(got, `if (mediaType === "") throw new Runtime.SceneryClientError("unavailable"`) {
+	if !strings.Contains(got, `if (mediaType === "") throw new Runtime.ClientError("unavailable"`) {
 		t.Fatalf("assistant stream client does not retry an empty event content type:\n%s", got)
 	}
-	for _, forbidden := range []string{"node_modules/", "from \"eve\"", "private_session", "control_token", "mcp_url"} {
+	for _, forbidden := range []string{"scenery", "node_modules/", "from \"eve\"", "private_session", "control_token", "mcp_url"} {
 		if strings.Contains(strings.ToLower(got), strings.ToLower(forbidden)) {
 			t.Fatalf("public assistant client contains forbidden provider/private spelling %q", forbidden)
 		}

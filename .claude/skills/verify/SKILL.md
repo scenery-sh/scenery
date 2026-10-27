@@ -20,8 +20,8 @@ There is no tracked standard-auth fixture. For cookie/session behavior, use a di
 4. Run `go mod tidy` in the temporary module, then launch it with disposable `DATABASE_URL`, `JWT_SECRET`, and an empty `AUTH_COOKIE_DOMAIN`.
 5. Drive the public HTTP surface:
    - `POST /auth/signup/email`, then `POST /auth/email-verification/confirm` using the local `dev_verification_token`.
-   - Capture the issued refresh cookie. A local runtime names it `scenery_refresh_<host>_<port>` after its listen address; deployed runtimes use `scenery_refresh`.
-   - Exercise `/auth/refresh` with valid, missing, empty, malformed, and invalid refresh cookie headers under that name, and confirm a canonical `scenery_refresh` cookie is ignored locally.
+   - Capture the issued refresh cookie. A local runtime names it `app_refresh_<host>_<port>` after its listen address; deployed runtimes use `app_refresh`.
+   - Exercise `/auth/refresh` with valid, missing, empty, malformed, and invalid refresh cookie headers under that name, and confirm a canonical `app_refresh` cookie is ignored locally.
    - Exercise `/auth/logout` with the valid token and capture the `Set-Cookie` field value.
 6. Stop the app, terminate remaining database connections, drop the disposable database, and remove the temporary module.
 

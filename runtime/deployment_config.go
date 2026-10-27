@@ -195,10 +195,10 @@ func CurrentConfigRevision() string {
 // PublicConfigPath serves the application's public configuration: the
 // values of inputs declared public, pinned to the configuration revision the
 // process runs. Frontends read it at startup instead of build-time variables.
-const PublicConfigPath = "/__scenery/public-config"
+const PublicConfigPath = "/_app/public-config"
 
 // PublicConfigKind identifies the public configuration response.
-const PublicConfigKind = "scenery.public-config"
+const PublicConfigKind = "app.public-config"
 
 type publicConfigDocument struct {
 	Kind     string                     `json:"kind"`

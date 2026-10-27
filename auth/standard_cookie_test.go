@@ -22,39 +22,39 @@ func TestResolveRefreshToken(t *testing.T) {
 		{
 			name:     "explicit token wins",
 			explicit: " explicit ",
-			cookie:   "scenery_refresh=current",
+			cookie:   "app_refresh=current",
 			want:     "explicit",
 		},
 		{
 			name:     "invalid explicit token still wins",
 			explicit: "invalid",
-			cookie:   "scenery_refresh=current",
+			cookie:   "app_refresh=current",
 			want:     "invalid",
 		},
 		{
 			name:     "whitespace explicit token falls back",
 			explicit: "  ",
-			cookie:   "scenery_refresh=current",
+			cookie:   "app_refresh=current",
 			want:     "current",
 		},
 		{
 			name:   "current only",
-			cookie: "scenery_refresh=current",
+			cookie: "app_refresh=current",
 			want:   "current",
 		},
 		{
 			name:   "empty current",
-			cookie: "scenery_refresh=",
+			cookie: "app_refresh=",
 			want:   "",
 		},
 		{
 			name:   "invalid current token is returned for validation",
-			cookie: "scenery_refresh=not-a-refresh-token",
+			cookie: "app_refresh=not-a-refresh-token",
 			want:   "not-a-refresh-token",
 		},
 		{
 			name:   "unparseable current cookie",
-			cookie: `scenery_refresh="unterminated`,
+			cookie: `app_refresh="unterminated`,
 			want:   "",
 		},
 		{
@@ -90,8 +90,8 @@ func TestRefreshCookieIssuanceStaysCurrentOnly(t *testing.T) {
 
 	setCookie := refreshCookie(" token ", time.Now().Add(time.Hour))
 	cookie := parseSetCookie(t, setCookie)
-	if cookie.Name != "scenery_refresh" {
-		t.Fatalf("issued cookie name = %q, want scenery_refresh", cookie.Name)
+	if cookie.Name != "app_refresh" {
+		t.Fatalf("issued cookie name = %q, want app_refresh", cookie.Name)
 	}
 	if cookie.Value != "token" {
 		t.Fatalf("issued cookie value = %q, want token", cookie.Value)
@@ -134,7 +134,7 @@ func TestLogoutClearsRefreshCookie(t *testing.T) {
 	}
 
 	current := parseSetCookie(t, values[0])
-	if current.Name != "scenery_refresh" {
+	if current.Name != "app_refresh" {
 		t.Fatalf("cleared cookie name = %q", current.Name)
 	}
 	if current.Value != "" {
@@ -164,23 +164,23 @@ func TestRefreshCookieNameScopesLocalRuntimes(t *testing.T) {
 		appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: baseURL, Environment: shared.Environment{Name: "local", Type: shared.EnvDevelopment, Cloud: shared.CloudLocal}})
 	}
 	local("http://localhost:4976")
-	if got := refreshCookieName(); got != "scenery_refresh_localhost_4976" {
+	if got := refreshCookieName(); got != "app_refresh_localhost_4976" {
 		t.Fatalf("local refreshCookieName() = %q", got)
 	}
 	local("http://localhost:4920")
-	if got := refreshCookieName(); got != "scenery_refresh_localhost_4920" {
+	if got := refreshCookieName(); got != "app_refresh_localhost_4920" {
 		t.Fatalf("second local refreshCookieName() = %q", got)
 	}
 	local("http://Clean-Tech.local.dev:4920/api")
-	if got := refreshCookieName(); got != "scenery_refresh_clean_tech_local_dev_4920" {
+	if got := refreshCookieName(); got != "app_refresh_clean_tech_local_dev_4920" {
 		t.Fatalf("named host refreshCookieName() = %q", got)
 	}
 	local("")
-	if got := refreshCookieName(); got != "scenery_refresh" {
+	if got := refreshCookieName(); got != "app_refresh" {
 		t.Fatalf("local refreshCookieName() without base URL = %q", got)
 	}
 	appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: "https://api.example.test", Environment: shared.Environment{Name: "production", Type: shared.EnvProduction, Cloud: shared.CloudGCP}})
-	if got := refreshCookieName(); got != "scenery_refresh" {
+	if got := refreshCookieName(); got != "app_refresh" {
 		t.Fatalf("deployed refreshCookieName() = %q", got)
 	}
 }
@@ -197,7 +197,7 @@ func TestScopedRefreshCookieIsolatesLocalRuntimes(t *testing.T) {
 	appsdk.SetMetadata(shared.AppMetadata{APIBaseURL: "http://localhost:4976", Environment: shared.Environment{Name: "local", Type: shared.EnvDevelopment, Cloud: shared.CloudLocal}})
 
 	issued := parseSetCookie(t, refreshCookie("token", time.Now().Add(time.Hour)))
-	if issued.Name != "scenery_refresh_localhost_4976" {
+	if issued.Name != "app_refresh_localhost_4976" {
 		t.Fatalf("issued cookie name = %q", issued.Name)
 	}
 	cleared := parseSetCookie(t, clearRefreshCookie())
@@ -206,11 +206,11 @@ func TestScopedRefreshCookieIsolatesLocalRuntimes(t *testing.T) {
 	}
 
 	headers := http.Header{}
-	headers.Set("Cookie", "scenery_refresh=other-runtime; scenery_refresh_localhost_4920=sibling; scenery_refresh_localhost_4976=mine")
+	headers.Set("Cookie", "app_refresh=other-runtime; app_refresh_localhost_4920=sibling; app_refresh_localhost_4976=mine")
 	if got := resolveRefreshToken(nil, headers); got != "mine" {
 		t.Fatalf("resolveRefreshToken() = %q, want the runtime's own cookie", got)
 	}
-	headers.Set("Cookie", "scenery_refresh=other-runtime; scenery_refresh_localhost_4920=sibling")
+	headers.Set("Cookie", "app_refresh=other-runtime; app_refresh_localhost_4920=sibling")
 	if got := resolveRefreshToken(nil, headers); got != "" {
 		t.Fatalf("resolveRefreshToken() = %q, want no token from other runtimes' cookies", got)
 	}

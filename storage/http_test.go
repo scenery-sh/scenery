@@ -109,7 +109,7 @@ func TestMetadataHeadersPreserveExactKeysAndUTF8(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, metadata) {
 		t.Fatalf("metadata: %+v, %v", got, err)
 	}
-	header.Set("X-Scenery-Storage-Metadata", "not base64")
+	header.Set("X-Storage-Metadata", "not base64")
 	if _, err := MetadataFromHeaders(header); err == nil {
 		t.Fatal("invalid metadata accepted")
 	}

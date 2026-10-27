@@ -796,6 +796,9 @@ An external `/api` runtime mount stays separate.
 
 When editing source that changes the public app model, confirm the docs and tests cover:
 
+- End-user HTTP URLs, headers, cookies, response bodies, errors and browser-delivered
+  code/assets contain no case-insensitive `scenery` spelling. Developer/operator
+  tools and private protocols may retain it; do not bundle those into user code.
 - services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources
 - MCP bindings, local/remote MCP servers, assistant surfaces, and their public
   conversation routes, client methods, event/error schemas, approvals, and

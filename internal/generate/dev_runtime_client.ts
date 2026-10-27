@@ -644,7 +644,7 @@ export class DevRuntimeClient {
 			"Content-Type": options.contentType || body.type || "application/octet-stream",
 		};
 		if (options.metadata && Object.keys(options.metadata).length > 0) {
-			headers["X-Scenery-Storage-Metadata"] = encodeMetadata(options.metadata);
+			headers["X-Storage-Metadata"] = encodeMetadata(options.metadata);
 		}
 		if (options.ifMatch) headers["If-Match"] = options.ifMatch;
 		else headers["If-None-Match"] = "*";
