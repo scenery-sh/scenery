@@ -62,7 +62,12 @@ func TestSourceWaitEndsOnFailureBlockSupersessionAndTimeout(t *testing.T) {
 	}
 
 	s.lastBuild = nil
-	if timedOut, err := s.waitForSourceSnapshot(context.Background(), 3*testSourceWaitPoll); err != nil || timedOut.Outcome != "timeout" || timedOut.SourceFreshness != "stale" || timedOut.Serving == nil {
+	if _, freshness := s.currentServingState(context.Background()); freshness != "stale" {
+		t.Fatalf("pending source freshness = %q", freshness)
+	}
+	// A deadline may expire during the disk scan, leaving freshness unknown.
+	// The timeout must still retain the captured target and serving identity.
+	if timedOut, err := s.waitForSourceSnapshot(context.Background(), 3*testSourceWaitPoll); err != nil || timedOut.Outcome != "timeout" || (timedOut.SourceFreshness != "stale" && timedOut.SourceFreshness != "unknown") || timedOut.Serving == nil || timedOut.TargetSourceSnapshotDigest != snapshotFingerprint(broken) {
 		t.Fatalf("pending build = %+v, %v", timedOut, err)
 	}
 

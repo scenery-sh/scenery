@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestArtifactIdentityRequiresExactCurrentShape(t *testing.T) {
@@ -67,8 +68,12 @@ func TestDecodeArtifactRejectsUnknownAndTrailingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, encoded := range map[string][]byte{
-		"unknown":  []byte(strings.Replace(string(current), `"value":"ok"`, `"value":"ok","extra":true`, 1)),
-		"trailing": append(append([]byte(nil), current...), []byte(` {}`)...),
+		"unknown":          []byte(strings.Replace(string(current), `"value":"ok"`, `"value":"ok","extra":true`, 1)),
+		"trailing":         append(append([]byte(nil), current...), []byte(` {}`)...),
+		"duplicate":        []byte(strings.Replace(string(current), `"value":"ok"`, `"value":"ok","\u0076alue":"different"`, 1)),
+		"nested duplicate": []byte(strings.Replace(string(current), `"go_version":`, `"go_version":"other","go_version":`, 1)),
+		"case alias":       []byte(strings.Replace(string(current), `"value":`, `"Value":`, 1)),
+		"invalid Unicode":  []byte(strings.Replace(string(current), `"value":"ok"`, `"value":"\ud800"`, 1)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			var candidate artifact
@@ -76,5 +81,28 @@ func TestDecodeArtifactRejectsUnknownAndTrailingJSON(t *testing.T) {
 				t.Fatal("DecodeArtifact accepted non-current JSON")
 			}
 		})
+	}
+}
+
+func TestDecodeArtifactPreservesDurationAndExactJSON(t *testing.T) {
+	type artifact struct {
+		ArtifactIdentity
+		Duration time.Duration   `json:"duration"`
+		Value    json.RawMessage `json:"value"`
+		Bytes    [2]byte         `json:"bytes"`
+	}
+	const kind = "scenery.test-artifact"
+	const descriptor = `{"duration":"nanoseconds","value":"json"}`
+	value := artifact{NewArtifactIdentity(kind, descriptor), 123456789 * time.Nanosecond, json.RawMessage(`9007199254740993.123456789`), [2]byte{1, 2}}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded artifact
+	if err := DecodeArtifact(encoded, &decoded, &decoded.ArtifactIdentity, kind, descriptor, "regenerate"); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Duration != value.Duration || string(decoded.Value) != string(value.Value) || decoded.Bytes != value.Bytes {
+		t.Fatalf("decoded = %+v, value = %s", decoded, decoded.Value)
 	}
 }

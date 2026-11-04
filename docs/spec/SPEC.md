@@ -1139,7 +1139,7 @@ Go services require explicit implementation-domain build metadata:
 
 ~~~hcl
 go_toolchain "application" {
-  version               = "1.26.3"
+  version               = "1.27.0"
   goos                  = "linux"
   goarch                = "amd64"
   cgo                   = "enabled"
@@ -3052,7 +3052,7 @@ The compiler emits a canonical manifest independent of Scenery source syntax.
   "diagnostic_catalog": "sha256:...",
   "producer": {
     "version": "v0.3.2",
-    "toolchain": { "go_version": "go1.26.3" }
+    "toolchain": { "go_version": "go1.27.0" }
   },
   "application": {
     "name": "clean_tech"
@@ -3452,7 +3452,7 @@ JSON commands use a stable envelope:
     "version": "v0.3.2",
     "commit": "...",
     "built_at": "2026-07-13T00:00:00Z",
-    "toolchain": { "go_version": "go1.26.3", "manifest_revision": "sha256:..." }
+    "toolchain": { "go_version": "go1.27.0", "manifest_revision": "sha256:..." }
   },
   "ok": true,
   "workspace_revision": "sha256:...",
@@ -4216,7 +4216,7 @@ go_module "application" {
 }
 
 go_toolchain "application" {
-  version               = "1.26.3"
+  version               = "1.27.0"
   goos                  = "linux"
   goarch                = "amd64"
   cgo                   = "disabled"
@@ -4422,7 +4422,7 @@ go_module "application" {
 }
 
 go_toolchain "application" {
-  version               = "1.26.3"
+  version               = "1.27.0"
   goos                  = "linux"
   goarch                = "amd64"
   cgo                   = "enabled"

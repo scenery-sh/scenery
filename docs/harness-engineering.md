@@ -27,6 +27,23 @@ The release shell owns a private home under its log directory for its additional
 packaging and fixture commands. Personal telemetry and runtime state remain
 outside these lanes.
 
+Ordinary Go-test descendants use the platform's null device as their default
+agent home. It cannot allocate state; tests that need state explicitly select
+their own disposable home. This stable unavailable fallback prevents a new random
+lane-home path from invalidating Go's result cache on every verifier run. It
+does not change the enclosing lane's private home or named probes' real homes.
+
+Full cached lanes run `go test -json -vet=off ./...` followed by the independent
+`go vet ./...` step, which includes the checks implicit in ordinary `go test`.
+This avoids duplicate vet preparation without dropping checks. Quick mode keeps
+implicit vet because it does not have a separate all-package vet step.
+
+Verification descendants also receive Git's standard `GIT_OPTIONAL_LOCKS=0`,
+restored afterward. Read-only status checks and Go's VCS discovery then avoid
+optional index refresh writes that change `.git` metadata and invalidate cached
+repository tests. VCS stamping, mandatory Git locks and index contents retain
+their normal behavior.
+
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
 go run ./scripts/verify [--repo-root <path>] [--base <commit>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]

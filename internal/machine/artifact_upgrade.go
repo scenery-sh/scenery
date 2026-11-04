@@ -3,8 +3,8 @@ package machine
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
-	"io"
 )
 
 // PrepareArtifactSpecUpgrade prepares an explicit, same-schema identity change.
@@ -16,12 +16,10 @@ func PrepareArtifactSpecUpgrade(encoded []byte, target any, identity *ArtifactId
 		return nil, err
 	}
 	var stored ArtifactIdentity
-	if err := json.Unmarshal(encoded, &stored); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &stored); err != nil {
 		return nil, err
 	}
-	producerDecoder := json.NewDecoder(bytes.NewReader(fields["producer"]))
-	producerDecoder.DisallowUnknownFields()
-	if err := producerDecoder.Decode(&stored.Producer); err != nil {
+	if err := decodeExact(fields["producer"], &stored.Producer); err != nil {
 		return nil, fmt.Errorf("invalid %s source producer: %w", kind, err)
 	}
 	if !isCanonicalDigest(stored.SpecRevision) {
@@ -76,36 +74,12 @@ func ArtifactPayloadEqual(before, after []byte) bool {
 }
 
 func artifactFields(encoded []byte) (map[string]json.RawMessage, error) {
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	first, err := decoder.Token()
-	if err != nil || first != json.Delim('{') {
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	if fields == nil {
 		return nil, fmt.Errorf("retained artifact must be one JSON object")
-	}
-	fields := make(map[string]json.RawMessage)
-	for decoder.More() {
-		token, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		key, ok := token.(string)
-		if !ok {
-			return nil, fmt.Errorf("invalid retained artifact field")
-		}
-		if _, exists := fields[key]; exists {
-			return nil, fmt.Errorf("duplicate retained artifact field")
-		}
-		var value json.RawMessage
-		if err := decoder.Decode(&value); err != nil {
-			return nil, err
-		}
-		fields[key] = value
-	}
-	if last, err := decoder.Token(); err != nil || last != json.Delim('}') {
-		return nil, fmt.Errorf("invalid retained artifact object")
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return nil, fmt.Errorf("unexpected trailing retained artifact data")
 	}
 	return fields, nil
 }

@@ -13,7 +13,7 @@ func TestCompactContextSeparatesCoverageRemainingAndConditionalProof(t *testing.
 	digest := "sha256:" + strings.Repeat("a", 64)
 	run := &harnessreport.ValidationRun{ID: "run", InputRevision: digest, FinalInputRevision: digest, InputsStable: true, ArchivePath: ".scenery/harness/runs/run"}
 	resp := harnessSelfResponse{Run: run, OK: true, Mode: harnessSelfModeDefault, Repo: harnessSelfRepo{Root: t.TempDir()}, Steps: []harnessStep{
-		{Name: "go tests", OK: true, Command: []string{"go", "test", "-json", "./..."}},
+		{Name: "go tests", OK: true, Command: harnessSelfGoTestCommand()},
 		{Name: "go vet", OK: true, Command: []string{"go", "vet", "./..."}},
 		{Name: "logs", OK: true, Command: []string{"scenery", "logs", "--limit", "500", "-o", "jsonl"}},
 	}}
@@ -44,14 +44,17 @@ func TestCompactContextSeparatesCoverageRemainingAndConditionalProof(t *testing.
 	if diagnostics := validateHarnessJSONSchemaFile("../../docs/schemas/scenery.agent_context.summary.schema.json", summary); len(diagnostics) > 0 {
 		t.Fatalf("schema: %v", diagnostics)
 	}
-	resp.Steps[1].OK = false
-	summary = buildHarnessAgentContextSummary(resp, contextPack)
-	for _, check := range summary.Checks {
-		if check.Command == repoinfo.ValidationFullCommand && check.Status == "covered" {
-			t.Fatal("full verifier covered without successful vet evidence")
+	vetStep := resp.Steps[1]
+	for _, missingVet := range []harnessStep{{}, {Name: "go vet", OK: false, Command: vetStep.Command}} {
+		resp.Steps[1] = missingVet
+		summary = buildHarnessAgentContextSummary(resp, contextPack)
+		for _, check := range summary.Checks {
+			if (check.Command == repoinfo.ValidationFullCommand || check.Command == repoinfo.ValidationQuickCommand) && check.Status == "covered" {
+				t.Fatal("full verifier covered without successful vet evidence")
+			}
 		}
 	}
-	resp.Steps[1].OK = true
+	resp.Steps[1] = vetStep
 	resp.Mode = harnessSelfModeProbe
 	resp.Steps = append(resp.Steps, harnessStep{Name: "verification isolation", OK: true, Command: strings.Fields(repoinfo.ValidationFullCommand)})
 	summary = buildHarnessAgentContextSummary(resp, contextPack)

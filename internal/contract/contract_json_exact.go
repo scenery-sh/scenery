@@ -3,6 +3,8 @@ package contract
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -25,19 +27,12 @@ func canonicalizeExactJSON(data []byte) ([]byte, error) {
 // pass. isCanonicalExactJSON may only skip it for inputs this pass would
 // return unchanged.
 func canonicalizeExactJSONFull(data []byte) ([]byte, error) {
-	if len(data) >= 3 && bytes.Equal(data[:3], []byte{0xef, 0xbb, 0xbf}) {
-		return nil, fmt.Errorf("JSON byte-order mark is forbidden")
-	}
-	if !utf8.Valid(data) || !validJSONSurrogateEscapes(data) {
-		return nil, fmt.Errorf("JSON contains invalid Unicode")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
+	decoder := jsontext.NewDecoder(bytes.NewReader(data))
 	value, err := decodeExactJSONValue(decoder)
 	if err != nil {
 		return nil, err
 	}
-	if token, err := decoder.Token(); err != io.EOF {
+	if token, err := decoder.ReadToken(); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return nil, fmt.Errorf("trailing JSON value %v", token)
 		}
@@ -85,55 +80,55 @@ func decodeStrictContractJSON(data []byte, target any) error {
 	return nil
 }
 
-func decodeExactJSONValue(decoder *json.Decoder) (any, error) {
-	token, err := decoder.Token()
+// Keep numeric token text intact; the canonical writer normalizes it without
+// rounding through float64. jsontext owns syntax, Unicode and duplicate checks.
+func decodeExactJSONValue(decoder *jsontext.Decoder) (any, error) {
+	token, err := decoder.ReadToken()
 	if err != nil {
 		return nil, err
 	}
-	delimiter, composite := token.(json.Delim)
-	if !composite {
-		return token, nil
-	}
-	switch delimiter {
+	switch token.Kind() {
+	case 'n':
+		return nil, nil
+	case 't', 'f':
+		return token.Bool(), nil
+	case '"':
+		return token.String(), nil
+	case '0':
+		return json.Number(token.String()), nil
 	case '{':
 		object := map[string]any{}
-		for decoder.More() {
-			keyToken, err := decoder.Token()
+		for decoder.PeekKind() != '}' {
+			keyToken, err := decoder.ReadToken()
 			if err != nil {
 				return nil, err
 			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return nil, fmt.Errorf("JSON object key is not a string")
-			}
-			if _, exists := object[key]; exists {
-				return nil, fmt.Errorf("duplicate JSON object member %q", key)
-			}
+			key := keyToken.String()
 			value, err := decodeExactJSONValue(decoder)
 			if err != nil {
 				return nil, err
 			}
 			object[key] = value
 		}
-		if close, err := decoder.Token(); err != nil || close != json.Delim('}') {
-			return nil, fmt.Errorf("invalid JSON object")
+		if _, err := decoder.ReadToken(); err != nil {
+			return nil, err
 		}
 		return object, nil
 	case '[':
 		values := []any{}
-		for decoder.More() {
+		for decoder.PeekKind() != ']' {
 			value, err := decodeExactJSONValue(decoder)
 			if err != nil {
 				return nil, err
 			}
 			values = append(values, value)
 		}
-		if close, err := decoder.Token(); err != nil || close != json.Delim(']') {
-			return nil, fmt.Errorf("invalid JSON array")
+		if _, err := decoder.ReadToken(); err != nil {
+			return nil, err
 		}
 		return values, nil
 	default:
-		return nil, fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+		return nil, fmt.Errorf("unexpected JSON token %v", token)
 	}
 }
 

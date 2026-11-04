@@ -34,6 +34,10 @@ var nonCanonicalExactJSONFixtures = []struct{ input, canonical string }{
 	{`{"b":1,"a":2}`, `{"a":2,"b":1}`},
 	{`1e2`, `100`},
 	{`1E+2`, `100`},
+	{` 9007199254740993 `, `9007199254740993`},
+	{`9.007199254740993e15`, `9007199254740993`},
+	{`0.1234567890123456789012345678900`, `0.12345678901234567890123456789`},
+	{`[1e400,1e-400]`, `[` + "1" + strings.Repeat("0", 400) + `,0.` + strings.Repeat("0", 399) + "1" + `]`},
 	{`1.50`, `1.5`},
 	{`-0`, `0`},
 	{`-0.0`, `0`},
@@ -49,12 +53,16 @@ var nonCanonicalExactJSONFixtures = []struct{ input, canonical string }{
 	{`"\ufffd"`, "\"\ufffd\""},
 	{`{"š":1,"a":2}`, `{"a":2,"š":1}`},
 	{`{"a\u0062":1}`, `{"ab":1}`},
+	{`{"\ue000":1,"\ud800\udc00":2}`, "{\"\U00010000\":2,\"\ue000\":1}"},
 }
 
 var invalidExactJSONFixtures = []string{
 	``, `{`, `[1,]`, `{"a":1,"a":2}`, `1 2`, `nul`, `"unterminated`,
 	"\xef\xbb\xbf{}", "\"invalid \xff utf8\"", `"\ud800"`, `01`, `--1`, `+1`,
 	`.5`, `1.`, `"bad \x escape"`,
+	`{"a":1,"\u0061":2}`, `{"nested":{"key":1,"key":2}}`,
+	`{"items":[{"key":1,"\u006bey":2}]}`, `{"\ud83d\ude00":1,"😀":2}`,
+	`"\udc00"`, `"\ud800\u0041"`, `{"\ud800":1}`, `{}garbage`, "{}\u00a0",
 }
 
 func TestIsCanonicalExactJSONAcceptsOnlyFullPassFixedPoints(t *testing.T) {

@@ -29,6 +29,9 @@ func isolateVerification(repoRoot, runID, mode string) (func(), error) {
 		purpose = "release"
 	}
 	restore := patchEnv(map[string]*string{
+		// Include Git invoked by the Go driver: optional index locks change
+		// directory metadata tracked by otherwise cacheable repository tests.
+		"GIT_OPTIONAL_LOCKS":        stringPtr("0"),
 		"SCENERY_AGENT_HOME":        stringPtr(home),
 		"SCENERY_AGENT_SOCKET":      nil,
 		"SCENERY_AGENT_ROUTER_ADDR": nil,

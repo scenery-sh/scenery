@@ -337,7 +337,7 @@ func TestHarnessTestBinaryTimingRanksBuildsByDuration(t *testing.T) {
 
 func TestHarnessSelfGoTestCommandUsesResultCacheUnlessFresh(t *testing.T) {
 	t.Parallel()
-	if got := strings.Join(harnessSelfGoTestCommand(), " "); got != "go test -json ./..." {
+	if got := strings.Join(harnessSelfGoTestCommand(), " "); got != "go test -json -vet=off ./..." {
 		t.Fatalf("cached command = %q", got)
 	}
 	if got := strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "); got != "go run ./scripts/testsuite -p 6 -run .*" {

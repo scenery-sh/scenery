@@ -28,6 +28,11 @@ macOS is the supported platform for this plan. Linux code paths may compile but 
 
 ## Progress
 
+* [x] 2026-11-04: Reviewed current edge/deployment ownership, configuration schema
+  and source tests during Plan 0223. Corrected the removed versioned config-schema
+  path in validation. Dated certificates/runtime observations below remain
+  historical; literal post-fix operator reboot/login acceptance stays open.
+
 * [x] 2026-10-03: Reviewed the current deployment/resume owners and focused
   tests during Plan 0210. The status and privileged-helper code is split into
   cohesive files without changing declarations. The literal post-fix operator
@@ -74,7 +79,7 @@ macOS is the supported platform for this plan. Linux code paths may compile but 
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+Checkpoint 2026-11-04; source/document review only, not a fresh runtime or remote-state check.
 
 - Current: Public edge and controlled failure/login-job scenarios have proof; literal post-fix operator reboot/login remains unobserved.
 - Next: Arrange the remaining operator observation only after its explicit authorization, then record producer/owner and outcome.
@@ -427,7 +432,7 @@ go test ./cmd/scenery
 go test ./internal/agent ./internal/app
 ```
 
-Because this plan changes release-sensitive runtime paths, every landed implementation step must pass `go run ./scripts/verify --summary --write`. JSON sanity: `jq empty docs/knowledge.json docs/schemas/scenery.config.v1.schema.json`. If an environment-gated real-process step cannot run, keep the step incomplete and record the harness diagnostic plus the exact unavailable dependency in Progress.
+Because this plan changes release-sensitive runtime paths, every landed implementation step must pass `go run ./scripts/verify --summary --write`. JSON sanity: `jq empty docs/knowledge.json docs/schemas/scenery.config.schema.json`. If an environment-gated real-process step cannot run, keep the step incomplete and record the harness diagnostic plus the exact unavailable dependency in Progress.
 
 Feature acceptance is Milestone 10's script. The plan is done when: a real domain serves an app over public HTTPS with a Let's Encrypt production cert; two apps with two domains serve simultaneously through the one edge; reboot + login restores service untouched; containment checks pass; `scenery deploy status --json` reflects all of it truthfully; and docs/schema layers are updated together.
 

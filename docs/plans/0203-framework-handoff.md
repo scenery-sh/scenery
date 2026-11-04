@@ -49,6 +49,10 @@ without the operator restarting anything.
 
 ## Progress
 
+- [x] 2026-11-04: Reviewed current framework selection/handoff owners and their
+  tests during Plan 0223. Preserve the still-open ONLV pinned-version observation;
+  source tests and snapshot handoff evidence do not establish that external case.
+
 - [x] (2026-09-23 18:40) Diagnosed the ONLV report: three `scenery up` owners
   started before the pin bump still ran producer `0e6fe42144ef`, whose `/runtime`
   status is the pre-0202 dashboard shape with `compileError` naming the
@@ -86,7 +90,7 @@ without the operator restarting anything.
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+Checkpoint 2026-11-04; source/document review only, not a fresh runtime or external-app check.
 
 - Current: Source-snapshot handoff has real-process proof; ONLV pinned-version bump observation remains open.
 - Next: Check ONLV current pin/runtime identity, then run the recorded pinned-bump scenario only within authorized app scope.

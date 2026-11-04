@@ -1,10 +1,7 @@
 package machine
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -17,16 +14,7 @@ import (
 // treat any error as a cache miss for disposable state; durable state must
 // surface the error or migrate it explicitly.
 func DecodeArtifact(encoded []byte, target any, identity *ArtifactIdentity, kind string, schemaDescriptor any, action string) error {
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("unexpected trailing JSON value")
-		}
+	if err := decodeExact(encoded, target); err != nil {
 		return err
 	}
 	if identity == nil {

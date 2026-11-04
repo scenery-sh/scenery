@@ -2,11 +2,10 @@
 package machine
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
-	"io"
 	"strings"
 )
 
@@ -207,23 +206,12 @@ func ValidateProducer(producer Producer) error {
 }
 
 func decodeExact(encoded []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err == nil {
-		return fmt.Errorf("unexpected trailing JSON value")
-	} else if err != io.EOF {
-		return err
-	}
-	return nil
+	return jsonv2.Unmarshal(encoded, target, jsonv2.RejectUnknownMembers(true), json.FormatDurationAsNano(true), json.FormatByteArrayAsArray(true))
 }
 
 func requireFields(encoded []byte, fields ...string) error {
 	var object map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &object); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &object); err != nil {
 		return err
 	}
 	for _, field := range fields {

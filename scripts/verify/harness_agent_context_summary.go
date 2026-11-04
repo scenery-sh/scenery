@@ -142,5 +142,5 @@ func harnessAgentStepCoversCommand(step harnessStep, command string) bool {
 
 func harnessStepRunsFullGoSuite(step harnessStep) bool {
 	command := strings.Join(step.Command, " ")
-	return step.Name == "go tests" && (command == "go test -json ./..." || command == strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "))
+	return step.Name == "go tests" && (command == strings.Join(harnessSelfGoTestCommand(), " ") || command == strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "))
 }

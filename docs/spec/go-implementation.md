@@ -128,7 +128,7 @@ Registry implementations use immutable import-path and contract metadata from th
 
 ~~~hcl
 go_toolchain "application" {
-  version     = "1.26.3"
+  version     = "1.27.0"
   experiments = []
 }
 ~~~

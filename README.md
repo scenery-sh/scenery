@@ -46,7 +46,7 @@ plumbing into a declaration, so your time goes into the product.
 | 🧰 | Scripts to start Postgres, workers and frontend servers | `scenery up` starts and supervises all of it |
 | 🔍 | Logs in one tool, traces in another, if anywhere | Logs, traces and metrics collected for every run and queried from one CLI |
 | 🤖 | AI agents guess how the project is wired | Agents read the same app graph as JSON |
-| 🪙 | Agents burn tokens choosing tools and re-checking their own work | Agents work inside the rails Scenery sets up, using about 70% fewer tokens |
+| 🪙 | Agents spend context choosing tools and discovering checks | Agents inspect the app graph and change-specific validation requirements |
 | 🏭 | Parallel branches fight over one database and one port | Every Git worktree runs its own isolated copy of the app |
 | 🍴 | A framework that does not fit locks you in | Plain Go under Apache 2.0: fork it and change what you need |
 
@@ -237,9 +237,9 @@ work inside them.
 <table>
   <tr>
     <td width="33%" valign="top">
-      <b>🪙 About 70% fewer tokens</b><br>
-      Agents spend their tokens on the feature, not on picking tools and
-      double-checking their own work.
+      <b>🪙 Focused agent context</b><br>
+      Agents load the relevant contracts and checks through scoped inspection.
+      Recorded workflow evaluations are linked in the documentation index.
     </td>
     <td width="33%" valign="top">
       <b>🛤️ Rails, not guesswork</b><br>

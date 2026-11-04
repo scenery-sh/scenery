@@ -47,6 +47,12 @@ Runtime-managed capabilities are supplied separately. They are not another confi
 
 ## Progress
 
+- [x] 2026-11-04: Reviewed current configuration store/resolution, runtime and
+  command owners during Plan 0223. Corrected current orientation that still
+  named removed dotenv APIs and direct standard-auth environment reads. The
+  recorded external cutovers/platform/reboot acceptance remains open; no secret,
+  retained app state or deployment is changed by this review.
+
 - [x] 2026-09-24: Reviewed the two repository baselines and relevant configuration, compiler, deployment, and validation owners.
 - [x] 2026-09-24: Recorded the environment-only product model and the execution order below.
 - [x] 2026-09-24: M0 — Value-free inventory recorded under Artifacts and Notes; CLI grammar frozen in `cmd/scenery/help.go` and `docs/schemas/scenery.config.{show,change}.schema.json`.
@@ -63,7 +69,7 @@ Update this section at each meaningful stopping point. Replace planning timestam
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+Checkpoint 2026-11-04; source/document review only, not a fresh runtime or remote-state check.
 
 - Current: Implementation is recorded as complete; authorized local conversion is documented, while other cutovers/platform proofs remain open.
 - Next: Use Outcomes and M6 to identify the exact remaining environment/platform and its missing authorization before any cutover.
@@ -150,12 +156,13 @@ Unverified on this machine: systemd-creds on Linux, a real SSH target, and reboo
 
 In Scenery, start with:
 
-- `internal/app/root.go`: `Config`, `EnvConfig`, `ResolvedEnv`, `AppID`, environment resolution, and `DotEnvFiles`.
+- `internal/app/root.go`: `Config`, `EnvConfig`, `ResolvedEnv`, `AppID`, and structural environment selection. Dotenv loading is removed; old files are migration inputs only.
+- `internal/appconfig/`: the typed catalog, authoritative document/store, value resolution and secret-version references.
 - `internal/compiler/go_config.go`, `internal/compiler/deployment.go`, `internal/spec/`, `internal/scn/`: input metadata, deployment projections, sensitivity, scalar typing, and validation.
 - `internal/generate/`, `runtime/`, `internal/build/`: generated constructors, runtime bootstrap, executable reuse, and identity partitioning.
-- `cmd/scenery/dev_supervisor.go`, `dev_runtime_environment.go`, `dev_app_start.go`, `dev_app_handoff.go`: dotenv loading, launch preparation, and retained last-known-good generations.
+- `cmd/scenery/dev_supervisor.go`, `dev_runtime_environment.go`, `dev_config_watch.go`, `dev_app_start.go`, `dev_app_handoff.go`: configuration snapshots, consumer-only updates, launch preparation, and retained last-known-good generations.
 - `cmd/scenery/appenv.go`, `check.go`, `dev_postgres_start.go`, `db_setup.go`, and `worktree_database_*`: command and database configuration paths.
-- `auth/standard.go`: direct canonical env reads for standard authentication.
+- `auth/standard.go` and `runtime/deployment_config.go`: standard-auth values supplied by the resolved private runtime configuration, not direct application environment reads.
 - `cmd/scenery/deploy_ssh.go`, `deploy_systemd.go`, `deploy_publish.go`, `internal/deployplan/`, and the deployment registry/resume owners.
 - `cmd/scenery/build_desktop.go`, frontend launch/build adapters, task/worker launchers, storage and assistant handoff code.
 - `internal/machine/`, `internal/redact/`, `docs/local-contract.md`, `docs/schemas/`, `docs/environment.registry.json`, and `scripts/verify/harness_probes.go`.

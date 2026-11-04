@@ -227,11 +227,15 @@ func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
 	if freshTests {
 		return []string{"go", "run", "./scripts/testsuite", "-p", fmt.Sprint(testsuite.DefaultPackageParallelism), "-run", ".*"}
 	}
-	return []string{"go", "test", "-json", "./..."}
+	// Full lanes run go vet ./... separately, including all implicit test checks.
+	return []string{"go", "test", "-json", "-vet=off", "./..."}
 }
 
 func harnessSelfGoTestEnv() []string {
-	return []string{"GOWORK=off"}
+	// Tests needing state must select their own disposable home. A stable,
+	// unavailable fallback keeps isolation without invalidating Go's result cache
+	// with the enclosing verifier's randomly named home on every invocation.
+	return []string{"GOWORK=off", "SCENERY_AGENT_HOME=" + os.DevNull}
 }
 
 func runHarnessInspectDocsStep(repoRoot string) harnessStep {

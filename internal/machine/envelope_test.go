@@ -78,10 +78,17 @@ func TestEnvelopeDecoderRejectsOldUnknownAndWrongSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, encoded := range map[string][]byte{
-		"old":     []byte(`{"api_version":"scenery.cli.v1","ok":true}`),
-		"unknown": []byte(strings.Replace(string(current), `"ok":true`, `"ok":true,"extra":true`, 1)),
-		"schema":  []byte(strings.Replace(string(current), EnvelopeSchemaRevision, "sha256:"+strings.Repeat("0", 64), 1)),
-		"spec":    []byte(strings.Replace(string(current), testSpecRevision, "sha256:"+strings.Repeat("0", 64), 1)),
+		"old":               []byte(`{"api_version":"scenery.cli.v1","ok":true}`),
+		"unknown":           []byte(strings.Replace(string(current), `"ok":true`, `"ok":true,"extra":true`, 1)),
+		"schema":            []byte(strings.Replace(string(current), EnvelopeSchemaRevision, "sha256:"+strings.Repeat("0", 64), 1)),
+		"spec":              []byte(strings.Replace(string(current), testSpecRevision, "sha256:"+strings.Repeat("0", 64), 1)),
+		"duplicate":         []byte(strings.Replace(string(current), `"ok":true`, `"ok":true,"ok":false`, 1)),
+		"case alias":        []byte(strings.Replace(string(current), `"ok":true`, `"ok":true,"OK":false`, 1)),
+		"nested duplicate":  []byte(strings.Replace(string(current), `"version":"dev"`, `"version":"dev","\u0076ersion":"other"`, 1)),
+		"nested case alias": []byte(strings.Replace(string(current), `"version":"dev"`, `"Version":"dev"`, 1)),
+		"invalid UTF-8":     []byte(strings.Replace(string(current), `"data":null`, "\"data\":\"\xff\"", 1)),
+		"invalid surrogate": []byte(strings.Replace(string(current), `"data":null`, `"data":"\ud800"`, 1)),
+		"trailing":          append(append([]byte(nil), current...), []byte(` {}`)...),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Decode[string](encoded, testSpecRevision); err == nil {

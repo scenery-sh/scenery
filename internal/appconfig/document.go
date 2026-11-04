@@ -1,12 +1,12 @@
 package appconfig
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"fmt"
-	"io"
 	"regexp"
 	"sort"
 
@@ -117,7 +117,8 @@ func (d Document) clone() Document {
 
 // encode renders the deterministic document encoding.
 func (d Document) encode() ([]byte, error) {
-	encoded, err := json.MarshalIndent(d, "", "  ")
+	encoded, err := jsonv2.Marshal(d, jsonv2.Deterministic(true), jsonv2.FormatNilMapAsNull(true),
+		jsontext.WithIndent("  "), jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true), jsontext.PreserveRawStrings(true))
 	if err != nil {
 		return nil, err
 	}
@@ -131,17 +132,9 @@ func DecodeDocument(encoded []byte, appID, environment string) (Document, error)
 	if len(encoded) > MaxDocumentBytes {
 		return Document{}, fmt.Errorf("environment document exceeds %d bytes", MaxDocumentBytes)
 	}
-	if err := rejectDuplicateKeys(encoded); err != nil {
-		return Document{}, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
 	var document Document
-	if err := decoder.Decode(&document); err != nil {
+	if err := jsonv2.Unmarshal(encoded, &document, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return Document{}, fmt.Errorf("decode environment document: %w", err)
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		return Document{}, fmt.Errorf("environment document has trailing content")
 	}
 	if document.Kind != DocumentKind || document.SchemaRevision != DocumentSchemaRevision {
 		return Document{}, fmt.Errorf("environment document has kind %q schema %q; this Scenery reads %s %s", document.Kind, document.SchemaRevision, DocumentKind, DocumentSchemaRevision)
@@ -169,51 +162,4 @@ func DecodeDocument(encoded []byte, appID, environment string) (Document, error)
 		return Document{}, fmt.Errorf("environment document revision does not match its content")
 	}
 	return document, nil
-}
-
-// rejectDuplicateKeys fails for any JSON object with a repeated member name,
-// which encoding/json would otherwise silently resolve to the last one.
-func rejectDuplicateKeys(encoded []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	var walk func() error
-	walk = func() error {
-		token, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		delim, ok := token.(json.Delim)
-		if !ok {
-			return nil
-		}
-		switch delim {
-		case '{':
-			seen := map[string]bool{}
-			for decoder.More() {
-				keyToken, err := decoder.Token()
-				if err != nil {
-					return err
-				}
-				key, _ := keyToken.(string)
-				if seen[key] {
-					return fmt.Errorf("environment document repeats member %q", key)
-				}
-				seen[key] = true
-				if err := walk(); err != nil {
-					return err
-				}
-			}
-		case '[':
-			for decoder.More() {
-				if err := walk(); err != nil {
-					return err
-				}
-			}
-		}
-		_, err = decoder.Token()
-		return err
-	}
-	if err := walk(); err != nil {
-		return fmt.Errorf("decode environment document: %w", err)
-	}
-	return nil
 }
