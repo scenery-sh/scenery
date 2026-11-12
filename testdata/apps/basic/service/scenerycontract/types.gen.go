@@ -23,11 +23,7 @@ func (value EchoInput) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode field message: %w", err)
 	}
 	object["message"] = rawMessage
-	encoded, err := json.Marshal(object)
-	if err != nil {
-		return nil, err
-	}
-	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+	return json.Marshal(object)
 }
 
 func (value *EchoInput) UnmarshalJSON(data []byte) error {
@@ -71,11 +67,7 @@ func (value EchoResult) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode field message: %w", err)
 	}
 	object["message"] = rawMessage
-	encoded, err := json.Marshal(object)
-	if err != nil {
-		return nil, err
-	}
-	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+	return json.Marshal(object)
 }
 
 func (value *EchoResult) UnmarshalJSON(data []byte) error {
