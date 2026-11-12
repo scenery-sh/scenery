@@ -252,6 +252,17 @@ the platform binds. A command of another platform or a missing external tool is
 stderr; the exit code carries the class, and a `-o json` or `-o jsonl` request
 renders the same message in the diagnostic.
 
+A command that answers its request negatively exits 1: `fmt --check` and
+`generate --check` on drift, a failed `validate` or `harness`, a semantic
+difference. That answer is the command's result, not an internal failure, so it
+mints no report token and writes no failure report. CLI telemetry records the
+diagnostic the command rendered for it (`SCN1019` for formatting drift,
+`SCN6204` for stale generated artifacts) and no `diagnostic_code` when the
+command rendered a result without one. Human `fmt --check` lists the files
+that need formatting on stdout and states the count on stderr. A failed `generate -o json` likewise
+records the code of the diagnostic it rendered (`SCN6207`, or `SCN8002` for a
+revision conflict), not the class of its exit code.
+
 The current specification includes compilation, Go generation, HTTP and typed path tails, durable execution, events, data, deployment, inspection, agent mutation, patches, UI, semantic evolution, and TypeScript clients. Its `spec_revision` covers resource schemas, structural application/workspace/package/module/input/export schemas, stable diagnostic rules, and explicit revisions for source composition, defaults, expansion, reference resolution, contract projection, evolution, Go generation, and TypeScript generation. Applications cannot select a language version or feature set; resource use determines required behavior. Unavailable future behavior fails explicitly; `extension` and generic `resource` declarations emit `SCN7001 feature_unavailable`, while genuinely unknown syntax remains `SCN1002`.
 
 The current HTTP contract implements terminal `{name...}` plus an exactly
@@ -714,7 +725,9 @@ Rules:
 - Native TypeScript clients are declared with `typescript_client` resources in
   `app.scn`; `materialization = "source"` writes the managed `output_root`,
   while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with
-  `scenery generate --target typescript_client.<name>`. Standard Google OAuth
+  `scenery generate --target typescript_client.<name>`; repeated generation
+  and `generate --check` read a cache target's ownership descriptor at its
+  own output root, as `up`, `build` and `test` do. Standard Google OAuth
   contributes framework-owned connection start, connection status, and
   disconnect resources to inspection and client generation when it is enabled;
   these describe the existing runtime handlers without adding a second runtime

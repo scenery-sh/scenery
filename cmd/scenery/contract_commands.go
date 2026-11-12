@@ -466,6 +466,17 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 	if target == "contracts" {
 		coverage = []generate.ClientCoverage{}
 	}
+	var generateDiagnostic graph.Diagnostic
+	if generateErr != nil {
+		code := "SCN6207"
+		if strings.HasPrefix(generateErr.Error(), "revision_conflict:") {
+			code = "SCN8002"
+		}
+		if opts.Check && len(result.Changed) > 0 {
+			code = "SCN6204"
+		}
+		generateDiagnostic = graph.Diagnostic{Code: code, Severity: "error", Message: generateErr.Error()}
+	}
 	if opts.Output == "json" {
 		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result, "clients": coverage}, nil)
 		if compilation != nil {
@@ -482,26 +493,22 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 			envelope.Diagnostics = append(envelope.Diagnostics, compilation.Diagnostics...)
 		}
 		if generateErr != nil {
-			code := "SCN6207"
-			if strings.HasPrefix(generateErr.Error(), "revision_conflict:") {
-				code = "SCN8002"
-			}
-			if opts.Check && len(result.Changed) > 0 {
-				code = "SCN6204"
-			}
-			envelope.Diagnostics = append(envelope.Diagnostics, graph.Diagnostic{Code: code, Severity: "error", Message: generateErr.Error()})
+			envelope.Diagnostics = append(envelope.Diagnostics, generateDiagnostic)
 		}
 		_ = json.NewEncoder(stdout).Encode(envelope)
 	}
 	if generateErr != nil {
 		if opts.Check && len(result.Changed) > 0 {
+			stale := findingsDiagnosticError(generateErr, generateDiagnostic)
 			if opts.Output == "json" {
-				return &silentCLIError{err: generateErr, code: 1}
+				return &silentCLIError{err: stale, code: 1}
 			}
-			return &codedCLIError{err: generateErr, code: 1}
+			return stale
 		}
 		if opts.Output == "json" {
-			return &silentCLIError{err: generateErr, code: cliExitCode(generateErr)}
+			// Telemetry records the diagnostic this command rendered.
+			code := cliExitCode(generateErr)
+			return &silentCLIError{err: &cliDiagnosticError{err: generateErr, code: code, diagnostic: generateDiagnostic}, code: code}
 		}
 		return generateErr
 	}
@@ -747,16 +754,29 @@ func runContractFmt(stdout io.Writer, args []string) error {
 		return err
 	}
 	result, formatErr := scn.FormatPaths(root, positionals, opts.Check)
+	var formatDiagnostic graph.Diagnostic
+	if formatErr != nil {
+		formatDiagnostic = graph.Diagnostic{Code: "SCN1019", Severity: "error", Message: formatErr.Error()}
+	}
 	if opts.Output == "json" {
 		diagnostics := []graph.Diagnostic{}
 		if formatErr != nil {
-			diagnostics = append(diagnostics, graph.Diagnostic{Code: "SCN1019", Severity: "error", Message: formatErr.Error()})
+			diagnostics = append(diagnostics, formatDiagnostic)
 		}
 		_ = json.NewEncoder(stdout).Encode(newCLIEnvelope(formatErr == nil, result, diagnostics))
 	}
 	if formatErr != nil {
 		if opts.Check && len(result.Changed) > 0 {
-			return &silentCLIError{err: formatErr, code: 1}
+			drift := findingsDiagnosticError(formatErr, formatDiagnostic)
+			if opts.Output == "json" {
+				return &silentCLIError{err: drift, code: 1}
+			}
+			// A person needs the files and the reason, not only exit 1.
+			if !opts.Quiet {
+				sort.Strings(result.Changed)
+				_, _ = fmt.Fprintln(stdout, strings.Join(result.Changed, "\n"))
+			}
+			return drift
 		}
 		if opts.Output == "json" {
 			return &silentCLIError{err: formatErr, code: 2}

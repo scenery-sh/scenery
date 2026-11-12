@@ -155,13 +155,29 @@ func renderTypeScriptClientFilesByMode(result *Result, selector string, sourceOn
 	if selector != "" && len(targets) == 0 {
 		return nil, fmt.Errorf("TypeScript client target %q not found", selector)
 	}
-	var files []generatedFile
+	// A cache target's descriptor lives beneath .scenery, which the walk from
+	// the application root skips, so its ownership is read at its output root.
+	var files, cached []generatedFile
 	for _, target := range targets {
 		targetFiles, err := renderTypeScriptTarget(result, target)
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, targetFiles...)
+		if typeScriptMaterialization(target) != "cache" {
+			files = append(files, targetFiles...)
+			continue
+		}
+		outputRoot, err := typeScriptOutputRoot(result, target)
+		if err != nil {
+			return nil, err
+		}
+		if pathExists(outputRoot) {
+			targetFiles, err = includeStaleGeneratedFiles(outputRoot, targetFiles, map[string]bool{typescriptGeneratedDescriptorName: true}, nil)
+			if err != nil {
+				return nil, err
+			}
+		}
+		cached = append(cached, targetFiles...)
 	}
 	protectedDescriptors := map[string]bool{}
 	if selector != "" {
@@ -185,6 +201,7 @@ func renderTypeScriptClientFilesByMode(result *Result, selector string, sourceOn
 	if err != nil {
 		return nil, err
 	}
+	files = append(files, cached...)
 	files, err = includeStaleUICatalogFiles(result, targets, files)
 	if err != nil {
 		return nil, err
