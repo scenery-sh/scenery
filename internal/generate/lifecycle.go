@@ -187,17 +187,37 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 		}})
 		dependencies = append(dependencies, "typescript.check")
 	}
-	nodes = append(nodes, lifecycle.Node{ID: "source.validate", Kind: "source_validation", Dependencies: slices.Clone(dependencies), Inputs: slices.Clone(rendered), Identity: identity, Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Action: func(context.Context) error { return validateGenerationSnapshot(compiled, owner) }})
+	nodes = append(nodes, lifecycle.Node{ID: "source.validate", Kind: "source_validation", Dependencies: slices.Clone(dependencies), Inputs: slices.Clone(rendered), Identity: identity, Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Action: func(context.Context) error {
+		// A check publishes nothing, so one validation after its comparison
+		// proves the same snapshot; see artifacts.compare.
+		if op.check {
+			return nil
+		}
+		return validateGenerationSnapshot(compiled, owner)
+	}})
 	nodes = append(nodes, lifecycle.Node{ID: "artifacts.compare", Kind: "artifact_validation", Dependencies: append(slices.Clone(dependencies), "source.validate"), Inputs: rendered, Identity: identity, Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Outputs: []lifecycle.Reference{{Name: "artifact.changes", Kind: "artifact_set", Ownership: lifecycle.Private}}, Action: func(context.Context) error {
 		files := append(slices.Clone(op.goFiles), op.tsFiles...)
 		generated, err := inspectGeneratedFiles(compiled.Root, files)
 		generated.Compilation = compiled
 		op.result = generated
 		if err != nil {
+			if op.check {
+				if conflict := validateGenerationSnapshot(compiled, owner); conflict != nil {
+					return conflict
+				}
+			}
 			return err
 		}
-		if op.check && len(generated.Changed) > 0 {
-			return fmt.Errorf("generated artifacts are stale: %s", strings.Join(generated.Changed, ", "))
+		if op.check {
+			// A changed application is reported before a stale artifact, as
+			// when the source was validated ahead of the comparison.
+			if err := validateGenerationSnapshot(compiled, owner); err != nil {
+				return err
+			}
+			if len(generated.Changed) > 0 {
+				return fmt.Errorf("generated artifacts are stale: %s", strings.Join(generated.Changed, ", "))
+			}
+			return nil
 		}
 		return validateGenerationSnapshot(compiled, owner)
 	}})

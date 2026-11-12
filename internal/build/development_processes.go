@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/atomicfile"
@@ -279,14 +280,31 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 			return nil, err
 		}
 		process.Binary = filepath.Join(binaryRoot, name+"-"+key)
-		if digest, ok, err := retainedDevelopmentProcessDigest(process.Binary); err != nil {
-			return nil, err
-		} else if ok {
-			process.ArtifactDigest = digest
-		} else {
+		processes = append(processes, process)
+	}
+	// A retained executable is reusable when its bytes still have the digest
+	// its link published, which means reading all of them: the executables
+	// are independent files, so several are read at once.
+	reusable := make([]bool, len(processes))
+	digestErrs := make([]error, len(processes))
+	var next atomic.Int64
+	var readers sync.WaitGroup
+	for range min(developmentProcessDigestReaders, len(processes)) {
+		readers.Go(func() {
+			for index := int(next.Add(1)) - 1; index < len(processes); index = int(next.Add(1)) - 1 {
+				processes[index].ArtifactDigest, reusable[index], digestErrs[index] = retainedDevelopmentProcessDigest(processes[index].Binary)
+			}
+		})
+	}
+	readers.Wait()
+	if err := errors.Join(digestErrs...); err != nil {
+		return nil, err
+	}
+	for index, process := range processes {
+		if !reusable[index] {
+			process.ArtifactDigest = ""
 			pending = append(pending, process)
 		}
-		processes = append(processes, process)
 	}
 	RecordStep(ctx, Step{Name: "process.reuse", StartedAt: reuseStarted, Duration: time.Since(reuseStarted), Cache: "retained_digest", Reason: "linked_identity_unchanged", OK: true, Actions: len(names) - len(pending), CacheMisses: len(pending)})
 	if len(pending) > 0 {
@@ -314,6 +332,10 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 	}
 	return set, nil
 }
+
+// developmentProcessDigestReaders bounds the retained executables whose bytes
+// are read at once to prove them reusable.
+const developmentProcessDigestReaders = 8
 
 func developmentProcessKey(process *DevelopmentProcess, buildFlags []string) (string, error) {
 	encoded, err := json.Marshal(struct {
