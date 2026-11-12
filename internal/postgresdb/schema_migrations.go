@@ -118,6 +118,9 @@ func SchemaMigrations(ctx context.Context, db *sql.DB, appID, service, schema st
 				if _, err := tx.ExecContext(ctx, migration.SQL); err != nil {
 					return fmt.Errorf("migration %s failed (%s); the pending chain was rolled back", migration.Path, schemaMigrationErrorCode(err))
 				}
+				if err := settleDeferredConstraints(ctx, tx); err != nil {
+					return fmt.Errorf("migration %s failed (%s); the pending chain was rolled back", migration.Path, schemaMigrationErrorCode(err))
+				}
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO `+ledger+` (revision, app_id, format_revision, path, checksum, verification_path, verification_checksum) VALUES ($1, $2, 1, $3, $4, $5, $6)`, migration.Revision, appID, migration.Path, migration.Checksum, verificationPath, verificationChecksum); err != nil {
 				return err
@@ -255,4 +258,44 @@ func schemaMigrationErrorCode(err error) string {
 		return "execution interrupted"
 	}
 	return "database execution error"
+}
+
+// settleDeferredConstraints gives a migration inside a chain the ending its
+// own commit would give it. Applied alone, a migration commits before the next
+// one starts, which runs its deferred constraint checks and triggers. Inside
+// one chain transaction they would stay queued, and PostgreSQL refuses to
+// alter a table that has pending trigger events, so a chain could fail that
+// its migrations pass one by one. The declared deferral is restored afterwards
+// because the next migration may rely on it.
+func settleDeferredConstraints(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
+		return err
+	}
+	// A name shared with a constraint declared immediate cannot be restored
+	// without deferring that one too, so such a name stays immediate.
+	rows, err := tx.QueryContext(ctx, `SELECT quote_ident(n.nspname) || '.' || quote_ident(c.conname)
+FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
+WHERE c.condeferrable
+GROUP BY 1 HAVING bool_and(c.condeferred) ORDER BY 1`)
+	if err != nil {
+		return err
+	}
+	names, err := scanConstraintNames(rows)
+	if err != nil || len(names) == 0 {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `SET CONSTRAINTS `+strings.Join(names, ", ")+` DEFERRED`)
+	return err
+}
+
+func scanConstraintNames(rows *sql.Rows) (names []string, err error) {
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
 }
