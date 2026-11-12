@@ -82,9 +82,33 @@ func preserveCLIDiagnostic(err error) error {
 	if _, ok := errors.AsType[*cliDiagnosticError](err); ok {
 		return err
 	}
+	if cliReportsFindings(err) {
+		return err
+	}
 	reported := &cliDiagnosticError{err: err, code: cliExitCode(err), diagnostic: cliErrorDiagnostic(err)}
 	if _, silent := errors.AsType[*silentCLIError](err); silent {
 		return &silentCLIError{err: reported, code: reported.code}
 	}
 	return reported
+}
+
+// cliReportsFindings recognizes a command that answered its request and exits
+// 1 because the answer is negative: a failed check, drift or a difference. The
+// command rendered that answer itself, so it is not an internal failure and
+// mints no report.
+func cliReportsFindings(err error) bool {
+	if cliExitCode(err) != 1 {
+		return false
+	}
+	if _, silent := errors.AsType[*silentCLIError](err); silent {
+		return true
+	}
+	_, coded := errors.AsType[*codedCLIError](err)
+	return coded
+}
+
+// findingsDiagnosticError attaches the diagnostic a command rendered for its
+// findings, so telemetry records the same code the caller saw.
+func findingsDiagnosticError(err error, diagnostic graph.Diagnostic) error {
+	return &cliDiagnosticError{err: err, code: 1, diagnostic: diagnostic}
 }

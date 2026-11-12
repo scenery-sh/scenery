@@ -41,8 +41,8 @@ func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, 
 	telemetry.recorder = record
 	installFailureReports(args)
 	err := preserveCLIDiagnostic(runCLI(args, telemetry))
-	if err != nil {
-		telemetry.diagnosticCode = cliErrorDiagnostic(err).Code
+	if reported, ok := errors.AsType[*cliDiagnosticError](err); ok {
+		telemetry.diagnosticCode = reported.diagnostic.Code
 	}
 	err = renderMachineError(stdout, args, err)
 	exitCode := cliExitCode(err)
