@@ -252,5 +252,48 @@ func runHarnessSchemaMigrations(ctx context.Context, repoRoot, root string, data
 	if err := database.QueryRowContext(ctx, `SELECT content FROM cache.migration_notes WHERE id=1`).Scan(&value); err != nil || value != "retained application row" {
 		return nil, fmt.Errorf("initial adoption did not preserve the populated row: %v", err)
 	}
-	return map[string]any{"unknown_populated_rejected": true, "initialization_rollback": true, "status_non_mutating": true, "failed_migration_rollback": true, "checksum_change_rejected": true, "process_death_not_complete": true, "retry_applied": true, "existing_rows_preserved": true, "initial_adoption_predicate_enforced": true, "initial_adoption_result_shape_enforced": true, "initial_adoption_transactional": true, "initial_adoption_evidence_retained": true}, nil
+	// One pending chain: the first migration relies on a deferred constraint and
+	// leaves its check queued, the second alters that table and relies on the
+	// deferral again. Each passes alone; the chain must pass too.
+	if err := write("0004_deferred.sql", `CREATE TABLE deferred_parent(id integer PRIMARY KEY);
+CREATE TABLE deferred_child(id integer PRIMARY KEY, parent_id integer NOT NULL REFERENCES deferred_parent(id) DEFERRABLE INITIALLY DEFERRED);
+INSERT INTO deferred_child VALUES (1, 1);
+INSERT INTO deferred_parent VALUES (1);`); err != nil {
+		return nil, err
+	}
+	if err := write("0005_deferred_note.sql", `ALTER TABLE deferred_child ADD COLUMN note text NOT NULL DEFAULT '';
+INSERT INTO deferred_child VALUES (2, 2, '');
+INSERT INTO deferred_parent VALUES (2);`); err != nil {
+		return nil, err
+	}
+	if result, err := run(false); err != nil || len(result) != 1 || result[0].Status != "current" {
+		return nil, fmt.Errorf("chain with deferred constraints: %+v: %v", result, err)
+	}
+	var children int
+	if err := database.QueryRowContext(ctx, `SELECT count(*) FROM cache.deferred_child c JOIN cache.deferred_parent p ON p.id = c.parent_id`).Scan(&children); err != nil || children != 2 {
+		return nil, fmt.Errorf("chain with deferred constraints kept %d rows: %v", children, err)
+	}
+	// A deferred violation belongs to the migration that queued it, not to a
+	// later one or to the commit.
+	if err := write("0006_orphan.sql", `INSERT INTO deferred_child VALUES (3, 99, '');`); err != nil {
+		return nil, err
+	}
+	if err := write("0007_after_orphan.sql", `CREATE TABLE after_orphan(id integer PRIMARY KEY);`); err != nil {
+		return nil, err
+	}
+	if result, err := run(false); err == nil || len(result) != 1 || !strings.Contains(result[0].Error, "0006_orphan.sql failed (SQLSTATE 23503)") {
+		return nil, fmt.Errorf("deferred violation was not attributed to its migration: %+v: %v", result, err)
+	}
+	if err := assertState("after_orphan", "", false); err != nil {
+		return nil, err
+	}
+	for _, name := range []string{"0006_orphan.sql", "0007_after_orphan.sql"} {
+		if err := os.Remove(filepath.Join(directory, name)); err != nil {
+			return nil, err
+		}
+	}
+	if result, err := run(true); err != nil || len(result) != 1 || result[0].Status != "current" {
+		return nil, fmt.Errorf("status after the rejected deferred violation: %+v: %v", result, err)
+	}
+	return map[string]any{"deferred_constraints_settled_per_migration": true, "deferred_violation_attributed": true, "unknown_populated_rejected": true, "initialization_rollback": true, "status_non_mutating": true, "failed_migration_rollback": true, "checksum_change_rejected": true, "process_death_not_complete": true, "retry_applied": true, "existing_rows_preserved": true, "initial_adoption_predicate_enforced": true, "initial_adoption_result_shape_enforced": true, "initial_adoption_transactional": true, "initial_adoption_evidence_retained": true}, nil
 }
