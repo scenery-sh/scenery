@@ -107,8 +107,16 @@ The reload path was already tight; its remaining time is the Go build
 (about 0.5 s), the first execution of the new executable (about 0.3 s, a
 host setting that `scenery doctor` now reports) and publication (0.14 s).
 
-Validation: `go test ./...`, `golangci-lint run ./...` (0 issues), the
-repository verifier and the probes named under Validation and Acceptance.
+Validation on 2026-11-12: `go test ./...`, `golangci-lint run ./...` (0
+issues) and `go run ./scripts/verify --summary --write` pass, the last with
+the existing 16 review-due warnings and the advisory suite-time warning. The
+probes `postgres`, `dev-process`, `process-model`, `assistant-runtime`,
+`generation`, `fixtures`, `cli-grammar`, `cli-process` and `worktree` pass.
+`assistant-journey` fails with "a receipt of the uncertain epoch stayed
+usable"; it fails identically on unchanged `main` (`3b4d3175`) and is recorded
+in the debt tracker, not repaired here. The `fixtures` probe rewrote the stale
+committed contracts of `testdata/apps/basic` and `storage-basic` on `main` as
+well, which failed every later probe of a run; they are regenerated.
 Proof invalidation was exercised live: a new Go file, a type error and a
 changed handler signature each repeat the analysis, and both errors are
 reported.
@@ -134,7 +142,7 @@ go test ./...
 golangci-lint run ./...
 go run ./scripts/verify --summary --write
 go run ./scripts/verify --probe postgres --probe dev-process --probe process-model --summary --write
-go run ./scripts/verify --probe assistant-runtime --probe assistant-journey --probe generation --probe cli-grammar --probe cli-process --summary --write
+go run ./scripts/verify --probe assistant-runtime --probe generation --probe fixtures --probe cli-grammar --probe cli-process --probe worktree --summary --write
 ```
 
 Acceptance on an application: start it twice with `scenery up --detach --wait

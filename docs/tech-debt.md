@@ -11,6 +11,7 @@ when recorded; those historical `harness self` invocations are not live commands
   - [Deeper Architecture Checks](#deeper-architecture-checks)
   - [Long Build Tests](#long-build-tests)
   - [Development Edit Latency](#development-edit-latency)
+  - [Assistant Journey Probe](#assistant-journey-probe)
 
 ## Resolved
 
@@ -108,3 +109,18 @@ Go build is 0.5 s, the first execution of the relinked executable 0.3 s and
 publication 0.14 s. The first-execution part is a host setting that `scenery
 doctor` reports as `host.first_execution`. Contract compilation, about 0.7 s for
 ONLV, bounds every command that compiles; its module loop is sequential.
+
+### Assistant Journey Probe
+
+- Area: assistant runtime / process host state
+- Severity: medium
+- Owner: scenery runtime
+- Created: 2026-11-12
+- Review after: 2026-12-12
+
+`go run ./scripts/verify --probe assistant-journey --summary --write` fails on
+`main` at `3b4d3175` and later with "a receipt of the uncertain epoch stayed
+usable": after the probe makes the host state unrecordable and replaces the
+host, status and cancellation of the guarded durable receipt are not both
+refused as `not_found`. The other assistant probes pass. Until it is repaired
+the probe cannot gate a landing.
