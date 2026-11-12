@@ -2654,6 +2654,14 @@ Rules:
   made or does not verify is removed and the tree is copied and verified file
   by file, as on other platforms. The `assistant.cache_copy` step's `read_ms`
   and `hash_ms` add up all readers and can exceed `duration_ms`.
+- A prepared assistant tree is canonical, so every worktree with the same
+  assistant inputs, Node lock and toolchain has the same cache key. A worktree
+  that has no entry for a key adopts the machine's entry at
+  `<development cache>/assistant-prepared/<key>` instead of installing and
+  building, and a worktree that builds or already holds an entry publishes it
+  there once. An adopted entry is verified by key and by every path and byte
+  exactly like one the worktree built. The machine keeps the eight most
+  recent entries; deleting the directory only makes worktrees build again.
 - The first generation of a development session retains and preflights every
   service process as soon as its runtime environment is resolved, beside
   database setup; a preflight is a read-only handshake that opens no database.
