@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -238,6 +239,7 @@ func TestDiscoverDBSeedCommandPlansRejectsInvalidInputs(t *testing.T) {
 		{name: "absolute", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("catalog", outside)}, want: "workspace-relative"},
 		{name: "directory", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("catalog", "catalog/directory")}, want: "not a regular file"},
 		{name: "symlink", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("catalog", "catalog/linked.csv")}, want: "contains symlink"},
+		{name: "missing input", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("catalog", "catalog/absent.csv")}, want: "inspect catalog/absent.csv"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -249,6 +251,10 @@ func TestDiscoverDBSeedCommandPlansRejectsInvalidInputs(t *testing.T) {
 			_, err := discoverDBSeedCommandPlans(root, cfg, testSQLRequirements(t, "catalog"))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+			// The application declared it; repairing it is the caller's work.
+			if code := cliExitCode(fmt.Errorf("prepare database: %w", err)); code != 3 {
+				t.Fatalf("exit code = %d, want failed precondition 3", code)
 			}
 		})
 	}

@@ -47,7 +47,18 @@ func defaultRunDBSeedCommand(ctx context.Context, req lifecycleExecRequest) (dbS
 	return output, fmt.Errorf("%w: %s", err, detail)
 }
 
+// discoverDBSeedCommandPlans refuses seed commands the application cannot
+// satisfy as declared, such as an input file missing from this checkout. That
+// is the caller's state to repair, never an internal failure.
 func discoverDBSeedCommandPlans(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) ([]dbSeedPlan, error) {
+	plans, err := planDBSeedCommands(appRoot, cfg, requirements)
+	if err != nil {
+		return nil, &codedCLIError{err: err, code: 3}
+	}
+	return plans, nil
+}
+
+func planDBSeedCommands(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) ([]dbSeedPlan, error) {
 	commands := cfg.Database.Seed.Commands
 	if len(commands) == 0 {
 		return nil, nil
