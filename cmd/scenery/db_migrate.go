@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
@@ -237,35 +239,86 @@ func runDBMigrationPlans(ctx context.Context, appID string, requirements compile
 	return runDBMigrationPlansWithDatabase(ctx, appID, requirements, plans, env, opts, connections)
 }
 
+// dbMigrationStatusWorkers bounds the connections that read migration status
+// at once. Each service has its own schema, ledger and connection.
+const dbMigrationStatusWorkers = 4
+
 func runDBMigrationPlansWithDatabase(ctx context.Context, appID string, requirements compiler.SQLRequirements, plans []dbMigrationPlan, env []string, opts postgresdb.SchemaMigrationOptions, connections *dbSetupConnections) ([]postgresdb.SchemaMigrationResult, error) {
-	results := make([]postgresdb.SchemaMigrationResult, 0, len(plans))
-	for _, plan := range plans {
+	// read is the status of one service: its result, or the failure that left
+	// it without one.
+	type read struct {
+		result   postgresdb.SchemaMigrationResult
+		err      error
+		noResult bool
+	}
+	status := func(plan dbMigrationPlan) read {
 		dsn, err := resolveDatabaseURLForServiceFromEnv(requirements, env, plan.Service)
 		if err != nil {
-			return results, err
+			return read{err: err, noResult: true}
 		}
 		database, err := connections.Open(ctx, dsn)
 		if err != nil {
-			return results, fmt.Errorf("migration service %s database is unavailable; inspect scenery doctor and db server status", plan.Service)
+			return read{err: fmt.Errorf("migration service %s database is unavailable; inspect scenery doctor and db server status", plan.Service), noResult: true}
 		}
-		opts.InitialVerification = plan.InitialVerification
-		var result postgresdb.SchemaMigrationResult
-		if !opts.StatusOnly && !opts.AdoptInitial {
-			statusOptions := opts
-			statusOptions.StatusOnly = true
-			result, err = postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, statusOptions)
-			if err == nil && result.Status != "current" {
-				// Applying reacquires the exclusive transaction lock and rereads
-				// the ledger; the status read is never mutation authority.
-				result, err = postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, opts)
+		options := opts
+		options.StatusOnly, options.InitialVerification = true, plan.InitialVerification
+		result, err := postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, options)
+		return read{result: result, err: errors.Join(err, connections.ReleaseMigration(dsn))}
+	}
+	// The status of a service is a read of its own ledger under a shared
+	// lock, so the statuses of services with distinct schemas are read
+	// together. Everything that can change a schema stays below, one service
+	// after another in plan order; adoption never starts from a status read.
+	var statuses []read
+	schemas := map[string]bool{}
+	for _, plan := range plans {
+		schemas[plan.Schema] = true
+	}
+	if !opts.AdoptInitial && len(schemas) == len(plans) && len(plans) > 1 {
+		statuses = make([]read, len(plans))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range min(dbMigrationStatusWorkers, len(plans)) {
+			wg.Go(func() {
+				for index := int(next.Add(1)) - 1; index < len(plans); index = int(next.Add(1)) - 1 {
+					statuses[index] = status(plans[index])
+				}
+			})
+		}
+		wg.Wait()
+	}
+	results := make([]postgresdb.SchemaMigrationResult, 0, len(plans))
+	for index, plan := range plans {
+		var current read
+		switch {
+		case opts.AdoptInitial:
+		case statuses != nil:
+			current = statuses[index]
+		default:
+			current = status(plan)
+		}
+		if current.noResult {
+			return results, current.err
+		}
+		if opts.AdoptInitial || (current.err == nil && !opts.StatusOnly && current.result.Status != "current") {
+			// Applying reacquires the exclusive transaction lock and rereads
+			// the ledger; the status read is never mutation authority.
+			dsn, err := resolveDatabaseURLForServiceFromEnv(requirements, env, plan.Service)
+			if err != nil {
+				return results, err
 			}
-		} else {
-			result, err = postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, opts)
+			database, err := connections.Open(ctx, dsn)
+			if err != nil {
+				return results, fmt.Errorf("migration service %s database is unavailable; inspect scenery doctor and db server status", plan.Service)
+			}
+			options := opts
+			options.InitialVerification = plan.InitialVerification
+			current.result, current.err = postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, options)
+			current.err = errors.Join(current.err, connections.ReleaseMigration(dsn))
 		}
-		err = errors.Join(err, connections.ReleaseMigration(dsn))
-		results = append(results, result)
-		if err != nil {
-			return results, err
+		results = append(results, current.result)
+		if current.err != nil {
+			return results, current.err
 		}
 	}
 	return results, nil
