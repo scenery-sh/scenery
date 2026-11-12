@@ -2645,6 +2645,20 @@ Rules:
 - `assistant-cache/<package-lock-digest>/` is the content-addressed managed
   Node/npm dependency cache. It is never authored source and `assistant sync`
   reuses it only when the exact package and lock bytes match.
+- A development session gives each assistant helper an independent copy of
+  its prepared dependency and build tree from `assistant-cache/prepared/`. On a
+  filesystem that clones directories (APFS), each top-level entry is cloned,
+  which shares blocks with the cache until either side writes, and every
+  cloned path, mode, symlink target, size and digest is then verified against
+  the cache record, files on several readers at once. A clone that cannot be
+  made or does not verify is removed and the tree is copied and verified file
+  by file, as on other platforms. The `assistant.cache_copy` step's `read_ms`
+  and `hash_ms` add up all readers and can exceed `duration_ms`.
+- The first generation of a development session retains and preflights every
+  service process as soon as its runtime environment is resolved, beside
+  database setup; a preflight is a read-only handshake that opens no database.
+  Activation, which follows database setup and the source verification, only
+  starts them.
 - `assistants/` and `run/assistants.json` are private helper/supervisor state.
   They may contain control tokens, process state, or implementation metadata;
   use `scenery assistant status` and `scenery inspect assistants` instead of

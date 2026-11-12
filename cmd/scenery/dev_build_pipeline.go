@@ -327,6 +327,21 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	if err := joinImplementationCheck(); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
+	// The first generation of a session starts every service. Its environment
+	// is resolved only after the verified build, so its instances are retained
+	// and preflighted from then on, beside database setup; a preflight is a
+	// read-only handshake that opens no database.
+	beginInitialPreparation := func() {
+		if prepared != nil || processes == nil || !initial || environment == nil {
+			return
+		}
+		prepared = s.beginDevProcessPreparation(ctx, result, environment, processes)
+	}
+	defer func() {
+		if returnErr != nil && initial {
+			prepared.release(s)
+		}
+	}()
 	identityStep := build.Step{
 		Name: "build.identity", StartedAt: time.Now(), Cache: "not_applicable", Reason: "exact_candidate_inputs", OK: true,
 		SnapshotDigest: graphFingerprint, FrameworkSourceDigest: result.FrameworkSourceDigest,
@@ -388,6 +403,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			}); err != nil {
 				return err
 			}
+			beginInitialPreparation()
 			return s.runDevDatabaseSetup(ctx, dbSetup, result.Contract, environment)
 		}); err != nil {
 			return nil, devBuildError(metadata, apiEncoding, err)

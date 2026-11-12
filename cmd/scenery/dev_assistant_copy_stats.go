@@ -5,9 +5,12 @@ import (
 	"time"
 )
 
-// Copy timing is diagnostic evidence, not a cache-validity input. Traversal
-// includes metadata, membership validation and callback overhead; all copied
-// bytes still receive the same digest verification before publication.
+// Copy timing is diagnostic evidence, not a cache-validity input. Read and
+// Hash add up the time of every worker that verified a cloned tree, so
+// together they can exceed Duration; traversal is what Duration has left,
+// never less than zero, and includes metadata, membership validation and
+// callback overhead. All restored bytes still receive the same digest
+// verification before they are used.
 type assistantCopyStats struct {
 	Started                     time.Time
 	Duration, Read, Hash, Write time.Duration
@@ -26,7 +29,7 @@ func (s *assistantSupervisor) traceAssistantCache(ctx context.Context, definitio
 			"entries": stats.Entries, "files": stats.Files, "bytes": stats.Bytes,
 			"read_ms": milliseconds(stats.Read), "hash_ms": milliseconds(stats.Hash),
 			"write_ms":     milliseconds(stats.Write),
-			"traversal_ms": milliseconds(stats.Duration - stats.Read - stats.Hash - stats.Write),
+			"traversal_ms": milliseconds(max(stats.Duration-stats.Read-stats.Hash-stats.Write, 0)),
 		})
 	}
 }

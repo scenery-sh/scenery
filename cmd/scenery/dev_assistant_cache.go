@@ -10,7 +10,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/assistantadapter/eve"
@@ -130,7 +132,7 @@ func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bo
 		return false, err
 	}
 	stats := assistantCopyStats{Started: time.Now()}
-	err = copyAssistantPreparedTreeMeasured(ctx, filepath.Join(c.path, "tree"), overlay, &record.Tree, &stats)
+	err = restoreAssistantPreparedTree(ctx, filepath.Join(c.path, "tree"), overlay, &record.Tree, &stats)
 	stats.Duration = time.Since(stats.Started)
 	if c.onCopy != nil {
 		c.onCopy(stats, err)
@@ -197,6 +199,214 @@ func assistantPreparedPath(path string) bool {
 	return true
 }
 
+// assistantVerifyWorkers bounds the files of one cloned tree that are read
+// and hashed at once.
+const assistantVerifyWorkers = 6
+
+// assistantPreparedEntry describes one path of a prepared tree as its
+// descriptor would, without the content of a file: a relative symlink that
+// stays inside destination, a directory with mode 0755, or a regular file with
+// mode 0644 or 0755.
+func assistantPreparedEntry(path, relative, destination string, info fs.FileInfo) (runtimeassets.Entry, error) {
+	actual := runtimeassets.Entry{Path: relative}
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		link, err := os.Readlink(path)
+		if err != nil {
+			return actual, err
+		}
+		target := filepath.Join(destination, filepath.FromSlash(relative))
+		if filepath.IsAbs(link) || !assistantPathWithin(destination, filepath.Join(filepath.Dir(target), link)) {
+			return actual, errors.New("prepared cache symlink escapes tree")
+		}
+		actual.Kind, actual.Target = runtimeassets.EntrySymlink, link
+	case info.IsDir():
+		if info.Mode().Perm() != 0o755 {
+			return actual, fmt.Errorf("unsupported prepared directory mode: %s", relative)
+		}
+		actual.Kind, actual.Mode = runtimeassets.EntryDirectory, 0o755
+	case info.Mode().IsRegular():
+		actual.Kind, actual.Mode = runtimeassets.EntryFile, uint32(info.Mode().Perm())
+		if actual.Mode != 0o644 && actual.Mode != 0o755 {
+			return actual, fmt.Errorf("unsupported prepared file mode: %s", relative)
+		}
+	default:
+		return actual, fmt.Errorf("unsupported prepared cache path: %s", relative)
+	}
+	return actual, nil
+}
+
+// restoreAssistantPreparedTree gives destination an independent, verified
+// copy of the prepared tree at source. Where the filesystem can clone a
+// directory, each top-level entry is cloned and the clone is then read and
+// verified against expected, which costs no file creation; anything that
+// prevents that, including a clone that does not verify, removes what was
+// cloned and copies file by file instead.
+func restoreAssistantPreparedTree(ctx context.Context, source, destination string, expected *runtimeassets.Descriptor, stats *assistantCopyStats) error {
+	cloned, err := cloneAssistantPreparedTree(ctx, source, destination, expected, stats)
+	if err == nil {
+		return nil
+	}
+	for _, name := range cloned {
+		_ = os.RemoveAll(filepath.Join(destination, name))
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	*stats = assistantCopyStats{Started: stats.Started}
+	return copyAssistantPreparedTreeMeasured(ctx, source, destination, expected, stats)
+}
+
+// cloneAssistantPreparedTree clones the top-level entries of source into
+// destination and verifies every cloned path and byte against expected. It
+// returns the names it created, whether or not it succeeded.
+func cloneAssistantPreparedTree(ctx context.Context, source, destination string, expected *runtimeassets.Descriptor, stats *assistantCopyStats) ([]string, error) {
+	entries := make(map[string]runtimeassets.Entry, len(expected.Entries))
+	for _, entry := range expected.Entries {
+		entries[entry.Path] = entry
+	}
+	top, err := os.ReadDir(source)
+	if err != nil {
+		return nil, err
+	}
+	var cloned []string
+	started := time.Now()
+	for _, entry := range top {
+		name := entry.Name()
+		if !assistantPreparedPath(name) {
+			return cloned, fmt.Errorf("unexpected prepared cache path %q", name)
+		}
+		target := filepath.Join(destination, name)
+		if _, err := os.Lstat(target); err == nil {
+			return cloned, fmt.Errorf("prepared path already exists: %s", name)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return cloned, err
+		}
+		if err := cloneAssistantTreeEntry(filepath.Join(source, name), target); err != nil {
+			// A failed clone may leave part of the entry behind.
+			return append(cloned, name), err
+		}
+		cloned = append(cloned, name)
+	}
+	stats.Write += time.Since(started)
+	// Every cloned path is classified in walk order; the files are read and
+	// hashed by workers, which only read, and compared with what the
+	// descriptor expects of them.
+	type verification struct {
+		path string
+		want runtimeassets.Entry
+	}
+	jobs := make(chan verification)
+	failed := make(chan struct{})
+	var measured sync.Mutex
+	var firstFailure error
+	fail := func(err error) {
+		measured.Lock()
+		defer measured.Unlock()
+		if firstFailure == nil {
+			firstFailure = err
+			close(failed)
+		}
+	}
+	failure := func() error {
+		measured.Lock()
+		defer measured.Unlock()
+		return firstFailure
+	}
+	var workers sync.WaitGroup
+	for range min(assistantVerifyWorkers, runtime.GOMAXPROCS(0)) {
+		workers.Go(func() {
+			for job := range jobs {
+				if failure() != nil {
+					continue
+				}
+				readStarted := time.Now()
+				data, err := os.ReadFile(job.path)
+				read := time.Since(readStarted)
+				if err != nil {
+					fail(err)
+					continue
+				}
+				hashStarted := time.Now()
+				size, digest := int64(len(data)), digestBytes(data)
+				hash := time.Since(hashStarted)
+				if size != job.want.Size || digest != job.want.Digest {
+					fail(fmt.Errorf("prepared cache content mismatch: %s", job.want.Path))
+					continue
+				}
+				measured.Lock()
+				stats.Read, stats.Hash = stats.Read+read, stats.Hash+hash
+				stats.Files++
+				stats.Bytes += size
+				measured.Unlock()
+			}
+		})
+	}
+	var walkErr error
+	for _, name := range cloned {
+		walkErr = filepath.WalkDir(filepath.Join(destination, name), func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := failure(); err != nil {
+				return err
+			}
+			relative, err := filepath.Rel(destination, path)
+			if err != nil {
+				return err
+			}
+			relative = filepath.ToSlash(relative)
+			if !assistantPreparedPath(relative) {
+				return fmt.Errorf("unexpected prepared cache path %q", relative)
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			actual, err := assistantPreparedEntry(path, relative, destination, info)
+			if err != nil {
+				return err
+			}
+			want, ok := entries[relative]
+			// Size and digest of a file are compared by the worker that reads it.
+			comparable := want
+			comparable.Size, comparable.Digest = 0, ""
+			if !ok || comparable != actual {
+				return fmt.Errorf("prepared cache content mismatch: %s", relative)
+			}
+			delete(entries, relative)
+			stats.Entries++
+			if actual.Kind != runtimeassets.EntryFile {
+				return nil
+			}
+			select {
+			case jobs <- verification{path: path, want: want}:
+				return nil
+			case <-failed:
+				return failure()
+			}
+		})
+		if walkErr != nil {
+			break
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	if walkErr != nil {
+		return cloned, walkErr
+	}
+	if err := failure(); err != nil {
+		return cloned, err
+	}
+	if len(entries) != 0 {
+		return cloned, errors.New("prepared cache files are missing")
+	}
+	return cloned, nil
+}
+
 func copyAssistantPreparedTree(ctx context.Context, source, destination string, expected *runtimeassets.Descriptor) error {
 	return copyAssistantPreparedTreeMeasured(ctx, source, destination, expected, nil)
 }
@@ -234,29 +444,9 @@ func copyAssistantPreparedTreeMeasured(ctx context.Context, source, destination 
 			return err
 		}
 		target := filepath.Join(destination, filepath.FromSlash(relative))
-		actual := runtimeassets.Entry{Path: relative}
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			if filepath.IsAbs(link) || !assistantPathWithin(destination, filepath.Join(filepath.Dir(target), link)) {
-				return errors.New("prepared cache symlink escapes tree")
-			}
-			actual.Kind, actual.Target = runtimeassets.EntrySymlink, link
-		case info.IsDir():
-			if info.Mode().Perm() != 0o755 {
-				return fmt.Errorf("unsupported prepared directory mode: %s", relative)
-			}
-			actual.Kind, actual.Mode = runtimeassets.EntryDirectory, 0o755
-		case info.Mode().IsRegular():
-			actual.Kind, actual.Mode = runtimeassets.EntryFile, uint32(info.Mode().Perm())
-			if actual.Mode != 0o644 && actual.Mode != 0o755 {
-				return fmt.Errorf("unsupported prepared file mode: %s", relative)
-			}
-		default:
-			return fmt.Errorf("unsupported prepared cache path: %s", relative)
+		actual, err := assistantPreparedEntry(path, relative, destination, info)
+		if err != nil {
+			return err
 		}
 		var data []byte
 		if actual.Kind == runtimeassets.EntryFile {
