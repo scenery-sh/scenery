@@ -83,10 +83,14 @@ func FrameworkProducerLinkerFlags(sourceDigest, sourceRoot string) (string, erro
 	if !validFrameworkDigest(sourceDigest) {
 		return "", fmt.Errorf("framework source digest is invalid")
 	}
-	if !filepath.IsAbs(sourceRoot) || strings.ContainsAny(sourceRoot, "\t\r\n\"'") {
-		return "", fmt.Errorf("framework source root must be an absolute path without quotes or line breaks: %q", sourceRoot)
+	relative := strings.HasPrefix(sourceRoot, app.ExecutableRelativeRoot)
+	if (!relative && !filepath.IsAbs(sourceRoot)) || strings.ContainsAny(sourceRoot, "\t\r\n\"'") {
+		return "", fmt.Errorf("framework source root must be an absolute or executable-relative path without quotes or line breaks: %q", sourceRoot)
 	}
-	root := "-X=scenery.sh/internal/app.linkedRepoRoot=" + filepath.Clean(sourceRoot)
+	if !relative {
+		sourceRoot = filepath.Clean(sourceRoot)
+	}
+	root := "-X=scenery.sh/internal/app.linkedRepoRoot=" + sourceRoot
 	if strings.Contains(root, " ") {
 		root = "'" + root + "'"
 	}

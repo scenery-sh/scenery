@@ -18,6 +18,7 @@ import (
 
 	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/devcache"
+	"scenery.sh/internal/filemeta"
 	"scenery.sh/internal/runtimeassets"
 	"scenery.sh/internal/toolchain"
 )
@@ -277,7 +278,7 @@ func copyAssistantCacheEntry(ctx context.Context, source, destination string) er
 		return err
 	}
 	tree := filepath.Join(stage, "tree")
-	if cloneFileOrTree(filepath.Join(source, "tree"), tree) != nil {
+	if filemeta.Clone(filepath.Join(source, "tree"), tree) != nil {
 		_ = os.RemoveAll(tree)
 		if err := os.Mkdir(tree, 0o755); err != nil {
 			return err
@@ -395,7 +396,7 @@ func cloneAssistantPreparedTree(ctx context.Context, source, destination string,
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return cloned, err
 		}
-		if err := cloneFileOrTree(filepath.Join(source, name), target); err != nil {
+		if err := filemeta.Clone(filepath.Join(source, name), target); err != nil {
 			// A failed clone may leave part of the entry behind.
 			return append(cloned, name), err
 		}
