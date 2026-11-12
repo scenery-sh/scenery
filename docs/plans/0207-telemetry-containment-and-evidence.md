@@ -87,7 +87,7 @@ capture instead of extending historical inference further.
 
 ### Resume here
 
-Checkpoint 2026-10-26: PR #248 rebased onto merged #247 in `/private/tmp/scenery-pr248-send`. Review fixes are in progress: early foreground sink/summary lifetime, unique logs, write-time rotation, serialized telemetry snapshots, conservative archive pruning, and hidden-entry validation. The unsafe retained-executable stamp cache is removed in favor of hashing bytes. Sol found that duplicate foreground starts could prune the active owner log. Pruning now runs only after session acquisition; a focused test retains more than the session budget when only attaching sinks. Final proof passed: full verifier against origin/main, lint, focused tests, race checks, edge/CLI-process probes, and foreground startup/summary/telemetry query. The optional logs query in the minimal fixture reports VictoriaLogs unavailable; direct session log proof passed. Initial edge probe lacked the managed store and overlapped a documentation edit; rerunning with the existing SCENERY_TOOLCHAIN_DIR and stable inputs passed. Next: push and CI/merge. No installed CLI or live agent replacement is authorized or needed.
+Closed 2026-11-12 by developer decision; nothing to resume. Merged as PR #248. The developer closed the plan without the ONLV adoption and the live installed launchd agent restart; neither was performed and neither is tracked elsewhere.
 
 ## Surprises & Discoveries
 
@@ -144,6 +144,8 @@ until the change is merged. The live launchd upgrade on this host was not
 exercised: it restarts the installed agent and needs an explicit request.
 Remaining follow-ups are outside this plan: ONLV adoption and a native CLI
 event contract (see Purpose / Big Picture).
+
+Closure (2026-11-12): PR #248 merged this plan's work to `main`. The developer waived the unchecked Progress item (ONLV adoption and a live restart of the installed launchd agent): it was not performed and is not carried by another plan or the debt tracker.
 
 ## Context and Orientation
 

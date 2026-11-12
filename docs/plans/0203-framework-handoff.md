@@ -90,12 +90,7 @@ without the operator restarting anything.
 
 ### Resume here
 
-Checkpoint 2026-11-04; source/document review only, not a fresh runtime or external-app check.
-
-- Current: Source-snapshot handoff has real-process proof; ONLV pinned-version bump observation remains open.
-- Next: Check ONLV current pin/runtime identity, then run the recorded pinned-bump scenario only within authorized app scope.
-- Boundary: Unit tests and source-snapshot proof do not establish module-download/pinned-version live acceptance.
-- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+Closed 2026-11-12 by developer decision; nothing to resume. Implementation is merged with real-process proof for source snapshots. The developer closed the plan without the ONLV pinned-version bump observation; it was not performed and is not tracked elsewhere.
 
 ## Surprises & Discoveries
 
@@ -183,6 +178,8 @@ executable, continue as the newly selected producer; a failed preparation keeps
 the runtime serving. The generated development runtime client now names a stale
 runtime instead of telling the operator to regenerate. Remaining: the ONLV
 pinned-bump observation listed in Progress.
+
+Closure (2026-11-12): The developer waived the unchecked Progress item (observing a pinned-version bump in ONLV hand off a running `scenery up`). The pinned path keeps its unit-test coverage only; no live observation was made and none is carried by another plan or the debt tracker.
 
 ## Context and Orientation
 

@@ -79,12 +79,7 @@ macOS is the supported platform for this plan. Linux code paths may compile but 
 
 ### Resume here
 
-Checkpoint 2026-11-04; source/document review only, not a fresh runtime or remote-state check.
-
-- Current: Public edge and controlled failure/login-job scenarios have proof; literal post-fix operator reboot/login remains unobserved.
-- Next: Arrange the remaining operator observation only after its explicit authorization, then record producer/owner and outcome.
-- Boundary: Do not substitute controlled job reload or repository tests for a literal reboot/login observation.
-- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+Closed 2026-11-12 by developer decision; nothing to resume. Public edge, controlled failure and login-job acceptance are recorded in Outcomes. The developer closed the plan without the literal post-fix operator reboot/login observation; it was not performed and is not tracked elsewhere.
 
 ## Surprises & Discoveries
 
@@ -189,6 +184,8 @@ Milestone 10 is live-accepted for ONLV on `local.clean.tech` and Micro on `micro
 The 2026-09-01 request-path repair removed the observed loopback latency regression without weakening owner verification or migration recovery. Two live 40-request runs put the local Caddy path at `2.95–4.41 ms` p50 and `4.03–6.14 ms` p95, compared with `22.75 ms` p50 before the repair.
 
 The 2026-09-02 lifecycle snapshot follow-up removed both `deploy.json` loading and owner fingerprint inspection from the public HTTP path. Registration/restoration and the owner/deploy monitors retain the same fail-closed routing decisions, including `404` for unknown hosts and `503` for enabled targets without a validated running session.
+
+Closure (2026-11-12): The developer waived the literal post-fix operator reboot/login observation that kept this plan active. It was not performed; the controlled job reload evidence above is not a substitute for it, and no other plan or debt entry carries it.
 
 ## Context and Orientation
 

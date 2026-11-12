@@ -26,6 +26,13 @@ optimize a number nothing can explain.
 
 ## Progress
 
+- [ ] 2026-11-12: Took over the 19 isolated-root timing failures of completed plan
+      [0169](0169-sql-endpoint-resolution.md): 16 roots above the 100 ms p95 limit
+      in its all-root audit and 3 more in its fresh release run (2026-09-08).
+      Its Outcomes name the evidence under
+      `.scenery/harness/sql-endpoint-resolution/final/`; that directory is local
+      cache and may be gone. The figures are historical: repairing them starts
+      with a newly requested isolated-root measurement.
 - [x] 2026-10-21: Decomposed the five largest `cmd/scenery` source files
       (`dev_assistant_supervisor.go`, `watch.go`, `dev_console.go`,
       `dev_frontends.go`, `deploy.go`) into cohesive focused units well below the
@@ -465,10 +472,10 @@ optimize a number nothing can explain.
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
+Checkpoint 2026-11-12; summarizes recorded evidence, not a fresh runtime or remote-state check.
 
-- Current: Test-loop work remains open; Plan 0210 recorded a zero-warning cached run, while Plan 0169 isolated-root acceptance is unresolved.
-- Next: Use the current run identity and remaining timing work here/0169 to choose the next explicitly requested measurement.
+- Current: Test-loop work remains open. Plan 0210 recorded a zero-warning cached run. Plan 0169 is closed and its 19 isolated-root timing failures now belong to this plan (first Progress item).
+- Next: Request a fresh isolated-root measurement, compare it with the 19 roots recorded by 0169, and repair the roots that still exceed 100 ms p95.
 - Boundary: The 0210 cached-suite result is not fresh or isolated-root p95 proof; no new all-root audit is authorized by this checkpoint.
 - Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
 

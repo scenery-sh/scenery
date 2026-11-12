@@ -1,5 +1,19 @@
 # Completed Plans
 
+- [0220 Agent Contract Fidelity And Verified Change Loop](0220-agent-contract-fidelity.md) — 2026-11-12: closed after PR #247 merged; all eight review points implemented with live acceptance, nothing open.
+
+- [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md) — 2026-11-12: closed after PR #248 merged; the developer waived ONLV adoption and the live installed launchd agent restart, which were not performed.
+
+- [0205 Environment-Only Application Configuration](0205-environment-configuration.md) — 2026-11-12: closed with implementation merged in Scenery and ONLV; the developer waived the remaining operator cutovers and the Linux, SSH and reboot proofs, which were not performed.
+
+- [0203 Framework Handoff For Running Development Runtimes](0203-framework-handoff.md) — 2026-11-12: closed with real-process proof for source snapshots; the developer waived the ONLV pinned-version bump observation, which was not performed.
+
+- [0200 Process-Per-Service Development Runtime](0200-process-per-service-development-runtime.md) — 2026-11-12: closed with the runtime implemented and the 300/500 ms target unmet (last recorded ONLV warm body edit 1,186 ms p50); the developer accepted the current speed, and the gap and two review follow-ups are in the debt tracker.
+
+- [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md) — 2026-11-12: closed with the SQL/auth change delivered and M2 timing acceptance unmet; the 19 failing isolated roots are transferred to active plan 0145, not waived.
+
+- [0101 Public Deploy Edge](0101-public-deploy-edge.md) — 2026-11-12: closed with public routing and controlled failure/login-job acceptance recorded; the developer waived the literal post-fix operator reboot/login observation, which was not performed.
+
 - [0223 Reviewed Documentation And Cached Verification](0223-reviewed-documentation-and-cached-verification.md) — 2026-11-04: reviewed all 44 overdue documents and corrected content drift, stabilized isolated Go-test inputs, prevented optional Git index writes, removed duplicate vet preparation and fixed a timeout-test assumption. Full verifier and CLI-process proof pass with zero diagnostics; all 79 test-package results replay in 3.011 seconds against the unchanged 5-second budget. Lint, verifier race/Linux-vet and 20 focused timeout repetitions pass; separate operator acceptance remains open in its owning plans.
 
 - [0222 Contract-Preserving JSON v2 Adoption](0222-json-v2-adoption.md) — 2026-11-04: adopted jsontext for exact contract syntax and v2 for current machine artifacts/envelopes and environment documents; preserved wire bytes and revision identities. Paired JSON and attested generated-HTTP measurements found no statistically detected slowdown. Full verifier, lint, leaf race/Linux-vet checks and CLI-process/native-contract/configuration probes pass; other v1 owners and generated streaming methods are deliberately retained.

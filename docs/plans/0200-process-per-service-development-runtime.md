@@ -799,12 +799,7 @@ compile the application graph as it needs.
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
-
-- Current: The process-per-service path is implemented; the 300/500 ms target and recorded review follow-ups remain open.
-- Next: Read the remaining Progress items and identify the current measured bottleneck before another bounded, explicitly authorized measurement.
-- Boundary: Do not delete retained resources when removing worktrees; older timing cohorts are not current performance proof.
-- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+Closed 2026-11-12 by developer decision; nothing to resume. The process-per-service runtime is implemented and in use. The developer closed the plan with the 300/500 ms target unmet and accepted the current speed; the gap and the two review follow-ups are recorded in `docs/tech-debt.md`.
 
 ## Surprises & Discoveries
 
@@ -1598,7 +1593,7 @@ Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remo
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Closed 2026-11-12 by developer decision with the numerical target unmet. The process-per-service development runtime is implemented and replaced the single application executable (see Progress). The last recorded ONLV warm body edit is 1,186 ms p50 (n=8, 2026-09-19) against the 300 ms p50 / 500 ms p95 target, and the developer accepted that speed. The remaining gap and the two follow-ups of the `9a0b54d0` review (bounded link parallelism inside one process build, single-start attestation instead of the separate preflight execution) are recorded under Development Edit Latency in [the debt tracker](../tech-debt.md#development-edit-latency). No active plan carries the target.
 
 ## Context and Orientation
 
