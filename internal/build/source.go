@@ -690,6 +690,7 @@ func removeUnexpectedFilesFromListsObserved(root string, sourceFiles, generatedF
 	keepFiles[".scenery-workspace.lock"] = struct{}{}
 	keepFiles[workspaceMarkerFile] = struct{}{}
 	keepFiles[buildStateFile] = struct{}{}
+	keepFiles[buildInputGraphFile] = struct{}{}
 	keepFiles["go.sum"] = struct{}{}
 
 	var files []string

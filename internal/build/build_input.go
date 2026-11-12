@@ -191,6 +191,10 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	defer entry.Unlock()
 	var output []byte
 	cache, reason, actions := "miss", "go_list_package_projection", 1
+	toolKey := goToolIdentityKey(args, gotarget.Environment(target.Context))
+	if entry.state == nil {
+		entry.state = loadRetainedBuildInputGraph(result.Dir, toolKey, graphKey)
+	}
 	if entry.state != nil && entry.state.Key == graphKey {
 		if current, currentErr := retainedBuildInputGraphCurrent(entry.state); currentErr == nil && current {
 			output = append([]byte(nil), entry.state.Output...)
@@ -224,6 +228,7 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 			return nil, stateErr
 		}
 		entry.state = state
+		saveRetainedBuildInputGraph(result.Dir, toolKey, state)
 	}
 	return manifest, err
 }

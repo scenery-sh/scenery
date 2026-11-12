@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"runtime"
 	"slices"
-	"strings"
 	"time"
 
 	"scenery.sh/internal/compiler"
@@ -87,26 +85,13 @@ func implementationVerificationKey(result *Result) string {
 	}{
 		"1", result.BuildFingerprint, result.DependencyFingerprint, result.FrameworkFingerprint,
 		result.GeneratorFingerprint, result.GraphFingerprint, result.Contract.Manifest.ContractRevision, runtime.Version(),
-		*result.Target, goToolEnvironment(result.GoEnvironment), result.OwnedGoModuleSources,
+		*result.Target, goToolIdentity(result.GoEnvironment), result.OwnedGoModuleSources,
 	})
 	if err != nil {
 		return ""
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
-}
-
-// goToolEnvironment keeps the effective variables the Go tool and its C
-// toolchain read, sorted; other variables of a process do not reach analysis.
-func goToolEnvironment(env []string) []string {
-	effective := map[string]string{}
-	for _, entry := range env {
-		name, _, found := strings.Cut(entry, "=")
-		if found && (strings.HasPrefix(name, "GO") || strings.HasPrefix(name, "CGO_") || name == "CC" || name == "CXX" || name == "PKG_CONFIG") {
-			effective[name] = entry
-		}
-	}
-	return slices.Sorted(maps.Values(effective))
 }
 
 // recordVerifiedImplementation keeps the proof of a check that just passed

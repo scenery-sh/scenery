@@ -289,11 +289,10 @@ func (s *devSupervisor) closeDevProcesses() error {
 			served[instance.app.launch.request.Command] = true
 		}
 	}
-	s.mu.RLock()
-	if s.current != nil && s.current.launch != nil {
-		served[s.current.launch.request.Command] = true
+	// The host has already stopped; its instance still names its executable.
+	if host := model.host; host != nil && host.app != nil && host.app.launch != nil {
+		served[host.app.launch.request.Command] = true
 	}
-	s.mu.RUnlock()
 	model.services, model.retained, model.host = map[string]*devProcessInstance{}, map[uint64]map[string]*devProcessInstance{}, nil
 	markDevProcessesStopped(instances)
 	err := s.stopInstances(instances, served)
