@@ -109,6 +109,11 @@ func VerifyFrameworkSelection(ctx context.Context, selection FrameworkSelection)
 	if err != nil {
 		return err
 	}
+	// The prepared source was just read completely; a module that selects
+	// that same directory needs no second read of it.
+	if canonical, err := filepath.EvalSymlinks(moduleRoot); err == nil && canonical == selection.Source.Root {
+		return nil
+	}
 	module, err := FrameworkSourceManifest(moduleRoot)
 	if err != nil || module.Digest != selection.Source.Digest {
 		return fmt.Errorf("application module and prepared Scenery producer disagree; run scenery framework use again")
