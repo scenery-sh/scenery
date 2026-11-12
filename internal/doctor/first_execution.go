@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/envpolicy"
 )
 
 // firstExecutionWarn is the extra time of a new executable's first start
@@ -56,7 +58,7 @@ func measureFirstExecution(ctx context.Context, cacheRoot string) (FirstExecutio
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		command := exec.CommandContext(ctx, candidate, "version")
-		command.Env = append(os.Environ(), "SCENERY_AGENT_HOME="+filepath.Join(dir, "home"))
+		command.Env = append(envpolicy.Environ(), "SCENERY_AGENT_HOME="+filepath.Join(dir, "home"))
 		started := time.Now()
 		err := command.Run()
 		return time.Since(started), err
