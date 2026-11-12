@@ -66,9 +66,7 @@ built from.
 
 ### Resume here
 
-2026-10-19: implementation and validation are complete on
-`feat/agent-contract-fidelity`. Next action: the developer decides on landing
-(PR or local landing). Nothing is pushed.
+Closed 2026-11-12 by developer decision; nothing to resume. Merged as PR #247 (`19b23e1e`). All eight review points are implemented and accepted; nothing remains.
 
 ## Surprises & Discoveries
 
@@ -126,6 +124,8 @@ All eight review points are implemented. Evidence (2026-10-19):
 - Not exercised end to end: the assistant MCP gateway with a live helper (its
   schemas and results are proven by the gateway conformance tests with a real
   MCP client and JSON Schema validator).
+
+Closure (2026-11-12): PR #247 merged this plan's work to `main`. No acceptance item was open.
 
 ## Plan of Work
 

@@ -73,12 +73,7 @@ snapshot/recovery, environment ABI, compiler, or public API changes are planned.
 
 ### Resume here
 
-Checkpoint 2026-10-04; summarizes recorded evidence, not a fresh runtime or remote-state check.
-
-- Current: SQL/auth implementation is delivered; isolated-root timing failures outside that scope still block acceptance.
-- Next: Review the recorded failing roots and deferred repairs before proposing a separately authorized timing effort.
-- Boundary: Delivery authorization did not waive timing policy or authorize automatic continuation of deferred repairs.
-- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+Closed 2026-11-12 by developer decision; nothing to resume. The SQL/auth change is delivered. The 19 recorded timing failures outside its scope (16 from the all-root audit, 3 from the fresh release run) are transferred to active plan 0145; this plan's M2 acceptance was not met.
 
 ## Surprises & Discoveries
 
@@ -271,6 +266,8 @@ while deferring these repairs. No live app restart is part of that delivery.
 The final documentation-only result update happens after the frozen-source
 measurements and release proof. It changes no implementation or test input;
 the quick verifier refresh validates that handoff separately.
+
+Closure (2026-11-12): The developer closed this plan with M2 acceptance unmet. The 19 timing failures outside the SQL/auth scope are not waived: active plan [0145](0145-test-loop-attribution.md) now owns them, with the evidence paths recorded above.
 
 ## Context and Orientation
 

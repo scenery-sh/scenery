@@ -69,12 +69,7 @@ Update this section at each meaningful stopping point. Replace planning timestam
 
 ### Resume here
 
-Checkpoint 2026-11-04; source/document review only, not a fresh runtime or remote-state check.
-
-- Current: Implementation is recorded as complete; authorized local conversion is documented, while other cutovers/platform proofs remain open.
-- Next: Use Outcomes and M6 to identify the exact remaining environment/platform and its missing authorization before any cutover.
-- Boundary: Linux/SSH/reboot and operator acceptance are not implied by repository tests; preserve configuration and retained data.
-- Evidence: use this plan's Outcomes and Validation sections; verify current source/run identity before reusing results.
+Closed 2026-11-12 by developer decision; nothing to resume. Implementation is merged in both repositories. The developer closed the plan without the remaining operator cutovers and the Linux, SSH and reboot proofs; none was performed and none is tracked elsewhere.
 
 ## Surprises & Discoveries
 
@@ -151,6 +146,8 @@ Pending, each requiring the user's explicit authorization:
 2. Done for the workstation's `local` environment on 2026-09-24: `scripts/config-import` moved `auth.google_client_id`, `auth.google_client_secret`, `auth.jwt_secret` and `maps.google_maps_api_key` from the ONLV checkout's `.env` and `apps/nextnext/.env.local` (secrets into the login Keychain, none found in store files); the old files are untouched. Remaining: operator cutover of the other `.env` files with `scripts/config-import` (per developer machine and per deployable environment), the one-time production root migration (`docs/runbooks/deploy-root-migration.md`), and any archival or deletion of the old files.
 
 Unverified on this machine: systemd-creds on Linux, a real SSH target, and reboot/resume on a real target; the local deploy rehearsal used a test-double `ssh`. Restored release executables are rebuilt from retained source (equivalent, not byte-identical).
+
+Closure (2026-11-12): The developer waived the open part of M6: operator cutover of the remaining `.env` files, the one-time production root migration, and proof of systemd-creds on Linux, a real SSH target and reboot/resume on a real target. None was performed and none is carried by another plan or the debt tracker. `docs/runbooks/deploy-root-migration.md` still describes the migration for an operator who runs it.
 
 ## Context and Orientation
 

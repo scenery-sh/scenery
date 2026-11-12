@@ -15,6 +15,9 @@ and on completion remove the active-index link, add the completed-index entry,
 and set the document's status to `completed`. Keep the numbered file at its
 original path. Close a plan only when its remaining acceptance work is done;
 implemented code alone does not satisfy an outstanding operator observation.
+Only the human may waive an open acceptance item; record the dated waiver and
+that the item was not performed in `Outcomes & Retrospective` and the
+completed-index entry.
 
 ## Non-Negotiable Rules
 

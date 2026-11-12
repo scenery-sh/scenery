@@ -41,17 +41,14 @@ These capabilities exist; their current contracts live in
    [0145](docs/plans/0145-test-loop-attribution.md). Separate cached results,
    fresh test execution, binary preparation, and release integration evidence;
    preserve the root timing policy and complete test surface.
-2. **Public runtime reliability.** Complete the outstanding operator
-   reboot/login acceptance in [0101](docs/plans/0101-public-deploy-edge.md).
-   Existing controlled-resume evidence does not substitute for that observation.
-3. **Useful browser proof.** Validate affected journeys in consuming applications
+2. **Useful browser proof.** Validate affected journeys in consuming applications
    using the [application acceptance workflow](docs/agent-guide.md#application-validation-and-completion).
    Keep browser validation explicit.
-4. **Maintainable repository knowledge.** Fix contradictory instructions,
+3. **Maintainable repository knowledge.** Fix contradictory instructions,
    broken references, obsolete work queues, and duplicated contract prose.
    Review a document before advancing its freshness metadata; preserve
    completed plans as historical evidence.
-5. **Focused architecture enforcement.** Address measured boundary or file-size
+4. **Focused architecture enforcement.** Address measured boundary or file-size
    problems from the harness. Add checks only for established invariants.
 
 ## Choosing The Next Change

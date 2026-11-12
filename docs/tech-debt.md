@@ -10,6 +10,7 @@ when recorded; those historical `harness self` invocations are not live commands
 - [Open](#open)
   - [Deeper Architecture Checks](#deeper-architecture-checks)
   - [Long Build Tests](#long-build-tests)
+  - [Development Edit Latency](#development-edit-latency)
 
 ## Resolved
 
@@ -83,3 +84,20 @@ coverage and move real toolchain/process proof to explicit release probes,
 following the root 100ms p95 policy. Historical full-suite durations above
 are incident evidence, not a current measurement or permission to keep slow
 external-boundary tests in the ordinary lane.
+
+### Development Edit Latency
+
+- Area: development runtime
+- Severity: low
+- Owner: scenery runtime / build
+- Created: 2026-11-12
+- Review after: 2026-12-12
+
+Completed plan [0200](plans/0200-process-per-service-development-runtime.md)
+closed with its 300 ms p50 / 500 ms p95 warm body-edit target unmet; the last
+recorded ONLV measurement is 1,186 ms p50 (n=8, 2026-09-19), which the developer
+accepted. No single step dominates the remaining path. Two follow-ups of the
+`9a0b54d0` review stay open: bound link parallelism inside one process build
+(measure the peak memory of a complete ONLV build first), and replace the
+separate preflight execution with a single-start attestation. Start new work
+from a fresh measurement, not from the plan's historical figures.
