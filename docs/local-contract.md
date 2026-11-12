@@ -980,7 +980,7 @@ until the source as it is now is served, through the development runtime RPC
 ([schema](schemas/scenery.dev-runtime.wait.schema.json)). `--timeout` defaults
 to 30s and is at most 2m. The command exits 0 only for `served`; `failed`,
 `blocked`, `superseded`, `source_missing` and `timeout` exit 3 with `ok:
-false`. It requires exactly one running session for the root.
+false`. It requires exactly one running session for the root. A wait that arrives before the first generation has published its served snapshot, which follows readiness by a moment, starts once that snapshot exists, or ends as `failed`, `blocked` or `timeout` without a target when no generation publishes.
 
 `ps` reports `root_status`, `source_status`, `owner_status`,
 `metadata_status` and `source_freshness` independently. Its `serving` entries

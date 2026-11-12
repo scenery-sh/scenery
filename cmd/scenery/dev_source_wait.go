@@ -64,13 +64,35 @@ func (s *devSupervisor) waitForSourceSnapshot(ctx context.Context, timeout time.
 		result.SourceFreshness = "source_missing"
 		return finish("source_missing")
 	}
-	s.mu.RLock()
-	base := s.servingSnapshot
-	s.mu.RUnlock()
-	previous := fileSnapshot{}
-	if base != nil {
-		previous = *base
+	// A target is captured against the compiler membership of the generation
+	// that serves. Readiness is announced shortly before the first generation
+	// publishes its snapshot; a target captured in between would carry no
+	// membership and could never equal a served one, so the wait starts once
+	// that snapshot exists, or ends with the outcome that prevents it.
+	var base *fileSnapshot
+	for {
+		s.mu.RLock()
+		base = s.servingSnapshot
+		attempt, block := s.lastBuild, s.buildBlock
+		s.mu.RUnlock()
+		if base != nil {
+			break
+		}
+		if attempt != nil && attempt.Error != "" {
+			result.CompileError = attempt.Error
+			return finish("failed")
+		}
+		if block != nil {
+			result.BuildBlock = &runtimeBuildBlock{Reason: block.Reason, Cause: block.Cause, Since: block.Since.Format(time.RFC3339Nano), PreventedBuilds: block.Prevented}
+			return finish("blocked")
+		}
+		select {
+		case <-ctx.Done():
+			return finish("timeout")
+		case <-time.After(poll):
+		}
 	}
+	previous := *base
 	var target fileSnapshot
 	for {
 		var err error
