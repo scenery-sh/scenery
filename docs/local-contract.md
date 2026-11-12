@@ -725,7 +725,9 @@ Rules:
 - Native TypeScript clients are declared with `typescript_client` resources in
   `app.scn`; `materialization = "source"` writes the managed `output_root`,
   while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with
-  `scenery generate --target typescript_client.<name>`. Standard Google OAuth
+  `scenery generate --target typescript_client.<name>`; repeated generation
+  and `generate --check` read a cache target's ownership descriptor at its
+  own output root, as `up`, `build` and `test` do. Standard Google OAuth
   contributes framework-owned connection start, connection status, and
   disconnect resources to inspection and client generation when it is enabled;
   these describe the existing runtime handlers without adding a second runtime
