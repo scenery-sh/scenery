@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/assistantadapter/eve"
-	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/filemeta"
 	"scenery.sh/internal/runtimeassets"
 	"scenery.sh/internal/toolchain"
@@ -200,14 +200,25 @@ func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) err
 // keeps; the oldest are removed when another is shared.
 const assistantSharedCacheLimit = 8
 
-// sharedAssistantPreparedPath names key's entry in the machine's development
-// cache, or is empty when that cache is unavailable.
+// sharedAssistantPreparedPath names key's entry in the machine's cache beneath
+// the agent home, which every verification run and probe has of its own, or
+// is empty when that home is unavailable.
 func sharedAssistantPreparedPath(key string) string {
-	root, err := devcache.Root()
-	if err != nil || root == "" || key == "" {
+	root := sharedCacheRoot()
+	if root == "" || key == "" {
 		return ""
 	}
 	return filepath.Join(root, "assistant-prepared", key)
+}
+
+// sharedCacheRoot is the directory of artifacts every worktree of this
+// machine may adopt, beneath the agent home.
+func sharedCacheRoot() string {
+	paths, err := localagent.DefaultPaths()
+	if err != nil || strings.TrimSpace(paths.Home) == "" {
+		return ""
+	}
+	return filepath.Join(paths.Home, "shared")
 }
 
 // adoptShared copies the machine's entry for this key into the worktree's

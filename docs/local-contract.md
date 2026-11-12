@@ -2657,7 +2657,7 @@ Rules:
 - A prepared assistant tree is canonical, so every worktree with the same
   assistant inputs, Node lock and toolchain has the same cache key. A worktree
   that has no entry for a key adopts the machine's entry at
-  `<development cache>/assistant-prepared/<key>` instead of installing and
+  `<agent home>/shared/assistant-prepared/<key>` instead of installing and
   building, and a worktree that builds or already holds an entry publishes it
   there once. An adopted entry is verified by key and by every path and byte
   exactly like one the worktree built. The machine keeps the eight most
@@ -2670,7 +2670,7 @@ Rules:
   A worktree whose pinned framework and source equal another's therefore has
   the same linked identity for every development process.
 - Linked development process executables are also kept in the machine's
-  store at `<development cache>/process-executables/<process>-<identity>` with
+  store at `<agent home>/shared/process-executables/<process>-<identity>` with
   their digest records. A build that needs an identity this workspace has not
   linked adopts the stored executable, a clone where the filesystem clones
   files, and proves it like a retained one: its bytes must have the digest
@@ -2678,7 +2678,8 @@ Rules:
   adopted and remaining counts; only the remaining processes are linked, and
   newly linked executables are published to the store. The store keeps the
   160 most recently used executables; deleting it only makes workspaces link
-  again.
+  again. Both stores live beneath the agent home, so a verification
+  run or probe with its own agent home shares nothing with development.
 - The first generation of a development session retains and preflights every
   service process as soon as its runtime environment is resolved, beside
   database setup; a preflight is a read-only handshake that opens no database.

@@ -9,11 +9,10 @@ import (
 )
 
 func TestWorkspaceAdoptsAProcessExecutableAnotherWorkspaceLinked(t *testing.T) {
-	previous := sharedDevelopmentProcessRoot
-	t.Cleanup(func() { sharedDevelopmentProcessRoot = previous })
+	t.Cleanup(func() { SetSharedDevelopmentProcessStore("") })
 	root := t.TempDir()
 	shared := filepath.Join(root, "machine", "process-executables")
-	sharedDevelopmentProcessRoot = func() string { return shared }
+	SetSharedDevelopmentProcessStore(shared)
 	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
 	for _, dir := range []string{first, second} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -113,7 +112,7 @@ func TestWorkspaceAdoptsAProcessExecutableAnotherWorkspaceLinked(t *testing.T) {
 		t.Fatalf("the store keeps %d executables, limit %d; the oldest removed: %t", executables, developmentProcessShareLimit, err != nil)
 	}
 	// Without a store nothing is adopted or shared.
-	sharedDevelopmentProcessRoot = func() string { return "" }
+	SetSharedDevelopmentProcessStore("")
 	if remaining := adoptSharedDevelopmentProcesses(t.Context(), []*DevelopmentProcess{third}); len(remaining) != 1 {
 		t.Fatal("a process was adopted without a store")
 	}

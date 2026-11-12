@@ -9,10 +9,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
-	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/filemeta"
 )
 
@@ -20,24 +18,32 @@ import (
 // keeps; the least recently used are removed when others are shared.
 const developmentProcessShareLimit = 160
 
-// sharedDevelopmentProcessRoot is the machine's store of linked development
-// process executables, or empty when the development cache is unavailable.
+// sharedDevelopmentProcesses is the machine's store of linked development
+// process executables; empty disables sharing.
+var sharedDevelopmentProcesses struct {
+	sync.RWMutex
+	root string
+}
+
+// SetSharedDevelopmentProcessStore names the machine's store of linked
+// development process executables, or disables sharing with an empty root.
 // An executable is named by its process and linked identity: the package, the
 // contract and implementation revisions, the digest of every consumed build
 // input, the target, the build flags and the linker flags. Nothing in that
 // identity names a workspace, so a worktree that needs an identity another
 // worktree already linked adopts its executable instead of linking again.
-var sharedDevelopmentProcessRoot = func() string {
-	// A test's executables are fakes and must never reach the machine's
-	// store; tests that exercise sharing name their own store.
-	if testing.Testing() {
-		return ""
-	}
-	root, err := devcache.Root()
-	if err != nil || root == "" {
-		return ""
-	}
-	return filepath.Join(root, "process-executables")
+// The command wires the store beneath its agent home, which every
+// verification run and probe has of its own; without it nothing is shared.
+func SetSharedDevelopmentProcessStore(root string) {
+	sharedDevelopmentProcesses.Lock()
+	sharedDevelopmentProcesses.root = root
+	sharedDevelopmentProcesses.Unlock()
+}
+
+func sharedDevelopmentProcessRoot() string {
+	sharedDevelopmentProcesses.RLock()
+	defer sharedDevelopmentProcesses.RUnlock()
+	return sharedDevelopmentProcesses.root
 }
 
 // adoptSharedDevelopmentProcesses gives every pending process whose identity
