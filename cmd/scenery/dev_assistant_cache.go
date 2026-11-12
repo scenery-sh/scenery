@@ -282,7 +282,7 @@ func cloneAssistantPreparedTree(ctx context.Context, source, destination string,
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return cloned, err
 		}
-		if err := cloneAssistantTreeEntry(filepath.Join(source, name), target); err != nil {
+		if err := cloneFileOrTree(filepath.Join(source, name), target); err != nil {
 			// A failed clone may leave part of the entry behind.
 			return append(cloned, name), err
 		}

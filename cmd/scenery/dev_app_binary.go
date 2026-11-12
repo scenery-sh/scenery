@@ -67,14 +67,50 @@ func prepareSessionAppBinary(session *localagent.Session, binary, expectedDigest
 			_ = os.Remove(temporaryPath)
 		}
 	}()
-	var writer io.Writer = temporary
 	var hash = sha256.New()
-	if expectedDigest == "" {
-		writer = io.MultiWriter(temporary, hash)
+	// Where the filesystem clones files, the retained executable is a clone:
+	// independent bytes that share blocks with the build output until either
+	// changes, so retention costs neither a copy nor a second copy's disk. A
+	// clone needs a path that does not exist yet; anything that prevents one
+	// falls back to copying into the temporary file.
+	cloned := false
+	if closeErr := temporary.Close(); closeErr == nil {
+		if removeErr := os.Remove(temporaryPath); removeErr == nil {
+			// The clone of a symlink is a symlink; only cloned bytes are retained.
+			if cloneFileOrTree(binary, temporaryPath) == nil {
+				if cloneInfo, statErr := os.Lstat(temporaryPath); statErr == nil && cloneInfo.Mode().IsRegular() {
+					cloned = true
+				}
+			}
+			if !cloned {
+				_ = os.Remove(temporaryPath)
+			}
+		}
 	}
-	written, copyErr := io.Copy(writer, io.LimitReader(in, info.Size()+1))
-	if copyErr != nil {
-		return "", copyErr
+	if temporary, err = os.OpenFile(temporaryPath, os.O_RDWR|os.O_CREATE, 0o600); err != nil {
+		return "", err
+	}
+	var written int64
+	if cloned {
+		cloneInfo, statErr := temporary.Stat()
+		if statErr != nil || !cloneInfo.Mode().IsRegular() {
+			return "", fmt.Errorf("candidate executable is not a regular file: %s", binary)
+		}
+		written = cloneInfo.Size()
+		if expectedDigest == "" {
+			if _, err := io.Copy(hash, temporary); err != nil {
+				return "", err
+			}
+		}
+	} else {
+		var writer io.Writer = temporary
+		if expectedDigest == "" {
+			writer = io.MultiWriter(temporary, hash)
+		}
+		var copyErr error
+		if written, copyErr = io.Copy(writer, io.LimitReader(in, info.Size()+1)); copyErr != nil {
+			return "", copyErr
+		}
 	}
 	after, err := in.Stat()
 	if err != nil || written != info.Size() || after.Size() != info.Size() || after.ModTime() != info.ModTime() {

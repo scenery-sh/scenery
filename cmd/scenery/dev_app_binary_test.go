@@ -116,3 +116,37 @@ func TestClosingSessionKeepsOnlyItsLastGenerationExecutables(t *testing.T) {
 	releaseSessionAppBinariesExcept(nil, nil)
 	releaseSessionAppBinariesExcept(&localagent.Session{StateRoot: filepath.Join(t.TempDir(), "absent")}, nil)
 }
+
+func TestSessionAppBinaryNeverRetainsASymlink(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "cache", "executable")
+	if err := os.MkdirAll(filepath.Dir(real), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(real, []byte("linked executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "cached-app")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("linked executable"))
+	retained, err := prepareSessionAppBinary(&localagent.Session{StateRoot: filepath.Join(root, "session")}, link, hex.EncodeToString(sum[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(retained)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("retained executable is not independent regular bytes: %v, %v", info, err)
+	}
+	if err := os.Remove(real); err != nil {
+		t.Fatal(err)
+	}
+	if contents, err := os.ReadFile(retained); err != nil || string(contents) != "linked executable" {
+		t.Fatalf("retained executable = %q, %v", contents, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(retained))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("retention left %d entries (%v), want only the executable", len(entries), err)
+	}
+}
