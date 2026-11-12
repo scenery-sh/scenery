@@ -8,6 +8,7 @@ import (
 )
 
 func wireBuildGenerateHooks() {
+	generate.SetImplementationProofProducer(build.LinkedFrameworkDigest())
 	build.SetGenerateHooks(build.GenerateHooks{
 		ApplyPreparedImplementationCheck: generate.ApplyPreparedImplementationCheck,
 		ApplyVerifiedImplementationCheck: generate.ApplyVerifiedImplementationCheck,

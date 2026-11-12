@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/gotarget"
 )
 
 // preparedVerification marks a result whose implementation check is still
@@ -77,6 +78,10 @@ func implementationVerificationKey(result *Result) string {
 		result.BuildFingerprint == "" || result.DependencyFingerprint == "" || result.FrameworkFingerprint == "" || result.NeedsTidy {
 		return ""
 	}
+	tool, resolved := gotarget.ToolIdentity(result.GoEnvironment)
+	if !resolved {
+		return ""
+	}
 	encoded, err := json.Marshal(struct {
 		Version, Build, Dependencies, Framework, Generator, Graph, Contract, Toolchain string
 		Target                                                                         compiler.GoBuildTarget
@@ -85,7 +90,7 @@ func implementationVerificationKey(result *Result) string {
 	}{
 		"1", result.BuildFingerprint, result.DependencyFingerprint, result.FrameworkFingerprint,
 		result.GeneratorFingerprint, result.GraphFingerprint, result.Contract.Manifest.ContractRevision, runtime.Version(),
-		*result.Target, goToolIdentity(result.GoEnvironment), result.OwnedGoModuleSources,
+		*result.Target, tool, result.OwnedGoModuleSources,
 	})
 	if err != nil {
 		return ""

@@ -3,16 +3,22 @@ package build
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"scenery.sh/internal/compiler"
 )
 
+// verificationReuseTool is a directory holding the go command the test
+// results select.
+var verificationReuseTool string
+
 func verificationReuseResult() *Result {
 	return &Result{
 		Dir: "/workspace", BuildFingerprint: "build", DependencyFingerprint: "dependencies", FrameworkFingerprint: "framework",
 		GeneratorFingerprint: "generator", GraphFingerprint: "graph",
-		GoEnvironment: []string{"GOFLAGS=-mod=mod", "SESSION_TOKEN=one", "CGO_ENABLED=0"},
+		GoEnvironment: []string{"GOFLAGS=-mod=mod", "SESSION_TOKEN=one", "CGO_ENABLED=0", "PATH=" + verificationReuseTool},
 		Contract:      &compiler.Result{ContractStatus: "valid", Manifest: &compiler.Manifest{ContractRevision: "sha256:contract"}},
 		Target:        &compiler.GoBuildTarget{Name: "development"},
 		verification:  &preparedVerification{},
@@ -22,6 +28,10 @@ func verificationReuseResult() *Result {
 func TestImplementationCheckIsReusedOnlyForTheInputsThatPassed(t *testing.T) {
 	previous := generateHooks
 	t.Cleanup(func() { generateHooks = previous })
+	verificationReuseTool = t.TempDir()
+	if err := os.WriteFile(filepath.Join(verificationReuseTool, "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	analyses, reuses := 0, 0
 	var diagnostic *compiler.Diagnostic
 	generateHooks.ApplyPreparedImplementationCheck = func(_ context.Context, checked *compiler.Result, _ string, _ compiler.GoBuildTarget) error {
@@ -46,7 +56,7 @@ func TestImplementationCheckIsReusedOnlyForTheInputsThatPassed(t *testing.T) {
 	}
 	proof := result.verifiedImplementation
 	// A variable the Go tool does not read belongs to the session, not the inputs.
-	result.GoEnvironment = []string{"CGO_ENABLED=0", "SESSION_TOKEN=two", "GOFLAGS=-mod=mod"}
+	result.GoEnvironment = []string{"CGO_ENABLED=0", "SESSION_TOKEN=two", "GOFLAGS=-mod=mod", "PATH=" + verificationReuseTool}
 	if err := run(result); err != nil || analyses != 1 || reuses != 1 || result.verifiedImplementation != proof {
 		t.Fatalf("unchanged inputs: %v, analyses %d, reuses %d", err, analyses, reuses)
 	}
@@ -59,9 +69,11 @@ func TestImplementationCheckIsReusedOnlyForTheInputsThatPassed(t *testing.T) {
 		"contract": func(r *Result) {
 			r.Contract = &compiler.Result{ContractStatus: "valid", Manifest: &compiler.Manifest{ContractRevision: "sha256:other"}}
 		},
-		"target":      func(r *Result) { r.Target = &compiler.GoBuildTarget{Name: "release"} },
-		"environment": func(r *Result) { r.GoEnvironment = []string{"GOFLAGS=-mod=vendor", "CGO_ENABLED=0"} },
-		"owned":       func(r *Result) { r.OwnedGoModuleSources = []OwnedGoModuleSource{{}} },
+		"target": func(r *Result) { r.Target = &compiler.GoBuildTarget{Name: "release"} },
+		"environment": func(r *Result) {
+			r.GoEnvironment = []string{"GOFLAGS=-mod=vendor", "CGO_ENABLED=0", "PATH=" + verificationReuseTool}
+		},
+		"owned": func(r *Result) { r.OwnedGoModuleSources = []OwnedGoModuleSource{{}} },
 	}
 	for name, change := range changes {
 		changed := verificationReuseResult()
@@ -75,6 +87,7 @@ func TestImplementationCheckIsReusedOnlyForTheInputsThatPassed(t *testing.T) {
 	// Unknown inputs never have a proof, and a pending tidy changes them.
 	for name, change := range map[string]func(*Result){
 		"unknown workspace": func(r *Result) { r.BuildFingerprint = "" },
+		"no go command":     func(r *Result) { r.GoEnvironment = []string{"PATH=" + t.TempDir()} },
 		"pending tidy":      func(r *Result) { r.NeedsTidy = true },
 	} {
 		unknown := verificationReuseResult()

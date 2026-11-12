@@ -4,15 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
 
 	"scenery.sh/internal/atomicfile"
+	"scenery.sh/internal/gotarget"
 )
 
 // buildInputGraphFile keeps a workspace's retained Go build input graph for
@@ -26,52 +22,13 @@ type retainedBuildInputGraphDocument struct {
 	Graph   *retainedBuildInputGraph
 }
 
-// goToolEnvironment keeps the effective variables the Go tool and its C
-// toolchain read, sorted; other variables of a process do not reach them.
-func goToolEnvironment(env []string) []string {
-	effective := map[string]string{}
-	for _, entry := range env {
-		name, _, found := strings.Cut(entry, "=")
-		if found && (strings.HasPrefix(name, "GO") || strings.HasPrefix(name, "CGO_") ||
-			name == "AR" || name == "CC" || name == "CXX" || name == "PKG_CONFIG" || name == "PATH" || name == "HOME") {
-			effective[name] = entry
-		}
-	}
-	return slices.Sorted(maps.Values(effective))
-}
-
-// goToolIdentity is goToolEnvironment together with the go command those
-// variables select, by resolved path, size and modification time, so a
-// replaced toolchain is another identity even at the same path.
-func goToolIdentity(env []string) []string {
-	identity := goToolEnvironment(env)
-	search := ""
-	for _, entry := range identity {
-		if value, found := strings.CutPrefix(entry, "PATH="); found {
-			search = value
-		}
-	}
-	for _, directory := range filepath.SplitList(search) {
-		candidate := filepath.Join(directory, "go")
-		if resolved, err := exec.LookPath(candidate); err == nil {
-			if real, err := filepath.EvalSymlinks(resolved); err == nil {
-				if info, err := os.Stat(real); err == nil {
-					return append(identity, "go="+real, "size="+strconv.FormatInt(info.Size(), 10), "modified="+strconv.FormatInt(info.ModTime().UnixNano(), 10))
-				}
-			}
-			break
-		}
-	}
-	return append(identity, "go=unresolved")
-}
-
 // goToolIdentityKey names a Go listing by its arguments and tool identity. It
 // is what one process may trust of a listing another process retained; the
 // retained graph then proves its directories, selections and module files
 // current exactly as a graph of this process does.
 func goToolIdentityKey(args, env []string) string {
-	identity := goToolIdentity(env)
-	if identity[len(identity)-1] == "go=unresolved" {
+	identity, resolved := gotarget.ToolIdentity(env)
+	if !resolved {
 		return ""
 	}
 	encoded, err := json.Marshal(struct {
