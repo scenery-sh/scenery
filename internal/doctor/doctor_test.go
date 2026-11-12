@@ -1,6 +1,9 @@
 package doctor
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestParseGoToolchainVersion(t *testing.T) {
 	cases := []struct {
@@ -88,5 +91,23 @@ func TestMemoryCheckThresholds(t *testing.T) {
 	}
 	if check := MemoryCheck(MemoryInfo{TotalBytes: 1 * 1024 * 1024 * 1024}); check.Status != StatusError {
 		t.Fatalf("1 GiB memory check = %+v", check)
+	}
+}
+
+func TestFirstExecutionCheckWarnsOnlyAboutANoticeableFirstStart(t *testing.T) {
+	quick := FirstExecutionCheck(FirstExecutionInfo{First: 40 * time.Millisecond, Repeat: 30 * time.Millisecond}, nil)
+	if quick.Status != StatusOK || quick.SuggestedAction != "" || quick.Observed["extra_ms"] != int64(10) {
+		t.Fatalf("quick first execution = %#v", quick)
+	}
+	slow := FirstExecutionCheck(FirstExecutionInfo{First: 520 * time.Millisecond, Repeat: 20 * time.Millisecond}, nil)
+	if slow.Status != StatusWarn || slow.Severity != SeverityOptional || slow.SuggestedAction == "" || slow.Observed["extra_ms"] != int64(500) {
+		t.Fatalf("slow first execution = %#v", slow)
+	}
+	// A faster first start is noise, never a negative penalty.
+	if noisy := FirstExecutionCheck(FirstExecutionInfo{First: 20 * time.Millisecond, Repeat: 30 * time.Millisecond}, nil); noisy.Status != StatusOK || noisy.Observed["extra_ms"] != int64(0) {
+		t.Fatalf("noisy first execution = %#v", noisy)
+	}
+	if skipped := FirstExecutionCheck(FirstExecutionInfo{}, errFirstExecutionUnsupported); skipped.Status != StatusSkipped || skipped.Observed != nil {
+		t.Fatalf("unmeasured first execution = %#v", skipped)
 	}
 }

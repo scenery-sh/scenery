@@ -96,6 +96,11 @@ type ProbeDeps struct {
 	CacheRoot     func() (string, error)
 	AgentHome     func() (string, error)
 	DiscoverApp   func(start string) (AppInfo, appcfg.Config, bool, error)
+	// FirstExecution measures the start of a new executable and of the same
+	// executable again, with its scratch files beneath cacheRoot. It starts
+	// copies of the running executable, so only DefaultProbeDeps supplies it;
+	// without it the check is skipped.
+	FirstExecution func(ctx context.Context, cacheRoot string) (FirstExecutionInfo, error)
 }
 
 // ResourceProbe reports host runtime, memory, and disk facts.
@@ -139,6 +144,7 @@ func DefaultProbeDeps() ProbeDeps {
 			}
 			return paths.Home, nil
 		},
+		FirstExecution: measureFirstExecution,
 		DiscoverApp: func(start string) (AppInfo, appcfg.Config, bool, error) {
 			root, cfg, err := appcfg.DiscoverRoot(start)
 			if err != nil {
