@@ -767,7 +767,16 @@ func runContractFmt(stdout io.Writer, args []string) error {
 	}
 	if formatErr != nil {
 		if opts.Check && len(result.Changed) > 0 {
-			return &silentCLIError{err: findingsDiagnosticError(formatErr, formatDiagnostic), code: 1}
+			drift := findingsDiagnosticError(formatErr, formatDiagnostic)
+			if opts.Output == "json" {
+				return &silentCLIError{err: drift, code: 1}
+			}
+			// A person needs the files and the reason, not only exit 1.
+			if !opts.Quiet {
+				sort.Strings(result.Changed)
+				_, _ = fmt.Fprintln(stdout, strings.Join(result.Changed, "\n"))
+			}
+			return drift
 		}
 		if opts.Output == "json" {
 			return &silentCLIError{err: formatErr, code: 2}

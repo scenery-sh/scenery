@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,5 +47,28 @@ func TestFindingsAreNotRecordedAsInternalFailures(t *testing.T) {
 				t.Fatalf("stderr = %q, want %q", stderr.String(), test.wantStderr)
 			}
 		})
+	}
+}
+
+func TestHumanFormatCheckNamesDriftingFiles(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := "application   \"demo\"   {\n}\n"
+	for name, body := range map[string]string{".scenery.json": "{}\n", "app.scn": source} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stdout strings.Builder
+	err := runContractFmt(&stdout, []string{"--check", "--app-root", root})
+	reported, ok := errors.AsType[*cliDiagnosticError](err)
+	if !ok || cliExitCode(err) != 1 || reported.diagnostic.Code != "SCN1019" {
+		t.Fatalf("error = %#v, want SCN1019 findings with exit 1", err)
+	}
+	if _, silent := errors.AsType[*silentCLIError](err); silent || stdout.String() != "app.scn\n" || err.Error() != "1 Scenery source files require formatting" {
+		t.Fatalf("stdout = %q, error = %q (silent %t)", stdout.String(), err, silent)
+	}
+	if kept, readErr := os.ReadFile(filepath.Join(root, "app.scn")); readErr != nil || string(kept) != source {
+		t.Fatalf("check rewrote the source: %q (%v)", kept, readErr)
 	}
 }

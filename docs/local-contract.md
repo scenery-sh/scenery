@@ -258,7 +258,8 @@ difference. That answer is the command's result, not an internal failure, so it
 mints no report token and writes no failure report. CLI telemetry records the
 diagnostic the command rendered for it (`SCN1019` for formatting drift,
 `SCN6204` for stale generated artifacts) and no `diagnostic_code` when the
-command rendered a result without one. A failed `generate -o json` likewise
+command rendered a result without one. Human `fmt --check` lists the files
+that need formatting on stdout and states the count on stderr. A failed `generate -o json` likewise
 records the code of the diagnostic it rendered (`SCN6207`, or `SCN8002` for a
 revision conflict), not the class of its exit code.
 
