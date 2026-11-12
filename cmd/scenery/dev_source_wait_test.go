@@ -143,3 +143,43 @@ func TestSourceWaitOmitsUncapturedTarget(t *testing.T) {
 		t.Fatal("schema accepted an empty target digest")
 	}
 }
+
+// Readiness is announced before the first generation publishes its snapshot.
+// A wait that starts in between must wait for it, not capture a target that
+// no generation can serve.
+func TestSourceWaitStartsOnceTheFirstGenerationHasPublished(t *testing.T) {
+	s, _ := sourceWaitSupervisor(t)
+	snapshot, identity := s.servingSnapshot, s.servingIdentity
+	s.servingSnapshot, s.servingIdentity = nil, nil
+	go func() {
+		time.Sleep(3 * testSourceWaitPoll)
+		s.mu.Lock()
+		s.servingSnapshot, s.servingIdentity = snapshot, identity
+		s.mu.Unlock()
+	}()
+	served, err := s.waitForSourceSnapshot(context.Background(), 5*time.Second)
+	if err != nil || served.Outcome != "served" || served.TargetSourceSnapshotDigest != identity.SourceSnapshotDigest {
+		t.Fatalf("wait across the first publication = %+v, %v", served, err)
+	}
+
+	// Without a generation, the build that failed or is blocked ends the wait.
+	s.mu.Lock()
+	s.servingSnapshot, s.servingIdentity = nil, nil
+	s.lastBuild = &devBuildAttempt{SourceSnapshotDigest: "initial", Error: "syntax error"}
+	s.mu.Unlock()
+	if failed, err := s.waitForSourceSnapshot(context.Background(), time.Second); err != nil || failed.Outcome != "failed" || failed.CompileError != "syntax error" || failed.TargetSourceSnapshotDigest != "" {
+		t.Fatalf("failed first build = %+v, %v", failed, err)
+	}
+	s.mu.Lock()
+	s.lastBuild, s.buildBlock = nil, &devBuildBlock{Reason: buildBlockMigrationPending, Cause: "pending", Since: time.Now()}
+	s.mu.Unlock()
+	if blocked, err := s.waitForSourceSnapshot(context.Background(), time.Second); err != nil || blocked.Outcome != "blocked" || blocked.BuildBlock == nil {
+		t.Fatalf("blocked first build = %+v, %v", blocked, err)
+	}
+	s.mu.Lock()
+	s.buildBlock = nil
+	s.mu.Unlock()
+	if timedOut, err := s.waitForSourceSnapshot(context.Background(), 3*testSourceWaitPoll); err != nil || timedOut.Outcome != "timeout" || timedOut.TargetSourceSnapshotDigest != "" {
+		t.Fatalf("no first generation = %+v, %v", timedOut, err)
+	}
+}

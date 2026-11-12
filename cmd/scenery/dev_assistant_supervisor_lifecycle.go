@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -360,18 +361,24 @@ func (s *assistantSupervisor) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	var stopErrors []error
-	for _, instance := range instances {
-		if err := s.stopInstance(instance); err != nil {
-			stopErrors = append(stopErrors, err)
-			continue
-		}
-		s.mu.Lock()
-		delete(s.instances, instance.definition.Address)
-		s.mu.Unlock()
+	// Helpers are independent processes with private overlays; stopping them
+	// one after another only adds their shutdown times together.
+	stopErrors := make([]error, len(instances))
+	var wg sync.WaitGroup
+	for index, instance := range instances {
+		wg.Go(func() {
+			if err := s.stopInstance(instance); err != nil {
+				stopErrors[index] = err
+				return
+			}
+			s.mu.Lock()
+			delete(s.instances, instance.definition.Address)
+			s.mu.Unlock()
+		})
 	}
-	if len(stopErrors) != 0 {
-		return errors.Join(stopErrors...)
+	wg.Wait()
+	if err := errors.Join(stopErrors...); err != nil {
+		return err
 	}
 	for _, root := range roots {
 		_ = os.RemoveAll(root)

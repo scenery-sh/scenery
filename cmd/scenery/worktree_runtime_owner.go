@@ -91,19 +91,35 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 	}()
 	// Preserve duplicate-up inspection, but reject a new incoherent owner before
 	// allocating browser endpoints, services or persisted resource authority.
-	if err := build.VerifyFrameworkSession(ctx, root); err != nil {
-		return nil, &codedCLIError{code: 3, err: err}
-	}
+	// The migration preflight compiles the application, which only reads its
+	// source, so it runs beside framework verification. A framework failure
+	// is still the one reported.
 	var startupContract *compiler.Result
-	if len(cfg.Database.Migrations) > 0 {
+	var preflightErr error
+	preflight := make(chan struct{})
+	go func() {
+		defer close(preflight)
+		if len(cfg.Database.Migrations) == 0 {
+			return
+		}
 		contract, err := compileSQLContract(root)
 		if err != nil {
-			return nil, err
+			preflightErr = err
+			return
 		}
 		if _, err := discoverDBMigrationPlans(root, cfg, contract.SQLRequirements); err != nil {
-			return nil, &codedCLIError{code: 3, err: err}
+			preflightErr = &codedCLIError{code: 3, err: err}
+			return
 		}
 		startupContract = contract
+	}()
+	frameworkErr := build.VerifyFrameworkSession(ctx, root)
+	<-preflight
+	if frameworkErr != nil {
+		return nil, &codedCLIError{code: 3, err: frameworkErr}
+	}
+	if preflightErr != nil {
+		return nil, preflightErr
 	}
 	// Source reads can overlap control-plane setup after exclusive ownership,
 	// framework freshness and migration-source checks. No application or SQL

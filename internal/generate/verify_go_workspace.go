@@ -38,6 +38,28 @@ func ApplyPreparedImplementationCheck(ctx context.Context, result *compiler.Resu
 	return nil
 }
 
+// ApplyVerifiedImplementationCheck records an implementation check whose Go
+// analysis already passed for exactly these workspace, dependency, framework
+// and contract inputs. Published-artifact ownership and package ABI
+// invariants are read again because they are not part of those inputs.
+func ApplyVerifiedImplementationCheck(ctx context.Context, result *compiler.Result) error {
+	if result == nil || !result.Valid() {
+		return fmt.Errorf("prepared implementation checking requires a valid graph")
+	}
+	check := checkGeneratedArtifacts(result)
+	check.ImplementationChecked = true
+	var diagnostics []Diagnostic
+	if err := validateInvariantPackageABIs(result); err != nil {
+		diagnostics = append(diagnostics, Diagnostic{Code: "SCN6208", Severity: "error", Message: err.Error()})
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	finishImplementationCheck(&check, diagnostics)
+	ApplyCheck(result, check)
+	return nil
+}
+
 func preparedGoVerificationTargets(root, workspace string, targets []compiler.GoBuildTarget, selected compiler.GoBuildTarget) ([]compiler.GoBuildTarget, error) {
 	if selected.Context.ModuleRoot == "" || len(selected.Context.Patterns) == 0 {
 		return nil, fmt.Errorf("prepared build target has no module or package patterns")

@@ -19,6 +19,23 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0224-measured-startup-and-check-latency.md",
+      "title": "Measured Startup, Shutdown And Check Latency",
+      "owner": "scenery runtime / build",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-11-12",
+      "review_after": "2026-12-12",
+      "summary": "Removed work that a second run of unchanged inputs repeats: retained and cloned session executables, a reusable implementation check, a persisted Go input graph, a check proof, parallel framework and migration-status reads and cloned assistant trees; fixed ps --wait racing the first published snapshot; doctor reports the first-execution penalty.",
+      "tags": [
+        "plans",
+        "execplans",
+        "performance",
+        "runtime"
+      ]
+    },
+    {
       "path": "docs/plans/0223-reviewed-documentation-and-cached-verification.md",
       "title": "Reviewed Documentation And Cached Verification",
       "owner": "scenery documentation / verifier",
@@ -3966,7 +3983,7 @@
       "freshness": "current",
       "last_reviewed": "2026-11-12",
       "review_after": "2026-12-12",
-      "summary": "Known cleanup and follow-up work. Published dotfiles, Scenery dashboard debt, single-process development model, edge static process-test placement, and PostgreSQL release fixture source are resolved; deeper architecture checks, long build tests and development edit latency remain tracked.",
+      "summary": "Known cleanup and follow-up work. Deeper architecture checks, long build tests, development edit latency and the failing assistant journey probe are open; earlier dashboard, single-process, edge and fixture items are resolved.",
       "tags": [
         "debt",
         "risk",

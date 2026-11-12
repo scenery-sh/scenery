@@ -13,6 +13,9 @@ import (
 // production package does not import internal/generate.
 type GenerateHooks struct {
 	ApplyPreparedImplementationCheck func(context.Context, *compiler.Result, string, compiler.GoBuildTarget) error
+	// ApplyVerifiedImplementationCheck is optional: without it every build
+	// repeats the Go analysis of the prepared implementation check.
+	ApplyVerifiedImplementationCheck func(context.Context, *compiler.Result) error
 	SyncCachedTypeScript             func(context.Context, *compiler.Result) ([]string, error)
 	PrepareBuildGoWorkspace          func(context.Context, *compiler.Result) (generateapi.GoWorkspaceProjection, error)
 	RuntimeIntegrationPlan           func(*compiler.Result) (generateapi.RuntimeIntegrationPlan, error)

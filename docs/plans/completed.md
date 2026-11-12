@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [0224 Measured Startup, Shutdown And Check Latency](0224-measured-startup-and-check-latency.md) — 2026-11-12: an unchanged ONLV worktree starts in 4.5 to 4.9 s instead of 7.5 to 10.3 s, stops in 1.6 s instead of 2.2 s and repeats `scenery check` in 2.3 s instead of 4.1 s; retained session executables are clones (745 MB less per worktree); `ps --wait` right after `up` no longer times out; `scenery doctor` reports the first-execution penalty.
+
 - [0220 Agent Contract Fidelity And Verified Change Loop](0220-agent-contract-fidelity.md) — 2026-11-12: closed after PR #247 merged; all eight review points implemented with live acceptance, nothing open.
 
 - [0207 Telemetry Containment And Trustworthy Evidence](0207-telemetry-containment-and-evidence.md) — 2026-11-12: closed after PR #248 merged; the developer waived ONLV adoption and the live installed launchd agent restart, which were not performed.

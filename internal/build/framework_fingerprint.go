@@ -5,10 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/mod/modfile"
 )
@@ -74,6 +76,7 @@ func frameworkFingerprintFiles(repoRoot string) ([]string, error) {
 func frameworkSourceFiles(repoRoot string) ([]string, map[string]os.FileInfo, error) {
 	files := map[string]struct{}{}
 	infos := map[string]os.FileInfo{}
+	var sources []frameworkGoSource
 	err := filepath.WalkDir(repoRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -110,25 +113,22 @@ func frameworkSourceFiles(repoRoot string) ([]string, map[string]os.FileInfo, er
 			return err
 		}
 		infos[rel] = info
-		patterns, retained := retainedFrameworkEmbedPatterns(path, info)
-		if !retained {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			patterns = parseGeneratorGoEmbedPatterns(string(data))
-			retainFrameworkEmbedPatterns(path, info, patterns)
-		}
-		pkgDir := filepath.Dir(rel)
-		for _, pattern := range patterns {
-			if err := addGeneratorEmbeddedPatternFiles(repoRoot, pkgDir, pattern, files); err != nil {
-				return err
-			}
-		}
+		sources = append(sources, frameworkGoSource{relative: rel, path: path, info: info})
 		return nil
 	})
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := readFrameworkGoSources(sources); err != nil {
+		return nil, nil, err
+	}
+	for _, source := range sources {
+		pkgDir := filepath.Dir(source.relative)
+		for _, pattern := range source.patterns {
+			if err := addGeneratorEmbeddedPatternFiles(repoRoot, pkgDir, pattern, files); err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 	paths := make([]string, 0, len(files))
 	for rel := range files {
@@ -136,6 +136,65 @@ func frameworkSourceFiles(repoRoot string) ([]string, map[string]os.FileInfo, er
 	}
 	sort.Strings(paths)
 	return paths, infos, nil
+}
+
+type frameworkGoSource struct {
+	relative string
+	path     string
+	info     os.FileInfo
+	patterns []string
+}
+
+// readFrameworkGoSources finds the embed patterns of every Go source. A file
+// whose patterns are not retained for its stamp is read once, on one of
+// several workers, and that read also retains its content digest, which the
+// source manifest asks for next.
+func readFrameworkGoSources(sources []frameworkGoSource) error {
+	workers := min(runtime.GOMAXPROCS(0), 8, len(sources))
+	if workers < 1 {
+		return nil
+	}
+	var next atomic.Int64
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	for worker := range workers {
+		wg.Go(func() {
+			for {
+				index := int(next.Add(1)) - 1
+				if index >= len(sources) {
+					return
+				}
+				source := &sources[index]
+				if patterns, retained := retainedFrameworkEmbedPatterns(source.path, source.info); retained {
+					source.patterns = patterns
+					continue
+				}
+				var data []byte
+				_, _, err := cachedBuildInputFileDigest(source.path, source.info, func(path string) ([]byte, error) {
+					var readErr error
+					data, readErr = os.ReadFile(path)
+					return data, readErr
+				})
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				// A retained digest needs no read, and a file changing under the
+				// read has no digest to retain; listing needs its patterns anyway.
+				if data == nil || err != nil {
+					if data, err = os.ReadFile(source.path); errors.Is(err, os.ErrNotExist) {
+						continue
+					} else if err != nil {
+						errs[worker] = err
+						return
+					}
+				}
+				source.patterns = parseGeneratorGoEmbedPatterns(string(data))
+				retainFrameworkEmbedPatterns(source.path, source.info, source.patterns)
+			}
+		})
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 func frameworkSourceInputFile(rel string) bool {

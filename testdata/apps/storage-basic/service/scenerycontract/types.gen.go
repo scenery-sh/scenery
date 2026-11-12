@@ -35,11 +35,7 @@ func (value ObjectSummary) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode field size_bytes: %w", err)
 	}
 	object["size_bytes"] = rawSizeBytes
-	encoded, err := json.Marshal(object)
-	if err != nil {
-		return nil, err
-	}
-	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+	return json.Marshal(object)
 }
 
 func (value *ObjectSummary) UnmarshalJSON(data []byte) error {

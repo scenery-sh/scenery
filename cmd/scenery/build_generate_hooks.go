@@ -8,8 +8,10 @@ import (
 )
 
 func wireBuildGenerateHooks() {
+	generate.SetImplementationProofProducer(build.LinkedFrameworkDigest())
 	build.SetGenerateHooks(build.GenerateHooks{
 		ApplyPreparedImplementationCheck: generate.ApplyPreparedImplementationCheck,
+		ApplyVerifiedImplementationCheck: generate.ApplyVerifiedImplementationCheck,
 		SyncCachedTypeScript: func(ctx context.Context, result *compiler.Result) ([]string, error) {
 			generated, err := generate.SyncCachedTypeScriptClientsContext(ctx, result)
 			return generated.Checked, err

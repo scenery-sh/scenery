@@ -106,6 +106,7 @@ func savePrimedWorkspace(result *Result) error {
 		GoBuildFlags:               append([]string(nil), result.GoBuildFlags...),
 		OwnedGoModuleSources:       cloneOwnedGoModuleSources(result.OwnedGoModuleSources),
 		DevelopmentProcessBinaries: append([]string(nil), result.DevelopmentProcessBinaries...),
+		VerifiedImplementation:     result.verifiedImplementation,
 	}); err != nil {
 		return err
 	}

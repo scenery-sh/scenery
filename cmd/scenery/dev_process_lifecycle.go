@@ -39,18 +39,24 @@ type devProcessPreparation struct {
 }
 
 // beginDevProcessPreparation starts retaining and preflighting the service
-// processes this build relinked.
+// processes this build relinked. A session without a generation yet starts
+// every service, so all of them are prepared: the link file every host
+// incarnation of the session uses has one path, which is all a preflight is
+// told about it.
 func (s *devSupervisor) beginDevProcessPreparation(ctx context.Context, result *build.Result, environment *devRuntimeEnvironment, set *build.DevelopmentProcessSet) *devProcessPreparation {
 	model, err := s.ensureDevProcessModel()
 	if err != nil {
 		return nil
 	}
 	model.mu.Lock()
-	link := model.link
+	link, first := model.link, false
+	if link == nil && model.host == nil && len(model.services) == 0 {
+		link, first = &devProcessLink{path: filepath.Join(model.socketDir, devProcessLinkFile)}, true
+	}
 	preparation := &devProcessPreparation{link: link, instances: map[string]*devProcessInstance{}, done: make(chan struct{})}
 	if link != nil {
 		for _, process := range set.Services {
-			if !slices.Contains(set.Rebuilt, process.Name) {
+			if !first && !slices.Contains(set.Rebuilt, process.Name) {
 				continue
 			}
 			model.sequence++

@@ -111,6 +111,13 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 
 	resp.Checks = append(resp.Checks, doctor.RuntimeCheck(runtimeInfo))
 	resp.Checks = append(resp.Checks, doctor.CPUCheck(runtimeInfo.NumCPU))
+	if deps.FirstExecution != nil {
+		if cacheRoot, err := deps.CacheRoot(); err != nil {
+			resp.Checks = append(resp.Checks, doctor.FirstExecutionCheck(doctor.FirstExecutionInfo{}, err))
+		} else {
+			resp.Checks = append(resp.Checks, doctor.FirstExecutionCheck(deps.FirstExecution(ctx, cacheRoot)))
+		}
+	}
 	if memory, err := deps.ResourceProbe.Memory(ctx); err != nil {
 		resp.Checks = append(resp.Checks, doctor.Check{
 			ID:              "resource.memory",

@@ -57,6 +57,9 @@ type Result struct {
 	// executable.
 	DevelopmentProcessBinaries []string
 	verification               *preparedVerification
+	// verifiedImplementation names the inputs whose implementation check last
+	// passed without a diagnostic; see implementationVerificationKey.
+	verifiedImplementation string
 	// workspaceHold is the workspace lock a held preparation kept after it
 	// established the workspace's membership and bytes; the next process build
 	// consumes it instead of locking and verifying them again.
@@ -160,6 +163,9 @@ type buildState struct {
 	OwnedGoModuleSources      []OwnedGoModuleSource  `json:"owned_go_module_sources,omitempty"`
 	// DevelopmentProcessBinaries are the executables of a process-model build.
 	DevelopmentProcessBinaries []string `json:"development_process_binaries,omitempty"`
+	// VerifiedImplementation is the implementation verification key of the
+	// last check that passed without a diagnostic.
+	VerifiedImplementation string `json:"verified_implementation,omitempty"`
 }
 
 const (

@@ -34,7 +34,18 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 	if err != nil {
 		return []Diagnostic{{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("resolve Go verification targets: %v", err)}}
 	}
-	return verifyGoTargets(context.Background(), result, result.Root, overlay, targets)
+	// An analysis that reported nothing leaves a proof named by everything it
+	// consumed, so a later check of exactly those inputs, usually another
+	// process, does not load and type-check the application again.
+	proof := implementationProofPath(result, overlay, targets)
+	if implementationProven(proof) {
+		return nil
+	}
+	diagnostics := verifyGoTargets(context.Background(), result, result.Root, overlay, targets)
+	if len(diagnostics) == 0 {
+		recordImplementationProof(proof)
+	}
+	return diagnostics
 }
 
 func verifyGoTargets(ctx context.Context, result *compiler.Result, root string, overlay map[string][]byte, targets []compiler.GoBuildTarget) []Diagnostic {

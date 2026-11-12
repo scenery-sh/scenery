@@ -2,14 +2,23 @@ package build
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
+	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/gotarget"
 )
 
-type preparedVerification struct{}
+// preparedVerification marks a result whose implementation check is still
+// owed; passed is the verification key of a check that passed without a
+// diagnostic, written by the check and read after it has joined.
+type preparedVerification struct{ passed string }
 
 func cloneVerificationContract(contract *compiler.Result) *compiler.Result {
 	checked := *contract
@@ -27,6 +36,23 @@ func preparedChecker(result *Result) (func(context.Context) (*compiler.Result, e
 	checked := cloneVerificationContract(result.Contract)
 	workspace, target := result.Dir, *result.Target
 	check := generateHooks.ApplyPreparedImplementationCheck
+	key := implementationVerificationKey(result)
+	if verified := generateHooks.ApplyVerifiedImplementationCheck; verified != nil && key != "" && key == result.verifiedImplementation {
+		return func(ctx context.Context) (*compiler.Result, error) {
+			started := time.Now()
+			err := verified(ctx, checked)
+			if err == nil {
+				err = preparedContractError(checked)
+			}
+			RecordStep(ctx, Step{Name: "implementation.check", StartedAt: started, Duration: time.Since(started), Cache: "hit", Reason: "verified_inputs_unchanged", OK: err == nil})
+			return checked, err
+		}, nil
+	}
+	// The proof belongs to the inputs it names; a check of other inputs must
+	// pass before those are recorded.
+	result.verifiedImplementation = ""
+	verification := result.verification
+	before := len(checked.Diagnostics) + len(checked.Manifest.Diagnostics)
 	return func(ctx context.Context) (*compiler.Result, error) {
 		err := observeBuildAction(ctx, "implementation.check", func() error {
 			if err := check(ctx, checked, workspace, target); err != nil {
@@ -34,8 +60,59 @@ func preparedChecker(result *Result) (func(context.Context) (*compiler.Result, e
 			}
 			return preparedContractError(checked)
 		})
+		if err == nil && key != "" && len(checked.Diagnostics)+len(checked.Manifest.Diagnostics) == before {
+			verification.passed = key
+		}
 		return checked, err
 	}, nil
+}
+
+// implementationVerificationKey names everything the Go analysis of the
+// implementation check consumes: the workspace's source, generated and module
+// files with the build flags, the dependency and framework identities, the
+// generator, the contract, the resolved target and the Go toolchain's own
+// environment. It is empty while any of those is unknown, which disables
+// reuse.
+func implementationVerificationKey(result *Result) string {
+	if result == nil || result.Contract == nil || result.Contract.Manifest == nil || result.Target == nil ||
+		result.BuildFingerprint == "" || result.DependencyFingerprint == "" || result.FrameworkFingerprint == "" || result.NeedsTidy {
+		return ""
+	}
+	tool, resolved := gotarget.ToolIdentity(result.GoEnvironment)
+	if !resolved {
+		return ""
+	}
+	encoded, err := json.Marshal(struct {
+		Version, Build, Dependencies, Framework, Generator, Graph, Contract, Toolchain string
+		Target                                                                         compiler.GoBuildTarget
+		Environment                                                                    []string
+		Owned                                                                          []OwnedGoModuleSource
+	}{
+		"1", result.BuildFingerprint, result.DependencyFingerprint, result.FrameworkFingerprint,
+		result.GeneratorFingerprint, result.GraphFingerprint, result.Contract.Manifest.ContractRevision, runtime.Version(),
+		*result.Target, tool, result.OwnedGoModuleSources,
+	})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+// recordVerifiedImplementation keeps the proof of a check that just passed
+// without a diagnostic, provided the build still has the inputs it checked.
+// The caller has joined the check and saved the workspace state.
+func recordVerifiedImplementation(result *Result, verification *preparedVerification) {
+	if verification == nil || verification.passed == "" || verification.passed != implementationVerificationKey(result) {
+		return
+	}
+	result.verifiedImplementation = verification.passed
+	state, err := loadBuildState(result.Dir)
+	if err != nil || state.Version != buildStateVersion || state.BuildFingerprint != result.BuildFingerprint {
+		return
+	}
+	state.VerifiedImplementation = verification.passed
+	_ = saveBuildState(result.Dir, state)
 }
 
 func completePreparedVerification(ctx context.Context, result *Result) error {
@@ -46,11 +123,15 @@ func completePreparedVerification(ctx context.Context, result *Result) error {
 	if err != nil {
 		return err
 	}
+	verification := result.verification
 	checked, err := check(ctx)
 	if err != nil {
 		return err
 	}
 	result.Contract, result.verification = checked, nil
+	if verification.passed != "" && verification.passed == implementationVerificationKey(result) {
+		result.verifiedImplementation = verification.passed
+	}
 	return nil
 }
 
@@ -79,6 +160,7 @@ func compileBesidePreparedVerification(ctx context.Context, result *Result, comp
 	if err != nil {
 		return nil, err
 	}
+	verification := result.verification
 	ctx, cancel := context.WithCancel(ctx)
 	var checked *compiler.Result
 	var checkErr error
@@ -108,6 +190,9 @@ func compileBesidePreparedVerification(ctx context.Context, result *Result, comp
 			return err
 		}
 		result.Contract = checked
+		if verification.passed != "" && verification.passed == implementationVerificationKey(result) {
+			result.verifiedImplementation = verification.passed
+		}
 		return nil
 	}
 	if compileErr != nil {
