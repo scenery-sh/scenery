@@ -18,6 +18,10 @@ import (
 )
 
 func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
+	return computeWorkspaceRevisionWalked(root, sources, nil)
+}
+
+func computeWorkspaceRevisionWalked(root string, sources []*Source, walk *implementationWalk) (string, error) {
 	entries := map[string][]byte{}
 	for _, source := range sources {
 		if source.External {
@@ -25,7 +29,7 @@ func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
 		}
 		entries[source.Relative] = source.Bytes
 	}
-	declared, err := declaredWorkspaceEntries(root, sources)
+	declared, err := declaredWorkspaceEntriesWalked(root, sources, walk)
 	if err != nil {
 		return "", err
 	}
@@ -155,7 +159,11 @@ func RefreshWorkspaceRevision(result *Result) error {
 }
 
 func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte, error) {
-	paths, err := workspaceRevisionInputPaths(root, sources)
+	return declaredWorkspaceEntriesWalked(root, sources, nil)
+}
+
+func declaredWorkspaceEntriesWalked(root string, sources []*Source, walk *implementationWalk) (map[string][]byte, error) {
+	paths, err := workspaceRevisionInputPathsWalked(root, sources, nil, nil, walk)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +196,13 @@ func workspaceRevisionInputPathsWithGenerated(root string, sources []*Source, ge
 }
 
 func workspaceRevisionInputPathsReading(root string, sources []*Source, generatedPaths map[string]bool, readDir DirectoryReader) ([]workspaceRevisionInputPath, error) {
+	return workspaceRevisionInputPathsWalked(root, sources, generatedPaths, readDir, nil)
+}
+
+// workspaceRevisionInputPathsWalked is workspaceRevisionInputPathsReading
+// with the implementation roots optionally walked ahead; see
+// beginImplementationWalk.
+func workspaceRevisionInputPathsWalked(root string, sources []*Source, generatedPaths map[string]bool, readDir DirectoryReader, walk *implementationWalk) ([]workspaceRevisionInputPath, error) {
 	if readDir == nil {
 		readDir = os.ReadDir
 	}
@@ -238,75 +253,18 @@ func workspaceRevisionInputPathsReading(root string, sources []*Source, generate
 	if err != nil {
 		return nil, err
 	}
-	if generatedPaths == nil {
+	if generatedPaths == nil && walk == nil {
 		generatedPaths, err = GeneratedPaths(root)
 		if err != nil {
 			return nil, err
 		}
 	}
-	for _, implementationRoot := range workspace.Blocks {
-		if implementationRoot.Type != "implementation_root" {
-			continue
-		}
-		rootPath, ok := literalString(implementationRoot, "path")
-		if !ok || filepath.IsAbs(rootPath) || strings.HasPrefix(filepath.Clean(rootPath), "..") {
-			return nil, fmt.Errorf("workspace implementation_root requires a workspace-relative path")
-		}
-		includes := literalStringList(implementationRoot, "revision_include")
-		excludes := literalStringList(implementationRoot, "revision_exclude")
-		if err := validateWorkspaceGlobs(append(append([]string(nil), includes...), excludes...)); err != nil {
-			return nil, err
-		}
-		includeMatcher, excludeMatcher := newGlobMatcher(includes), newGlobMatcher(excludes)
-		walkRoot := filepath.Join(root, filepath.FromSlash(rootPath))
-		if err := rejectPathSymlinks(root, walkRoot); err != nil {
-			return nil, fmt.Errorf("workspace implementation_root %s: %w", rootPath, err)
-		}
-		err := walkRevisionTree(walkRoot, readDir, func(filePath string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			workspaceRelative, err := filepath.Rel(root, filePath)
-			if err != nil {
-				return err
-			}
-			workspaceRelative = filepath.ToSlash(workspaceRelative)
-			if generatedPaths[workspaceRelative] && workspacePathWithinManagedRoot(workspaceRelative, managedRoots) {
-				return nil
-			}
-			relToImplementation, err := filepath.Rel(walkRoot, filePath)
-			if err != nil {
-				return err
-			}
-			relToImplementation = filepath.ToSlash(relToImplementation)
-			if entry.IsDir() {
-				if entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules" {
-					return filepath.SkipDir
-				}
-				// A directory an exclusion covers completely contributes no
-				// input, so it is not walked: a cache or a storage tree below the
-				// implementation root would otherwise cost a read of each of its
-				// directories on every enumeration.
-				if filePath != walkRoot && excludeMatcher.coversDirectory(relToImplementation) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			var storage [16]string
-			segments := splitGlobValue(relToImplementation, storage[:0])
-			included, excluded := includeMatcher.matchesSegments(segments), excludeMatcher.matchesSegments(segments)
-			if !included || excluded {
-				return nil
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				return fmt.Errorf("workspace revision input is a symlink: %s", filePath)
-			}
-			add(workspaceRelative, true, true)
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+	walked, err := walk.result(root, workspace, managedRoots, generatedPaths, readDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, workspaceRelative := range walked {
+		add(workspaceRelative, true, true)
 	}
 	seenRevisionInputs := map[string]bool{}
 	for _, revisionInput := range workspace.Blocks {
@@ -558,4 +516,141 @@ func walkRevisionDir(path string, entry fs.DirEntry, readDir DirectoryReader, fn
 		}
 	}
 	return nil
+}
+
+// implementationWalk is the enumeration of a workspace's implementation
+// roots, started before the modules are compiled. The roots are declared by
+// the root workspace block alone, so their files can be listed while the
+// packages load; nil walks when asked.
+type implementationWalk struct {
+	workspace *Block
+	done      chan struct{}
+	paths     []string
+	err       error
+}
+
+// beginImplementationWalk starts listing the implementation roots of the
+// workspace block the root sources declare, or returns nil without one.
+func beginImplementationWalk(root string, sources []*Source) *implementationWalk {
+	workspace := rootWorkspaceBlock(sources)
+	if workspace == nil {
+		return nil
+	}
+	managedRoots, err := workspaceManagedGeneratedRoots(workspace)
+	if err != nil {
+		return nil
+	}
+	walk := &implementationWalk{workspace: workspace, done: make(chan struct{})}
+	go func() {
+		defer close(walk.done)
+		generated, err := GeneratedPaths(root)
+		if err != nil {
+			walk.err = err
+			return
+		}
+		walk.paths, walk.err = walkImplementationRoots(root, workspace, managedRoots, generated, os.ReadDir)
+	}()
+	return walk
+}
+
+// result is the enumeration of workspace's implementation roots: the one
+// started ahead for this same block, or a walk now.
+func (walk *implementationWalk) result(root string, workspace *Block, managedRoots []string, generatedPaths map[string]bool, readDir DirectoryReader) ([]string, error) {
+	if walk != nil && walk.workspace == workspace {
+		<-walk.done
+		return walk.paths, walk.err
+	}
+	if generatedPaths == nil {
+		var err error
+		if generatedPaths, err = GeneratedPaths(root); err != nil {
+			return nil, err
+		}
+	}
+	return walkImplementationRoots(root, workspace, managedRoots, generatedPaths, readDir)
+}
+
+func rootWorkspaceBlock(sources []*Source) *Block {
+	var workspace *Block
+	for _, source := range sources {
+		if source.Relative != scn.AppFilename {
+			continue
+		}
+		for _, block := range source.Blocks {
+			if block.Type == "workspace" {
+				workspace = block
+			}
+		}
+	}
+	return workspace
+}
+
+// walkImplementationRoots lists, relative to root, every file the workspace's
+// implementation roots contribute to the workspace revision.
+func walkImplementationRoots(root string, workspace *Block, managedRoots []string, generatedPaths map[string]bool, readDir DirectoryReader) ([]string, error) {
+	var walked []string
+	for _, implementationRoot := range workspace.Blocks {
+		if implementationRoot.Type != "implementation_root" {
+			continue
+		}
+		rootPath, ok := literalString(implementationRoot, "path")
+		if !ok || filepath.IsAbs(rootPath) || strings.HasPrefix(filepath.Clean(rootPath), "..") {
+			return nil, fmt.Errorf("workspace implementation_root requires a workspace-relative path")
+		}
+		includes := literalStringList(implementationRoot, "revision_include")
+		excludes := literalStringList(implementationRoot, "revision_exclude")
+		if err := validateWorkspaceGlobs(append(append([]string(nil), includes...), excludes...)); err != nil {
+			return nil, err
+		}
+		includeMatcher, excludeMatcher := newGlobMatcher(includes), newGlobMatcher(excludes)
+		walkRoot := filepath.Join(root, filepath.FromSlash(rootPath))
+		if err := rejectPathSymlinks(root, walkRoot); err != nil {
+			return nil, fmt.Errorf("workspace implementation_root %s: %w", rootPath, err)
+		}
+		err := walkRevisionTree(walkRoot, readDir, func(filePath string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			workspaceRelative, err := filepath.Rel(root, filePath)
+			if err != nil {
+				return err
+			}
+			workspaceRelative = filepath.ToSlash(workspaceRelative)
+			if generatedPaths[workspaceRelative] && workspacePathWithinManagedRoot(workspaceRelative, managedRoots) {
+				return nil
+			}
+			relToImplementation, err := filepath.Rel(walkRoot, filePath)
+			if err != nil {
+				return err
+			}
+			relToImplementation = filepath.ToSlash(relToImplementation)
+			if entry.IsDir() {
+				if entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules" {
+					return filepath.SkipDir
+				}
+				// A directory an exclusion covers completely contributes no
+				// input, so it is not walked: a cache or a storage tree below the
+				// implementation root would otherwise cost a read of each of its
+				// directories on every enumeration.
+				if filePath != walkRoot && excludeMatcher.coversDirectory(relToImplementation) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			var storage [16]string
+			segments := splitGlobValue(relToImplementation, storage[:0])
+			included, excluded := includeMatcher.matchesSegments(segments), excludeMatcher.matchesSegments(segments)
+			if !included || excluded {
+				return nil
+			}
+			if entry.Type()&os.ModeSymlink != 0 {
+				return fmt.Errorf("workspace revision input is a symlink: %s", filePath)
+			}
+			walked = append(walked, workspaceRelative)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return walked, nil
 }

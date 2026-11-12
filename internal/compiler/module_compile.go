@@ -15,6 +15,12 @@ type moduleInstanceCompilation struct {
 }
 
 func compileModuleInstanceWithSource(root, callerDirectory, callerModule string, module, sourceModule *Block, callerResources []Resource, lockfile *Lockfile, stack map[string]bool) moduleInstanceCompilation {
+	return compileModuleInstancePrecompiled(root, callerDirectory, callerModule, module, sourceModule, callerResources, lockfile, stack, nil)
+}
+
+// compileModuleInstancePrecompiled is compileModuleInstanceWithSource for a
+// caller that already loaded some packages; see precompileRootPackages.
+func compileModuleInstancePrecompiled(root, callerDirectory, callerModule string, module, sourceModule *Block, callerResources []Resource, lockfile *Lockfile, stack map[string]bool, precompiled precompiledPackages) moduleInstanceCompilation {
 	var result moduleInstanceCompilation
 	if module == nil || len(module.Labels) != 1 {
 		if module != nil {
@@ -51,7 +57,7 @@ func compileModuleInstanceWithSource(root, callerDirectory, callerModule string,
 	stack[identity] = true
 	defer delete(stack, identity)
 
-	packageResources, packageSources, diagnostics := compilePackageLogical(root, location.Directory, instancePath, location.LogicalBase)
+	packageResources, packageSources, diagnostics := precompiled.compile(root, location.Directory, instancePath, location.LogicalBase)
 	authoredResources := make([]Resource, len(packageResources))
 	for index, resource := range packageResources {
 		authoredResources[index] = authoredResourceView(resource)

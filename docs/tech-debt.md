@@ -107,8 +107,11 @@ Plan [0224](plans/0224-measured-startup-and-check-latency.md) measured the
 edit path again on 2026-11-12: about 1.3 s inside the supervisor, of which the
 Go build is 0.5 s, the first execution of the relinked executable 0.3 s and
 publication 0.14 s. The first-execution part is a host setting that `scenery
-doctor` reports as `host.first_execution`. Contract compilation, about 0.7 s for
-ONLV, bounds every command that compiles; its module loop is sequential.
+doctor` reports as `host.first_execution`. Contract compilation bounds every command that compiles. For ONLV it took
+about 0.88 s per command; since 2026-11-13 the root modules' packages load
+together and the implementation roots are listed while they compile, which
+leaves about 0.72 s. Module instantiation stays ordered, because a module
+resolves inputs and exports against the modules before it.
 
 ### Assistant Journey Probe
 

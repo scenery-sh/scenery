@@ -124,10 +124,13 @@ func compileResult(root string) (*Result, error) {
 		return result, nil
 	}
 
+	// The implementation roots are listed while the modules compile; the
+	// captured revision is validated against current bytes before returning.
+	walk := beginImplementationWalk(absRoot, result.Sources)
 	manifest, viewManifests, diagnostics, packageSources := compileSources(absRoot, result.Sources, lockfile)
 	result.Sources = append(result.Sources, packageSources...)
 	diagnostics = append(diagnostics, validateStaticExpressions(packageSources)...)
-	workspaceRevision, err := computeWorkspaceRevision(absRoot, result.Sources)
+	workspaceRevision, err := computeWorkspaceRevisionWalked(absRoot, result.Sources, walk)
 	if err != nil {
 		return nil, err
 	}
@@ -347,6 +350,7 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 	sort.Slice(validModules, func(i, j int) bool { return validModules[i].Labels[0] < validModules[j].Labels[0] })
 	rootModuleExports := map[string]map[string]any{}
 	pendingModules := append([]*Block(nil), validModules...)
+	precompiled := precompileRootPackages(root, validModules, lockfile)
 	for len(pendingModules) > 0 {
 		progress := false
 		remaining := make([]*Block, 0, len(pendingModules))
@@ -356,7 +360,7 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 				remaining = append(remaining, module)
 				continue
 			}
-			compiled := compileModuleInstanceWithSource(root, root, "app", prepared, module, resources, lockfile, map[string]bool{})
+			compiled := compileModuleInstancePrecompiled(root, root, "app", prepared, module, resources, lockfile, map[string]bool{}, precompiled)
 			resources = append(resources, compiled.Resources...)
 			sourceResources = append(sourceResources, compiled.SourceResources...)
 			diagnostics = append(diagnostics, compiled.Diagnostics...)
