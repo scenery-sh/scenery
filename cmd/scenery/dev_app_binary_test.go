@@ -93,3 +93,26 @@ func TestSessionAppBinaryUsesValidatedProducerDigest(t *testing.T) {
 		t.Fatal("changed retained bytes were used")
 	}
 }
+
+func TestClosingSessionKeepsOnlyItsLastGenerationExecutables(t *testing.T) {
+	session := &localagent.Session{StateRoot: filepath.Join(t.TempDir(), "session")}
+	dir := filepath.Join(session.StateRoot, "run", "app")
+	if err := os.MkdirAll(filepath.Join(dir, "scenery-app-directory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	served, replaced, foreign := filepath.Join(dir, "scenery-app-served"), filepath.Join(dir, "scenery-app-replaced"), filepath.Join(dir, "operator-notes")
+	for _, path := range []string{served, replaced, foreign} {
+		if err := os.WriteFile(path, []byte(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	releaseSessionAppBinariesExcept(session, map[string]bool{served: true})
+	for path, want := range map[string]bool{served: true, replaced: false, foreign: true, filepath.Join(dir, "scenery-app-directory"): true} {
+		if _, err := os.Lstat(path); (err == nil) != want {
+			t.Fatalf("%s kept = %t, want %t (%v)", filepath.Base(path), err == nil, want, err)
+		}
+	}
+	// A session without retained state has nothing to release.
+	releaseSessionAppBinariesExcept(nil, nil)
+	releaseSessionAppBinariesExcept(&localagent.Session{StateRoot: filepath.Join(t.TempDir(), "absent")}, nil)
+}

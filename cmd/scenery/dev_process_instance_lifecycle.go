@@ -280,9 +280,24 @@ func (s *devSupervisor) closeDevProcesses() error {
 	model.mu.Lock()
 	defer model.unlock()
 	instances := devProcessState{services: model.services, retained: model.retained}.instances()
+	// The session executables of the generation that served last stay for the
+	// next session of this worktree: unchanged processes then start from bytes
+	// this host has already retained and executed.
+	served := map[string]bool{}
+	for _, instance := range model.services {
+		if instance.app != nil && instance.app.launch != nil {
+			served[instance.app.launch.request.Command] = true
+		}
+	}
+	s.mu.RLock()
+	if s.current != nil && s.current.launch != nil {
+		served[s.current.launch.request.Command] = true
+	}
+	s.mu.RUnlock()
 	model.services, model.retained, model.host = map[string]*devProcessInstance{}, map[uint64]map[string]*devProcessInstance{}, nil
 	markDevProcessesStopped(instances)
-	err := s.stopInstances(instances, nil)
+	err := s.stopInstances(instances, served)
+	releaseSessionAppBinariesExcept(s.currentAgentSession(), served)
 	model.link.remove()
 	model.link = nil
 	return err

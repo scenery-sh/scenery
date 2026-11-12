@@ -159,10 +159,13 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 		if err := completeDevelopmentProcessBuild(ctx, result, verifyWorkspace); err != nil {
 			return errors.Join(err, check())
 		}
+		verification := result.verification
 		if err := check(); err != nil {
 			return err
 		}
 		result.verification = nil
+		// The state was saved before the check joined; add its proof.
+		recordVerifiedImplementation(result, verification)
 		// The runtime bundle describes a verified build only.
 		return writeRuntimeBundle(result)
 	}, nil

@@ -159,3 +159,23 @@ func (s *devSupervisor) releaseUnusedAppBinary(plan *appStartPlan) {
 	}
 	_ = os.Remove(plan.request.Command)
 }
+
+// releaseSessionAppBinariesExcept deletes the retained executables of a
+// closing session that its last served generation did not use, so retention
+// stays bounded by one generation however many builds the session replaced.
+func releaseSessionAppBinariesExcept(session *localagent.Session, keep map[string]bool) {
+	if session == nil || strings.TrimSpace(session.StateRoot) == "" {
+		return
+	}
+	dir := filepath.Join(session.StateRoot, "run", "app")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), "scenery-app-") && !keep[path] {
+			_ = os.Remove(path)
+		}
+	}
+}
