@@ -11,9 +11,14 @@ when recorded; those historical `harness self` invocations are not live commands
   - [Deeper Architecture Checks](#deeper-architecture-checks)
   - [Long Build Tests](#long-build-tests)
   - [Development Edit Latency](#development-edit-latency)
-  - [Assistant Journey Probe](#assistant-journey-probe)
+  - [Unused Surface Awaiting Owner Decisions](#unused-surface-awaiting-owner-decisions)
 
 ## Resolved
+
+- 2026-11-13: Assistant Journey Probe — `go run ./scripts/verify --probe
+  assistant-journey --summary --write` passes on `main` at `afc840df` (a
+  parked approval with a queued run, and overlapping streams). Its failing
+  durable-receipt scenario left with the durable MCP tools in plan 0225.
 
 - 2026-10-21: Published Dotfiles — `copyPublishTree` in `internal/edge/publish.go`
   now excludes dotfiles and dot-directories except non-dotfile entries beneath a
@@ -113,21 +118,6 @@ together and the implementation roots are listed while they compile, which
 leaves about 0.72 s. Module instantiation stays ordered, because a module
 resolves inputs and exports against the modules before it.
 
-### Assistant Journey Probe
-
-- Area: assistant runtime / process host state
-- Severity: medium
-- Owner: scenery runtime
-- Created: 2026-11-12
-- Review after: 2026-12-12
-
-`go run ./scripts/verify --probe assistant-journey --summary --write` failed on
-`main` at `3b4d3175` and later in its durable-receipt scenario. Plan 0225
-removed durable MCP tools and that scenario with them, and moved the fixture to
-an authenticated assistant surface. The remaining probe (a parked approval with
-a queued run, and overlapping streams) has not been run since that change.
-Until it has passed once the probe cannot gate a landing.
-
 ### Source-Selected Worktrees Share No Executables
 
 - Area: worktree build identity
@@ -139,3 +129,38 @@ Until it has passed once the probe cannot gate a landing.
 Under a source-selected framework (`framework use --source`) the
 `module/<app>/go.mod` build input differs between worktrees of one commit, so
 such worktrees never share linked process executables; pinned worktrees do.
+
+### Unused Surface Awaiting Owner Decisions
+
+- Area: language, runtime, auth, tooling
+- Severity: low
+- Owner: scenery maintainers
+- Created: 2026-11-13
+- Review after: 2026-12-13
+
+Plan [0225](plans/0225-prune-unused-and-dead-surface.md) left these items in
+place because no application uses them but removing each needs an owner
+decision:
+
+- the `union` kind, `service.client`, `enqueue`/`wait` delivery and the custom
+  `middleware` kind;
+- `secret_store` and `secret`, now only typed package inputs and constructor
+  configuration;
+- the `sql.fixture/v1` provider capability, whose removal changes every pinned
+  provider lock;
+- cursor pagination in the UI catalog;
+- the custom `workload_identity` kind and the `capability_unavailable`
+  activation refusal;
+- `POST /auth/organizations/switch` and the generic connection provider
+  surface;
+- the diagnostic category name `binding_and_cli`, and whether SCN6209 is
+  attached to its two emit sites or dropped;
+- `ISSUES.md` and the three agent evaluation reports with their runner script;
+- the root-frontend `/<name>/<protected>` containment;
+- the unused `@astryxdesign/theme-neutral` dependency of `tools/typescript`;
+- the mutation operation schemas that `scenery schema` still serves
+  (`resource.create`, `value.set` and the others), which describe no command.
+
+Two proof gaps remain from the same plan: no probe runs `scenery worker`
+against a configured `sql.database_url`, and the `edge` probe skips Caddy
+configuration validation when its private toolchain has no managed Caddy.

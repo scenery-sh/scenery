@@ -19,6 +19,7 @@ func TestHarnessStorageProbeNoState(t *testing.T) {
 		{name: "missing home", kind: "missing"},
 		{name: "empty home"},
 		{name: "telemetry", entry: "telemetry.jsonl", kind: "file"},
+		{name: "telemetry lock", entry: "telemetry.jsonl.lock", kind: "file"},
 		{name: "worktree state", entry: "worktrees", kind: "directory", wantErr: true},
 		{name: "lock", entry: "agent.lock", kind: "file", wantErr: true},
 		{name: "telemetry directory", entry: "telemetry.jsonl", kind: "directory", wantErr: true},
