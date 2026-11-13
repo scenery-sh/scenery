@@ -18,7 +18,7 @@ type RuntimeIntegrationPlan struct {
 	ContractRevision  string
 	Services          []ServiceProcessPlan
 	// HostApplication is the generated source of the host's application-level
-	// registrations (assistants and MCP federation); empty when there are none.
+	// registrations (assistants); empty when there are none.
 	HostApplication []byte
 }
 

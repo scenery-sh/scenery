@@ -295,19 +295,16 @@ func TestRegisterAssistantInstallsBootstrapService(t *testing.T) {
 	}
 }
 
-func TestAssistantMCPManifestRegistrationIsStrictAndDependsOnFederation(t *testing.T) {
+func TestAssistantMCPManifestRegistrationIsStrict(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	registerTestAssistant(t, "app/assistant/support", "support")
-	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
-		t.Fatal(err)
-	}
 	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", "app/mcp_server/support", encoded); err != nil {
+	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", encoded); err != nil {
 		t.Fatalf("RegisterAssistantMCPManifestChecked() = %v", err)
 	}
 	if _, ok := global.assistantMCPManifests["app/assistant/support"]; !ok {
@@ -321,38 +318,35 @@ func TestAssistantMCPManifestRegistrationIsStrictAndDependsOnFederation(t *testi
 	if !gatewayOK || !bootstrapOK {
 		t.Fatalf("gateway/bootstrap service registration missing: gateway=%v bootstrap=%v", gatewayOK, bootstrapOK)
 	}
-	if len(gatewayInitializer.dependencies) != 1 || gatewayInitializer.dependencies[0] != "app/mcp_server/support" {
+	if len(gatewayInitializer.dependencies) != 0 {
 		t.Fatalf("gateway dependencies = %#v", gatewayInitializer.dependencies)
 	}
 	if !containsString(bootstrapInitializer.dependencies, serviceAddress) {
 		t.Fatalf("bootstrap dependencies = %#v", bootstrapInitializer.dependencies)
 	}
-	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", "app/mcp_server/support", encoded); err == nil {
+	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", encoded); err == nil {
 		t.Fatal("duplicate assistant MCP manifest registration was accepted")
 	}
 	for _, invalid := range []string{
 		`{"kind":"scenery.mcp-capability-manifest","kind":"duplicate"}`,
 		`{"kind":"scenery.mcp-capability-manifest","unknown":true}`,
 	} {
-		if err := RegisterAssistantMCPManifestChecked("app/assistant/other", "app/mcp_server/support", []byte(invalid)); err == nil {
+		if err := RegisterAssistantMCPManifestChecked("app/assistant/other", []byte(invalid)); err == nil {
 			t.Fatalf("invalid assistant MCP manifest %s was accepted", invalid)
 		}
 	}
 }
 
-func TestAssistantMCPGatewayInitializesAfterFederationBeforeHelperBootstrap(t *testing.T) {
+func TestAssistantMCPGatewayInitializesBeforeHelperBootstrap(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	registerTestAssistant(t, "app/assistant/support", "support")
-	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
-		t.Fatal(err)
-	}
 	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", "app/mcp_server/support", encoded); err != nil {
+	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", encoded); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(AssistantRuntimeConfigEnv, "")
@@ -360,12 +354,11 @@ func TestAssistantMCPGatewayInitializesAfterFederationBeforeHelperBootstrap(t *t
 		t.Fatalf("InitializeServices() = %v", err)
 	}
 	global.mu.RLock()
-	serverOrder := global.serviceInitOrder["app/mcp_server/support"]
 	gatewayOrder := global.serviceInitOrder[assistantMCPGatewayServiceAddress("app/assistant/support")]
 	bootstrapOrder := global.serviceInitOrder[assistantRuntimeBootstrapService]
 	global.mu.RUnlock()
-	if serverOrder <= 0 || serverOrder >= gatewayOrder || gatewayOrder >= bootstrapOrder {
-		t.Fatalf("service initialization order server=%d gateway=%d bootstrap=%d", serverOrder, gatewayOrder, bootstrapOrder)
+	if gatewayOrder <= 0 || gatewayOrder >= bootstrapOrder {
+		t.Fatalf("service initialization order gateway=%d bootstrap=%d", gatewayOrder, bootstrapOrder)
 	}
 	if err := ShutdownServices(context.Background()); err != nil {
 		t.Fatalf("ShutdownServices() = %v", err)
@@ -376,15 +369,12 @@ func TestAssistantMCPGatewayStartsAndStopsInAppChild(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	registerTestAssistant(t, "app/assistant/support", "support")
-	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
-		t.Fatal(err)
-	}
 	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", "app/mcp_server/support", encoded); err != nil {
+	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", encoded); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -424,9 +414,6 @@ func TestAssistantMCPGatewayDispatchesRegisteredLocalToolWithSignedAssertion(t *
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	registerTestAssistant(t, "app/assistant/support", "support")
-	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
-		t.Fatal(err)
-	}
 	manifest := mcpcontract.Manifest{
 		Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1",
 		Capabilities: []mcpcontract.Capability{{ID: "app/assistant/support#echo", Name: "echo", Title: "echo", Description: "echo", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`), OperationAddress: "app/operation/echo", ExecutionAddress: "app/execution/echo", Origin: mcpcontract.Origin{Kind: "local", Address: "app/service/echo"}, Limits: mcpcontract.Limits{MaxInputBytes: mcpcontract.MaximumInputBytes, MaxResultBytes: mcpcontract.MaximumResultBytes}, Approval: mcpcontract.ApprovalNever}},
@@ -435,7 +422,7 @@ func TestAssistantMCPGatewayDispatchesRegisteredLocalToolWithSignedAssertion(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", "app/mcp_server/support", encoded); err != nil {
+	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", encoded); err != nil {
 		t.Fatal(err)
 	}
 	if err := RegisterMCPTool(MCPToolRegistration{
@@ -524,15 +511,12 @@ func TestAssistantMCPGatewayFailureLeavesAssistantNeutral(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	registerTestAssistant(t, "app/assistant/support", "support")
-	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
-		t.Fatal(err)
-	}
 	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", "app/mcp_server/support", encoded); err != nil {
+	if err := RegisterAssistantMCPManifestChecked("app/assistant/support", encoded); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")

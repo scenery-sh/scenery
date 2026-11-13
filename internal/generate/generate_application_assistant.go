@@ -109,7 +109,7 @@ func renderAssistantRegistration(result *Result, resources map[string]Resource, 
 		return "", fmt.Errorf("assistant %s MCP manifest encoding: %w", assistant.Address, err)
 	}
 	registration := fmt.Sprintf("if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: %q, Name: %q, Path: %q, Access: sceneryruntime.Auth, Policy: %s, AssistantAddress: %q, RuntimeRevision: %q, CapabilityRevision: %q, Required: true}); err != nil { return err }\n", assistant.Address, name, path, policy, assistant.Address, assistantRuntimeRevision(result, assistant.Address), capabilityRevision)
-	registration += fmt.Sprintf("if err := sceneryruntime.RegisterAssistantMCPManifestChecked(%q, %q, []byte(%q)); err != nil { return err }\n", assistant.Address, serverAddress, string(manifestJSON))
+	registration += fmt.Sprintf("if err := sceneryruntime.RegisterAssistantMCPManifestChecked(%q, []byte(%q)); err != nil { return err }\n", assistant.Address, string(manifestJSON))
 	return registration, nil
 }
 

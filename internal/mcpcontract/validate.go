@@ -62,7 +62,7 @@ func (capability Capability) validate() error {
 	if err := validateJSONObjectSchema(capability.OutputSchema, false); err != nil {
 		return fmt.Errorf("output schema: %w", err)
 	}
-	if capability.Origin.Kind != "local" && capability.Origin.Kind != "federated" {
+	if capability.Origin.Kind != "local" {
 		return fmt.Errorf("origin kind %q is unsupported", capability.Origin.Kind)
 	}
 	if strings.TrimSpace(capability.Origin.Address) == "" {

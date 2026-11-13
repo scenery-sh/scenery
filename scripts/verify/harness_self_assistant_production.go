@@ -90,7 +90,7 @@ func runHarnessAssistantProductionProbeCheck(parent context.Context, _ string) (
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := sceneryruntime.RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress, manifestJSON); err != nil {
+	if err := sceneryruntime.RegisterAssistantMCPManifestChecked(assistantAddress, manifestJSON); err != nil {
 		return nil, nil, err
 	}
 	if err := sceneryruntime.RegisterEmbeddedAssistantAssets(sceneryruntime.AssistantProductionOptions{

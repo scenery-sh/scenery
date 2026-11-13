@@ -4,7 +4,6 @@ import (
 	"maps"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
@@ -131,7 +130,6 @@ func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) 
 		// The assistant's capability revision, not the application's.
 		`CapabilityRevision: "` + capabilityRevision + `"`,
 		`RegisterAssistantMCPManifestChecked`,
-		`"app/mcp_server/support"`,
 		`scenery.mcp-capability-manifest`,
 	}
 	for _, fragment := range want {
@@ -251,7 +249,7 @@ func TestGeneratedApplicationCompositionSupportsAssistantOnlyApps(t *testing.T) 
 		t.Fatal("generated assistant-only composition was not rendered")
 	}
 	for _, fragment := range []string{
-		`var RequiredAddresses = []string{"app/assistant/support", "app/mcp_server/support"}`,
+		`var RequiredAddresses = []string{"app/assistant/support"}`,
 		`registry.Register("scenery/assistants"`,
 		`RegisterAssistantChecked`,
 	} {
@@ -278,36 +276,5 @@ func TestMCPOnlyBindingOwnershipIncludesExecution(t *testing.T) {
 	got := referencedExecutions(resourcesByAddress(&Manifest{Resources: resources}), bindings)
 	if len(got) != 1 || got[0] != "house/execution/process_scene_direct" {
 		t.Fatalf("MCP execution ownership = %#v, want execution address", got)
-	}
-}
-
-func TestMCPFederationProjectionIsDeterministic(t *testing.T) {
-	server := Resource{Address: "app/mcp_server/support", Kind: "scenery.mcp-server", Spec: map[string]any{
-		"max_input_bytes": 1024, "max_result_bytes": 2048,
-		"capability": []any{
-			map[string]any{"name": "zeta"}, map[string]any{"name": "alpha"},
-		},
-	}}
-	sharedServer := Resource{Address: "app/mcp_server/shared", Kind: "scenery.mcp-server", Spec: map[string]any{
-		"max_input_bytes": 1024, "max_result_bytes": 2048,
-		"capability": []any{map[string]any{"name": "shared"}},
-	}}
-	assistantZ := Resource{Address: "app/assistant/z", Kind: "scenery.assistant", Spec: map[string]any{"mcp_server": map[string]any{"$ref": "mcp_server.support"}}}
-	assistantA := Resource{Address: "app/assistant/a", Kind: "scenery.assistant", Spec: map[string]any{"mcp_server": map[string]any{"$ref": "mcp_server.support"}}}
-	sharedAssistant := Resource{Address: "app/assistant/shared", Kind: "scenery.assistant", Spec: map[string]any{"mcp_server": map[string]any{"$ref": "mcp_server.shared"}}}
-	result := &Result{Manifest: &Manifest{ContractRevision: "sha256:" + strings.Repeat("a", 64), Resources: []Resource{server, sharedServer, assistantZ, assistantA, sharedAssistant}}}
-	targets, err := mcpFederationTargets(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(targets) != 2 || targets[0].Server.Address != "app/mcp_server/shared" || targets[1].Server.Address != "app/mcp_server/support" || !slices.Equal(targets[1].AssistantAddresses, []string{"app/assistant/a", "app/assistant/z"}) || !slices.Equal(targets[1].LocalToolNames, []string{"alpha", "zeta"}) {
-		t.Fatalf("deterministic target ordering = %#v", targets)
-	}
-	var generated strings.Builder
-	if err := renderMCPFederationRegistrations(result, &generated); err != nil {
-		t.Fatal(err)
-	}
-	if source := generated.String(); strings.Count(source, "RegisterMCPFederationChecked") != 2 {
-		t.Fatalf("federation was not emitted once per server:\n%s", source)
 	}
 }

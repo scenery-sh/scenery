@@ -177,9 +177,6 @@ type contractRuntimeSnapshot struct {
 	contractDurableExecutions map[string]ContractDurableRegistration
 	contractBindings          map[string]ContractInternalBindingRegistration
 	mcpTools                  map[string]MCPToolRegistration
-	mcpFederationSpecs        map[string]MCPFederationRegistration
-	mcpFederations            map[string]*mcpFederationState
-	mcpFederationAssistants   map[string]string
 	assistantMCPManifests     map[string]mcpcontract.Manifest
 	assistants                map[string]AssistantRegistration
 	assistantClients          map[string]AssistantClient
@@ -195,12 +192,9 @@ func snapshotContractRuntimeState() contractRuntimeSnapshot {
 	return contractRuntimeSnapshot{
 		endpoints: cloneContractMap(global.endpoints), cronJobs: cloneContractMap(global.cronJobs), durableTasks: cloneContractMap(global.durableTasks),
 		contractDurableExecutions: cloneContractMap(global.contractDurableExecutions), contractBindings: cloneContractMap(global.contractBindings),
-		mcpTools:                cloneMCPToolRegistrations(global.mcpTools),
-		mcpFederationSpecs:      cloneMCPFederationRegistrations(global.mcpFederationSpecs),
-		mcpFederations:          cloneMCPFederationStates(global.mcpFederations),
-		mcpFederationAssistants: cloneContractMap(global.mcpFederationAssistants),
-		assistantMCPManifests:   cloneMCPManifests(global.assistantMCPManifests),
-		assistants:              cloneContractMap(global.assistants), assistantClients: cloneContractMap(global.assistantClients),
+		mcpTools:              cloneMCPToolRegistrations(global.mcpTools),
+		assistantMCPManifests: cloneMCPManifests(global.assistantMCPManifests),
+		assistants:            cloneContractMap(global.assistants), assistantClients: cloneContractMap(global.assistantClients),
 		contractPages:       cloneContractMap(global.contractPages),
 		serviceInitializers: cloneContractMap(global.serviceInitializers),
 		serviceInitOrder:    cloneContractMap(global.serviceInitOrder), serviceShutdowns: cloneContractMap(global.serviceShutdowns),
@@ -216,9 +210,6 @@ func restoreContractRuntimeState(snapshot contractRuntimeSnapshot) {
 	global.contractDurableExecutions = snapshot.contractDurableExecutions
 	global.contractBindings = snapshot.contractBindings
 	global.mcpTools = snapshot.mcpTools
-	global.mcpFederationSpecs = snapshot.mcpFederationSpecs
-	global.mcpFederations = snapshot.mcpFederations
-	global.mcpFederationAssistants = snapshot.mcpFederationAssistants
 	global.assistantMCPManifests = snapshot.assistantMCPManifests
 	global.assistants = snapshot.assistants
 	global.assistantClients = snapshot.assistantClients

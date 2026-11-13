@@ -37,7 +37,7 @@ func generateServiceMain(appName string, cfg appcfg.Config, service generateapi.
 // implementation edits never rebuild it; the route and MCP tool tables and the
 // contract revision are literal data, and the first service process serves
 // framework and unmatched routes. A host that serves requests itself, because
-// it has application-level registrations (assistants and MCP federation) or no
+// it has application-level registrations (assistants) or no
 // service process serves the framework, renders the entrypoint's SQL and
 // authentication wiring.
 func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.RuntimeIntegrationPlan, sql compiler.SQLRequirements) ([]byte, error) {

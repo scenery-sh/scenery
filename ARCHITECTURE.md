@@ -372,27 +372,23 @@ workspacetx with the verified original-file preconditions. Explicit database ope
 candidate preparation, verification and activation form their own selected
 closure over the existing runtime owners.
 
-### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, `internal/mcpgateway`, and `internal/mcpfederation`
+### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, and `internal/mcpgateway`
 
 These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines
 the manifest, tool policy, assertions, and limits; `internal/mcpprojection`
 projects the expanded graph, including each assistant's capability revision,
-and does not import the compiler; `internal/mcpgateway`
-dispatches local generated bindings; and
-`internal/mcpfederation` owns the federation every `mcp_server` registers for
-its assistants. They do not expose
+and does not import the compiler; and `internal/mcpgateway`
+dispatches local generated bindings. They do not expose
 a public MCP listener and do not import the developer adapter.
 
 Only `internal/mcpgateway` imports the MCP SDK.
-`internal/mcpapi` is the SDK-free boundary: it owns the federation's
-configuration types and the gateway's options, and each implementation installs
-its constructor there when it is linked. `scenery.sh/runtime` imports only that
+`internal/mcpapi` is the SDK-free boundary: it owns the gateway's options, and
+the gateway installs its constructor there when it is linked. `scenery.sh/runtime` imports only that
 boundary, so the SDK and its dependencies are linked by the executables that
-import `scenery.sh/runtime/mcphost` — generated code that registers assistants
-or federations, that is the production executable and the development process
+import `scenery.sh/runtime/mcphost` — generated code that registers assistants,
+that is the production executable and the development process
 host — and by no development service process. A process asked to start a
-gateway or federation it did not link reports the gateway unavailable or
-`mcpapi.ErrNotLinked`.
+gateway it did not link reports the gateway unavailable.
 
 ### `internal/assistantapi`, `internal/assistantcontrol`, `internal/assistantruntime`, and `internal/assistantadapter`
 

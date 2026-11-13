@@ -185,7 +185,7 @@ var templateFuncs = template.FuncMap{
 }
 
 // ApprovalNeverTools qualifies the local capability names that Eve may run
-// without pausing. Unknown and federated tools are deliberately omitted so
+// without pausing. Unknown tools are deliberately omitted so
 // the generated policy continues to fail closed.
 func ApprovalNeverTools(manifest mcpcontract.Manifest) []string {
 	tools := make([]string, 0, len(manifest.Capabilities))

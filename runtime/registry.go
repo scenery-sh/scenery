@@ -190,9 +190,6 @@ type registry struct {
 	contractDurableExecutions map[string]ContractDurableRegistration
 	contractBindings          map[string]ContractInternalBindingRegistration
 	mcpTools                  map[string]MCPToolRegistration
-	mcpFederationSpecs        map[string]MCPFederationRegistration
-	mcpFederations            map[string]*mcpFederationState
-	mcpFederationAssistants   map[string]string
 	assistantMCPManifests     map[string]mcpcontract.Manifest
 	assistants                map[string]AssistantRegistration
 	assistantClients          map[string]AssistantClient
@@ -210,9 +207,6 @@ var global = &registry{
 	contractDurableExecutions: make(map[string]ContractDurableRegistration),
 	contractBindings:          make(map[string]ContractInternalBindingRegistration),
 	mcpTools:                  make(map[string]MCPToolRegistration),
-	mcpFederationSpecs:        make(map[string]MCPFederationRegistration),
-	mcpFederations:            make(map[string]*mcpFederationState),
-	mcpFederationAssistants:   make(map[string]string),
 	assistantMCPManifests:     make(map[string]mcpcontract.Manifest),
 	assistants:                make(map[string]AssistantRegistration),
 	assistantClients:          make(map[string]AssistantClient),

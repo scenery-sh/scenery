@@ -25,44 +25,6 @@ type testDispatcher struct {
 	cancelled chan struct{}
 }
 
-type testFederation struct {
-	mu           sync.Mutex
-	ready        bool
-	capabilities []mcpcontract.Capability
-	outcome      mcpcontract.ToolOutcome
-	err          error
-	block        chan struct{}
-	calls        []dispatchCall
-}
-
-func (f *testFederation) Ready() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.ready
-}
-
-func (f *testFederation) Capabilities() []mcpcontract.Capability {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]mcpcontract.Capability(nil), f.capabilities...)
-}
-
-func (f *testFederation) CallTool(ctx context.Context, call mcpcontract.ToolCallContext, name string, input json.RawMessage) (mcpcontract.ToolOutcome, error) {
-	f.mu.Lock()
-	f.calls = append(f.calls, dispatchCall{Principal: call.Principal, Name: name, Input: append(json.RawMessage(nil), input...), Context: call})
-	block := f.block
-	outcome, err := f.outcome, f.err
-	f.mu.Unlock()
-	if block != nil {
-		select {
-		case <-block:
-		case <-ctx.Done():
-			return mcpcontract.ToolOutcome{}, ctx.Err()
-		}
-	}
-	return outcome, err
-}
-
 type dispatchCall struct {
 	Principal string
 	Name      string
@@ -170,23 +132,6 @@ func testManifest() mcpcontract.Manifest {
 		Capabilities: []mcpcontract.Capability{
 			capability("cap-read", "read"), capability("cap-slow", "slow"), capability("cap-write", "write"),
 		},
-	}
-}
-
-func federatedCapability(name string) mcpcontract.Capability {
-	return mcpcontract.Capability{
-		ID:               "remote/docs/" + name,
-		Name:             name,
-		Title:            "remote " + name,
-		Description:      "remote tool",
-		InputSchema:      json.RawMessage(`{"type":"object"}`),
-		OutputSchema:     json.RawMessage(`{"type":"object"}`),
-		OperationAddress: "mcp/federated/operation/" + name,
-		ExecutionAddress: "mcp/federated/execution/" + name,
-		Origin:           mcpcontract.Origin{Kind: "federated", Address: "app/mcp_server/docs", Namespace: "docs"},
-		Limits:           mcpcontract.Limits{MaxInputBytes: mcpcontract.MaximumInputBytes, MaxResultBytes: mcpcontract.MaximumResultBytes},
-		Effect:           mcpcontract.Effect{ReadOnly: true},
-		Approval:         mcpcontract.ApprovalAlways,
 	}
 }
 
@@ -562,67 +507,6 @@ func TestSignAndVerifyAssertion(t *testing.T) {
 	}
 }
 
-func TestGatewayFederationMergesToolsAndPropagatesAssertionContext(t *testing.T) {
-	remoteCapability := federatedCapability("docs__search")
-	federation := &testFederation{
-		ready:        true,
-		capabilities: []mcpcontract.Capability{remoteCapability},
-		outcome:      mcpcontract.ToolOutcome{Outcome: "processed", Value: json.RawMessage(`{"content":[{"type":"text","text":"found"}],"structuredContent":{"remote":true}}`)},
-	}
-	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1", RequestID: "req-1"}}
-	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Federation: federation})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-	session := connectTestClient(t, server.URL, "token")
-	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("list tools: %v", err)
-	}
-	wantNames := []string{"docs__search", "read", "slow", "write"}
-	if len(tools.Tools) != len(wantNames) {
-		t.Fatalf("tool count=%d names=%#v", len(tools.Tools), tools.Tools)
-	}
-	for index, want := range wantNames {
-		if tools.Tools[index].Name != want {
-			t.Fatalf("tool[%d]=%q, want %q", index, tools.Tools[index].Name, want)
-		}
-		if tools.Tools[index].Annotations == nil {
-			t.Fatalf("tool[%d]=%q has no policy annotations", index, want)
-		}
-	}
-	remote := tools.Tools[0]
-	if remote.Title != remoteCapability.Title || remote.Description != remoteCapability.Description || remote.InputSchema == nil {
-		t.Fatalf("remote metadata was not projected: %#v", remote)
-	}
-	if remote.Annotations == nil || !remote.Annotations.ReadOnlyHint || remote.Annotations.DestructiveHint == nil || *remote.Annotations.DestructiveHint || remote.Annotations.IdempotentHint || remote.Annotations.OpenWorldHint == nil || *remote.Annotations.OpenWorldHint {
-		t.Fatalf("remote policy annotations=%+v", remote.Annotations)
-	}
-	for _, tool := range tools.Tools {
-		if tool.Name == "read" && (tool.Annotations == nil || !tool.Annotations.ReadOnlyHint) {
-			t.Fatalf("local read policy annotation=%+v", tool.Annotations)
-		}
-	}
-	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: remoteCapability.Name, Arguments: map[string]any{"query": "scenery"}})
-	if err != nil || result.IsError {
-		t.Fatalf("remote call result=%#v err=%v", result, err)
-	}
-	federation.mu.Lock()
-	if len(federation.calls) != 1 {
-		t.Fatalf("federation calls=%d", len(federation.calls))
-	}
-	call := federation.calls[0]
-	federation.mu.Unlock()
-	if call.Name != remoteCapability.Name || call.Principal != "alice" || !strings.HasPrefix(call.Context.RequestID, "mcp-") || call.Context.RequestID == "req-1" || string(call.Input) != `{"query":"scenery"}` {
-		t.Fatalf("federated call context=%+v input=%s", call.Context, call.Input)
-	}
-	if remote.Description == "" || strings.Contains(remote.Description, "remote-secret") {
-		t.Fatal("federated metadata leaked a credential")
-	}
-}
-
 func TestGatewayRejectsSamePrincipalSessionContextSwap(t *testing.T) {
 	contexts := StaticAssertionVerifier{
 		"base":         {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"},
@@ -711,90 +595,6 @@ func TestGatewayMintsRequestIDsForEveryToolInvocation(t *testing.T) {
 	}
 	if first.IdempotencyKey != "dedupe" || second.IdempotencyKey != "dedupe" {
 		t.Fatalf("trusted assertion idempotency key changed: %q, %q", first.IdempotencyKey, second.IdempotencyKey)
-	}
-}
-
-func TestGatewayFederationOptionalOmissionAndRequiredOutage(t *testing.T) {
-	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"}}
-	optional := &testFederation{ready: true}
-	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Federation: optional})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-	session := connectTestClient(t, server.URL, "token")
-	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("optional-only list: %v", err)
-	}
-	for _, tool := range tools.Tools {
-		if strings.HasPrefix(tool.Name, "docs__") {
-			t.Fatalf("unavailable optional tool was exposed: %q", tool.Name)
-		}
-	}
-
-	required := &testFederation{ready: false, capabilities: []mcpcontract.Capability{federatedCapability("docs__search")}}
-	requiredHandler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Federation: required})
-	if err != nil {
-		t.Fatal(err)
-	}
-	requiredServer := httptest.NewServer(requiredHandler)
-	defer requiredServer.Close()
-	requiredSession := connectTestClient(t, requiredServer.URL, "token")
-	if _, err := requiredSession.ListTools(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "federated") {
-		t.Fatalf("required outage list error=%v, want typed federation failure", err)
-	}
-}
-
-func TestGatewayFederationRejectsLocalCollisions(t *testing.T) {
-	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"}}
-	for _, name := range []string{"read"} {
-		federation := &testFederation{ready: true, capabilities: []mcpcontract.Capability{federatedCapability(name)}}
-		handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Federation: federation})
-		if err != nil {
-			t.Fatal(err)
-		}
-		server := httptest.NewServer(handler)
-		session := connectTestClient(t, server.URL, "token")
-		_, listErr := session.ListTools(context.Background(), nil)
-		_ = session.Close()
-		server.Close()
-		if listErr == nil || !strings.Contains(listErr.Error(), "collides") {
-			t.Fatalf("collision %q list error=%v", name, listErr)
-		}
-	}
-}
-
-func TestGatewayFederationCancellationAndSafeErrorNormalization(t *testing.T) {
-	secretError := errors.New("POST https://remote.example.test/mcp Authorization: Bearer super-secret")
-	federation := &testFederation{ready: true, capabilities: []mcpcontract.Capability{federatedCapability("docs__slow")}, err: secretError}
-	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"}}
-	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Federation: federation})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-	session := connectTestClient(t, server.URL, "token")
-	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "docs__slow"})
-	if err != nil || !result.IsError {
-		t.Fatalf("remote error result=%#v err=%v", result, err)
-	}
-	if text, ok := result.Content[0].(*mcp.TextContent); !ok || strings.Contains(text.Text, "super-secret") || strings.Contains(text.Text, "remote.example.test") || !strings.Contains(text.Text, "federated MCP tool call failed") {
-		t.Fatalf("unsafe remote error text=%#v", result.Content)
-	}
-
-	block := make(chan struct{})
-	federation.mu.Lock()
-	federation.err = nil
-	federation.block = block
-	federation.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "docs__slow"})
-	if !errors.Is(err, context.DeadlineExceeded) || result != nil {
-		t.Fatalf("cancel result=%#v err=%v", result, err)
 	}
 }
 
