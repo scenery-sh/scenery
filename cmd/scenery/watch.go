@@ -275,7 +275,10 @@ type fileSnapshot struct {
 	dirs             []string
 	generated        map[string]bool
 	generatedContent map[string]fileStamp
-	retryGenerated   bool
+	// consumedGenerated is the generated paths that no build step renders:
+	// owned SQLC output, whose published bytes the build reads.
+	consumedGenerated map[string]bool
+	retryGenerated    bool
 }
 
 type devBackend struct {

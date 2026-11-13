@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"scenery.sh/internal/compiler"
 )
 
 func TestWatchGeneratedPresenceWithoutRebuildLoop(t *testing.T) {
@@ -95,5 +99,57 @@ func TestWatchAcceptGenerationPreservesConcurrentAuthoredEdit(t *testing.T) {
 	}
 	if !slices.Equal(changedPaths(before, after), []string{"main.go"}) {
 		t.Fatal("accepting generation swallowed an authored edit during build")
+	}
+}
+
+// Owned SQLC output is generated, yet the build reads it from the checkout:
+// regenerating it after a healthy build is a build input change.
+func TestWatchRebuildsOnRegeneratedOwnedSQLCOutput(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, text string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	receipt, err := json.Marshal(map[string]any{
+		"kind": "scenery.sqlc-generated", "schema_revision": compiler.SQLCReceiptSchemaRevision(), "owner": root,
+		"input_revision": digest, "tools": map[string]string{"sqlc": digest}, "roots": []string{"db/gen"},
+		"files": map[string]string{"db/gen/query.sql.go": digest},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(compiler.SQLCReceiptPath, string(receipt))
+	write("db/gen/query.sql.go", "package gen\n")
+	before, err := scanWatchedFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !before.generated["db/gen/query.sql.go"] || !before.consumedGenerated["db/gen/query.sql.go"] {
+		t.Fatal("owned SQLC output was not classified")
+	}
+	unchanged, err := scanWatchedFilesReusing(root, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshotsEqual(before, unchanged) || !buildInputSnapshotsEqual(before, unchanged) {
+		t.Fatal("unchanged owned SQLC output requested a build")
+	}
+	write("db/gen/query.sql.go", "package gen\nconst regenerated = true\n")
+	after, err := scanWatchedFilesReusing(root, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshotsEqual(before, after) || buildInputSnapshotsEqual(before, after) || !slices.Contains(changedPaths(before, after), "db/gen/query.sql.go") {
+		t.Fatal("regenerated owned SQLC output did not request a build")
 	}
 }

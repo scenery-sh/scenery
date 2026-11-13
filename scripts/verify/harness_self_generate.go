@@ -105,6 +105,13 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}); err != nil {
 		return summary, nil, err
 	}
+	if err := runSegment("owned SQLC output reaches the application build", func() error {
+		proof, err := runHarnessSQLCOwnedOutputBuild(ctx, repoRoot, filepath.Join(probeRoot, "sqlc-build"))
+		summary["sqlc_owned_output_build"] = proof
+		return err
+	}); err != nil {
+		return summary, nil, err
+	}
 	if err := runSegment("ordinary Go in source-only external Git checkout", func() error {
 		proof, proofErr := runHarnessOrdinaryGoCheckout(ctx, repoRoot, filepath.Join(probeRoot, "ordinary-go"))
 		summary["ordinary_go"] = proof

@@ -113,6 +113,16 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		}
 		gen.Generated[relative] = contents
 	}
+	ownedSQLC, err := ownedSQLCSources(appRoot)
+	if err != nil {
+		return nil, err
+	}
+	for relative, contents := range ownedSQLC {
+		if _, exists := gen.Generated[relative]; exists {
+			return nil, fmt.Errorf("generated artifact path collision: %s", relative)
+		}
+		gen.Generated[relative] = contents
+	}
 	workspaceDir, err := workspaceDir(appRoot, cfg.Name)
 	if err != nil {
 		return nil, err
@@ -185,6 +195,11 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		} else if !os.IsNotExist(statErr) {
 			return nil, statErr
 		}
+	}
+	// Owned SQLC output is read from the checkout, so a later regeneration must
+	// invalidate a cached workspace the same way a republished projection does.
+	for rel := range ownedSQLC {
+		publicGeneratedPaths = append(publicGeneratedPaths, rel)
 	}
 	publicGeneratedStamps, err := artifactPathStamps(appRoot, publicGeneratedPaths)
 	if err != nil {
