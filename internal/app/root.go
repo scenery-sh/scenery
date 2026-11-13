@@ -11,7 +11,6 @@ import (
 	"reflect"
 	goruntime "runtime"
 	"scenery.sh/internal/connectionapi"
-	"slices"
 	"sort"
 	"strings"
 )
@@ -158,7 +157,6 @@ type EnvConfig struct {
 	PortStart int                          `json:"port_start"`
 	PortEnd   int                          `json:"port_end"`
 	Frontends map[string]EnvFrontendConfig `json:"frontends"`
-	Deploy    *EnvDeployConfig             `json:"deploy,omitempty"`
 	// UICatalog points local development at a live @scenery/ui catalog
 	// source directory instead of the binary-embedded copy. Only the
 	// default local environment may set it.
@@ -169,10 +167,6 @@ type EnvFrontendConfig struct {
 	Serve string `json:"serve"`
 }
 
-type EnvDeployConfig struct {
-	SSH []string `json:"ssh,omitempty"`
-}
-
 type ResolvedEnv struct {
 	Name      string
 	Default   bool
@@ -181,7 +175,6 @@ type ResolvedEnv struct {
 	PortStart int
 	PortEnd   int
 	Frontends map[string]FrontendConfig
-	Deploy    *EnvDeployConfig
 	UICatalog string
 }
 
@@ -217,24 +210,9 @@ func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
 	return ResolvedEnv{
 		Name: name, Default: env.Default, Domain: strings.TrimSpace(env.Domain),
 		Port: env.Port, PortStart: env.PortStart, PortEnd: env.PortEnd,
-		Frontends: frontends, Deploy: env.Deploy,
+		Frontends: frontends,
 		UICatalog: strings.TrimSpace(env.UICatalog),
 	}, nil
-}
-
-func (c Config) EnvForSSHTarget(target string) (ResolvedEnv, error) {
-	for name, env := range c.Envs {
-		if env.Deploy != nil {
-			if slices.Contains(env.Deploy.SSH, target) {
-				return c.ResolveEnv(name)
-			}
-		}
-	}
-	return ResolvedEnv{}, fmt.Errorf("SSH target %q is not configured in any environment", target)
-}
-
-func (e ResolvedEnv) Deployable() bool {
-	return e.Deploy != nil
 }
 
 // UICatalogDir resolves the environment's ui_catalog development override
@@ -536,7 +514,6 @@ func (c Config) validateEnvs() error {
 		return errors.New("envs must declare environments and exactly one default")
 	}
 	defaults := 0
-	seenSSH := map[string]string{}
 	for name, env := range c.Envs {
 		if !isStorageIdentifier(name) {
 			return fmt.Errorf("envs.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
@@ -546,9 +523,6 @@ func (c Config) validateEnvs() error {
 		}
 		if name == "local" && !env.Default {
 			return errors.New("envs.local must be the default environment")
-		}
-		if name == "local" && env.Deploy != nil {
-			return errors.New("envs.local must not declare deploy")
 		}
 		if strings.TrimSpace(env.UICatalog) != "" && name != "local" {
 			return fmt.Errorf("envs.%s.ui_catalog is a local development override; only envs.local may set it", name)
@@ -574,26 +548,6 @@ func (c Config) validateEnvs() error {
 				return fmt.Errorf("envs.%s.frontends.%s cannot disable the root frontend", name, frontendName)
 			}
 		}
-		if env.Deploy == nil {
-			continue
-		}
-		for frontendName := range c.Frontends {
-			if strings.ToLower(strings.TrimSpace(env.Frontends[frontendName].Serve)) != "production" {
-				return fmt.Errorf("envs.%s.frontends.%s.serve must be \"production\" for a deployable environment", name, frontendName)
-			}
-		}
-		for index, target := range env.Deploy.SSH {
-			if !validDeploySSHTarget(target) {
-				return fmt.Errorf("envs.%s.deploy.ssh[%d] %q must be a safe OpenSSH host alias and not a scenery deploy subcommand", name, index, target)
-			}
-			if previous, exists := seenSSH[target]; exists {
-				return fmt.Errorf("envs.%s.deploy.ssh[%d] duplicates target %q from envs.%s", name, index, target, previous)
-			}
-			seenSSH[target] = name
-		}
-		if len(env.Deploy.SSH) > 0 && !validDeploySSHAppID(c.AppID()) {
-			return fmt.Errorf("app id %q must start with a lowercase letter or number and use only lowercase letters, numbers, dots, underscores, or dashes for SSH deployment", c.AppID())
-		}
 	}
 	if defaults != 1 {
 		return fmt.Errorf("envs must declare exactly one default environment; found %d", defaults)
@@ -602,29 +556,6 @@ func (c Config) validateEnvs() error {
 		return errors.New("envs.local must declare the default local environment")
 	}
 	return nil
-}
-
-func validDeploySSHTarget(target string) bool {
-	if target == "" || target == "plan" || target == "apply" || target == "setup" || target == "status" || target == "enable" || target == "disable" || target == "publish" || target == "resume" || target == "teardown" {
-		return false
-	}
-	for index, r := range target {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || (index > 0 && (r == '.' || r == '_' || r == '-')) {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func validDeploySSHAppID(value string) bool {
-	for index, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || (index > 0 && (r == '.' || r == '_' || r == '-')) {
-			continue
-		}
-		return false
-	}
-	return value != ""
 }
 
 func validateEnvDomain(domain string) error {

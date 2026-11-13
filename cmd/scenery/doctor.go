@@ -15,7 +15,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/scn"
@@ -37,16 +36,7 @@ type doctorResponse struct {
 	Scenery     versionResponse    `json:"scenery"`
 	App         *doctor.AppInfo    `json:"app,omitempty"`
 	Environment doctor.Environment `json:"environment"`
-	Deploy      *doctorDeployInfo  `json:"deploy,omitempty"`
 	Checks      []doctor.Check     `json:"checks"`
-}
-
-type doctorDeployInfo struct {
-	cliPayloadIdentity
-	Ready        bool                 `json:"ready"`
-	RegistryPath string               `json:"registry_path"`
-	Targets      []deployTargetStatus `json:"targets"`
-	Diagnostics  deploydiag.Report    `json:"diagnostics"`
 }
 
 func doctorCommand(args []string) error {
@@ -220,10 +210,6 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
 	resp.Checks = append(resp.Checks, doctorAgentStartCheck(deps))
 	resp.Checks = append(resp.Checks, doctorAgentSupervisorCheck(deps))
-	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {
-		resp.Deploy = deployInfo
-		resp.Checks = append(resp.Checks, deployChecks...)
-	}
 
 	resp.Summary = doctor.Summarize(resp.Checks)
 	resp.OK = resp.Summary.Errors == 0
@@ -361,7 +347,7 @@ func doctorAgentSupervisorCheck(deps doctor.ProbeDeps) doctor.Check {
 	check.Status = doctor.StatusWarn
 	check.Severity = doctor.SeverityOptional
 	check.Message = fmt.Sprintf("%s supervises the local agent without start failure containment: a start that keeps failing would be restarted forever", job.Label)
-	check.SuggestedAction = "Run `scenery system agent restart`, which updates the installed job, or reinstall it with `scenery deploy setup`."
+	check.SuggestedAction = "Run `scenery system agent restart`, which updates the installed job."
 	return check
 }
 
@@ -512,108 +498,6 @@ func uniqueInts(values []int) []int {
 	}
 	sort.Ints(out)
 	return out
-}
-
-// doctorDeployDiagnostics stays in cmd/scenery because it composes the
-// CLI-owned deploy status response (buildDeployStatusWithContext,
-// deployTargetStatus) and CLI payload identities.
-func doctorDeployDiagnostics(ctx context.Context, deps doctor.ProbeDeps) (*doctorDeployInfo, []doctor.Check) {
-	home, err := deps.AgentHome()
-	if err != nil {
-		message := "deploy registry path could not be resolved: " + err.Error()
-		info := &doctorDeployInfo{
-			cliPayloadIdentity: newCLIPayloadIdentity("scenery.doctor.deploy"),
-			RegistryPath:       "",
-			Diagnostics: deploydiag.Report{Checks: []deploydiag.Check{{
-				ID:      "deploy.registry",
-				Status:  doctor.StatusSkipped,
-				Message: message,
-			}}},
-		}
-		checks := []doctor.Check{{
-			ID:              "deploy.registry",
-			Category:        "deploy",
-			Name:            "Deploy registry",
-			Status:          doctor.StatusSkipped,
-			Severity:        doctor.SeverityInformational,
-			Message:         message,
-			SuggestedAction: "Run `scenery deploy status -o json` for deploy-specific diagnostics.",
-		}}
-		return info, checks
-	}
-	paths := localagent.PathsForHome(home)
-	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
-	if err != nil {
-		info := &doctorDeployInfo{
-			cliPayloadIdentity: newCLIPayloadIdentity("scenery.doctor.deploy"),
-			RegistryPath:       paths.DeployPath,
-			Diagnostics: deploydiag.Report{Checks: []deploydiag.Check{{
-				ID:      "deploy.registry",
-				Status:  doctor.StatusWarn,
-				Message: "deploy registry could not be read: " + err.Error(),
-			}}},
-		}
-		return info, []doctor.Check{{
-			ID:              "deploy.registry",
-			Category:        "deploy",
-			Name:            "Deploy registry",
-			Status:          doctor.StatusWarn,
-			Severity:        doctor.SeverityOptional,
-			Message:         "deploy registry could not be read: " + err.Error(),
-			SuggestedAction: "Inspect or remove the registry at " + paths.DeployPath + ".",
-		}}
-	}
-	if len(registry.Targets) == 0 {
-		if _, err := os.Stat(paths.DeployPath); errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-	}
-	status := buildDeployStatusWithContext(ctx, paths, registry)
-	diagnostics := deploydiag.Report{}
-	if status.DiagnosticsDetail != nil {
-		diagnostics = *status.DiagnosticsDetail
-	}
-	info := &doctorDeployInfo{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.doctor.deploy"),
-		Ready:              status.Ready,
-		RegistryPath:       status.RegistryPath,
-		Targets:            status.Targets,
-		Diagnostics:        diagnostics,
-	}
-	checks := make([]doctor.Check, 0, len(diagnostics.Checks))
-	for _, check := range diagnostics.Checks {
-		checks = append(checks, deployDiagnosticDoctorCheck(check))
-	}
-	return info, checks
-}
-
-func deployDiagnosticDoctorCheck(check deploydiag.Check) doctor.Check {
-	status := check.Status
-	switch status {
-	case doctor.StatusOK, doctor.StatusWarn, doctor.StatusError, doctor.StatusSkipped:
-	default:
-		status = doctor.StatusWarn
-	}
-	return doctor.Check{
-		ID:              check.ID,
-		Category:        "deploy",
-		Name:            deployDiagnosticName(check.ID),
-		Status:          status,
-		Severity:        doctor.SeverityOptional,
-		Message:         check.Message,
-		SuggestedAction: check.SuggestedAction,
-		Observed:        check.Observed,
-	}
-}
-
-func deployDiagnosticName(id string) string {
-	id = strings.TrimPrefix(id, "deploy.")
-	id = strings.ReplaceAll(id, "_", " ")
-	id = strings.ReplaceAll(id, ".", " ")
-	if id == "" {
-		return "Deploy"
-	}
-	return "Deploy " + id
 }
 
 func writeDoctorJSON(w io.Writer, resp doctorResponse) error {

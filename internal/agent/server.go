@@ -31,7 +31,6 @@ type RunOptions struct {
 type Server struct {
 	paths                Paths
 	registry             *Registry
-	publicRoutes         publicRouteStore
 	routerAddr           string
 	publicRouterAddr     string
 	routerScheme         string
@@ -147,9 +146,6 @@ func NewServer(opts RunOptions) (*Server, error) {
 	}
 	server.control = &http.Server{Handler: server.controlMux()}
 	server.router = &http.Server{Handler: server.routerMux()}
-	if err := server.refreshPublicRouteTargets(); err != nil {
-		slog.Warn("failed to initialize scenery public routes", "err", err)
-	}
 	releaseLock = false
 	return server, nil
 }
@@ -171,11 +167,6 @@ func (s *Server) Run(ctx context.Context) error {
 			_ = s.Close()
 			return err
 		}
-	}
-	monitorCtx, cancelMonitor := context.WithCancel(ctx)
-	defer cancelMonitor()
-	if s.worktreeRoot == "" {
-		go s.monitorPublicRoutes(monitorCtx)
 	}
 	errCh := make(chan error, 2)
 	go func() {
@@ -502,7 +493,6 @@ func (s *Server) handleSessions(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		s.refreshPublicRouteSessions()
 		writeJSON(w, http.StatusOK, RegisterResponse{Session: session})
 	default:
 		methodNotAllowed(w, http.MethodGet, http.MethodPost)
@@ -560,7 +550,6 @@ func (s *Server) handleSession(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		if ok {
-			s.refreshPublicRouteSessions()
 			// The session's unix sockets die with it; drop their cached
 			// transports so the cache stays bounded across sessions and no idle
 			// connection lingers to a socket path that will not come back.

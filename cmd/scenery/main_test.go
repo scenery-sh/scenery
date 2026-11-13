@@ -57,7 +57,6 @@ func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 		{name: "invalid usage", args: []string{"not-a-command"}, err: errors.New("invalid_request: unknown command"), want: 2, wantCommand: "unknown"},
 		{name: "private root", args: []string{"PRIVATE_SENTINEL"}, err: errors.New("invalid_request: unknown command"), want: 2, wantCommand: "unknown"},
 		{name: "private subcommand", args: []string{"db", "PRIVATE_SENTINEL"}, err: errors.New("invalid_request: unknown subcommand"), want: 2, wantCommand: "db"},
-		{name: "deploy operand", args: []string{"deploy", "operator@PRIVATE_SENTINEL"}, want: 0, wantCommand: "deploy"},
 		{name: "validation profile", args: []string{"validate", "PRIVATE_SENTINEL"}, want: 0, wantCommand: "validate"},
 		{name: "missing resource", args: []string{"list", "missing"}, err: errors.New("invalid_request: resource not found"), want: 2, wantCommand: "list"},
 	}

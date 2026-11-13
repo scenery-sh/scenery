@@ -15,16 +15,21 @@ import (
 
 func edgePrivilegedCommand(args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("usage: scenery system edge privileged install|status|uninstall [-o json]")
+		return usageErrorf("usage: scenery system edge privileged install [--public]|status|uninstall [-o json]")
 	}
 	cmd := args[0]
+	if cmd == "install" {
+		public, err := parseEdgePrivilegedInstallArgs(args[1:])
+		if err != nil {
+			return err
+		}
+		return edgePrivilegedInstall(public)
+	}
 	opts, err := parseEdgeArgs(args[1:])
 	if err != nil {
 		return err
 	}
 	switch cmd {
-	case "install":
-		return edgePrivilegedInstall()
 	case "status":
 		return edgePrivilegedStatus(opts)
 	case "uninstall":
@@ -34,7 +39,21 @@ func edgePrivilegedCommand(args []string) error {
 	}
 }
 
-func edgePrivilegedInstall() error {
+func parseEdgePrivilegedInstallArgs(args []string) (bool, error) {
+	public := false
+	flags := newCLIFlagSet("system edge privileged install")
+	flags.BoolVar(&public, "public", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return false, err
+	}
+	return public, rejectCLIPositionals(positionals)
+}
+
+// edgePrivilegedInstall installs the privileged listener. public binds ports
+// 80 and 443 on every interface, for a dev domain reached through a proxy or
+// another device, instead of loopback only.
+func edgePrivilegedInstall(public bool) error {
 	if runtime.GOOS != "darwin" {
 		return unavailableErrorf("scenery system edge privileged install is currently supported on macOS")
 	}
@@ -57,12 +76,19 @@ func edgePrivilegedInstall() error {
 		"--helper-target-state", paths.EdgeTargetPath,
 		"--router-addr", localagent.RouterAddrFromEnv(),
 	}
+	if public {
+		args = append(args, "--public")
+	}
 	run := exec.Command("sudo", args...)
 	run.Stdout = os.Stdout
 	run.Stderr = os.Stderr
 	run.Stdin = os.Stdin
 	if err := run.Run(); err != nil {
 		return err
+	}
+	if public {
+		_, _ = fmt.Fprintln(os.Stdout, "installed scenery privileged edge listener for ports 80 and 443 on every interface")
+		return nil
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "installed scenery privileged edge listener for 127.0.0.1:443")
 	return nil
@@ -174,7 +200,7 @@ func privilegedListenerStatus(paths localagent.Paths) edgeStatusPrivilegedListen
 		}
 	}
 	if status.State == "running" {
-		applyEdgeHelperForwardingProbe(&status, edgeProbeServerName(paths))
+		applyEdgeHelperForwardingProbe(&status, edgeProbeServerName())
 	}
 	return status
 }
@@ -203,7 +229,7 @@ func applyEdgeHelperForwardingProbe(status *edgeStatusPrivilegedListener, server
 	}
 	if direct.reachedTLSServer() {
 		status.State = "unhealthy"
-		status.Message = fmt.Sprintf("port 443 accepts TCP but the running privileged helper drops connections before TLS reaches Caddy (%s answers TLS directly); the installed helper likely predates the current handoff contract. Run `scenery deploy setup` (public) or `scenery system edge privileged install` (loopback) to replace and restart it.", status.Target)
+		status.Message = fmt.Sprintf("port 443 accepts TCP but the running privileged helper drops connections before TLS reaches Caddy (%s answers TLS directly); the installed helper likely predates the current handoff contract. Run `scenery system edge privileged install` to replace and restart it.", status.Target)
 		return
 	}
 	if status.Message == "" {

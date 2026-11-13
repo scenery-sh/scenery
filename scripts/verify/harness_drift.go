@@ -817,10 +817,6 @@ func harnessStepEffects(step harnessStep) []string {
 		set["loopback-network"] = true
 		set["ports"] = true
 		set["tempdir"] = true
-	case harnessDeploySSHProcessProbeName:
-		set["external-binary"] = true
-		set["filesystem-write"] = true
-		set["tempdir"] = true
 	case harnessValidationGitProbeName:
 		set["external-binary"] = true
 		set["filesystem-write"] = true

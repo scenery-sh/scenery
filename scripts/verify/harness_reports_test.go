@@ -102,8 +102,6 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		"scenery.agent_context.summary.schema.json",
 		"scenery.build.desktop.schema.json",
 		"scenery.build.result.schema.json",
-		"scenery.deploy.registry.schema.json",
-		"scenery.deploy.status.schema.json",
 		"scenery.doctor.result.schema.json",
 		"scenery.environment.registry.schema.json",
 		"scenery.harness.artifact.schema.json",
@@ -158,7 +156,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	if reads != 4 {
 		t.Fatalf("product schema reads = %d, want 4", reads)
 	}
-	if len(report.Validated) != 30 {
+	if len(report.Validated) != 28 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

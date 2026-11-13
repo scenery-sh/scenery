@@ -25,7 +25,7 @@ const harnessCLIGrammarProbeName = "CLI grammar probe"
 //
 // Families that act on the host instead of the disposable app are read from the
 // grammar but not executed.
-var harnessCLIGrammarHostFamilies = []string{"system", "deploy"}
+var harnessCLIGrammarHostFamilies = []string{"system"}
 
 // harnessCLIGrammarReadOnly lists the usage lines that are safe to execute as
 // written: they read the disposable app or the disposable home.

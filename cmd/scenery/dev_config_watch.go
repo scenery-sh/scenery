@@ -16,13 +16,9 @@ import (
 // that file changed.
 const devConfigPollInterval = 500 * time.Millisecond
 
-// watchConfiguration applies new desired revisions of a local environment to
-// the running generation. Deployable environments never adopt desired
-// configuration; only a deployment changes what they run.
+// watchConfiguration applies new desired revisions of the environment to the
+// running generation.
 func (s *devSupervisor) watchConfiguration(ctx context.Context) {
-	if s.env.Deployable() {
-		return
-	}
 	store, err := devConfigStore(s.cfg)
 	if err != nil || store == nil {
 		return

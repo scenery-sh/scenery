@@ -277,7 +277,6 @@
 		  "type": ["object", "null"],
 		  "additionalProperties": { "$ref": "#/$defs/environmentFrontend" }
 		},
-		"deploy": { "$ref": "#/$defs/deploy" },
 		"ui_catalog": {
 		  "type": "string",
 		  "description": "Local development override: path to a live @scenery/ui catalog source directory, resolved against the app root. Only envs.local may set it."
@@ -292,25 +291,6 @@
 	  },
 	  "additionalProperties": false
 	},
-    "deploy": {
-      "type": "object",
-	  "description": "Beta source-sync targets for one named environment.",
-	  "properties": {
-        "ssh": {
-          "type": "array",
-          "description": "Allowed OpenSSH host aliases for direct source-sync deployment.",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
-            "not": {
-              "enum": ["plan", "apply", "setup", "status", "enable", "disable", "resume", "teardown"]
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
     "storage": {
       "type": "object",
       "description": "Beta Scenery-owned durable object/file storage capability.",

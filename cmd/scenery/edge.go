@@ -37,16 +37,12 @@ const (
 var caddyStartupSettle = 1500 * time.Millisecond
 
 var (
-	edgeHelperLaunchStatusFunc  = edgeHelperLaunchStatus
-	edgeHelperPlistOptionsFunc  = installedEdgeHelperOptions
-	reloadCaddyEdgeConfigFunc   = reloadCaddyEdgeConfig
-	validateCaddyEdgeConfigFunc = edgelifecycle.ValidateCaddyConfig
+	edgeHelperLaunchStatusFunc = edgeHelperLaunchStatus
+	edgeHelperPlistOptionsFunc = installedEdgeHelperOptions
 )
 
 type edgeOptions struct {
-	JSON   bool
-	Deploy bool
-	Quiet  bool
+	JSON bool
 }
 
 func edgeCommand(args []string) error {
@@ -93,16 +89,6 @@ func parseEdgeArgs(args []string) (edgeOptions, error) {
 }
 
 func edgeRestart(opts edgeOptions) error {
-	// A systemd-owned edge must converge through its unit: spawning an
-	// unsupervised Caddy would race the unit's Restart=always respawn for
-	// the public ports.
-	if edgeSystemdManaged() {
-		paths, err := commandAgentPaths()
-		if err != nil {
-			return err
-		}
-		return edgeRestartSystemd(paths)
-	}
 	ctx := context.Background()
 	publicAddr := defaultEdgePublicAddr
 	targetAddr := defaultEdgeTargetAddr
@@ -132,10 +118,7 @@ func edgeRestart(opts edgeOptions) error {
 	}
 	upstreamAddr := localagent.RouterAddrFromEnv()
 	adminSocket := filepath.Join(paths.RunDir, "caddy-admin.sock")
-	config, err := edgelifecycle.CaddyConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
-	if err != nil {
-		return err
-	}
+	config := edgelifecycle.CaddyConfigForEdge(targetAddr, upstreamAddr, adminSocket, token)
 	if err := os.MkdirAll(filepath.Dir(paths.EdgeConfigPath), 0o700); err != nil {
 		return err
 	}
@@ -207,18 +190,14 @@ func edgeRestart(opts edgeOptions) error {
 	}
 	status := edgeStatusForState(paths, state)
 	if edgeRestartReady(status) {
-		if !opts.Quiet {
-			_, _ = fmt.Fprintf(os.Stdout, "scenery system edge running at https://%s\n", state.PublicAddr)
-		}
+		_, _ = fmt.Fprintf(os.Stdout, "scenery system edge running at https://%s\n", state.PublicAddr)
 		return nil
 	}
-	if !opts.Quiet {
-		_, _ = fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
-		_, _ = fmt.Fprintln(os.Stdout, "Run:")
-		_, _ = fmt.Fprintf(os.Stdout, "  %s\n", edgePrivilegedInstallCommand(opts.Deploy))
-		_, _ = fmt.Fprintln(os.Stdout, "Do not run:")
-		_, _ = fmt.Fprintln(os.Stdout, "  sudo scenery system edge install")
-	}
+	_, _ = fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
+	_, _ = fmt.Fprintln(os.Stdout, "Run:")
+	_, _ = fmt.Fprintln(os.Stdout, "  scenery system edge privileged install")
+	_, _ = fmt.Fprintln(os.Stdout, "Do not run:")
+	_, _ = fmt.Fprintln(os.Stdout, "  sudo scenery system edge install")
 	return fmt.Errorf("scenery system edge privileged listener is required for browser HTTPS on 127.0.0.1:443")
 }
 
@@ -230,13 +209,6 @@ func edgeRestartReady(status edgeStatusResult) bool {
 		status.PrivilegedListener.Target == status.Edge.HTTPSListen &&
 		status.PrivilegedListener.TargetPID == status.Edge.PID &&
 		status.Edge.AgentRouter == status.Edge.Upstream
-}
-
-func edgePrivilegedInstallCommand(deploy bool) string {
-	if deploy {
-		return "scenery deploy setup"
-	}
-	return "scenery system edge privileged install"
 }
 
 func edgeStatus(opts edgeOptions) error {
@@ -595,82 +567,4 @@ func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetA
 		UpstreamAddr:   upstreamAddr,
 		StartupSettle:  caddyStartupSettle,
 	})
-}
-
-func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) error {
-	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
-	if err != nil {
-		return err
-	}
-	return edgeReloadForDeployRegistry(paths, state, registry, true)
-}
-
-func edgeReloadForDeployRegistry(paths localagent.Paths, state localagent.EdgeState, registry localagent.DeployRegistry, restartOnReloadFailure bool) error {
-	caddyBin, err := resolveCaddyBinary(context.Background(), paths, true)
-	if err != nil {
-		return err
-	}
-	token, err := ensureEdgeToken(paths.EdgeTokenPath)
-	if err != nil {
-		return err
-	}
-	targetAddr := firstNonEmpty(state.HTTPSListen, defaultEdgeTargetAddr)
-	httpTargetAddr := defaultEdgeHTTPTargetAddr
-	upstreamAddr := firstNonEmpty(state.UpstreamAddr, localagent.RouterAddrFromEnv())
-	adminSocket := firstNonEmpty(state.AdminSocket, filepath.Join(paths.RunDir, "caddy-admin.sock"))
-	config := edgelifecycle.CaddyConfigForDeployRegistry(registry, paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
-	nextPath := paths.EdgeConfigPath + ".next"
-	if err := os.MkdirAll(filepath.Dir(nextPath), 0o700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(nextPath, []byte(config), 0o600); err != nil {
-		return err
-	}
-	// Never hand Caddy an unvalidated candidate: a reload of a broken
-	// config must fail here with the previous config still active.
-	if err := validateCaddyEdgeConfigFunc(caddyBin, nextPath); err != nil {
-		_ = os.Remove(nextPath)
-		return err
-	}
-	if err := reloadCaddyEdgeConfigFunc(caddyBin, nextPath, adminSocket); err != nil {
-		_ = os.Remove(nextPath)
-		if restartOnReloadFailure {
-			return edgeRestart(edgeOptions{})
-		}
-		return err
-	}
-	if err := os.Rename(nextPath, paths.EdgeConfigPath); err != nil {
-		return err
-	}
-	return refreshEdgeTargetMetadata(paths, state, targetAddr, httpTargetAddr)
-}
-
-func reloadCaddyEdgeConfig(caddyBin, configPath, adminSocket string) error {
-	return edgelifecycle.Reload(caddyBin, configPath, adminSocket)
-}
-
-func refreshEdgeTargetMetadata(paths localagent.Paths, state localagent.EdgeState, targetAddr, httpTargetAddr string) error {
-	target, _ := localagent.LoadEdgeTargetState(paths.EdgeTargetPath)
-	if target.Kind == "" {
-		target.Kind = localagent.EdgeKindCaddy
-	}
-	if target.PID == 0 {
-		target.PID = state.PID
-	}
-	if target.OwnerUID == 0 {
-		target.OwnerUID = os.Getuid()
-	}
-	if target.OwnerGID == 0 {
-		target.OwnerGID = os.Getgid()
-	}
-	if target.ProcessStart == "" && target.PID > 0 {
-		target.ProcessStart, _ = processStartTime(target.PID)
-	}
-	target.TargetAddr = targetAddr
-	target.HTTPTargetAddr = httpTargetAddr
-	target.UpdatedAt = time.Now().UTC()
-	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, target); err != nil {
-		return err
-	}
-	return publishEdgeTargetForHelper(paths, target)
 }

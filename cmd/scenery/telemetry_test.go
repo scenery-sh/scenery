@@ -26,7 +26,6 @@ func TestTelemetryClassification(t *testing.T) {
 		{[]string{"build", "--target", "development"}, "build", "oneshot"},
 		{[]string{"db", "seed", "--env", "dev"}, "db seed", "oneshot"},
 		{[]string{"task", "run", "secret-argument"}, "task run", "oneshot"},
-		{[]string{"deploy", "operator@private-host:/private/path"}, "deploy", "oneshot"},
 		{[]string{"db", "/private/path"}, "db", "oneshot"},
 		{[]string{"task", "private-task"}, "task", "oneshot"},
 		{[]string{"logs", "private-token"}, "logs", "oneshot"},

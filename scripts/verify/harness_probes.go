@@ -95,10 +95,8 @@ func harnessProbeCatalog() []harnessProbe {
 		}},
 		harnessSingleProbe("victoria", runHarnessVictoriaProcessProbeStep),
 		harnessSingleProbe("desktop", runHarnessDesktopProcessProbeStep),
-		harnessSingleProbe("deploy-ssh", runHarnessDeploySSHProcessProbeStep),
 		harnessSingleProbe("configuration", configurationProbeStep("environment configuration probe", runHarnessConfigurationProbe)),
 		harnessSingleProbe("configuration-secrets", configurationProbeStep("environment configuration secrets probe", runHarnessConfigurationSecretsProbe)),
-		harnessSingleProbe("configuration-deploy", configurationProbeStep("environment configuration deploy probe", runHarnessConfigurationDeployProbe)),
 		{id: "validation-git", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
 			resp.Steps = append(resp.Steps, runHarnessValidationGitProbeStepWithCheck(ctx, root, func(ctx context.Context, root string) (map[string]any, []checkDiagnostic, error) {
 				return runHarnessValidationGitProbeCheckWithArtifacts(ctx, root, artifacts)

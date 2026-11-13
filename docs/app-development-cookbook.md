@@ -247,7 +247,6 @@ scenery config set designs.weather_pack_root /Volumes/Drive01/PSM --env local
 scenery config set designs.api_token --env local      # hidden prompt
 scenery config show --env local -o json
 scenery config set designs.api_token --env production --stdin < token.txt
-scenery deploy --env production
 ```
 
 Browser-facing values such as a maps API key are declared `public = true`
@@ -807,7 +806,7 @@ Declare SQL through a `data_source` and typed service dependency in `.scn`.
 Its `config.database` chooses the logical schema; use `lifecycle = "managed"`
 for an intentionally Scenery-owned local allocation, or configure
 `sql.database_url` (`scenery config set sql.database_url --env <env>`) for an
-external database of a deployable environment or worker. Do not add `dev.services` to `.scenery.json`.
+external database. Do not add `dev.services` to `.scenery.json`.
 Inspect `scenery inspect app -o json` for requirements before changing supply.
 Standard auth and durable execution contribute their framework requirement
 automatically. See [App Config](local-contract.md#app-config) for sharing,
@@ -968,27 +967,10 @@ Cloudflare-fronted setup (reachable from any device; Cloudflare terminates publi
 
 1. Proxied A records for `local.example.com` and the `*.example.com` catch-all pointing at your static IP; explicit records for real sites keep winning over the wildcard.
 2. Set the zone SSL mode to "Full" (not "Full (strict)") so Cloudflare accepts the Scenery edge's internal origin certificate.
-3. Forward router ports 80/443 to the dev machine and run `scenery deploy setup` once so the edge listens publicly.
+3. Forward router ports 80/443 to the dev machine and run `scenery system edge privileged install --public` once so the edge listens publicly.
 4. Consider Cloudflare Access in front of the dev hostnames — the whole dev surface (console and runtime included) is internet-reachable.
 
 When the edge is not serving, `scenery up` still starts and keeps localhost URLs; the warning names the missing setup step. Domain hosts are single-owner per branch label: a second worktree on the same branch keeps localhost URLs and reports `domain_host_conflict`.
-
-## Serve A Production Frontend Publicly
-
-For a public deployment that should not ship the Vite dev runtime, mark the frontend production and give the app a deploy domain:
-
-```json
-{
-  "root": "app",
-  "frontends": { "app": { "root": "apps/app" } },
-  "envs": {
-	"local": {"default": true, "frontends": {"app": {"serve": "development"}}},
-	"production": {"domain": "app.example.com", "frontends": {"app": {"serve": "production"}}, "deploy": {"ssh": ["my-server"]}}
-  }
-}
-```
-
-`scenery deploy my-server` then syncs source, waits for remote readiness, and runs remote `scenery deploy publish`: the root frontend builds with Vite base `/`, lands as an immutable release under the Scenery agent home, and the managed Caddy edge serves it only at `/` — compressed, cached (`/assets/*` immutable, entry document revalidated), with SPA fallback and byte ranges — while `/api/*` keeps flowing through the Scenery router. Non-root frontends build and serve at `/<name>/`. A failed build, invalid Caddyfile, or failed probe leaves the previous frontend public. On a Linux server, run `scenery deploy setup` once as root first (systemd units for the agent, edge, and boot resume). Verify with `scenery deploy status -o json`: each target's `frontends[].mode` should be `caddy_static`.
 
 ## Debug A Failing App
 

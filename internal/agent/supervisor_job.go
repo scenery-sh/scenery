@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// SupervisorJob is the installed launchd job or systemd unit that supervises
-// an agent socket.
+// SupervisorJob is the installed launchd job that supervises an agent socket.
 type SupervisorJob struct {
 	Label string
 	Path  string
@@ -30,16 +29,6 @@ func InstalledSupervisorJob(socketPath string) (SupervisorJob, bool) {
 			if parseErr != nil && strings.Contains(string(data), "<string>"+plistEscape(socketPath)+"</string>") {
 				return SupervisorJob{Label: AgentLaunchdLabel, Path: plistPath}, true
 			}
-		}
-	}
-	unitPath := AgentSystemdUnitPath()
-	if data, err := os.ReadFile(unitPath); err == nil {
-		_, paths, opts, parseErr := parseAgentSystemdUnit(string(data))
-		if parseErr == nil && filepath.Clean(paths.SocketPath) == socketPath {
-			return SupervisorJob{Label: AgentSystemdUnitName, Path: unitPath, FailureContainment: opts.Supervised}, true
-		}
-		if parseErr != nil && strings.Contains(string(data), "--socket "+socketPath) {
-			return SupervisorJob{Label: AgentSystemdUnitName, Path: unitPath}, true
 		}
 	}
 	return SupervisorJob{}, false

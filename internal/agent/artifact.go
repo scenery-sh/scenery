@@ -9,16 +9,15 @@ import (
 )
 
 const (
-	sessionSchemaDescriptor        = `{"identity":"artifact","session":"agent-session","worktree_proxy":"optional-loopback-backend"}`
-	routeManifestSchemaDescriptor  = `{"identity":"artifact","manifest":"route-manifest"}`
-	portLeaseSchemaDescriptor      = `{"identity":"artifact","lease":"port-lease"}`
-	substrateSchemaDescriptor      = `{"identity":"artifact","substrate":"managed-substrate"}`
-	agentOwnerSchemaDescriptor     = `{"identity":"artifact","owner":"agent-process-owner"}`
-	agentStateSchemaDescriptor     = `{"identity":"artifact","state":"agent-process","worktree_edge_proxy":true}`
-	agentRegistrySchemaDescriptor  = `{"identity":"artifact","registry":"sessions-substrates-aliases","worktree_edge_proxy":true}`
-	deployRegistrySchemaDescriptor = `{"identity":"artifact","registry":"deployment-ownership"}`
-	edgeStateSchemaDescriptor      = `{"identity":"artifact","state":"managed-edge"}`
-	edgeTargetSchemaDescriptor     = `{"identity":"artifact","state":"privileged-edge-target"}`
+	sessionSchemaDescriptor       = `{"identity":"artifact","session":"agent-session","worktree_proxy":"optional-loopback-backend"}`
+	routeManifestSchemaDescriptor = `{"identity":"artifact","manifest":"route-manifest"}`
+	portLeaseSchemaDescriptor     = `{"identity":"artifact","lease":"port-lease"}`
+	substrateSchemaDescriptor     = `{"identity":"artifact","substrate":"managed-substrate"}`
+	agentOwnerSchemaDescriptor    = `{"identity":"artifact","owner":"agent-process-owner"}`
+	agentStateSchemaDescriptor    = `{"identity":"artifact","state":"agent-process","worktree_edge_proxy":true}`
+	agentRegistrySchemaDescriptor = `{"identity":"artifact","registry":"sessions-substrates-aliases","worktree_edge_proxy":true}`
+	edgeStateSchemaDescriptor     = `{"identity":"artifact","state":"managed-edge"}`
+	edgeTargetSchemaDescriptor    = `{"identity":"artifact","state":"privileged-edge-target"}`
 )
 
 func sessionIdentity() machine.ArtifactIdentity {
@@ -38,9 +37,6 @@ func agentStateIdentity() machine.ArtifactIdentity {
 }
 func agentRegistryIdentity() machine.ArtifactIdentity {
 	return machine.NewArtifactIdentity(AgentRegistryKind, agentRegistrySchemaDescriptor)
-}
-func deployRegistryIdentity() machine.ArtifactIdentity {
-	return machine.NewArtifactIdentity(DeployRegistryKind, deployRegistrySchemaDescriptor)
 }
 func edgeStateIdentity() machine.ArtifactIdentity {
 	return machine.NewArtifactIdentity(EdgeStateKind, edgeStateSchemaDescriptor)

@@ -187,9 +187,7 @@ environment only, and configured values are runtime inputs. They reach
 processes as revision-bound snapshots over inherited pipes
 (`runtime/deployment_config.go`) and never change generated code or
 executables. Local supervisors restart only the service processes whose
-snapshot changed; deployable environments change only through `scenery
-deploy`, whose staged releases pin one configuration revision
-(`cmd/scenery/deploy_release.go`).
+snapshot changed.
 
 ### `internal/desktop`
 
@@ -577,8 +575,8 @@ never reuse test results or narrow the `./...` package and test surface.
 
 `internal/edge` owns the managed Caddy lifecycle behind `scenery system edge`:
 process start and stop, admin-socket reload, local-CA trust, and persistence of
-the corresponding `internal/agent` edge state. It also owns Caddyfile and DNS
-configuration, static frontend artifact publication, and the systemd edge unit.
+the corresponding `internal/agent` edge state. It also owns Caddyfile
+generation.
 `cmd/scenery` adapts CLI grammar, output, managed-tool resolution,
 DNS/helper process orchestration, and privileged-listener setup. See
 [the edge instructions](internal/edge/AGENTS.md) for lifecycle boundaries.
@@ -705,7 +703,7 @@ disposable materialization; targets get independent clone-or-copy files, never
 links into a shared blob pool. The one-shot legacy exporter lives only under
 `scripts/`; it is not an alternative runtime decoder.
 
-The machine agent and privileged helper remain explicit edge/deploy surfaces.
+The machine agent and privileged helper remain explicit edge surfaces.
 An explicitly configured domain can register an edge-only forwarding lease
 to a compatible live worktree router, without moving runtime ownership or
 writing its session manifest. Localhost serving requires no machine edge.

@@ -95,17 +95,9 @@ func (p *worktreeRuntimeProbe) edgeSeparation(root, sibling string) error {
 		if err := p.unavailableDomain(root); err != nil {
 			return err
 		}
-		if _, err := harnessCaddyBinary(p.ctx, true); err != nil {
-			return err
-		}
-		published, err := runHarnessEdgeStaticFrontendProbe(p.ctx, filepath.Join(p.root, "published-edge"))
-		if err != nil {
-			return err
-		}
 		e["explicit_domain_api_http"], e["local_console_http"], e["local_websocket"] = 200, 200, "verified"
 		e["domain_hidden_routes"] = []string{"console", "runtime", "__scenery"}
 		e["domain_ownership_conflict"], e["unavailable_edge_not_advertised"] = true, true
-		e["published_caddy_contract"] = published
 		return nil
 	})
 }

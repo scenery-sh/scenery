@@ -91,17 +91,6 @@ func TestEdgeHelperListenSpecsSwitchToPublicPorts(t *testing.T) {
 	}
 }
 
-func TestEdgePrivilegedInstallCommandUsesDeploySetupForDeploy(t *testing.T) {
-	t.Parallel()
-
-	if got := edgePrivilegedInstallCommand(false); got != "scenery system edge privileged install" {
-		t.Fatalf("local command = %q", got)
-	}
-	if got := edgePrivilegedInstallCommand(true); got != "scenery deploy setup" {
-		t.Fatalf("deploy command = %q", got)
-	}
-}
-
 func TestParseEdgeHelperPlistOptionsExtractsProgramArguments(t *testing.T) {
 	t.Parallel()
 

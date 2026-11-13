@@ -80,7 +80,7 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		"snapshot":  {ignoreParse(parseSnapshotSaveArgs), ignoreParse(parseSnapshotLoadArgs), ignoreParse(parseSnapshotVerifyArgs)},
 		"traces":    {observabilityList("traces")},
 		"metrics":   {ignoreParse(parseMetricsQueryArgs), observabilityList("metrics")},
-		"system":    {ignoreParse(parseEdgeArgs), ignoreParse(parseToolchainArgs), ignoreParse(parseAgentArgs)},
+		"system":    {ignoreParse(parseEdgeArgs), ignoreParse(parseEdgePrivilegedInstallArgs), ignoreParse(parseToolchainArgs), ignoreParse(parseAgentArgs)},
 		"up":        {ignoreParse(parseDevArgs)},
 		"ps":        {ignoreParse(parseStatusArgs)},
 		"down":      {ignoreParse(parseDownArgs)},

@@ -153,8 +153,6 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 		return "scripts/verify/harness_self_victoria.go"
 	case harnessDesktopProcessProbeName:
 		return "scripts/verify/harness_self_desktop.go"
-	case harnessDeploySSHProcessProbeName:
-		return "scripts/verify/harness_self_deploy_ssh.go"
 	case harnessValidationGitProbeName:
 		return "scripts/verify/harness_self_validation.go"
 	case harnessTestsuiteCacheProbeName:

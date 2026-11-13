@@ -10,9 +10,7 @@ import (
 	"strings"
 	"time"
 
-	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
 	"scenery.sh/internal/feature"
 	"scenery.sh/internal/machine"
@@ -222,8 +220,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			}},
 		})},
 		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
-		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
-		{name: "deploy.status", schemaRel: "docs/schemas/scenery.deploy.status.schema.json", payload: buildHarnessDeployStatusSchemaPayload()},
 		{name: "snapshot.save", schemaRel: "docs/schemas/scenery.snapshot.save.schema.json", payload: snapshotSaveResult{
 			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.save"), Archive: "/tmp/app.zip",
 			App: snapshotAppResult{Name: "app", ID: "app", Root: "/tmp/app"},
@@ -402,109 +398,6 @@ func buildHarnessDoctorSchemaPayload(versionPayload versionResponse) doctorRespo
 	}
 	resp.Summary = doctor.Summarize(resp.Checks)
 	return resp
-}
-
-func buildHarnessDeployRegistrySchemaPayload() map[string]any {
-	registry := localagent.EmptyDeployRegistry()
-	encoded, _ := json.Marshal(registry.ArtifactIdentity)
-	var payload map[string]any
-	_ = json.Unmarshal(encoded, &payload)
-	payload["acme_email"] = "ops@example.com"
-	payload["acme_ca"] = "staging"
-	payload["targets"] = []map[string]any{{
-		"domain":       "example.com",
-		"app_root":     "/tmp/scenery-deploy-fixture",
-		"root_service": "web",
-		"enabled":      true,
-		"created_at":   "2026-07-07T00:00:00Z",
-		"updated_at":   "2026-07-07T00:00:00Z",
-	}}
-	return payload
-}
-
-func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
-	return deployStatusResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.status"),
-		Ready:              true,
-		RegistryPath:       "/tmp/scenery/agent/deploy.json",
-		PrivilegedListener: edgeStatusPrivilegedListener{
-			Strategy:                 "helper",
-			Installed:                true,
-			State:                    "running",
-			PID:                      101,
-			Listen:                   []string{"0.0.0.0:80", "[::]:80", "0.0.0.0:443", "[::]:443"},
-			Target:                   "127.0.0.1:19443",
-			TargetPath:               "/tmp/scenery/run/edge-target.json",
-			TargetPID:                202,
-			OwnerUID:                 501,
-			OwnerGID:                 20,
-			Version:                  "v1.2.3",
-			ContractRevision:         localagent.EdgeHelperContractRevision,
-			RequiredForPortlessHTTPS: true,
-			InstallCommand:           "scenery deploy setup",
-		},
-		HelperPublic: true,
-		Edge: edgeStatusCaddy{
-			Kind:        "caddy",
-			State:       "running",
-			PID:         303,
-			UID:         501,
-			HTTPSListen: "127.0.0.1:19443",
-			Upstream:    "127.0.0.1:9440",
-			AgentRouter: "127.0.0.1:9440",
-			Admin:       "unix//tmp/scenery/caddy-admin.sock",
-			ConfigPath:  "/tmp/scenery/edge/Caddyfile",
-			LogPath:     "/tmp/scenery/edge/caddy.log",
-		},
-		Agent: deployAgentStatus{
-			State:      "running",
-			PID:        404,
-			StatePath:  "/tmp/scenery/agent/state.json",
-			SocketPath: "/tmp/scenery/agent/agent.sock",
-			RouterAddr: "127.0.0.1:9440",
-		},
-		AgentSupervisor: deployAgentSupervisorStatus{
-			Installed: true,
-			Loaded:    true,
-			Running:   true,
-			PID:       404,
-			Label:     localagent.AgentLaunchdLabel,
-			Path:      "/Users/example/Library/LaunchAgents/dev.scenery.agent.plist",
-		},
-		LaunchAgent: deployLaunchAgentStatus{
-			Installed: true,
-			Loaded:    true,
-			Path:      "/Users/example/Library/LaunchAgents/dev.scenery.deploy-resume.plist",
-		},
-		ACME: deployACMEStatus{
-			Email: "ops@example.com",
-			CA:    "staging",
-		},
-		Targets: []deployTargetStatus{{
-			Domain:       "example.com",
-			AppRoot:      "/tmp/scenery-deploy-fixture",
-			RootService:  "web",
-			Enabled:      true,
-			LiveSession:  true,
-			SessionID:    "example",
-			CertPresent:  true,
-			CertNotAfter: "2026-10-07T00:00:00Z",
-		}},
-		DiagnosticsDetail: &deploydiag.Report{
-			LANIP:    "192.168.1.20",
-			PublicIP: "203.0.113.10",
-			Checks: []deploydiag.Check{{
-				ID:      "deploy.dns.example.com",
-				Status:  "ok",
-				Message: "DNS for example.com resolves to this public IP",
-				Observed: map[string]any{
-					"domain":    "example.com",
-					"public_ip": "203.0.113.10",
-					"ips":       []string{"203.0.113.10"},
-				},
-			}},
-		},
-	}
 }
 
 func harnessNilPayload(value any) bool {

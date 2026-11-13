@@ -10,11 +10,13 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 
 	localagent "scenery.sh/internal/agent"
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/localproxy"
 )
 
@@ -201,4 +203,17 @@ func tailLines(value string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// productionFrontendNames lists the environment's frontends served in
+// production mode, sorted.
+func productionFrontendNames(env appcfg.ResolvedEnv) []string {
+	names := make([]string, 0, len(env.Frontends))
+	for name, frontend := range env.Frontends {
+		if strings.TrimSpace(frontend.Serve) == "production" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

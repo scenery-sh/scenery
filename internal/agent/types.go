@@ -7,16 +7,15 @@ import (
 )
 
 const (
-	SessionKind        = "scenery.dev.session"
-	RouteManifestKind  = "scenery.route-manifest"
-	PortLeaseKind      = "scenery.dev.port-lease"
-	SubstrateKind      = "scenery.dev.substrate"
-	AgentStateKind     = "scenery.agent.state"
-	AgentOwnerKind     = "scenery.agent.owner"
-	AgentRegistryKind  = "scenery.agent.registry"
-	DeployRegistryKind = "scenery.deploy.registry"
-	EdgeStateKind      = "scenery.edge.state"
-	EdgeTargetKind     = "scenery.edge.target"
+	SessionKind       = "scenery.dev.session"
+	RouteManifestKind = "scenery.route-manifest"
+	PortLeaseKind     = "scenery.dev.port-lease"
+	SubstrateKind     = "scenery.dev.substrate"
+	AgentStateKind    = "scenery.agent.state"
+	AgentOwnerKind    = "scenery.agent.owner"
+	AgentRegistryKind = "scenery.agent.registry"
+	EdgeStateKind     = "scenery.edge.state"
+	EdgeTargetKind    = "scenery.edge.target"
 
 	RouteAPI = "api"
 	// RouteDashboard names the worktree's runtime control backend (development

@@ -31,7 +31,6 @@ references when the task crosses their boundary, not as a startup checklist.
 | Change storage, SQL, migrations, or snapshots | Inspect the selected resource and retained owner before mutation | [Storage and databases](docs/agent-guide.md#storage-and-databases) |
 | Generate Go contracts or library facades | Generate into the declared existing module | [Native change loop](docs/agent-guide.md#native-change-loop) |
 | Run an app-local code task | `scenery task list -o json` | [Code tasks](docs/app-development-cookbook.md#app-local-code-tasks) |
-| Deploy an authorized change | Inspect the configured environment and deployment status | [Deployment](docs/agent-guide.md#runtime-command-choice) |
 | Validate app work | Select app-owned profiles and the acceptance scenario | [Application validation](docs/agent-guide.md#application-validation-and-completion) |
 | Coordinate feature worktrees or land a checkpoint | `scenery feature list -o json`; inspect the repository policy and exact candidate | [Local feature integration](docs/feature-workflow.md) |
 | Change Scenery itself | Read its root and applicable child instructions | [Repository workflow](docs/agent-guide.md#working-in-the-scenery-repository) |

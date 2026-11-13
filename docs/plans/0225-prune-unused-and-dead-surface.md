@@ -668,14 +668,27 @@ generated manifest directly and `mcp_server` addresses are no longer covered
 or required); SSH deploy and the onlv-209 host are being retired, so no
 landing gate depends on that host.
 
-Open: removal of the SSH deploy target. It is not a plain deletion. An
-environment is deployable exactly when it declares `deploy.ssh`, and that
-predicate selects required configuration inputs, pinned configuration and the
-environment the local public edge (`deploy enable|setup|resume|status`)
-serves. The local public edge is in use on the development machine, so it
-stays. Removing `deploy <ssh-target>`, `deploy receive`, `config receive`,
-staged releases and the systemd service manager needs a new definition of a
-deployable environment first.
+Owner decision on 2026-11-13: the whole deploy family is removed: `scenery
+deploy` (SSH target, `receive`, staged releases, `enable`, `disable`,
+`publish`, `status`, `setup`, `resume`, `teardown`), `config receive`, the
+machine deploy registry, public domain sites and static frontend publication
+in the managed edge, public route serving in the agent, deploy diagnostics,
+the systemd service manager and `envs.<env>.deploy`. No environment is
+deployable any more: every environment's configuration lives in the local
+store, framework inputs are never required, and `scenery up` refuses a
+configured external database in every environment. The dev-domain edge
+(`scenery system edge`) stays; `scenery system edge privileged install
+--public` now installs the publicly bound helper that `deploy setup` used to
+install.
+
+Landing gates for the machine that runs the local public edge: run `scenery
+deploy teardown` with a binary that still has the command before installing
+this one, because its `dev.scenery.deploy-resume` LaunchAgent invokes `scenery
+deploy resume`; and remove the `deploy` block from each application's
+`.scenery.json`, which is now an unknown field. Nothing installs the
+`dev.scenery.agent` supervisor any more: `InstallAgentLaunchd` and
+`RemoveAgentLaunchd` have no caller, while restart still maintains an installed
+job. Whether a `system agent` install command replaces them is open.
 
 Before landing, on a host with no other `scenery-pg-*` probe running, run
 `go run ./scripts/verify --probe <id> --summary --write` for `auth` (the
@@ -683,7 +696,7 @@ changed-area oracle requires it), `postgres`, `worktree`, `observability`,
 `parallel-runtime` and `assistant-journey`; the auth, worktree,
 observability and assistant-journey probes were edited by this plan and have
 never run. Run `edge` after `scenery system toolchain sync --tool caddy`.
-Three probe failures predate this plan and need their own fixes: `storage`
+Two probe failures predate this plan and need their own fixes: `storage`
 (telemetry lock file in an unallocated agent home), `capability-authority`
 (the webhook-inbox proof passes `DATABASE_URL` through the environment, which
 `scenery worker` does not inherit) and the missing managed Caddy for `edge`.
@@ -785,9 +798,14 @@ repository.
   addresses left the generated required and covered address sets because no
   runtime object remains for them; the gateway native service lost its
   dependency on the server address.
-- 2026-11-13: the SSH deploy target is not removed in this plan. The local
-  public edge shares the deployable-environment predicate with it and is in
-  use, so the split needs its own design.
+- 2026-11-13: owner chose to remove the whole deploy family, including the
+  local public edge. The deployable-environment predicate went with it, so
+  configuration has one authority (the local store) and no input is required
+  only for deployment.
+- 2026-11-13: `system edge privileged install --public` was added because
+  removing `deploy setup` left no way to install the publicly bound helper
+  that a proxied dev domain needs. It reuses the helper's existing `--public`
+  mode.
 
 ## Outcomes & Retrospective
 

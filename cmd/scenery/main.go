@@ -189,8 +189,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return storageCommand(args[1:])
 	case "snapshot":
 		return snapshotCommand(args[1:])
-	case "deploy":
-		return deployCommand(args[1:])
 	case "config":
 		return configCommand(args[1:])
 	case "worker":

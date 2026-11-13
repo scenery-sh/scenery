@@ -29,7 +29,7 @@ func TestBuildDesktopBuildsFrontendAndTauriBundle(t *testing.T) {
 		},
 		Envs: map[string]app.EnvConfig{
 			"local":      {Default: true},
-			"production": {Domain: "desktop.example.com", Deploy: &app.EnvDeployConfig{}},
+			"production": {Domain: "desktop.example.com"},
 		},
 	}
 	env, err := cfg.ResolveEnv("production")

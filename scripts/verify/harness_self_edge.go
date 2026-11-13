@@ -98,17 +98,12 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 	if err != nil {
 		return nil, nil, err
 	}
-	staticFrontend, err := runHarnessEdgeStaticFrontendProbe(ctx, dir)
-	if err != nil {
-		return nil, nil, err
-	}
 	return map[string]any{
 		"proof":             "managed_caddy_reload_trust_validation_start_stop_lock_and_fast_exit_verified",
 		"args":              wantArgs,
 		"local_ca_trust":    trust,
 		"config_validation": validation,
 		"start_stop":        startStop,
-		"static_frontend":   staticFrontend,
 		"wildcard_ipv4":     "verified_nonce_exchange",
 	}, nil, nil
 }
@@ -205,43 +200,22 @@ func runHarnessCaddyConfigValidation(ctx context.Context, root string) (map[stri
 	if err != nil {
 		return map[string]any{"available": false, "reason": err.Error()}, nil
 	}
-	frontendRoot := filepath.Join(root, "published", "current")
-	if err := os.MkdirAll(frontendRoot, 0o755); err != nil {
+	config := edgelifecycle.CaddyConfig(edgelifecycle.CaddyConfigOptions{
+		ListenAddr:  "127.0.0.1:19443",
+		Upstream:    "127.0.0.1:9440",
+		AskURL:      "http://127.0.0.1:9440/v1/tls/allow",
+		AdminSocket: filepath.Join(root, "validate.sock"),
+		Token:       "probe-token",
+	})
+	configPath := filepath.Join(root, "Caddyfile.validate")
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(frontendRoot, "index.html"), []byte("<html>probe</html>\n"), 0o644); err != nil {
-		return nil, err
+	output, err := exec.CommandContext(ctx, caddyBinary, "validate", "--config", configPath, "--adapter", "caddyfile").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("validate generated Caddy config: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	modes := make([]string, 0, 2)
-	for _, direct := range []bool{false, true} {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		config := edgelifecycle.CaddyConfig(edgelifecycle.CaddyConfigOptions{
-			ListenAddr:  "127.0.0.1:19443",
-			Upstream:    "127.0.0.1:9440",
-			AdminSocket: filepath.Join(root, fmt.Sprintf("validate-%t.sock", direct)),
-			Token:       "probe-token",
-			PublicDomains: []edgelifecycle.PublicDomainSite{{
-				Domain: "probe.example.invalid",
-				Frontends: []edgelifecycle.StaticFrontendRoute{{
-					Name: "web", Root: frontendRoot, BasePath: "/", OwnsRoot: true,
-				}},
-			}},
-			StorageDir:     filepath.Join(root, "storage"),
-			HTTPListenPort: "19080",
-			PublicDirect:   direct,
-		})
-		configPath := filepath.Join(root, fmt.Sprintf("Caddyfile.validate-%t", direct))
-		if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-			return nil, err
-		}
-		if err := edgelifecycle.ValidateCaddyConfig(caddyBinary, configPath); err != nil {
-			return nil, fmt.Errorf("validate generated static Caddy config (direct=%v): %w", direct, err)
-		}
-		modes = append(modes, fmt.Sprintf("direct=%v", direct))
-	}
-	return map[string]any{"available": true, "modes": modes}, nil
+	return map[string]any{"available": true}, nil
 }
 
 func runHarnessTrustLocalCAProbe(ctx context.Context, root string) (map[string]any, error) {

@@ -8,7 +8,6 @@
     "schema_revision",
     "app_id",
     "environment",
-    "authority",
     "key",
     "operation",
     "changed",
@@ -23,7 +22,7 @@
       "const": "scenery.config.change"
     },
     "schema_revision": {
-      "const": "sha256:c4aa7dc489b45c7d87a0d72d974829496ebc8b7c01d0cfc06fa1596d46e0cb61"
+      "const": "sha256:d30fbfac6fdf016564149921b12c01773f0792df5ca4061597ba0a0d8264d774"
     },
     "app_id": {
       "type": "string",
@@ -32,16 +31,6 @@
     "environment": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
-    },
-    "authority": {
-      "enum": [
-        "local",
-        "target"
-      ]
-    },
-    "target": {
-      "type": "string",
-      "minLength": 1
     },
     "key": {
       "type": "string",

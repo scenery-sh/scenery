@@ -7,11 +7,7 @@ import (
 )
 
 func renderConfigShow(w io.Writer, result configShowResult) {
-	authority := "this machine"
-	if result.Authority == "target" {
-		authority = "target " + result.Target
-	}
-	_, _ = fmt.Fprintf(w, "%s / %s (authority: %s)\n", result.AppID, result.Environment, authority)
+	_, _ = fmt.Fprintf(w, "%s / %s\n", result.AppID, result.Environment)
 	_, _ = fmt.Fprintf(w, "desired revision %s", result.DesiredRevision)
 	switch result.Applied.State {
 	case "applied", "active":

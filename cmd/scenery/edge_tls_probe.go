@@ -77,17 +77,8 @@ func edgeTLSServerReplied(err error) bool {
 	return false
 }
 
-// edgeProbeServerName picks the SNI for end-to-end probes through the
-// privileged listener: a domain Caddy actually serves proves the most, so an
-// enabled deploy domain wins over the synthetic local probe host.
-func edgeProbeServerName(paths localagent.Paths) string {
-	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
-	if err == nil {
-		for _, target := range registry.Targets {
-			if target.Enabled {
-				return target.Domain
-			}
-		}
-	}
+// edgeProbeServerName is the SNI for end-to-end probes through the privileged
+// listener.
+func edgeProbeServerName() string {
 	return "scenery-edge-probe." + localagent.DefaultRouteBaseDomain
 }

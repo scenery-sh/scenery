@@ -28,10 +28,6 @@ func (s *Server) routerMux() http.Handler {
 			s.handleTLSAllow(w, req)
 			return
 		}
-		if s.trustedPublicEdgeRequest(req) {
-			s.handlePublicEdgeRoute(w, req)
-			return
-		}
 		if s.trustedLocalPathRequest(req) {
 			sessionID := strings.TrimSpace(req.Header.Get("X-Scenery-Session"))
 			session, ok := s.registry.Get(sessionID)
@@ -103,98 +99,6 @@ func (r *Registry) sessionOwnerVerifies(session Session) bool {
 		owner.PID = ownerPID
 	}
 	return r.verifyOwner(owner) == nil
-}
-
-func (s *Server) handlePublicEdgeRoute(w http.ResponseWriter, req *http.Request) {
-	route, ok := s.publicRouteForHost(requestHost(req))
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	if !route.running {
-		http.Error(w, "app is not running", http.StatusServiceUnavailable)
-		return
-	}
-	s.handlePublicPathRoute(w, req, route.session, route.target)
-}
-
-func (s *Server) handlePublicPathRoute(w http.ResponseWriter, req *http.Request, session Session, target DeployTarget) {
-	requestPath := cleanRequestPath(req.URL.Path)
-	if isPublicRouteBlockedPath(requestPath) {
-		http.NotFound(w, req)
-		return
-	}
-	manifest := publicRouteManifest(session, target)
-	record, ok := routeForPath(manifest, requestPath)
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	backend, ok := session.Backends[record.Backend]
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	if isFrontendSessionBackend(record.Backend) {
-		if shouldRedirectPathPrefix(req, record) {
-			http.Redirect(w, req, record.Path, http.StatusMovedPermanently)
-			return
-		}
-		if isProtectedFrontendRoutePath(requestPath, record) {
-			http.NotFound(w, req)
-			return
-		}
-		s.proxyBackendWithOptions(w, req, backend, pathProxyOptions(sessionWithRouteManifest(session, manifest), record).withSPAFallback(shouldUseSPAFallback(req)))
-		return
-	}
-	s.proxyBackendWithOptions(w, req, backend, pathProxyOptions(sessionWithRouteManifest(session, manifest), record))
-}
-
-func isPublicRouteBlockedPath(value string) bool {
-	value = cleanRequestPath(value)
-	for _, prefix := range PublicBlockedPathPrefixes() {
-		if value == prefix || strings.HasPrefix(value, prefix+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func publicRouteManifest(session Session, target DeployTarget) RouteManifest {
-	baseURL := "https://" + strings.ToLower(strings.TrimSpace(target.Domain))
-	records := map[string]RouteRecord{}
-	root := normalizeRouteName(target.RootService)
-	if isFrontendRouteName(root) {
-		if _, ok := session.Backends[root]; ok {
-			records["root"] = RouteRecord{Name: "root", Kind: publicRouteKind(root), URL: joinRouteURL(baseURL, "/"), Path: "/", Backend: root}
-		}
-	}
-	if _, ok := session.Backends[RouteAPI]; ok {
-		records[RouteAPI] = RouteRecord{Name: RouteAPI, Kind: RouteAPI, URL: joinRouteURL(baseURL, "/api/"), Path: "/api/", StripPrefix: "/api", Backend: RouteAPI}
-	}
-	for name := range session.Backends {
-		name = normalizeRouteName(name)
-		if !isFrontendRouteName(name) || name == root {
-			continue
-		}
-		routePath := "/" + name + "/"
-		records[name] = RouteRecord{Name: name, Kind: "frontend", URL: joinRouteURL(baseURL, routePath), Path: routePath, StripPrefix: strings.TrimSuffix(routePath, "/"), Backend: name}
-	}
-	return RouteManifest{
-		ArtifactIdentity: routeManifestIdentity(),
-		Mode:             RouteModePath,
-		BaseURL:          baseURL,
-		Root:             root,
-		Worktree:         session.RouteManifest.Worktree,
-		Routes:           normalizeRouteRecords(records),
-	}
-}
-
-func publicRouteKind(backend string) string {
-	if isFrontendRouteName(backend) {
-		return "frontend"
-	}
-	return backend
 }
 
 func sessionWithRouteManifest(session Session, manifest RouteManifest) Session {
@@ -439,12 +343,6 @@ func isProtectedFrontendRoutePath(requestPath string, record RouteRecord) bool {
 	return false
 }
 
-// PublicBlockedPathPrefixes is the shared protected top-level path contract
-// used by both the agent proxy and the managed Caddy static edge.
-func PublicBlockedPathPrefixes() []string {
-	return []string{PathModeRuntimePrefix, "/__scenery"}
-}
-
 // FrontendProtectedPathPrefixes are control/data prefixes that must never be
 // swallowed by a frontend SPA, including beneath a former named root mount.
 func FrontendProtectedPathPrefixes() []string {
@@ -529,10 +427,6 @@ func (s *Server) trustedEdgeRequest(req *http.Request) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func (s *Server) trustedPublicEdgeRequest(req *http.Request) bool {
-	return s.trustedEdgeRequest(req) && strings.TrimSpace(req.Header.Get("X-Scenery-Public-Edge")) == "1"
 }
 
 func (s *Server) trustedLocalPathRequest(req *http.Request) bool {
