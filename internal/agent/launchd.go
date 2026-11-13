@@ -229,7 +229,7 @@ func ReconcileAgentLaunchd() (bool, error) {
 	}
 	exe, paths, opts, err := parseAgentLaunchdPlist(data)
 	if err != nil {
-		return false, fmt.Errorf("the installed supervised agent plist %s is not one Scenery renders (%w)", plistPath, err)
+		return false, fmt.Errorf("the installed supervised agent plist %s is not one Scenery renders (%w); reinstall it with scenery system agent install", plistPath, err)
 	}
 	rendered := AgentLaunchdPlist(exe, paths, opts)
 	if rendered == string(data) {

@@ -685,10 +685,9 @@ Landing gates for the machine that runs the local public edge: run `scenery
 deploy teardown` with a binary that still has the command before installing
 this one, because its `dev.scenery.deploy-resume` LaunchAgent invokes `scenery
 deploy resume`; and remove the `deploy` block from each application's
-`.scenery.json`, which is now an unknown field. Nothing installs the
-`dev.scenery.agent` supervisor any more: `InstallAgentLaunchd` and
-`RemoveAgentLaunchd` have no caller, while restart still maintains an installed
-job. Whether a `system agent` install command replaces them is open.
+`.scenery.json`, which is now an unknown field. `scenery system agent
+install|uninstall` installs and removes the `dev.scenery.agent` supervisor,
+which `deploy setup` and `deploy teardown` used to do.
 
 Before landing, on a host with no other `scenery-pg-*` probe running, run
 `go run ./scripts/verify --probe <id> --summary --write` for `auth` (the

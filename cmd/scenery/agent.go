@@ -90,8 +90,15 @@ type pruneResponse struct {
 }
 
 func agentCommand(args []string) error {
-	if len(args) > 0 && args[0] == "restart" {
-		return agentRestartCommand(args[1:])
+	if len(args) > 0 {
+		switch args[0] {
+		case "restart":
+			return agentRestartCommand(args[1:])
+		case "install":
+			return agentInstallCommand(args[1:])
+		case "uninstall":
+			return agentUninstallCommand(args[1:])
+		}
 	}
 	opts, err := parseAgentArgs(args)
 	if err != nil {

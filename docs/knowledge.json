@@ -2879,6 +2879,7 @@
         "docs/schemas/scenery.validation.plan.schema.json",
         "docs/schemas/scenery.validation.result.schema.json",
         "docs/schemas/scenery.agent.restart.schema.json",
+        "docs/schemas/scenery.agent.supervisor.schema.json",
         "docs/schemas/scenery.agent.status.schema.json",
         "docs/schemas/scenery.db.server.stop.schema.json",
         "docs/schemas/scenery.dev.detach.schema.json",

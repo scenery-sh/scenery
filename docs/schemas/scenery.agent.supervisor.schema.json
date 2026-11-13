@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.agent.supervisor.schema.json",
+  "title": "scenery.agent.supervisor",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "action",
+    "changed",
+    "label",
+    "path"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.agent.supervisor"
+    },
+    "schema_revision": {
+      "const": "sha256:07a7cacacb0faad6efca997f642ad7fb05abac973be7974b58eb2029b31edcb4"
+    },
+    "action": {
+      "enum": ["install", "uninstall"]
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "label": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "pid": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false
+}
