@@ -30,6 +30,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.doctor.result":             "sha256:1c9484e483506f4a9a82a134e5f4a84e6664166b4051cfe9bbe680d477bedaa6",
 	"scenery.down":                      "sha256:650b1258f522f112e9f91c1114af6affc47e4dde0470dd188b0124454446b826",
 	"scenery.prune":                     "sha256:212df0b20151171c7ec70d521698c5e66146b55c17f84719d2b919cdd63060a3",
+	"scenery.prune.orphaned":            "sha256:beee3ef831b18116f5cd2be34716832232eb60bf44d87e3a6d73c948629f7215",
 	"scenery.dev-runtime.status":        "sha256:50d87d2565ab839da6883c12d91522fad5f9c9cca1efd93f92e214f8ad8a4b13",
 	"scenery.inspect.build":             "sha256:f34b323c11b11faa7c4000f779549ac859eb689c4d0f6b6073473d41924b6df3",
 	"scenery.inspect.generators":        "sha256:ed1b86180449ebfd88a763ed642b7988d284b8f02f00b649bda1bffc9c1183bc",
@@ -88,8 +89,9 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.task.list":                 "sha256:7cbb5e4355f533e353de7e3171a2b3cb4b60c30675d884ca52733295f89a4c99",
 	"scenery.durable.jobs":              "sha256:e680c8870c213d3fba5b8aa35fc7b9fda71e95fc526330f529c108728519f948",
 	"scenery.version":                   "sha256:7b2f75aa63a70fdeec0ef99ff740321fcd4cebcb2b45f0e177ee4884519a4fa9",
-	"scenery.worktree.create":           "sha256:7d2585e9045317d17a142fd91ceb4b38d0f60f8223abc31d30736697424fa5ea",
+	"scenery.worktree.create":           "sha256:1b1722d0e78a288534309bcd8181fc6866bb8de8e6faef8df6bdf4e259e046cf",
 	"scenery.worktree.list":             "sha256:2d42d90ddd63a94c1e0fe12a1cf04023b7ccc167534c32751dc06a2714aed237",
+	"scenery.worktree.prepare":          "sha256:176b72aad72816a5069ee1dc39eb26ee906007bb71326b462d46713ee4696d6f",
 	"scenery.worktree.remove":           "sha256:c9a11366bd39db3ae470555a433ecb93d82459f38ef0f645cd2c0fe456f08131",
 	"scenery.worktree.upgrade":          "sha256:eec3450506fc0397847d3fc172d6cd1154f8a836fba274e63ca1466b8267930b",
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -14,6 +15,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/stateupgrade"
+	"scenery.sh/internal/storagefs"
 )
 
 func TestWorktreeUpgradeKeepsExplicitRootBeforeAdmission(t *testing.T) {
@@ -196,6 +198,40 @@ func TestWorktreeUpgradePreviewsAppliesAndValidatesSchema(t *testing.T) {
 	for _, result := range []worktreeUpgradeResult{preview, applied, current} {
 		if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", worktreeUpgradeKind+".schema.json"), result); len(diagnostics) != 0 {
 			t.Fatalf("upgrade schema: %+v", diagnostics)
+		}
+	}
+}
+
+func TestWorktreeUpgradeFailureNamesTheUpgrade(t *testing.T) {
+	fixture := t.TempDir()
+	root, home := filepath.Join(fixture, "app"), filepath.Join(fixture, "home")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(appcfg.ConfigPath(root), []byte(`{"name":"app","envs":{"local":{"default":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agentPaths := localagent.PathsForHome(home)
+	commandAgentPathsOverride = &agentPaths
+	t.Cleanup(func() { commandAgentPathsOverride = nil })
+	// The checkout has no retained state, so the upgrade itself refuses.
+	var output bytes.Buffer
+	err := runWorktreeUpgrade(t.Context(), &output, worktreeOptions{AppRoot: root, JSON: true})
+	if cliExitCode(err) != 3 || !errors.Is(err, os.ErrNotExist) || output.Len() != 0 {
+		t.Fatalf("upgrade without retained state: %v, output %q", err, output.String())
+	}
+	if message := err.Error(); !strings.HasPrefix(message, "managed worktree retained-state upgrade: ") || strings.Contains(message, "PostgreSQL") || strings.Contains(message, "credentials") {
+		t.Fatalf("diagnostic = %q", message)
+	}
+	// A storage cause keeps the upgrade's diagnostic instead of a storage one.
+	corrupt := &cliDiagnosticError{}
+	storageErr := runWorktreeUpgradeError(fmt.Errorf("%w: unknown file", storagefs.ErrCorrupt))
+	if !errors.As(storageErr, &corrupt) || !errors.Is(storageErr, storagefs.ErrCorrupt) || cliExitCode(storageErr) != 3 {
+		t.Fatalf("storage cause: %v", storageErr)
+	}
+	for _, failed := range []error{err, storageErr} {
+		if diagnostic := cliErrorDiagnostic(failed); diagnostic.Code != "SCN8003" || !strings.HasPrefix(diagnostic.Message, "managed worktree retained-state upgrade: ") {
+			t.Fatalf("JSON diagnostic = %+v", diagnostic)
 		}
 	}
 }

@@ -35,13 +35,28 @@ type rpcResponse struct {
 
 type worktreeCreateResult struct {
 	cliPayloadIdentity
-	OK          bool   `json:"ok"`
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Branch      string `json:"branch"`
-	From        string `json:"from,omitempty"`
-	NextCommand string `json:"next_command"`
-	Message     string `json:"message,omitempty"`
+	OK          bool                    `json:"ok"`
+	Name        string                  `json:"name"`
+	Path        string                  `json:"path"`
+	Branch      string                  `json:"branch"`
+	From        string                  `json:"from,omitempty"`
+	NextCommand string                  `json:"next_command"`
+	Inputs      []worktreePreparedInput `json:"inputs,omitempty"`
+	Message     string                  `json:"message,omitempty"`
+}
+
+type worktreePreparedInput struct {
+	Path   string `json:"path"`
+	Method string `json:"method"`
+}
+
+type worktreePrepareResult struct {
+	cliPayloadIdentity
+	OK      bool                    `json:"ok"`
+	Path    string                  `json:"path"`
+	Source  string                  `json:"source,omitempty"`
+	Inputs  []worktreePreparedInput `json:"inputs"`
+	Message string                  `json:"message,omitempty"`
 }
 
 type worktreeListResult struct {

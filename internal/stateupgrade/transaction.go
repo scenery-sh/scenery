@@ -5,6 +5,7 @@ package stateupgrade
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,8 @@ const (
 )
 
 var ErrPrecondition = errors.New("retained-state upgrade precondition failed")
+
+var errBackupSize = fmt.Errorf("%w: metadata backup exceeds its bounded transaction size", ErrPrecondition)
 
 // Change contains private metadata, potentially including credentials. Never
 // serialize changes into a public CLI response or a diagnostic.
@@ -102,6 +105,7 @@ func newPlan(root string, changes []Change) (Plan, error) {
 	}
 	seen := make(map[string]bool, len(changes))
 	var size int64
+	backupBytes := int64(backupEnvelopeBytes)
 	for _, change := range changes {
 		if !validMetadataPath(change.Path) || seen[change.Path] {
 			return Plan{}, fmt.Errorf("%w: invalid or duplicate metadata path", ErrPrecondition)
@@ -111,8 +115,9 @@ func newPlan(root string, changes []Change) (Plan, error) {
 			return Plan{}, err
 		}
 		size += int64(len(change.Before)) + int64(len(change.After))
-		if size > maxBackupBytes/2 {
-			return Plan{}, fmt.Errorf("%w: metadata backup exceeds its bounded transaction size", ErrPrecondition)
+		backupBytes += encodedChangeBytes(change)
+		if size > MaxSelectionBytes || backupBytes > backupLimit {
+			return Plan{}, errBackupSize
 		}
 	}
 	encoded, err := json.Marshal(struct {
@@ -125,6 +130,16 @@ func newPlan(root string, changes []Change) (Plan, error) {
 	}
 	sum := sha256.Sum256(encoded)
 	return Plan{Revision: "sha256:" + hex.EncodeToString(sum[:]), Changes: changes}, nil
+}
+
+// encodedChangeBytes is the exact size of one change in the encoded backup,
+// including the separator that follows it.
+func encodedChangeBytes(change Change) int64 {
+	const framing = `{"path":,"kind":,"before":"","after":""},`
+	path, _ := json.Marshal(change.Path)
+	kind, _ := json.Marshal(change.Kind)
+	return int64(len(framing) + len(path) + len(kind) +
+		base64.StdEncoding.EncodedLen(len(change.Before)) + base64.StdEncoding.EncodedLen(len(change.After)))
 }
 
 func validateChange(change Change) error {
@@ -157,7 +172,7 @@ func (s *Store) pending() (*Plan, error) {
 	if !validDigest(pending.Revision) {
 		return nil, fmt.Errorf("%w: invalid pending revision", ErrPrecondition)
 	}
-	data, err = s.read(backupFile(pending.Revision), maxBackupBytes)
+	data, err = s.read(backupFile(pending.Revision), backupLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -200,6 +215,9 @@ func (s *Store) Apply(plan Plan, expected string) (string, error) {
 	data, err := json.Marshal(saved)
 	if err != nil {
 		return "", err
+	}
+	if int64(len(data)) > backupLimit {
+		return "", errBackupSize
 	}
 	if err := s.ensureBackup(name, data); err != nil {
 		return "", err

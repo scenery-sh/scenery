@@ -14,8 +14,10 @@
   boundary. `agent-owner.json` records the agent lock holder for stale-agent
   stops.
 - `worktree_*` owns canonical-root identity, retained capability records,
-  lifetime/operation locks, observation-only orphan discovery, and the
-  supervisor-embedded control server. Machine edge/deploy state remains separate.
+  lifetime/operation locks, observation-only orphan discovery, the
+  lock-held removal of an absent checkout's state directory
+  (`worktree_orphan.go`, the one tolerant record read that authorizes a
+  deletion), and the supervisor-embedded control server. Machine edge/deploy state remains separate.
 - Keep command output payload identities in `internal/machine` and edge process lifecycle in `internal/edge`.
 
 ## Local Contracts

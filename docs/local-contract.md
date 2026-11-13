@@ -372,7 +372,7 @@ Implemented now:
 - `scenery db reset`
 - `scenery db drop`
 - `scenery snapshot save|verify|load`
-- `scenery worktree create|list|remove|upgrade`
+- `scenery worktree create|list|remove|prepare|upgrade`
 - `scenery task list|inspect|run`
 - `scenery task run <name>`
 - `scenery task run <domain>:<name>`
@@ -408,7 +408,7 @@ Dev-only or beta surface:
 - `scenery db reset`
 - `scenery db drop`
 - `scenery snapshot save|verify|load`
-- `scenery worktree create|list|remove|upgrade`
+- `scenery worktree create|list|remove|prepare|upgrade`
 - `scenery generate`
 - `scenery task list|inspect|run`
 - `scenery task run <name>`
@@ -847,6 +847,7 @@ scenery ps [-o json] [--app-root <path>] [--watch]
 scenery ps --wait [--timeout <duration>] [--app-root <path>] [-o json]
 scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
 scenery prune --older-than <duration> [--app-root <path>] [--db] [--state] [--all] [--build-cache] [--preview] [-o json]
+scenery prune --orphaned --older-than <duration> [--yes --expect-revision <digest>] [-o json]
 scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] -o json
 scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--follow] [-o jsonl]
@@ -1293,6 +1294,7 @@ scenery db server status|start|stop|logs [--app-root <path>] [-o json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
 scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [-o json]
+scenery worktree prepare [--app-root <path>] [-o json]
 scenery worktree upgrade [--app-root <path>] [--yes --expect-revision <digest>] [-o json]
 scenery framework use [--source <checkout>] [--app-root <path>] [-o human|json]
 scenery framework inspect [--runtime] [--app-root <path>] [-o human|json]
@@ -1408,6 +1410,19 @@ identity is available but desired config is absent or invalid, it displays AppID
 
 `scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from NUL-delimited `git worktree list --porcelain -z`, preserving embedded newlines, spaces, tabs, quotes and Unicode in registered checkout paths. Successful Git warnings on stderr are separate from this inventory, so LIST remains complete and removal still refuses all distinct matching checkouts. Branch selection compares the decoded literal branch name: Git’s `refs/heads/` transport prefix is removed once, so a branch named `refs/heads/target` does not match a `target` request solely by branch. Git failure retains its existing exit-3/JSON-`SCN8003` diagnostic and human stderr. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
 
+Git never carries an ignored file into a new checkout, so a linked worktree
+lacks every Git-ignored file its own `database.seed.commands[].inputs`
+declare. CREATE gives the new checkout each such input that the creating
+checkout holds as a regular file, and reports them as `inputs` (`path`,
+`method` `clone` or `copy`). `scenery worktree prepare -o json` does the same
+for a checkout created by Git alone, from the repository's main checkout at
+the same relative app root, and emits `scenery.worktree.prepare` with `path`,
+`source` and `inputs`; in the main checkout it receives nothing. Only a path
+that is absent in the receiving checkout, ignored there by Git and free of
+symlinks is created, as a clone where the filesystem clones files; tracked or
+unignored paths, existing files and undeclared files are never touched. A seed
+plan that fails on a missing input names this command.
+
 CREATE returns a shell-style `next_command` and prints the same complete value
 after `next:` in human output. Existing command reproduction formatting quotes
 the literal target as one POSIX shell operand, including spaces, tabs, newlines,
@@ -1466,8 +1481,10 @@ the pending preview's original revision with the same target specification;
 only matching before/after bytes can resume. Completion retains the backup and
 its `completed` marker. A new preview of fully current state reports zero
 changes; an obsolete completed approval requires a fresh preview. Records are
-bounded to 64 KiB, storage selection to 64 MiB of before/after metadata, and the
-encoded transaction backup to 256 MiB. See the
+bounded to 64 KiB, storage selection to 128 MiB of before/after metadata, and the
+encoded transaction backup, paths and kinds included, to 256 MiB; a preview
+refuses a selection whose backup would be larger. A failed upgrade reports
+`managed worktree retained-state upgrade: <cause>`. See the
 [retained-state upgrade runbook](runbooks/worktree-state-upgrade.md).
 
 `db list` derives service bindings from the current compiled SQL requirements,
@@ -1616,7 +1633,8 @@ Command split:
   reports `scenery system edge privileged uninstall` as the helper removal
   command.
 - `scenery down` stops only the selected worktree's verified runtime children and managed PostgreSQL container, preserving retained SQL and worktree storage data. `--db` also drops its existing managed app database without deleting the cluster volume or allocating an absent database; external DSNs are refused. `--state` removes the selected disposable `.scenery/sessions/<id>` state, and `--all` enables both. JSON reports `scenery.down`. Neither flag deletes worktree storage data; namespace retirement requires `scenery storage cleanup --purge --yes --expect-revision <digest>` after a fresh preview.
-- `scenery prune --older-than <duration>` prunes eligible inactive worktree session records. Durations accept Go notation such as `336h` and day shorthand such as `14d`; a missing, malformed or non-positive duration is an invalid request that names the flag and an example, not an internal failure. Default prune deletes neither session files nor databases; `--state` adds disposable session files. `--db` requires one exact absolute `--app-root` and removes its entire verified retained cluster, container, and volume, not just the app database; `--all` enables both scopes. A live owner or active restore excludes cleanup. Explicit whole-cluster deletion may abandon an interrupted restore only after acquiring both ownership and operation locks; failed deletion retains the recovery authority. Incompatible, ambiguous, and external targets fail closed. Victoria history and retained storage namespaces remain outside prune. `scenery.prune.resources` identifies each removed root/resource/container/volume and the `worktree-cluster` scope.
+- `scenery prune --older-than <duration>` prunes eligible inactive worktree session records. Durations accept Go notation such as `336h` and day shorthand such as `14d`; a missing, malformed or non-positive duration is an invalid request that names the flag and an example, not an internal failure. Default prune deletes neither session files nor databases; `--state` adds disposable session files. `--db` requires one exact absolute `--app-root` and removes its entire verified retained cluster, container, and volume, not just the app database; `--all` enables both scopes. A live owner or active restore excludes cleanup. Explicit whole-cluster deletion may abandon an interrupted restore only after acquiring both ownership and operation locks; failed deletion retains the recovery authority. Incompatible, ambiguous, and external targets fail closed. Victoria history and retained storage namespaces remain outside this prune; only `--orphaned` removes them, for checkouts that no longer exist. `scenery.prune.resources` identifies each removed root/resource/container/volume and the `worktree-cluster` scope.
+- `scenery prune --orphaned --older-than <duration>` is the one removal of a whole retained worktree state directory (`<agent home>/worktrees/<key>`: storage namespaces, control logs, Victoria history, restore archives and the retained record with its database credentials) and of the managed database container and volume that record names. It selects only the state of a checkout that no longer exists: the directory key authenticates the recorded app root, the record belongs to the local user, the root is absent and the record was last written before the cutoff. Such a record is read tolerantly, because `scenery worktree upgrade` needs the checkout and no other command accepts incompatible metadata. Without `--yes` the command changes nothing and emits `scenery.prune.orphaned` with every orphaned record (`selected`, logical `bytes`, `database`, and a `reason` when it is kept), the `revision` of the selection and the exact `next` command. `--yes --expect-revision <revision>` removes exactly that selection and exits 3 without removing anything when the selection changed. A record's database is removed only on the Docker daemon the record names and only when the container and volume carry that worktree's root, application, user and instance labels; an unreachable or different daemon, foreign labels or unmanaged names keep the record. Each removal holds the directory's owner and operation locks, re-reads the record, removes and confirms the absence of the container and volume, and only then deletes the directory, so a failed removal keeps the credentials and can be retried; it reports `removed: false` with the reason, counts in `failed` and the command exits 3. `--orphaned` takes no `--app-root`, `--db`, `--state`, `--all` or `--build-cache`; the build workspaces of absent checkouts stay under `--build-cache`.
 - `scenery prune --older-than <duration> --build-cache` additionally reclaims disposable build state and reports it under `scenery.prune.build_cache` (`null` without the flag; `build_cache_cleanup` records the request). It removes the development cache's private workspaces (`<cache>/build/<app>-<hash>`, see `SCENERY_DEV_CACHE_DIR`) whose recorded app root no longer exists, regardless of age, and those whose build state was last written before the cutoff; every preparation records its app root and name in the workspace's `.scenery-workspace.json`, so a workspace an older Scenery prepared is judged by age alone until its next build. A workspace whose `.scenery-workspace.lock` another process holds, or whose app root has a `running` or `unavailable` worktree runtime, is kept and reported as `locked` or `active`; shared content-addressed binaries and compositions are never touched. With an explicit `--app-root` the scope is that root only: its workspace, and under its `.scenery/framework/` every source snapshot, producer directory and interrupted staging directory that neither `.scenery/build/framework.json` nor `.scenery/build/runtime-framework.json` names, whatever its age. A selection file that exists but cannot be read fails the framework prune closed (exit 3), and a framework state root under preparation is reported `locked`. Each workspace and framework entry carries its path, size in bytes, whether it was removed and why; `bytes_reclaimed` sums the removals. Postgres, Victoria and session state stay under their own flags.
 - Starting `scenery up` for an app root requires exclusive ownership of that app root's live dev runtime. If another verified live owner already controls the same app root, the new invocation does not start a second supervisor and does not steal ownership: it reports the existing runtime and exits `0` (see the `scenery up` and `--detach` entries above). Ownership races that reach session registration still fail closed with an "already running" error. If the recorded owner is dead or its fingerprint no longer matches, the new owner may claim the runtime and clean the stale session's recorded children (app, service processes, workers, assistant helpers and managed frontends), each only while it still verifies against the identity recorded when it was registered. A recorded child stays owned after its supervisor is gone. A process is never selected by its command line, environment, listening port or parent; a process signal reaches a process group only when the recorded PID leads it. It must not clean other app roots, other worktrees, or unrelated user processes.
 - Session owner checks treat `owner_pid` as the effective owner. `owner.pid` is the fingerprint for that same PID, not an independent owner field. If the stored owner fingerprint object points at a different stale PID, Scenery refreshes it on the next registration and must not delete or prune the session while the effective `owner_pid` is still live. Dev supervisors unregister sessions with an owner-conditional delete that includes the recorded owner fingerprint; if an older owner exits after ownership moved, or if the same PID now has a different recorded fingerprint, the delete is ignored and the newer session record remains registered.
@@ -2431,6 +2449,43 @@ Rules:
   made or does not verify is removed and the tree is copied and verified file
   by file, as on other platforms. The `assistant.cache_copy` step's `read_ms`
   and `hash_ms` add up all readers and can exceed `duration_ms`.
+- A prepared assistant tree is canonical, so every worktree with the same
+  assistant inputs, Node lock and toolchain has the same cache key. A worktree
+  that has no entry for a key adopts the machine's entry at
+  `<agent home>/shared/assistant-prepared/<key>` instead of installing and
+  building, and a worktree that builds or already holds an entry publishes it
+  there once. An adopted entry is verified by key and by every path and byte
+  exactly like one the worktree built. The machine keeps the eight most
+  recent entries; deleting the directory only makes worktrees build again.
+- A framework producer prepared for an application names its source snapshot
+  relative to its own executable (`../../../../source/<digest>` from
+  `.scenery/framework/bin/<digest>/<platform>/<executable digest>/`), so the
+  producer of one framework source is the same bytes in every application
+  root and worktree, and so is every build identity that names the producer.
+  A worktree whose pinned framework and source equal another's therefore has
+  the same linked identity for every development process.
+- Linked development process executables are also kept in the machine's
+  store at `<agent home>/shared/process-executables/<process>-<identity>` with
+  their digest records. A build that needs an identity this workspace has not
+  linked adopts the stored executable, a clone where the filesystem clones
+  files, and proves it like a retained one: its bytes must have the digest
+  its link recorded. Such a build records a `process.adopt` step with the
+  adopted and remaining counts; only the remaining processes are linked, and
+  newly linked executables are published to the store. The store keeps the
+  160 most recently used executables; deleting it only makes workspaces link
+  again. Both stores live beneath the agent home, so a verification
+  run or probe with its own agent home shares nothing with development.
+- An installed archive toolchain artifact is also kept at
+  `<agent home>/shared/toolchain-artifacts/<name>/<version>/<platform>/<entry digest>`,
+  where the digest names the whole declared platform entry: archive checksum
+  and extraction settings. A toolchain store that lacks an artifact installs a
+  clone of that copy and writes its own install record, without downloading or
+  extracting, and also when downloads are disabled; a store that installs or
+  already holds an artifact publishes it once. Clones share their blocks, so
+  another worktree's Node toolchain takes no disk space. Sharing needs a
+  filesystem that clones directories; elsewhere, and for artifacts built from
+  source or by a declared build command, every store installs from its
+  declared source. Deleting the directory only makes stores install again.
 - The first generation of a development session retains and preflights every
   service process as soon as its runtime environment is resolved, beside
   database setup; a preflight is a read-only handshake that opens no database.
@@ -2485,6 +2540,7 @@ Implemented now:
 - [scenery.help.schema.json](schemas/scenery.help.schema.json)
 - [scenery.down.schema.json](schemas/scenery.down.schema.json)
 - [scenery.prune.schema.json](schemas/scenery.prune.schema.json)
+- [scenery.prune.orphaned.schema.json](schemas/scenery.prune.orphaned.schema.json)
 - [scenery.metrics.query.schema.json](schemas/scenery.metrics.query.schema.json)
 - [scenery.telemetry.schema.json](schemas/scenery.telemetry.schema.json)
 - [scenery.inspect.docs.schema.json](schemas/scenery.inspect.docs.schema.json)

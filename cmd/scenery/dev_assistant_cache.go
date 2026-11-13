@@ -13,11 +13,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/assistantadapter/eve"
+	"scenery.sh/internal/filemeta"
 	"scenery.sh/internal/runtimeassets"
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/toolchain"
@@ -31,6 +34,11 @@ type assistantOverlayCache struct {
 	path   string
 	key    string
 	onCopy func(assistantCopyStats, error)
+	// shared is this key's entry in the machine's cache, or empty. A prepared
+	// tree is canonical, so every worktree with the same inputs has the same
+	// key: a worktree that misses locally adopts the shared entry instead of
+	// installing and building again, and publishes what it builds.
+	shared string
 }
 
 // A cache record identifies its inputs and the verified tree. The tree is
@@ -100,6 +108,9 @@ func assistantOverlayInputDigest(root string) (string, error) {
 
 func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bool, error) {
 	info, err := os.Lstat(c.path)
+	if errors.Is(err, os.ErrNotExist) && c.adoptShared(ctx) {
+		info, err = os.Lstat(c.path)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -181,6 +192,120 @@ func (c *assistantOverlayCache) publish(ctx context.Context, overlay string) err
 		// Another owner may have published the same exact inputs. Never overwrite
 		// its output; the next hit still verifies its retained bytes independently.
 		if info, statErr := os.Lstat(c.path); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// assistantSharedCacheLimit bounds the prepared entries the machine's cache
+// keeps; the oldest are removed when another is shared.
+const assistantSharedCacheLimit = 8
+
+// sharedAssistantPreparedPath names key's entry in the machine's cache beneath
+// the agent home, which every verification run and probe has of its own, or
+// is empty when that home is unavailable.
+func sharedAssistantPreparedPath(key string) string {
+	root := sharedCacheRoot()
+	if root == "" || key == "" {
+		return ""
+	}
+	return filepath.Join(root, "assistant-prepared", key)
+}
+
+// sharedCacheRoot is the directory of artifacts every worktree of this
+// machine may adopt, beneath the agent home.
+func sharedCacheRoot() string {
+	paths, err := localagent.DefaultPaths()
+	if err != nil || strings.TrimSpace(paths.Home) == "" {
+		return ""
+	}
+	return filepath.Join(paths.Home, "shared")
+}
+
+// adoptShared copies the machine's entry for this key into the worktree's
+// cache and reports whether it is there now. The copy proves nothing: restore
+// verifies the record's key and every path and byte of the tree exactly as it
+// verifies an entry this worktree built.
+func (c *assistantOverlayCache) adoptShared(ctx context.Context) bool {
+	if c.shared == "" {
+		return false
+	}
+	if info, err := os.Lstat(c.shared); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	return copyAssistantCacheEntry(ctx, c.shared, c.path) == nil
+}
+
+// share publishes this worktree's entry to the machine's cache when it has
+// none. Sharing is a convenience: its failure changes nothing here.
+func (c *assistantOverlayCache) share(ctx context.Context) {
+	if c.shared == "" {
+		return
+	}
+	if _, err := os.Lstat(c.shared); err == nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(c.shared), 0o700); err != nil {
+		return
+	}
+	if copyAssistantCacheEntry(ctx, c.path, c.shared) != nil {
+		return
+	}
+	entries, err := os.ReadDir(filepath.Dir(c.shared))
+	if err != nil || len(entries) <= assistantSharedCacheLimit {
+		return
+	}
+	type entry struct {
+		name     string
+		modified time.Time
+	}
+	var kept []entry
+	for _, item := range entries {
+		if info, err := item.Info(); err == nil && item.IsDir() && !strings.HasPrefix(item.Name(), ".") {
+			kept = append(kept, entry{item.Name(), info.ModTime()})
+		}
+	}
+	sort.Slice(kept, func(i, j int) bool { return kept[i].modified.After(kept[j].modified) })
+	for _, stale := range kept[min(len(kept), assistantSharedCacheLimit):] {
+		if stale.name != filepath.Base(c.shared) {
+			_ = os.RemoveAll(filepath.Join(filepath.Dir(c.shared), stale.name))
+		}
+	}
+}
+
+// copyAssistantCacheEntry gives destination a copy of the cache entry at
+// source, a record and its tree, staged beside destination and renamed into
+// place. An entry another owner published meanwhile is left as it is.
+func copyAssistantCacheEntry(ctx context.Context, source, destination string) error {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(destination), ".stage-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(stage) }()
+	record, err := os.ReadFile(filepath.Join(source, "record.json"))
+	if err != nil {
+		return err
+	}
+	tree := filepath.Join(stage, "tree")
+	if filemeta.Clone(filepath.Join(source, "tree"), tree) != nil {
+		_ = os.RemoveAll(tree)
+		if err := os.Mkdir(tree, 0o755); err != nil {
+			return err
+		}
+		if err := copyAssistantPreparedTree(ctx, filepath.Join(source, "tree"), tree, nil); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(stage, "record.json"), record, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(stage, destination); err != nil {
+		if info, statErr := os.Lstat(destination); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
 			return nil
 		}
 		return err
@@ -285,7 +410,7 @@ func cloneAssistantPreparedTree(ctx context.Context, source, destination string,
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return cloned, err
 		}
-		if err := cloneFileOrTree(filepath.Join(source, name), target); err != nil {
+		if err := filemeta.Clone(filepath.Join(source, name), target); err != nil {
 			// A failed clone may leave part of the entry behind.
 			return append(cloned, name), err
 		}

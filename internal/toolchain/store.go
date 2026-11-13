@@ -133,7 +133,14 @@ func (s *Store) Sync(ctx context.Context, opts Options) (Status, error) {
 			continue
 		}
 		status := s.artifactStatus(artifact, opts.Platform, true)
+		entry, declared := artifact.PlatformArtifact(opts.Platform)
 		if status.Status == "installed" {
+			if declared {
+				s.shareArtifact(artifact, entry, opts.Platform)
+			}
+			continue
+		}
+		if declared && s.adoptSharedArtifact(artifact, entry, opts.Platform) {
 			continue
 		}
 		if isFalseEnv(envpolicy.Get("SCENERY_TOOLCHAIN_DOWNLOAD")) {
@@ -302,21 +309,11 @@ func (s *Store) installArtifact(ctx context.Context, artifact Artifact, platform
 	if err := os.Rename(tmpDir, finalDir); err != nil {
 		return err
 	}
-	meta := InstallMetadata{
-		ArtifactIdentity: machine.NewArtifactIdentity(installMetadataKind, installMetadataSchemaDescriptor),
-		Name:             artifact.Name,
-		Version:          artifact.Version,
-		Platform:         platform.String(),
-		ManifestSHA256:   s.manifestSHA256(),
-		SourceURL:        entry.URL,
-		SourceSHA256:     strings.ToLower(entry.SHA256),
-		InstalledAt:      time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	data, err = json.MarshalIndent(meta, "", "  ")
-	if err != nil {
+	if err := s.writeInstallMetadata(finalDir, artifact, entry, platform); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(finalDir, "install.json"), append(data, '\n'), 0o644)
+	s.shareArtifact(artifact, entry, platform)
+	return nil
 }
 
 func (s *Store) buildArtifact(ctx context.Context, data []byte, artifact Artifact, entry PlatformArtifact, dir string) error {
@@ -548,13 +545,8 @@ func cleanArchivePath(name string, strip int) (string, bool) {
 }
 
 func (s *Store) verifyInstall(artifact Artifact, entry PlatformArtifact, platform Platform) error {
-	metaPath := filepath.Join(s.artifactPlatformDir(artifact, platform), "install.json")
-	data, err := os.ReadFile(metaPath)
+	meta, err := readInstallMetadata(s.artifactPlatformDir(artifact, platform))
 	if err != nil {
-		return err
-	}
-	var meta InstallMetadata
-	if err := machine.DecodeArtifact(data, &meta, &meta.ArtifactIdentity, installMetadataKind, installMetadataSchemaDescriptor, "reinstall the toolchain artifact"); err != nil {
 		return err
 	}
 	if meta.Name != artifact.Name || meta.Version != artifact.Version || meta.Platform != platform.String() {

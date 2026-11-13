@@ -304,10 +304,13 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 		}
 	}
 	RecordStep(ctx, Step{Name: "process.reuse", StartedAt: reuseStarted, Duration: time.Since(reuseStarted), Cache: "retained_digest", Reason: "linked_identity_unchanged", OK: true, Actions: len(names) - len(pending), CacheMisses: len(pending)})
-	if len(pending) > 0 {
-		if err := linkDevelopmentProcesses(ctx, result, binaryRoot, pending); err != nil {
+	// Every pending process is new to this workspace and replaces a running
+	// one. Those another workspace already linked are adopted; the rest link.
+	if linking := adoptSharedDevelopmentProcesses(ctx, pending); len(linking) > 0 {
+		if err := linkDevelopmentProcesses(ctx, result, binaryRoot, linking); err != nil {
 			return nil, err
 		}
+		shareDevelopmentProcesses(linking)
 	}
 	keep := map[string]bool{}
 	result.DevelopmentProcessBinaries = result.DevelopmentProcessBinaries[:0]

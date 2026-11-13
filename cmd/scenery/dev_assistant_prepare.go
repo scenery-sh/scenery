@@ -192,6 +192,7 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 	if s.cacheOverlays {
 		cache, err = openAssistantOverlayCache(s.config.Root, overlay.Root, nodePath)
 		if err == nil {
+			cache.shared = sharedAssistantPreparedPath(cache.key)
 			s.traceAssistantCache(ctx, prepared.definition, cache)
 			var hit bool
 			hit, err = cache.restore(ctx, overlay.Root)
@@ -199,6 +200,8 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 				s.emitStep(ctx, prepared.definition, "assistant.cache_restore", started, "miss", "verified_private_overlay_copy", err)
 			}
 			if hit && err == nil {
+				// An entry this worktree already had seeds the machine's cache.
+				cache.share(ctx)
 				s.emitStep(ctx, prepared.definition, "assistant.dependencies", started, "hit", "verified_private_overlay_copy", nil)
 				s.emitStep(ctx, prepared.definition, "assistant.build", time.Now(), "hit", "verified_canonical_build", nil)
 				goto preparedOverlay
@@ -230,6 +233,7 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 			_ = os.RemoveAll(ownedRoot)
 			return fmt.Errorf("assistant prepared cache: %w", err)
 		}
+		cache.share(ctx)
 	}
 preparedOverlay:
 	prepared.overlay = overlay

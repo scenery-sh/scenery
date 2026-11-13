@@ -191,6 +191,7 @@ marker is found; it is not evidence that an app can compile or start.
 - Inspect `scenery ps -o json` for independent source, owner, metadata and serving freshness; retained candidate files do not attest a published generation. A verified owner stops after persistent source loss and retains separately owned data.
 - Use `scenery prune --older-than <duration> --preview -o json` to review exact selection, bytes and ownership before cleanup. Supervisor logs and invalid/unknown ownership remain retained.
 - Use `scenery prune --older-than <duration>` for non-destructive stale record and substrate-lease cleanup. Add `--state`, `--db`, or `--all` only when the corresponding deletion is intended; database cleanup refuses external DSNs.
+- Use `scenery prune --orphaned --older-than <duration> -o json` to list the retained state of checkouts that no longer exist, then run the reported `next` command (`--yes --expect-revision <revision>`) to delete exactly that selection: each state directory with its storage, logs and restore archives, and its verified managed database container and volume. This deletes application data of removed checkouts; records it keeps report why.
 - Use `scenery prune --older-than <duration> --build-cache` to reclaim development-cache workspaces whose app root is gone or whose build state is older than the cutoff; locked workspaces and those of running runtimes stay. Add `--app-root <path>` to limit the prune to that root and also drop its framework snapshots and producers that neither the current selection nor the retained runtime names. The next `scenery up` rebuilds anything removed.
 - Use `scenery doctor -o json` when startup reports an occupied Scenery port; it distinguishes duplicate Scenery owners from foreign listeners, and startup never falls back to an unadvertised router port.
 - Doctor is prerequisite evidence, not application readiness. Its managed-Postgres check only probes Docker availability, not database health, ownership or credentials. Known failed prerequisites exit 3; unavailable startup capabilities exit 4. Read diagnostic suggestions without printing credentials or copying raw Docker output into public errors.
@@ -259,6 +260,13 @@ runtime is stopped. Pending SQL and its checksum ledger commit atomically per
 service. Populated untracked schemas are blocked; explicit `--adopt-initial`
 requires the app's complete `initial_verification` predicate. Never substitute
 reset or a retained-metadata upgrade for application migration.
+
+`scenery worktree create` gives the new checkout the Git-ignored files its
+`database.seed.commands[].inputs` declare; in a checkout created by Git alone,
+run `scenery worktree prepare` once before `scenery up`. Worktrees of one
+application with the same framework pin share linked process executables,
+prepared assistant trees and toolchain artifacts as clones, so another
+worktree's first `up` links and downloads nothing that an earlier one has.
 
 App-owned presets should compose `worktree create`, verified DB/object snapshots,
 and declared native filesystem assets. Missing preset prerequisites should fail

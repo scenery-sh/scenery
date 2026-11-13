@@ -127,3 +127,15 @@ removed durable MCP tools and that scenario with them, and moved the fixture to
 an authenticated assistant surface. The remaining probe (a parked approval with
 a queued run, and overlapping streams) has not been run since that change.
 Until it has passed once the probe cannot gate a landing.
+
+### Source-Selected Worktrees Share No Executables
+
+- Area: worktree build identity
+- Severity: low
+- Owner: scenery runtime
+- Created: 2026-11-13
+- Review after: 2026-12-13
+
+Under a source-selected framework (`framework use --source`) the
+`module/<app>/go.mod` build input differs between worktrees of one commit, so
+such worktrees never share linked process executables; pinned worktrees do.

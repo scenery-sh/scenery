@@ -72,3 +72,16 @@ func TestFrameworkProducerLinkerFlagsStampDigestAndSourceRoot(t *testing.T) {
 		t.Error("invalid digest was accepted")
 	}
 }
+
+func TestFrameworkProducerLinkerFlagsAcceptAnExecutableRelativeRoot(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	flags, err := FrameworkProducerLinkerFlags(digest, "@executable/../../../../source/"+strings.Repeat("a", 64))
+	if err != nil || !strings.Contains(flags, "-X=scenery.sh/internal/app.linkedRepoRoot=@executable/../../../../source/"+strings.Repeat("a", 64)) {
+		t.Fatalf("flags = %q, %v", flags, err)
+	}
+	for _, root := range []string{"relative/source", "../source", "@executable/has space/'quote'"} {
+		if _, err := FrameworkProducerLinkerFlags(digest, root); err == nil {
+			t.Fatalf("root %q was accepted", root)
+		}
+	}
+}
