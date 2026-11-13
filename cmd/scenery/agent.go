@@ -73,6 +73,11 @@ type pruneOptions struct {
 	BuildCache bool
 	Preview    bool
 	JSON       bool
+	// Orphaned selects the retained state of checkouts that no longer exist;
+	// it applies only with Yes and the ExpectRevision its preview reported.
+	Orphaned       bool
+	Yes            bool
+	ExpectRevision string
 }
 
 type pruneResponse struct {
@@ -745,6 +750,9 @@ func parsePruneArgs(args []string) (pruneOptions, error) {
 	flags.BoolVar(&opts.All, "all", false, "")
 	flags.BoolVar(&opts.BuildCache, "build-cache", false, "")
 	flags.BoolVar(&opts.Preview, "preview", false, "")
+	flags.BoolVar(&opts.Orphaned, "orphaned", false, "")
+	flags.BoolVar(&opts.Yes, "yes", false, "")
+	flags.StringVar(&opts.ExpectRevision, "expect-revision", "", "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
@@ -761,6 +769,16 @@ func parsePruneArgs(args []string) (pruneOptions, error) {
 	}
 	if opts.OlderThan <= 0 {
 		return pruneOptions{}, &codedCLIError{err: fmt.Errorf("prune requires --older-than <duration>, for example 336h or 14d"), code: 2}
+	}
+	switch {
+	case !opts.Orphaned && (opts.Yes || opts.ExpectRevision != ""):
+		return pruneOptions{}, usageErrorf("--yes and --expect-revision belong only to scenery prune --orphaned")
+	case opts.Orphaned && (opts.AppRoot != "" || opts.DB || opts.State || opts.All || opts.BuildCache):
+		return pruneOptions{}, usageErrorf("scenery prune --orphaned selects every checkout that no longer exists; it takes no --app-root, --db, --state, --all or --build-cache")
+	case opts.Orphaned && opts.Yes != (opts.ExpectRevision != ""):
+		return pruneOptions{}, usageErrorf("scenery prune --orphaned applies only with both --yes and --expect-revision; omit both to preview")
+	case opts.Orphaned && opts.Yes && opts.Preview:
+		return pruneOptions{}, usageErrorf("--preview cannot be combined with --yes")
 	}
 	return opts, nil
 }
