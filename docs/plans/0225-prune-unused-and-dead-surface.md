@@ -655,44 +655,51 @@ so this file is sufficient without the audit file.
 
 ### Resume here
 
-2026-11-13: every removal step, the sweep and the review fixes are done; the
-Go tree, lint and the full verifier are green. The next action is landing.
-Landing gate: before a binary from this plan reaches onlv-209, confirm that
-the agent, edge, edge-target and deploy registry files under its `~/.scenery`
-carry `kind` and `schema_revision` identities; a file in the older
-`schema_version` shape now fails closed on load. Landing gate: this tree is
-based on `e007744d`; ONLV pins a later line, so after combining with it rerun
-compile, generate, check, vet and build against ONLV and one live `scenery up
---detach --wait ready` smoke. Owner confirmation outstanding for two recorded
-exceptions: the removed CRUD source of `table_page` and the retained MCP
-federation layer.
+2026-11-13: every removal step, the sweep and the review fixes are done and
+committed; the branch is merged with `main` at `0aa6be30` and pushed. The Go
+tree, lint and the default verifier are green. ONLV was proven on the combined
+tree in an isolated worktree: `provider lock --check`, `generate`, `check`, a
+live `scenery up`, the standard-auth flow, an authenticated application route
+and one assistant conversation that called an MCP tool through the gateway.
+
+Owner decisions on 2026-11-13: the removed CRUD source of `table_page` stays
+removed; the MCP federation layer is removed (the assistant gateway serves the
+generated manifest directly and `mcp_server` addresses are no longer covered
+or required); SSH deploy and the onlv-209 host are being retired, so no
+landing gate depends on that host.
+
+Open: removal of the SSH deploy target. It is not a plain deletion. An
+environment is deployable exactly when it declares `deploy.ssh`, and that
+predicate selects required configuration inputs, pinned configuration and the
+environment the local public edge (`deploy enable|setup|resume|status`)
+serves. The local public edge is in use on the development machine, so it
+stays. Removing `deploy <ssh-target>`, `deploy receive`, `config receive`,
+staged releases and the systemd service manager needs a new definition of a
+deployable environment first.
+
 Before landing, on a host with no other `scenery-pg-*` probe running, run
 `go run ./scripts/verify --probe <id> --summary --write` for `auth` (the
 changed-area oracle requires it), `postgres`, `worktree`, `observability`,
 `parallel-runtime` and `assistant-journey`; the auth, worktree,
 observability and assistant-journey probes were edited by this plan and have
 never run. Run `edge` after `scenery system toolchain sync --tool caddy`.
-Four probe failures predate this plan and need their own fixes: `storage`
-(telemetry lock file in an unallocated agent home), `configuration-deploy`
-(`scenery config receive` refused by the command grammar),
-`capability-authority` (the webhook-inbox proof passes `DATABASE_URL` through
-the environment, which `scenery worker` does not inherit) and the missing
-managed Caddy for `edge`. Open owner decisions: the `union` kind,
-`service.client`, `enqueue`/`wait` delivery and the custom `middleware` kind;
-`secret_store` and `secret` (now only typed package inputs and constructor
-configuration); the inert MCP federation layer (removal changes generated
-application code); the `sql.fixture/v1` provider capability (changes every
-pinned provider lock); cursor pagination in the UI catalog; the diagnostic
-category name `binding_and_cli`; the custom `workload_identity` kind and the
-`capability_unavailable` activation refusal; `POST
-/auth/organizations/switch` and the generic connection provider surface;
+Three probe failures predate this plan and need their own fixes: `storage`
+(telemetry lock file in an unallocated agent home), `capability-authority`
+(the webhook-inbox proof passes `DATABASE_URL` through the environment, which
+`scenery worker` does not inherit) and the missing managed Caddy for `edge`.
+Open owner decisions: the `union` kind, `service.client`, `enqueue`/`wait`
+delivery and the custom `middleware` kind; `secret_store` and `secret` (now
+only typed package inputs and constructor configuration); the `sql.fixture/v1`
+provider capability (changes every pinned provider lock); cursor pagination in
+the UI catalog; the diagnostic category name `binding_and_cli`; the custom
+`workload_identity` kind and the `capability_unavailable` activation refusal;
+`POST /auth/organizations/switch` and the generic connection provider surface;
 whether SCN6209 is attached to its two emit sites or dropped; `ISSUES.md` and
 the three agent evaluation reports with their runner script; the
 root-frontend `/<name>/<protected>` containment; the unused
-`@astryxdesign/theme-neutral` dependency of `tools/typescript` (unused before
-this plan, inside the kept UI tooling). Nothing is committed; `git status` and `git diff
---stat` show the whole change. Removal authorizes no application deployment,
-no data migration and no edit to another repository.
+`@astryxdesign/theme-neutral` dependency of `tools/typescript`. Removal
+authorizes no application deployment, no data migration and no edit to another
+repository.
 
 ## Surprises & Discoveries
 
@@ -772,6 +779,15 @@ no data migration and no edit to another repository.
 - 2026-11-13: an orphan sweep uses `deadcode` over all main packages compared
   with the baseline list, not only the `unused` linter. Rationale: the linter
   missed 215 functions kept alive by exports and tests.
+
+- 2026-11-13: owner confirmed the removed CRUD source of `table_page`.
+- 2026-11-13: owner chose to remove the MCP federation layer. `mcp_server`
+  addresses left the generated required and covered address sets because no
+  runtime object remains for them; the gateway native service lost its
+  dependency on the server address.
+- 2026-11-13: the SSH deploy target is not removed in this plan. The local
+  public edge shares the deployable-environment predicate with it and is in
+  use, so the split needs its own design.
 
 ## Outcomes & Retrospective
 
