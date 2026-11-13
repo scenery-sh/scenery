@@ -1658,7 +1658,7 @@ the pending preview's original revision with the same target specification;
 only matching before/after bytes can resume. Completion retains the backup and
 its `completed` marker. A new preview of fully current state reports zero
 changes; an obsolete completed approval requires a fresh preview. Records are
-bounded to 64 KiB, storage selection to 64 MiB of before/after metadata, and the
+bounded to 64 KiB, storage selection to 128 MiB of before/after metadata, and the
 encoded transaction backup to 256 MiB. See the
 [retained-state upgrade runbook](runbooks/worktree-state-upgrade.md).
 

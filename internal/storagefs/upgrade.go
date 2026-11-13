@@ -8,10 +8,17 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/stateupgrade"
 )
+
+// specUpgradeLeaseWait bounds the wait for the maintenance lease only: a
+// stopped owner's lease is free, and an unexpected holder is refused instead
+// of waited on or taken over. Validating the namespace's metadata afterwards
+// takes as long as the namespace is large.
+var specUpgradeLeaseWait = 10 * time.Second
 
 // SpecUpgrade keeps maintenance exclusion from metadata validation through
 // transaction publication. It never allocates or rewrites object payloads.
@@ -36,9 +43,14 @@ func PrepareSpecUpgrade(ctx context.Context, path string, binding Binding) (*Spe
 	if err != nil {
 		return nil, err
 	}
-	lock, err := lockFile(ctx, r, "maintenance.lock", true)
+	leaseCtx, cancel := context.WithTimeout(ctx, specUpgradeLeaseWait)
+	lock, err := lockFile(leaseCtx, r, "maintenance.lock", true)
+	cancel()
 	if err != nil {
 		_ = r.Close()
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return nil, fmt.Errorf("the storage maintenance lease is held by another process: %w", err)
+		}
 		return nil, err
 	}
 	u := &SpecUpgrade{root: r, lock: lock}
@@ -166,8 +178,8 @@ func (u *SpecUpgrade) prepareRecord(name string, target any, identity *machine.A
 		return err
 	}
 	u.bytes += int64(len(before)) + int64(len(after))
-	if u.bytes > 64<<20 {
-		return fmt.Errorf("%w: upgrade metadata exceeds the 64 MiB selection limit", ErrCorrupt)
+	if u.bytes > stateupgrade.MaxSelectionBytes {
+		return fmt.Errorf("%w: upgrade metadata exceeds the %d MiB selection limit", ErrCorrupt, stateupgrade.MaxSelectionBytes>>20)
 	}
 	u.Changes = append(u.Changes, stateupgrade.Change{Path: filepath.Join("storage", name), Kind: kind, Before: before, After: after})
 	return nil

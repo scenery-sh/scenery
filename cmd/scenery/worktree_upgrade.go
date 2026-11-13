@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
@@ -94,12 +93,8 @@ func upgradeRetainedWorktree(ctx context.Context, paths localagent.WorktreePaths
 	}
 	storagePath := filepath.Join(paths.Directory, "storage")
 	if _, err := os.Lstat(storagePath); err == nil {
-		// A stopped owner's maintenance lease should be free. Bound refusal of
-		// an unexpected external holder; do not wait indefinitely or take over.
-		leaseCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
 		binding := storagefs.Binding{AppID: record.AppID, AppRoot: paths.AppRoot, WorktreeKey: paths.Key, UserID: record.UserID, Managed: true}
-		storage, err := storagefs.PrepareSpecUpgrade(leaseCtx, storagePath, binding)
+		storage, err := storagefs.PrepareSpecUpgrade(ctx, storagePath, binding)
 		if err != nil {
 			return result, err
 		}

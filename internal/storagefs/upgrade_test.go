@@ -2,6 +2,7 @@ package storagefs
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/stateupgrade"
 )
@@ -176,5 +178,36 @@ func TestStorageSpecUpgradeRejectsInvalidReferenceAndRecoveryAccess(t *testing.T
 	}
 	if _, err := Discover(t.Context(), n.Path, n.Binding); !errors.Is(err, ErrRecovery) {
 		t.Fatalf("ordinary namespace access bypassed pending upgrade: %v", err)
+	}
+}
+
+func TestStorageSpecUpgradeRefusesAHeldMaintenanceLease(t *testing.T) {
+	n, _, _, _ := upgradeNamespaceFixture(t)
+	root, err := openNamespaceRoot(n.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	held, err := lockFile(t.Context(), root, "maintenance.lock", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait := specUpgradeLeaseWait
+	specUpgradeLeaseWait = 10 * time.Millisecond
+	defer func() { specUpgradeLeaseWait = wait }()
+	// Only the wait for the lease is bounded; the caller's context stays live
+	// for validating a namespace of any size.
+	if _, err := PrepareSpecUpgrade(t.Context(), n.Path, n.Binding); !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "maintenance lease is held") || t.Context().Err() != nil {
+		t.Fatalf("held lease: %v", err)
+	}
+	if err := held.Close(); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareSpecUpgrade(t.Context(), n.Path, n.Binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepared.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
