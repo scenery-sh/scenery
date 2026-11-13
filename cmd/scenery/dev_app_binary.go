@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/filemeta"
 )
 
 // Retain the executable bytes, not a symlink into the disposable build cache.
@@ -77,7 +78,7 @@ func prepareSessionAppBinary(session *localagent.Session, binary, expectedDigest
 	if closeErr := temporary.Close(); closeErr == nil {
 		if removeErr := os.Remove(temporaryPath); removeErr == nil {
 			// The clone of a symlink is a symlink; only cloned bytes are retained.
-			if cloneFileOrTree(binary, temporaryPath) == nil {
+			if filemeta.Clone(binary, temporaryPath) == nil {
 				if cloneInfo, statErr := os.Lstat(temporaryPath); statErr == nil && cloneInfo.Mode().IsRegular() {
 					cloned = true
 				}

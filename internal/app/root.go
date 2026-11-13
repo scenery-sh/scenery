@@ -888,11 +888,27 @@ func appendJSONIndex(path []string, index int) []string {
 // reports module-relative runtime.Caller paths, which name no directory.
 var linkedRepoRoot string
 
+// ExecutableRelativeRoot prefixes a linked root that is a slash-separated
+// path relative to the directory of the running executable.
+const ExecutableRelativeRoot = "@executable/"
+
 // RepoRoot returns the Scenery source root this executable was compiled from:
 // the linked root when the producer recorded one, otherwise the directory
 // derived from this file's absolute compile-time path. It is empty for a
 // -trimpath build that recorded no root.
 func RepoRoot() string {
+	if relative, ok := strings.CutPrefix(linkedRepoRoot, ExecutableRelativeRoot); ok {
+		// The root is named relative to this executable, so producers of one
+		// source are the same bytes wherever their application keeps them.
+		executable, err := os.Executable()
+		if err == nil {
+			executable, err = filepath.EvalSymlinks(executable)
+		}
+		if err != nil {
+			return ""
+		}
+		return filepath.Clean(filepath.Join(filepath.Dir(executable), filepath.FromSlash(relative)))
+	}
 	if linkedRepoRoot != "" {
 		return filepath.Clean(linkedRepoRoot)
 	}

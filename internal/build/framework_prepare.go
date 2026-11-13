@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/gotarget"
@@ -120,7 +121,11 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 			}
 		}
 	}
-	flags, err := FrameworkProducerLinkerFlags(snapshot.Digest, snapshot.Root)
+	// A prepared producer lives at bin/<source>/<platform>/<executable>/scenery
+	// beside source/<source>. Naming its snapshot relative to itself keeps the
+	// producer of one source byte-identical in every application root and
+	// worktree, and with it every build identity that names the producer.
+	flags, err := FrameworkProducerLinkerFlags(snapshot.Digest, app.ExecutableRelativeRoot+"../../../../source/"+strings.TrimPrefix(source.Digest, "sha256:"))
 	if err != nil {
 		return selection, err
 	}
