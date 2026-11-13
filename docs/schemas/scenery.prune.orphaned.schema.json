@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.prune.orphaned.schema.json",
+  "title": "scenery prune --orphaned result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "cutoff",
+    "applied",
+    "revision",
+    "records",
+    "selected_bytes",
+    "removed",
+    "failed"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.prune.orphaned"
+    },
+    "schema_revision": {
+      "const": "sha256:beee3ef831b18116f5cd2be34716832232eb60bf44d87e3a6d73c948629f7215"
+    },
+    "cutoff": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "applied": {
+      "type": "boolean"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "app_root",
+          "path",
+          "updated_at",
+          "bytes",
+          "complete",
+          "database",
+          "selected",
+          "removed"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "app_root": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "container",
+              "volume"
+            ],
+            "properties": {
+              "container": {
+                "type": "string"
+              },
+              "volume": {
+                "type": "string"
+              }
+            }
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "removed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "selected_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "removed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "next": {
+      "type": "string"
+    }
+  }
+}

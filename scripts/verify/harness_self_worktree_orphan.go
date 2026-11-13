@@ -113,6 +113,13 @@ func (p *worktreeRuntimeProbe) orphanCleanup(source, sibling string) error {
 			if _, err := p.run(source, p.binary, "prune", "--app-root", root, "--db", "--older-than", "1ns", "-o", "json"); err == nil {
 				return fmt.Errorf("prune ignored mismatched daemon authority")
 			}
+			preview, err := p.previewOrphaned(source)
+			if err != nil {
+				return err
+			}
+			if record := preview.record(paths.AppRoot); record == nil || record.Selected || record.Reason == "" {
+				return fmt.Errorf("orphan preview selected a database of another daemon: %+v", record)
+			}
 			after, err := os.ReadFile(paths.Record)
 			if err != nil || !bytes.Equal(encoded, after) {
 				return fmt.Errorf("failed prune replaced its retained retry state")
@@ -121,12 +128,11 @@ func (p *worktreeRuntimeProbe) orphanCleanup(source, sibling string) error {
 		}(); err != nil {
 			return err
 		}
-		if _, err := p.run(source, p.binary, "prune", "--app-root", root, "--db", "--older-than", "1ns", "-o", "json"); err != nil {
+		if err := p.pruneOrphaned(source, root, original); err != nil {
 			return err
 		}
-		after, err := p.record(root)
-		if err != nil || after.Postgres != nil {
-			return fmt.Errorf("successful orphan prune did not retire exact SQL authority: %v", err)
+		if _, err := os.Lstat(paths.Directory); !os.IsNotExist(err) {
+			return fmt.Errorf("orphan prune kept the retained state directory: %v", err)
 		}
 		daemon, err := p.run(source, "docker", "--host", before.Postgres.DaemonEndpoint, "info", "--format", "{{.ID}}")
 		if err != nil || strings.TrimSpace(string(daemon)) != before.Postgres.DaemonID {
@@ -160,6 +166,7 @@ func (p *worktreeRuntimeProbe) orphanCleanup(source, sibling string) error {
 		}
 		e["orphan_root"], e["removed_container"], e["removed_volume"] = before.AppRoot, before.Postgres.ContainerID, before.Postgres.Volume
 		e["failed_cleanup_retained_state"], e["parent_unchanged"], e["sibling_unchanged"] = true, true, true
+		e["incompatible_orphan_state_removed"] = true
 		// No process or cluster remains, and the checkout was intentionally
 		// removed. Generic cleanup must not execute commands inside it.
 		p.roots = p.roots[:len(p.roots)-1]

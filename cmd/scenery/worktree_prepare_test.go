@@ -34,7 +34,9 @@ func TestPrepareWorktreeInputsReceivesOnlyIgnoredDeclaredFiles(t *testing.T) {
 	cfg.Database.Seed.Commands = []appcfg.DatabaseSeedCommandConfig{{Name: "catalog", Inputs: []string{
 		"data/ignored.csv", "./data/ignored.csv", "data/tracked.csv", "data/present.csv", "data/link.csv", "data/absent.csv", "../outside.csv", "/etc/hosts",
 	}}}
-	ignored := func(_ context.Context, _, relative string) bool { return relative != filepath.Join("data", "tracked.csv") }
+	ignored := func(_ context.Context, _, relative string) bool {
+		return relative != filepath.Join("data", "tracked.csv")
+	}
 
 	prepared, err := prepareWorktreeInputs(context.Background(), target, source, cfg, ignored)
 	if err != nil {

@@ -3003,6 +3003,7 @@
         "docs/schemas/scenery.worktree.create.schema.json",
         "docs/schemas/scenery.worktree.list.schema.json",
         "docs/schemas/scenery.worktree.prepare.schema.json",
+        "docs/schemas/scenery.prune.orphaned.schema.json",
         "docs/schemas/scenery.worktree.remove.schema.json",
         "docs/schemas/scenery.worktree.upgrade.schema.json",
         "docs/schemas/scenery.harness.artifact.schema.json",

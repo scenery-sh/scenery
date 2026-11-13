@@ -25,6 +25,9 @@ func runWorktreePrune(ctx context.Context, stdout io.Writer, args []string) erro
 	if err != nil {
 		return err
 	}
+	if opts.Orphaned {
+		return runPruneOrphaned(ctx, stdout, opts)
+	}
 	if opts.All {
 		opts.DB, opts.State = true, true
 	}
