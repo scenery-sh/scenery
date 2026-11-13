@@ -155,6 +155,7 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery worktree create",
 		"scenery worktree list",
 		"scenery worktree remove",
+		"scenery worktree prepare",
 		"scenery worktree upgrade",
 	}},
 	{Name: "Generation", Commands: []string{
@@ -350,9 +351,9 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command:     "worktree",
 		Group:       "Workspace",
-		Summary:     "Manage app worktrees and explicitly upgrade retained metadata.",
-		Usage:       []string{"scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]", "scenery worktree list [--app-root <path>] [-o json]", "scenery worktree remove <name> [--app-root <path>] [-o json]", "scenery worktree upgrade [--app-root <path>] [--yes --expect-revision <digest>] [-o json]"},
-		Subcommands: []string{"create", "list", "remove", "upgrade"},
+		Summary:     "Manage app worktrees, give a linked checkout its declared Git-ignored inputs and explicitly upgrade retained metadata.",
+		Usage:       []string{"scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]", "scenery worktree list [--app-root <path>] [-o json]", "scenery worktree remove <name> [--app-root <path>] [-o json]", "scenery worktree prepare [--app-root <path>] [-o json]", "scenery worktree upgrade [--app-root <path>] [--yes --expect-revision <digest>] [-o json]"},
+		Subcommands: []string{"create", "list", "remove", "prepare", "upgrade"},
 		Flags:       []string{"--from <branch>", "--app-root <path>", "--yes", "--expect-revision <digest>", "-o", "json"},
 		JSON:        true,
 		Stability:   "stable",

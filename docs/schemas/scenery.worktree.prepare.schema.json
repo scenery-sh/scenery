@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.worktree.prepare.schema.json",
+  "title": "scenery worktree prepare result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "path",
+    "inputs"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.worktree.prepare"
+    },
+    "schema_revision": {
+      "const": "sha256:176b72aad72816a5069ee1dc39eb26ee906007bb71326b462d46713ee4696d6f"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "path": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "method"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "clone",
+              "copy"
+            ]
+          }
+        }
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

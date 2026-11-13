@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,6 +55,10 @@ func defaultRunDBSeedCommand(ctx context.Context, req lifecycleExecRequest) (dbS
 func discoverDBSeedCommandPlans(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) ([]dbSeedPlan, error) {
 	plans, err := planDBSeedCommands(appRoot, cfg, requirements)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// Git never carries an ignored input into a linked checkout.
+			err = fmt.Errorf("%w; a linked Git worktree receives declared Git-ignored inputs from the main checkout with `scenery worktree prepare`", err)
+		}
 		return nil, &codedCLIError{err: err, code: 3}
 	}
 	return plans, nil

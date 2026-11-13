@@ -105,8 +105,9 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.durable.worker_token.create": "sha256:f7796e7a49f33ebaa8a3304439f08de48d2391d31bcd1efbb735ac6ac8da8520",
 	"scenery.durable.jobs":                "sha256:e680c8870c213d3fba5b8aa35fc7b9fda71e95fc526330f529c108728519f948",
 	"scenery.version":                     "sha256:7b2f75aa63a70fdeec0ef99ff740321fcd4cebcb2b45f0e177ee4884519a4fa9",
-	"scenery.worktree.create":             "sha256:7d2585e9045317d17a142fd91ceb4b38d0f60f8223abc31d30736697424fa5ea",
+	"scenery.worktree.create":             "sha256:1b1722d0e78a288534309bcd8181fc6866bb8de8e6faef8df6bdf4e259e046cf",
 	"scenery.worktree.list":               "sha256:2d42d90ddd63a94c1e0fe12a1cf04023b7ccc167534c32751dc06a2714aed237",
+	"scenery.worktree.prepare":            "sha256:176b72aad72816a5069ee1dc39eb26ee906007bb71326b462d46713ee4696d6f",
 	"scenery.worktree.remove":             "sha256:c9a11366bd39db3ae470555a433ecb93d82459f38ef0f645cd2c0fe456f08131",
 	"scenery.worktree.upgrade":            "sha256:eec3450506fc0397847d3fc172d6cd1154f8a836fba274e63ca1466b8267930b",
 }

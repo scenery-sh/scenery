@@ -6,12 +6,14 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
+	"scenery.sh/internal/toolchain"
 )
 
 func wireBuildGenerateHooks() {
 	generate.SetImplementationProofProducer(build.LinkedFrameworkDigest())
 	if root := sharedCacheRoot(); root != "" {
 		build.SetSharedDevelopmentProcessStore(filepath.Join(root, "process-executables"))
+		toolchain.SetSharedArtifactStore(filepath.Join(root, "toolchain-artifacts"))
 	}
 	build.SetGenerateHooks(build.GenerateHooks{
 		ApplyPreparedImplementationCheck: generate.ApplyPreparedImplementationCheck,

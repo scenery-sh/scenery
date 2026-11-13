@@ -461,7 +461,7 @@ Implemented now:
 - `scenery db reset`
 - `scenery db drop`
 - `scenery snapshot save|verify|load`
-- `scenery worktree create|list|remove|upgrade`
+- `scenery worktree create|list|remove|prepare|upgrade`
 - `scenery task list|inspect|run|graph`
 - `scenery task run <name>`
 - `scenery task run <domain>:<name>`
@@ -501,7 +501,7 @@ Dev-only or beta surface:
 - `scenery db reset`
 - `scenery db drop`
 - `scenery snapshot save|verify|load`
-- `scenery worktree create|list|remove|upgrade`
+- `scenery worktree create|list|remove|prepare|upgrade`
 - `scenery generate`
 - `scenery task list|inspect|run|graph`
 - `scenery task run <name>`
@@ -1469,6 +1469,7 @@ scenery db server status|start|stop|logs [--app-root <path>] [-o json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
 scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [-o json]
+scenery worktree prepare [--app-root <path>] [-o json]
 scenery worktree upgrade [--app-root <path>] [--yes --expect-revision <digest>] [-o json]
 scenery framework use [--source <checkout>] [--app-root <path>] [-o human|json]
 scenery framework inspect [--runtime] [--app-root <path>] [-o human|json]
@@ -1584,6 +1585,19 @@ identity is available but desired config is absent or invalid, it displays AppID
 `scenery down` stops the selected worktree's verified runtime children and managed PostgreSQL container, retaining database data and credentials. It is idempotent when no live runtime exists and never allocates an absent cluster. `scenery down --db` additionally drops only the retained app database, not the cluster volume, and refuses external DSNs. `scenery down --state` removes only the selected app root's disposable session state. Durable ownership records remain outside the checkout.
 
 `scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from NUL-delimited `git worktree list --porcelain -z`, preserving embedded newlines, spaces, tabs, quotes and Unicode in registered checkout paths. Successful Git warnings on stderr are separate from this inventory, so LIST remains complete and removal still refuses all distinct matching checkouts. Branch selection compares the decoded literal branch name: Git’s `refs/heads/` transport prefix is removed once, so a branch named `refs/heads/target` does not match a `target` request solely by branch. Git failure retains its existing exit-3/JSON-`SCN8003` diagnostic and human stderr. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
+
+Git never carries an ignored file into a new checkout, so a linked worktree
+lacks every Git-ignored file its own `database.seed.commands[].inputs`
+declare. CREATE gives the new checkout each such input that the creating
+checkout holds as a regular file, and reports them as `inputs` (`path`,
+`method` `clone` or `copy`). `scenery worktree prepare -o json` does the same
+for a checkout created by Git alone, from the repository's main checkout at
+the same relative app root, and emits `scenery.worktree.prepare` with `path`,
+`source` and `inputs`; in the main checkout it receives nothing. Only a path
+that is absent in the receiving checkout, ignored there by Git and free of
+symlinks is created, as a clone where the filesystem clones files; tracked or
+unignored paths, existing files and undeclared files are never touched. A seed
+plan that fails on a missing input names this command.
 
 CREATE returns a shell-style `next_command` and prints the same complete value
 after `next:` in human output. Existing command reproduction formatting quotes
@@ -2680,6 +2694,17 @@ Rules:
   160 most recently used executables; deleting it only makes workspaces link
   again. Both stores live beneath the agent home, so a verification
   run or probe with its own agent home shares nothing with development.
+- An installed archive toolchain artifact is also kept at
+  `<agent home>/shared/toolchain-artifacts/<name>/<version>/<platform>/<entry digest>`,
+  where the digest names the whole declared platform entry: archive checksum
+  and extraction settings. A toolchain store that lacks an artifact installs a
+  clone of that copy and writes its own install record, without downloading or
+  extracting, and also when downloads are disabled; a store that installs or
+  already holds an artifact publishes it once. Clones share their blocks, so
+  another worktree's Node toolchain takes no disk space. Sharing needs a
+  filesystem that clones directories; elsewhere, and for artifacts built from
+  source or by a declared build command, every store installs from its
+  declared source. Deleting the directory only makes stores install again.
 - The first generation of a development session retains and preflights every
   service process as soon as its runtime environment is resolved, beside
   database setup; a preflight is a read-only handshake that opens no database.
