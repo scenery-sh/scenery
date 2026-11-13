@@ -1659,7 +1659,9 @@ only matching before/after bytes can resume. Completion retains the backup and
 its `completed` marker. A new preview of fully current state reports zero
 changes; an obsolete completed approval requires a fresh preview. Records are
 bounded to 64 KiB, storage selection to 128 MiB of before/after metadata, and the
-encoded transaction backup to 256 MiB. See the
+encoded transaction backup, paths and kinds included, to 256 MiB; a preview
+refuses a selection whose backup would be larger. A failed upgrade reports
+`managed worktree retained-state upgrade: <cause>`. See the
 [retained-state upgrade runbook](runbooks/worktree-state-upgrade.md).
 
 `db list` derives service bindings from the current compiled SQL requirements,
