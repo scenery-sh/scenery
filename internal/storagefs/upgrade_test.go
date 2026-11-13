@@ -88,8 +88,14 @@ func TestStorageSpecUpgradePreservesObjectsAndIdentity(t *testing.T) {
 			_ = prepared.Close()
 		}
 	}()
-	if len(prepared.Changes) != 3 || prepared.owner.Incarnation != n.Incarnation {
+	// Only the owner and the generation are bound to the specification.
+	if len(prepared.Changes) != 2 || prepared.owner.Incarnation != n.Incarnation {
 		t.Fatal("upgrade selected wrong namespace metadata")
+	}
+	for _, change := range prepared.Changes {
+		if name := filepath.Base(change.Path); name != "owner.json" && name != "generation.json" {
+			t.Fatalf("upgrade selected %s", change.Path)
+		}
 	}
 	for path, expected := range originals {
 		actual, err := os.ReadFile(path)
@@ -115,6 +121,15 @@ func TestStorageSpecUpgradePreservesObjectsAndIdentity(t *testing.T) {
 	data, readErr := io.ReadAll(body)
 	if err := errors.Join(readErr, body.Close()); err != nil {
 		t.Fatal(err)
+	}
+	// The reference still carries the specification revision that wrote it.
+	for path, expected := range originals {
+		if !strings.Contains(path, string(filepath.Separator)+"refs"+string(filepath.Separator)) {
+			continue
+		}
+		if actual, err := os.ReadFile(path); err != nil || !bytes.Equal(actual, expected) {
+			t.Fatalf("upgrade rewrote a reference: %v", err)
+		}
 	}
 	if string(data) != "kept payload" || actual.ETag != object.ETag || actual.SHA256 != object.SHA256 || actual.Metadata["Mixed-Case"] != "keep me" || !actual.ModifiedAt.Equal(object.ModifiedAt) {
 		t.Fatal("object content or logical identity changed")
@@ -150,29 +165,67 @@ func TestStorageSpecUpgradeRejectsSchemaAndPendingLifecycle(t *testing.T) {
 	}
 }
 
-func TestStorageSpecUpgradeRejectsInvalidReferenceAndRecoveryAccess(t *testing.T) {
-	n, _, _, originals := upgradeNamespaceFixture(t)
-	var referencePath string
-	for path := range originals {
-		if strings.Contains(path, string(filepath.Separator)+"refs"+string(filepath.Separator)) {
-			referencePath = path
-		}
+// References are not part of an upgrade, so ordinary reads own their checks:
+// the current schema under any well-formed specification revision.
+func TestStorageReadsRejectInvalidReferencesOfAnotherSpecification(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		mutate func(fields map[string]json.RawMessage)
+	}{
+		{"misaddressed", func(fields map[string]json.RawMessage) {
+			var object map[string]json.RawMessage
+			if err := json.Unmarshal(fields["object"], &object); err != nil {
+				t.Fatal(err)
+			}
+			object["key"], _ = json.Marshal("different.bin")
+			fields["object"], _ = json.Marshal(object)
+		}},
+		{"other schema", func(fields map[string]json.RawMessage) {
+			fields["schema_revision"], _ = json.Marshal("sha256:" + strings.Repeat("c", 64))
+		}},
+		{"malformed specification", func(fields map[string]json.RawMessage) {
+			fields["spec_revision"], _ = json.Marshal("unknown")
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			n, store, object, originals := upgradeNamespaceFixture(t)
+			prepared, err := PrepareSpecUpgrade(t.Context(), n.Path, n.Binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, change := range prepared.Changes {
+				if err := os.WriteFile(filepath.Join(filepath.Dir(n.Path), change.Path), change.After, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := prepared.Close(); err != nil {
+				t.Fatal(err)
+			}
+			for path, data := range originals {
+				if !strings.Contains(path, string(filepath.Separator)+"refs"+string(filepath.Separator)) {
+					continue
+				}
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(data, &fields); err != nil {
+					t.Fatal(err)
+				}
+				tt.mutate(fields)
+				if data, err = json.Marshal(fields); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, err := store.Get(t.Context(), object.Key, GetOptions{}); !errors.Is(err, ErrCorrupt) {
+				t.Fatalf("invalid reference accepted: %v", err)
+			}
+		})
 	}
-	var ref reference
-	if err := json.Unmarshal(originals[referencePath], &ref); err != nil {
-		t.Fatal(err)
-	}
-	ref.Object.Key = "different.bin"
-	data, err := json.Marshal(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(referencePath, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := PrepareSpecUpgrade(t.Context(), n.Path, n.Binding); !errors.Is(err, ErrCorrupt) {
-		t.Fatalf("misaddressed reference accepted: %v", err)
-	}
+}
+
+func TestStorageSpecUpgradeBlocksOrdinaryAccessWhilePending(t *testing.T) {
+	n, _, _, _ := upgradeNamespaceFixture(t)
 	if err := os.WriteFile(filepath.Join(filepath.Dir(n.Path), stateupgrade.PendingName), []byte("pending"), 0o600); err != nil {
 		t.Fatal(err)
 	}

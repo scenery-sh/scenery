@@ -13,6 +13,11 @@ It also owns the one current command-data payload schema identity registry.
   workspace/contract revisions are digest-or-null and
   implementation/deployment revisions are digest, digest-map, or null.
 - Decoding accepts only the current kind and exact schema/spec revisions; do not add compatibility decoders.
+- `DecodeSchemaBoundArtifact` is the one exception: it accepts the current
+  kind and exact schema under any well-formed specification revision. Use it
+  only for a retained record that exists once per stored item beneath a
+  container record that stays bound to the current specification (storage
+  object references). It is not a compatibility decoder: the schema is exact.
 - Explicit retained-state upgrade preparation may change spec/producer identity
   only after exact kind/schema and current payload decoding pass. It never
   writes state or changes the ordinary decoder; domain owners validate payload

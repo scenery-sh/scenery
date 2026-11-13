@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"scenery.sh/internal/machine"
@@ -16,12 +15,12 @@ import (
 
 // specUpgradeLeaseWait bounds the wait for the maintenance lease only: a
 // stopped owner's lease is free, and an unexpected holder is refused instead
-// of waited on or taken over. Validating the namespace's metadata afterwards
-// takes as long as the namespace is large.
+// of waited on or taken over.
 var specUpgradeLeaseWait = 10 * time.Second
 
 // SpecUpgrade keeps maintenance exclusion from metadata validation through
-// transaction publication. It never allocates or rewrites object payloads.
+// transaction publication. It rewrites the owner and generation records only;
+// it never allocates or rewrites object payloads or their references.
 type SpecUpgrade struct {
 	Changes []stateupgrade.Change
 	root    *os.Root
@@ -131,41 +130,10 @@ func (u *SpecUpgrade) prepareGeneration(ctx context.Context, id string) error {
 	if gen.Binding != u.owner.Binding || gen.Incarnation != u.owner.Incarnation || gen.Generation != id {
 		return ErrOwnership
 	}
-	return scanTokenDirectories(ctx, u.root, filepath.Join(base, "refs"), []string{"store", "tenant", "shard"}, func(dir string) error {
-		return scanDirectory(ctx, u.root, dir, func(info os.FileInfo) error {
-			if err := checkOwned(info, false); err != nil {
-				return err
-			}
-			if isReferenceTemp(info.Name()) {
-				return nil
-			}
-			hash, ok := strings.CutSuffix(info.Name(), ".json")
-			if !ok || !isHexID(hash, 32) || hash[:2] != filepath.Base(dir) {
-				return fmt.Errorf("%w: unknown reference filename", ErrCorrupt)
-			}
-			name := filepath.Join(dir, info.Name())
-			var ref reference
-			if err := u.prepareRecord(name, &ref, &ref.ArtifactIdentity, referenceKind, referenceDescriptor); err != nil {
-				return err
-			}
-			if err := validateReferenceAt(ref, id, name); err != nil {
-				return err
-			}
-			scope := Scope{Store: ref.Object.Store, Tenant: ref.Object.Tenant}
-			payload, err := openOwned(u.root, scope.versionPath(id, ref.Object.Key, ref.VersionID), os.O_RDONLY)
-			if err != nil {
-				return err
-			}
-			stat, statErr := payload.Stat()
-			if err := errors.Join(statErr, payload.Close()); err != nil {
-				return err
-			}
-			if stat.Size() != ref.Object.SizeBytes {
-				return fmt.Errorf("%w: reference payload size differs", ErrCorrupt)
-			}
-			return nil
-		})
-	})
+	// References are bound to their schema, not to a specification revision, so
+	// an upgrade leaves them as they are and its cost does not grow with the
+	// number of stored objects.
+	return nil
 }
 
 func (u *SpecUpgrade) prepareRecord(name string, target any, identity *machine.ArtifactIdentity, kind, descriptor string) error {
