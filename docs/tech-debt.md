@@ -127,3 +127,31 @@ usable": after the probe makes the host state unrecordable and replaces the
 host, status and cancellation of the guarded durable receipt are not both
 refused as `not_found`. The other assistant probes pass. Until it is repaired
 the probe cannot gate a landing.
+
+### Unreclaimable Retained Worktree State
+
+- Area: worktree retained state / prune
+- Severity: medium
+- Owner: scenery runtime
+- Created: 2026-11-13
+- Review after: 2026-12-13
+
+Nothing removes a worktree's retained state directory
+(`<agent home>/worktrees/<key>`: storage, control logs, Victoria data, restore
+archives) or, for a checkout that no longer exists, its managed PostgreSQL
+volume. `scenery worktree remove` and Git removal retain it by contract;
+`scenery prune --all` removes sessions and one explicitly selected cluster but
+keeps the directory, and refuses every record whose metadata is incompatible.
+A record becomes incompatible with each retained-schema change and
+`scenery worktree upgrade` needs the checkout, so the state of a deleted
+checkout can never be upgraded or pruned. Measured on one development machine
+on 2026-11-13: 51 retained records holding 22 GB, 46 of them incompatible, 31
+whose checkout is gone (2.7 GB plus their database volumes at about 0.3 GB
+each). Removal is data deletion and needs an operator decision: the proposed
+shape is an explicit `scenery prune --orphaned` with a preview, a revision
+bound `--yes`, live-lock ownership and removal limited to records whose
+recorded app root is absent.
+
+Under a source-selected framework (`framework use --source`) the
+`module/<app>/go.mod` build input differs between worktrees of one commit, so
+such worktrees never share linked process executables; pinned worktrees do.

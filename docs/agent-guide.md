@@ -313,6 +313,13 @@ service. Populated untracked schemas are blocked; explicit `--adopt-initial`
 requires the app's complete `initial_verification` predicate. Never substitute
 reset or a retained-metadata upgrade for application migration.
 
+`scenery worktree create` gives the new checkout the Git-ignored files its
+`database.seed.commands[].inputs` declare; in a checkout created by Git alone,
+run `scenery worktree prepare` once before `scenery up`. Worktrees of one
+application with the same framework pin share linked process executables,
+prepared assistant trees and toolchain artifacts as clones, so another
+worktree's first `up` links and downloads nothing that an earlier one has.
+
 App-owned presets should compose `worktree create`, verified DB/object snapshots,
 and declared native filesystem assets. Missing preset prerequisites should fail
 before starting runtime children. A linked worktree receives a retained distinct

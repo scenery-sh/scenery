@@ -79,8 +79,10 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 	if err := os.MkdirAll(appRoot, 0o755); err != nil {
 		return nil, nil, err
 	}
-	const appConfig = `{"name":"demo","envs":{"local":{"default":true}}}`
-	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(appConfig), 0o644); err != nil {
+	if err := writeHarnessWorktreeSeedInput(appRoot); err != nil {
+		return nil, nil, err
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(harnessWorktreeAppConfig), 0o644); err != nil {
 		return nil, nil, err
 	}
 	if err := os.WriteFile(filepath.Join(appRoot, "revision.txt"), []byte("old revision\n"), 0o644); err != nil {
@@ -90,7 +92,7 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 		{"init", "-b", "main"},
 		{"config", "user.email", "harness@example.invalid"},
 		{"config", "user.name", "Scenery Harness"},
-		{"add", ".scenery.json", "revision.txt"},
+		{"add", ".scenery.json", ".gitignore", "revision.txt"},
 		{"commit", "-m", "initial"},
 	} {
 		if _, err := runHarnessGit(ctx, appRoot, args...); err != nil {
@@ -124,6 +126,9 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 		}
 		if _, err := os.Stat(filepath.Join(result.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
 			return nil, nil, fmt.Errorf("create %s unexpectedly wrote database pin: %v", name, err)
+		}
+		if err := checkHarnessWorktreeInputs(ctx, repoRoot, appRoot, result); err != nil {
+			return nil, nil, err
 		}
 		observation, err := checkHarnessWorktreeShellFollowup(ctx, result.NextCommand, result.Path)
 		if err != nil {

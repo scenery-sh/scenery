@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/harnessevidence"
 )
 
@@ -44,7 +45,9 @@ type worktreeCreateResult struct {
 	Branch      string `json:"branch"`
 	From        string `json:"from,omitempty"`
 	NextCommand string `json:"next_command"`
-	Message     string `json:"message,omitempty"`
+	// Inputs lists the declared Git-ignored inputs the new checkout received.
+	Inputs  []worktreePreparedInput `json:"inputs,omitempty"`
+	Message string                  `json:"message,omitempty"`
 }
 
 type worktreeListResult struct {
@@ -84,6 +87,8 @@ func runWorktreeCommandWithGit(ctx context.Context, stdout io.Writer, args []str
 		return runWorktreeRemoveWithGit(ctx, stdout, opts, listWorktrees, runGit)
 	case "upgrade":
 		return runWorktreeUpgrade(ctx, stdout, opts)
+	case "prepare":
+		return runWorktreePrepare(ctx, stdout, opts)
 	default:
 		return usageErrorf("unknown worktree command %q", opts.Command)
 	}
@@ -102,7 +107,7 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 		return worktreeOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return worktreeOptions{}, usageErrorf("usage: scenery worktree create|list|remove|upgrade")
+		return worktreeOptions{}, usageErrorf("usage: scenery worktree create|list|remove|prepare|upgrade")
 	}
 	opts.Command = positionals[0]
 	if len(positionals) > 1 {
@@ -116,9 +121,12 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 		if strings.TrimSpace(opts.Name) == "" {
 			return worktreeOptions{}, usageErrorf("scenery worktree %s requires <name>", opts.Command)
 		}
-	case "list":
+	case "list", "prepare":
 		if opts.Name != "" {
 			return worktreeOptions{}, usageErrorf("unexpected argument %q", opts.Name)
+		}
+		if opts.Command == "prepare" && opts.From != "" {
+			return worktreeOptions{}, usageErrorf("scenery worktree prepare receives inputs from the main checkout and accepts no --from")
 		}
 	case "upgrade":
 		if opts.Name != "" || opts.From != "" {
@@ -163,10 +171,22 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 		NextCommand:        harnessevidence.ReproCommand([]string{"scenery", "up"}, target),
 	}
 	result.Message = "Git worktree created."
+	// The new checkout declares its own inputs; one that cannot be read yet,
+	// as under a test's Git double, simply receives nothing.
+	if created, err := correspondingAppRoot(gitTopLevel(ctx, appRoot), target, appRoot); err == nil && created != "" {
+		if root, cfg, err := appcfg.DiscoverRoot(created); err == nil && root == created {
+			if result.Inputs, err = prepareWorktreeInputs(ctx, created, appRoot, cfg, gitIgnores); err != nil {
+				return err
+			}
+		}
+	}
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
 	_, _ = fmt.Fprintf(stdout, "created worktree %s at %s\n", name, target)
+	for _, input := range result.Inputs {
+		_, _ = fmt.Fprintf(stdout, "received %s\n", input.Path)
+	}
 	_, _ = fmt.Fprintf(stdout, "next: %s\n", result.NextCommand)
 	return nil
 }
