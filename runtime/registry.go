@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"slices"
@@ -26,25 +25,6 @@ const (
 	Auth    = runtimeapi.Auth
 	Private = runtimeapi.Private
 )
-
-type ParamKind = runtimeapi.ParamKind
-
-const (
-	ParamString = runtimeapi.ParamString
-	ParamBool   = runtimeapi.ParamBool
-	ParamInt    = runtimeapi.ParamInt
-	ParamInt8   = runtimeapi.ParamInt8
-	ParamInt16  = runtimeapi.ParamInt16
-	ParamInt32  = runtimeapi.ParamInt32
-	ParamInt64  = runtimeapi.ParamInt64
-	ParamUint   = runtimeapi.ParamUint
-	ParamUint8  = runtimeapi.ParamUint8
-	ParamUint16 = runtimeapi.ParamUint16
-	ParamUint32 = runtimeapi.ParamUint32
-	ParamUint64 = runtimeapi.ParamUint64
-)
-
-type ParamSpec = runtimeapi.ParamSpec
 
 type AuthInfo struct {
 	UID  string
@@ -102,10 +82,6 @@ func (response *ContractHTTPResponse) Close() error {
 
 type ContractByteStream = shared.ByteStream
 
-func NewContractByteStream(reader io.ReadCloser, size int64) ContractByteStream {
-	return shared.NewByteStream(reader, size)
-}
-
 // ContractStreamOutcome keeps a typed operation outcome separate from its
 // non-serializable response body until the selected HTTP response is encoded.
 type ContractStreamOutcome struct {
@@ -147,17 +123,12 @@ type AuthHandler struct {
 }
 
 type CronJob struct {
-	ID             string
-	Title          string
-	Every          time.Duration
-	Schedule       string
-	Calendar       string
-	At             time.Time
-	Timezone       string
-	OverlapPolicy  string
-	CatchupWindow  time.Duration
-	PauseOnFailure bool
-	Invoke         func(context.Context) error
+	ID            string
+	Title         string
+	Every         time.Duration
+	OverlapPolicy string
+	CatchupWindow time.Duration
+	Invoke        func(context.Context) error
 
 	plan cronPlan
 }
@@ -222,15 +193,10 @@ type registry struct {
 	mcpFederationSpecs        map[string]MCPFederationRegistration
 	mcpFederations            map[string]*mcpFederationState
 	mcpFederationAssistants   map[string]string
-	mcpSecretResolvers        map[string]MCPSecretResolver
 	assistantMCPManifests     map[string]mcpcontract.Manifest
 	assistants                map[string]AssistantRegistration
 	assistantClients          map[string]AssistantClient
-	contractCLIBindings       map[string]ContractCLIBindingRegistration
 	contractPages             map[string]ContractPageRegistration
-	contractEventBuses        map[string]ContractEventBus
-	contractEventConsumers    map[string]ContractEventConsumerRegistration
-	contractEventEmissions    map[string]ContractEventEmissionRegistration
 	serviceInitializers       map[string]serviceInitializer
 	serviceInitOrder          map[string]int
 	serviceShutdowns          map[string]serviceShutdown
@@ -247,15 +213,10 @@ var global = &registry{
 	mcpFederationSpecs:        make(map[string]MCPFederationRegistration),
 	mcpFederations:            make(map[string]*mcpFederationState),
 	mcpFederationAssistants:   make(map[string]string),
-	mcpSecretResolvers:        make(map[string]MCPSecretResolver),
 	assistantMCPManifests:     make(map[string]mcpcontract.Manifest),
 	assistants:                make(map[string]AssistantRegistration),
 	assistantClients:          make(map[string]AssistantClient),
-	contractCLIBindings:       make(map[string]ContractCLIBindingRegistration),
 	contractPages:             make(map[string]ContractPageRegistration),
-	contractEventBuses:        make(map[string]ContractEventBus),
-	contractEventConsumers:    make(map[string]ContractEventConsumerRegistration),
-	contractEventEmissions:    make(map[string]ContractEventEmissionRegistration),
 	serviceInitializers:       make(map[string]serviceInitializer),
 	serviceInitOrder:          make(map[string]int),
 	serviceShutdowns:          make(map[string]serviceShutdown),

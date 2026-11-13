@@ -46,23 +46,6 @@ func (m Manager) ttl() time.Duration {
 	return DefaultTokenTTL
 }
 
-func (s InitiatorSigner) now() time.Time {
-	if s.Now != nil {
-		return s.Now().UTC()
-	}
-	return time.Now().UTC()
-}
-
-func (s InitiatorSigner) ttl() time.Duration {
-	if s.TTL > 0 {
-		if s.TTL > MaxCookieTTL {
-			return MaxCookieTTL
-		}
-		return s.TTL
-	}
-	return DefaultTokenTTL
-}
-
 func activeKey(keys Keyring) (string, []byte, error) {
 	if keys == nil {
 		return "", nil, ErrKeyUnavailable

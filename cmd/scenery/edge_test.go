@@ -2,16 +2,12 @@ package main
 
 import (
 	"context"
-	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	localagent "scenery.sh/internal/agent"
-	edgelifecycle "scenery.sh/internal/edge"
 )
 
 func TestParseEdgeArgsRejectsPublicAddrOverride(t *testing.T) {
@@ -103,32 +99,6 @@ func TestEdgePrivilegedInstallCommandUsesDeploySetupForDeploy(t *testing.T) {
 	}
 	if got := edgePrivilegedInstallCommand(true); got != "scenery deploy setup" {
 		t.Fatalf("deploy command = %q", got)
-	}
-}
-
-func TestEdgeRestartReadyIgnoresLocalDNSOnlyForDeploy(t *testing.T) {
-	t.Parallel()
-	status := edgeStatusResult{
-		Ready: false,
-		Edge: edgeStatusCaddy{
-			State:       localagent.EdgeStatusRunning,
-			PID:         42,
-			HTTPSListen: "127.0.0.1:19443",
-			Upstream:    "127.0.0.1:9440",
-			AgentRouter: "127.0.0.1:9440",
-		},
-		DNS: edgeDNSStatusResult{Ready: false},
-		PrivilegedListener: edgeStatusPrivilegedListener{
-			State:     "running",
-			Target:    "127.0.0.1:19443",
-			TargetPID: 42,
-		},
-	}
-	if !edgeRestartReady(status, true) {
-		t.Fatal("public deploy restart must reach target recovery when optional local DNS is down")
-	}
-	if edgeRestartReady(status, false) {
-		t.Fatal("ordinary local edge restart must still require wildcard DNS")
 	}
 }
 
@@ -256,7 +226,6 @@ func TestEdgeAgentCommandMatchesSameRouter(t *testing.T) {
 	// the restart that started the new agent, and the shells that ran it.
 	for _, command := range []string{
 		"/Users/petrbrazdil/go/bin/scenery system agent restart --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440 --router-http",
-		"/Users/petrbrazdil/go/bin/scenery system agent cleanup --router-listen 127.0.0.1:9440",
 		"/bin/bash -c /Users/petrbrazdil/go/bin/scenery system agent --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440",
 		"/bin/zsh -c source snapshot; scenery system agent restart --router-listen 127.0.0.1:9440",
 		"grep scenery system agent --router-listen 127.0.0.1:9440",
@@ -270,12 +239,12 @@ func TestEdgeAgentCommandMatchesSameRouter(t *testing.T) {
 
 func TestRuntimeProcessParsingAndManagedCaddyMatch(t *testing.T) {
 	t.Parallel()
-	processes := parseRuntimeProcesses(" 42 501 /opt/caddy run --config /Users/petr/.onlava/agent/edge/Caddyfile --adapter caddyfile\ninvalid\n")
+	processes := parseRuntimeProcesses(" 42 501 /opt/caddy run --config /Users/petr/.other/agent/edge/Caddyfile --adapter caddyfile\ninvalid\n")
 	if len(processes) != 1 || processes[0].PID != 42 || processes[0].UID != 501 {
 		t.Fatalf("processes = %+v", processes)
 	}
-	if !managedCaddyCommandMatches(processes[0].Command, []string{"/Users/petr/.onlava/agent/edge/Caddyfile"}) {
-		t.Fatal("legacy managed Caddy did not match")
+	if !managedCaddyCommandMatches(processes[0].Command, []string{"/Users/petr/.other/agent/edge/Caddyfile"}) {
+		t.Fatal("managed Caddy did not match")
 	}
 	if managedCaddyCommandMatches(processes[0].Command, []string{"/Users/petr/.scenery/agent/edge/Caddyfile"}) {
 		t.Fatal("unrelated Caddy matched")
@@ -283,9 +252,6 @@ func TestRuntimeProcessParsingAndManagedCaddyMatch(t *testing.T) {
 }
 
 func TestResolveCaddyBinaryUsesManagedToolchain(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake executable shell fixture is Unix-only")
-	}
 	t.Parallel()
 	storeDir := filepath.Join(t.TempDir(), "toolchain")
 	caddy := filepath.Join(storeDir, "artifacts", "caddy", "2.11.4", currentPlatformDirForTest(), "bin", "caddy")
@@ -304,102 +270,7 @@ func TestResolveCaddyBinaryUsesManagedToolchain(t *testing.T) {
 	}
 }
 
-func TestResolveDNSMasqBinaryUsesManagedToolchain(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake executable shell fixture is Unix-only")
-	}
-	t.Parallel()
-	storeDir := filepath.Join(t.TempDir(), "toolchain")
-	dnsmasq := filepath.Join(storeDir, "artifacts", "dnsmasq", "2.93", currentPlatformDirForTest(), "bin", "dnsmasq")
-	if err := os.MkdirAll(filepath.Dir(dnsmasq), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dnsmasq, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	got, err := resolveDNSMasqBinaryInStore(context.Background(), storeDir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != dnsmasq {
-		t.Fatalf("resolveDNSMasqBinary() = %q, want %q", got, dnsmasq)
-	}
-}
-
-func TestEdgeDNSStatusAcceptsFunctionalExternalResolver(t *testing.T) {
-	paths := localagent.PathsForHome(t.TempDir())
-	oldResolverStatus := edgeDNSResolverStatusFunc
-	oldResolverServes := edgeDNSResolverServesDomainFunc
-	t.Cleanup(func() {
-		edgeDNSResolverStatusFunc = oldResolverStatus
-		edgeDNSResolverServesDomainFunc = oldResolverServes
-	})
-	edgeDNSResolverStatusFunc = func(domain, listen string) edgelifecycle.DNSResolverState {
-		return edgelifecycle.DNSResolverState{
-			Installed:  true,
-			State:      "installed",
-			Domain:     domain,
-			Nameserver: "127.0.0.1",
-			Port:       "53535",
-		}
-	}
-	edgeDNSResolverServesDomainFunc = func(domain, nameserver, port, address string) bool {
-		return domain == "onlv.dev" && nameserver == "127.0.0.1" && port == "53535" && address == "127.0.0.1"
-	}
-
-	status := edgeDNSStatusFor(paths, "onlv.dev")
-	if !status.Ready {
-		t.Fatalf("status.Ready = false, want true: %+v", status)
-	}
-	if status.DNSMasq.State != "external" {
-		t.Fatalf("dnsmasq state = %q, want external", status.DNSMasq.State)
-	}
-}
-
-func TestWaitForEdgeDNSStartupDetectsProcessExitBehindExistingListener(t *testing.T) {
-	t.Parallel()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = listener.Close() }()
-
-	logPath := filepath.Join(t.TempDir(), "dnsmasq.log")
-	if err := os.WriteFile(logPath, []byte("dnsmasq: failed to create listening socket for 127.0.0.1: Address already in use\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	exitCh := make(chan error, 1)
-	go func() {
-		time.Sleep(2 * time.Millisecond)
-		exitCh <- os.ErrPermission
-	}()
-
-	err = waitForEdgeDNSStartup(listener.Addr().String(), exitCh, logPath, 0, 200*time.Millisecond)
-	if err == nil {
-		t.Fatal("waitForEdgeDNSStartup returned nil for a dnsmasq process that exited during startup")
-	}
-	if !strings.Contains(err.Error(), "dnsmasq exited during startup") || !strings.Contains(err.Error(), "Address already in use") {
-		t.Fatalf("waitForEdgeDNSStartup() err = %v, want startup exit with log tail", err)
-	}
-}
-
-func TestEdgeDNSHelperArgsNormalizeDomain(t *testing.T) {
-	t.Parallel()
-
-	opts, err := parseEdgeDNSHelperArgs([]string{"--domain", "HTTPS://LOCAL.DEV/path", "--nameserver", "127.0.0.1", "--port", "53535"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if opts.Domain != "local.dev" || opts.Nameserver != "127.0.0.1" || opts.Port != "53535" {
-		t.Fatalf("helper opts = %+v", opts)
-	}
-}
-
 func TestResolveCaddyBinaryDoesNotUseSystemPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake executable shell fixture is Unix-only")
-	}
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", "")
 	pathDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(pathDir, "caddy"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {

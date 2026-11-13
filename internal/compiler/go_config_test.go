@@ -20,8 +20,6 @@ func TestGoServiceConfigCompilesFromAuthoredSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootSource = []byte(strings.Replace(string(rootSource), `"scenery.runtime-http",`, `"scenery.runtime-http",
-    "scenery.deployment",`, 1))
 	rootSource = []byte(strings.Replace(string(rootSource), `gateway = http_gateway.public_api`, `gateway              = http_gateway.public_api
     roof_model_path      = "models/roof"
     process_concurrency  = 4

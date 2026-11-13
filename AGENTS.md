@@ -39,7 +39,6 @@ and resolution in an active plan. `.scenery/gen/` is cache, not an API.
 - `internal/connectionvault/AGENTS.md`
 - `internal/connectionruntime/AGENTS.md`
 - `internal/contractagent/AGENTS.md`
-- `internal/deployplan/AGENTS.md`
 - `internal/devprocess/AGENTS.md`
 - `internal/edge/AGENTS.md`
 - `internal/evolution/AGENTS.md`

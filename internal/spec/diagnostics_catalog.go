@@ -93,12 +93,6 @@ func diagnosticCategory(code string) string {
 		return "data"
 	case number >= 2600 && number <= 2699:
 		return "ui"
-	case number >= 2700 && number <= 2799:
-		return "events"
-	case number >= 2800 && number <= 2899:
-		return "deployment"
-	case number >= 2900 && number <= 2999:
-		return "patches"
 	case number >= 3000 && number <= 3199:
 		return "packages_modules_and_registry"
 	case number >= 3200 && number <= 3399:
@@ -115,10 +109,6 @@ func diagnosticCategory(code string) string {
 		return "go_generation_and_verification"
 	case number >= 6300 && number <= 6399:
 		return "typescript_generation"
-	case number >= 6400 && number <= 6499:
-		return "compatibility"
-	case number >= 7000 && number <= 7099:
-		return "profile_conformance"
 	case number >= 8000 && number <= 8099:
 		return "request_protocol"
 	case number >= 9000 && number <= 9099:
@@ -136,7 +126,6 @@ const diagnosticCatalogRows = `
 SCN1000|hcl_syntax|HCL syntax parsing failed
 SCN1001|source_access|A declared source file is unavailable or unsafe
 SCN1002|top_level_block|A top-level source block is unknown
-SCN1003|reserved_source_selector|Source selectors are not part of the current language
 SCN1004|application_labels|The application declaration has invalid labels
 SCN1005|package_block|A package source block is unknown
 SCN1006|resource_labels|A resource declaration has invalid labels
@@ -154,7 +143,6 @@ SCN1017|authored_attribute_shape|An authored attribute is unknown or must be a c
 SCN1018|authored_child_block|An authored child block is not allowed by its parent schema
 SCN1019|source_formatting|Source formatting failed
 SCN1020|authored_attribute_constraint|An authored attribute violates a declared schema constraint
-SCN1021|legacy_contract_filename|An authored contract file uses a retired pre-cutover filename and must be renamed
 SCN1101|root_singleton_identity|A required root singleton is missing or repeated
 SCN1102|module_identity|A module declaration is duplicated
 SCN1103|module_resource_identity|A resource identity is duplicated within a module
@@ -182,10 +170,6 @@ SCN1226|collection_constraint_order|A minimum length or item count exceeds its m
 SCN1227|string_pattern|A string pattern constraint is inapplicable or invalid RE2
 SCN1228|string_format|A string format constraint is unsupported
 SCN1229|unique_items_type|A unique-items constraint targets an incompatible type
-SCN1230|record_validation_identity|Record validation names are empty or duplicated
-SCN1231|record_validation_shape|A record validation is incomplete or malformed
-SCN1232|record_validation_path|A record validation path does not target its record
-SCN1233|record_validation_expression|A record validation expression is invalid
 SCN1234|record_field_example|A record field example does not match its field type or constraints
 SCN2001|http_binding_shape|An HTTP binding is missing its gateway method or path
 SCN2002|http_route_identity|Two HTTP bindings own the same route
@@ -218,14 +202,13 @@ SCN2200|execution_shape|An execution is missing its operation or mode
 SCN2201|durable_engine|A durable execution has no engine
 SCN2202|durable_revision|A durable execution revision is not positive
 SCN2203|durable_policy_shape|A durable execution lacks required timeout retry or retention policy
-SCN2204|workflow_unavailable|Workflow execution is unavailable in the current Scenery build
 SCN2205|durable_idempotency|Durable keyed idempotency lacks valid deduplication policy
 SCN2206|durable_engine_reference|A durable execution engine reference is invalid
 SCN2207|durable_timing|Durable timeout lease or attempts are invalid
 SCN2208|durable_retry_retention|Durable retry or retention policy is invalid
 SCN2209|durable_concurrency|Durable concurrency key or limit is invalid
 SCN2210|durable_external_name|A durable external name is duplicated within its engine
-SCN2301|schedule_trigger|A schedule does not select exactly one trigger
+SCN2301|schedule_trigger|A schedule trigger does not define every
 SCN2302|schedule_invoke_shape|A schedule invocation is incomplete
 SCN2303|schedule_invoke_contract|A schedule invocation has inconsistent typed references or input
 SCN2304|schedule_policy|Schedule trigger overlap or catchup policy is invalid
@@ -235,15 +218,6 @@ SCN2403|binding_execution_operation|A binding and its execution select different
 SCN2404|binding_execution_delivery|A binding delivery is unsupported by its execution
 SCN2405|internal_binding_visibility|Internal binding visibility is invalid
 SCN2406|internal_binding_exposure|Internal binding exposure does not match visibility
-SCN2410|cli_command_identity|A CLI command name is invalid or reserved
-SCN2411|cli_command_collision|A CLI command is duplicated
-SCN2412|cli_input_target|A CLI input mapping target is invalid or duplicated
-SCN2413|cli_argument_position|CLI argument positions are invalid duplicated or non-contiguous
-SCN2414|cli_flag_name|A CLI flag long or short name is invalid or duplicated
-SCN2415|cli_input_coverage|CLI mappings do not populate operation input exactly once
-SCN2416|cli_outcome_exit|A CLI outcome condition or exit status is invalid or duplicated
-SCN2417|cli_output_codec|CLI output does not use a supported typed codec
-SCN2418|cli_outcome_coverage|A reachable operation outcome has no CLI mapping
 SCN2419|mcp_binding_shape|An MCP binding lacks its required child or uses an invalid protocol shape
 SCN2420|mcp_tool_identity|An MCP tool name is invalid or duplicated
 SCN2421|mcp_projection_type|An MCP tool input or output type cannot be projected to JSON Schema
@@ -253,24 +227,8 @@ SCN2424|assistant_route_collision|An assistant public route collides with anothe
 SCN2425|assistant_source_path|An assistant source path escapes its declared source root
 SCN2426|assistant_package_lock|An assistant package lock is missing or not exact
 SCN2427|assistant_adapter|An assistant implementation adapter is unsupported
-SCN2428|mcp_connection_transport|An external MCP connection uses an unsupported transport
-SCN2429|mcp_connection_auth|An external MCP connection uses unsupported authentication
-SCN2430|mcp_reference_cycle|MCP servers and connections contain a cyclic reference
-SCN2501|entity_record|An entity has no record type
-SCN2502|entity_data_source|An entity has no data source
-SCN2503|view_shape|A view is missing a typed data source input result or implementation
-SCN2504|crud_contract|A CRUD resource has invalid actions implementation execution or projection
+SCN2430|mcp_reference_cycle|MCP servers and assistants contain a cyclic reference
 SCN2505|data_source_contract|A data source has invalid provider lifecycle or capability requirements
-SCN2506|entity_contract|Entity mapping fields keys or defaults are invalid
-SCN2507|view_implementation|A view implementation locator kind or file is invalid
-SCN2508|fixture_contract|Fixture entity mode environment or typed rows are invalid
-SCN2509|view_result_contract|A view implementation result is incompatible with its declared type
-SCN2510|crud_expansion_identity|A CRUD-derived resource address collides
-SCN2511|fixture_shape|A fixture is missing required entity environment mode or values
-SCN2512|crud_list_field|A CRUD list capability references an unavailable field or action
-SCN2513|crud_list_filter|A CRUD list filter is not supported by the standard query contract
-SCN2514|crud_list_sort|A CRUD list sort or default ordering is invalid
-SCN2515|crud_list_search|A CRUD list search field is not supported by the standard query contract
 SCN2601|page_contract|A page lacks a path or typed load binding
 SCN2602|renderer_contract|A renderer lacks a page runtime or module
 SCN2603|page_semantics|Page path load actions or renderer references are invalid
@@ -306,23 +264,6 @@ SCN2632|detail_page_table|A detail page related table or parameter mapping is in
 SCN2633|detail_page_expansion_identity|A detail-page-derived resource address collides
 SCN2634|table_page_stats_tile|A table page statistics tile format sub-field or filter action is invalid
 SCN2635|table_page_filter_preset|A table page date or datetime filter preset is invalid
-SCN2701|event_contract|An event lacks a payload or positive version
-SCN2702|event_emission_shape|An event emission is incomplete
-SCN2703|event_binding_shape|An event binding is incomplete
-SCN2704|event_binding_direction|An event consumer binding has the wrong direction
-SCN2705|event_binding_contract|An event consumer channel delivery mapping or retry policy is invalid
-SCN2706|event_emission_contract|An event emission selection payload or retry policy is invalid
-SCN2801|deployment_resolution|A requested deployment or manifest cannot be resolved
-SCN2802|deployment_overlay_target|A deployment overlay target or write ownership is invalid
-SCN2803|deployment_overlay_value|A deployment overlay value has an invalid field type or value
-SCN2804|deployment_overlay_boundary|A deployment overlay changes a forbidden contract field
-SCN2805|deployment_shape|A deployment is missing its environment
-SCN2901|patch_target|A patch target cannot be resolved
-SCN2902|patch_shape|A patch lacks the target's exact schema revision or preconditions
-SCN2903|patch_precondition|A patch precondition failed
-SCN2904|patch_write_path|A patch path is not writable
-SCN2906|patch_boundary|A patch crosses a private or unpatchable boundary
-SCN2907|patch_collision|Two patches write the same path
 SCN3001|module_labels|A module declaration has invalid labels
 SCN3002|module_source|A module source path is invalid or unsafe
 SCN3004|module_package_access|A module package source cannot be read
@@ -350,7 +291,6 @@ SCN3408|public_config_input|A public configuration input is sensitive or not an 
 SCN4001|secret_config_sink|Secret configuration lacks a sensitive typed secret reference
 SCN4002|nonsecret_config_flow|A resource or secret reference flows into non-secret configuration
 SCN4003|sensitive_config_reference|Sensitive Go configuration lacks a secret resource reference
-SCN4004|secret_plaintext|Secret plaintext entered a forbidden graph artifact or value
 SCN4012|generated_go_name_collision|Generated Go identifiers collide or use reserved names
 SCN4101|authentication_policy|Authentication policy is invalid or incomplete
 SCN4102|authorization_rule|An authorization rule shape type or syntax is invalid
@@ -391,12 +331,8 @@ SCN6142|go_architecture_features|Go target architecture features are invalid or 
 SCN6143|go_module_ownership|A Go module root or import path has multiple owners
 SCN6150|implementation_target_resolution|Implementation revision target inheritance cannot be resolved
 SCN6151|implementation_target_module|An implementation revision target has no resolved Go module
-SCN6201|generated_go_contract|Generated Go contract artifacts are invalid
 SCN6202|go_verification|Staged Go target or implementation verification failed
-SCN6203|stale_generated_go|Committed generated Go artifacts are stale or invalid
 SCN6204|stale_generated_typescript|Committed generated TypeScript artifacts are stale or invalid
-SCN6205|planned_generated_go|A change plan produces invalid generated Go artifacts
-SCN6206|planned_generated_typescript|A change plan produces invalid generated TypeScript artifacts
 SCN6207|generated_artifact_transaction|Generated artifact planning overlay or transaction failed
 SCN6208|package_abi_invariance|Package Go ABI shape varies by module input
 SCN6209|revision_scheme_changed|A pending artifact uses a superseded revision scheme
@@ -419,9 +355,6 @@ SCN6316|typescript_field_constraint|A TypeScript field constraint cannot be repr
 SCN6320|typescript_react_override|A declared React override is incompatible with its generated slot contract
 SCN6321|typescript_react_application|A reachable application module has an unrelated TypeScript error
 SCN6322|typescript_react_readiness|The native React generation checker or application dependencies are unavailable
-SCN7001|feature_unavailable|A recognized source feature is unavailable
-SCN7008|streaming_unavailable|Server-sent events are unavailable
-SCN7009|unsupported_draft_surface|A declaration uses an unresolved draft capability
 SCN8001|invalid_request|The CLI or agent request is invalid
 SCN8002|revision_conflict|A request revision no longer matches current state
 SCN8003|failed_precondition|A request precondition is not satisfied
@@ -438,5 +371,4 @@ SCN8013|result_too_large|A result exceeds its row or byte budget
 SCN9000|internal_tooling_failure|An unexpected internal tooling failure occurred
 SCN9001|internal_parser_invariant|The parser returned an impossible body implementation
 SCN9002|internal_revision_invariant|Canonical contract revision construction failed internally
-SCN9003|internal_compilation_result_invariant|An internal caller omitted its compilation result
 `

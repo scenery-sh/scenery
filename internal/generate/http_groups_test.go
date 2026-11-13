@@ -1,7 +1,6 @@
 package generate
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,18 +95,5 @@ export "inspect" { value = operation.inspect }
 	}
 	if source := generatedSourceWithSuffix(clientFiles, "client.ts"); !strings.Contains(source, `"path":"`+route+`"`) {
 		t.Fatalf("generated TypeScript descriptor has no route %q:\n%s", route, source)
-	}
-	artifact, err := GenerateOpenAPIArtifact(result, "public_api")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document struct {
-		Paths map[string]map[string]json.RawMessage `json:"paths"`
-	}
-	if err := json.Unmarshal(artifact.Document, &document); err != nil {
-		t.Fatal(err)
-	}
-	if len(document.Paths) != 1 || len(document.Paths[route]["post"]) == 0 {
-		t.Fatalf("OpenAPI paths = %#v", document.Paths)
 	}
 }

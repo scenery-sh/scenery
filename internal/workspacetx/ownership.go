@@ -86,10 +86,6 @@ func captureOwner(pid int) (Owner, ownerProcessLiveness) {
 	return owner, info.Liveness
 }
 
-func ownerIsCurrent(owner Owner) bool {
-	return inspectOwnerState(owner) == ownerCurrent
-}
-
 func inspectOwnerState(owner Owner) ownerState {
 	if owner.PID <= 0 {
 		return ownerUnknown

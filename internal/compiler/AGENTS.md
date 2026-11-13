@@ -22,7 +22,7 @@ current application graph.
   input capture reuses compiler membership, path safety and exact-byte hashing.
   Only exact SQLC output paths covered by a fully validated ownership receipt
   are excluded under managed roots; classification and publication share its decoder.
-- Local directory groups prefix HTTP binding/CRUD paths once after patches and
+- Local directory groups prefix HTTP binding paths once
   before expansion. Source paths stay authored; effective paths and provenance
   own routing for every consumer. Registry cache paths never supply URL groups.
 - `Result.SQLRequirements` owns reachable typed SQL bindings and selected
@@ -44,7 +44,7 @@ current application graph.
 - Every normal source read first asks `internal/workspacetx` to recover an
   abandoned transaction or reject a live owner. Staged validation admits only
   the current transaction owner.
-- Validate CRUD list and table-page field capabilities plus split-page,
+- Validate table-page field capabilities plus split-page,
   content-page, workspace-page, and detail-page binding, route-parameter,
   field-section, action, related-table, and slot contracts before expansion.
   Declarative page kinds are macros over

@@ -51,7 +51,6 @@ type FakeHelper struct {
 	convs            map[string]*fakeConversation
 	malformed        []privateEvent
 	forceUnavailable bool
-	crashHook        func()
 
 	stopOnce atomic.Uint64
 }
@@ -633,16 +632,6 @@ func (f *FakeHelper) Crash() {
 		return
 	}
 	f.state = StateCrashed
-	hook := f.crashHook
-	f.mu.Unlock()
-	if hook != nil {
-		hook()
-	}
-}
-
-func (f *FakeHelper) setCrashHook(hook func()) {
-	f.mu.Lock()
-	f.crashHook = hook
 	f.mu.Unlock()
 }
 

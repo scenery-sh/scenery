@@ -11,10 +11,6 @@ import (
 // LeaseReadyJob leases the next ready job of one task. Each task is leased
 // separately, so a long attempt of one task never delays another task.
 func (s *Store) LeaseReadyJob(ctx context.Context, workerID, leaseID, taskName string) (LeasedJob, bool, error) {
-	return s.LeaseReadyJobWithToken(ctx, workerID, leaseID, taskName, "")
-}
-
-func (s *Store) LeaseReadyJobWithToken(ctx context.Context, workerID, leaseID, taskName, tokenHash string) (LeasedJob, bool, error) {
 	workerID = strings.TrimSpace(workerID)
 	leaseID = strings.TrimSpace(leaseID)
 	taskName = strings.TrimSpace(taskName)
@@ -67,10 +63,10 @@ FOR UPDATE OF t, j SKIP LOCKED
 	res, err := tx.ExecContext(ctx, `
 UPDATE scenery.durable_jobs
 SET state = 'running', attempt = $1, lease_id = $2, lease_owner = $3,
-    lease_token_hash = $4, lease_until = now() + ($5 * interval '1 millisecond'),
-    timeout_at = now() + ($6 * interval '1 millisecond'), updated_at = now()
-WHERE service = $7 AND id = $8 AND state = 'queued'
-`, job.Attempt, leaseID, workerID, strings.TrimSpace(tokenHash), job.LeaseMS, job.TimeoutMS, s.Service, job.ID)
+    lease_until = now() + ($4 * interval '1 millisecond'),
+    timeout_at = now() + ($5 * interval '1 millisecond'), updated_at = now()
+WHERE service = $6 AND id = $7 AND state = 'queued'
+`, job.Attempt, leaseID, workerID, job.LeaseMS, job.TimeoutMS, s.Service, job.ID)
 	if err != nil {
 		return LeasedJob{}, false, rollback(tx, fmt.Errorf("durable store: mark job %q running: %w", job.ID, err))
 	}
@@ -146,16 +142,8 @@ VALUES ($1, $2, $3, $4, 'json', '{}'::bytea)
 	return nil
 }
 
-func (s *Store) CompleteJob(ctx context.Context, jobID string, resultBlob []byte) error {
-	return s.finishJob(ctx, jobID, "", "", "succeeded", "json", resultBlob, nil)
-}
-
 func (s *Store) CompleteLeasedJob(ctx context.Context, jobID, workerID, leaseID string, resultBlob []byte) error {
 	return s.finishJob(ctx, jobID, workerID, leaseID, "succeeded", "json", resultBlob, nil)
-}
-
-func (s *Store) FailJob(ctx context.Context, jobID string, errorBlob []byte) error {
-	return s.failOrRetryJob(ctx, jobID, "", "", errorBlob)
 }
 
 func (s *Store) FailLeasedJob(ctx context.Context, jobID, workerID, leaseID string, errorBlob []byte) error {

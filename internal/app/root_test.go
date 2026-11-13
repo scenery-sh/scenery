@@ -9,24 +9,6 @@ import (
 	"testing"
 )
 
-func TestDiscoverRootRejectsDuplicateDatabaseRequirements(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".scenery.json", `{
-		"name": "dbapp",
-		"dev": {
-			"services": {
-				"auth": {},
-				"billing-data": {}
-			}
-		}
-	}`)
-
-	_, _, err := DiscoverRoot(root)
-	if err == nil || !strings.Contains(err.Error(), "dev.services") || !strings.Contains(err.Error(), "data_source") {
-		t.Fatalf("DiscoverRoot must identify the current SQL requirement owner: %v", err)
-	}
-}
-
 func TestDiscoverRootAcceptsBuildGoFlags(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
@@ -407,16 +389,6 @@ func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
 			name:   "unknown root",
 			config: `{"name":"deployapp","root":"web","frontends":{"admin":{"root":"admin"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{}}}}`,
 			want:   `root "web" must name a configured frontend (one of: admin)`,
-		},
-		{
-			name:   "legacy deploy root",
-			config: `{"name":"deployapp","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"web"}}}}`,
-			want:   `unknown .scenery.json field "envs.production.deploy.root"; move the frontend name to top-level "root"`,
-		},
-		{
-			name:   "removed api deploy root",
-			config: `{"name":"deployapp","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"api"}}}}`,
-			want:   `unknown .scenery.json field "envs.production.deploy.root"; remove it because public / now uses the root frontend (or the default agent page when no root frontend is configured), while /api/ remains routed automatically`,
 		},
 		{
 			name:   "unsafe ssh target",

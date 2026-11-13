@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/rotatinglog"
 	"strings"
 	"testing"
 	"time"
+
+	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/rotatinglog"
 )
 
 func TestTelemetryClassification(t *testing.T) {
@@ -41,7 +42,6 @@ func TestTelemetryClassification(t *testing.T) {
 		{[]string{"feature", "list"}, "feature list", "oneshot"},
 		{[]string{"up", "--detach"}, "up", "long_running"},
 		{[]string{"worker"}, "worker", "long_running"},
-		{[]string{"console"}, "console", "long_running"},
 		{[]string{"logs", "--follow", "--app-root", "/private/path"}, "logs", "long_running"},
 	}
 	for _, test := range tests {

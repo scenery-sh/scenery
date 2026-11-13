@@ -5,20 +5,6 @@
     "contract_revision": "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db",
     "resources": [
       {
-        "address": "app/mcp_connection/docs",
-        "kind": "scenery.mcp-connection",
-        "name": "docs",
-        "module": "app",
-        "spec": {
-          "auth": {"scheme": "none"},
-          "call_timeout": {"$scalar": "duration", "nanoseconds": "30000000000"},
-          "connect_timeout": {"$scalar": "duration", "nanoseconds": "5000000000"},
-          "tools": {"allow": ["search", "fetch"]},
-          "transport": "streamable_http",
-          "url": {"$scalar": "url", "value": "https://docs.example.test/mcp"}
-        }
-      },
-      {
         "address": "app/mcp_server/support",
         "kind": "scenery.mcp-server",
         "name": "support",
@@ -29,12 +15,6 @@
             "binding": {"$ref": "house/binding/process_scene_mcp"},
             "label": "process_scene",
             "name": "house__process_scene"
-          },
-          "connection": {
-            "connection": {"$ref": "mcp_connection.docs"},
-            "name": "docs",
-            "namespace": "docs",
-            "required": false
           },
           "max_input_bytes": {"$scalar": "int", "value": "262144"},
           "max_result_bytes": {"$scalar": "int", "value": "1048576"}

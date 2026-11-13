@@ -89,5 +89,5 @@ func edgeProbeServerName(paths localagent.Paths) string {
 			}
 		}
 	}
-	return "scenery-edge-probe." + defaultEdgeDNSDomain
+	return "scenery-edge-probe." + localagent.DefaultRouteBaseDomain
 }

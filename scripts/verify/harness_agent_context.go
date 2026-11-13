@@ -145,8 +145,6 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 		return "scripts/verify/harness_self_generate.go"
 	case harnessNativeContractApplicationProbeName:
 		return "scripts/verify/harness_self_native_contract.go"
-	case harnessSnapshotBackupProbeName:
-		return "scripts/verify/harness_self_snapshot.go"
 	case harnessTypeScriptCheckerProbeName:
 		return "scripts/verify/harness_self_tscheck.go"
 	case harnessCodeTaskProcessProbeName:
@@ -161,14 +159,10 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 		return "scripts/verify/harness_self_validation.go"
 	case harnessTestsuiteCacheProbeName:
 		return "scripts/verify/harness_self_testsuite.go"
-	case harnessToolchainSourceBuildProbeName:
-		return "scripts/verify/harness_self_toolchain_source_build.go"
 	case harnessWorktreeGitProbeName:
 		return "scripts/verify/harness_self_worktree.go"
 	case harnessBuildInfoProbeName:
 		return "scripts/verify/harness_self_build_info.go"
-	case harnessAssistantInitProbeName:
-		return "scripts/verify/harness_self_assistant.go"
 	case harnessAgentRestartProbeName:
 		return "scripts/verify/harness_self_agent_restart.go"
 	case harnessAssistantProductionProbeName:

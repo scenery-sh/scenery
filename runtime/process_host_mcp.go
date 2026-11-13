@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 
 	"scenery.sh/errs"
-	"scenery.sh/internal/mcpapi"
 	"scenery.sh/internal/mcpcontract"
 )
 
@@ -21,12 +19,7 @@ import (
 // tools are registered by service processes. The host dispatcher forwards each
 // tool call to the owning process of the generation its assistant run executes
 // (see process_host_conversations.go), pinning the call and its internal calls
-// to that generation. The host authorizes durable
-// receipts: it records the principal, owning process, durable service and task
-// of each accepted receipt in the session's receipt journal (see
-// process_host_receipts.go), and sends authorized status and cancellation to
-// the owning process of the current generation, which reads the shared durable
-// store.
+// to that generation.
 
 var activeProcessHost struct {
 	sync.RWMutex
@@ -39,16 +32,15 @@ func setActiveProcessHost(host *processHost) {
 	activeProcessHost.Unlock()
 }
 
-// assistantMCPDispatchers selects the dispatcher of an assistant MCP gateway.
-func assistantMCPDispatchers() (mcpcontract.ToolDispatcher, mcpapi.DurableOperations) {
+// assistantMCPDispatcher selects the dispatcher of an assistant MCP gateway.
+func assistantMCPDispatcher() mcpcontract.ToolDispatcher {
 	activeProcessHost.RLock()
 	host := activeProcessHost.host
 	activeProcessHost.RUnlock()
 	if host == nil {
-		return MCPToolDispatcher{}, MCPToolDispatcher{}
+		return MCPToolDispatcher{}
 	}
-	dispatcher := processHostMCPDispatcher{host: host}
-	return dispatcher, dispatcher
+	return processHostMCPDispatcher{host: host}
 }
 
 type processHostMCPDispatcher struct {
@@ -75,47 +67,7 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 	if response.Outcome == nil {
 		return mcpcontract.ToolOutcome{}, ContractSystemError(fmt.Errorf("service process %s returned no MCP outcome", process))
 	}
-	if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" && response.Durable != nil && d.host.quiescing.Load() {
-		slog.Warn("durable execution was accepted while its host is being replaced; its status and cancellation are unavailable", "execution_id", receipt.ExecutionID)
-	} else if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" && response.Durable != nil {
-		// The execution was accepted whether or not its authorization commits;
-		// an uncommitted receipt is reported as accepted and reads as
-		// unavailable, and the call is never repeated.
-		if err := d.host.owners.store(strings.TrimSpace(call.Principal), receipt.ExecutionID, processHostDurableOwner{
-			process: process, service: strings.TrimSpace(response.Durable.Service), taskName: strings.TrimSpace(response.Durable.TaskName),
-		}); err != nil {
-			slog.Warn("durable execution was accepted but its status and cancellation are unavailable: its authorization was not committed", "execution_id", receipt.ExecutionID, "error", err.Error())
-		}
-	}
 	return *response.Outcome, nil
-}
-
-func (d processHostMCPDispatcher) Status(ctx context.Context, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
-	return d.durable(ctx, "status", call, executionID)
-}
-
-func (d processHostMCPDispatcher) Cancel(ctx context.Context, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
-	return d.durable(ctx, "cancel", call, executionID)
-}
-
-func (d processHostMCPDispatcher) durable(ctx context.Context, operation string, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
-	executionID = strings.TrimSpace(executionID)
-	owner, ok, err := d.host.owners.load(strings.TrimSpace(call.Principal), executionID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok || owner.service == "" || owner.taskName == "" {
-		return nil, mcpError(errs.NotFound, "durable execution not found")
-	}
-	body, err := json.Marshal(processMCPDurableRequest{Operation: operation, Call: call, ExecutionID: executionID, Service: owner.service, TaskName: owner.taskName})
-	if err != nil {
-		return nil, ContractSystemError(err)
-	}
-	response, err := d.host.callProcess(ctx, owner.process, processMCPDurablePath, body)
-	if err != nil {
-		return nil, err
-	}
-	return response.Result, nil
 }
 
 func (h *processHost) mcpToolOwner(assistantAddress, name string) (string, error) {
@@ -137,15 +89,9 @@ func (h *processHost) mcpToolOwner(assistantAddress, name string) (string, error
 	return match, nil
 }
 
-// callProcess sends one host-originated call to a service process of the
-// current generation, pinned to that generation, and verifies the answering
-// identity.
-func (h *processHost) callProcess(ctx context.Context, process, path string, body []byte) (processMCPResponse, error) {
-	return h.callProcessIn(ctx, 0, process, path, body)
-}
-
-// callProcessIn is callProcess in the generation number, or the current one
-// when number is 0.
+// callProcessIn sends one host-originated call to a service process of the
+// generation number, or the current one when number is 0, pinned to that
+// generation, and verifies the answering identity.
 func (h *processHost) callProcessIn(ctx context.Context, number uint64, process, path string, body []byte) (processMCPResponse, error) {
 	generation := h.acquire(number)
 	if generation == nil {

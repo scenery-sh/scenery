@@ -21,7 +21,7 @@ func TestFieldProvenanceTreeRebaseAndLookup(t *testing.T) {
 }
 
 func TestExpansionProvenanceUsesGeneratorIdentity(t *testing.T) {
-	generator := Resource{Address: "house/crud/items", Origin: Origin{Kind: "authored"}}
+	generator := Resource{Address: "house/table_page/items", Origin: Origin{Kind: "authored"}}
 	resource := Resource{Address: "house/operation/create_item", Spec: map[string]any{"input": map[string]any{"$ref": "record.item"}}}
 	MarkExpansionFieldProvenance(&resource, generator)
 	field := resource.Origin.FieldProvenance["/spec/input"]

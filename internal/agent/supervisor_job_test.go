@@ -89,7 +89,7 @@ func TestReconcileAgentSystemdUpgradesAnOldUnit(t *testing.T) {
 		return nil, nil
 	}
 	paths := PathsForHome("/srv/scenery home/.scenery")
-	current := AgentSystemdUnit("/usr/local/bin/scenery", paths, StartOptions{Trust: true, RouterAddr: "0.0.0.0:9440"})
+	current := AgentSystemdUnit("/usr/local/bin/scenery", paths, StartOptions{RouterAddr: "0.0.0.0:9440"})
 	old := strings.Replace(current, " --supervised", "", 1)
 	if old == current {
 		t.Fatal("the current unit does not name --supervised")

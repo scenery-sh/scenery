@@ -132,7 +132,7 @@ binding "download_http" {
 	if _, err := Format(root, false); err != nil {
 		t.Fatal(err)
 	}
-	result, err := CompileContractGraph(root)
+	result, err := Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}

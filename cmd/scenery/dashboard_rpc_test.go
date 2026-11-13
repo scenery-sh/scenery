@@ -45,7 +45,7 @@ func TestRuntimeRPCStatusIsTheDocumentedShape(t *testing.T) {
 			Enabled: true,
 			Logs:    devdash.ObservabilityBackendState{Enabled: true, Available: true, Status: "ready", URL: "http://127.0.0.1:9428"},
 		},
-	}}, t.TempDir(), "127.0.0.1:0", nil)
+	}}, "127.0.0.1:0")
 
 	result, err := server.dispatchRPC(context.Background(), "status", nil)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestRuntimeRPCStatusIsTheDocumentedShape(t *testing.T) {
 func TestRuntimeRPCRejectsUndocumentedMethodsAndParams(t *testing.T) {
 	t.Parallel()
 
-	server := newDashboardServerWithController(runtimeRPCTestController{}, t.TempDir(), "127.0.0.1:0", nil)
+	server := newDashboardServerWithController(runtimeRPCTestController{}, "127.0.0.1:0")
 	for _, method := range []string{"list-apps", "logs/list", "process/output/list", "api-call", "stored-requests/list"} {
 		if _, err := server.dispatchRPC(context.Background(), method, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "method not found") {
 			t.Fatalf("%s error = %v, want method not found", method, err)

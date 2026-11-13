@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -53,12 +51,6 @@ func runHarnessEdgeProcessProbeStepWithCheck(ctx context.Context, repoRoot strin
 }
 
 func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
-	if runtime.GOOS == "windows" {
-		return map[string]any{
-			"proof":  "not_applicable_on_windows",
-			"reason": "managed Caddy reload uses a Unix admin socket",
-		}, nil, nil
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -70,9 +62,6 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 		return nil, nil, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	if err := verifyHarnessDNSOwnershipMigration(dir); err != nil {
-		return nil, nil, err
-	}
 
 	argsPath := filepath.Join(dir, "reload-args.txt")
 	caddyPath := filepath.Join(dir, "caddy")
@@ -121,28 +110,7 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 		"start_stop":        startStop,
 		"static_frontend":   staticFrontend,
 		"wildcard_ipv4":     "verified_nonce_exchange",
-		"dns_migration":     "verified_exact_backup_and_resolver_ownership",
 	}, nil, nil
-}
-
-func verifyHarnessDNSOwnershipMigration(root string) error {
-	path := filepath.Join(root, "dns-migration.json")
-	legacy := []byte(`{"schema_version":"scenery.edge.dns.state.v1","status":"running","pid":42,"domain":"local.dev","listen":"127.0.0.1:53535","address":"127.0.0.1","resolver_path":"/etc/resolver/local.dev","updated_at":"2026-07-13T00:00:00Z"}`)
-	if err := os.WriteFile(path, legacy, 0o600); err != nil {
-		return err
-	}
-	state, err := edgelifecycle.LoadDNSState(path)
-	if err != nil {
-		return err
-	}
-	if state.Kind != "scenery.edge.dns-state" || state.PID != 42 || state.ResolverPath != "/etc/resolver/local.dev" {
-		return fmt.Errorf("DNS migration did not preserve resolver ownership: %+v", state)
-	}
-	backup, err := os.ReadFile(path + ".legacy.bak")
-	if err != nil || !bytes.Equal(backup, legacy) {
-		return fmt.Errorf("DNS migration did not retain the exact legacy backup: %v", err)
-	}
-	return nil
 }
 
 func runHarnessEdgeStartStopProbe(ctx context.Context, root string) (map[string]any, error) {

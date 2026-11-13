@@ -187,41 +187,6 @@ func TestRunDurableTaskHandlerEnforcesDeclaredTimeout(t *testing.T) {
 	}
 }
 
-func TestDurableScheduleEnqueuesAndRuns(t *testing.T) {
-	restore := replaceGlobalRegistryForTest()
-	defer restore()
-	dsn := liveRuntimeDatabaseURL(t)
-	t.Setenv("DATABASE_URL", dsn)
-
-	registerDurableTaskForTest(t, &DurableTask{
-		Name:    "maps.scheduled.v1",
-		Service: "maps",
-		Handler: func(ctx context.Context, input []byte) ([]byte, error) {
-			return []byte(`{"ok":true}`), nil
-		},
-	})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	stop, err := startDurableRuntime(ctx, AppConfig{Name: "demo", Role: "all"})
-	if err != nil {
-		t.Fatalf("startDurableRuntime: %v", err)
-	}
-	defer func() {
-		cancel()
-		if err := stop(context.Background()); err != nil {
-			t.Fatalf("stop durable runtime: %v", err)
-		}
-	}()
-
-	if err := DurableSchedule(context.Background(), "maps", "maps.scheduled.v1", "sched-runtime", 10*time.Millisecond, []byte(`{"id":"1"}`)); err != nil {
-		t.Fatalf("DurableSchedule: %v", err)
-	}
-	db := openRuntimeDB(t, dsn)
-	defer func() { _ = db.Close() }()
-	waitRuntimeAnyJobState(t, db, "maps.scheduled.v1", "succeeded")
-}
-
 func liveRuntimeDatabaseURL(t *testing.T) string {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("SCENERY_TEST_DATABASE_URL"))
@@ -304,17 +269,12 @@ func waitRuntimeJobState(t *testing.T, db *sql.DB, jobID, want string) {
 	t.Fatalf("job %s state = %q, want %q", jobID, got, want)
 }
 
-func waitRuntimeAnyJobState(t *testing.T, db *sql.DB, taskName, want string) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		var got string
-		if err := db.QueryRow(`SELECT state FROM scenery.durable_jobs WHERE task_name = $1 ORDER BY created_at DESC LIMIT 1`, taskName).Scan(&got); err == nil && got == want {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+// startDurableRuntime opens the durable runtime and starts its background work.
+func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Context) error, error) {
+	durable, err := openDurableRuntime(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
-	var got string
-	_ = db.QueryRow(`SELECT state FROM scenery.durable_jobs WHERE task_name = $1 ORDER BY created_at DESC LIMIT 1`, taskName).Scan(&got)
-	t.Fatalf("latest job for task %s state = %q, want %q", taskName, got, want)
+	durable.StartBackground()
+	return durable.Close, nil
 }

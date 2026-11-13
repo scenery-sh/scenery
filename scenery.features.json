@@ -138,7 +138,6 @@
         "docs/schemas/scenery.dev-runtime.status.schema.json",
         "scripts/verify/harness_self_observability",
         "scripts/verify/harness_observability",
-        "scripts/verify/harness_metrics_catalog",
         "scripts/verify/harness_query_framing",
         "scripts/verify/testdata/observability/"
       ]

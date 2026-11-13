@@ -15,7 +15,6 @@ const (
 	envAgentHome       = "SCENERY_AGENT_HOME"
 	envAgentSocket     = "SCENERY_AGENT_SOCKET"
 	envAgentRouterAddr = "SCENERY_AGENT_ROUTER_ADDR"
-	envAgentTrust      = "SCENERY_AGENT_TRUST"
 
 	defaultRouterAddr = "127.0.0.1:9440"
 )
@@ -102,23 +101,6 @@ func RouterAddrFromEnv() string {
 		return value
 	}
 	return defaultRouterAddr
-}
-
-func TrustFromEnv() bool {
-	return envEnabled(envAgentTrust)
-}
-
-func envEnabled(name string) bool {
-	return envValueEnabled(envpolicy.Get(name))
-}
-
-func envValueEnabled(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }
 
 func EnsureDirs(paths Paths) error {

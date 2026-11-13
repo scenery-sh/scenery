@@ -76,10 +76,10 @@ func prepareRuntimeBundle(ctx context.Context, result *Result) error {
 const developmentLinkerFlags = "-w"
 
 // developmentLinkerDefaults applies to ordinary development builds.
-// Ephemeral, production-asset and deployable artifacts keep the stock linker
+// Production-asset and deployable artifacts keep the stock linker
 // defaults.
 func developmentLinkerDefaults(result *Result) string {
-	if result != nil && result.Target != nil && result.Target.Role == "development" && !result.Ephemeral && !result.ProductionAssets {
+	if result != nil && result.Target != nil && result.Target.Role == "development" && !result.ProductionAssets {
 		return developmentLinkerFlags
 	}
 	return ""

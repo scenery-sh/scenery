@@ -3,7 +3,6 @@ package spec
 import (
 	"fmt"
 	"maps"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -47,40 +46,26 @@ var resourceSchemas = map[string]resourceSchema{
 	"scenery.execution-engine": {"contract", []string{"provider"}, []string{"provider", "lifecycle", "require_capabilities", "config"}, map[string]string{
 		"effective_capabilities": "contract", "provider_descriptor_digest": "contract",
 	}},
-	"scenery.event-bus": {"contract", []string{"provider"}, []string{"provider", "lifecycle", "require_capabilities", "config"}, map[string]string{
-		"effective_capabilities": "contract", "provider_descriptor_digest": "contract",
-	}},
 	"scenery.secret-store": {"contract", []string{"provider"}, []string{"provider", "lifecycle", "require_capabilities", "config"}, map[string]string{
 		"effective_capabilities": "contract", "provider_descriptor_digest": "contract",
 	}},
 	"scenery.secret":            {"deployment", []string{"store", "key"}, []string{"store", "key"}, nil},
-	"scenery.deployment":        {"deployment", []string{"environment"}, []string{"environment", "fixture_policy"}, nil},
 	"scenery.typescript-client": {"implementation", []string{"gateways", "package", "module", "runtime", "output_root"}, []string{"gateways", "package", "module", "runtime", "output_root", "materialization", "typescript_version", "javascript_target", "include", "react", "dev_runtime"}, nil},
-	"scenery.patch":             {"workspace_only", []string{"target", "schema", "expect", "set"}, []string{"target", "schema"}, nil},
 	"scenery.module": {"workspace_only", []string{"source"}, []string{"source", "inputs"}, map[string]string{
 		"package": "contract", "interface_inputs": "contract", "exports": "contract", "export_metadata": "contract", "workspace_package_root": "workspace_only",
 		"locked_integrity": "contract", "compile_descriptor_digest": "contract", "package_contract_abi_revision": "implementation",
 	}},
-	"scenery.service":        {RevisionDomain: "contract", Required: []string{"runtime", "implementation"}, Attributes: []string{"runtime"}},
-	"scenery.record":         {"contract", nil, []string{"unknown_fields"}, nil},
-	"scenery.enum":           {"contract", []string{"value"}, []string{"open"}, nil},
-	"scenery.union":          {"contract", []string{"variant", "discriminator"}, []string{"open", "discriminator", "unknown_variant"}, nil},
-	"scenery.operation":      {"contract", []string{"input", "handler"}, []string{"service", "input"}, nil},
-	"scenery.execution":      {"contract", []string{"operation", "mode"}, []string{"operation", "mode", "engine", "revision", "timeout", "lease", "attempts", "external_name"}, nil},
-	"scenery.binding":        {"contract", []string{"operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline"}, []string{"gateway", "operation", "execution", "protocol", "delivery", "exposure", "authentication", "authorization", "pipeline"}, nil},
-	"scenery.mcp-connection": {"deployment", []string{"transport", "url", "auth", "connect_timeout", "call_timeout"}, []string{"transport", "url", "connect_timeout", "call_timeout"}, nil},
-	"scenery.mcp-server":     {"contract", []string{"capability", "max_input_bytes", "max_result_bytes"}, []string{"max_input_bytes", "max_result_bytes"}, nil},
-	"scenery.assistant":      {"contract", []string{"mcp_server", "implementation", "surface"}, []string{"mcp_server"}, nil},
-	"scenery.schedule":       {"contract", []string{"trigger", "invoke", "overlap"}, []string{"overlap"}, nil},
-	"scenery.event":          {"contract", []string{"payload", "version"}, []string{"payload", "version"}, nil},
-	"scenery.event-emission": {"contract", []string{"bus", "channel", "contract", "guarantee", "from"}, []string{"bus", "channel", "contract", "guarantee", "ordering_key", "deduplication_key", "dead_letter_channel"}, nil},
-	"scenery.entity":         {"contract", []string{"type", "data_source", "mapping", "field"}, []string{"type", "data_source"}, nil},
-	"scenery.view": {"contract", []string{"data_source", "input", "result", "implementation"}, []string{"data_source", "input", "result"}, map[string]string{
-		"implementation_digest": "implementation",
-	}},
-	"scenery.crud":    {"contract", []string{"entity", "implementation", "actions", "execution"}, []string{"entity", "implementation", "actions", "list"}, nil},
-	"scenery.fixture": {"contract", []string{"entity", "environments", "mode", "values"}, []string{"entity", "environments", "mode", "values"}, nil},
-	"scenery.page":    {"contract", []string{"path"}, []string{"path", "load", "application_key", "access_key"}, nil},
+	"scenery.service":    {RevisionDomain: "contract", Required: []string{"runtime", "implementation"}, Attributes: []string{"runtime"}},
+	"scenery.record":     {"contract", nil, []string{"unknown_fields"}, nil},
+	"scenery.enum":       {"contract", []string{"value"}, []string{"open"}, nil},
+	"scenery.union":      {"contract", []string{"variant", "discriminator"}, []string{"open", "discriminator", "unknown_variant"}, nil},
+	"scenery.operation":  {"contract", []string{"input", "handler"}, []string{"service", "input"}, nil},
+	"scenery.execution":  {"contract", []string{"operation", "mode"}, []string{"operation", "mode", "engine", "revision", "timeout", "lease", "attempts", "external_name"}, nil},
+	"scenery.binding":    {"contract", []string{"operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline"}, []string{"gateway", "operation", "execution", "protocol", "delivery", "exposure", "authentication", "authorization", "pipeline"}, nil},
+	"scenery.mcp-server": {"contract", []string{"capability", "max_input_bytes", "max_result_bytes"}, []string{"max_input_bytes", "max_result_bytes"}, nil},
+	"scenery.assistant":  {"contract", []string{"mcp_server", "implementation", "surface"}, []string{"mcp_server"}, nil},
+	"scenery.schedule":   {"contract", []string{"trigger", "invoke", "overlap"}, []string{"overlap"}, nil},
+	"scenery.page":       {"contract", []string{"path"}, []string{"path", "load", "application_key", "access_key"}, nil},
 	"scenery.renderer": {"contract", []string{"page", "runtime", "module"}, []string{"page", "runtime", "module", "config"}, map[string]string{
 		"implementation_digest": "implementation",
 	}},
@@ -105,10 +90,6 @@ var resourceConditionalRequirements = map[string][]resourceConditionalRequiremen
 var authoredConditionalRequirements = map[string][]resourceConditionalRequirement{
 	"scenery.operation.idempotency": {{Field: "mode", Equals: "keyed", Required: []string{"key"}}},
 	"scenery.source.binding":        resourceConditionalRequirements["scenery.binding"],
-	"scenery.mcp-connection.auth": {
-		{Field: "scheme", Equals: "bearer", Required: []string{"secret"}},
-		{Field: "scheme", Equals: "header", Required: []string{"secret", "header"}},
-	},
 }
 
 var dynamicResourceRevisionDomains = map[string]map[string]dynamicRevisionDomain{
@@ -356,7 +337,7 @@ func publicAuthoredBlockSchemaWithIndex(
 			"cardinality": map[string]any{"minimum": minimum, "maximum": maximum}, "required": schema.Required[name],
 			"phase": authoredPhase(child.Schema), "revision_domain": domain, "revision_domain_source": domainSource, "default": nil,
 			"default_source": "none", "constraints": map[string]any{"label_pattern": child.Schema.LabelPattern, "label_policy": child.Schema.LabelPolicy},
-			"sensitive": false, "patchable": true, "patch_scope": "authored_source", "ordered": child.Ordered,
+			"sensitive": false, "ordered": child.Ordered,
 		}
 	}
 	shape := "block"
@@ -460,12 +441,8 @@ func publicAuthoredAttribute(attribute authoredAttributeSchema, required bool) m
 	result := map[string]any{
 		"source_shape": "attribute", "type": cloneMapValue(attribute.Type), "phase": attribute.Phase,
 		"revision_domain": attribute.RevisionDomain, "required": required, "default": cloneSemanticValue(attribute.Default),
-		"default_source": attribute.DefaultSource, "constraints": constraints, "sensitive": attribute.Sensitive, "patchable": attribute.Patchable,
-		"patch_scope": "authored_source", "ordered": attribute.Ordered, "metadata_status": attribute.MetadataStatus,
-	}
-	if attribute.UnsupportedDraft != "" {
-		result["support_status"] = "unsupported_draft"
-		result["unsupported_capability"] = attribute.UnsupportedDraft
+		"default_source": attribute.DefaultSource, "constraints": constraints, "sensitive": attribute.Sensitive,
+		"ordered": attribute.Ordered, "metadata_status": attribute.MetadataStatus,
 	}
 	if attribute.SensitivitySource != "" {
 		result["sensitivity_source"] = attribute.SensitivitySource
@@ -495,10 +472,6 @@ func resourceCreateSchemaRevisions() []string {
 	}
 	sort.Strings(revisions)
 	return revisions
-}
-
-func resourceCreateKindSupported(kind string) bool {
-	return slices.Contains(resourceCreateSchemaRevisions(), kind)
 }
 
 func authoredSchemaMetadataComplete(schema *authoredBlockSchema, seen map[*authoredBlockSchema]bool) bool {
@@ -598,10 +571,6 @@ func ResourceSchemaForKind(kind string) (ResourceSchema, bool) {
 	return schema, true
 }
 
-func ConditionalRequirements() map[string][]ConditionalRequirement {
-	return cloneConditionalRequirements(resourceConditionalRequirements)
-}
-
 func AuthoredConditionalRequirements() map[string][]ConditionalRequirement {
 	return cloneConditionalRequirements(authoredConditionalRequirements)
 }
@@ -653,8 +622,4 @@ func cloneConditionalRequirements(source map[string][]resourceConditionalRequire
 
 func ResourceCreateSchemaRevisions() []string {
 	return resourceCreateSchemaRevisions()
-}
-
-func ResourceCreateKindSupported(kind string) bool {
-	return resourceCreateKindSupported(kind)
 }

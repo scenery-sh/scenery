@@ -156,16 +156,6 @@ func (d Descriptor) Validate() error {
 	return nil
 }
 
-// CanonicalBytes returns the stable JSON payload used for Descriptor.Digest.
-func (d Descriptor) CanonicalBytes() ([]byte, error) {
-	if d.SchemaRevision == "" {
-		d.SchemaRevision = SchemaRevision
-	}
-	entries := append([]Entry(nil), d.Entries...)
-	payload := descriptorPayload{SchemaRevision: d.SchemaRevision, Entries: entries}
-	return json.Marshal(payload)
-}
-
 // MarshalJSON emits a canonical descriptor after validating it.  This makes
 // descriptors suitable for embedding and for the install manifest.
 func (d Descriptor) MarshalJSON() ([]byte, error) {

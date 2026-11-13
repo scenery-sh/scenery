@@ -1,7 +1,6 @@
 package compiler
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -30,51 +29,5 @@ func TestTypeScriptDescriptorRetainsFieldConstraints(t *testing.T) {
 	constraints := fields[0].(map[string]any)["constraints"].(map[string]any)
 	if constraints["min_length"] != "1" || constraints["pattern"] != "^[a-z]+$" {
 		t.Fatalf("constraints = %#v", constraints)
-	}
-}
-
-func TestRecordCrossFieldValidationIsTypedAndGenerated(t *testing.T) {
-	resource := Resource{Address: "house/record/run_input", Module: "house", Kind: "scenery.record", Name: "run_input", Spec: map[string]any{
-		"field": []any{
-			map[string]any{"name": "start_at", "type": map[string]any{"$ref": "datetime"}},
-			map[string]any{"name": "end_at", "type": map[string]any{"$ref": "datetime"}},
-		},
-		"validation": map[string]any{
-			"name": "end_after_start", "when": map[string]any{"$expression": "value.end_at <= value.start_at"},
-			"code": "HOUSE_INVALID_TIME_RANGE", "message": "end_at must be later than start_at", "path": map[string]any{"$ref": "record.run_input.end_at"},
-		},
-	}}
-	if diagnostics := validateTypeSystem([]Resource{resource}); hasErrors(diagnostics) {
-		t.Fatalf("valid record validation diagnostics = %#v", diagnostics)
-	}
-	if diagnostics := validateReferences([]Resource{resource}); hasErrors(diagnostics) {
-		t.Fatalf("valid field path rejected as a resource reference: %#v", diagnostics)
-	}
-	validation := resource.Spec["validation"].(map[string]any)
-	for _, path := range []string{"record.run_input.missing", "record.other.end_at"} {
-		validation["path"] = map[string]any{"$ref": path}
-		if diagnostics := validateTypeSystem([]Resource{resource}); !hasDiagnostic(diagnostics, "SCN1232") {
-			t.Fatalf("invalid field path %q was accepted: %#v", path, diagnostics)
-		}
-	}
-	validation["path"] = map[string]any{"$ref": "record.run_input.end_at"}
-	resource.Spec["validation"].(map[string]any)["when"] = map[string]any{"$expression": "input.end_at <= value.start_at"}
-	if diagnostics := validateTypeSystem([]Resource{resource}); !hasDiagnostic(diagnostics, "SCN1233") {
-		t.Fatalf("invalid validation root was accepted: %#v", diagnostics)
-	}
-	if err := validateRecordValidationExpression("length([for item in value.items : item]) == 0", map[string]string{"items": "list(string)"}); err == nil || !strings.Contains(err.Error(), "unsupported validation expression") {
-		t.Fatalf("unsupported validation comprehension error = %v", err)
-	}
-}
-
-func TestRecordValidationCompilerRejectsUnknownInputsAndAllowsPureCoreFunctions(t *testing.T) {
-	fields := map[string]string{"name": "string"}
-	for _, expression := range []string{`input.name == "roof"`, `value.missing == "roof"`, `network(value.name)`} {
-		if err := validateRecordValidationExpression(expression, fields); err == nil {
-			t.Errorf("expression %q was accepted", expression)
-		}
-	}
-	if err := validateRecordValidationExpression(`starts_with(lower(value.name), "roof")`, fields); err != nil {
-		t.Fatalf("core pure functions rejected: %v", err)
 	}
 }

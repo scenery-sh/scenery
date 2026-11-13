@@ -21,16 +21,15 @@ import (
 )
 
 type harnessSelfOptions struct {
-	Base         string
-	RepoRoot     string
-	JSON         bool
-	Write        bool
-	Mode         string
-	Output       string
-	FreshTests   bool
-	Probes       []string
-	Benchmark    string
-	WorkloadRoot string
+	Base       string
+	RepoRoot   string
+	JSON       bool
+	Write      bool
+	Mode       string
+	Output     string
+	FreshTests bool
+	Probes     []string
+	Benchmark  string
 }
 
 func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string) error {
@@ -135,12 +134,6 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	}
 	if opts.Mode == harnessSelfModeBenchmark {
 		switch opts.Benchmark {
-		case "native-reload-attribution":
-			resp.Steps = append(resp.Steps, runHarnessNativeAttributionStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
-		case "native-reload-plugin":
-			resp.Steps = append(resp.Steps, runHarnessNativeReloadPluginStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
-		case "native-reload":
-			resp.Steps = append(resp.Steps, runHarnessNativeReloadStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
 		case "edit-latency":
 			resp.Steps = append(resp.Steps, runHarnessEditLatencyStep(ctx, repoRoot))
 		case "worktree-cost":
@@ -301,7 +294,6 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
 	flags.StringVar(&opts.Base, "base", "", "include committed base..HEAD changes in the changed-area scope")
-	flags.StringVar(&opts.WorkloadRoot, "workload-root", "", "read-only source repository for a native-reload experiment")
 	flags.Func("o", "human or json", func(value string) error {
 		switch value {
 		case "human":
@@ -351,8 +343,8 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 		if err := setMode(harnessSelfModeBenchmark)(""); err != nil {
 			return err
 		}
-		if id != "worktree-cost" && id != "edit-latency" && id != "native-reload" && id != "native-reload-plugin" && id != "native-reload-attribution" {
-			return fmt.Errorf("unknown benchmark %q; available: edit-latency, native-reload, native-reload-attribution, native-reload-plugin, worktree-cost", id)
+		if id != "worktree-cost" && id != "edit-latency" {
+			return fmt.Errorf("unknown benchmark %q; available: edit-latency, worktree-cost", id)
 		}
 		opts.Benchmark = id
 		return nil
@@ -365,10 +357,6 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	}
 	if opts.FreshTests && (opts.Mode == harnessSelfModeProbe || opts.Mode == harnessSelfModeBenchmark) {
 		return harnessSelfOptions{}, fmt.Errorf("--fresh-tests cannot be combined with --probe or --benchmark")
-	}
-	needsWorkload := opts.Benchmark == "native-reload" || opts.Benchmark == "native-reload-plugin" || opts.Benchmark == "native-reload-attribution"
-	if needsWorkload != (strings.TrimSpace(opts.WorkloadRoot) != "") {
-		return harnessSelfOptions{}, fmt.Errorf("--workload-root is required only with a native workload benchmark")
 	}
 	return opts, nil
 }
@@ -739,29 +727,19 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.inspect.docs.schema.json",
 		"docs/schemas/scenery.inspect.endpoints.schema.json",
 		"docs/schemas/scenery.inspect.harness.schema.json",
-		"docs/schemas/scenery.inspect.observability.schema.json",
 		"docs/schemas/scenery.inspect.metrics.schema.json",
 		"docs/schemas/scenery.inspect.paths.schema.json",
-		"docs/schemas/scenery.inspect.validation.schema.json",
 		"docs/schemas/scenery.inspect.routes.schema.json",
 		"docs/schemas/scenery.inspect.services.schema.json",
 		"docs/schemas/scenery.inspect.traces.schema.json",
 		"docs/schemas/scenery.inspect.ui.schema.json",
 		"docs/schemas/scenery.task.inspect.schema.json",
 		"docs/schemas/scenery.task.list.schema.json",
-		"docs/schemas/scenery.task.graph.schema.json",
-		"docs/schemas/scenery.validation.graph.schema.json",
-		"docs/schemas/scenery.validation.inspect.schema.json",
-		"docs/schemas/scenery.validation.list.schema.json",
 		"docs/schemas/scenery.validation.plan.schema.json",
 		"docs/schemas/scenery.validation.result.schema.json",
-		"docs/schemas/scenery.traces.clear.schema.json",
 		"docs/schemas/scenery.dev.event.schema.json",
 		"docs/schemas/scenery.logs.query.schema.json",
-		"docs/schemas/scenery.logs.tail.entry.schema.json",
-		"docs/schemas/scenery.metrics.labels.schema.json",
 		"docs/schemas/scenery.metrics.query.schema.json",
-		"docs/schemas/scenery.metrics.series.schema.json",
 		"docs/schemas/scenery.telemetry.schema.json",
 		"docs/schemas/scenery.db.list.schema.json",
 		"docs/schemas/scenery.snapshot.load.schema.json",

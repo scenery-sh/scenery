@@ -35,7 +35,7 @@ func (reader *trackingContractReader) Close() error {
 
 func TestEncodeContractByteStreamRejectsLimitBeforeReadingAndCloses(t *testing.T) {
 	reader := newTrackingContractReader([]byte("oversized"))
-	_, err := EncodeContractByteStreamWithOptions(nil, http.StatusOK, NewContractByteStream(reader, 9), []string{"application/octet-stream"}, ContractResponseOptions{MaxBytes: 8})
+	_, err := EncodeContractByteStreamWithOptions(nil, http.StatusOK, ContractByteStream{Reader: reader, Size: 9}, []string{"application/octet-stream"}, ContractResponseOptions{MaxBytes: 8})
 	if err == nil {
 		t.Fatal("oversized stream was accepted")
 	}
@@ -46,7 +46,7 @@ func TestEncodeContractByteStreamRejectsLimitBeforeReadingAndCloses(t *testing.T
 
 func TestBufferContractByteStreamReadsExactlyAndCloses(t *testing.T) {
 	reader := newTrackingContractReader([]byte("mcp-bytes"))
-	content, err := BufferContractByteStream(NewContractByteStream(reader, 9), 9)
+	content, err := BufferContractByteStream(ContractByteStream{Reader: reader, Size: 9}, 9)
 	if err != nil || string(content) != "mcp-bytes" {
 		t.Fatalf("content = %q, err = %v", content, err)
 	}
@@ -55,7 +55,7 @@ func TestBufferContractByteStreamReadsExactlyAndCloses(t *testing.T) {
 	}
 
 	reader = newTrackingContractReader([]byte("too-large"))
-	if _, err := BufferContractByteStream(NewContractByteStream(reader, 9), 8); err == nil {
+	if _, err := BufferContractByteStream(ContractByteStream{Reader: reader, Size: 9}, 8); err == nil {
 		t.Fatal("oversized compatibility buffer was accepted")
 	}
 	if reader.reads != 0 || reader.closes != 1 {
@@ -85,7 +85,7 @@ func TestTypedContractByteStreamIdentityGzipAndHead(t *testing.T) {
 					return ContractDecodedRequest{}, nil
 				},
 				Invoke: func(context.Context, []any, any) (any, error) {
-					return NewContractStreamOutcome("metadata", NewContractByteStream(reader, int64(len(payload)))), nil
+					return NewContractStreamOutcome("metadata", ContractByteStream{Reader: reader, Size: int64(len(payload))}), nil
 				},
 				EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
 					streamed := outcome.(*ContractStreamOutcome)

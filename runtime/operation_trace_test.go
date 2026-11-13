@@ -38,57 +38,6 @@ func TestDurableAttemptsTraceSQLAndKeepDispatchParent(t *testing.T) {
 	assertTraceChildren(t, reporter, "DURABLE", 2)
 }
 
-func TestCLITraceClosesOnPanicAndPreservesRecovery(t *testing.T) {
-	defer replaceGlobalRegistryForTest()()
-	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
-	defer setTestReporter(reporter)()
-	if err := RegisterContractCLIBinding(ContractCLIBindingRegistration{Address: "app/binding/cli", Command: []string{"probe"}, Invoke: func(ctx context.Context, _ []byte) (ContractCLIOutcome, error) {
-		TraceDBQueryEnd(TraceDBQueryStart(ctx, "SELECT 1", 0), "SELECT 1", 1, nil)
-		panic("private panic payload")
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("panic was swallowed")
-			}
-		}()
-		_, _ = InvokeContractCLIBinding(context.Background(), "app/binding/cli", nil)
-	}()
-	assertTraceChildren(t, reporter, "CLI", 1)
-}
-
-func TestEventDeliveryCreatesTraceAndCorrelatesSQL(t *testing.T) {
-	defer replaceGlobalRegistryForTest()()
-	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
-	defer setTestReporter(reporter)()
-	bus := &fakeContractEventBus{}
-	if err := RegisterContractEventBus("app/event_bus/events", bus); err != nil {
-		t.Fatal(err)
-	}
-	if err := RegisterContractEventConsumer(ContractEventConsumerRegistration{Address: "app/binding/event", BusAddress: "app/event_bus/events", Channel: "test", ContractAddress: "app/event/test", ContractVersion: 1, Guarantee: "at_most_once", Identity: "std.workload_identity.event_consumer", Attempts: 1, Backoff: "none", Invoke: func(ctx context.Context, _ []byte) error {
-		token, _ := runtimeapi.InvocationFromContext(ctx)
-		if token.TraceID() != stateFromContext(ctx).trace.traceID {
-			t.Fatal("event invocation lost trace")
-		}
-		TraceDBQueryEnd(TraceDBQueryStart(ctx, "SELECT 1", 0), "SELECT 1", 1, nil)
-		return context.Canceled
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	running, err := StartContractEventRuntime(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = running.Stop(context.Background()) }()
-	err = bus.subscriptions[0].Handle(context.Background(), ContractEventMessage{ID: "message", BusAddress: "app/event_bus/events", Channel: "test", ContractAddress: "app/event/test", ContractVersion: 1})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatal(err)
-	}
-	assertTraceChildren(t, reporter, "EVENT", 1)
-}
-
 func assertTraceChildren(t *testing.T, reporter *devReporter, kind string, count int) {
 	t.Helper()
 	roots := map[string]*devreport.TraceSummary{}
@@ -167,35 +116,5 @@ func TestTraceParentRejectsMalformedIdentities(t *testing.T) {
 		if _, _, ok := parseTraceParent(input); ok {
 			t.Fatalf("accepted %q", input)
 		}
-	}
-}
-
-func TestLiveCLITraceRecordsTheServingGeneration(t *testing.T) {
-	defer replaceGlobalRegistryForTest()()
-	reporter := &devReporter{appID: "app", queue: make(chan []byte, 16)}
-	defer setTestReporter(reporter)()
-	if err := RegisterContractCLIBinding(ContractCLIBindingRegistration{Address: "app/binding/cli", Command: []string{"probe"}, Invoke: func(ctx context.Context, _ []byte) (ContractCLIOutcome, error) {
-		TraceDBQueryEnd(TraceDBQueryStart(ctx, "SELECT 1", 0), "SELECT 1", 1, nil)
-		return ContractCLIOutcome{Kind: "result", Name: "ok", Payload: []byte(`{}`)}, nil
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.WithValue(context.Background(), processGenerationKey{}, uint64(7))
-	_, invocation, err := invokeContractCLIBinding(ctx, "app/binding/cli", []byte(`{}`))
-	if err != nil || invocation == nil || invocation.TraceID == "" {
-		t.Fatalf("invocation = %+v, %v", invocation, err)
-	}
-	summaries := 0
-	for len(reporter.queue) > 0 {
-		report := decodeQueuedReport(t, <-reporter.queue)
-		if s := report.TraceSummary; s != nil {
-			summaries++
-			if s.Generation != 7 || s.TraceID != invocation.TraceID {
-				t.Fatalf("summary %s generation %d trace %s, want 7 and %s", s.Type, s.Generation, s.TraceID, invocation.TraceID)
-			}
-		}
-	}
-	if summaries != 2 {
-		t.Fatalf("summaries = %d, want the CLI root and its SQL child", summaries)
 	}
 }

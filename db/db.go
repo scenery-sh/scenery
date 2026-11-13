@@ -45,14 +45,6 @@ func Get(ctx context.Context, service ...string) (*sql.DB, error) {
 	return pool, nil
 }
 
-func MustGet(ctx context.Context, service ...string) *sql.DB {
-	pool, err := Get(ctx, service...)
-	if err != nil {
-		panic(err)
-	}
-	return pool
-}
-
 func Close(service ...string) error {
 	resolved, err := resolveDatabaseURL(service...)
 	if err != nil {

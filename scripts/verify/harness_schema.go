@@ -175,25 +175,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		}{newCLIPayloadIdentity("scenery.feature"), true, "list", feature.Overview{RepoRoot: repoRoot, Main: "main", Features: []feature.Row{}, Candidates: []feature.Candidate{}}})},
 		{name: "feature.policy", schemaRel: "docs/schemas/scenery.feature.policy.schema.json", payload: featurePolicy},
 		{name: "docs.index", schemaRel: "docs/schemas/scenery.docs.index.schema.json", payload: docsKnowledgePayload},
-		{name: "approval.trust", schemaRel: "docs/schemas/scenery.approval-trust.schema.json", payload: artifact("scenery.approval-trust", map[string]any{
-			"keys": map[string]any{"maintainer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
-		})},
-		{name: "approval.token", schemaRel: "docs/schemas/scenery.approval-token.schema.json", payload: artifact("scenery.approval-token", map[string]any{
-			"plan_id": "sha256:" + strings.Repeat("0", 64), "caller": "local", "risk_scopes": []any{"deployment.destructive:app/data_source/database"},
-			"expires_at": "2026-07-10T12:00:00Z", "signature": "ed25519:maintainer:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		})},
-		{name: "change.plan", schemaRel: "docs/schemas/scenery.change-plan.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-plan.schema.json", artifact("scenery.change-plan", map[string]any{
-			"plan_id": digest, "application": "schema-fixture", "base_workspace_revision": digest,
-			"base_contract_revision": digest, "predicted_workspace_revision": digest, "predicted_contract_revision": digest,
-			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "caller": "harness", "capabilities": []any{},
-			"operations_digest": digest, "operations": []any{}, "rename_receipts": []any{}, "semantic_diff": map[string]any{}, "affected_resources": []any{}, "diagnostics": []any{},
-			"source_edits": []any{}, "formatting_effects": []any{}, "required_approvals": []any{}, "required_capabilities": []any{}, "risk_records": []any{},
-			"expires_at": "2026-07-10T12:00:00Z",
-		}))},
-		{name: "change.receipt", schemaRel: "docs/schemas/scenery.change-receipt.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-receipt.schema.json", artifact("scenery.change-receipt", map[string]any{
-			"plan_id": digest, "workspace_revision": digest, "contract_revision": digest,
-			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "applied": []any{}, "rename_receipts": []any{},
-		}))},
 		{name: "cli", schemaRel: "docs/schemas/scenery.cli.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.schema.json", map[string]any{
 			"kind": machine.EnvelopeKind, "schema_revision": machine.EnvelopeSchemaRevision, "spec_revision": currentMachineSpecRevision(), "producer": cliProducer(), "ok": true,
 			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": nil, "deployment_revision": nil,
@@ -204,18 +185,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			"workspace_revision": nil, "contract_revision": nil, "implementation_revision": nil, "deployment_revision": nil,
 			"data": map[string]any{"event_count": 0}, "diagnostics": []any{},
 		})},
-		{name: "deployment.plan", schemaRel: "docs/schemas/scenery.deployment-plan.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-plan.schema.json", artifact("scenery.deployment-plan", map[string]any{
-			"plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
-			"deployment_name": "local", "environment": "development", "base_workspace_revision": digest, "contract_revision": digest,
-			"implementation_revision": map[string]any{"development": digest}, "deployment_revision": digest,
-			"projection":     artifact("scenery.deployment-projection", map[string]any{"deployment": "app/deployment/local", "environment": "development", "contract_revision": digest, "resources": map[string]any{}}),
-			"provider_plans": []any{}, "caller": "harness", "capabilities": []any{}, "required_approvals": []any{}, "risk_records": []any{}, "expires_at": "2026-07-10T12:00:00Z",
-		}))},
-		{name: "deployment.receipt", schemaRel: "docs/schemas/scenery.deployment-receipt.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-receipt.schema.json", artifact("scenery.deployment-receipt", map[string]any{
-			"plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
-			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": map[string]any{"development": digest},
-			"deployment_revision": digest, "provider_plan_digests": []any{}, "applied_at": "2026-07-10T12:00:00Z",
-		}))},
 		{name: "generated.application", schemaRel: "docs/schemas/scenery.generated.schema.json", payload: fixturePayload(
 			"docs/schemas/scenery.generated.schema.json", "internal/compiler/testdata/native/internal/scenerygen/scenery.generated.json",
 		)},
@@ -251,20 +220,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 				"name": "app", "tauri_root": "/tmp/app", "frontend_dist": "/tmp/app/dist",
 				"artifacts": []string{"/tmp/app/src-tauri/target/release/bundle/dmg/app.dmg"},
 			}},
-		})},
-		{name: "assistant.init", schemaRel: "docs/schemas/scenery.assistant.init.schema.json", payload: withCLIPayloadIdentity("scenery.assistant.init", map[string]any{
-			"assistant": "support", "address": "app/assistant/support", "mcp_server": "support", "client": "public_api",
-			"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json",
-			"eval_directory": "./assistants/support/eval", "dry_run": false, "applied": true, "idempotent": false,
-			"created": []string{"./assistants/support/agent/agent.ts"}, "preserved": []string{}, "plan_id": digest,
-			"base_workspace_revision": digest, "predicted_workspace_revision": digest, "contract_revision": digest,
-			"files": []map[string]any{{"path": "./assistants/support/agent/agent.ts", "action": "create"}},
-		})},
-		{name: "assistant.sync", schemaRel: "docs/schemas/scenery.assistant.sync.schema.json", payload: withCLIPayloadIdentity("scenery.assistant.sync", map[string]any{
-			"assistant": "support", "address": "app/assistant/support", "source": "./assistants/support",
-			"package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json",
-			"lock_digest": digest, "package_digest": digest, "cache_path": "/tmp/scenery/assistant-cache/0000000000000000000000000000000000000000000000000000000000000000",
-			"status": "synced", "reused": false, "node_path": "/tmp/scenery/node/bin/node", "npm_path": "/tmp/scenery/node/bin/npm",
 		})},
 		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
 		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},

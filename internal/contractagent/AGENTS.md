@@ -2,16 +2,13 @@
 
 ## Purpose
 
-`internal/contractagent` owns the JSON-RPC capability surface for reading the
-compiled graph, querying schemas, and dispatching explicit evolution plans.
+`internal/contractagent` owns the schema catalog lookup behind `scenery schema`:
+resource, value, diagnostic and mutation schemas.
 
 ## Local Contracts
 
-- Consume immutable compiler results and graph queries.
-- Route source mutations through `internal/evolution`; never edit source here.
 - Schema responses come from the compiler/spec catalogs, not duplicated shapes.
-- Never import generation, deployment planning, or commands. Generated-artifact
-  checks are injected through `AgentExecutionContext` by the CLI.
+- Never import generation or commands.
 
 ## Verification
 

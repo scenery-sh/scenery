@@ -70,9 +70,8 @@ func (n *Namespace) BeginRestore(ctx context.Context, digest string, database bo
 	return &Restore{namespace: n, lease: lease, operation: op, digest: digest, database: database, mode: mode, conflict: conflict}, nil
 }
 
-func (r *Restore) Close() error   { return r.lease.Close() }
-func (r *Restore) Owner() Owner   { return r.lease.owner }
-func (r *Restore) Resuming() bool { return r.operation != nil }
+func (r *Restore) Close() error { return r.lease.Close() }
+func (r *Restore) Owner() Owner { return r.lease.owner }
 
 // Stage builds a private complete generation. The callback must enumerate the
 // already-validated archive from the same opened input. A failed stage leaves

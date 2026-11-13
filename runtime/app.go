@@ -37,10 +37,6 @@ func ListenNetworkFromEnv() string {
 }
 
 func Main(cfg AppConfig) error {
-	cliRequestPath, err := contractCLIRequestPath(os.Args[1:])
-	if err != nil {
-		return err
-	}
 	role, err := runtimeRoleFromEnv()
 	if err != nil {
 		return err
@@ -84,11 +80,6 @@ func Main(cfg AppConfig) error {
 	}
 	if !processLinked {
 		durable.StartBackground()
-	}
-	if cliRequestPath != "" {
-		invokeErr := ExecuteContractCLIRequest(cliRequestPath, os.Stdout)
-		cancelRun()
-		return errorsJoin(invokeErr, shutdownRuntime(nil, background))
 	}
 	if processLinked {
 		setProcessBackground(background)
@@ -149,24 +140,6 @@ func Main(cfg AppConfig) error {
 	}
 }
 
-func contractCLIRequestPath(arguments []string) (string, error) {
-	for _, argument := range arguments {
-		if argument == "--scenery-contract-cli-request" || strings.HasPrefix(argument, "--scenery-contract-cli-request=") {
-			if len(arguments) == 2 && arguments[0] == "--scenery-contract-cli-request" && strings.TrimSpace(arguments[1]) != "" {
-				return arguments[1], nil
-			}
-			if len(arguments) == 1 && strings.HasPrefix(arguments[0], "--scenery-contract-cli-request=") {
-				path := strings.TrimSpace(strings.TrimPrefix(arguments[0], "--scenery-contract-cli-request="))
-				if path != "" {
-					return path, nil
-				}
-			}
-			return "", fmt.Errorf("runtime: invalid contract CLI request arguments")
-		}
-	}
-	return "", nil
-}
-
 func listenRuntime(network, addr string) (net.Listener, error) {
 	switch network {
 	case "", "tcp":
@@ -210,7 +183,7 @@ func runtimeRoleFromEnv() (runtimeRole, error) {
 }
 
 // runtimeBackground owns the background work one runtime process acquires:
-// contract event consumers, cron schedules and durable acquisition, schedule
+// cron schedules and durable acquisition, schedule
 // and retention loops. It starts inactive; activate starts the work once, and
 // drain revokes it for the life of the process while durable stores stay open
 // for dispatch by requests still served.
@@ -220,7 +193,6 @@ type runtimeBackground struct {
 
 	mu        sync.Mutex
 	state     runtimeBackgroundState
-	events    *ContractEventRuntime
 	scheduler *cronScheduler
 }
 
@@ -241,16 +213,12 @@ func (background *runtimeBackground) activate() error {
 	case runtimeBackgroundRevoked:
 		return errors.New("failed_precondition: background work of this runtime process was drained")
 	}
-	events, err := StartContractEventRuntime(background.ctx)
+	scheduler, err := startCronScheduler(background.ctx)
 	if err != nil {
 		return err
 	}
-	scheduler, err := startCronScheduler(background.ctx)
-	if err != nil {
-		return errorsJoin(err, events.Stop(context.Background()))
-	}
 	background.durable.StartBackground()
-	background.events, background.scheduler, background.state = events, scheduler, runtimeBackgroundActive
+	background.scheduler, background.state = scheduler, runtimeBackgroundActive
 	return nil
 }
 
@@ -259,9 +227,9 @@ func (background *runtimeBackground) activate() error {
 func (background *runtimeBackground) drain(ctx context.Context) error {
 	background.mu.Lock()
 	background.state = runtimeBackgroundRevoked
-	events, scheduler := background.events, background.scheduler
+	scheduler := background.scheduler
 	background.mu.Unlock()
-	return errorsJoin(scheduler.Stop(ctx), events.Stop(ctx), background.durable.StopBackground(ctx))
+	return errorsJoin(scheduler.Stop(ctx), background.durable.StopBackground(ctx))
 }
 
 func shutdownRuntime(server *http.Server, background *runtimeBackground) error {
@@ -277,18 +245,12 @@ func shutdownRuntime(server *http.Server, background *runtimeBackground) error {
 
 	background.mu.Lock()
 	background.state = runtimeBackgroundRevoked
-	events, scheduler := background.events, background.scheduler
+	scheduler := background.scheduler
 	background.mu.Unlock()
 
 	cronCtx, cronCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cronCancel()
 	if err := scheduler.Stop(cronCtx); err != nil && !errors.Is(err, context.Canceled) {
-		shutdownErrs = append(shutdownErrs, err)
-	}
-
-	eventCtx, eventCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer eventCancel()
-	if err := events.Stop(eventCtx); err != nil && !errors.Is(err, context.Canceled) {
 		shutdownErrs = append(shutdownErrs, err)
 	}
 

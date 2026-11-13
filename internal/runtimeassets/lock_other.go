@@ -1,4 +1,4 @@
-//go:build !unix && !windows
+//go:build !unix
 
 package runtimeassets
 
@@ -10,7 +10,7 @@ import (
 )
 
 // Unsupported targets use an atomic lock directory.  This deliberately
-// scoped fallback is not selected on Unix or Windows, where the platform
+// scoped fallback is not selected on Unix, where the platform
 // provides a real interprocess file lock.  A target-specific implementation
 // should replace this fallback before production support is added for it.
 func acquireAssetLock(ctx context.Context, path string) (func(), error) {

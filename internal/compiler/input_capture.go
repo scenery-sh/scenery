@@ -15,24 +15,11 @@ import (
 type InputSelection struct {
 	Path, Suffix string
 	Required     bool
-	// Produced paths satisfy a required selection without reading future bytes.
-	Produced []string
 }
 
 func (selection InputSelection) requireFiles(found bool) error {
 	if !selection.Required || found {
 		return nil
-	}
-	clean := filepath.ToSlash(filepath.Clean(selection.Path))
-	patterns := []string{clean}
-	if !strings.ContainsAny(clean, "*?{[") {
-		patterns = append(patterns, clean+"/**")
-	}
-	matcher := newGlobMatcher(patterns)
-	for _, produced := range selection.Produced {
-		if produced == clean || (selection.Suffix == "" || strings.HasSuffix(produced, selection.Suffix)) && matcher.matches(produced) {
-			return nil
-		}
 	}
 	return fmt.Errorf("failed_precondition: required declared input contains no files: %s", selection.Path)
 }
@@ -88,13 +75,6 @@ func CaptureInputPaths(root string, selections []InputSelection, excluded map[st
 		}
 		matcher := newGlobMatcher([]string{clean})
 		walkRoot := root
-		if statErr != nil && !strings.ContainsAny(clean, "*?{[") {
-			for _, produced := range selection.Produced {
-				if strings.HasPrefix(produced, clean+"/") {
-					entries["\x00selection:"+clean+":"+selection.Suffix] = []byte("directory")
-				}
-			}
-		}
 		if statErr == nil {
 			if err := rejectPathSymlinks(root, path); err != nil {
 				return nil, err

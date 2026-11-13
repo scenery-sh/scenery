@@ -81,21 +81,9 @@ binding "process_scene_mcp" {
   }
 }
 
-mcp_connection "docs" {
-  auth {
-    scheme = "bearer"
-  }
-  tools {
-    allow = ["search", "fetch"]
-  }
-}
-
 mcp_server "support" {
   capability "process_scene" {
     binding = module.house.process_scene_mcp
-  }
-  connection "docs" {
-    connection = mcp_connection.docs
   }
 }
 
@@ -138,12 +126,8 @@ assistant "support" {
 	want := []string{
 		"binding[process_scene_mcp]",
 		"binding[process_scene_mcp].mcp",
-		"mcp_connection[docs]",
-		"mcp_connection[docs].auth",
-		"mcp_connection[docs].tools",
 		"mcp_server[support]",
 		"mcp_server[support].capability[process_scene]",
-		"mcp_server[support].connection[docs]",
 		"assistant[support]",
 		"assistant[support].implementation",
 		"assistant[support].surface",

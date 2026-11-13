@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,34 +17,6 @@ import (
 
 	"scenery.sh/internal/spec"
 )
-
-type fakeDockerRunner struct {
-	present map[string]bool
-	pulls   []string
-	err     error
-}
-
-func (f *fakeDockerRunner) InspectImage(_ context.Context, ref string) error {
-	if f.err != nil {
-		return f.err
-	}
-	if f.present[ref] {
-		return nil
-	}
-	return fmt.Errorf("No such image: %s", ref)
-}
-
-func (f *fakeDockerRunner) PullImage(_ context.Context, ref string) error {
-	if f.err != nil {
-		return f.err
-	}
-	f.pulls = append(f.pulls, ref)
-	if f.present == nil {
-		f.present = map[string]bool{}
-	}
-	f.present[ref] = true
-	return nil
-}
 
 func TestBundledManifestMatchesRootFile(t *testing.T) {
 	rootData, err := os.ReadFile(filepath.Join("..", "..", "scenery.toolchain.json"))
@@ -81,20 +52,6 @@ func TestStatusSchemaMatchesIdentity(t *testing.T) {
 	}
 	if schema.Properties["kind"].Const != StatusKind || schema.Properties["schema_revision"].Const != StatusSchemaRevision {
 		t.Fatalf("schema identity = %q %q, want %q %q", schema.Properties["kind"].Const, schema.Properties["schema_revision"].Const, StatusKind, StatusSchemaRevision)
-	}
-}
-
-func TestBundledManifestDeclaresDigestPinnedPostgresImage(t *testing.T) {
-	manifest, err := LoadBundledManifest()
-	if err != nil {
-		t.Fatalf("LoadBundledManifest() error = %v", err)
-	}
-	artifact, ok := manifest.Artifact("postgres")
-	if !ok {
-		t.Fatal("postgres image artifact should be bundled")
-	}
-	if artifact.Kind != "image" || len(artifact.Images) != 1 || artifact.Images[0].Digest == "" {
-		t.Fatalf("postgres artifact is not a digest-pinned image: %+v", artifact)
 	}
 }
 
@@ -249,94 +206,6 @@ func TestStoreUnknownToolFailsClosed(t *testing.T) {
 	}
 }
 
-func TestStoreSyncSourceBuildArtifactInProcess(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/sourcebuild\n\ngo 1.26.3\n"), 0o644); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-	cmdDir := filepath.Join(root, "cmd", "demo")
-	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
-		t.Fatalf("mkdir cmd: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(cmdDir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
-		t.Fatalf("write main.go: %v", err)
-	}
-	manifest := Manifest{
-		Kind:           ManifestKind,
-		SchemaRevision: ManifestSchemaRevision,
-		Artifacts: []Artifact{{
-			Name:          "demo-source",
-			Kind:          "binary",
-			Version:       "dev",
-			DefaultBinary: "demo-source",
-			SourceBuild: &SourceBuildArtifact{
-				Kind:    "go",
-				Package: "./cmd/demo",
-			},
-		}},
-	}
-	store, err := NewStore(t.TempDir(), manifest)
-	if err != nil {
-		t.Fatalf("NewStore() error = %v", err)
-	}
-	store.RootDir = root
-	store.Platform = Platform{GOOS: "linux", GOARCH: "amd64"}
-	buildCalls := 0
-	store.sourceBuild = func(_ context.Context, gotRoot, outputPath, pkg string) ([]byte, error) {
-		buildCalls++
-		if gotRoot != root || pkg != "./cmd/demo" {
-			t.Fatalf("source build input = root:%q package:%q", gotRoot, pkg)
-		}
-		if err := os.WriteFile(outputPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-			return nil, err
-		}
-		return []byte("fake source build"), nil
-	}
-
-	status, err := store.Sync(context.Background(), Options{RootDir: root, Platform: store.Platform, Tool: "demo-source"})
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-	if got := status.Artifacts[0].Status; got != "installed" {
-		t.Fatalf("source build status = %q, want installed: %+v", got, status.Artifacts[0])
-	}
-	if !isExecutableFile(status.Artifacts[0].ManagedPath) {
-		t.Fatalf("managed path is not executable: %s", status.Artifacts[0].ManagedPath)
-	}
-	if status.Artifacts[0].Source != "source-build" {
-		t.Fatalf("source = %q", status.Artifacts[0].Source)
-	}
-	if buildCalls != 1 {
-		t.Fatalf("source build calls = %d, want 1", buildCalls)
-	}
-
-	status, err = store.Verify(context.Background(), Options{RootDir: root, Platform: store.Platform, Tool: "demo-source"})
-	if err != nil {
-		t.Fatalf("Verify() error = %v", err)
-	}
-	if got := status.Artifacts[0].Status; got != "installed" {
-		t.Fatalf("verify status = %q, want installed: %+v", got, status.Artifacts[0])
-	}
-}
-
-func TestParseManifestRejectsInvalidSourceBuildPackage(t *testing.T) {
-	_, err := ParseManifest([]byte(`{
-		"kind":"scenery.toolchain",
-		"schema_revision":"sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6",
-		"source_locks":[],
-		"artifacts":[{
-			"name":"demo",
-			"kind":"binary",
-			"version":"dev",
-			"default_binary":"demo",
-			"source_build":{"kind":"go","package":"../cmd/demo"}
-		}]
-	}`))
-	if err == nil || !strings.Contains(err.Error(), "source_build missing valid package") {
-		t.Fatalf("ParseManifest invalid source_build error = %v", err)
-	}
-}
-
 func TestStoreRejectsArchiveTraversal(t *testing.T) {
 	archive := testTarGz(t, map[string]string{"../demo": "#!/bin/sh\nexit 0\n"})
 	sum := sha256.Sum256(archive)
@@ -385,75 +254,6 @@ func TestExtractTarEntryAllowsContainedParentSymlinkAndRejectsEscape(t *testing.
 	}
 }
 
-func TestStoreImageStatusAndSyncUseDockerRunner(t *testing.T) {
-	manifest := Manifest{
-		Kind:           ManifestKind,
-		SchemaRevision: ManifestSchemaRevision,
-		Artifacts: []Artifact{{
-			Name:    "demo-image",
-			Kind:    "image",
-			Version: "1",
-			Images: []ImageArtifact{{
-				Ref:    "example/demo:1",
-				Digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-				Usage:  "test.image",
-			}},
-		}},
-	}
-	store, err := NewStore(t.TempDir(), manifest)
-	if err != nil {
-		t.Fatalf("NewStore() error = %v", err)
-	}
-	docker := &fakeDockerRunner{present: map[string]bool{}}
-	store.Docker = docker
-
-	status, err := store.Verify(context.Background(), Options{Tool: "demo-image", Images: true})
-	if err != nil {
-		t.Fatalf("Verify() error = %v", err)
-	}
-	if got := status.Artifacts[0].Images[0].Status; got != "missing" {
-		t.Fatalf("image status = %q, want missing", got)
-	}
-
-	status, err = store.Sync(context.Background(), Options{Tool: "demo-image", Images: true})
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-	if len(docker.pulls) != 1 || docker.pulls[0] != "example/demo@sha256:1111111111111111111111111111111111111111111111111111111111111111" {
-		t.Fatalf("docker pulls = %+v", docker.pulls)
-	}
-	if got := status.Artifacts[0].Images[0].Status; got != "present" {
-		t.Fatalf("post-sync image status = %q, want present", got)
-	}
-}
-
-func TestStrictImageStatusRejectsTagOnlyRefs(t *testing.T) {
-	manifest := Manifest{
-		Kind:           ManifestKind,
-		SchemaRevision: ManifestSchemaRevision,
-		Artifacts: []Artifact{{
-			Name:    "demo-image",
-			Kind:    "image",
-			Version: "1",
-			Images: []ImageArtifact{{
-				Ref: "example/demo:1",
-			}},
-		}},
-	}
-	store, err := NewStore(t.TempDir(), manifest)
-	if err != nil {
-		t.Fatalf("NewStore() error = %v", err)
-	}
-	store.Docker = &fakeDockerRunner{present: map[string]bool{"example/demo:1": true}}
-	status, err := store.Verify(context.Background(), Options{Tool: "demo-image", Images: true, Strict: true})
-	if err != nil {
-		t.Fatalf("Verify() error = %v", err)
-	}
-	if got := status.Artifacts[0].Images[0].Status; got != "invalid" {
-		t.Fatalf("strict tag-only image status = %q, want invalid", got)
-	}
-}
-
 func testManifest(url, sha string) Manifest {
 	return Manifest{
 		Kind:           ManifestKind,
@@ -496,4 +296,10 @@ func testTarGz(t *testing.T, files map[string]string) []byte {
 		t.Fatalf("gzip close: %v", err)
 	}
 	return buf.Bytes()
+}
+
+func BundledManifestBytes() []byte {
+	out := make([]byte, len(bundledManifestBytes))
+	copy(out, bundledManifestBytes)
+	return out
 }

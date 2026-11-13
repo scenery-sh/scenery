@@ -17,5 +17,3 @@ var newHarnessEvidence = harnessevidence.New
 var optionalHarnessArtifactContext = harnessevidence.OptionalContext
 var sanitizeHarnessArtifactFilename = harnessevidence.ArtifactFilename
 var writeHarnessOutputEvidenceArtifacts = harnessevidence.WriteOutputArtifacts
-
-func intPtr(value int) *int { return &value }

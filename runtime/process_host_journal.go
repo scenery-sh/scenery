@@ -15,8 +15,8 @@ import (
 )
 
 // A process host keeps the authority that must outlive its own incarnation,
-// durable receipt authorizations and assistant run scopes, in bounded
-// JSON-lines journals inside the session's private host state directory. The
+// assistant run scopes, in a bounded
+// JSON-lines journal inside the session's private host state directory. The
 // journal is the commit point of that authority: a change is appended before
 // the host acts on it, and a host that cannot append a change does not make
 // it. A host replays the journals when it starts and replaces a journal with
@@ -38,9 +38,8 @@ import (
 // committed and no authority was acted on for it.
 
 const (
-	processHostReceiptsJournal = "durable-receipts.jsonl"
-	processHostRunsJournal     = "assistant-runs.jsonl"
-	processHostPoisonedSuffix  = ".poisoned"
+	processHostRunsJournal    = "assistant-runs.jsonl"
+	processHostPoisonedSuffix = ".poisoned"
 	// processHostJournalMaxBytes bounds a replayed journal; compaction keeps
 	// every journal far below it.
 	processHostJournalMaxBytes = 64 << 20
@@ -57,21 +56,15 @@ var errProcessHostQuiescing = &errs.Error{Code: errs.Unavailable, Message: "the 
 // stateAvailable reports whether the host's authority journals can still prove
 // their records.
 func (h *processHost) stateAvailable() bool {
-	h.owners.RLock()
-	receipts := h.owners.journal.poisoned == nil
-	h.owners.RUnlock()
 	h.conversations.Lock()
 	runs := h.conversations.journal.poisoned == nil
 	h.conversations.Unlock()
-	return receipts && runs
+	return runs
 }
 
 // openState replays the host state a previous incarnation of the session left
 // in directory and journals later changes there.
 func (h *processHost) openState(directory string) error {
-	if err := h.owners.open(filepath.Join(directory, processHostReceiptsJournal)); err != nil {
-		return err
-	}
 	return h.conversations.open(filepath.Join(directory, processHostRunsJournal))
 }
 

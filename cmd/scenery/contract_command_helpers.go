@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,78 +10,9 @@ import (
 	"strings"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 )
-
-func readExactPlanFile(path, description string, target any) error {
-	encoded, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("invalid_request: decode %s: %w", description, err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("invalid_request: decode %s: trailing JSON value", description)
-		}
-		return fmt.Errorf("invalid_request: decode %s trailing JSON: %w", description, err)
-	}
-	return nil
-}
-
-func readApprovalTokens(paths []string) ([]evolution.ApprovalToken, error) {
-	var tokens []evolution.ApprovalToken
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read approval token %s: %w", path, err)
-		}
-		var token evolution.ApprovalToken
-		decoder := json.NewDecoder(strings.NewReader(string(data)))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&token); err != nil {
-			return nil, fmt.Errorf("decode approval token %s: %w", path, err)
-		}
-		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-			if err == nil {
-				err = fmt.Errorf("multiple JSON values")
-			}
-			return nil, fmt.Errorf("decode approval token %s: %w", path, err)
-		}
-		if err := evolution.ValidateApprovalToken(token); err != nil {
-			return nil, fmt.Errorf("decode approval token %s: %w", path, err)
-		}
-		tokens = append(tokens, token)
-	}
-	return tokens, nil
-}
-
-func approvalVerifierForTokens(root string, tokens []evolution.ApprovalToken) (evolution.ApprovalVerifier, error) {
-	if len(tokens) == 0 {
-		return nil, nil
-	}
-	verifier, err := evolution.LoadApprovalVerifier(root)
-	return evolution.ApprovalVerifier(verifier), err
-}
-
-func withPredictedGenerateChecks(request evolution.ChangeRequest) evolution.ChangeRequest {
-	request.CheckPredictedGoContracts = generate.CheckPredictedGoContracts
-	request.CheckPredictedTypeScript = generate.CheckPredictedTypeScriptClients
-	return request
-}
-
-func withGeneratedCheck(options evolution.ApplyOptions) evolution.ApplyOptions {
-	if !options.SkipGeneratedValidation && options.CheckGenerated == nil {
-		options.CheckGenerated = generate.ApplyImplementationCheck
-	}
-	return options
-}
 
 func compileContractRoot(value string) (*compiler.Result, error) {
 	root, err := findContractRoot(value)
@@ -146,15 +75,10 @@ func writeContractResult(stdout io.Writer, output string, quiet bool, result *co
 	if len(result.ImplementationRevisions) > 0 {
 		implementationRevision = result.ImplementationRevisions
 	}
-	var deploymentRevision any
-	if len(result.DeploymentRevisions) > 0 {
-		deploymentRevision = result.DeploymentRevisions
-	}
 	if output == "json" {
 		env := newCLIEnvelope(result.Valid(), data, diagnostics)
 		env.WorkspaceRevision = result.WorkspaceRevision
 		env.ImplementationRevision = implementationRevision
-		env.DeploymentRevision = deploymentRevision
 		if result.Manifest != nil {
 			env.ContractRevision = result.Manifest.ContractRevision
 		}

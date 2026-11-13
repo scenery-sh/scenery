@@ -11,29 +11,6 @@ import (
 	"testing"
 )
 
-func TestDevDomainHost(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		domain, branch, want string
-	}{
-		{"local.clean.tech", "main", "local.clean.tech"},
-		{"local.clean.tech", "pricing", "pricing-local.clean.tech"},
-		{"local.clean.tech", "feature/new-pricing", "feature-new-pricing-local.clean.tech"},
-		{"LOCAL.Clean.Tech", "Main", "local.clean.tech"},
-		{"https://local.clean.tech/path", "pricing", "pricing-local.clean.tech"},
-		{"local.clean.tech:443", "pricing", "pricing-local.clean.tech"},
-		{"", "pricing", ""},
-		{"local.clean.tech", "", ""},
-		{"local.clean.tech", "---", ""},
-	}
-	for _, tc := range cases {
-		if got := DevDomainHost(tc.domain, tc.branch); got != tc.want {
-			t.Errorf("DevDomainHost(%q, %q) = %q, want %q", tc.domain, tc.branch, got, tc.want)
-		}
-	}
-}
-
 func TestDevDomainManifestNormalization(t *testing.T) {
 	t.Parallel()
 
@@ -193,7 +170,7 @@ func TestRegistryDevDomainHostOwnership(t *testing.T) {
 		t.Fatalf("stale session kept host %q ok=%v", stale.RouteManifest.DomainHost, ok)
 	}
 
-	// ClaimAliases transfers a live host the way alias leases transfer.
+	// ClaimAliases transfers a live host.
 	forced, err := registry.Upsert(RegisterRequest{
 		BaseAppID:     "demo",
 		AppRoot:       second.AppRoot,
@@ -312,64 +289,4 @@ func TestServerDevDomainHostServesPathMode(t *testing.T) {
 		t.Fatalf("tls allow unknown status=%d, want 404", status)
 	}
 
-	// Narrow the exposed surface to api only: frontends, index, and the
-	// runtime surface disappear from the domain origin.
-	if _, err := server.registry.Upsert(RegisterRequest{
-		BaseAppID: "demo",
-		AppRoot:   session.AppRoot,
-		SessionID: session.SessionID,
-		Status:    "running",
-		OwnerPID:  os.Getpid(),
-		Owner:     testProcessOwner(),
-		Backends: map[string]Backend{
-			RouteAPI: {Network: "tcp", Addr: "api.test"},
-			"ui":     {Network: "tcp", Addr: "frontend.test"},
-		},
-		RouteManifest: RouteManifest{
-			Mode:         RouteModePath,
-			BaseURL:      "http://localhost:4001",
-			DomainHost:   "pricing-local.clean.tech",
-			PublicRoutes: []string{"api"},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	status, body = request("pricing-local.clean.tech", "/api/v1/users")
-	if status != http.StatusOK || body != "api:/v1/users" {
-		t.Fatalf("exposed api status=%d body=%q", status, body)
-	}
-	status, _ = request("pricing-local.clean.tech", "/ui/settings")
-	if status != http.StatusNotFound {
-		t.Fatalf("unexposed frontend status=%d, want 404", status)
-	}
-	status, _ = request("pricing-local.clean.tech", "/")
-	if status != http.StatusNotFound {
-		t.Fatalf("unexposed root status=%d, want 404", status)
-	}
-	status, _ = request("pricing-local.clean.tech", PathModeRuntimePrefix+"/routes")
-	if status != http.StatusNotFound {
-		t.Fatalf("unexposed runtime status=%d, want 404", status)
-	}
-	status, _ = request("pricing-local.clean.tech", "/__scenery/config")
-	if status != http.StatusNotFound {
-		t.Fatalf("unexposed scenery control status=%d, want 404", status)
-	}
-}
-
-func TestNormalizePublicRoutes(t *testing.T) {
-	t.Parallel()
-
-	got := normalizePublicRoutes([]string{"docs", "API", "runtime", "api", "", "next"})
-	want := []string{"api", "docs", "next", "runtime"}
-	if len(got) != len(want) {
-		t.Fatalf("normalizePublicRoutes = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("normalizePublicRoutes = %v, want %v", got, want)
-		}
-	}
-	if normalizePublicRoutes(nil) != nil {
-		t.Fatal("nil input must stay nil")
-	}
 }

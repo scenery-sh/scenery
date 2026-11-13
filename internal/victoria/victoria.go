@@ -16,16 +16,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	goruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/devtools"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/netprobe"
+	"scenery.sh/internal/toolchain"
 )
 
 const defaultHost = "127.0.0.1"
@@ -126,8 +125,6 @@ type componentStartFunc func(context.Context, componentStartPlan) (*Component, e
 // Stack is the set of Victoria components serving one shared substrate.
 type Stack struct {
 	components []*Component
-	mu         sync.RWMutex
-	clearSince map[string]time.Time
 }
 
 // Components returns the stack's components.
@@ -171,24 +168,6 @@ func NewStack(components ...ExternalComponent) *Stack {
 
 var toolchainSyncMu sync.Mutex
 
-// Start starts the Victoria stack for an app root using the default
-// app-local state directory. It returns nil when Victoria is disabled or no
-// component became available.
-func Start(ctx context.Context, appRoot string, console Console) *Stack {
-	return StartAtRoot(ctx, rootDir(appRoot), console)
-}
-
-// StartAtRoot starts the Victoria stack with binaries and storage under root.
-func StartAtRoot(ctx context.Context, root string, console Console) *Stack {
-	if !Enabled() {
-		return nil
-	}
-	return StartAtRootWithConfig(ctx, root, console, StartConfig{
-		Components: ComponentSpecs(),
-		Download:   downloadEnabled(),
-	})
-}
-
 // StartOwnedAtRoot never adopts a listener that won a port race. Ports are
 // selected once by the worktree owner and reused by its recovery attempts.
 func StartOwnedAtRoot(ctx context.Context, root string, console Console, ports map[string]int) *Stack {
@@ -208,7 +187,7 @@ func StartOwnedAtRoot(ctx context.Context, root string, console Console, ports m
 }
 
 // StartAtRootWithConfig starts an explicitly configured Victoria process set.
-// Unlike StartAtRoot, it does not read enablement, download, or component-port
+// It does not read enablement, download, or component-port
 // environment variables; an explicit BinaryPaths entry also bypasses the
 // corresponding component-binary environment variable.
 func StartAtRootWithConfig(ctx context.Context, root string, console Console, config StartConfig) *Stack {
@@ -405,17 +384,28 @@ func isFalseEnv(value string) bool {
 	}
 }
 
-func rootDir(appRoot string) string {
-	if value := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_VICTORIA_DIR")); value != "" {
-		return value
+// pinnedVersions reads the Victoria component versions from the bundled
+// toolchain manifest once per process.
+var pinnedVersions = sync.OnceValue(func() map[string]string {
+	manifest, err := toolchain.LoadBundledManifest()
+	if err != nil {
+		panic(err)
 	}
-	return filepath.Join(appRoot, ".scenery", "victoria")
-}
+	versions := map[string]string{}
+	for _, name := range []string{"victoria-metrics", "victoria-logs", "victoria-traces"} {
+		artifact, _ := manifest.Artifact(name)
+		if strings.TrimSpace(artifact.Version) == "" {
+			panic(fmt.Errorf("bundled toolchain manifest is missing the %s version", name))
+		}
+		versions[name] = artifact.Version
+	}
+	return versions
+})
 
 // ComponentSpecs returns the pinned Victoria component set with environment
 // overrides applied.
 func ComponentSpecs() []ComponentSpec {
-	versions := devtools.PinnedVersions()
+	versions := pinnedVersions()
 	return []ComponentSpec{
 		{
 			Name:               "metrics",
@@ -424,8 +414,8 @@ func ComponentSpecs() []ComponentSpec {
 			ArchiveSlug:        "victoria-metrics",
 			BinaryName:         "victoria-metrics-prod",
 			ExtraBinaries:      []string{"victoria-metrics"},
-			Version:            envOrDefault("SCENERY_VICTORIA_METRICS_VERSION", versions.Victoria.Metrics.Version),
-			DefaultPort:        intEnvOrDefault("SCENERY_VICTORIA_METRICS_PORT", 8428),
+			Version:            envOrDefault("SCENERY_VICTORIA_METRICS_VERSION", versions["victoria-metrics"]),
+			DefaultPort:        8428,
 			EndpointPath:       "/opentelemetry/v1/metrics",
 			URLPath:            "/vmui",
 			StorageDir:         "metrics-data",
@@ -441,8 +431,8 @@ func ComponentSpecs() []ComponentSpec {
 			ArchiveSlug:        "victoria-logs",
 			BinaryName:         "victoria-logs-prod",
 			ExtraBinaries:      []string{"victoria-logs"},
-			Version:            envOrDefault("SCENERY_VICTORIA_LOGS_VERSION", versions.Victoria.Logs.Version),
-			DefaultPort:        intEnvOrDefault("SCENERY_VICTORIA_LOGS_PORT", 9428),
+			Version:            envOrDefault("SCENERY_VICTORIA_LOGS_VERSION", versions["victoria-logs"]),
+			DefaultPort:        9428,
 			EndpointPath:       "/insert/opentelemetry/v1/logs",
 			URLPath:            "/select/vmui",
 			StorageDir:         "logs-data",
@@ -458,8 +448,8 @@ func ComponentSpecs() []ComponentSpec {
 			ArchiveSlug:        "victoria-traces",
 			BinaryName:         "victoria-traces-prod",
 			ExtraBinaries:      []string{"victoria-traces"},
-			Version:            envOrDefault("SCENERY_VICTORIA_TRACES_VERSION", versions.Victoria.Traces.Version),
-			DefaultPort:        intEnvOrDefault("SCENERY_VICTORIA_TRACES_PORT", 10428),
+			Version:            envOrDefault("SCENERY_VICTORIA_TRACES_VERSION", versions["victoria-traces"]),
+			DefaultPort:        10428,
 			EndpointPath:       "/insert/opentelemetry/v1/traces",
 			URLPath:            "/select/vmui",
 			StorageDir:         "traces-data",
@@ -471,42 +461,11 @@ func ComponentSpecs() []ComponentSpec {
 	}
 }
 
-// ComponentPortsAvailable reports whether every default component port is
-// free, meaning no Victoria component is still listening.
-func ComponentPortsAvailable() bool {
-	for _, spec := range ComponentSpecs() {
-		if !tcpAddrAvailable(defaultHost, spec.DefaultPort) {
-			return false
-		}
-	}
-	return true
-}
-
 func envOrDefault(key, fallback string) string {
 	if value := strings.TrimSpace(envpolicy.Get(key)); value != "" {
 		return value
 	}
 	return fallback
-}
-
-func intEnvOrDefault(key string, fallback int) int {
-	value := strings.TrimSpace(envpolicy.Get(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed <= 0 {
-		return fallback
-	}
-	return parsed
-}
-
-func startComponent(ctx context.Context, root, binDir string, spec ComponentSpec, download bool, console Console) (*Component, error) {
-	plan, err := prepareComponentStart(ctx, root, binDir, spec, download, console)
-	if err != nil {
-		return nil, err
-	}
-	return startComponentFromPlan(ctx, root, plan, console)
 }
 
 func startComponentsWithBinaryPaths(ctx context.Context, root, binDir string, specs []ComponentSpec, binaryPaths map[string]string, download bool, console Console) []componentStartResult {
@@ -556,10 +515,6 @@ func startComponentsWithFunctions(ctx context.Context, specs []ComponentSpec, pr
 	}
 	wg.Wait()
 	return results
-}
-
-func prepareComponentStart(ctx context.Context, root, binDir string, spec ComponentSpec, download bool, console Console) (componentStartPlan, error) {
-	return prepareComponentStartWithBinaryPath(ctx, root, binDir, spec, "", download, console)
 }
 
 func prepareComponentStartWithBinaryPath(ctx context.Context, root, binDir string, spec ComponentSpec, binaryPath string, download bool, console Console) (componentStartPlan, error) {
@@ -719,51 +674,6 @@ func isExecutableFile(path string) bool {
 	return info.Mode()&0o111 != 0
 }
 
-func checksumForArchive(body, archiveName string) string {
-	for line := range strings.SplitSeq(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.Contains(line, archiveName) {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) > 0 && len(fields[0]) == 64 && isLowerHex(strings.ToLower(fields[0])) {
-			return fields[0]
-		}
-		for _, field := range fields {
-			field = strings.TrimPrefix(field, "sha256:")
-			if len(field) == 64 && isLowerHex(strings.ToLower(field)) {
-				return field
-			}
-		}
-	}
-	return ""
-}
-
-func isLowerHex(value string) bool {
-	for _, ch := range value {
-		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-func archiveName(spec ComponentSpec) (string, error) {
-	goos := goruntime.GOOS
-	goarch := goruntime.GOARCH
-	switch goos {
-	case "darwin", "linux":
-	default:
-		return "", fmt.Errorf("automatic Victoria binary download is unsupported on %s/%s", goos, goarch)
-	}
-	switch goarch {
-	case "amd64", "arm64":
-	default:
-		return "", fmt.Errorf("automatic Victoria binary download is unsupported on %s/%s", goos, goarch)
-	}
-	return fmt.Sprintf("%s-%s-%s-%s.tar.gz", spec.ArchiveSlug, goos, goarch, spec.Version), nil
-}
-
 func tcpAddrAvailable(host string, port int) bool {
 	return netprobe.BindFree(net.JoinHostPort(host, strconv.Itoa(port))) == nil
 }
@@ -812,30 +722,6 @@ func (s *Stack) Endpoint(name string) string {
 		}
 	}
 	return ""
-}
-
-// MarkCleared records the moment an app's observability data was cleared so
-// queries can filter out older rows.
-func (s *Stack) MarkCleared(appID string, at time.Time) {
-	if s == nil || appID == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.clearSince == nil {
-		s.clearSince = make(map[string]time.Time)
-	}
-	s.clearSince[appID] = at.UTC()
-}
-
-// ClearedAt returns the last recorded clear time for an app.
-func (s *Stack) ClearedAt(appID string) time.Time {
-	if s == nil || appID == "" {
-		return time.Time{}
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.clearSince[appID]
 }
 
 // Interrupt signals every stack-managed component process tree.

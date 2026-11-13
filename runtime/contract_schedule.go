@@ -12,7 +12,6 @@ type ContractScheduleRegistration struct {
 	Name                 string
 	TriggerKind          string
 	TriggerValue         string
-	Timezone             string
 	Overlap              string
 	CatchupMaximumAge    time.Duration
 	Identity             ContractWorkloadIdentity
@@ -59,22 +58,12 @@ func RegisterContractSchedule(registration ContractScheduleRegistration) error {
 		},
 	}
 	switch registration.TriggerKind {
-	case "cron":
-		job.Schedule, job.Timezone = registration.TriggerValue, defaultStringRuntime(registration.Timezone, "UTC")
 	case "every":
 		value, err := time.ParseDuration(registration.TriggerValue)
 		if err != nil || value <= 0 {
 			return fmt.Errorf("runtime: contract schedule %s every trigger is invalid", registration.Address)
 		}
 		job.Every = value
-	case "at":
-		value, err := time.Parse(time.RFC3339Nano, registration.TriggerValue)
-		if err != nil {
-			return fmt.Errorf("runtime: contract schedule %s at trigger is invalid", registration.Address)
-		}
-		job.At = value
-	case "calendar":
-		job.Calendar, job.Timezone = registration.TriggerValue, defaultStringRuntime(registration.Timezone, "UTC")
 	default:
 		return fmt.Errorf("capability_unavailable: contract schedule trigger %s is not supported", registration.TriggerKind)
 	}
@@ -127,11 +116,4 @@ func contractScheduleOverlap(value string) string {
 	default:
 		return "skip"
 	}
-}
-
-func defaultStringRuntime(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
 }

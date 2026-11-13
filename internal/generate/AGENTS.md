@@ -3,7 +3,7 @@
 ## Purpose
 
 `internal/generate` owns deterministic Go contracts, runtime composition,
-TypeScript clients, OpenAPI documents, and their generated-file transactions.
+TypeScript clients, and their generated-file transactions.
 `internal/generate/api` is the stdlib-only leaf for library build specs,
 runtime-integration plans and assistant-asset descriptors, avoiding generator
 linkage for non-rendering callers. `internal/build` consumes injected hooks;
@@ -20,8 +20,7 @@ CLI wires generation.
   imports. Shared types live there; rendering,
   verification, and inspection tests stay in `internal/generate` so the leaf
   does not grow a test binary.
-- Live predicted-artifact and native implementation-check coverage lives here,
-  not in `internal/evolution` tests.
+- Live native implementation-check coverage lives here.
 - Publish application-imported Go packages inside their declared existing Go
   modules and managed roots. Exact authored Git ignores keep them out of normal
   application commits; generation never edits ignores or creates nested modules.

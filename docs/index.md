@@ -42,7 +42,7 @@ Build a missing local CLI using [Fresh Worktree Preflight](agent-guide.md#fresh-
 
 ## Current Specification
 
-Scenery has one evolving application contract. Start with the [Scenery Specification](spec/SPEC.md), then use its normative companions for the [Go implementation](spec/go-implementation.md), [HTTP contract](spec/http.md), [typed terminal path tails](spec/http-path-tail.md), [TypeScript client](spec/typescript-client.md), and [evolution rules](spec/evolution.md).
+Scenery has one evolving application contract. Start with the [Scenery Specification](spec/SPEC.md), then use its normative companions for the [Go implementation](spec/go-implementation.md), [HTTP contract](spec/http.md), [typed terminal path tails](spec/http-path-tail.md), and [TypeScript client](spec/typescript-client.md).
 
 ## Product Plans
 
@@ -70,7 +70,6 @@ Start with:
 - [scenery.environment.registry](schemas/scenery.environment.registry.schema.json)
 - [scenery.harness.result](schemas/scenery.harness.result.schema.json)
 - [scenery.agent_context.summary](schemas/scenery.agent_context.summary.schema.json)
-- [scenery.inspect.validation](schemas/scenery.inspect.validation.schema.json)
 - [scenery.validation.result](schemas/scenery.validation.result.schema.json)
 - [scenery.harness.self](schemas/scenery.harness.self.schema.json)
 - [scenery.harness.self.summary](schemas/scenery.harness.self.summary.schema.json)

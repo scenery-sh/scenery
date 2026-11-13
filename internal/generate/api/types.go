@@ -35,9 +35,6 @@ type ServiceProcessPlan struct {
 	RequiredAddresses []string
 	Routes            []ServiceProcessRoute
 	MCPTools          []ServiceProcessMCPTool
-	// CLIBindings are the application CLI bindings whose operations the
-	// service implements; live invocations of them run in its process.
-	CLIBindings []string
 }
 
 // ServiceProcessMCPTool is one MCP tool a service adapter registers.

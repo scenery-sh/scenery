@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -514,9 +513,9 @@ func editedDuringAnotherBuild() {}
 		}
 	})
 
-	prepared, err := RefreshCachedWorkspaceWithSnapshotContext(ctx, appDir, result, nil)
+	prepared, err := prepareCachedWorkspace(ctx, appDir, appcfg.Config{}, result, nil, false)
 	if err != nil {
-		t.Fatalf("RefreshCachedWorkspaceWithSnapshotContext() error = %v", err)
+		t.Fatalf("prepareCachedWorkspace() error = %v", err)
 	}
 	if !prepared {
 		t.Fatal("changed source should retain the declaration-equivalent prepared workspace")
@@ -528,14 +527,11 @@ func editedDuringAnotherBuild() {}
 	if len(observed) != len(mutationSteps) {
 		t.Fatalf("observed mutation steps %v, want %v", observed, mutationSteps)
 	}
-	if runtime.GOOS == "windows" {
-		return // No workspace lock, therefore no serialized private workspace.
-	}
 	if len(unlocked) > 0 {
 		t.Fatalf("cached workspace refresh mutated %v without the workspace lock", unlocked)
 	}
-	// The caller reacquires the same lock in CompileContext or
-	// PrimeWorkspaceContext, so the refresh must not retain it.
+	// The caller reacquires the same lock in CompileContext, so the refresh
+	// must not retain it.
 	release, acquired, _, err := trySharedBinaryExistingLock(lockPath)
 	if err != nil || !acquired {
 		t.Fatalf("refresh retained the workspace lock: acquired=%t err=%v", acquired, err)

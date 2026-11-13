@@ -82,7 +82,7 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 		}
 	}
 	assertions["A3_product_dependency_closure"] = true
-	sdkDeps, err := run(source, "go", "list", "-deps", ".", "./auth", "./db", "./durable")
+	sdkDeps, err := run(source, "go", "list", "-deps", ".", "./auth", "./db")
 	if err != nil {
 		return summary, err
 	}
@@ -272,4 +272,11 @@ func verifyHarnessProductWithoutRepositoryTools(ctx context.Context, source, roo
 	}
 	assertions["A3_removed_grammar_rejected"] = true
 	return nil
+}
+
+func writeHarnessToolchainSourceFile(path, body string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(body), mode)
 }

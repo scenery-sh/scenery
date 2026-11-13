@@ -5,15 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/lifecycle"
 )
 
 func TestParseGenerateArgs(t *testing.T) {
@@ -25,9 +22,6 @@ func TestParseGenerateArgs(t *testing.T) {
 	}
 	if opts.Subject != "sqlc" || opts.AppRoot != "/tmp/app" || !opts.DryRun || !opts.JSON {
 		t.Fatalf("opts = %+v", opts)
-	}
-	if _, err := parseGenerateArgs([]string{"sqlc", "--output", "client.ts"}); err == nil || !strings.Contains(err.Error(), "client output flags are not supported") {
-		t.Fatalf("parseGenerateArgs(sqlc --output) error = %v", err)
 	}
 }
 
@@ -50,7 +44,7 @@ func TestBuildSQLCGeneratorPlanUsesSQLCSchemaInput(t *testing.T) {
 	if len(plan.Schemas) != 1 {
 		t.Fatalf("schemas = %+v", plan.Schemas)
 	}
-	if plan.Schemas[0].SQLCSchema != "auth/db/gen/schema.sql" || plan.Schemas[0].AtlasSource != "" {
+	if plan.Schemas[0].SQLCSchema != "auth/db/gen/schema.sql" {
 		t.Fatalf("schema plan = %+v", plan.Schemas[0])
 	}
 	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/gen/schema.sql")
@@ -110,9 +104,6 @@ func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
 	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
 		return nil
-	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
-		t.Fatalf("unexpected output command: %+v", req)
-		return nil, nil
 	})
 
 	if err := runSQLCGeneratorWithHooks(context.Background(), &bytes.Buffer{}, root, plan, true, hooks); err != nil {
@@ -235,131 +226,6 @@ select 1;
 	assertDBArtifact(t, payload.DBArtifacts, "auth", "seed", "initial-data", "auth/db/seed.sql")
 	assertDBArtifact(t, payload.DBArtifacts, "billing", "schema-source", "schema", "billing/db/schema.hcl")
 	assertDBArtifact(t, payload.DBArtifacts, "billing", "query", "query-generation-input", "billing/db/queries.sql")
-}
-
-func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeSQLCFixture(t, root)
-	if err := os.Remove(filepath.Join(root, "auth/db/gen/schema.sql")); err != nil {
-		t.Fatal(err)
-	}
-	cfg := appcfg.Config{Name: "demo"}
-	cfg.Generators.SQLC = appcfg.SQLCGeneratorConfig{
-		Config: "sqlc.yaml",
-		Schemas: []appcfg.SQLCGeneratorSchema{{
-			SQLCSchema:  "auth/db/gen/schema.sql",
-			AtlasSource: "auth/db/schema.hcl",
-			AtlasDevURL: "postgres://dev",
-		}},
-	}
-	plan, _, err := buildSQLCGeneratorPlan(root, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var ran []lifecycleExecRequest
-	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
-		ran = append(ran, req)
-		return nil
-	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
-		if req.Program != "atlas" {
-			t.Fatalf("output command program = %q", req.Program)
-		}
-		return []byte("create schema scenery_auth;\n"), nil
-	})
-
-	op, err := newSQLCOperation(root, plan, hooks, io.Discard, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.RemoveAll(op.stage); err != nil {
-			t.Error(err)
-		}
-	}()
-	graph, err := lifecycle.New(sqlcLifecycleNodes(plan, op))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := graph.Run(t.Context(), []lifecycle.ID{"sqlc.source.validate"}, []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}); err != nil {
-		t.Fatalf("SQLC render plan returned error: %v", err)
-	}
-	data := op.files["auth/db/gen/schema.sql"]
-	if text := string(data); !strings.Contains(text, "scenery generate sqlc") || !strings.Contains(text, "create schema scenery_auth") {
-		t.Fatalf("schema text = %q", text)
-	}
-	if len(ran) != 1 || ran[0].Program != "sqlc" || strings.Join(ran[0].Args, " ") != "generate" {
-		t.Fatalf("ran = %+v", ran)
-	}
-}
-
-func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
-	t.Parallel()
-
-	root := canonicalTestDir(t)
-	writeTestAppFile(t, root, ".scenery.json", `{
-  "name": "demo",
-  "database": {
-    "apply": {
-      "command": "./scripts/db-safe-apply.sh",
-      "cwd": "scripts",
-      "env": { "MIGRATION_MODE": "safe" }
-    }
-  },
-  "generators": {
-    "sqlc": { "provider": "sqlc", "config": "sqlc.yaml" }
-  }
-}`)
-	writeSQLCFixture(t, root)
-
-	var ran []lifecycleExecRequest
-	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
-		ran = append(ran, req)
-		_, _ = fmt.Fprintln(req.Stdout, "apply chatter")
-		return nil
-	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
-		t.Fatalf("db apply must not run output lifecycle exec: %+v", req)
-		return nil, nil
-	})
-
-	var out bytes.Buffer
-	if err := runDBApplyWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks); err != nil {
-		t.Fatalf("runDBApply returned error: %v", err)
-	}
-	if len(ran) != 1 {
-		t.Fatalf("ran = %+v", ran)
-	}
-	if ran[0].Dir != filepath.Join(root, "scripts") {
-		t.Fatalf("apply dir = %q", ran[0].Dir)
-	}
-	if runtime.GOOS != "windows" && (ran[0].Program != "/bin/sh" || strings.Join(ran[0].Args, " ") != "-c ./scripts/db-safe-apply.sh") {
-		t.Fatalf("apply command = %+v", ran[0])
-	}
-	if !containsEnv(ran[0].Env, "MIGRATION_MODE=safe") {
-		t.Fatalf("apply env missing overlay: %+v", ran[0].Env)
-	}
-
-	var payload dbApplyResult
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
-	}
-	if payload.Kind != "scenery.db.apply.result" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.db.apply.result").SchemaRevision || payload.Apply.Status != "applied" {
-		t.Fatalf("payload = %+v", payload)
-	}
-}
-
-func TestDBApplyReportsMissingConfiguration(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
-
-	err := runDBApply(context.Background(), &bytes.Buffer{}, []string{"--app-root", root})
-	if err == nil || err.Error() != "database.apply is not configured" {
-		t.Fatalf("runDBApply missing config error = %v", err)
-	}
 }
 
 func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
@@ -617,7 +483,7 @@ func TestDBSetupRunsApplyThenSeed(t *testing.T) {
 		events = append(events, "apply:"+req.Program)
 		_, _ = fmt.Fprintln(req.Stdout, "apply chatter")
 		return nil
-	}, nil)
+	})
 
 	var out bytes.Buffer
 	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks); err != nil {
@@ -642,7 +508,7 @@ func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
 	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		t.Fatal("database apply should not run without database.apply.command")
 		return nil
-	}, nil)
+	})
 
 	var out bytes.Buffer
 	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks); err != nil {
@@ -677,7 +543,7 @@ func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
 	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		applyEnv = req.Env
 		return nil
-	}, nil)
+	})
 	var out bytes.Buffer
 	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks, defaultDBSeedHooks()); err != nil {
 		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
@@ -693,7 +559,7 @@ func TestDBSetupStopsWhenApplyFails(t *testing.T) {
 	seedHooks := seedStoreHooks(t, store)
 	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		return errors.New("apply failed")
-	}, nil)
+	})
 
 	var out bytes.Buffer
 	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks)
@@ -716,7 +582,7 @@ func TestDBSetupReportsSeedFailure(t *testing.T) {
 	seedHooks := seedStoreHooks(t, store)
 	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		return nil
-	}, nil)
+	})
 
 	var out bytes.Buffer
 	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks)
@@ -738,7 +604,7 @@ func TestDBSetupRepeatedRunSkipsUnchangedSeed(t *testing.T) {
 	seedHooks := seedStoreHooks(t, store)
 	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		return nil
-	}, nil)
+	})
 
 	if err := runDBSetupWithHooks(context.Background(), &bytes.Buffer{}, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("first runDBSetup returned error: %v", err)
@@ -753,26 +619,6 @@ func TestDBSetupRepeatedRunSkipsUnchangedSeed(t *testing.T) {
 	}
 	if payload.Seed.Summary.Skipped != 1 || len(store.applied) != 1 {
 		t.Fatalf("payload = %+v store = %+v", payload, store.applied)
-	}
-}
-
-func TestTaskGraphAndRun(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
-	writeTestAppFile(t, root, "tools/tasks/echo.task.go", "//go:build ignore\n\npackage main\nfunc main() {}\n")
-
-	var graphOut bytes.Buffer
-	if err := runTaskCommand(context.Background(), &graphOut, []string{"graph", "-o", "json", "--app-root", root}); err != nil {
-		t.Fatalf("runTaskCommand graph returned error: %v", err)
-	}
-	var graph taskGraphResponse
-	if err := decodeCLIJSON(graphOut.Bytes(), &graph); err != nil {
-		t.Fatalf("decodeCLIJSON graph: %v\n%s", err, graphOut.String())
-	}
-	if len(graph.Nodes) != 1 || graph.Nodes[0].Target != "tools:echo" {
-		t.Fatalf("graph = %+v", graph)
 	}
 }
 
@@ -828,7 +674,7 @@ func writeSetupCommandFixture(t *testing.T) string {
 	return root
 }
 
-func stubLifecycleExec(t *testing.T, run func(context.Context, lifecycleExecRequest) error, output func(context.Context, lifecycleExecRequest) ([]byte, error)) lifecycleHooks {
+func stubLifecycleExec(t *testing.T, run func(context.Context, lifecycleExecRequest) error) lifecycleHooks {
 	t.Helper()
 	hooks := defaultLifecycleHooks()
 	hooks.toolIdentity = func(string) (string, error) { return sqlcDigest([]byte("in-process tool fixture")), nil }
@@ -856,9 +702,6 @@ func stubLifecycleExec(t *testing.T, run func(context.Context, lifecycleExecRequ
 			}
 			return nil
 		}
-	}
-	if output != nil {
-		hooks.outputExec = output
 	}
 	return hooks
 }

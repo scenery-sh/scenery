@@ -1,5 +1,9 @@
 # Product and Island Build Comparison
 
+Status: historical. The `native-reload-attribution` benchmark and its
+`--workload-root` flag were removed by plan 0225; the commands below record
+how the evidence was produced and no longer run.
+
 ## Identical full-ONLV result (supersedes the scope-mismatched comparison)
 
 The human required identical compilation scope. The direct-driver experiment

@@ -24,8 +24,6 @@ type Host interface {
 	MarkServiceInitialized(service string, shutdown func(context.Context))
 	DecodeJSON(request *http.Request, target any) error
 	EncodeJSON(status int, value any) (Response, error)
-	DurableSignal(ctx context.Context, service, jobID, name, dedupeKey string, payload []byte) error
-	DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) ([]byte, error)
 	TraceHTTPTransport(http.RoundTripper) http.RoundTripper
 	TraceStorageOperation(ctx context.Context, store, operation string) (context.Context, func(int64, error))
 	TraceDBQueryStart(ctx context.Context, query string, argsCount int) context.Context

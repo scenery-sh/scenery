@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/runtimeassets"
+	"scenery.sh/internal/scn"
 	"scenery.sh/internal/toolchain"
 )
 
@@ -496,4 +499,48 @@ func copyAssistantPreparedTreeMeasured(ctx context.Context, source, destination 
 		return errors.New("prepared cache files are missing")
 	}
 	return nil
+}
+
+func decodeJSONExact(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
+func rejectExistingAssistantPathSymlinks(root, target string) error {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	target, err = filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	for current := target; ; current = filepath.Dir(current) {
+		_, statErr := os.Lstat(current)
+		if statErr == nil {
+			return scn.RejectPathSymlinks(root, current)
+		}
+		if !os.IsNotExist(statErr) {
+			return statErr
+		}
+		if current == root || current == filepath.Dir(current) {
+			return nil
+		}
+	}
+}
+
+func digestBytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }

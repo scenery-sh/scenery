@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -221,10 +220,7 @@ func TestInstallConcurrentReuseRecoveryAndTamperRejection(t *testing.T) {
 	if reused != workers-1 {
 		t.Fatalf("reused installs = %d, want %d", reused, workers-1)
 	}
-	installed, err := InstalledPath(state, archive.Descriptor.Digest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	installed := filepath.Join(state, AssetDirectory, strings.TrimPrefix(archive.Descriptor.Digest, "sha256:"))
 	if _, err := os.Stat(installed); err != nil {
 		t.Fatal(err)
 	}
@@ -323,13 +319,4 @@ func testArchive(t *testing.T, definitions []archiveDefinition) []byte {
 		t.Fatal(err)
 	}
 	return data.Bytes()
-}
-
-func ExampleInstalledPath() {
-	path, err := InstalledPath("/var/lib/scenery", "sha256:"+strings.Repeat("a", 64))
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(path)
-	// Output: /var/lib/scenery/runtime-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 }

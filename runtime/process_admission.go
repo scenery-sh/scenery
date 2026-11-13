@@ -15,8 +15,8 @@ import (
 	"scenery.sh/errs"
 )
 
-// Background work of a service process (an event delivery attempt, a scheduled
-// run, a durable task attempt) enters no request the host pinned. Each attempt
+// Background work of a service process (a scheduled run, a durable task
+// attempt) enters no request the host pinned. Each attempt
 // is admitted to the newest published generation that includes the process
 // instance running it, when the attempt starts rather than when its work was
 // created, and its internal calls and their descendants are pinned to that

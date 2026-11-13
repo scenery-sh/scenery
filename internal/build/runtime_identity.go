@@ -107,10 +107,6 @@ func VerifyCurrentCandidate(ctx context.Context, root string, cfg app.Config, sn
 	return identity, nil
 }
 
-func verifyCurrentSourceState(root, workspace string, state buildState) error {
-	return verifyCurrentSourceStateWithSnapshot(root, workspace, state, nil)
-}
-
 func verifyCurrentSourceStateWithSnapshot(root, workspace string, state buildState, snapshot func() (*SourceSnapshot, error)) error {
 	if state.Version != buildStateVersion || state.SourceFingerprint == "" || state.BuildFingerprint == "" {
 		return fmt.Errorf("current build state is missing; build or start the application first")

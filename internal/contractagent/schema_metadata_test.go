@@ -9,11 +9,8 @@ import (
 func TestAgentSchemasReportRuntimeExpressionPhases(t *testing.T) {
 	for _, test := range []struct{ revision, field string }{
 		{"scenery.authorization.rule", "allow"},
-		{"scenery.record.validation", "when"},
 		{"scenery.operation.idempotency", "key"},
 		{"scenery.binding.http.response-body", "from"},
-		{"scenery.binding.cli.outcome", "when"},
-		{"scenery.event-emission.from", "payload"},
 	} {
 		t.Run(test.revision+"/"+test.field, func(t *testing.T) {
 			if field := agentSchemaField(t, test.revision, test.field); field["phase"] != "runtime" {
@@ -40,9 +37,8 @@ func TestAgentSchemasExposeCompilerEnums(t *testing.T) {
 		revision, field string
 		values          []string
 	}{
-		{"scenery.source.execution", "mode", []string{"direct", "durable", "workflow"}},
-		{"scenery.source.binding", "protocol", []string{"cli", "event", "http", "internal", "mcp"}},
-		{"scenery.source.fixture", "mode", []string{"insert", "replace", "upsert"}},
+		{"scenery.source.execution", "mode", []string{"direct", "durable"}},
+		{"scenery.source.binding", "protocol", []string{"http", "internal", "mcp"}},
 		{"scenery.source.typescript_client", "runtime", []string{"fetch"}},
 	} {
 		t.Run(test.revision+"/"+test.field, func(t *testing.T) {

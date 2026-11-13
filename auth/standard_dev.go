@@ -44,7 +44,7 @@ func DevBootstrap(ctx context.Context, params *DevBootstrapParams) (*AuthSession
 		return devBootstrapEmailSession(ctx, cfg.DefaultUserEmail, firstNonEmpty(rawTenantID, cfg.DefaultTenantID))
 	}
 
-	userID, err := normalizeDevBootstrapClaim(rawUserID, cfg.DefaultUserID, "user_id")
+	userID, err := normalizeDevBootstrapClaim(rawUserID, "dev-user", "user_id")
 	if err != nil {
 		return nil, errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
 	}

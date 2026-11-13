@@ -68,7 +68,7 @@ func TestCachedPreparationCompilesImplementationEditWithoutFullPrepare(t *testin
 	if err != nil || !ok || cached == nil {
 		t.Fatalf("load cached preparation: ok=%v err=%v", ok, err)
 	}
-	prepared, err := PrepareCachedWorkspaceWithSnapshotContext(context.Background(), root, appcfg.Config{Name: "buildtest"}, cached.Result, nil)
+	prepared, err := prepareCachedWorkspace(context.Background(), root, appcfg.Config{Name: "buildtest"}, cached.Result, nil, false)
 	if err != nil || !prepared {
 		t.Fatalf("prepare cached implementation: prepared=%v err=%v", prepared, err)
 	}

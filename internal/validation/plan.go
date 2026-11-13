@@ -368,44 +368,19 @@ func stepCommand(appRoot string, ref StepRef) []string {
 	case "task":
 		return []string{"scenery", "task", "run", ref.Name, "--app-root", appRoot}
 	case "builtin":
-		switch ref.Name {
-		case "harness", "harness:core":
-			return []string{"scenery", "harness", "--app-root", appRoot, "-o", "json"}
-		case "check":
+		if ref.Name == "check" {
 			return []string{"scenery", "check", "--app-root", appRoot, "-o", "json"}
-		case "test", "test:go":
-			return []string{"scenery", "test", "--app-root", appRoot}
-		case "generate":
-			return []string{"scenery", "generate", "--app-root", appRoot}
-		case "generate:sqlc":
-			return []string{"scenery", "generate", "sqlc", "--app-root", appRoot}
-		case "db:apply":
-			return []string{"scenery", "db", "apply", "--app-root", appRoot}
-		case "db:seed":
-			return []string{"scenery", "db", "seed", "--app-root", appRoot}
-		case "db:setup":
-			return []string{"scenery", "db", "setup", "--app-root", appRoot}
 		}
 	}
 	return nil
 }
 
 func builtinSupported(name string) bool {
-	switch name {
-	case "harness", "harness:core", "check", "test", "test:go", "generate", "generate:sqlc", "db:apply", "db:seed", "db:setup":
-		return true
-	default:
-		return false
-	}
+	return name == "check"
 }
 
 func reservedProfileName(name string) bool {
-	switch name {
-	case "list", "inspect", "graph", "changed":
-		return true
-	default:
-		return false
-	}
+	return name == "changed"
 }
 
 // validProfileNameSegment mirrors the [A-Za-z0-9_][A-Za-z0-9_-]* segment rule

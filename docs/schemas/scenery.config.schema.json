@@ -265,13 +265,11 @@
 	  "type": "object",
 	  "properties": {
 		"default": { "type": "boolean" },
-		"mode": { "enum": ["", "path", "host"] },
         "domain": {
           "type": "string",
           "maxLength": 253,
           "pattern": "^$|^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
         },
-		"expose": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
 		"port": { "type": "integer", "minimum": 0, "maximum": 65535 },
 		"port_start": { "type": "integer", "minimum": 0, "maximum": 65535 },
 		"port_end": { "type": "integer", "minimum": 0, "maximum": 65535 },
@@ -374,41 +372,8 @@
         },
         "config": {
           "type": "string"
-        },
-        "dev_url": {
-          "type": "string"
-        },
-        "schemas": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "$ref": "#/$defs/sqlcGeneratorSchema"
-          }
         }
       },
-      "additionalProperties": false
-    },
-    "sqlcGeneratorSchema": {
-      "type": "object",
-      "properties": {
-        "sqlc_schema": {
-          "type": "string"
-        },
-        "atlas_schema": {
-          "type": "string"
-        },
-        "atlas_source": {
-          "type": "string"
-        },
-        "atlas_dev_url": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "sqlc_schema"
-      ],
       "additionalProperties": false
     },
     "databaseMigration": {
@@ -447,7 +412,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Whether scenery discovers and applies SQL, fixture, and command seeds. Defaults to true."
+          "description": "Whether scenery discovers and applies SQL and command seeds. Defaults to true."
         },
         "commands": {
           "type": "array",
@@ -587,9 +552,6 @@
           "type": "boolean"
         },
         "default_user_email": {
-          "type": "string"
-        },
-        "default_user_id": {
           "type": "string"
         },
         "default_tenant_id": {

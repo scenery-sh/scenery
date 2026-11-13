@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -49,12 +48,6 @@ func runHarnessTypeScriptCheckerProbeStepWithCheck(ctx context.Context, repoRoot
 }
 
 func runHarnessTypeScriptCheckerProbeCheck(ctx context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
-	if runtime.GOOS == "windows" {
-		return map[string]any{
-			"proof":  "not_applicable_on_windows",
-			"reason": "the checker process fixture uses a POSIX shell",
-		}, nil, nil
-	}
 	root, err := os.MkdirTemp("", "scenery-tscheck-process-probe-*")
 	if err != nil {
 		return nil, nil, err

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// applyHTTPDirectoryGroups runs once after patches, before CRUD expansion.
+// applyHTTPDirectoryGroups runs once before expansion.
 // Downstream consumers use the effective path without inspecting source folders.
 func applyHTTPDirectoryGroups(resources []Resource) []Diagnostic {
 	modules := make(map[string]Resource)
@@ -18,7 +18,7 @@ func applyHTTPDirectoryGroups(resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for index := range resources {
 		resource := &resources[index]
-		if resource.Kind != "scenery.crud" && (resource.Kind != "scenery.binding" || resource.Spec["protocol"] != "http") {
+		if resource.Kind != "scenery.binding" || resource.Spec["protocol"] != "http" {
 			continue
 		}
 		httpSpec, _ := resource.Spec["http"].(map[string]any)

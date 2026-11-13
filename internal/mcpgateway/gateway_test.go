@@ -99,26 +99,6 @@ func (testAuthorizer) Visible(_ context.Context, principal string, capability mc
 	return principal == "alice" || capability.Name == "read"
 }
 
-type testDurable struct {
-	mu     sync.Mutex
-	status int
-	cancel int
-}
-
-func (d *testDurable) Status(_ context.Context, _ mcpcontract.ToolCallContext, id string) (json.RawMessage, error) {
-	d.mu.Lock()
-	d.status++
-	d.mu.Unlock()
-	return json.RawMessage(`{"execution_id":"` + id + `","state":"running"}`), nil
-}
-
-func (d *testDurable) Cancel(_ context.Context, _ mcpcontract.ToolCallContext, id string) (json.RawMessage, error) {
-	d.mu.Lock()
-	d.cancel++
-	d.mu.Unlock()
-	return json.RawMessage(`{"execution_id":"` + id + `","state":"cancelled"}`), nil
-}
-
 type assertionTransport struct {
 	base  http.RoundTripper
 	token string
@@ -175,21 +155,20 @@ func closeOnce(ch chan struct{}) {
 func testManifest() mcpcontract.Manifest {
 	objectSchema := json.RawMessage(`{"type":"object"}`)
 	limits := mcpcontract.Limits{MaxInputBytes: mcpcontract.MaximumInputBytes, MaxResultBytes: mcpcontract.MaximumResultBytes}
-	capability := func(id, name string, durable bool) mcpcontract.Capability {
+	capability := func(id, name string) mcpcontract.Capability {
 		return mcpcontract.Capability{
 			ID: id, Name: name, Title: name, Description: name,
 			InputSchema: objectSchema, OutputSchema: objectSchema,
 			OperationAddress: "operation/" + name, ExecutionAddress: "execution/" + name,
 			Origin: mcpcontract.Origin{Kind: "local", Address: "local/app"},
 			Limits: limits, Effect: mcpcontract.Effect{ReadOnly: name == "read"}, Approval: mcpcontract.ApprovalNever,
-			Durable: durable,
 		}
 	}
 	return mcpcontract.Manifest{
 		Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision,
 		ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "rev-1",
 		Capabilities: []mcpcontract.Capability{
-			capability("cap-durable", "enqueue", true), capability("cap-read", "read", false), capability("cap-slow", "slow", false), capability("cap-write", "write", false),
+			capability("cap-read", "read"), capability("cap-slow", "slow"), capability("cap-write", "write"),
 		},
 	}
 }
@@ -204,7 +183,7 @@ func federatedCapability(name string) mcpcontract.Capability {
 		OutputSchema:     json.RawMessage(`{"type":"object"}`),
 		OperationAddress: "mcp/federated/operation/" + name,
 		ExecutionAddress: "mcp/federated/execution/" + name,
-		Origin:           mcpcontract.Origin{Kind: "federated", Address: "app/mcp_connection/docs", Namespace: "docs"},
+		Origin:           mcpcontract.Origin{Kind: "federated", Address: "app/mcp_server/docs", Namespace: "docs"},
 		Limits:           mcpcontract.Limits{MaxInputBytes: mcpcontract.MaximumInputBytes, MaxResultBytes: mcpcontract.MaximumResultBytes},
 		Effect:           mcpcontract.Effect{ReadOnly: true},
 		Approval:         mcpcontract.ApprovalAlways,
@@ -230,15 +209,13 @@ func connectTestClient(t *testing.T, endpoint, token string) *mcp.ClientSession 
 
 func TestGatewayClientRoundTrip(t *testing.T) {
 	dispatcher := &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{
-		"read":    {Outcome: "completed", Value: json.RawMessage(`{"value":"ok"}`)},
-		"write":   {Outcome: "completed", Value: json.RawMessage(`{"written":true}`)},
-		"enqueue": {Outcome: "accepted", Receipt: &mcpcontract.DurableReceipt{DurableIdentity: "task", ExecutionID: "run-1", AcceptedRevision: "rev-1"}},
+		"read":  {Outcome: "completed", Value: json.RawMessage(`{"value":"ok"}`)},
+		"write": {Outcome: "completed", Value: json.RawMessage(`{"written":true}`)},
 	}}
-	durable := &testDurable{}
 	contexts := map[string]mcpcontract.ToolCallContext{
 		"alice-token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1", RequestID: "req-alice"},
 	}
-	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: StaticAssertionVerifier(contexts), Dispatch: dispatcher, Authorizer: testAuthorizer{}, Durable: durable})
+	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: StaticAssertionVerifier(contexts), Dispatch: dispatcher, Authorizer: testAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +230,8 @@ func TestGatewayClientRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 7 { // four generated tools plus framework status/cancel/wait
-		t.Fatalf("tool count = %d, want 7", len(tools.Tools))
+	if len(tools.Tools) != 3 {
+		t.Fatalf("tool count = %d, want 3", len(tools.Tools))
 	}
 
 	for _, test := range []struct {
@@ -263,7 +240,6 @@ func TestGatewayClientRoundTrip(t *testing.T) {
 	}{
 		{"read", `"outcome":"completed"`},
 		{"write", `"written":true`},
-		{"enqueue", `"execution_id":"run-1"`},
 	} {
 		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: test.name, Arguments: map[string]any{"x": 1}})
 		if err != nil {
@@ -286,8 +262,6 @@ func TestGatewayClientRoundTrip(t *testing.T) {
 			expected = mcpcontract.ToolOutcome{Outcome: "completed", Value: json.RawMessage(`{"value":"ok"}`)}
 		case "write":
 			expected = mcpcontract.ToolOutcome{Outcome: "completed", Value: json.RawMessage(`{"written":true}`)}
-		case "enqueue":
-			expected = mcpcontract.ToolOutcome{Outcome: "accepted", Receipt: &mcpcontract.DurableReceipt{DurableIdentity: "task", ExecutionID: "run-1", AcceptedRevision: "rev-1"}}
 		}
 		expectedBytes, err := mcpcontract.MarshalOutcome(expected)
 		if err != nil || text.Text != string(expectedBytes) {
@@ -307,24 +281,9 @@ func TestGatewayClientRoundTrip(t *testing.T) {
 	if text, ok := result.Content[0].(*mcp.TextContent); !ok || text.Text != string(problemBytes) {
 		t.Fatalf("declared error text = %#v, want canonical %q", result.Content, problemBytes)
 	}
-
-	status, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: mcpcontract.StatusToolName, Arguments: map[string]any{"execution_id": "run-1"}})
-	if err != nil || !strings.Contains(string(mustJSON(status.StructuredContent)), "running") {
-		t.Fatalf("status result = %#v, err=%v", status, err)
-	}
-	cancel, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: mcpcontract.CancelToolName, Arguments: map[string]any{"execution_id": "run-1"}})
-	if err != nil || !strings.Contains(string(mustJSON(cancel.StructuredContent)), "cancelled") {
-		t.Fatalf("cancel result = %#v, err=%v", cancel, err)
-	}
-	durable.mu.Lock()
-	statusCalls, cancelCalls := durable.status, durable.cancel
-	durable.mu.Unlock()
-	if statusCalls != 1 || cancelCalls != 1 {
-		t.Fatalf("durable calls status=%d cancel=%d", statusCalls, cancelCalls)
-	}
 }
 
-func TestGatewayFiltersFrameworkToolsAndEnforcesResultLimit(t *testing.T) {
+func TestGatewayFiltersToolsAndEnforcesResultLimit(t *testing.T) {
 	manifest := testManifest()
 	for index := range manifest.Capabilities {
 		if manifest.Capabilities[index].Name == "write" {
@@ -334,12 +293,11 @@ func TestGatewayFiltersFrameworkToolsAndEnforcesResultLimit(t *testing.T) {
 	dispatcher := &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{
 		"write": {Outcome: "completed", Value: json.RawMessage(`{"large":"payload"}`)},
 	}}
-	durable := &testDurable{}
 	contexts := StaticAssertionVerifier{
 		"alice-token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"},
 		"bob-token":   {Principal: "bob", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"},
 	}
-	handler, err := NewHandler(Config{Manifest: manifest, Verify: contexts, Dispatch: dispatcher, Authorizer: testAuthorizer{}, Durable: durable})
+	handler, err := NewHandler(Config{Manifest: manifest, Verify: contexts, Dispatch: dispatcher, Authorizer: testAuthorizer{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,9 +320,6 @@ func TestGatewayFiltersFrameworkToolsAndEnforcesResultLimit(t *testing.T) {
 	}
 	if len(tools.Tools) != 1 || tools.Tools[0].Name != "read" {
 		t.Fatalf("bob tools = %#v, want only read", tools.Tools)
-	}
-	if _, err := bob.CallTool(context.Background(), &mcp.CallToolParams{Name: mcpcontract.StatusToolName, Arguments: map[string]any{"execution_id": "run-1"}}); err == nil {
-		t.Fatal("bob status call unexpectedly succeeded")
 	}
 	dispatcher.mu.Lock()
 	callsBefore := len(dispatcher.calls)
@@ -569,11 +524,6 @@ func TestGatewayAllocatesLoopbackListener(t *testing.T) {
 	}
 }
 
-func mustJSON(value any) []byte {
-	data, _ := json.Marshal(value)
-	return data
-}
-
 func TestSignAndVerifyAssertion(t *testing.T) {
 	now := time.Unix(1000, 0)
 	claims := AssertionClaims{Audience: "scenery", AssistantAddress: "assistant/support", Principal: "alice", ConversationDigest: "conversation", CapabilityRevision: "rev-1", ExpiresAt: now.Add(time.Minute).Unix(), Nonce: "n"}
@@ -620,7 +570,7 @@ func TestGatewayFederationMergesToolsAndPropagatesAssertionContext(t *testing.T)
 		outcome:      mcpcontract.ToolOutcome{Outcome: "processed", Value: json.RawMessage(`{"content":[{"type":"text","text":"found"}],"structuredContent":{"remote":true}}`)},
 	}
 	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1", RequestID: "req-1"}}
-	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Durable: &testDurable{}, Federation: federation})
+	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Federation: federation})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +581,7 @@ func TestGatewayFederationMergesToolsAndPropagatesAssertionContext(t *testing.T)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	wantNames := []string{"docs__search", "enqueue", "read", mcpcontract.CancelToolName, mcpcontract.StatusToolName, mcpcontract.WaitToolName, "slow", "write"}
+	wantNames := []string{"docs__search", "read", "slow", "write"}
 	if len(tools.Tools) != len(wantNames) {
 		t.Fatalf("tool count=%d names=%#v", len(tools.Tools), tools.Tools)
 	}
@@ -639,7 +589,7 @@ func TestGatewayFederationMergesToolsAndPropagatesAssertionContext(t *testing.T)
 		if tools.Tools[index].Name != want {
 			t.Fatalf("tool[%d]=%q, want %q", index, tools.Tools[index].Name, want)
 		}
-		if tools.Tools[index].Annotations == nil && !mcpcontract.IsFrameworkToolName(want) {
+		if tools.Tools[index].Annotations == nil {
 			t.Fatalf("tool[%d]=%q has no policy annotations", index, want)
 		}
 	}
@@ -797,9 +747,9 @@ func TestGatewayFederationOptionalOmissionAndRequiredOutage(t *testing.T) {
 	}
 }
 
-func TestGatewayFederationRejectsLocalAndFrameworkCollisions(t *testing.T) {
+func TestGatewayFederationRejectsLocalCollisions(t *testing.T) {
 	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"}}
-	for _, name := range []string{"read", mcpcontract.StatusToolName} {
+	for _, name := range []string{"read"} {
 		federation := &testFederation{ready: true, capabilities: []mcpcontract.Capability{federatedCapability(name)}}
 		handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Federation: federation})
 		if err != nil {
@@ -884,4 +834,34 @@ func TestGatewayCloseEndsAConnectionThatNeverBecomesIdle(t *testing.T) {
 		t.Fatal("the held connection stayed open after Close")
 	}
 	<-served
+}
+
+// NewHandler builds a private gateway handler without allocating a listener.
+// The returned handler still enforces loopback Host/Origin and assertion
+// checks.
+func NewHandler(cfg Config) (http.Handler, error) {
+	if err := normalizeConfig(&cfg); err != nil {
+		return nil, err
+	}
+	g := &gateway{cfg: cfg, sessions: make(map[string]sessionBinding)}
+	g.sdk = g.newSDKHandler()
+	return http.HandlerFunc(g.serveHTTP), nil
+}
+
+// StaticAssertionVerifier is a deterministic verifier for in-process gateway
+// tests. Unknown tokens fail closed.
+type StaticAssertionVerifier map[string]mcpcontract.ToolCallContext
+
+func (v StaticAssertionVerifier) Verify(_ context.Context, req *http.Request) (mcpcontract.ToolCallContext, error) {
+	if req == nil {
+		return mcpcontract.ToolCallContext{}, ErrUnauthorized
+	}
+	value, ok := v[strings.TrimSpace(req.Header.Get(AssertionHeader))]
+	if !ok {
+		return mcpcontract.ToolCallContext{}, ErrUnauthorized
+	}
+	if value.AssistantAddress == "" || value.Principal == "" || value.ConversationDigest == "" || value.CapabilityRevision == "" {
+		return mcpcontract.ToolCallContext{}, ErrUnauthorized
+	}
+	return value, nil
 }

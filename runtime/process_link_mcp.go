@@ -14,18 +14,16 @@ import (
 	"scenery.sh/internal/mcpcontract"
 )
 
-// Service processes answer the process host's MCP tool calls and durable
-// receipt status and cancellation, and the supervisor's activation and drain of
+// Service processes answer the process host's MCP tool calls, and the supervisor's activation and drain of
 // their background work. A service process serves requests as soon as it
 // listens but acquires background work only after activation, which the
 // supervisor sends once the process's generation is published; drain revokes it
 // for the rest of the process's life while requests pinned to its generation
 // still complete.
 const (
-	processMCPCallPath    = "/__scenery/process/v1/mcp/call"
-	processMCPDurablePath = "/__scenery/process/v1/mcp/durable"
-	processActivatePath   = "/__scenery/process/v1/activate"
-	processDrainPath      = "/__scenery/process/v1/drain"
+	processMCPCallPath  = "/__scenery/process/v1/mcp/call"
+	processActivatePath = "/__scenery/process/v1/activate"
+	processDrainPath    = "/__scenery/process/v1/drain"
 	// processDrainWait bounds how long a drain request waits for running
 	// background work after revoking it; revocation itself is immediate.
 	processDrainWait = 100 * time.Millisecond
@@ -37,28 +35,9 @@ type processMCPCallRequest struct {
 	Input json.RawMessage             `json:"input"`
 }
 
-// processMCPDurableRequest names a receipt the host already authorized for the
-// calling principal, with the durable service and task that accepted it.
-type processMCPDurableRequest struct {
-	Operation   string                      `json:"operation"`
-	Call        mcpcontract.ToolCallContext `json:"call"`
-	ExecutionID string                      `json:"execution_id"`
-	Service     string                      `json:"service"`
-	TaskName    string                      `json:"task_name"`
-}
-
 type processMCPResponse struct {
 	Outcome *mcpcontract.ToolOutcome `json:"outcome,omitempty"`
-	// Durable names the durable service and task of an accepted receipt, so the
-	// host can authorize its status and cancellation after replacements.
-	Durable *processMCPDurableOwner `json:"durable,omitempty"`
-	Result  json.RawMessage         `json:"result,omitempty"`
-	Error   *processLinkError       `json:"error,omitempty"`
-}
-
-type processMCPDurableOwner struct {
-	Service  string `json:"service"`
-	TaskName string `json:"task_name"`
+	Error   *processLinkError        `json:"error,omitempty"`
 }
 
 type processBackgroundLifecycle interface {
@@ -87,8 +66,6 @@ func currentProcessBackground() processBackgroundLifecycle {
 
 func (s *server) registerProcessServiceRoutes() {
 	registerRoute(s.public, processMCPCallPath, []string{http.MethodPost}, s.handleProcessMCPCall)
-	registerRoute(s.public, processMCPDurablePath, []string{http.MethodPost}, s.handleProcessMCPDurable)
-	registerRoute(s.public, processCLICallPath, []string{http.MethodPost}, s.handleProcessCLICall)
 	registerRoute(s.public, processActivatePath, []string{http.MethodPost}, s.handleProcessActivate)
 	registerRoute(s.public, processDrainPath, []string{http.MethodPost}, s.handleProcessDrain)
 }
@@ -123,40 +100,7 @@ func (s *server) handleProcessMCPCall(w http.ResponseWriter, req *http.Request, 
 		writeProcessMCPResponse(w, http.StatusOK, processMCPResponse{Error: newProcessLinkError(err)})
 		return
 	}
-	response := processMCPResponse{Outcome: &outcome}
-	if outcome.Receipt != nil {
-		if registration, err := lookupMCPTool(strings.TrimSpace(body.Call.AssistantAddress), strings.TrimSpace(body.Name)); err == nil && registration.Durable {
-			response.Durable = &processMCPDurableOwner{Service: registration.DurableService, TaskName: registration.DurableTask}
-		}
-	}
-	writeProcessMCPResponse(w, http.StatusOK, response)
-}
-
-func (s *server) handleProcessMCPDurable(w http.ResponseWriter, req *http.Request, _ routeParams) {
-	if !authorizeProcessLinkRequest(w, req) {
-		return
-	}
-	var body processMCPDurableRequest
-	if err := decodeProcessLinkBody(req, &body); err != nil || body.Operation != "status" && body.Operation != "cancel" ||
-		strings.TrimSpace(body.Service) == "" || strings.TrimSpace(body.TaskName) == "" || strings.TrimSpace(body.ExecutionID) == "" {
-		writeProcessMCPResponse(w, http.StatusBadRequest, processMCPResponse{Error: &processLinkError{Kind: "error", Message: "invalid_argument: malformed process MCP durable request"}})
-		return
-	}
-	// The host authorized the principal against its receipt record; this
-	// process reads or cancels the execution in its durable store.
-	request := normalizeMCPDurableRequest(MCPDurableRequest{Principal: body.Call.Principal, Service: body.Service, TaskName: body.TaskName, ExecutionID: body.ExecutionID})
-	var result json.RawMessage
-	var err error
-	if body.Operation == "status" {
-		result, err = mcpDurableStatusPayload(readMCPDurableStatus(req.Context(), request))
-	} else {
-		result, err = mcpDurableCancelPayload(request.ExecutionID, cancelMCPDurable(req.Context(), request))
-	}
-	if err != nil {
-		writeProcessMCPResponse(w, http.StatusOK, processMCPResponse{Error: newProcessLinkError(err)})
-		return
-	}
-	writeProcessMCPResponse(w, http.StatusOK, processMCPResponse{Result: result})
+	writeProcessMCPResponse(w, http.StatusOK, processMCPResponse{Outcome: &outcome})
 }
 
 func (s *server) handleProcessActivate(w http.ResponseWriter, req *http.Request, _ routeParams) {

@@ -161,36 +161,6 @@ type CreateConversationResponse struct {
 	EventsURL      string `json:"events_url"`
 }
 
-func NewCreateConversationResponse(sealedHandle []byte, eventsURL string, random io.Reader) (CreateConversationResponse, error) {
-	conversationID, err := NewConversationID(sealedHandle)
-	if err != nil {
-		return CreateConversationResponse{}, err
-	}
-	runID, err := NewRunID(random)
-	if err != nil {
-		return CreateConversationResponse{}, err
-	}
-	response := CreateConversationResponse{ConversationID: conversationID, RunID: runID, EventsURL: eventsURL}
-	if err := response.Validate(); err != nil {
-		return CreateConversationResponse{}, err
-	}
-	return response, nil
-}
-
-func ConversationEventsURL(assistant, conversationID string) (string, error) {
-	if !assistantPattern.MatchString(assistant) {
-		return "", errors.New("assistant name is not a canonical address")
-	}
-	if err := ValidateConversationID(conversationID); err != nil {
-		return "", err
-	}
-	value := "/assistants/" + assistant + "/v1/conversations/" + conversationID + "/events"
-	if err := ValidateEventsURL(value); err != nil {
-		return "", err
-	}
-	return value, nil
-}
-
 // ValidateEventsURL accepts only the canonical absolute event-stream path.
 // Query parameters belong to the request's after cursor, not to the URL
 // carried in a create response.
@@ -300,18 +270,6 @@ type SendTurnResponse struct {
 	RunID string `json:"run_id"`
 }
 
-type EventsRequest struct {
-	After Cursor
-}
-
-func ParseEventsRequest(after string) (EventsRequest, error) {
-	cursor, err := ParseCursor(after)
-	if err != nil {
-		return EventsRequest{}, err
-	}
-	return EventsRequest{After: cursor}, nil
-}
-
 type ResolveApprovalRequest struct {
 	Decision string `json:"decision"`
 }
@@ -324,10 +282,6 @@ type ResolveApprovalResponse struct {
 type CancelRunResponse struct {
 	RunID string `json:"run_id"`
 	State string `json:"state"`
-}
-
-type EventsResponse struct {
-	Events []Event `json:"events"`
 }
 
 type Event struct {
@@ -423,10 +377,6 @@ func (response CancelRunResponse) Validate() error {
 	return nil
 }
 
-func (response EventsResponse) Validate() error {
-	return ValidateEventSequences(response.Events)
-}
-
 func DecodeCreateConversationRequest(encoded []byte) (CreateConversationRequest, error) {
 	var request CreateConversationRequest
 	if err := decodeExact(encoded, &request); err != nil {
@@ -436,17 +386,6 @@ func DecodeCreateConversationRequest(encoded []byte) (CreateConversationRequest,
 		return CreateConversationRequest{}, err
 	}
 	return request, nil
-}
-
-func DecodeCreateConversationResponse(encoded []byte) (CreateConversationResponse, error) {
-	var response CreateConversationResponse
-	if err := decodeExact(encoded, &response); err != nil {
-		return CreateConversationResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return CreateConversationResponse{}, err
-	}
-	return response, nil
 }
 
 func DecodeSendTurnRequest(encoded []byte) (SendTurnRequest, error) {
@@ -460,17 +399,6 @@ func DecodeSendTurnRequest(encoded []byte) (SendTurnRequest, error) {
 	return request, nil
 }
 
-func DecodeSendTurnResponse(encoded []byte) (SendTurnResponse, error) {
-	var response SendTurnResponse
-	if err := decodeExact(encoded, &response); err != nil {
-		return SendTurnResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return SendTurnResponse{}, err
-	}
-	return response, nil
-}
-
 func DecodeResolveApprovalRequest(encoded []byte) (ResolveApprovalRequest, error) {
 	var request ResolveApprovalRequest
 	if err := decodeExact(encoded, &request); err != nil {
@@ -480,39 +408,6 @@ func DecodeResolveApprovalRequest(encoded []byte) (ResolveApprovalRequest, error
 		return ResolveApprovalRequest{}, err
 	}
 	return request, nil
-}
-
-func DecodeResolveApprovalResponse(encoded []byte) (ResolveApprovalResponse, error) {
-	var response ResolveApprovalResponse
-	if err := decodeExact(encoded, &response); err != nil {
-		return ResolveApprovalResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return ResolveApprovalResponse{}, err
-	}
-	return response, nil
-}
-
-func DecodeCancelRunResponse(encoded []byte) (CancelRunResponse, error) {
-	var response CancelRunResponse
-	if err := decodeExact(encoded, &response); err != nil {
-		return CancelRunResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return CancelRunResponse{}, err
-	}
-	return response, nil
-}
-
-func DecodeEventsResponse(encoded []byte) (EventsResponse, error) {
-	var response EventsResponse
-	if err := decodeExact(encoded, &response); err != nil {
-		return EventsResponse{}, err
-	}
-	if err := response.Validate(); err != nil {
-		return EventsResponse{}, err
-	}
-	return response, nil
 }
 
 func DecodeEvent(encoded []byte) (Event, error) {
@@ -537,62 +432,6 @@ func DecodeError(encoded []byte) (Error, error) {
 	return value, nil
 }
 
-func MarshalCreateConversationRequest(request CreateConversationRequest) ([]byte, error) {
-	if err := request.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(request)
-}
-
-func MarshalCreateConversationResponse(response CreateConversationResponse) ([]byte, error) {
-	if err := response.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(response)
-}
-
-func MarshalSendTurnRequest(request SendTurnRequest) ([]byte, error) {
-	if err := request.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(request)
-}
-
-func MarshalSendTurnResponse(response SendTurnResponse) ([]byte, error) {
-	if err := response.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(response)
-}
-
-func MarshalResolveApprovalRequest(request ResolveApprovalRequest) ([]byte, error) {
-	if err := request.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(request)
-}
-
-func MarshalResolveApprovalResponse(response ResolveApprovalResponse) ([]byte, error) {
-	if err := response.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(response)
-}
-
-func MarshalCancelRunResponse(response CancelRunResponse) ([]byte, error) {
-	if err := response.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(response)
-}
-
-func MarshalEventsResponse(response EventsResponse) ([]byte, error) {
-	if err := response.Validate(); err != nil {
-		return nil, err
-	}
-	return json.Marshal(response)
-}
-
 func MarshalEvent(event Event) ([]byte, error) {
 	if err := event.Validate(); err != nil {
 		return nil, err
@@ -605,22 +444,6 @@ func MarshalError(value Error) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(value)
-}
-
-func EncodeNDJSON(events []Event) ([]byte, error) {
-	if err := ValidateEventSequences(events); err != nil {
-		return nil, err
-	}
-	var output bytes.Buffer
-	for _, event := range events {
-		encoded, err := MarshalEvent(event)
-		if err != nil {
-			return nil, err
-		}
-		output.Write(encoded)
-		output.WriteByte('\n')
-	}
-	return output.Bytes(), nil
 }
 
 func DecodeNDJSON(encoded []byte) ([]Event, error) {

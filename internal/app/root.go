@@ -153,9 +153,7 @@ type FrontendTauriConfig struct {
 
 type EnvConfig struct {
 	Default   bool                         `json:"default"`
-	Mode      string                       `json:"mode"`
 	Domain    string                       `json:"domain"`
-	Expose    []string                     `json:"expose"`
 	Port      int                          `json:"port"`
 	PortStart int                          `json:"port_start"`
 	PortEnd   int                          `json:"port_end"`
@@ -179,8 +177,6 @@ type ResolvedEnv struct {
 	Name      string
 	Default   bool
 	Domain    string
-	Mode      string
-	Expose    []string
 	Port      int
 	PortStart int
 	PortEnd   int
@@ -220,7 +216,6 @@ func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
 	}
 	return ResolvedEnv{
 		Name: name, Default: env.Default, Domain: strings.TrimSpace(env.Domain),
-		Mode: strings.ToLower(strings.TrimSpace(env.Mode)), Expose: append([]string(nil), env.Expose...),
 		Port: env.Port, PortStart: env.PortStart, PortEnd: env.PortEnd,
 		Frontends: frontends, Deploy: env.Deploy,
 		UICatalog: strings.TrimSpace(env.UICatalog),
@@ -297,17 +292,8 @@ type GeneratorsConfig struct {
 }
 
 type SQLCGeneratorConfig struct {
-	Provider string                `json:"provider"`
-	Config   string                `json:"config"`
-	DevURL   string                `json:"dev_url"`
-	Schemas  []SQLCGeneratorSchema `json:"schemas"`
-}
-
-type SQLCGeneratorSchema struct {
-	SQLCSchema  string `json:"sqlc_schema"`
-	AtlasSchema string `json:"atlas_schema"`
-	AtlasSource string `json:"atlas_source"`
-	AtlasDevURL string `json:"atlas_dev_url"`
+	Provider string `json:"provider"`
+	Config   string `json:"config"`
 }
 
 type DatabaseConfig struct {
@@ -393,7 +379,6 @@ type AuthGoogleConfig struct {
 type AuthDevBootstrap struct {
 	Enabled          bool   `json:"enabled"`
 	DefaultUserEmail string `json:"default_user_email"`
-	DefaultUserID    string `json:"default_user_id"`
 	DefaultTenantID  string `json:"default_tenant_id"`
 }
 
@@ -789,7 +774,7 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 			field, ok := fields[name]
 			childPath := appendJSONPath(path, name)
 			if !ok {
-				return unknownConfigFieldError(childPath, configName, child)
+				return unknownConfigFieldError(childPath, configName)
 			}
 			if err := rejectUnknownFieldsValue(child, field.Type, childPath, configName); err != nil {
 				return err
@@ -823,19 +808,10 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 	return nil
 }
 
-func unknownConfigFieldError(path []string, configName string, value any) error {
+func unknownConfigFieldError(path []string, configName string) error {
 	jsonPath := strings.Join(path, ".")
 	if len(path) == 2 && path[0] == "storage" && (path[1] == "cell_id" || path[1] == "share") {
 		return &StorageMigrationError{Field: jsonPath}
-	}
-	if len(path) == 1 && path[0] == "dev" {
-		return fmt.Errorf("unknown %s field %q; remove dev.services: SQL requirements now come from reachable data_source bindings and selected framework registrations; keep endpoint supply in DATABASE_URL and setup in database.apply or database.seed", configName, jsonPath)
-	}
-	if len(path) == 4 && path[0] == "envs" && path[2] == "deploy" && path[3] == "root" {
-		if root, _ := value.(string); strings.TrimSpace(root) == "api" {
-			return fmt.Errorf("unknown %s field %q; remove it because public / now uses the root frontend (or the default agent page when no root frontend is configured), while /api/ remains routed automatically", configName, jsonPath)
-		}
-		return fmt.Errorf("unknown %s field %q; move the frontend name to top-level \"root\"", configName, jsonPath)
 	}
 	return fmt.Errorf("unknown %s field %q", configName, jsonPath)
 }

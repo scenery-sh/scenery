@@ -43,7 +43,7 @@ func TestDBListWithoutSQLDoesNotAllocateOrConnect(t *testing.T) {
 func TestDBCommandRejectsMissingOrRemovedSubcommand(t *testing.T) {
 	t.Parallel()
 
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|shell|apply|migrate|seed|setup|reset|drop|server [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|shell|migrate|seed|setup|reset|drop|server [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
 	for _, cmd := range []string{"vacuum", "psql", "postgres", "path", "branch"} {
@@ -83,21 +83,6 @@ func TestParseDBTargetArgsAllowsYesAfterService(t *testing.T) {
 	}
 	if _, err := parseDBTargetArgs([]string{"reports", "extra"}); err == nil || !strings.Contains(err.Error(), "unexpected argument") {
 		t.Fatalf("extra arg error = %v", err)
-	}
-}
-
-func TestParseDBResetArgs(t *testing.T) {
-	t.Parallel()
-
-	opts, err := parseDBResetArgs([]string{"--app-root", "/tmp/app"})
-	if err != nil {
-		t.Fatalf("parseDBResetArgs returned error: %v", err)
-	}
-	if opts.AppRoot != "/tmp/app" {
-		t.Fatalf("app root = %q", opts.AppRoot)
-	}
-	if _, err := parseDBResetArgs([]string{"--app-root"}); err == nil || err.Error() != "missing value for --app-root" {
-		t.Fatalf("parseDBResetArgs missing value error = %v", err)
 	}
 }
 

@@ -1,20 +1,17 @@
-// Package assistanttoken owns opaque public assistant handles, approval
-// tokens, and anonymous initiator cookies.
+// Package assistanttoken owns opaque public assistant handles and approval
+// tokens.
 package assistanttoken
 
 import (
 	"errors"
-	"net/http"
 	"time"
 )
 
 const (
 	ConversationPrefix = "conv1_"
 	ApprovalPrefix     = "appr1_"
-	CookieName         = "scenery_assistant_initiator"
 	TokenVersion       = 1
 	DefaultTokenTTL    = 24 * time.Hour
-	MaxCookieTTL       = 30 * 24 * time.Hour
 )
 
 var (
@@ -76,28 +73,6 @@ type Manager struct {
 	TTL  time.Duration
 }
 
-type InitiatorSigner struct {
-	// Key is the single-key development fallback. Production callers should
-	// provide Keys so active and rotated key IDs can be resolved uniformly.
-	Key    []byte
-	KeyID  string
-	Keys   Keyring
-	Now    func() time.Time
-	TTL    time.Duration
-	Secure bool
-	Domain string
-	Path   string
-}
-
-// AnonymousIdentity is the provider-neutral initiator identity carried by the
-// signed browser cookie.
-type AnonymousIdentity struct {
-	Version   int
-	ID        string
-	IssuedAt  time.Time
-	ExpiresAt time.Time
-}
-
 // Keyring supplies the active framework key and resolves an embedded key ID
 // during rotation. Keys must be AES-compatible lengths (16, 24, or 32 bytes).
 type Keyring interface {
@@ -139,31 +114,4 @@ func NewStaticKeyring(currentID string, currentKey []byte, previous map[string][
 		copyPrevious[id] = append([]byte(nil), key...)
 	}
 	return StaticKeyring{CurrentID: currentID, CurrentKey: append([]byte(nil), currentKey...), Previous: copyPrevious}
-}
-
-// Cookie returns the signed identity as a browser-safe HttpOnly cookie.
-func (identity AnonymousIdentity) Cookie(value string, signer InitiatorSigner) *http.Cookie {
-	path := signer.Path
-	if path == "" {
-		path = "/"
-	}
-	return &http.Cookie{
-		Name:     CookieName,
-		Value:    value,
-		Path:     path,
-		Domain:   signer.Domain,
-		Expires:  identity.ExpiresAt.UTC(),
-		MaxAge:   maxAge(identity.ExpiresAt, identity.IssuedAt),
-		HttpOnly: true,
-		Secure:   signer.Secure,
-		SameSite: http.SameSiteLaxMode,
-	}
-}
-
-func maxAge(expiresAt, issuedAt time.Time) int {
-	seconds := int(expiresAt.Sub(issuedAt).Seconds())
-	if seconds < 1 {
-		return 0
-	}
-	return seconds
 }

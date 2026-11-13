@@ -50,16 +50,6 @@ func generatedGoVerificationOverlay(files []generatedFile) (map[string][]byte, e
 	return overlay, nil
 }
 
-// GoVerificationOverlay returns current expected source, independent of local
-// freshness, and masks authenticated stale generated files in the checkout.
-func GoVerificationOverlay(result *compiler.Result) (map[string][]byte, error) {
-	files, err := goVerificationFiles(result)
-	if err != nil {
-		return nil, err
-	}
-	return generatedGoVerificationOverlay(files)
-}
-
 func goVerificationFiles(result *compiler.Result) ([]generatedFile, error) {
 	files, err := renderExpectedGoContractFiles(result)
 	if err != nil {

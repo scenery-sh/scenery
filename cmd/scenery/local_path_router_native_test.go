@@ -6,10 +6,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	localagent "scenery.sh/internal/agent"
 	"strings"
 	"testing"
 	"time"
+
+	localagent "scenery.sh/internal/agent"
 )
 
 // TestNativeLocalPathRouterDashboardFollowsAgentRestart proves the availability

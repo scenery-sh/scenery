@@ -107,7 +107,7 @@ func ensurePublicDeployEdge(paths localagent.Paths) (bool, error) {
 	for attempt := 0; attempt < attempts; attempt++ {
 		status, err := deployPublicEdgeStatusFunc(paths)
 		lastStatus, lastErr = status, err
-		if err == nil && edgeRestartReady(status, true) {
+		if err == nil && edgeRestartReady(status) {
 			return false, nil
 		}
 		if attempt+1 < attempts {
@@ -134,7 +134,7 @@ func publicDeployEdgeStatus(paths localagent.Paths) (edgeStatusResult, error) {
 	if err != nil {
 		return edgeStatusResult{}, err
 	}
-	return edgeStatusForStateDomain(paths, state, ""), nil
+	return edgeStatusForState(paths, state), nil
 }
 
 func runDeployTeardown(stdout io.Writer, opts deployOptions) error {

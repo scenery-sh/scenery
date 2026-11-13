@@ -20,19 +20,18 @@ Scenery has one declaration surface: `.scn` source. Go comments, struct tags, JS
 
 - Sections 3–7 define files, syntax, references, and types.
 - Sections 8–9 define packages, modules, and services.
-- Sections 10–15 define operations, executions, bindings, policies, schedules, and events.
-- Sections 16–18 define data, providers, extensions, deployments, and secrets.
+- Sections 10–15 define operations, executions, bindings, policies, and schedules.
+- Sections 16–18 define data, providers, extensions, secrets, and environment configuration.
 - Sections 19–20 define compilation and canonical IR.
-- Sections 21–23 define CLI, agent transactions, and diagnostics.
-- Section 24 defines the language-level Go integration contract; [go-implementation.md](go-implementation.md) is the normative ABI specification.
+- Sections 21–22 define the CLI and diagnostics.
+- Section 23 defines the language-level Go integration contract; [go-implementation.md](go-implementation.md) is the normative ABI specification.
 - [http.md](http.md) is normative for HTTP codec and runtime behavior.
 - [http-path-tail.md](http-path-tail.md) is normative for terminal path-tail behavior.
 - [typescript-client.md](typescript-client.md) is normative for TypeScript client generation.
-- [evolution.md](evolution.md) is normative for multidimensional semantic evolution decisions.
-- Section 25 defines security properties.
-- Section 26 defines conformance boundaries.
-- Section 27 is an end-to-end House example.
-- Sections 28–30 define invalid cases, conformance, and agent workflows.
+- Section 24 defines security properties.
+- Section 25 defines conformance boundaries.
+- Section 26 is an end-to-end House example.
+- Sections 27–29 define invalid cases, conformance, and agent workflows.
 - The appendices summarize grammar, reserved roots, naming, decisions, and unavailable future features.
 
 ### 1.2 Normative words
@@ -79,8 +78,8 @@ The central application kernel is:
 > operation + binding + execution + policy
 
 - An operation defines a logical capability and its typed contract.
-- A binding makes an operation reachable through HTTP, an internal call, a CLI command, an event, or another transport.
-- An execution defines how the operation's implementation runs: directly, durably, or as a workflow.
+- A binding makes an operation reachable through HTTP, an internal call, or another transport.
+- An execution defines how the operation's implementation runs: directly or durably.
 - Policies govern exposure, authentication, authorization, middleware pipelines, rate limits, and related cross-cutting behavior.
 
 These concepts MUST remain independent. For example:
@@ -104,46 +103,33 @@ The core language defines the following resource families.
 | record, enum, union | Boundary and domain types |
 | operation | A logical callable capability |
 | binding | A transport-facing entry point |
-| mcp_connection | An external MCP endpoint federated through Scenery |
 | mcp_server | A provider-neutral composition of MCP capabilities |
 | assistant | A Scenery-owned conversation surface bound to an MCP server |
 | http_gateway | A logical HTTP route, trust, and exposure namespace |
-| execution | A direct, durable, or workflow execution policy |
+| execution | A direct or durable execution policy |
 | schedule | A time trigger invoking an operation |
-| event | A typed event contract |
-| event_emission | A typed publication from an operation outcome |
 | authentication | A mechanism for establishing identity |
 | authorization | A policy deciding whether an identity may act |
 | workload_identity | A runtime-minted identity for schedules, workers, and services |
 | pipeline | An explicitly ordered middleware pipeline |
 | middleware | A typed runtime component used by a pipeline |
 | data_source | A database, object store, external API, or other data provider instance |
-| execution_engine | A durable or workflow execution provider instance |
-| event_bus | A typed event transport provider instance |
+| execution_engine | A durable execution provider instance |
 | secret_store | A provider instance that resolves secret references |
-| entity | A logical persisted object |
-| view | A typed query or projection |
-| crud | A declaration expanded into ordinary operations and bindings |
-| fixture | Environment-scoped seed data |
 | page | A UI route and interaction contract |
 | renderer | A frontend-specific rendering implementation |
 | provider | A locked runtime or infrastructure integration |
 | extension | A content-addressed language schema extension |
 | secret | A reference to sensitive data held by a secret provider |
-| patch | A guarded, exact-schema override of an explicitly patchable export |
-| deployment | Runtime placement, scaling, and environment policy |
 
 No resource is allowed to acquire unrelated meanings merely for convenience. In particular:
 
-- a record is not automatically an entity;
-- an entity is not automatically a database table;
 - an operation is not automatically HTTP;
 - a service is not automatically public;
 - a schedule is not a second implementation;
 - a page is not a renderer;
 - a data source is not necessarily managed by Scenery;
 - an execution engine is not a data source;
-- an event bus is not a data source;
 - a secret store never exposes secret plaintext to the compiler.
 
 ## 3. Source units and files
@@ -168,11 +154,6 @@ house/
 ~~~
 
 The lock file is generated. Authors and agents MUST change dependency intent in source files and let Scenery update the lock file.
-
-The retired pre-cutover contract filenames are not aliases. Encountering one
-MUST emit `SCN1021` with the exact old and replacement filenames and MUST NOT
-compile it: rename the application contract to `app.scn`, a package contract
-to `package.scn`, or the application lock to `app.lock.scn` as directed.
 
 ### 3.2 File composition
 
@@ -423,7 +404,7 @@ The formatter MUST emit only hash comments. Other HCL comment forms are outside 
 There are two expression phases:
 
 1. Compile expressions are evaluated while building the resource graph.
-2. Runtime expressions are evaluated while invoking an operation, policy, view, or binding.
+2. Runtime expressions are evaluated while invoking an operation, policy, or binding.
 
 Every attribute schema MUST declare which phase it accepts.
 
@@ -456,7 +437,6 @@ Runtime expression roots are explicitly scoped. Depending on the field, permitte
 - transport: decoding, negotiation, and transport-level outcomes;
 - admission: authentication, authorization, and admission-control outcomes;
 - system: implementation and runtime contract failures;
-- message: the consumed event envelope and payload;
 - value: the value currently being validated;
 - item: the current view or policy item.
 
@@ -496,7 +476,7 @@ The following are forbidden:
 - evaluation of Go code;
 - aliases that give one concept multiple spellings.
 
-Conditional runtime behavior belongs in policies, operation code, views, or deployment-phase values. Scenery does not support conditional resource installation or graph-shaping feature flags.
+Conditional runtime behavior belongs in policies, operation code, or deployment-phase values. Scenery does not support conditional resource installation or graph-shaping feature flags.
 
 ## 5. Current specification and resource revisions
 
@@ -514,7 +494,7 @@ Core resources use unversioned logical kinds in the compiled graph, such as `sce
 `spec_revision` identifies the complete current catalog: resource schemas,
 structural application/workspace/package/module/input/export schemas, stable
 diagnostic rules, and explicit reviewed revisions for source composition,
-defaults, expansion, reference resolution, contract projection, evolution,
+defaults, expansion, reference resolution, contract projection,
 Go generation, and TypeScript generation. Explanatory diagnostic text has a
 separate diagnostic-catalog revision and does not by itself change contract
 identity.
@@ -577,8 +557,6 @@ house/service/house
 house/operation/process_scene
 house/execution/process_scene_durable
 house/binding/process_scene_async
-house/entity/scene
-house/view/recent_scenes
 house/schedule/nightly_roof_evaluation
 ~~~
 
@@ -587,9 +565,7 @@ The root namespace is app:
 ~~~text
 app/data_source/house_database
 app/execution_engine/durable_tasks
-app/event_bus/application_events
 app/secret_store/production
-app/deployment/production
 ~~~
 
 Nested module instances extend the path:
@@ -615,7 +591,7 @@ A resource reference is a typed syntax node, not a string containing an address.
 Every effective resource field MUST retain provenance sufficient to answer:
 
 - which source range declared it;
-- whether it came from a default, module input, extension, expansion, or patch;
+- whether it came from a default, module input, extension, or expansion;
 - which resource or export supplied a referenced value;
 - which transformations changed it.
 
@@ -666,7 +642,7 @@ The core primitive types are:
 
 Public contracts SHOULD prefer specific types over string or json.
 
-host_path is a deployment-only scalar: a clean absolute POSIX path on the execution target. It MAY type only deployment-phase package inputs; a host_path in a record, operation, event, entity, view or any other wire or structural position is an error (SCN1213). Its value is syntax-checked only: it is never expanded, resolved through symlinks, or checked for existence, so an unavailable directory keeps its configured value.
+host_path is a deployment-only scalar: a clean absolute POSIX path on the execution target. It MAY type only deployment-phase package inputs; a host_path in a record, operation, event or any other wire or structural position is an error (SCN1213). Its value is syntax-checked only: it is never expanded, resolved through symlinks, or checked for existence, so an unavailable directory keeps its configured value.
 
 Duration literals are quoted strings using the units ns, us, ms, s, m, h, d, and w. Days and weeks are fixed elapsed-time units, not calendar units. Size literals are quoted strings using decimal or IEC byte units. The canonical IR normalizes both while preserving exact values.
 
@@ -760,29 +736,6 @@ Constraints are part of the type contract. They MUST be represented in the canon
 
 The pattern dialect is RE2 syntax over Unicode scalar values. Backreferences, look-around assertions, recursion, and implementation-specific extensions are forbidden. Matching is unanchored unless the pattern contains explicit anchors. Invalid or unsupported syntax is a compile error.
 
-Cross-field validation uses a named validation block:
-
-~~~hcl
-record "run_input" {
-  field "start_at" {
-    type = datetime
-  }
-
-  field "end_at" {
-    type = datetime
-  }
-
-  validation "end_after_start" {
-    when    = value.end_at <= value.start_at
-    code    = "HOUSE_INVALID_TIME_RANGE"
-    message = "end_at must be later than start_at"
-    path    = record.run_input.end_at
-  }
-}
-~~~
-
-Validation expressions MUST be pure and phase-correct.
-
 ### 7.5.1 Field documentation
 
 A field MAY declare a short `description` and a list of `examples`. An
@@ -802,7 +755,7 @@ Each example is a value of the field's type. The compiler MUST validate every
 example against the field type and its constraints and report SCN1234 for an
 example that does not match; a tagged-union example names its variant by name
 or wire tag and must match that variant's payload. The effective graph stores
-each example in its exact wire form, and generated MCP and OpenAPI schemas
+each example in its exact wire form, and generated MCP schemas
 publish descriptions and examples unchanged. Descriptions and examples are part
 of the contract revision.
 
@@ -856,11 +809,11 @@ A closed union rejects unknown tags. An open union MUST declare an unknown varia
 
 Defaults MUST be deterministic and assignable to the declared type.
 
-Compile-time defaults MAY use literals and module inputs. Runtime-generated defaults, such as UUIDs or timestamps, belong to an entity, data source, execution, or implementation policy and MUST be represented as typed default strategies rather than fake literals.
+Compile-time defaults MAY use literals and module inputs. Runtime-generated defaults, such as UUIDs or timestamps, belong to a data source, execution, or implementation policy and MUST be represented as typed default strategies rather than fake literals.
 
 ### 7.9 Public-contract strictness
 
-Public operation, event, page-action, and module-export types:
+Public operation, page-action, and module-export types:
 
 - MUST NOT use implicit coercion;
 - MUST NOT use an unconstrained any type;
@@ -933,10 +886,6 @@ export "operations" {
 
 export "process_execution" {
   value = execution.process_scene_durable
-
-  patchable = [
-    "/spec/timeout",
-  ]
 }
 ~~~
 
@@ -979,7 +928,7 @@ The default phase is contract. Allowed flows are:
 
 For example, a deployment input cannot determine an HTTP path, operation type, public wire name, implementation package, or expansion shape.
 
-A deployment-phase input that holds a value, or a sensitive secret-reference input, is environment-configurable (section 18.3). An installed module MAY leave such an input without a value: compilation, schema extraction and generation succeed, and a required input without a default fails only when a runtime candidate for an environment is validated. Every other missing required input remains a compile error.
+A deployment-phase input that holds a value, or a sensitive secret-reference input, is environment-configurable (section 18.2). An installed module MAY leave such an input without a value: compilation, schema extraction and generation succeed, and a required input without a default fails only when a runtime candidate for an environment is validated. Every other missing required input remains a compile error.
 
 Sensitive inputs MUST be marked:
 
@@ -1030,43 +979,11 @@ A workspace-local package is identified in `workspace_revision` by its exact fil
 
 ### 8.7 Customization and extension points
 
-Patch resources use the logical kind `scenery.patch` and the exact schema revision advertised by the current catalog.
-
 Callers customize a module through, in order of preference:
 
 1. typed inputs;
 2. documented extension points;
-3. exported resources;
-4. an explicit patch resource.
-
-Patches are an advanced mechanism. A patch MUST:
-
-- target an exact resource address and schema revision;
-- carry preconditions;
-- fail if its target or expected value changed;
-- appear in provenance and semantic diffs.
-
-Wild-card or best-effort patches are forbidden.
-
-Address discoverability does not grant patch access. A caller may patch only an exported resource whose package declaration marks the relevant schema path patchable. Package-private resources cannot be patched from outside the package.
-
-~~~hcl
-patch "house_process_timeout" {
-  # The package exports process_execution and marks timeout patchable.
-  target = module.house.process_execution
-  schema = "sha256:..."
-
-  expect {
-    path  = "/spec/timeout"
-    value = "40m"
-  }
-
-  set {
-    path  = "/spec/timeout"
-    value = "45m"
-  }
-}
-~~~
+3. exported resources.
 
 ### 8.8 Package dependencies
 
@@ -1211,9 +1128,7 @@ An operation represents intent, not a route or task. The following are normally 
 - a synchronous internal call;
 - an asynchronous HTTP enqueue endpoint;
 - an HTTP endpoint that waits for durable completion;
-- a CLI command;
-- a schedule;
-- an event consumer.
+- a schedule.
 
 They differ through bindings and execution references.
 
@@ -1221,7 +1136,7 @@ They differ through bindings and execution references.
 
 An operation has exactly one input type. No-input operations use std.type.unit.
 
-Transport metadata MUST NOT be hidden in the input record. HTTP headers, path parameters, CLI flags, event metadata, and authenticated identity are mapped explicitly by bindings or context.
+Transport metadata MUST NOT be hidden in the input record. HTTP headers, path parameters, and authenticated identity are mapped explicitly by bindings or context.
 
 ### 10.3 Results and errors
 
@@ -1237,7 +1152,7 @@ Panics, exceptions, and transport failures are not implicit operation variants.
 
 A handler block identifies implementation code through the containing service's runtime.
 
-Go services follow the normative ABI in Section 24. The generated adapter owns translation between canonical Scenery values and runtime-language values.
+Go services follow the normative ABI in Section 23. The generated adapter owns translation between canonical Scenery values and runtime-language values.
 
 The language-neutral handler contract is:
 
@@ -1350,13 +1265,7 @@ deduplication {
 }
 ~~~
 
-### 11.3 Workflow execution
-
-A workflow execution coordinates typed steps and resumable waits. Each step invokes an operation rather than embedding an untyped callback.
-
-Workflow state, step results, timers, signals, and compensation behavior MUST be represented in the canonical IR. An implementation MAY initially support only direct and durable modes, but it MUST reject workflow mode rather than lowering it incorrectly.
-
-### 11.4 Multiple executions
+### 11.3 Multiple executions
 
 One operation MAY have multiple executions, for example:
 
@@ -1375,7 +1284,6 @@ The core protocols are:
 - http;
 - internal;
 - cli;
-- event;
 - mcp.
 
 Extensions MAY add protocols through exact content-revisioned binding schemas.
@@ -1471,74 +1379,7 @@ A caller cannot forge an inherited principal; scenery.Invocation values are crea
 
 trusted_network visibility requires future internal-RPC codec support. The current runtime supports package and application visibility only.
 
-### 12.3 CLI binding
-
-~~~hcl
-binding "process_scene_cli" {
-  operation = operation.process_scene
-  execution = execution.process_scene_durable
-  protocol  = "cli"
-  delivery  = "wait"
-
-  exposure       = "local"
-  authentication = std.authentication.local_developer
-  authorization  = std.authorization.local_developer
-  pipeline       = std.pipeline.empty
-
-  cli {
-    command = ["house", "process-scene"]
-
-    context "tenant_id" {
-      from = principal.tenant_id
-      to   = operation.process_scene.input.tenant_id
-    }
-
-    argument "scene_id" {
-      position = 0
-      to       = operation.process_scene.input.scene_id
-    }
-
-    flag "mode" {
-      name = "mode"
-      to   = operation.process_scene.input.mode
-    }
-
-    outcome "processed" {
-      when = result.processed
-      exit = 0
-
-      stdout {
-        codec = "json"
-        from  = result.processed
-      }
-    }
-
-    outcome "invalid_input" {
-      when = error.invalid_input
-      exit = 2
-
-      stderr {
-        codec = "problem_json"
-        from  = error.invalid_input
-      }
-    }
-
-    outcome "scene_not_found" {
-      when = error.scene_not_found
-      exit = 1
-
-      stderr {
-        codec = "problem_json"
-        from  = error.scene_not_found
-      }
-    }
-  }
-}
-~~~
-
-CLI help, shell completion, exit behavior, and JSON output MUST be derivable from the binding and operation contract. Reachable operation variants require outcome mappings; the current specification supplies standard outcomes for dispatch and system failures.
-
-### 12.3.1 HTTP gateway scope
+### 12.3 HTTP gateway scope
 
 An http_gateway is a logical route namespace and trust boundary:
 
@@ -1720,8 +1561,7 @@ A body declares a codec and a target or source. Core codecs are:
 - text;
 - bytes;
 - form;
-- multipart;
-- server_sent_events.
+- multipart.
 
 Codecs are type-checked. For example, bytes cannot be emitted through json without an explicit bytes wire encoding.
 
@@ -1932,7 +1772,7 @@ literal `/`; an empty tail emits the fixed prefix without a trailing slash.
 ### 12.12 MCP and assistant surfaces
 
 An MCP capability is an ordinary binding with `protocol = "mcp"` and
-`delivery = "call"`. It MUST have exactly one `mcp` child. The child declares a
+`delivery = "call"`. Its execution MUST use `mode = "direct"`. It MUST have exactly one `mcp` child. The child declares a
 stable tool `name`, optional `title` and `description`, and effect metadata
 (`read_only`, `destructive`, `idempotent`, `open_world`, and
 `allow_sensitive_output`). Its input and result remain the operation's typed
@@ -1941,40 +1781,27 @@ infer a second tool contract. Every call re-evaluates the binding's
 authentication, authorization, pipeline, and sensitive-output policy.
 
 A tool's advertised output schema MUST describe every structured result the
-gateway can return for it. A synchronous tool returns `{outcome, value}` for a
-declared result and `{outcome, problem}` for a declared error. A tool whose
-execution mode is `durable` returns `{outcome: "accepted", receipt}` with the
-execution receipt; its operation outcome is read later through
-`scenery_execution_status`. Every local tool can also return the framework
+gateway can return for it. A tool returns `{outcome, value}` for a
+declared result and `{outcome, problem}` for a declared error. Every tool can also return the framework
 failure `{outcome: "failed", problem: {code, message}}` with `isError` set,
 where `code` is the stable `errs` code of the failure (for example
 `invalid_argument`, `permission_denied`, `resource_exhausted`, `not_found`) or
 `internal_error`. Operations projected to MCP therefore MUST NOT declare an
-outcome named `accepted` or `failed`. A tagged union projects its flattened wire
+outcome named `failed`. A tagged union projects its flattened wire
 form: each variant is its record payload plus the discriminator property fixed
-to the variant's wire tag. A federated tool keeps the remote output schema, and
-the gateway relays the remote result's content blocks, structured content and
-error flag unchanged.
+to the variant's wire tag.
 
-An `mcp_server` composes local MCP bindings and optional `mcp_connection`
-resources. A connection currently uses Streamable HTTP only and declares
-`none`, `bearer`, or one named `header` authentication. Bearer tokens and
-header values MUST be typed Scenery secret references; a header connection MUST
-declare one valid header name. Tool projection uses exactly one of `allow` or
-`block`, never both, and retains the declared namespace/filter semantics.
-Connection and call timeouts, readiness (`required` or `optional`), and remote
-credential handling are Scenery-owned. An unavailable optional connection is
-reported as degraded readiness; a required connection prevents the assistant
-from becoming ready.
+An `mcp_server` composes local MCP bindings.
 
 An `assistant` binds one `mcp_server` to an authored implementation and a
 Scenery-owned public surface. Its implementation block contains adapter,
 source, package, and package-lock paths; its surface contains gateway, path,
 authentication, authorization, pipeline, `session_access = "initiator"`, and
-an optional generated TypeScript client target. Implementation fields are
+an optional generated TypeScript client target. The surface MUST be
+authenticated: the compiler rejects `std.authentication.none`. Implementation fields are
 developer/operator data. The current adapter name `eve` is accepted by the
 implementation boundary, but it is not a public provider contract and MUST
-NOT appear in default inspection or generated public artifacts.
+NOT appear in assistant status or generated public artifacts.
 
 The public surface consists of these provider-neutral routes beneath
 `<surface.path>/v1/conversations`:
@@ -1995,9 +1822,7 @@ use `appr1_` followed by lowercase hexadecimal data. Events use the closed
 exclusive cursor so reconnects do not duplicate events. Public approval values
 are `approve` and `deny`; private helper control uses `allow` and `deny`.
 
-Anonymous surfaces issue an HttpOnly, SameSite=Lax
-`scenery_assistant_initiator` cookie and bind conversations, approvals, and
-cancellation to that initiator. Authenticated surfaces bind them to the
+Conversations, approvals, and cancellation are bound to the
 admitted principal. Authorization is evaluated independently for every tool
 call; model visibility or an approval decision never grants application
 access.
@@ -2008,16 +1833,14 @@ private loopback services with exact protocol/revision handshakes. The current
 The private control protocol identity is `scenery.assistant.control`; each
 request, response, event, and runtime descriptor carries its exact checked
 schema revision, and the MCP protocol is `2025-11-25`.
-Scenery terminates external MCP credentials and federation; it MUST NOT expose
+Scenery MUST NOT expose
 the private MCP listener or a provider-specific public listener. A child crash
 or restart becomes typed assistant unavailability while the Go application
 continues to serve other surfaces.
 
-Public route, client, OpenAPI, schema, cookie, body, event, error, and default
-inspection projections MUST omit provider names, package paths, private
-listeners, control tokens, and recognizable provider signatures. The explicit
-`inspect assistants --implementation` view is the developer/operator escape
-hatch for those fields and is not a public application contract.
+Public route, client, OpenAPI, schema, cookie, body, event, error, and assistant
+status projections MUST omit provider names, package paths, private
+listeners, control tokens, and recognizable provider signatures.
 
 ## 13. Exposure, authentication, and authorization
 
@@ -2096,7 +1919,7 @@ workload_identity "scheduler" {
 }
 ~~~
 
-Schedules, event consumers, workers, and service-to-service callers reference a workload_identity; they do not manufacture principal objects or bypass authentication. Identity issuance and attenuation are framework-enforced and fail closed.
+Schedules, workers, and service-to-service callers reference a workload_identity; they do not manufacture principal objects or bypass authentication. Identity issuance and attenuation are framework-enforced and fail closed.
 
 Scenery defines std.type.invocation_context with these typed fields:
 
@@ -2107,7 +1930,7 @@ Scenery defines std.type.invocation_context with these typed fields:
 | trace_id | optional(string) | Distributed trace identity |
 | deadline | optional(datetime) | Effective invocation deadline |
 | caller_binding | optional(std.type.resource_address) | Binding that admitted the invocation |
-| execution_id | optional(string) | Durable/workflow execution identity |
+| execution_id | optional(string) | Durable execution identity |
 | deployment | optional(std.type.resource_address) | Selected deployment identity |
 | locale | optional(string) | Validated locale preference |
 
@@ -2168,17 +1991,14 @@ The compiler MUST reject:
 - duplicate exclusive middleware;
 - an ordering cycle introduced by before or after constraints.
 
-## 15. Schedules and events
-
-### 15.1 Schedules
+## 15. Schedules
 
 A schedule is a trigger that invokes an existing operation:
 
 ~~~hcl
 schedule "nightly_roof_evaluation" {
   trigger {
-    cron     = "0 2 * * *"
-    timezone = "Europe/Prague"
+    every = "1d"
   }
 
   invoke {
@@ -2202,14 +2022,9 @@ schedule "nightly_roof_evaluation" {
 }
 ~~~
 
-A schedule MUST contain exactly one trigger block. That block MUST define exactly one selector:
+A schedule MUST contain exactly one trigger block. That block MUST define `every`, a positive elapsed duration.
 
-- cron;
-- every;
-- at;
-- calendar.
-
-Timezone behavior, daylight-saving behavior, catch-up behavior, overlap behavior, and misfire behavior MUST be explicit or fixed by the current specification.
+Catch-up behavior, overlap behavior, and misfire behavior MUST be explicit or fixed by the current specification.
 
 Core overlap modes are skip, queue, replace, and allow. A schedule does not own a handler; it invokes an operation through an execution.
 
@@ -2217,77 +2032,9 @@ A schedule MUST select a workload_identity, authorization policy, and pipeline. 
 
 invoke.input is type-checked like binding input. Every required operation field MUST be supplied exactly once, unknown fields are errors, and values are compile-time expressions. No tenant or other operation input is inferred from the scheduler principal.
 
-### 15.2 Events
-
-An event is a named typed fact:
-
-~~~hcl
-event "scene_registered" {
-  payload = record.scene_registered
-  version = 1
-}
-~~~
-
-An event binding consumes an event and invokes an operation:
-
-In this example, var.event_bus is a deployment-phase package input of type resource_ref("event_bus").
-
-~~~hcl
-binding "process_registered_scene" {
-  operation = operation.process_scene
-  execution = execution.process_scene_durable
-  protocol  = "event"
-  delivery  = "enqueue"
-
-  exposure       = "application"
-  authentication = std.authentication.service_identity
-  authorization  = std.authorization.application
-  pipeline       = std.pipeline.empty
-
-  event {
-    direction = "consume"
-    bus       = var.event_bus
-    channel   = "house.scene-registered"
-    contract  = event.scene_registered
-    guarantee = "at_least_once"
-
-    map {
-      from = message.payload
-      to   = operation.process_scene.input
-    }
-
-    broker_retry {
-      attempts = 5
-      backoff  = "exponential"
-    }
-
-    dead_letter_channel = "house.scene-registered.dead"
-  }
-}
-~~~
-
-Publication is a separate event_emission resource because it maps an operation outcome to an event rather than exposing an operation:
-
-~~~hcl
-event_emission "scene_registered" {
-  bus       = var.event_bus
-  channel   = "house.scene-registered"
-  contract  = event.scene_registered
-  guarantee = "at_least_once"
-
-  from {
-    operation = operation.register_scene
-    when      = result.registered
-    payload   = result.registered.event
-  }
-}
-~~~
-
-Event bus, channel, delivery guarantee, ordering key, deduplication key, broker retry, and dead-letter behavior MUST be explicit or supplied by a typed referenced policy.
-
 ## 16. Data model
 
-Scenery separates logical contracts, persistence, providers, queries, generated operations, fixtures, and UI.
+Scenery separates logical contracts, persistence, providers, and UI.
 
 ### 16.1 Data sources
 
@@ -2322,161 +2069,7 @@ Provider-specific config is validated by the exact schema in the locked provider
 
 The effective capability set is derived from the locked provider descriptor and validated config. require_capabilities asserts requirements and fails compilation when the provider cannot satisfy them; it never adds capabilities.
 
-### 16.2 Entities
-
-An entity is a logical persisted object:
-
-~~~hcl
-record "scene_row" {
-  field "id" {
-    type = uuid
-  }
-
-  field "tenant_id" {
-    type = string
-  }
-
-  field "name" {
-    type = string
-  }
-
-  field "created_at" {
-    type = datetime
-  }
-}
-
-entity "scene" {
-  type        = record.scene_row
-  data_source = var.database
-
-  mapping {
-    relation = "scenes"
-  }
-
-  field "id" {
-    column      = "id"
-    primary_key = true
-
-    default {
-      strategy = "uuid_v7"
-    }
-  }
-
-  field "tenant_id" {
-    column     = "tenant_id"
-    tenant_key = true
-    immutable  = true
-  }
-
-  field "name" {
-    column = "name"
-  }
-
-  field "created_at" {
-    column = "created_at"
-
-    default {
-      strategy = "current_datetime"
-    }
-  }
-}
-~~~
-
-An entity MUST reference a record type and a data source. Persistence mapping MUST NOT change the public wire contract implicitly.
-
-Every entity field mapping MUST resolve to a field in the entity's record type. Public operation records MAY differ from internal persistence records; views or implementations perform the explicit projection.
-
-Schema ownership, migration mode, indexes, uniqueness, foreign keys, tenant isolation, and deletion behavior are explicit entity concerns.
-
-### 16.3 Views
-
-A view is a typed read model or query:
-
-~~~hcl
-view "recent_scenes" {
-  data_source = var.database
-  input       = record.list_scenes_input
-  result      = list(record.scene_summary)
-
-  implementation {
-    kind = "sql_query"
-    file = "queries/scene.sql"
-    name = "ListRecentScenes"
-  }
-}
-~~~
-
-Referenced implementation files are declared inputs and become part of the content hash. Query result columns MUST be checked against the declared result type where the provider supports verification.
-
-### 16.4 CRUD expansion
-
-A CRUD resource is declarative sugar that expands into normal operations and bindings:
-
-~~~hcl
-crud "scene_api" {
-  entity         = entity.scene
-  implementation = std.crud.entity
-
-  actions = [
-    "list",
-    "get",
-    "create",
-    "update",
-    "delete",
-  ]
-
-  execution {
-    mode    = "direct"
-    timeout = "15s"
-  }
-
-  http {
-    path           = "/house/scenes"
-    codec_profile  = std.codec.http_json_v1
-    gateway        = var.gateway
-    authentication = var.authentication
-    authorization  = var.authorization
-    pipeline       = var.http_pipeline
-  }
-}
-~~~
-
-CRUD is not a privileged runtime subsystem. Its implementation provider, execution template, transport, gateway, authentication, authorization, and pipeline are explicit inputs. Expansion produces ordinary typed resources implemented by the selected provider.
-
-The expanded view MUST reveal:
-
-- every generated operation;
-- every generated binding;
-- generated input and result types;
-- policy inheritance;
-- origin and expansion lineage;
-- stable derived addresses.
-
-Expanded resources are read-only. Customize them through the generator's typed extension points or, when explicitly allowed, patch the authored generator resource before expansion.
-
-### 16.5 Fixtures
-
-Fixtures are typed, environment-scoped seed data:
-
-~~~hcl
-fixture "demo_scenes" {
-  entity       = entity.scene
-  environments = ["development", "preview"]
-  mode         = "upsert"
-
-  values = [
-    {
-      id        = "01900000-0000-7000-8000-000000000001"
-      tenant_id = "demo"
-      name      = "Example house"
-    },
-  ]
-}
-~~~
-
-Production fixtures require an explicit deployment policy allowing them.
-
-### 16.6 Pages and renderers
+### 16.2 Pages and renderers
 
 A page defines route, data, and actions. A renderer supplies frontend-specific implementation.
 
@@ -2599,12 +2192,6 @@ binding; content and actions slots receive the typed request state. A static
 content page MUST NOT emit a load binding or query, and its content and actions
 slots receive no request-state props.
 
-A CRUD list MAY declare `search` string fields, exact string/enum `filters`,
-datetime-range filters, allowed sorts, a default sort, and a maximum page
-size. Search MUST escape user wildcard characters before applying
-case-insensitive substring matching. Cursor identity MUST include search,
-filters, tenant scope, sort field, and direction.
-
 A workbench `table_page` MAY declare:
 
 - a `stats` binding whose operation has unit input and one flat numeric or
@@ -2629,9 +2216,7 @@ A workbench `table_page` MAY declare:
   with at most one selected row at a time;
 - header actions that open `form_dialog` mutation resources.
 
-A table page source MUST be either a CRUD resource with list and HTTP
-projections or a call-delivery HTTP binding. CRUD tables use the generated
-fingerprint-bound cursor contract. A binding-backed table MUST name with
+A table page source MUST be a call-delivery HTTP binding. The table MUST name with
 `items` a `list(record)` field in the operation's sole result record. It MAY
 render that complete list without pagination or declare one numeric
 `pagination` block: `page` and `page_size` MUST map distinct integer operation
@@ -2668,8 +2253,8 @@ hide only the catalog search input; the toolbar's typed query controls MUST
 still set search through the same debounce, pagination-reset, and transport
 mapping path.
 
-Only a binding-backed complete-list table MAY group. Cursor-paginated CRUD and
-numeric-page binding tables MUST reject grouping. Filters and empty/footer
+Only a complete-list table MAY group. Numeric-page tables MUST reject
+grouping. Filters and empty/footer
 slots MUST receive the current result context: loaded rows, optional total and
 truncation metadata, explicitly projected typed result metadata, filtered
 state, the current query, and controls to set or clear a declared enum filter,
@@ -2734,7 +2319,7 @@ The lockfile records the exact immutable content integrity and descriptor/ABI re
 
 Provider instances use specialized resource kinds:
 
-The example assumes provider.durable, provider.kafka, and provider.vault are declared like provider.postgres.
+The example assumes provider.durable and provider.vault are declared like provider.postgres.
 
 ~~~hcl
 data_source "house_database" {
@@ -2754,15 +2339,6 @@ execution_engine "durable_tasks" {
   ]
 }
 
-event_bus "application_events" {
-  provider = provider.kafka
-
-  require_capabilities = [
-    "events.publish/v1",
-    "events.consume/v1",
-  ]
-}
-
 secret_store "production" {
   provider = provider.vault
 
@@ -2772,7 +2348,7 @@ secret_store "production" {
 }
 ~~~
 
-The canonical IR MAY use a common provider-instance envelope, but source references remain kind-specific. An execution_engine cannot satisfy resource_ref("data_source"), and an event_bus cannot satisfy resource_ref("execution_engine").
+The canonical IR MAY use a common provider-instance envelope, but source references remain kind-specific. An execution_engine cannot satisfy resource_ref("data_source").
 
 Capabilities are derived from the locked provider descriptor and validated configuration. An instance may require or narrow capabilities but cannot grant them by assertion.
 
@@ -2819,121 +2395,15 @@ incidental identity from a content digest does not permit old protocol decoding.
 
 A future sandboxed-extension contract MAY permit deterministic, locked bytecode or WASM. It MUST expose only declared content-addressed read-only inputs, enforce CPU/instruction, memory, and output limits, and provide no ambient capabilities. It is not currently available.
 
-### 17.4 Language extensions
-
-An extension adds resource schemas, codecs, protocols, or declarative lowerings:
-
-~~~hcl
-extension "maps" {
-  source = "registry.scenery.dev/geo/maps"
-}
-
-resource "maps.roof_model" "production" {
-  config = {
-    model_path = "models/roofmapnet"
-  }
-}
-~~~
-
-The generic resource block is allowed only for a registered extension kind. Its config is fully schema-validated and lowers to an unversioned logical resource kind with an exact schema revision.
-
-Extensions MUST NOT:
-
-- alter core syntax or reinterpret a core block;
-- override core resource kinds, codecs, diagnostics, or reference roots;
-- add ambient evaluation roots;
-- disable type checking;
-- execute native code during compilation;
-- read undeclared files or environment state.
-
-The compiler permits only built-in functions. Executable extension functions require a future sandboxed-extension contract.
-
-An unavailable extension is a compilation error, not an ignored block. A descriptor or lowering failure produces a provider diagnostic and MUST NOT corrupt the compiler process.
-
-The current toolchain recognizes `extension` and generic `resource` as reserved syntax but does not implement declarative extensions; it emits `SCN7001 feature_unavailable` with the unavailable capability in structured details rather than `unknown_resource` or `SCN1002`.
-
 ## 18. Deployment and environment configuration
 
-Application contracts are environment-independent. A deployment supplies only values whose schemas explicitly permit deployment binding.
+Application contracts are environment-independent. An environment supplies only values of module inputs declared with phase = "deployment" (Section 18.2) and resolves secret references (Section 18.1). It MUST NOT change operation, record, enum, or union contracts, HTTP gateway exposure or base path, binding paths, methods, codecs, policy identity, resource addresses, module topology, implementation-phase inputs, or package, provider, or extension source identities.
 
-~~~hcl
-deployment "production" {
-  environment = "production"
+All installed resources remain in source, effective, and expanded contract views. There is no universal enabled attribute. Conditional activation requires a future typed activation contract.
 
-  module {
-    target = module.house
+Concurrency, limits, provider endpoints, database names, and model locations are ordinary deployment configuration, not secrets.
 
-    inputs = {
-      process_concurrency   = 16
-      roof_eval_concurrency = 2
-    }
-  }
-
-  data_source {
-    target = data_source.house_database
-
-    config = {
-      database = "house_production"
-      region   = "eu-central-1"
-    }
-  }
-
-  service {
-    target = module.house.service
-
-    replicas = 3
-
-    resources {
-      cpu    = "2"
-      memory = "4GiB"
-    }
-  }
-
-  http_gateway {
-    target = http_gateway.public_api
-
-    listener {
-      host = "api.onlv.dev"
-      port = 443
-      tls  = "required"
-    }
-  }
-}
-~~~
-
-### 18.1 Deployment overlays
-
-A deployment overlay MAY set:
-
-- module inputs declared with phase = "deployment";
-- provider-instance configuration fields marked deployment_bindable;
-- service placement, replica, and runtime-resource fields;
-- HTTP gateway host, address, port, TLS, certificate reference, and platform-listener fields;
-- sensitive deployment inputs using secret references.
-
-It MUST NOT change:
-
-- operation, record, enum, or union contracts;
-- HTTP gateway exposure/base path, binding paths, methods, codecs, binding exposure narrowing, or public policy identity;
-- resource addresses or module topology;
-- implementation-phase inputs;
-- package, provider, or extension source identities.
-
-Overlay precedence is package default, application baseline input, then selected deployment value. Every effective deployment value retains provenance.
-
-The contract graph retains deployment input declarations, types, constraints, and defaults as symbolic slots. Selecting a deployment creates a separate resolved deployment projection; it does not mutate source, effective, or expanded contract views.
-
-A deployment MAY rebind a deployment-phase module input to another predeclared instance of the same specialized kind when the replacement satisfies every required capability. Direct provider swapping inside an instance is forbidden unless that provider schema marks the field deployment_bindable and declares the swap compatible.
-
-Provider schemas validate overlays after substitution. Unknown or non-bindable fields are errors.
-
-Every deployment overlay block has one typed target reference. The target resolves to exactly one installed module, root provider instance, or exported service, so multiple module instances cannot collide by local label. String addresses are not accepted in source. Missing targets, duplicate overlays for one field, type or constraint failures, and ambiguous targets are errors.
-
-All installed resources remain in source, effective, and expanded contract views and are active in deployment. There is no universal enabled attribute. Conditional activation requires a future typed activation contract.
-
-Concurrency, limits, provider endpoints, database names, regional placement, and model locations are ordinary deployment configuration, not secrets.
-
-### 18.2 Secrets
+### 18.1 Secrets
 
 Secrets are references resolved through a secret_store:
 
@@ -2948,9 +2418,7 @@ Secret plaintext MUST NOT appear in:
 
 - source;
 - the canonical manifest;
-- semantic diffs;
 - diagnostics;
-- plans;
 - generated documentation;
 - logs.
 
@@ -2958,7 +2426,7 @@ The compiler tracks secret taint. A secret flowing into a non-sensitive field is
 
 A sensitive `resource_ref("secret")` input that source leaves unbound is an environment secret: its generated field is a `SecretRef` whose plaintext the selected environment supplies at runtime and the service reads with `Reveal`. Plaintext never enters the graph, generated code, snapshots on disk or diagnostics.
 
-### 18.3 Environment configuration
+### 18.2 Environment configuration
 
 Environment-configurable inputs form the application's configuration catalog. Each has one key, `<module instance path joined with ".">.<input>`; framework-owned inputs (standard authentication, assistant providers) join the same catalog under their own prefixes. Selecting configuration takes exactly an application and an environment.
 
@@ -2968,7 +2436,7 @@ Configured values are runtime inputs, not build inputs: they MUST NOT change gen
 
 An input MAY declare `public = true`. A public input MUST be a non-sensitive, environment-configurable value (SCN3408). Its effective value is served to browsers as the application's public configuration, pinned to the configuration revision the runtime runs; a generated TypeScript client exposes it as a typed `PublicConfig`. No other input reaches a browser.
 
-### 18.4 No ambient environment access
+### 18.3 No ambient environment access
 
 There is no env function, and application configuration is never read from process environment variables or dotenv files. Environment variables may be consumed only by a deployment or provider adapter whose schema declares the mapping.
 
@@ -2984,8 +2452,8 @@ Compilation has ordered semantic phases:
 4. Build package scopes.
 5. Type-check attributes, expressions, inputs, exports, and references.
 6. Instantiate modules into namespaces.
-7. Apply effective defaults, then apply any allowed exact patches against those defaulted values.
-8. Expand declarative resources such as CRUD.
+7. Apply effective defaults.
+8. Expand declarative resources such as page macros.
 9. Validate the whole resource graph.
 10. Produce canonical IR, provenance, diagnostics, and contract_revision.
 11. Generate required scenerycontract packages into an in-memory or temporary filesystem overlay.
@@ -2997,7 +2465,6 @@ Compilation has ordered semantic phases:
 17. Optionally generate clients, schemas, and documentation from the valid contract graph.
 18. Compute workspace_revision from authored inputs, excluding exact descriptor-covered generated paths.
 19. When a verified build-input manifest or artifact is available, produce implementation_revision.
-20. When a deployment is selected and planned, produce deployment_revision.
 
 No code generation step may change the semantic graph. scenery check MUST NOT mutate source or managed generated roots.
 
@@ -3011,9 +2478,9 @@ Tools MUST expose three views:
 
 | View | Contents |
 |---|---|
-| source | Resources and values directly authored before input substitution, defaults, inheritance, patches, and expansion; authored `var.*` and export expressions remain visible |
-| effective | Module inputs, defaults, inheritance, and exact patches applied |
-| expanded | All effective resources plus generated resources such as CRUD operations |
+| source | Resources and values directly authored before input substitution, defaults, inheritance, and expansion; authored `var.*` and export expressions remain visible |
+| effective | Module inputs, defaults, and inheritance applied |
+| expanded | All effective resources plus generated resources such as page macro expansions |
 
 Each later view retains links to earlier origins.
 
@@ -3033,7 +2500,7 @@ Validation includes at least:
 - pipeline ordering;
 - provider-instance capability satisfaction;
 - schedule validity;
-- phase-flow and deployment-overlay validity;
+- phase-flow validity;
 - provider and extension availability;
 - secret-flow safety;
 - generated-name collisions.
@@ -3118,7 +2585,7 @@ contract_revision identifies the canonical application contract. Its projection 
 - compile-time provider and extension schema/lowering identities that affect those contract fields;
 - exact specification and schema revisions.
 
-It excludes implementation locators and bytes, runtime/provider ABI identities, deployment values and plans, source maps, diagnostics, origins, provenance, comments, formatting, absolute paths, and contract_revision itself.
+It excludes implementation locators and bytes, runtime/provider ABI identities, deployment values, source maps, diagnostics, origins, provenance, comments, formatting, absolute paths, and contract_revision itself.
 
 Changing a Go handler body or symbol without changing a contract field MUST NOT change contract_revision. Changing an HTTP gateway/base path, route path, operation type, result variant, binding codec, exposure, or contract policy MUST change it.
 
@@ -3147,7 +2614,6 @@ workspace_revision identifies exact managed workspace bytes. Its projection cont
 
 - application and package .scn files;
 - app.lock.scn;
-- patch inputs;
 - files matched by implementation_root revision_include/revision_exclude rules and explicit revision_input declarations;
 - accepted migrations and migration ledger;
 - managed generated descriptors and exactly their covered artifacts.
@@ -3160,16 +2626,7 @@ Source-mutation preconditions always include workspace_revision.
 
 #### 20.3.4 Deployment revision
 
-deployment_revision identifies one resolved deployment. Its projection contains:
-
-- implementation_revision;
-- selected deployment address;
-- resolved non-secret deployment-domain values;
-- target platform identity;
-- canonical provider-plan digests;
-- stable secret references or version handles when required, never secret plaintext.
-
-Changing replicas, region, deployment-phase concurrency, provider runtime plans, or the implementation changes deployment_revision. A deployment revision is unavailable until both implementation_revision and a provider plan exist.
+No current command resolves a deployment. The envelope field deployment_revision is therefore always null. Fields in the deployment revision domain are excluded from contract_revision.
 
 #### 20.3.5 Revision-domain rules
 
@@ -3179,27 +2636,25 @@ Each projection is canonically encoded and hashed with SHA-256 after a distinct 
 scenery.contract-revision\0
 scenery.implementation-revision\0
 scenery.workspace-revision\0
-scenery.deployment-revision\0
 ~~~
 
 Revision domains are not inferred from field names. A resource schema that omits a domain for a field is invalid.
 
 Each revision is emitted as sha256: followed by lower-case hexadecimal SHA-256 of the domain prefix concatenated with canonical projection bytes.
 
-Contract, implementation, and deployment projections use the canonical JSON encoding in Section 20.4. Workspace entries use an unsigned 64-bit big-endian path-byte length, UTF-8 normalized relative path bytes, unsigned 64-bit big-endian content length, then exact content bytes.
+Contract and implementation projections use the canonical JSON encoding in Section 20.4. Workspace entries use an unsigned 64-bit big-endian path-byte length, UTF-8 normalized relative path bytes, unsigned 64-bit big-endian content length, then exact content bytes.
 
 Expected behavior:
 
-| Change | Contract | Implementation | Workspace | Deployment |
-|---|---|---|---|---|
-| Comment or formatting | same | same | changes | same |
-| Go handler body | same | changes | changes | changes |
-| HTTP path | changes | changes | changes | changes |
-| Unconsumed generated projection bytes only | same | same | changes | same |
-| Replica count | same | same | changes | changes |
-| Provider runtime ABI or implementation revision only | same unless contract schema changes | changes | changes | changes |
+| Change | Contract | Implementation | Workspace |
+|---|---|---|---|
+| Comment or formatting | same | same | changes |
+| Go handler body | same | changes | changes |
+| HTTP path | changes | changes | changes |
+| Unconsumed generated projection bytes only | same | same | changes |
+| Provider runtime ABI or implementation revision only | same unless contract schema changes | changes | changes |
 
-The generated-projection row applies only when no deployed artifact consumes that projection. If a frontend or another target imports a generated client, its build-input manifest changes and therefore the relevant implementation_revision and deployment_revision change. Scenery defines one application implementation revision; future per-target revisions MAY be added without changing contract_revision semantics.
+The generated-projection row applies only when no deployed artifact consumes that projection. If a frontend or another target imports a generated client, its build-input manifest changes and therefore the relevant implementation_revision changes. Scenery defines one application implementation revision; future per-target revisions MAY be added without changing contract_revision semantics.
 
 ### 20.4 Canonical encoding
 
@@ -3270,7 +2725,7 @@ Signed decimal strings have no leading plus, no unnecessary leading zero, and no
 
 Bool and string retain native JSON forms. In schema-erased values, every other primitive except json uses its schema-defined tagged form so mutation, diff, and precondition consumers cannot confuse it with a string or unsafe number. json retains its canonical JSON value under the enclosing schema; when embedded in a schema-erased value it uses {"$scalar":"json","value":...}.
 
-Equivalent source literals MUST produce identical canonical scalar objects and hashes. The same representation is used in manifests, semantic diffs, normalized mutation values, and preconditions.
+Equivalent source literals MUST produce identical canonical scalar objects and hashes. The same representation is used in manifests.
 
 Generated language structures use canonical semantic ordering. Unordered sibling resources sort by address. Unordered named children—including record fields, enum values, union variants, operation results, operation errors, service dependencies, and named response mappings—sort by semantic lower_snake_case name before generator-specific identifier conversion. Ordered constructs such as pipeline steps and declared tuple elements retain semantic order. Wire names and source positions never determine generated declaration order.
 
@@ -3283,8 +2738,7 @@ The source map includes:
 - declaration ranges;
 - attribute ranges;
 - default and expansion origins;
-- module instantiation chains;
-- patch provenance.
+- module instantiation chains.
 
 Absolute local paths MUST NOT appear in distributable manifests.
 
@@ -3315,14 +2769,11 @@ Command ownership is exact:
 | Responsibility | Required commands |
 |---|---|
 | core compiler | scenery fmt, check, compile, schema |
-| inspection | scenery list, get, explain |
-| agent reads | scenery graph, diff, agent serve --stdio |
-| agent mutations | scenery changes plan, changes apply, changes rename |
-| deployment | scenery deploy plan, deploy apply |
+| inspection | scenery list |
 | future migration support | scenery migration plan, migration apply |
 | future registry support | scenery module install, module upgrade |
 
-Section 26 determines which commands a conforming tool MUST implement. Top-level plan, apply, rename, and serve commands are not part of the current contract.
+Section 25 determines which commands a conforming tool MUST implement. Top-level plan, apply, rename, and serve commands are not part of the current contract.
 
 ### 21.2 Formatting
 
@@ -3351,62 +2802,12 @@ With -o json, compile returns one scenery.cli envelope. data.contract_status is 
 
 ~~~text
 scenery list operation --module house -o json
-scenery get house/operation/process_scene --view effective -o json
-scenery explain house/operation/process_scene --provenance -o json
 scenery schema scenery.operation -o json
-scenery graph house/operation/process_scene --direction both -o json
 ~~~
 
-get returns the resource. explain includes effective values, defaults, inputs, expansion lineage, and provenance. graph returns a bounded dependency subgraph.
+list returns the resources of one kind in the selected graph view. schema returns a resource, value, diagnostic, or mutation schema.
 
-### 21.5 Semantic diff
-
-~~~text
-scenery diff --semantic BASE TARGET [--rename-receipts CHANGE_PLAN_OR_RECEIPT.json] -o json
-~~~
-
-The CLI command, change-plan responses, and the agent operation revisions.diff MUST return the same `scenery.semantic-diff` logical value with its exact `schema_revision`. It contains base and target manifest or retained-revision identities, graph view, evolution-rule identity, ordered typed changes, explicit rename evidence, per-dimension classifications, generated consequences, and risk records. Changes sort by resource address, schema path, then operation kind.
-
-A semantic diff reports resource changes, not line changes. It distinguishes:
-
-- added and removed resources;
-- proven address renames;
-- compatibility changes by dimension;
-- binding and route changes;
-- execution-policy changes;
-- policy changes;
-- deployment-only changes;
-- generated consequences.
-
-Text diffs MAY be included as secondary information.
-
-Diff output names the exact evolution rule revision and reports separate source, wire, storage, runtime, and deployment classifications. A classification is compatible, breaking, or unknown. A dimension without normative rules MUST be unknown; tooling may not guess that it is compatible.
-
-A rename is reported as semantic fact only when an explicit rename receipt links the old and new addresses, names the exact base and target contract revisions, and carries the valid canonical receipt digest. Applied change receipts are retained under `.scenery/changes/applied/`; diff loads them automatically when a compared reference is that app root, while `--rename-receipts` supplies a plan or receipt explicitly. A stale, malformed, or fabricated receipt is ignored and the diff reports removal and addition. Heuristic rename candidates MAY be reported separately and MUST be marked unproven.
-
-### 21.6 Planning and applying changes
-
-~~~text
-scenery changes plan --changes changes.json \
-  --base-workspace-revision WREV \
-  --base-contract-revision CREV_OR_NONE \
-  --out plan.json
-scenery changes apply plan.json \
-  --expect-workspace-revision WREV \
-  --expect-contract-revision CREV_OR_NONE \
-  -o json
-~~~
-
-plan MUST NOT write source files. apply MUST use the atomic transaction and revision rules in Section 22.
-
-The CLI plan file is a trusted operator and review artifact. It MAY contain the
-complete canonical plan, semantic diff, diagnostics, risk records, and concrete
-source edits. The model-facing agent protocol does not echo that artifact: its
-normal planning response is a bounded summary keyed by `plan_id`, and apply
-accepts that opaque identifier. A trusted review surface or an explicit plan
-retrieval operation MAY fetch the retained canonical plan and source diff.
-
-### 21.7 Streams and output
+### 21.5 Streams and output
 
 Machine-readable output goes to stdout. Human progress and logs go to stderr.
 
@@ -3421,7 +2822,7 @@ Prompts are forbidden in non-interactive mode.
 
 Each -o json invocation writes exactly one scenery.cli envelope. Each -o jsonl line is a scenery.cli.event envelope containing exact schema/spec revisions, producer identity, a monotonically increasing sequence, available graph revision fields, an event discriminator, and payload. A JSONL stream ends with exactly one terminal summary event.
 
-### 21.8 Exit status
+### 21.6 Exit status
 
 Core exit statuses are:
 
@@ -3437,9 +2838,9 @@ Core exit statuses are:
 
 Warnings do not change status unless warnings-as-errors is selected.
 
-fmt --check returns 1 when formatting differs. diff returns 0 whether or not differences exist unless --exit-code is supplied; with --exit-code it returns 1 when differences exist.
+fmt --check returns 1 when formatting differs.
 
-### 21.9 Machine envelope
+### 21.7 Machine envelope
 
 JSON commands use a stable envelope:
 
@@ -3468,295 +2869,13 @@ Unknown kinds or schema revisions MUST be rejected by clients; no alternate deco
 
 ok is false exactly when effective error diagnostics exist or the requested operation failed. Severity values are error, warning, information, and hint.
 
-The transport-neutral agent error kinds are invalid_request, revision_conflict, failed_precondition, capability_unavailable, permission_denied, and internal. The CLI maps them to statuses 2, 3, 3, 4, 5, and 10 respectively.
+The transport-neutral error kinds are invalid_request, revision_conflict, failed_precondition, capability_unavailable, permission_denied, and internal. The CLI maps them to statuses 2, 3, 3, 4, 5, and 10 respectively.
 
-## 22. Agent interface
-
-A tool exposing agent read or mutation capabilities uses a machine API suitable for JSON-RPC, MCP, or an equivalent local protocol. The transport may differ; method semantics may not.
-
-### 22.1 Required discovery operations
-
-| Operation | Purpose |
-|---|---|
-| capabilities | Report current resource and mutation schemas plus transport limits |
-| schema.get | Get a resource, value, diagnostic, or mutation schema |
-| resources.list | List resources by kind and module, one bounded page at a time |
-| resources.get | Read selected resources in a chosen graph view |
-| resources.explain | Read effective value and provenance |
-| graph.get | Get a bounded dependency or dependent closure |
-| revisions.diff | Compare two available semantic graph snapshots |
-| diagnostics.get | Get structured diagnostics |
-| context.get | Get a task-focused context bundle |
-
-resources.list accepts `kind`, `module`, `view`, `limit` (at most the transport resource limit), `summary` and `cursor`. A page reports `truncated`; a truncated page carries `next_cursor`, an opaque token bound to the listed workspace and contract revisions and to the exact query that continues from the same retained snapshot until it expires. `summary = true` returns only address, kind, name and module. A cursor for another snapshot or query, or an expired cursor, MUST fail as failed_precondition.
-
-capabilities MUST return exact resource-schema revisions, codec identities, mutation operations, and transport limits. Agents MUST use advertised resource kinds and schemas rather than infer support from a product version.
-
-revisions.diff is the transport-neutral equivalent of scenery diff --semantic. Its request identifies BASE and TARGET by an available contract_revision, deployment_revision, immutable plan snapshot, or supplied canonical manifest, plus requested dimensions. It MAY include `rename_receipts`; an app-local agent server also loads matching applied receipts from its retained change state. Its response uses the classifications and rename-evidence rules in Section 21.5. Implementations MUST report unavailable snapshots as failed_precondition and MUST NOT silently substitute the current graph.
-
-### 22.2 Agent-mutation operations
-
-These operations are required only by mutation-capable agents:
-
-| Operation | Purpose |
-|---|---|
-| changes.plan | Validate semantic changes without writing |
-| plans.get | Fetch the exact retained plan for a trusted review surface |
-| changes.apply | Atomically apply an accepted plan |
-| changes.receipt.get | Fetch and strictly validate a durable apply receipt |
-| resource.create | Construct a typed resource change |
-| resource.delete | Delete a resource with dependency checks |
-| resource.rename | Rename an address and update typed references |
-| value.set | Set a typed attribute or block value |
-| value.unset | Remove an optional value |
-| module.configure | Change typed module inputs |
-| module.upgrade | Resolve, migrate, and plan a module upgrade |
-
-These may be separate protocol methods or typed operations inside one plan request.
-
-changes.apply is the only required operation that writes source. The other
-mutation operations construct, normalize, or validate change objects for a
-plan. `plans.get` and `changes.receipt.get` are recovery/review reads;
-their complete payloads MUST be directed to a trusted channel and MUST NOT be
-placed in ordinary model history. Implementations advertise these operations in
-`capabilities` when enabled; `plans.get` MUST be gated out of ordinary model
-sessions and advertised only to a trusted review/approval context.
-
-### 22.3 Context bundles
-
-context.get MUST support bounded, task-oriented retrieval:
-
-~~~json
-{
-  "focus": [
-    "house/operation/process_scene"
-  ],
-  "include": [
-    "dependencies",
-    "dependents",
-    "schemas",
-    "diagnostics",
-    "provenance"
-  ],
-  "depth": 2,
-  "max_resources": 100,
-  "max_bytes": 200000,
-  "view": "effective"
-}
-~~~
-
-The response states truncation and supplies continuation tokens. Ordering is deterministic.
-
-A continuation token is opaque, query-bound, workspace-revision-bound, contract-revision-bound, and expiring. It resumes the same deterministic snapshot and ordering. If that snapshot is unavailable, the server returns failed_precondition rather than continuing against newer state.
-
-This lets an agent obtain the smallest sufficient semantic context instead of reading the entire repository.
-
-### 22.4 Semantic change format
-
-A mutation targets an address and schema path:
-
-~~~json
-{
-  "op": "value.set",
-  "address": "house/execution/process_scene_durable",
-  "view": "source",
-  "path": "/spec/retry/maximum",
-  "value": {
-    "$scalar": "duration",
-    "nanoseconds": "180000000000"
-  },
-  "precondition": {
-    "equals": {
-      "$scalar": "duration",
-      "nanoseconds": "120000000000"
-    }
-  }
-}
-~~~
-
-Paths are RFC 6901 JSON Pointers over the explicitly named graph view and address schema fields, not source line numbers. Values are typed. An operation may bind `expected_kind` and `expected_schema_revision`; planning validates those identities before simulation, and normalized returned operations always include the resolved values. Unknown paths, stale schema expectations, and type mismatches fail during planning.
-
-The source view is directly writable. Expanded-only resources are read-only. Setting a defaulted effective value either creates a schema-authorized source override with clear provenance or fails. A patch-derived value must be changed through its patch unless its schema explicitly allows a higher-precedence override.
-
-Preconditions are evaluated against canonical typed values at the base workspace_revision and the base contract_revision when one exists. They support at least exists, absent, and equals. Equality uses canonical type semantics, not presentation syntax.
-
-Semantic mutation APIs MUST NOT accept secret plaintext. They accept only typed secret references or provider handles. Redaction markers are display-only and cannot be planned or applied.
-
-### 22.5 Plan and apply
-
-A normal plan request MUST include base workspace_revision and contract_revision.
-
-When compilation has no valid contract_revision, a repair request sets base contract_revision to null and is bound only to workspace_revision. It may contain diagnostic machine fixes or source-view CST/schema edits, but cannot target effective or expanded resources that require a valid contract. Planning simulates all edits as one transaction. It returns an applicable plan only when the resulting source compiles to a complete valid graph, in which case predicted contract_revision is non-null. If the edits leave any effective error, planning returns failed_precondition with the resulting diagnostics and predicted source edits for inspection, but no plan ID and nothing that changes.apply can commit. An agent may combine several fixes into one repair request; partial invalid-to-less-invalid commits are not supported.
-
-The model-facing `changes.plan` request accepts exactly the base
-`workspace_revision`, the base `contract_revision` (or null for repair), and
-normalized semantic `operations`; unknown fields, caller identity, claimed
-capabilities, and approval tokens are rejected. `plans.get`,
-`changes.apply`, and `changes.receipt.get` each accept exactly
-`{ "plan_id": "..." }` in model-controlled parameters.
-
-Successful planning MUST retain an exact canonical plan under trusted
-app-local state. The normal model-facing `changes.plan` response is a compact
-summary containing only:
-
-- `plan_id`;
-- optional application identity;
-- base and predicted workspace and contract revisions;
-- implementation/deployment invalidation status;
-- a semantic summary;
-- bounded affected resources with `affected_resource_count` and
-  `affected_resources_truncated`;
-- required approval scopes and bounded risk records with `risk_count` and
-  `risk_records_truncated`;
-- required capability names; and
-- `expires_at`.
-
-The retained plan (and an explicit CLI `--out` plan file) contains the complete
-normalized semantic operations, revision-bound rename receipts, semantic diff,
-diagnostics, concrete source edits, formatting effects, required capabilities,
-and risk records. `plans.get` is the explicit trusted review path for
-that full object; a model MUST NOT be asked to echo it into apply.
-
-For the model-facing protocol, `changes.apply` accepts only `{ "plan_id": ... }`
-in model-controlled parameters. It MUST NOT accept a caller-supplied full plan,
-caller identity, claimed capabilities, or approval tokens. The server loads the
-exact retained plan by ID and obtains the caller, granted capabilities, and
-approval state from its authenticated execution context. A CLI or trusted
-operator adapter MAY submit the retained plan file through its separate
-operator interface.
-
-Applying a plan MUST:
-
-- require the expected base workspace revision;
-- require the expected base contract revision, including expected null for repair;
-- be atomic across files;
-- revalidate preconditions;
-- preserve comments where possible;
-- format changed files;
-- compile and validate the resulting graph;
-- return the actual workspace_revision, contract_revision, invalidation status, and receipt.
-
-For a repair plan, successful compilation establishes the first post-repair contract_revision. A repair apply cannot succeed with a null actual contract_revision.
-
-The transaction includes every planned source, lockfile, and generated-artifact write. Tooling stages all bytes, formats source, compiles, verifies generated artifacts, and validates the complete graph before committing any file. Any failure leaves the prior workspace byte-for-byte unchanged.
-
-On success, actual contract_revision MUST equal predicted contract_revision and actual workspace_revision MUST equal predicted workspace_revision. A mismatch is an internal failure and commits nothing.
-
-A source-only change plan MUST NOT invent a predicted implementation_revision or deployment_revision. It marks each as unchanged, invalidated, or unavailable. A build or deployment planner computes replacements in the appropriate phase.
-
-If either base revision changed, the agent API returns revision_conflict and the CLI exits with status 3. It MUST NOT attempt a best-effort merge.
-
-A plan is immutable and bound to one application, normalized-operation digest, rename receipts, both base revisions, negotiated capability set, caller identity, required approvals, concrete source/provider actions, and expiry. Presentation-equivalent contextual and tagged scalar values, and source-local versus canonical references, normalize before the operation digest is computed. A plan has one durable commit and may have unlimited authenticated receipt replays.
-
-The plan ID MAY remain a domain-separated content digest, but that public digest is not proof that a trusted planner issued the supplied object. Before trusting expiry, approvals, operations, source edits, provider actions, or predicted revisions, apply MUST authenticate issuance by either loading the exact canonical plan retained in trusted app-local state under that ID or verifying an issuer signature/MAC with key material unavailable to callers. If the caller supplies the full plan, it MUST match the authenticated canonical plan exactly; decoding rejects unknown fields and trailing values rather than normalizing an expanded caller object into the trusted shape. Missing issuance state, a changed field, or a caller-recomputed ID fails before staging. Change, deployment, and every future approval-bearing plan family use the same rule.
-
-If an apply receipt already exists for the same `plan_id`, apply MUST first
-strictly decode and validate that receipt against the authenticated canonical
-plan (including its plan ID, revisions, receipt identity, and immutable
-fields), then return that receipt successfully. The response MAY mark this
-outcome with `replayed: true`; that marker is response metadata and is not
-written into the durable receipt. Replay occurs after trusted caller binding and
-canonical-plan authentication, but before first-apply expiry, approval-token,
-base-revision, provider, or workspace checks. A malformed, mismatched, or
-unverifiable receipt MUST fail closed and MUST NOT reapply the plan. If no
-receipt exists, apply continues with expiry, approvals, revision checks, and
-the atomic transaction below. `changes.receipt.get` exposes the same strict
-receipt validation for explicit recovery without attempting a mutation.
-
-The model-facing apply response is `{ "receipt": <receipt>, "replayed": <bool> }`.
-The `changes.receipt.get` response is `{ "plan_id": <id>, "status":
-"applied", "receipt": <receipt> }` after the same strict plan/receipt
-validation.
-
-If required_approvals is non-empty, first apply MUST reject missing or invalid
-approval tokens. A token is bound to the plan digest, authenticated caller,
-approved risk scopes, and expiry. An approval handler obtains or mints that
-plan-bound token only after an authenticated user approves; the token is not a
-model-controlled input. Eve's ordinary MCP tool-approval decision is not such a
-token: the current application-MCP adapter and the contract-agent mutation
-protocol are separate boundaries. Until a server-owned approval broker binds
-the trusted plan and risk scopes to that decision, an approval-bearing
-contract-agent apply requires a trusted adapter or operator to supply the
-signed token through execution context.
-
-Deployment plans use the same single-commit/replayable-receipt rule. Once a
-durable deployment receipt exists, a retry of the same authenticated `plan_id`
-returns the validated receipt without re-running provider actions, even when
-the plan has since expired or the workspace has advanced. A missing or corrupt
-deployment receipt fails closed and never guesses whether provider side effects
-completed.
-
-### 22.6 Rename
-
-Rename is semantic:
-
-~~~text
-scenery changes rename house/operation/process_scene process_roof_scene --dry-run -o json
-~~~
-
-It updates:
-
-- typed references;
-- exports;
-- generated address lineage;
-- documentation references represented as semantic links.
-
-It does not update arbitrary strings, wire names, routes, task names, or database names unless separately requested.
-
-The resulting plan and persisted apply receipt record the old address, new address, base and target contract revisions, and a domain-separated receipt digest so later diffs can prove the rename. Rename traverses every typed reference inside attributes, including object/list/function expressions, exports, and module input maps; it never rewrites lookalike strings. Renaming a containing module instance changes every descendant address, so planning MUST derive a revision-bound receipt for each descendant matched through stable declaration/package origin and the old/new module chains. If one physical package declaration is instantiated more than once, a mutation targeting only one instance address MUST fail instead of silently renaming every instance; the caller must edit or refactor the shared declaration explicitly. External durable names are unchanged unless separately requested.
-
-### 22.7 Agent expectations
-
-An agent changing a Scenery application SHOULD:
-
-1. Negotiate capabilities.
-2. Read the relevant schema.
-3. Fetch a bounded effective or expanded context.
-4. Include current workspace_revision and contract_revision in its plan.
-5. Use semantic operations rather than textual search-and-replace.
-6. Inspect semantic diff and diagnostics.
-7. Send the compact `plan_id` to apply; keep the full plan in a trusted review
-   channel.
-8. Apply atomically and treat a replayed receipt as success.
-9. Verify returned workspace_revision and contract_revision with check.
-
-When semantic tooling is unavailable, an agent MAY edit .scn source directly, but it MUST run scenery fmt and scenery check before claiming success.
-
-### 22.8 Server mode
-
-A CLI exposing agent read capabilities MUST provide:
-
-~~~text
-scenery agent serve --stdio
-~~~
-
-A CLI MAY also expose its development runtime to MCP clients
-(`scenery agent serve --mcp`) through tools that reuse the CLI and development
-runtime handlers; such an adapter MUST NOT own or restart the runtime.
-
-Server mode keeps schemas and the graph cached, watches source revisions, and exposes the agent interface without changing its semantics. Before any
-mutation, the transport or launcher MUST establish a server-owned execution
-context containing the authenticated principal, app root, and granted
-capabilities. It SHOULD also bind client identity, protocol version,
-trace/session identity, and a per-request or per-call correlation ID when the
-transport exposes them safely. `changes.plan`, `changes.apply`, and approval
-handling derive their caller and grants from that context; model parameters
-cannot override them. An override attempt fails with permission_denied before
-plan lookup or staging. `initialize` or `session.open` MAY be the handshake
-method, but the bound fields and override prohibition are transport-independent.
-If an adapter does not expose a per-action call ID, the Scenery boundary mints a
-fresh request ID for each invocation; it MUST NOT substitute a turn- or
-session-level value that can collide across parallel actions. Stdio inherits
-the launcher/process principal and app-root binding; it does not make identity
-selection a model parameter.
-
-Stdio mode inherits local process identity. Any network transport MUST authenticate and authorize callers. Every mutation transport MUST confine reads and writes to the declared workspace using symlink-safe path resolution and MUST reject path escape.
-
-## 23. Diagnostics
+## 22. Diagnostics
 
 Diagnostics are part of the language contract.
 
-### 23.1 Diagnostic shape
+### 22.1 Diagnostic shape
 
 ~~~json
 {
@@ -3786,17 +2905,11 @@ Diagnostics are part of the language contract.
   ],
   "suggestions": [
     "map {scene_id} with a path_parameter block"
-  ],
-  "fixes": [
-    {
-      "title": "Add scene_id path mapping",
-      "operations": []
-    }
   ]
 }
 ~~~
 
-### 23.2 Guarantees
+### 22.2 Guarantees
 
 Diagnostic codes:
 
@@ -3809,9 +2922,9 @@ Within the current diagnostic catalog, a code's meaning, structured fields, and 
 
 A message is for humans. Agents MUST branch on code and structured fields, not exact message text.
 
-`schema.get` with the manifest's digest `diagnostic_catalog` identity returns the complete checked-in catalog. Supplying one catalog code such as `SCN2101` returns that definition. Every definition contains its code, category, stable identity and meaning, default severity, structured fields, and documentation. Every emitted code MUST be declared exactly once. An internal diagnostic carries a separate opaque `report_token`; its public message is stable and sanitized rather than the raw internal cause.
+`scenery schema` with the manifest's digest `diagnostic_catalog` identity returns the complete checked-in catalog. Supplying one catalog code such as `SCN2101` returns that definition. Every definition contains its code, category, stable identity and meaning, default severity, structured fields, and documentation. Every emitted code MUST be declared exactly once. An internal diagnostic carries a separate opaque `report_token`; its public message is stable and sanitized rather than the raw internal cause.
 
-### 23.3 Core categories
+### 22.3 Core categories
 
 | Range | Category |
 |---|---|
@@ -3824,11 +2937,8 @@ A message is for humans. Agents MUST branch on code and structured fields, not e
 | SCN2400-SCN2499 | Binding and CLI contract errors |
 | SCN2500-SCN2599 | Data errors |
 | SCN2600-SCN2699 | UI errors |
-| SCN2700-SCN2799 | Event errors |
-| SCN2800-SCN2899 | Deployment errors |
-| SCN2900-SCN2999 | Patch errors |
 | SCN3000-SCN3199 | Package, module, and export errors |
-| SCN3200-SCN3399 | Provider instance, entity, and extension errors |
+| SCN3200-SCN3399 | Provider instance and extension errors |
 | SCN3400-SCN3499 | Go service configuration errors |
 | SCN4000-SCN4199 | Policy, security, and secret-flow errors |
 | SCN4200-SCN4299 | Runtime policy and middleware errors |
@@ -3836,28 +2946,22 @@ A message is for humans. Agents MUST branch on code and structured fields, not e
 | SCN6000-SCN6199 | Go implementation ABI and lowering errors |
 | SCN6200-SCN6299 | Go verification, generation, and artifact-transaction errors |
 | SCN6300-SCN6399 | TypeScript client and codec-generation errors |
-| SCN6400-SCN6499 | Compatibility comparison errors and reserved companion diagnostics |
-| SCN7000-SCN7099 | Capability availability and conformance errors |
 | SCN8000-SCN8099 | CLI and agent request-protocol errors |
 | SCN9000-SCN9099 | Internal compiler errors |
 
 An internal compiler error MUST include a report token but MUST NOT expose secrets.
 
-### 23.4 Machine fixes
-
-A diagnostic MAY include one or more fixes. A fix consists of ordinary semantic change operations and preconditions. Applying a fix requires mutation capability and uses the same plan/apply transaction model as any other mutation. When contract_revision is null, the fix uses repair-plan rules from Section 22.5.
-
-## 24. Go implementation ABI and generated artifacts
+## 23. Go implementation ABI and generated artifacts
 
 [go-implementation.md](go-implementation.md) is normative for Go implementation. This section summarizes the integration points required by the language specification; if wording differs, the companion specification governs Go generation and verification.
 
-### 24.1 ABI identity
+### 23.1 ABI identity
 
 The normative unary Go boundary is scenery.go-implementation/v1.
 
 A conforming tool MUST implement the package topology, type mappings, constructor, lifecycle, handler, outcome, registration, and verification rules below. It MUST NOT substitute reflection conventions or runtime discovery.
 
-### 24.2 Package topology
+### 23.2 Package topology
 
 For implementation package github.com/example/clean-tech/house, the canonical topology is:
 
@@ -3900,11 +3004,11 @@ Generated package paths derive from stable package and service identities. Gener
 
 Operation-scoped declarations are prefixed by the operation name: processed becomes ProcessSceneProcessed and invalid_input becomes ProcessSceneInvalidInput. Enum constants are prefixed by enum type, such as ProcessModeAll. Union wrappers are prefixed by union type. A generated identifier collision after deterministic namespacing is an error; generators MUST NOT silently add unstable suffixes.
 
-### 24.2.1 Staged verification
+### 23.2.1 Staged verification
 
 Go implementation conformance is verified against current generated contract and adapter packages in a temporary overlay, in the staged order from Section 19. Graph-valid public Go package generation is intentionally available before implementation conformance succeeds, so missing contracts or an incorrect constructor cannot prevent bootstrap. A stale on-disk generated package MUST NOT substitute for the current expected overlay. The ordinary in-module publication and fresh-checkout prerequisites are specified in `go-implementation.md` sections 19–20.
 
-### 24.3 Scenery-to-Go types
+### 23.3 Scenery-to-Go types
 
 Core mappings are:
 
@@ -3941,7 +3045,7 @@ Records become generated structs with exported fields. Enums become generated na
 
 Generated exact-value runtime types MUST round-trip canonical IR without precision loss. Runtime adapters own required defensive copies for mutable byte slices, lists, maps, and JSON values at trust boundaries.
 
-### 24.4 Service constructor and dependencies
+### 23.4 Service constructor and dependencies
 
 A service constructor has exactly this shape:
 
@@ -3981,11 +3085,11 @@ type HouseConstructorInput struct {
 
 Dependency fields expose stable capability interfaces from runtime/provider ABI packages, never concrete provider implementations. Missing or incompatible capabilities fail before constructor invocation.
 
-Generated service and dependency identifiers follow the deterministic collision rules in Section 24.2. Two service labels that map to the same Go identifier in one contract package are an error.
+Generated service and dependency identifiers follow the deterministic collision rules in Section 23.2. Two service labels that map to the same Go identifier in one contract package are an error.
 
 Returning a non-nil error aborts service construction. Returning a nil service with nil error is an implementation-contract failure.
 
-### 24.5 Lifecycle
+### 23.5 Lifecycle
 
 Lifecycle hooks are declared explicitly:
 
@@ -4007,7 +3111,7 @@ func (s *Service) Stop(context.Context) error
 
 Hooks are exported, non-generic, and non-variadic. Start runs exactly once after dependencies and construction succeed and before any handler call. Services start in dependency order. Stop runs at most once in reverse start order, receives a bounded shutdown context, and is attempted for every successfully started service even when another stop fails. Aggregated shutdown errors are runtime failures and are never operation outcomes.
 
-### 24.6 Unary operation handlers
+### 23.6 Unary operation handlers
 
 A handler has exactly this shape:
 
@@ -4055,11 +3159,11 @@ Handler return rules are:
 
 Handlers MUST NOT receive http.Request, ResponseWriter, framework request objects, or transport metadata unless the operation explicitly opts into a transport-coupled ABI. Such an operation carries implementation_declared guarantees for the coupled facets.
 
-### 24.7 Streaming
+### 23.7 Streaming
 
 The Go implementation is unary. A tool encountering a streaming operation without explicit Go streaming support MUST emit `feature_unavailable`. It MUST NOT invent a stream signature or buffer the stream into a unary result.
 
-### 24.8 Adapter registration
+### 23.8 Adapter registration
 
 Each generated adapter exports a deterministic registration entry point:
 
@@ -4073,7 +3177,7 @@ The application-owned adapter embeds the full application contract_revision and,
 
 Registration verifies the adapter's covered resource addresses and contract_revision against the runtime manifest, verifies every mapped package_contract_abi_revision against the imported scenerycontract package and implementation descriptor, and then verifies Go ABI compatibility, provider capability ABIs, constructor type, lifecycle hooks, and handlers before accepting traffic.
 
-### 24.9 Generated artifact descriptors
+### 23.9 Generated artifact descriptors
 
 Every application-scoped generated artifact set has a detached scenery.generated descriptor containing:
 
@@ -4087,7 +3191,7 @@ Every application-scoped generated artifact set has a detached scenery.generated
 
 Every module-owned scenerycontract artifact instead has a detached scenery.package-generated descriptor containing its artifact content digest, immutable package identity, package_contract_abi_revision, covered package-local declaration keys, scenery.go-implementation ABI range, capability-interface ABI ranges, and exported generated package path. It MUST NOT claim an application contract_revision.
 
-Application adapters, clients, schemas, and documentation are keyed by contract_revision. Module-owned scenerycontract packages are keyed by package_contract_abi_revision and may be reused by every compatible application instance. The application adapter descriptor records the package-contract mapping described in Section 24.8. A built runtime bundle additionally records implementation_revision and its build-input or artifact digest. A deployment artifact records deployment_revision.
+Application adapters, clients, schemas, and documentation are keyed by contract_revision. Module-owned scenerycontract packages are keyed by package_contract_abi_revision and may be reused by every compatible application instance. The application adapter descriptor records the package-contract mapping described in Section 23.8. A built runtime bundle additionally records implementation_revision and its build-input or artifact digest. A deployment artifact records deployment_revision.
 
 Build verification checks the applicable artifact digest, application contract_revision, package_contract_abi_revision mappings, covered resources, runtime ABI, provider ABIs, and generated package topology. Runtime-bundle verification additionally checks implementation_revision. Any mismatch fails the build or startup before accepting traffic.
 
@@ -4095,7 +3199,7 @@ Artifact digests are not self-referential. The digest projection sorts normalize
 
 Generator identity and version are reproducibility provenance. A project policy MAY require an exact generator match; regeneration always records the generator actually used.
 
-### 24.10 ABI compatibility
+### 23.10 ABI compatibility
 
 The Go ABI uses semantic versioning independently of the Scenery specification.
 
@@ -4113,7 +3217,7 @@ Additive generated helpers and optional descriptor metadata MAY be minor changes
 
 Generated artifacts declare an accepted runtime ABI range. Providers declare capability ABI ranges independently. Compatibility is verified before build completion and again before runtime registration.
 
-### 24.11 Generated ownership and migrations
+### 23.11 Generated ownership and migrations
 
 Generated code, schemas, clients, documentation, and deployment proposals are disposable projections and never declaration sources. They live under an obvious generated path and contain a machine-readable generated marker. Agents MUST NOT edit them to change application semantics.
 
@@ -4121,7 +3225,7 @@ Migration generators emit proposals. Once a migration is accepted, committed, or
 
 Business implementation code depends on generated contract packages or canonical runtime capability packages. It SHOULD NOT parse .scn source or inspect the manifest.
 
-## 25. Security properties
+## 24. Security properties
 
 The language and tooling MUST:
 
@@ -4129,25 +3233,12 @@ The language and tooling MUST:
 - redact secret-tainted values;
 - prevent undeclared compiler I/O;
 - verify dependency integrity;
-- surface internet exposure in semantic diffs;
 - treat weaker authentication or authorization as a security-relevant change;
 - require explicit anonymous access;
-- preserve tenant-isolation metadata through entities, views, operations, and policies;
+- preserve tenant-isolation metadata through operations and policies;
 - avoid executing application code during inspection or compilation.
 
-Semantic plans MUST emit stable machine-readable risk records for recognized high-impact changes, including:
-
-- a binding becoming internet-exposed;
-- authentication changing to none;
-- authorization being removed or weakened;
-- secret values moving to non-sensitive sinks;
-- a provider-instance lifecycle becoming managed;
-- destructive entity migrations;
-- durable attempts or timeout increasing materially.
-
-When tooling cannot prove that an authentication or authorization change is equal or stronger, it classifies the change as unknown_or_weaker rather than safe. Project policy maps risk records to required approvals, which changes.apply enforces as defined in Section 22.
-
-## 26. Current implementation boundary
+## 25. Current implementation boundary
 
 Scenery implements one evolving specification. Applications cannot select a language version, feature set, or historical behavior. Resource use determines the behavior required from the compiler, generators, and runtime.
 
@@ -4159,18 +3250,18 @@ The current implementation includes:
 - services and explicit dependencies;
 - operations and direct executions;
 - HTTP, internal, and MCP bindings;
-- local/remote MCP servers and connections;
+- MCP servers;
 - assistant surfaces with generated provider-neutral conversation routes,
   public JSON/NDJSON schemas, and TypeScript client projections;
 - authentication/authorization references and pipelines;
 - canonical IR and contract_revision;
 - source maps and structured diagnostics;
 - fmt, check, compile, and schema;
-- list, get, and explain;
+- list;
 - generated Go contract/adapter packages;
 - one generated TypeScript client.
 
-It also includes graph traversal, semantic diff, retained-revision comparison, bounded context bundles, agent server mode, durable execution, events, entities, deployments, pages, exact patches, approval-bound mutation, generated clients, supervised assistant children, private control/loopback MCP, and federated remote MCP readiness. The current assistant adapter is provider-specific only behind the developer/operator implementation boundary; public routes, events, errors, schemas, and clients remain provider-neutral. Unavailable future behavior such as workflows, remote registries, sandboxed extensions, custom middleware ABIs, internal RPC, or arbitrary streaming MUST fail explicitly; a tool MUST NOT silently omit or approximate a recognized resource.
+It also includes durable execution, pages, generated clients, supervised assistant children, and private control/loopback MCP. The current assistant adapter is provider-specific only behind the developer/operator implementation boundary; public routes, events, errors, schemas, and clients remain provider-neutral. Unavailable future behavior such as workflows, remote registries, sandboxed extensions, custom middleware ABIs, internal RPC, or arbitrary streaming MUST fail explicitly; a tool MUST NOT silently omit or approximate a recognized resource.
 
 Exact content and ABI revisions identify the compiler catalog, schemas, generated artifacts, and runtime contracts. A revision mismatch fails closed and never selects another parser, generator, or runtime path.
 
@@ -4183,15 +3274,15 @@ An end-to-end House fixture MUST prove:
 5. generated TypeScript client compatibility;
 6. ordinary unit testing of the implementation without starting Scenery.
 
-## 27. Representative House examples
+## 26. Representative House examples
 
 This section shows how the existing ONLV house service can be represented after the language change. It is illustrative but follows the normative rules above.
 
 The package is named house, singular. It owns the house runtime service, scene operations, processing execution, roof-evaluation operations, data contracts, and its exported public surface.
 
-House Core is a complete minimal fixture. House Full adds durable execution, data providers, schedules, and deployment overlays under the same current specification.
+House Core is a complete minimal fixture. House Full adds durable execution, data providers, and schedules under the same current specification.
 
-### 27.1 House Core
+### 26.1 House Core
 
 The root app.scn begins with the application workspace:
 
@@ -4385,9 +3476,9 @@ export "operation" {
 }
 ~~~
 
-This fixture must compile, generate, and type-check without durable, data, deployment, or full agent-read support.
+This fixture must compile, generate, and type-check without durable or data support.
 
-### 27.2 House Full: application installation
+### 26.2 House Full: application installation
 
 The example assumes authentication.standard, authorization.member, and pipeline.http_default are declared in other files in the application source unit.
 
@@ -4519,55 +3610,9 @@ module "house" {
   }
 }
 
-deployment "production" {
-  environment = "production"
-
-  module {
-    target = module.house
-
-    inputs = {
-      process_concurrency   = 16
-      roof_eval_concurrency = 2
-    }
-  }
-
-  data_source {
-    target = data_source.house_database
-
-    config = {
-      database = "house_production"
-      region   = "eu-central-1"
-    }
-  }
-
-  http_gateway {
-    target = http_gateway.public_api
-
-    listener {
-      host = "api.onlv.dev"
-      port = 443
-      tls  = "required"
-    }
-  }
-}
-
-deployment "preview" {
-  environment = "preview"
-
-  module {
-    target = module.house
-
-    inputs = {
-      process_concurrency   = 2
-      roof_eval_concurrency = 1
-    }
-  }
-}
 ~~~
 
-The Postgres provider descriptor marks database and region deployment_bindable. Other config fields cannot be overlaid.
-
-### 27.3 House Full: package surface
+### 26.3 House Full: package surface
 
 ~~~hcl
 package "house" {
@@ -4649,7 +3694,7 @@ export "operations" {
 }
 ~~~
 
-### 27.4 House Full: service and types
+### 26.4 House Full: service and types
 
 ~~~hcl
 service "house" {
@@ -4706,7 +3751,7 @@ record "process_scene_result" {
 
 Tenant identity would normally come from principal or context rather than an internet request body. It remains in the logical operation input here because internal calls and durable execution also require it. The HTTP binding maps it from authenticated context.
 
-### 27.5 House Full: one operation, multiple executions
+### 26.5 House Full: one operation, multiple executions
 
 ~~~hcl
 operation "process_scene" {
@@ -4771,7 +3816,7 @@ execution "process_scene_durable" {
 
 The durable identity comes from the namespaced execution address and revision rather than a name discovered from Go.
 
-### 27.6 House Full: asynchronous HTTP binding
+### 26.6 House Full: asynchronous HTTP binding
 
 ~~~hcl
 binding "process_scene_async" {
@@ -4836,7 +3881,7 @@ binding "process_scene_async" {
 }
 ~~~
 
-### 27.7 House Full: direct HTTP and internal bindings
+### 26.7 House Full: direct HTTP and internal bindings
 
 ~~~hcl
 binding "process_scene_http" {
@@ -4949,8 +3994,8 @@ binding "process_scene_local_debug" {
   delivery  = "call"
   exposure  = "local"
 
-  authentication = std.authentication.local_developer
-  authorization  = std.authorization.local_developer
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
   pipeline       = std.pipeline.empty
 
   internal {
@@ -4960,7 +4005,7 @@ binding "process_scene_local_debug" {
 }
 ~~~
 
-### 27.8 House Full: roof evaluation execution
+### 26.8 House Full: roof evaluation execution
 
 ~~~hcl
 record "roof_evaluation_input" {
@@ -5029,9 +4074,9 @@ execution "roof_evaluation_durable" {
 
 The remaining current HTTP surface—scene registration, deletion, process-run ranking, debug viewer control, corpus maintenance, run inspection, gating, and acceptance—follows the same rule: define one operation for each logical capability, then bind it explicitly.
 
-## 28. Invalid examples
+## 27. Invalid examples
 
-### 28.1 Duplicate resource
+### 27.1 Duplicate resource
 
 ~~~hcl
 operation "process_scene" {}
@@ -5040,7 +4085,7 @@ operation "process_scene" {}
 
 Expected: a duplicate-identity diagnostic in SCN1100-SCN1199.
 
-### 28.2 Missing internet security
+### 27.2 Missing internet security
 
 ~~~hcl
 binding "unsafe" {
@@ -5054,7 +4099,7 @@ binding "unsafe" {
 
 Expected: explicit authentication and authorization diagnostics in SCN4000-SCN4199.
 
-### 28.3 Runtime value in compile field
+### 27.3 Runtime value in compile field
 
 ~~~hcl
 execution "bad" {
@@ -5080,7 +4125,7 @@ execution "bad" {
 
 Expected: an evaluation-phase diagnostic in SCN1300-SCN1399 because attempts is compile-time configuration.
 
-### 28.4 String reference
+### 27.4 String reference
 
 Inside a binding, the following attribute is invalid:
 
@@ -5090,19 +4135,19 @@ operation = "house/operation/process_scene"
 
 Expected: a reference type diagnostic. The correct source form is operation.process_scene.
 
-### 28.5 Incomplete response coverage
+### 27.5 Incomplete response coverage
 
 If operation.process_scene declares scene_not_found but a waiting HTTP binding has no matching response, compilation fails with a binding coverage diagnostic.
 
-### 28.6 Incomplete scheduled input
+### 27.6 Incomplete scheduled input
 
 If run_roof_evaluation requires tenant_id and corpus but a schedule supplies only corpus, compilation fails with a typed input-completeness diagnostic.
 
-## 29. Conformance requirements
+## 28. Conformance requirements
 
 A tool conforms only when it passes every applicable fixture below. Read-only tooling does not inherit mutation tests unless it implements mutation.
 
-### 29.1 Parser conformance
+### 28.1 Parser conformance
 
 - accepts every valid syntax fixture;
 - rejects forbidden HCL features;
@@ -5112,16 +4157,16 @@ A tool conforms only when it passes every applicable fixture below. Read-only to
 - handles UTF-8, LF, and CRLF rules;
 - never treats a recovered tree as deployable.
 
-### 29.2 Formatter conformance
+### 28.2 Formatter conformance
 
 - is idempotent;
 - emits canonical comments and layout;
 - preserves authored top-level order and explicitly semantic nested order;
 - preserves attached comments;
-- does not change contract_revision, implementation_revision, or deployment_revision;
+- does not change contract_revision or implementation_revision;
 - does change the workspace revision when source bytes change.
 
-### 29.3 Compiler conformance
+### 28.3 Compiler conformance
 
 - produces identical IR for file and unordered-resource permutations;
 - type-checks references and expressions;
@@ -5139,26 +4184,21 @@ A tool conforms only when it passes every applicable fixture below. Read-only to
 
 Revision fixtures MUST establish:
 
-| Change | Contract | Implementation | Workspace | Deployment |
-|---|---|---|---|---|
-| Comment/formatting | same | same | changes | same |
-| Go body | same | changes | changes | changes |
-| HTTP path | changes | changes | changes | changes |
-| Unconsumed generated projection bytes | same | same | changes | same |
-| Replicas | same | same | changes | changes |
-| Provider runtime ABI or implementation revision | same unless contract schema changes | changes | changes | changes |
+| Change | Contract | Implementation | Workspace |
+|---|---|---|---|
+| Comment/formatting | same | same | changes |
+| Go body | same | changes | changes |
+| HTTP path | changes | changes | changes |
+| Unconsumed generated projection bytes | same | same | changes |
+| Provider runtime ABI or implementation revision | same unless contract schema changes | changes | changes |
 
-### 29.4 CLI and agent conformance
+### 28.4 CLI conformance
 
 - emits the documented envelopes and exit statuses;
-- provides schemas for every resource and mutation;
-- supports bounded context retrieval;
-- plans without writing;
-- applies atomically with workspace_revision and contract_revision preconditions;
-- reports semantic diffs;
+- provides schemas for every resource;
 - returns stable diagnostic codes.
 
-### 29.5 Runtime conformance
+### 28.5 Runtime conformance
 
 - verifies generated ABI, contract_revision, and implementation_revision where applicable;
 - preserves operation variant semantics;
@@ -5168,7 +4208,7 @@ Revision fixtures MUST establish:
 - rejects unsupported capabilities explicitly;
 - does not leak secret-tainted values.
 
-### 29.6 HTTP path-tail conformance
+### 28.6 HTTP path-tail conformance
 
 A tool implementing path tails additionally passes the fixtures in
 [http-path-tail.md](http-path-tail.md), including:
@@ -5178,21 +4218,20 @@ A tool implementing path tails additionally passes the fixtures in
 - literal, parameter, exact-end, and longer-prefix precedence and equal-tail conflicts;
 - segment-first single decoding and traversal, separator, Unicode, NUL, and double-decode rejection;
 - no fallback after selection;
-- unchanged typed Go handler ABI and independently encoded TypeScript segments;
-- honest OpenAPI projection.
+- unchanged typed Go handler ABI and independently encoded TypeScript segments.
 
-## 30. Agent quick reference
+## 29. Agent quick reference
 
-### 30.1 To understand an application
+### 29.1 To understand an application
 
 1. Read the application identity.
 2. List installed modules and exports.
 3. Query the expanded resource graph.
 4. Start from operations, then inspect bindings, executions, and policies.
-5. Inspect data_source, entity, and view resources only when data behavior matters.
-6. Use provenance to distinguish authored values, defaults, inputs, patches, and generated resources.
+5. Inspect data_source resources only when data behavior matters.
+6. Use provenance to distinguish authored values, defaults, inputs, and generated resources.
 
-### 30.2 To add a capability
+### 29.2 To add a capability
 
 1. Define or reuse input, result, and problem types.
 2. Define one logical operation.
@@ -5201,9 +4240,9 @@ A tool implementing path tails additionally passes the fixtures in
 5. Add one or more bindings.
 6. Attach explicit security policies and pipelines.
 7. Export it only if other modules should use it.
-8. Plan, inspect semantic diff, apply, format, and check.
+8. Format and check.
 
-### 30.3 To change an HTTP route
+### 29.3 To change an HTTP route
 
 Change the binding, not the operation. Then inspect:
 
@@ -5212,19 +4251,19 @@ Change the binding, not the operation. Then inspect:
 - clients and pages depending on the binding;
 - exposure and security;
 - semantic compatibility;
-- generated OpenAPI and clients.
+- generated clients.
 
-### 30.4 To make work durable
+### 29.4 To make work durable
 
 Add or select a durable execution and point compatible bindings or schedules to it. Do not create a duplicate task-only operation unless the logical contract is genuinely different.
 
-### 30.5 To add a schedule
+### 29.5 To add a schedule
 
-Reference an existing operation and compatible execution. Declare trigger, timezone, overlap, catch-up, and input. Do not add a cron-specific handler.
+Reference an existing operation and compatible execution. Declare trigger, overlap, catch-up, and input. Do not add a cron-specific handler.
 
-### 30.6 To change module behavior
+### 29.6 To change module behavior
 
-Prefer a typed input or documented extension point. Use an exact patch only when the module deliberately supports no suitable extension.
+Prefer a typed input or documented extension point.
 
 ## Appendix A: Syntax sketch
 
@@ -5273,7 +4312,6 @@ Top-level attributes are forbidden. Schemas may further restrict expressions.
 | transport | runtime | Decoding, negotiation, and transport outcome |
 | admission | runtime | Authentication, authorization, and admission outcome |
 | system | runtime | Implementation or runtime contract failure |
-| message | runtime | Consumed event envelope and payload |
 | value | runtime | Value currently being validated |
 | item | runtime | Current item in a scoped expression |
 
@@ -5289,7 +4327,6 @@ Extensions cannot redefine these roots.
 | Scenery filename | lower_snake_case.scn | roof_evaluation.scn |
 | HTTP literal segment | lower-kebab-case | process-runs |
 | HTTP parameter | lower_snake_case in braces | {scene_id} |
-| CLI command segment | lower-kebab-case | process-scene |
 | Export name | lower_snake_case | operations |
 | Operation variant | lower_snake_case | scene_not_found |
 
@@ -5306,13 +4343,13 @@ This specification makes the following deliberate choices:
 5. Operation, binding, execution, and policy are separate.
 6. Modules are pure typed resource factories with explicit exports.
 7. Source order is meaningless except in blocks whose schema explicitly says order matters.
-8. CRUD and similar conveniences are transparent expansions.
-9. Data sources, execution engines, event buses, and secret stores are distinct provider-instance kinds.
-10. Contract, implementation, workspace, and deployment revisions are separate projections.
+8. Page macros and similar conveniences are transparent expansions.
+9. Data sources, execution engines, and secret stores are distinct provider-instance kinds.
+10. Contract, implementation, and workspace revisions are separate projections.
 11. Go implementation uses a versioned generated ABI rather than Go meta declarations.
 12. Compilation is offline and never executes arbitrary native provider or application code.
 13. Conformance is checked at each implemented boundary rather than selected by source.
-14. Agent mutation is semantic, transactional, and revision-checked.
+14. Planned source mutation is semantic, transactional, and revision-checked.
 15. Go directives, tags, JSON application-model declarations, and runtime discovery are outside the language.
 16. HTTP routes are scoped by logical gateways whose concrete listeners are deployment values.
 17. Go build context is explicit and participates in implementation revision.
@@ -5328,13 +4365,8 @@ The following details are not part of the current specification:
 - the runtime workflow model;
 - stream and WebSocket type details;
 - registry trust roots, signing, and revocation policy;
-- migration syntax for entity evolution;
 - platform-specific HTTP listener and certificate schemas;
 
-Implemented compatibility classifications are defined by [evolution.md](evolution.md).
-Approval-bound source changes and deployment plans are defined by Section 22 and
-the checked [change-plan](../schemas/scenery.change-plan.schema.json) and
-[deployment-plan](../schemas/scenery.deployment-plan.schema.json) schemas. Go target and native-tool
-identities are defined by [go-implementation.md](go-implementation.md).
+Go target and native-tool identities are defined by [go-implementation.md](go-implementation.md).
 
 Until specified, tools MUST identify these features as unsupported. They MUST NOT invent silent defaults.

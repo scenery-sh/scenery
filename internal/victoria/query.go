@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -78,34 +77,11 @@ type victoriaJaegerLog struct {
 	Fields    []victoriaJaegerTag `json:"fields"`
 }
 
-// DefaultQueryStack builds an external stack pointing at the default local
-// component ports for read-only queries. It returns nil when Victoria is
-// disabled.
-func DefaultQueryStack() *Stack {
-	if !Enabled() {
-		return nil
-	}
-	stack := &Stack{}
-	for _, spec := range ComponentSpecs() {
-		baseURL := "http://" + net.JoinHostPort(defaultHost, strconv.Itoa(spec.DefaultPort))
-		stack.components = append(stack.components, &Component{
-			spec:        spec,
-			baseURL:     baseURL,
-			endpointURL: baseURL + spec.EndpointPath,
-			external:    true,
-		})
-	}
-	return stack
-}
-
 // QueryTraceSummaries lists trace summaries from VictoriaTraces.
 func (s *Stack) QueryTraceSummaries(ctx context.Context, query devdash.TraceQuery) ([]*devdash.TraceSummary, error) {
 	baseURL := s.BaseURL("traces")
 	if baseURL == "" {
 		return nil, errors.New("VictoriaTraces is unavailable")
-	}
-	if clearedAt := s.ClearedAt(query.AppID); query.Since.Before(clearedAt) {
-		query.Since = clearedAt
 	}
 	if query.Limit <= 0 {
 		query.Limit = 100

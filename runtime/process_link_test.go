@@ -227,7 +227,7 @@ func TestProcessLinkedBindingCallerForwardsInvocationAndRestoresErrors(t *testin
 		}
 		return invokeProcessLinkedBindingJSON(ctx, called, address, "greeter", invocation, []byte(`"hi"`))
 	}
-	ctx := runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocation("invocation-2", "user-2", "", "", time.Time{}))
+	ctx := runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-2", Principal: "user-2"}))
 	if output, err := invoke(ctx, "echo/binding/echo_internal"); err != nil || string(output) != `{"kind":"result","name":"ok"}` {
 		t.Fatalf("linked output = %s, %v", output, err)
 	}
@@ -254,7 +254,7 @@ func TestProcessLinkedBindingCallerForwardsInvocationAndRestoresErrors(t *testin
 			t.Fatalf("%s failure = %#v", address, err)
 		}
 	}
-	expiring := runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocation("invocation-3", "user-2", "", "", time.Now().Add(20*time.Millisecond)))
+	expiring := runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-3", Principal: "user-2", Deadline: time.Now().Add(20 * time.Millisecond)}))
 	if _, err = invoke(expiring, "echo/binding/wait"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expired deadline = %#v", err)
 	}
@@ -287,7 +287,7 @@ func TestProcessLinkedBindingCallerForwardsInvocationAndRestoresErrors(t *testin
 	if value, err := InvokeContractBindingCodec(ctx, "echo/binding/echo_internal", "greeter", invocation, "hi", encode, decode); err == nil || value != nil {
 		t.Fatalf("codec call to a binding its owner no longer registers = %#v, %v", value, err)
 	}
-	other := runtimeapi.NewInvocation("invocation-4", "user-2", "", "", time.Time{})
+	other := runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-4", Principal: "user-2"})
 	if _, err = InvokeContractBindingCodec(ctx, "echo/binding/errs", "greeter", other, "hi", encode, decode); err == nil || !strings.Contains(err.Error(), "permission_denied") {
 		t.Fatalf("codec call with foreign invocation = %v", err)
 	}
@@ -296,7 +296,7 @@ func TestProcessLinkedBindingCallerForwardsInvocationAndRestoresErrors(t *testin
 func TestProcessLinkedBindingOwnerRejectsUnauthenticatedOrUnownedCalls(t *testing.T) {
 	useProcessLinkRegistryForTest(t)
 	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken})
-	if err := RegisterContractInternalBinding("echo/binding/echo_internal", func(context.Context, any, any) (any, error) { return "ok", nil }); err != nil {
+	if err := RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: "echo/binding/echo_internal", Visibility: "application", Invoke: func(context.Context, any, any) (any, error) { return "ok", nil }}); err != nil {
 		t.Fatal(err)
 	}
 	target := serveProcessLinkForTest(t, processLinkOwnerHandler())
@@ -308,7 +308,7 @@ func TestProcessLinkedBindingOwnerRejectsUnauthenticatedOrUnownedCalls(t *testin
 		{token: processLinkTestToken, address: "missing/binding/x", status: http.StatusNotFound},
 	} {
 		config := &processLinkConfig{Token: check.token, Dispatch: target}
-		invocation := runtimeapi.NewInvocation("invocation-5", "", "", "", time.Time{})
+		invocation := runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-5"})
 		_, err := invokeProcessLinkedBindingJSON(runtimeapi.WithInvocation(context.Background(), invocation), config, check.address, "greeter", invocation, []byte(`"hi"`))
 		if err == nil {
 			t.Fatalf("%s call with token %q was accepted", check.address, check.token)

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,10 +12,8 @@ import (
 
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
-	"scenery.sh/internal/spec"
 )
 
 func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
@@ -37,7 +33,7 @@ func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
 		{errors.New("capability_unavailable: provider missing"), 4},
 		{errors.New("permission_denied: approval missing"), 5},
 		{errors.New("internal: compiler panic"), 10},
-		{errors.New("usage: scenery get ADDRESS"), 2},
+		{errors.New("usage: scenery list KIND"), 2},
 		{errors.New("provider log mentioned permission_denied"), 10},
 	}
 	for _, test := range tests {
@@ -63,7 +59,7 @@ func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 		{name: "private subcommand", args: []string{"db", "PRIVATE_SENTINEL"}, err: errors.New("invalid_request: unknown subcommand"), want: 2, wantCommand: "db"},
 		{name: "deploy operand", args: []string{"deploy", "operator@PRIVATE_SENTINEL"}, want: 0, wantCommand: "deploy"},
 		{name: "validation profile", args: []string{"validate", "PRIVATE_SENTINEL"}, want: 0, wantCommand: "validate"},
-		{name: "missing resource", args: []string{"get", "missing/operation/nope"}, err: errors.New("invalid_request: resource not found"), want: 2, wantCommand: "get"},
+		{name: "missing resource", args: []string{"list", "missing"}, err: errors.New("invalid_request: resource not found"), want: 2, wantCommand: "list"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -278,63 +274,6 @@ func TestContractSchemaPublishesDiagnosticCatalog(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("catalog definitions = %#v", catalog["definitions"])
-	}
-}
-
-func TestContractDiffConsumesRenameReceiptFile(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	before := graph.Resource{Address: "house/record/old", Kind: "scenery.record", Module: "house", Name: "old", Spec: map[string]any{}}
-	after := before
-	after.Address, after.Name = "house/record/new", "new"
-	newManifest := func(resource graph.Resource) *graph.Manifest {
-		t.Helper()
-		manifest := &graph.Manifest{
-			Kind: graph.ManifestKind, SchemaRevision: graph.ManifestSchemaRevision, SpecRevision: string(spec.CurrentRevision()),
-			Producer: machine.RuntimeProducer(), DiagnosticCatalog: graph.DiagnosticCatalog,
-			Application: graph.ApplicationIdentity{Name: "app"}, Resources: []graph.Resource{resource},
-			SourceMap: map[string]graph.SourceRecord{}, Diagnostics: []graph.Diagnostic{},
-		}
-		var revisionErr error
-		manifest.ContractRevision, revisionErr = graph.ContractRevision(manifest.Resources, manifest.Application.Name)
-		if revisionErr != nil {
-			t.Fatal(revisionErr)
-		}
-		return manifest
-	}
-	base := newManifest(before)
-	target := newManifest(after)
-	receipt := evolution.RenameReceipt{From: before.Address, To: after.Address, BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision}
-	canonical, err := spec.MarshalCanonical(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := sha256.Sum256(append([]byte("scenery.rename-receipt\x00"), canonical...))
-	receipt.Digest = "sha256:" + hex.EncodeToString(digest[:])
-	writeJSON := func(name string, value any) string {
-		t.Helper()
-		path := filepath.Join(root, name)
-		encoded, marshalErr := json.Marshal(value)
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		if writeErr := os.WriteFile(path, encoded, 0o644); writeErr != nil {
-			t.Fatal(writeErr)
-		}
-		return path
-	}
-	basePath := writeJSON("base.json", base)
-	targetPath := writeJSON("target.json", target)
-	receiptPath := writeJSON("receipt.json", map[string]any{"rename_receipts": []evolution.RenameReceipt{receipt}})
-	var output strings.Builder
-	if err := runContractDiff(&output, []string{"--semantic", basePath, targetPath, "--rename-receipts", receiptPath, "-o", "json"}); err != nil {
-		t.Fatal(err)
-	}
-	var diff evolution.SemanticDiff
-	err = machine.DecodeData[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision(), &diff)
-	if err != nil || len(diff.Changes) != 1 || diff.Changes[0].Operation != "rename" {
-		t.Fatalf("diff output = %s, %v", output.String(), err)
 	}
 }
 

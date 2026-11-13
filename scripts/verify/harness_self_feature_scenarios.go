@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"scenery.sh/internal/graph"
-	"scenery.sh/internal/machine"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/machine"
 )
 
 func (p *featureProbe) checkpointScenario() error {

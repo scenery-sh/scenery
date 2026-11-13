@@ -116,10 +116,5 @@ func (p WorktreePaths) validateStoppedUpgradeRegistry(registry registryFile, app
 			return fmt.Errorf("session selector does not belong to the selected worktree")
 		}
 	}
-	for _, alias := range registry.Aliases {
-		if !seen[alias.SessionID] {
-			return fmt.Errorf("session alias does not belong to retained session history")
-		}
-	}
 	return nil
 }

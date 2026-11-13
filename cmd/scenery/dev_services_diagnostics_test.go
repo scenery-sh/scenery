@@ -31,10 +31,6 @@ func TestRuntimeConfigurationAndCapabilityDiagnostics(t *testing.T) {
 	}
 	_, _, err := managedDatabaseEnv(t.Context(), "", cfg, requirements, []string{"DATABASE_URL=postgres://user:private-password@host/%ZZ"})
 	assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")
-	_, err = devRoutingMode(app.ResolvedEnv{Name: "local", Mode: "unsupported"})
-	assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")
-	_, err = devExposeRouteNames(cfg, app.ResolvedEnv{Name: "local", Expose: []string{"api"}})
-	assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")
 }
 
 func assertSafeRuntimeDiagnostic(t *testing.T, err error, code int, diagnosticCode string) graph.Diagnostic {

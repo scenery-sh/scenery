@@ -372,16 +372,11 @@ func renderReactTablePage(result *Input, target Resource, reactRoot string, page
 	shape := clientprojection.ResolveOperationInputShape(resources, page.operation)
 	queryMapping := firstReactTableChild(page.table.Spec, "query")
 	searchInput := reactTableMappedName(queryMapping, "search", "search")
-	var sorts []string
-	if page.pagination == "cursor" {
-		sorts = clientprojection.StringValues(page.crud.Spec["list"].(map[string]any)["sorts"])
-	} else {
-		sortField := shape.Fields[reactTableMappedName(queryMapping, "sort", "sort")]
-		sorts = clientprojection.EnumWireValues(resources, page.operation.Module, sortField.Type)
-		if unwrapReactType(clientprojection.TypeExpression(sortField.Type)) == "string" {
-			for _, sortSpec := range clientprojection.OrderedChildren(page.table.Spec, "sort") {
-				sorts = append(sorts, clientprojection.StringValue(sortSpec["name"]))
-			}
+	sortField := shape.Fields[reactTableMappedName(queryMapping, "sort", "sort")]
+	sorts := clientprojection.EnumWireValues(resources, page.operation.Module, sortField.Type)
+	if unwrapReactType(clientprojection.TypeExpression(sortField.Type)) == "string" {
+		for _, sortSpec := range clientprojection.OrderedChildren(page.table.Spec, "sort") {
+			sorts = append(sorts, clientprojection.StringValue(sortSpec["name"]))
 		}
 	}
 	queryParameter := "query"
@@ -418,10 +413,7 @@ func renderReactTablePage(result *Input, target Resource, reactRoot string, page
 			fmt.Fprintf(b, "      %s: query.sort !== undefined && (%s) ? query.sort : undefined,\n", clientprojection.TSName(reactTableMappedName(queryMapping, "sort", "sort")), reactLiteralPredicate("query.sort", sorts))
 			fmt.Fprintf(b, "      %s: query.direction,\n", clientprojection.TSName(reactTableMappedName(queryMapping, "direction", "direction")))
 		}
-		switch page.pagination {
-		case "cursor":
-			b.WriteString("      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
-		case "page":
+		if page.pagination == "page" {
 			pagination := firstReactTableChild(page.table.Spec, "pagination")
 			pageInput, pageSizeInput := clientprojection.StringValue(pagination["page"]), clientprojection.StringValue(pagination["page_size"])
 			fmt.Fprintf(b, "      %s: %s,\n", clientprojection.TSName(pageInput), reactTableIntegerExpression("query.page", shape.Fields[pageInput].Type))
@@ -430,21 +422,11 @@ func renderReactTablePage(result *Input, target Resource, reactRoot string, page
 		for _, predicate := range clientprojection.OrderedChildren(page.table.Spec, "predicate") {
 			name := clientprojection.StringValue(predicate["name"])
 			tiles := statsPredicateFilters[name]
-			if page.pagination == "cursor" {
-				rowField := namedResourceChild(page.record.Spec, "field", name)
-				literal := reactTableLiteral(predicate["value"], rowField["type"])
-				if len(tiles) > 0 {
-					fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s] : [%s],\n", clientprojection.TSName(name), strconv.Quote(name), strconv.Quote(name), literal)
-				} else {
-					fmt.Fprintf(b, "      %s: [%s],\n", clientprojection.TSName(name), literal)
-				}
+			literal := reactTableLiteral(predicate["value"], shape.Fields[name].Type)
+			if len(tiles) > 0 {
+				fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s][0] : %s,\n", clientprojection.TSName(name), strconv.Quote(name), strconv.Quote(name), literal)
 			} else {
-				literal := reactTableLiteral(predicate["value"], shape.Fields[name].Type)
-				if len(tiles) > 0 {
-					fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s][0] : %s,\n", clientprojection.TSName(name), strconv.Quote(name), strconv.Quote(name), literal)
-				} else {
-					fmt.Fprintf(b, "      %s: %s,\n", clientprojection.TSName(name), literal)
-				}
+				fmt.Fprintf(b, "      %s: %s,\n", clientprojection.TSName(name), literal)
 			}
 		}
 		b.WriteString("      ...injectedInput,\n")
@@ -602,9 +584,6 @@ func renderReactTablePage(result *Input, target Resource, reactRoot string, page
 			continue
 		}
 		fieldType := shape.Fields[field].Type
-		if page.pagination == "cursor" {
-			fieldType = namedResourceChild(page.record.Spec, "field", field)["type"]
-		}
 		fmt.Fprintf(&b, "    { field: %s, label: %s, kind: \"enum\", options: [", strconv.Quote(field), strconv.Quote(humanLabel(field)))
 		for _, tile := range valueTiles {
 			value := reactTableLiteral(tile["value"], fieldType)

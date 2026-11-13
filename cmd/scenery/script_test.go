@@ -76,65 +76,6 @@ func TestScriptResolverFindsLayoutsAndAmbiguity(t *testing.T) {
 	}
 }
 
-func TestScriptInspectJSON(t *testing.T) {
-	t.Parallel()
-
-	root := scriptFixtureRoot(t)
-	writeTestAppFile(t, root, "billing/tasks/reconcile/main.go", "package main\nfunc main() {}\n")
-
-	var out bytes.Buffer
-	if err := runSceneryScriptInspect(context.Background(), &out, scriptOptions{AppRoot: root, Target: "billing:reconcile", JSON: true}); err != nil {
-		t.Fatalf("runSceneryScriptInspect: %v", err)
-	}
-	var payload scriptInspectOutput
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
-	}
-	if payload.Target.Domain != "billing" || payload.Candidate.Layout != "go-dir" || payload.Candidate.Path != "billing/tasks/reconcile/main.go" {
-		t.Fatalf("payload = %+v", payload)
-	}
-}
-
-func TestRunScriptArgsSplitAfterTarget(t *testing.T) {
-	t.Parallel()
-
-	opts, err := parseScriptRunArgs([]string{"--app-root", "/tmp/app", "--env", "production", "--lang", "go", "billing:reconcile", "--dry-run", "--limit", "100"})
-	if err != nil {
-		t.Fatalf("parseScriptRunArgs: %v", err)
-	}
-	if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.Lang != scriptLangGo || opts.Target != "billing:reconcile" || strings.Join(opts.Args, " ") != "--dry-run --limit 100" {
-		t.Fatalf("opts = %+v", opts)
-	}
-
-	opts, err = parseScriptRunArgs([]string{"--app-root", "/tmp/app", "--env", "production", "billing:reconcile", "--", "--dry-run"})
-	if err != nil {
-		t.Fatalf("parseScriptRunArgs: %v", err)
-	}
-	if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.Target != "billing:reconcile" || strings.Join(opts.Args, " ") != "--dry-run" {
-		t.Fatalf("top-level run opts = %+v", opts)
-	}
-
-	opts, err = parseScriptRunArgs([]string{"billing:reconcile", "--env", "production"})
-	if err != nil {
-		t.Fatalf("parseScriptRunArgs script args: %v", err)
-	}
-	if strings.Join(opts.Args, " ") != "--env production" {
-		t.Fatalf("script args = %+v", opts.Args)
-	}
-
-	for _, args := range [][]string{
-		{"billing:"},
-		{":reconcile"},
-		{"billing:reconcile:extra"},
-		{"../billing:reconcile"},
-		{"billing:reconcile.v2"},
-	} {
-		if _, err := parseScriptRunArgs(args); err == nil {
-			t.Fatalf("parseScriptRunArgs(%v) succeeded, want script target error", args)
-		}
-	}
-}
-
 func TestTaskRunDispatchesToCodeTaskRunner(t *testing.T) {
 	root := scriptFixtureRoot(t)
 	writeTestAppFile(t, root, "billing/tasks/reconcile.task.go", "//go:build ignore\n\npackage main\nfunc main() {}\n")

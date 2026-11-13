@@ -233,7 +233,6 @@ func TestEffectiveGoBuildFlagsOmitDWARFOnlyForOrdinaryDevelopmentBuilds(t *testi
 		want   string
 	}{
 		{name: "development", result: Result{Target: development}, want: "-ldflags=-w " + configured + identity},
-		{name: "ephemeral", result: Result{Target: development, Ephemeral: true}, want: "-ldflags=" + configured + identity},
 		{name: "production assets", result: Result{Target: development, ProductionAssets: true}, want: "-ldflags=" + configured + identity},
 		{name: "other role", result: Result{Target: &compiler.GoBuildTarget{Role: "production"}}, want: "-ldflags=" + configured + identity},
 	} {

@@ -335,7 +335,8 @@ client revision.
 ## 9. OpenAPI and documentation projections
 
 OpenAPI does not define a standard path parameter that consumes slash-separated
-segments. A Scenery OpenAPI generator MUST either:
+segments. Scenery does not generate OpenAPI documents. A tool that projects a
+Scenery HTTP surface to OpenAPI MUST either:
 
 - emit an explicit Scenery vendor extension preserving the original template,
   zero-or-more cardinality, typed target, and per-segment encoding rules; or
@@ -348,17 +349,14 @@ Human and machine documentation MUST state that the path tail is terminal,
 captures zero or more complete segments, does not match a trailing slash, and
 encodes each non-empty segment independently.
 
-## 10. Compatibility and semantic diff
+## 10. Compatibility
 
 Changing `{name}` to `{name...}` broadens the accepted path set and changes the
-mapping and generated-client contract. Semantic diff MUST report HTTP-surface,
-client, and security-review consequences.
+mapping and generated-client contract.
 
 Adding a path-tail fallback is additive only when every existing path retains
 its prior selected owner and observable behavior. Removing a tail or changing
-its prefix, target type, empty-capture behavior, or precedence is classified
-from the old client/server direction independently by the current evolution
-rules.
+its prefix, target type, empty-capture behavior, or precedence is not additive.
 
 ## 11. Security properties
 
@@ -417,8 +415,7 @@ A conforming path-tail implementation MUST pass fixtures for:
 - TypeScript independent segment encoding and structural slash preservation;
 - no trailing slash for an empty tail;
 - base codec plus extension identities in descriptors and metadata;
-- deterministic contract, HTTP-surface, TypeScript, and OpenAPI revisions;
-- honest OpenAPI vendor extension or explicit unsupported-capability failure.
+- deterministic contract, HTTP-surface, TypeScript, and OpenAPI revisions.
 
 ## Appendix A: Deliberate exclusions
 

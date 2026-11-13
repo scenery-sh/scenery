@@ -16,7 +16,7 @@ import (
 func TestAppConfigurationDiagnostics(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, source, want string }{
-		{"unknown field", `{"name":"demo","dev":{"services":{"private-password":{}}}}`, "remove dev.services"},
+		{"unknown field", `{"name":"demo","dev":{"services":{"private-password":{}}}}`, `unknown .scenery.json field "dev"`},
 		{"syntax", `{"name":`, "decode .scenery.json"},
 		{"type", `{"name":{}}`, "cannot unmarshal object"},
 		{"missing name", `{}`, "non-empty name or id"},

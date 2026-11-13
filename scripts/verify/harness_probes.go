@@ -67,7 +67,6 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("auth", runHarnessStandardAuthStep),
 		harnessSingleProbe("worktree", runHarnessWorktreeRuntimeProbeStep),
 		harnessSingleProbe("agent-restart", runHarnessAgentRestartProbeStep),
-		harnessSingleProbe("assistant-init", runHarnessAssistantInitProbeStep),
 		harnessSingleProbe("assistant-runtime", runHarnessAssistantProductionProbeStep),
 		{id: "assistant-helper", run: runHarnessAssistantHelperProbe},
 		harnessSingleProbe("assistant-journey", runHarnessAssistantJourneyProbeStep),
@@ -80,7 +79,6 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("dev-lock", runHarnessDevNamedLockProbeStep),
 		harnessSingleProbe("dev-cleanup", runHarnessDevSessionCleanupProbeStep),
 		harnessSingleProbe("inspect-go", runHarnessInspectDocsGoPackageProbeStep),
-		harnessSingleProbe("toolchain-build", runHarnessToolchainSourceBuildProbeStep),
 		harnessSingleProbe("worktree-git", runHarnessWorktreeGitProbeStep),
 		harnessSingleProbe("feature", runHarnessFeatureProbeStep),
 		harnessSingleProbe("edge", runHarnessEdgeProcessProbeStep),
@@ -90,7 +88,6 @@ func harnessProbeCatalog() []harnessProbe {
 				return runHarnessNativeContractApplicationProbeCheckWithArtifacts(ctx, root, artifacts)
 			}))
 		}},
-		harnessSingleProbe("snapshot-backup", runHarnessSnapshotBackupProbeStep),
 		harnessSingleProbe("typescript", runHarnessTypeScriptCheckerProbeStep),
 		harnessSingleProbe("code-task", runHarnessCodeTaskProcessProbeStep),
 		{id: "observability", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {

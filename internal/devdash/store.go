@@ -21,15 +21,10 @@ type Store struct {
 }
 
 type storeShared struct {
-	mu          sync.Mutex
-	state       *storeState
-	stamp       storeStamp
-	dirty       bool
-	savePending bool
-	pending     []storeMutation
+	mu    sync.Mutex
+	state *storeState
+	stamp storeStamp
 }
-
-type storeMutation func(*storeState) error
 
 type storeStamp struct {
 	exists  bool
@@ -37,28 +32,7 @@ type storeStamp struct {
 	modTime time.Time
 }
 
-const (
-	maxStoredProcessEvents = 1000
-	maxStoredProcessOutput = 5000
-	maxStoredDevEvents     = 5000
-	deferredSaveDelay      = 500 * time.Millisecond
-
-	// Process events are diagnostic breadcrumbs. A payload above this size
-	// (e.g. full app metadata on every reload) bloats devdash.json until
-	// every store refresh re-parses hundreds of megabytes of JSON.
-	maxProcessEventPayloadBytes = 64 * 1024
-
-	softStoreFileBytes = 2 * 1024 * 1024
-	hardStoreFileBytes = 8 * 1024 * 1024
-)
-
-type ProcessEvent struct {
-	ID          int64           `json:"id"`
-	AppID       string          `json:"app_id"`
-	Kind        string          `json:"kind"`
-	PayloadJSON json.RawMessage `json:"payload_json"`
-	CreatedAt   time.Time       `json:"created_at"`
-}
+const hardStoreFileBytes = 8 * 1024 * 1024
 
 type TraceQuery struct {
 	AppID            string
@@ -78,24 +52,10 @@ type LogLevelCount struct {
 }
 
 type storeState struct {
-	Version             int                          `json:"version"`
-	Apps                map[string]StoredApp         `json:"apps,omitempty"`
-	AppSessions         map[string]StoredAppSession  `json:"app_sessions,omitempty"`
-	AppModelRefs        map[string]StoredAppModelRef `json:"app_model_refs,omitempty"`
-	ProcessEvents       []ProcessEvent               `json:"process_events,omitempty"`
-	ProcessOutput       []ProcessOutput              `json:"process_output,omitempty"`
-	DevSources          map[string]DevSource         `json:"dev_sources,omitempty"`
-	DevEvents           []storedDevEvent             `json:"dev_events,omitempty"`
-	NextProcessEventID  int64                        `json:"next_process_event_id,omitempty"`
-	NextProcessOutputID int64                        `json:"next_process_output_id,omitempty"`
-	NextDevEventID      int64                        `json:"next_dev_event_id,omitempty"`
-}
-
-type storedDevEvent struct {
-	DevEvent
-	AppID     string    `json:"app_id"`
-	AppRoot   string    `json:"app_root,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	Version      int                          `json:"version"`
+	Apps         map[string]StoredApp         `json:"apps,omitempty"`
+	AppSessions  map[string]StoredAppSession  `json:"app_sessions,omitempty"`
+	AppModelRefs map[string]StoredAppModelRef `json:"app_model_refs,omitempty"`
 }
 
 var storeLocks sync.Map
@@ -120,8 +80,8 @@ func OpenStore(cacheRoot string) (*Store, error) {
 	return store, nil
 }
 
-// OpenReadOnlyStore inspects an existing cache without creating, compacting,
-// flushing, or joining a writer's pending mutations. It has no default root.
+// OpenReadOnlyStore inspects an existing cache without creating or compacting
+// it. It has no default root.
 func OpenReadOnlyStore(cacheRoot string) (*Store, error) {
 	if cacheRoot == "" {
 		return nil, errors.New("read-only dashboard store requires an explicit root")
@@ -142,55 +102,10 @@ func OpenReadOnlyStore(cacheRoot string) (*Store, error) {
 }
 
 func (s *Store) Close() error {
-	return s.Flush(context.Background())
-}
-
-func (s *Store) Flush(ctx context.Context) error {
-	if s == nil || s.path == "" || s.shared == nil || s.readOnly {
-		return nil
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	s.shared.mu.Lock()
-	defer s.shared.mu.Unlock()
-	if err := s.ensureLoadedLocked(); err != nil {
-		return err
-	}
-	if !s.shared.dirty {
-		s.shared.savePending = false
-		return nil
-	}
-	if err := s.refreshForExternalChangeLocked(); err != nil {
-		s.shared.savePending = false
-		return err
-	}
-	if err := s.saveState(s.shared.state); err != nil {
-		s.shared.savePending = false
-		return err
-	}
-	if stamp, err := s.statStamp(); err == nil {
-		s.shared.stamp = stamp
-	}
-	s.shared.dirty = false
-	s.shared.savePending = false
-	s.shared.pending = nil
 	return nil
 }
 
 func (s *Store) withState(ctx context.Context, write bool, fn func(*storeState) error) error {
-	return s.withStatePersist(ctx, write, true, fn)
-}
-
-// withStateDeferred applies a write mutation now but coalesces persistence
-// into the deferred save path, so high-frequency appenders do not rewrite the
-// whole store file under the shared lock on every call. Deferred mutations
-// must stay safe to replay onto a freshly loaded state snapshot.
-func (s *Store) withStateDeferred(ctx context.Context, fn storeMutation) error {
-	return s.withStatePersist(ctx, true, false, fn)
-}
-
-func (s *Store) withStatePersist(ctx context.Context, write bool, immediate bool, fn storeMutation) error {
 	if s == nil || s.path == "" || s.shared == nil {
 		return errors.New("devdash store is nil")
 	}
@@ -213,19 +128,12 @@ func (s *Store) withStatePersist(ctx context.Context, write bool, immediate bool
 	}
 	if write {
 		pruneStoreState(s.shared.state)
-		if immediate {
-			if err := s.saveState(s.shared.state); err != nil {
-				return err
-			}
-			if stamp, err := s.statStamp(); err == nil {
-				s.shared.stamp = stamp
-			}
-			s.shared.dirty = false
-			s.shared.pending = nil
-			return nil
+		if err := s.saveState(s.shared.state); err != nil {
+			return err
 		}
-		s.shared.pending = append(s.shared.pending, fn)
-		s.scheduleSaveLocked()
+		if stamp, err := s.statStamp(); err == nil {
+			s.shared.stamp = stamp
+		}
 	}
 	return nil
 }
@@ -292,11 +200,6 @@ func (s *Store) refreshForExternalChangeLocked() error {
 	if err != nil {
 		return err
 	}
-	for _, mutation := range s.shared.pending {
-		if err := mutation(state); err != nil {
-			return err
-		}
-	}
 	pruneStoreState(state)
 	s.shared.state = state
 	s.shared.stamp = loadedStamp
@@ -306,41 +209,14 @@ func (s *Store) refreshForExternalChangeLocked() error {
 func (s *Store) saveState(state *storeState) error {
 	normalizeStoreState(state)
 	pruneStoreState(state)
-	// A state inside its budget is encoded once; measuring it for the budget
-	// first would encode it twice on every save.
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
-	if len(data) > softStoreFileBytes {
-		pruneStoreStateToBudget(state, softStoreFileBytes, len(data))
-		if data, err = json.Marshal(state); err != nil {
-			return err
-		}
-	}
 	if len(data) > hardStoreFileBytes {
-		pruneStoreStateToBudget(state, hardStoreFileBytes, len(data))
-		data, err = json.Marshal(state)
-		if err != nil {
-			return err
-		}
-		if len(data) > hardStoreFileBytes {
-			return fmt.Errorf("devdash store exceeds hard budget: %d > %d (%s)", len(data), hardStoreFileBytes, formatStoreSizeBreakdown(state))
-		}
+		return fmt.Errorf("devdash store exceeds hard budget: %d > %d (%s)", len(data), hardStoreFileBytes, formatStoreSizeBreakdown(state))
 	}
 	return atomicfile.Write(s.path, append(data, '\n'), 0o600, atomicfile.Options{})
-}
-
-func (s *Store) scheduleSaveLocked() {
-	s.shared.dirty = true
-	if s.shared.savePending {
-		return
-	}
-	s.shared.savePending = true
-	go func() {
-		time.Sleep(deferredSaveDelay)
-		_ = s.Flush(context.Background())
-	}()
 }
 
 func newStoreState() *storeState {
@@ -362,64 +238,4 @@ func normalizeStoreState(state *storeState) {
 	if state.AppModelRefs == nil {
 		state.AppModelRefs = map[string]StoredAppModelRef{}
 	}
-	if state.DevSources == nil {
-		state.DevSources = map[string]DevSource{}
-	}
-	if state.NextProcessEventID <= 0 {
-		state.NextProcessEventID = maxProcessEventID(state.ProcessEvents) + 1
-	}
-	if state.NextProcessOutputID <= 0 {
-		state.NextProcessOutputID = maxProcessOutputID(state.ProcessOutput) + 1
-	}
-	if state.NextDevEventID <= 0 {
-		state.NextDevEventID = maxDevEventID(state.DevEvents) + 1
-	}
-}
-
-func maxProcessEventID(events []ProcessEvent) int64 {
-	var maxID int64
-	for _, event := range events {
-		if event.ID > maxID {
-			maxID = event.ID
-		}
-	}
-	return maxID
-}
-
-func maxProcessOutputID(items []ProcessOutput) int64 {
-	var maxID int64
-	for _, item := range items {
-		if item.ID > maxID {
-			maxID = item.ID
-		}
-	}
-	return maxID
-}
-
-func maxDevEventID(events []storedDevEvent) int64 {
-	var maxID int64
-	for _, event := range events {
-		if event.ID > maxID {
-			maxID = event.ID
-		}
-	}
-	return maxID
-}
-
-func storeDevEvent(event DevEvent) storedDevEvent {
-	return storedDevEvent{
-		DevEvent:  event,
-		AppID:     event.AppID,
-		AppRoot:   event.AppRoot,
-		CreatedAt: event.CreatedAt,
-	}
-}
-
-func (event storedDevEvent) toDevEvent() DevEvent {
-	item := event.DevEvent
-	item.AppID = event.AppID
-	item.AppRoot = event.AppRoot
-	item.CreatedAt = event.CreatedAt
-	item.Fields = compactRawMessage(item.Fields)
-	return item
 }

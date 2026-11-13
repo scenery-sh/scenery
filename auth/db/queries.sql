@@ -121,21 +121,6 @@ SELECT id, name, deleted_at, created_at, updated_at
 FROM scenery.scenery_auth_tenants
 WHERE id = $1;
 
--- name: UpdateTenantName :one
-UPDATE scenery.scenery_auth_tenants
-SET name = $1,
-    updated_at = now()
-WHERE id = $2
-  AND deleted_at IS NULL
-RETURNING id, name, deleted_at, created_at, updated_at;
-
--- name: SoftDeleteTenant :one
-UPDATE scenery.scenery_auth_tenants
-SET deleted_at = COALESCE(deleted_at, now()),
-    updated_at = now()
-WHERE id = $1
-RETURNING id, name, deleted_at, created_at, updated_at;
-
 -- name: CreateOrganizationMembership :one
 INSERT INTO scenery.scenery_auth_organization_memberships (
   id,

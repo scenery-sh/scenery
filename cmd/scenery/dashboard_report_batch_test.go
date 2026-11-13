@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/devreport"
 	"testing"
 	"testing/synctest"
+
+	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/devreport"
 )
 
 type reportBatchTestController struct{ exportTestController }
@@ -20,7 +21,7 @@ func (c reportBatchTestController) dashboardAuthorizeReport(_ *http.Request, rep
 func TestReportBatchRejectsMixedAuthorizationBeforeAdmission(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var messages []string
-		server := newDashboardServerWithControllerHooks(reportBatchTestController{}, t.TempDir(), "127.0.0.1:0", nil, dashboardServerHooks{exportLogEvent: func(event *devdash.LogEvent) { messages = append(messages, event.Message) }})
+		server := newDashboardServerWithControllerHooks(reportBatchTestController{}, "127.0.0.1:0", dashboardServerHooks{exportLogEvent: func(event *devdash.LogEvent) { messages = append(messages, event.Message) }})
 		defer func() { _ = server.Close() }()
 		batch := devreport.ReportBatch{Reports: []devreport.ReportEnvelope{
 			{Type: "log", SessionID: "current", LogEvent: &devreport.LogEvent{Message: "first"}},

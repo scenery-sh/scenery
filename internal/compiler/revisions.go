@@ -380,8 +380,6 @@ func implementationBindings(resources []Resource) []map[string]any {
 			spec = map[string]any{"handler": resource.Spec["handler"]}
 		case "scenery.provider":
 			spec = resource.Spec
-		case "scenery.view":
-			spec = map[string]any{"implementation": resource.Spec["implementation"], "implementation_digest": resource.Spec["implementation_digest"]}
 		case "scenery.renderer":
 			spec = map[string]any{"runtime": resource.Spec["runtime"], "module": resource.Spec["module"], "config": resource.Spec["config"], "implementation_digest": resource.Spec["implementation_digest"]}
 		default:
@@ -399,63 +397,4 @@ func sortedResourceNames(resources map[string]Resource) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-func computeDeploymentRevisions(manifest *Manifest, implementationRevisions map[string]string, providerPlanDigests map[string][]string) map[string]string {
-	revisions := map[string]string{}
-	if manifest == nil || len(implementationRevisions) == 0 {
-		return revisions
-	}
-	for _, resource := range manifest.Resources {
-		if resource.Kind != "scenery.deployment" {
-			continue
-		}
-		planDigests := append([]string(nil), providerPlanDigests[resource.Name]...)
-		if len(planDigests) == 0 {
-			planDigests = append(planDigests, providerPlanDigests[resource.Address]...)
-		}
-		if len(planDigests) == 0 {
-			continue
-		}
-		validPlans := true
-		for _, digest := range planDigests {
-			if !isCanonicalSHA256Digest(digest) {
-				validPlans = false
-				break
-			}
-		}
-		if !validPlans {
-			continue
-		}
-		sort.Strings(planDigests)
-		resolved, diagnostics := ResolveDeployment(manifest, resource.Address)
-		if hasErrors(diagnostics) {
-			continue
-		}
-		projection := map[string]any{
-			"spec_revision":           manifest.SpecRevision,
-			"contract_revision":       manifest.ContractRevision,
-			"implementation_revision": implementationRevisions,
-			"deployment_address":      resource.Address,
-			"deployment_values":       resolved,
-			"target_platform":         deploymentTargetPlatformIdentity(resource),
-			"provider_plan_digests":   planDigests,
-		}
-		revisions[resource.Name] = revisionHash("scenery.deployment-revision\x00", projection)
-	}
-	return revisions
-}
-
-func ComputeDeploymentRevisions(manifest *Manifest, implementationRevisions map[string]string, providerPlanDigests map[string][]string) map[string]string {
-	return computeDeploymentRevisions(manifest, implementationRevisions, providerPlanDigests)
-}
-
-func deploymentTargetPlatformIdentity(deployment Resource) map[string]any {
-	identity := map[string]any{"environment": deployment.Spec["environment"]}
-	for _, field := range []string{"platform", "region", "architecture"} {
-		if value := deployment.Spec[field]; value != nil {
-			identity[field] = value
-		}
-	}
-	return identity
 }

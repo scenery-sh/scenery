@@ -20,7 +20,7 @@ import (
 func TestRuntimeRPCAnswersARequestAtTheLimitAndClosesBeyondIt(t *testing.T) {
 	t.Parallel()
 
-	server := newDashboardServerWithController(runtimeRPCTestController{status: devdash.AppStatus{AppID: "session-a", Running: true}}, t.TempDir(), "127.0.0.1:0", nil)
+	server := newDashboardServerWithController(runtimeRPCTestController{status: devdash.AppStatus{AppID: "session-a", Running: true}}, "127.0.0.1:0")
 	backend := httptest.NewServer(http.HandlerFunc(server.handleWebSocket))
 	t.Cleanup(backend.Close)
 	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(backend.URL, "http"), nil)

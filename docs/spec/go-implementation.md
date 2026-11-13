@@ -627,22 +627,20 @@ runtime and child exchange the unversioned `scenery.assistant.control`
 protocol, authenticate every private loopback connection, and complete exact
 runtime/capability revision handshakes before dispatch. An assistant's
 capability revision is the canonical projection of the assistant's contract
-and its MCP server's projected capabilities and connections, with the
+and its MCP server's projected capabilities, with the
 application identity and specification revision; the server's generated
 capability manifest records it as its `contract_revision`, and the MCP gateway
 admits a tool call only with it. A contract change outside those leaves the
 capability revision, and the prepared helper runtime, unchanged. A generated
 MCP tool registration records no revision of its own. The child may receive
 an internal MCP loopback endpoint, but it MUST NOT publish a public MCP
-listener. Scenery owns application-local dispatch, remote MCP federation,
-credential termination, authorization, approval, cancellation, and the
+listener. Scenery owns application-local dispatch, authorization, approval, cancellation, and the
 provider-neutral health/restart state. A child crash degrades only assistant
 routes and returns typed unavailability to callers.
 
 `internal/assistantadapter/eve` is the current provider-only package. Its
 adapter name, authored source/package/lock paths, private listener, and runtime
-identity belong to the implementation/deployment projection and explicit
-developer/operator inspection. They MUST NOT flow into public routes, generated
+identity belong to the implementation/deployment projection. They MUST NOT flow into public routes, generated
 clients, OpenAPI, public schemas/events/errors, default status, or the public
 runtime descriptor. The adapter package MUST NOT be imported by
 `internal/compiler`, `internal/graph`, or the provider-neutral assistant API.
@@ -650,7 +648,7 @@ runtime descriptor. The adapter package MUST NOT be imported by
 Production builds archive the managed Node/toolchain and assistant capsule with
 content-addressed digests and detached runtime-assets descriptors. Authored
 package manifests and lockfiles remain source inputs and are never rewritten by
-`up`, `build`, or `assistant sync`.
+`up` or `build`.
 
 ## 16. Generated artifact descriptors
 
@@ -760,8 +758,8 @@ alternate generation modes.
 
 Invalid source/rendering leaves the previous complete output untouched. There
 is no editor generation-retention or editor-specific doctor readiness contract.
-Existing old managed workfiles require an explicit ownership-verified one-time
-cutover; no normal command removes them or shared caches automatically.
+No command removes existing old managed workfiles or shared caches
+automatically.
 
 Registry packages ship their contract package and descriptor as part of the immutable artifact.
 

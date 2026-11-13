@@ -13,7 +13,6 @@ import (
 // discovered app actually uses, so dependency checks stay relevant.
 type AppFeatures struct {
 	SQLCConfigured       bool
-	AtlasRelevant        bool
 	FrontendConfigured   bool
 	TypeScriptTasks      bool
 	DockerRelevant       bool
@@ -31,41 +30,17 @@ func Features(cfg appcfg.Config, app *AppInfo, managedSQL bool) AppFeatures {
 	features := AppFeatures{
 		FrontendConfigured:   len(cfg.Frontends) > 0,
 		SQLCConfigured:       sqlcGeneratorConfigured(cfg.Generators.SQLC),
-		AtlasRelevant:        sqlcUsesAtlas(cfg.Generators.SQLC),
 		DatabaseApplyCommand: strings.TrimSpace(cfg.Database.Apply.Command) != "",
 		StorageConfigured:    len(cfg.Storage.Stores) > 0,
 		PostgresServices:     managedSQL,
-		DockerRelevant:       managedSQL || appUsesDocker(cfg),
+		DockerRelevant:       managedSQL,
 		TypeScriptTasks:      appHasTypeScriptTasks(app.Root)}
 	return features
 }
 
 func sqlcGeneratorConfigured(cfg appcfg.SQLCGeneratorConfig) bool {
 	return strings.TrimSpace(cfg.Provider) != "" ||
-		strings.TrimSpace(cfg.Config) != "" ||
-		strings.TrimSpace(cfg.DevURL) != "" ||
-		len(cfg.Schemas) > 0
-}
-
-func sqlcUsesAtlas(cfg appcfg.SQLCGeneratorConfig) bool {
-	for _, schema := range cfg.Schemas {
-		if strings.TrimSpace(schema.AtlasSource) != "" || strings.TrimSpace(schema.AtlasSchema) != "" || strings.TrimSpace(schema.AtlasDevURL) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func appUsesDocker(cfg appcfg.Config) bool {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Generators.SQLC.DevURL)), "docker://") {
-		return true
-	}
-	for _, schema := range cfg.Generators.SQLC.Schemas {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(schema.AtlasDevURL)), "docker://") {
-			return true
-		}
-	}
-	return false
+		strings.TrimSpace(cfg.Config) != ""
 }
 
 func appHasTypeScriptTasks(root string) bool {

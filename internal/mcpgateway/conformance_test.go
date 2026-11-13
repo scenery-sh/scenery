@@ -3,12 +3,10 @@ package mcpgateway
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,7 +19,7 @@ import (
 
 // projectedFixtureCapability projects the compiled native MCP fixture, so the
 // advertised schemas are the ones a real application publishes.
-func projectedFixtureCapability(t *testing.T, durable bool) mcpcontract.Capability {
+func projectedFixtureCapability(t *testing.T) mcpcontract.Capability {
 	t.Helper()
 	encoded, err := os.ReadFile(filepath.Join("..", "mcpprojection", "testdata", "native_graph.json"))
 	if err != nil {
@@ -33,13 +31,6 @@ func projectedFixtureCapability(t *testing.T, durable bool) mcpcontract.Capabili
 	}
 	if err := json.Unmarshal(encoded, &fixture); err != nil {
 		t.Fatal(err)
-	}
-	if durable {
-		for index := range fixture.Manifest.Resources {
-			if fixture.Manifest.Resources[index].Address == "house/execution/process_scene_direct" {
-				fixture.Manifest.Resources[index].Spec["mode"] = "durable"
-			}
-		}
 	}
 	projected, err := mcpprojection.ProjectManifest(fixture.Manifest, fixture.WorkspaceRevision, "support")
 	if err != nil {
@@ -86,9 +77,7 @@ func structured(t *testing.T, result *mcp.CallToolResult) any {
 }
 
 func TestGatewayResultsConformToTheAdvertisedSchemas(t *testing.T) {
-	local := projectedFixtureCapability(t, false)
-	durable := projectedFixtureCapability(t, true)
-	durable.ID, durable.Name = durable.ID+"#durable", "house__enqueue_scene"
+	local := projectedFixtureCapability(t)
 	failing := local
 	failing.ID, failing.Name = failing.ID+"#failing", "house__failing_scene"
 	remote := federatedCapability("docs__render")
@@ -104,15 +93,14 @@ func TestGatewayResultsConformToTheAdvertisedSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := testManifest()
-	manifest.Capabilities = []mcpcontract.Capability{durable, failing, local}
+	manifest.Capabilities = []mcpcontract.Capability{failing, local}
 	dispatcher := &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{
-		local.Name:   {Outcome: "processed", Value: json.RawMessage(`{"status":"done"}`)},
-		durable.Name: {Outcome: mcpcontract.AcceptedOutcome, Receipt: &mcpcontract.DurableReceipt{DurableIdentity: durable.ExecutionAddress, ExecutionID: "job-1", AcceptedRevision: "sha256:rev"}},
+		local.Name: {Outcome: "processed", Value: json.RawMessage(`{"status":"done"}`)},
 	}}
 	failingDispatcher := failingToolDispatcher{testDispatcher: dispatcher, failing: failing.Name}
 	federation := &testFederation{ready: true, capabilities: []mcpcontract.Capability{remote}, outcome: mcpcontract.ToolOutcome{Outcome: "processed", Value: remoteResult}}
 	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: manifest.ContractRevision}}
-	handler, err := NewHandler(Config{Manifest: manifest, Verify: contexts, Dispatch: failingDispatcher, Durable: &testDurable{}, Federation: federation})
+	handler, err := NewHandler(Config{Manifest: manifest, Verify: contexts, Dispatch: failingDispatcher, Federation: federation})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +111,7 @@ func TestGatewayResultsConformToTheAdvertisedSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{local.Name, durable.Name, failing.Name, remote.Name} {
+	for _, name := range []string{local.Name, failing.Name, remote.Name} {
 		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: map[string]any{"scene_id": "s"}})
 		if err != nil {
 			t.Fatalf("call %s: %v", name, err)
@@ -189,112 +177,3 @@ type transportFailure struct {
 func (f transportFailure) Error() string       { return "transport failure" }
 func (f transportFailure) Unwrap() error       { return f.cause }
 func (f transportFailure) ProblemCode() string { return f.code }
-
-// finishingDurable reports running until its status has been read finishAfter
-// times, then succeeded.
-type finishingDurable struct {
-	testDurable
-	finishAfter int
-	reads       int
-}
-
-func (d *finishingDurable) Status(_ context.Context, _ mcpcontract.ToolCallContext, id string) (json.RawMessage, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.reads++
-	if d.finishAfter > 0 && d.reads >= d.finishAfter {
-		return json.RawMessage(`{"execution_id":"` + id + `","state":"succeeded","outcome":{"done":true}}`), nil
-	}
-	return json.RawMessage(`{"execution_id":"` + id + `","state":"running"}`), nil
-}
-
-func TestGatewayDurableWaitEndsAtAFinalStateOrItsOwnTimeout(t *testing.T) {
-	previous := durableWaitPoll
-	durableWaitPoll = time.Millisecond
-	t.Cleanup(func() { durableWaitPoll = previous })
-	durable := &finishingDurable{finishAfter: 3}
-	contexts := StaticAssertionVerifier{"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1"}}
-	handler, err := NewHandler(Config{Manifest: testManifest(), Verify: contexts, Dispatch: &testDispatcher{byName: map[string]mcpcontract.ToolOutcome{}}, Durable: durable})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-	session := connectTestClient(t, server.URL, "token")
-	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := advertisedSchema(t, tools.Tools, mcpcontract.WaitToolName)
-	call := func(arguments map[string]any) (*mcp.CallToolResult, map[string]any) {
-		t.Helper()
-		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: mcpcontract.WaitToolName, Arguments: arguments})
-		if err != nil {
-			t.Fatal(err)
-		}
-		value := structured(t, result)
-		if err := schema.Validate(value); err != nil {
-			t.Fatalf("wait result does not match its advertised schema: %v\n%#v", err, value)
-		}
-		return result, value.(map[string]any)
-	}
-	_, finished := call(map[string]any{"execution_id": "job-1", "timeout_ms": 5000})
-	wait := finished["value"].(map[string]any)
-	if wait["final"] != true || wait["timed_out"] != false || wait["status"].(map[string]any)["state"] != "succeeded" {
-		t.Fatalf("finished wait = %#v", wait)
-	}
-	durable.mu.Lock()
-	durable.finishAfter = 0
-	durable.mu.Unlock()
-	_, pending := call(map[string]any{"execution_id": "job-2", "timeout_ms": 5})
-	wait = pending["value"].(map[string]any)
-	if wait["final"] != false || wait["timed_out"] != true || wait["status"].(map[string]any)["state"] != "running" {
-		t.Fatalf("timed-out wait = %#v", wait)
-	}
-	refused, invalid := call(map[string]any{"execution_id": "job-3", "timeout_ms": 999999})
-	if !refused.IsError || invalid["problem"].(map[string]any)["code"] != string(errs.InvalidArgument) {
-		t.Fatalf("oversized timeout = %#v", invalid)
-	}
-}
-
-// stalledDurable makes either the first or a subsequent status read wait for cancellation.
-type stalledDurable struct {
-	testDurable
-	reads         int
-	initialStatus bool
-}
-
-func (d *stalledDurable) Status(ctx context.Context, _ mcpcontract.ToolCallContext, _ string) (json.RawMessage, error) {
-	d.reads++
-	if d.initialStatus && d.reads == 1 {
-		return json.RawMessage(`{"execution_id":"job","state":"running"}`), nil
-	}
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-func TestDurableWaitDeadlineIncludesStatusReads(t *testing.T) {
-	previous := durableWaitPoll
-	durableWaitPoll = time.Millisecond
-	t.Cleanup(func() { durableWaitPoll = previous })
-	for _, initial := range []bool{false, true} {
-		durable := &stalledDurable{initialStatus: initial}
-		gateway := &gateway{cfg: Config{Durable: durable}}
-		parent, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		value, err := gateway.waitDurable(parent, mcpcontract.ToolCallContext{}, "job", 5*time.Millisecond)
-		parentErr := parent.Err()
-		cancel()
-		if parentErr != nil {
-			t.Fatal("status read escaped the wait deadline")
-		}
-		if !initial {
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("uncaptured status = %s, %v", value, err)
-			}
-			continue
-		}
-		var result mcpcontract.ExecutionWait
-		if err != nil || json.Unmarshal(value, &result) != nil || !result.TimedOut || result.Final || len(result.Status) == 0 {
-			t.Fatalf("last known status = %s, %v", value, err)
-		}
-	}
-}

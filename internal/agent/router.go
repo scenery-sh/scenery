@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -55,19 +54,8 @@ func (s *Server) routerMux() http.Handler {
 				return
 			}
 			manifest := devDomainRouteManifest(session.RouteManifest, normalizeRouteRequestHost(host))
-			if len(manifest.PublicRoutes) > 0 {
-				if !publicRouteExposed(manifest, "runtime") && isPathModeRuntimePath(req.URL.Path) {
-					http.NotFound(w, req)
-					return
-				}
-				if !publicPathExposed(manifest, req.URL.Path) {
-					http.NotFound(w, req)
-					return
-				}
-				manifest = filterExposedRouteRecords(manifest)
-			}
 			if session.WorktreeProxy != nil {
-				// Exposure and verified domain ownership were checked above.
+				// Verified domain ownership was checked above.
 				// Forward the original path to its private runtime router, which
 				// owns frontend restarts, console and all backend selection.
 				s.proxyBackendWithOptions(w, req, *session.WorktreeProxy, proxyBackendOptions{baseURL: manifest.BaseURL})
@@ -95,11 +83,6 @@ func (s *Server) routeTargetForHost(host string) (Session, string, bool) {
 		return Session{}, "", false
 	}
 	return s.registry.RouteTargetForHost(host)
-}
-
-func (s *Server) hasRouteHost(host string) bool {
-	_, _, ok := s.routeTargetForHost(host)
-	return ok
 }
 
 func (s *Server) tlsAllowedHost(host string) bool {
@@ -217,38 +200,6 @@ func publicRouteKind(backend string) string {
 func sessionWithRouteManifest(session Session, manifest RouteManifest) Session {
 	session.RouteManifest = manifest
 	return session
-}
-
-func publicRouteExposed(manifest RouteManifest, name string) bool {
-	return slices.Contains(manifest.PublicRoutes, name)
-}
-
-func publicPathExposed(manifest RouteManifest, requestPath string) bool {
-	record, ok := routeForPath(manifest, requestPath)
-	return !ok || publicRouteExposed(manifest, record.Name)
-}
-
-func isPathModeRuntimePath(value string) bool {
-	value = cleanRequestPath(value)
-	return value == PathModeRuntimePrefix || strings.HasPrefix(value, PathModeRuntimePrefix+"/") || value == "/__scenery" || strings.HasPrefix(value, "/__scenery/")
-}
-
-// filterExposedRouteRecords drops route records not named by PublicRoutes so
-// the dev domain origin serves only the configured surface; the localhost
-// listener keeps the unfiltered manifest.
-func filterExposedRouteRecords(manifest RouteManifest) RouteManifest {
-	allowed := make(map[string]bool, len(manifest.PublicRoutes))
-	for _, name := range manifest.PublicRoutes {
-		allowed[name] = true
-	}
-	routes := make(map[string]RouteRecord, len(manifest.Routes))
-	for name, record := range manifest.Routes {
-		if allowed[name] {
-			routes[name] = record
-		}
-	}
-	manifest.Routes = routes
-	return manifest
 }
 
 // devDomainRouteManifest rebases a path-mode manifest onto the session's dev
@@ -454,7 +405,7 @@ func isBackendUnavailableError(err error) bool {
 
 func isFrontendSessionBackend(kind string) bool {
 	switch kind {
-	case "", RouteAPI, RouteDashboard, "removed-agent-transport":
+	case "", RouteAPI, RouteDashboard:
 		return false
 	default:
 		return true

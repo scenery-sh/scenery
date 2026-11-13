@@ -66,47 +66,6 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 	}
 }
 
-func TestTailLogsUsesStartOffsetAndSelfDescribingEntries(t *testing.T) {
-	t.Parallel()
-
-	var form url.Values
-	client := &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
-			t.Fatalf("request method/header: %s %v", r.Method, r.Header)
-		}
-		if r.URL.Path != "/select/logsql/tail" {
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm: %v", err)
-		}
-		form = r.Form
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"_time":"2026-06-08T10:00:00Z","message":"tailed"}` + "\n"))}, nil
-	})}
-
-	var entries []LogsTailEntry
-	err := tailLogsWithClient(context.Background(), client, LogsQuery{
-		BaseURL: "http://query.test",
-		Scope:   testScope(),
-		Query:   "*",
-		Bounds:  testBounds(),
-		Timeout: time.Second,
-	}, func(entry LogsTailEntry) error {
-		entries = append(entries, entry)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("TailLogs: %v", err)
-	}
-	if form.Get("start_offset") != "15m" || form.Get("start") != "" || form.Get("end") != "" {
-		t.Fatalf("unexpected tail form: %+v", form)
-	}
-	wantIdentity := NewPayloadIdentity(LogsTailEntryKind, "scope,backend,query,log")
-	if len(entries) != 1 || entries[0].Kind != wantIdentity.Kind || entries[0].SchemaRevision != wantIdentity.SchemaRevision || entries[0].Log.Message != "tailed" || entries[0].Scope.SessionID != "session-a" {
-		t.Fatalf("unexpected tail entries: %+v", entries)
-	}
-}
-
 func TestQueryMetricsAppliesExtraLabels(t *testing.T) {
 	t.Parallel()
 
@@ -149,43 +108,6 @@ func TestQueryMetricsAppliesExtraLabels(t *testing.T) {
 	}
 	if result.ResultType != "matrix" || len(result.Series) != 1 || len(result.Series[0].Values) != 1 {
 		t.Fatalf("unexpected result: %+v", result)
-	}
-}
-
-func TestMetricsLabelsAndSeriesDecodeCatalogs(t *testing.T) {
-	t.Parallel()
-
-	client := &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm: %v", err)
-		}
-		if r.Form.Get("match[]") != "scenery_request_duration_seconds" {
-			t.Fatalf("catalog match[] = %q", r.Form.Get("match[]"))
-		}
-		data := `["z","a"]`
-		switch r.URL.Path {
-		case "/prometheus/api/v1/labels":
-		case "/prometheus/api/v1/series":
-			data = `[{"__name__":"scenery_request_duration_seconds"}]`
-		default:
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"status":"success","data":` + data + `}`))}, nil
-	})}
-
-	labels, err := MetricsLabels(context.Background(), MetricsCatalogQuery{BaseURL: "http://metrics.test", client: client, Scope: testScope(), Bounds: testBounds(), Match: "scenery_request_duration_seconds", Limit: 10, Timeout: time.Second})
-	if err != nil {
-		t.Fatalf("MetricsLabels: %v", err)
-	}
-	if strings.Join(labels.Labels, ",") != "a,z" {
-		t.Fatalf("labels = %+v", labels.Labels)
-	}
-	series, err := MetricsSeries(context.Background(), MetricsCatalogQuery{BaseURL: "http://metrics.test", client: client, Scope: testScope(), Bounds: testBounds(), Match: "scenery_request_duration_seconds", Limit: 10})
-	if err != nil {
-		t.Fatalf("MetricsSeries: %v", err)
-	}
-	if len(series.Series) != 1 || series.Series[0]["__name__"] != "scenery_request_duration_seconds" {
-		t.Fatalf("series = %+v", series.Series)
 	}
 }
 

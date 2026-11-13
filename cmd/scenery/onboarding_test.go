@@ -19,13 +19,8 @@ func TestOnboardingArgumentErrorsAreActionableJSON(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{"materialize", func() error {
-			return runContractGenerate(io.Discard, []string{"--target", "contracts", "--materialize", "-o", "json"})
-		}, "has been removed"},
 		{"dry-run", func() error { return runContractGenerate(io.Discard, []string{"--dry-run", "-o", "json"}) }, "dry-run"},
 		{"unknown-target", func() error { return runContractGenerate(io.Discard, []string{"--target", "imaginary"}) }, "unknown generation target"},
-		{"check-merge", func() error { return runContractGenerate(io.Discard, []string{"--check", "--merge-editor-workspace"}) }, "has been removed"},
-		{"prune", func() error { return runContractGenerate(io.Discard, []string{"--prune-materialized-go"}) }, "has been removed"},
 		{"qualified-schema", func() error { return runContractSchema(io.Discard, []string{"execution", "-o", "json"}) }, "scenery schema scenery.execution"},
 		{"provider-usage", func() error { return runProviderLock(io.Discard, []string{"install"}) }, "provider lock"},
 	} {

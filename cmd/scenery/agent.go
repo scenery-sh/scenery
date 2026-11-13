@@ -23,18 +23,11 @@ import (
 type agentOptions struct {
 	SocketPath string
 	RouterAddr string
-	RouterTLS  bool
 	RouterHTTP bool
-	Trust      bool
 	JSON       bool
 	// Supervised is set by the launchd and systemd jobs; see
 	// containAgentStartFailure.
 	Supervised bool
-}
-
-type agentCleanupOptions struct {
-	RemoveState bool
-	JSON        bool
 }
 
 type statusOptions struct {
@@ -92,14 +85,8 @@ type pruneResponse struct {
 }
 
 func agentCommand(args []string) error {
-	if len(args) > 0 && args[0] == "serve" {
-		return runContractAgentServer(os.Stdin, os.Stdout, args)
-	}
 	if len(args) > 0 && args[0] == "restart" {
 		return agentRestartCommand(args[1:])
-	}
-	if len(args) > 0 && args[0] == "cleanup" {
-		return agentCleanupCommand(args[1:])
 	}
 	opts, err := parseAgentArgs(args)
 	if err != nil {
@@ -138,23 +125,16 @@ func startAgentServer(ctx context.Context, opts agentOptions) (func() error, err
 		if opts.SocketPath != "" {
 			paths.SocketPath = opts.SocketPath
 		}
-		routerTLS := opts.effectiveRouterTLS()
-		routerScheme := "http"
-		if routerTLS {
-			routerScheme = "https"
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "{\"type\":\"agent.start\",\"socket_path\":%q,\"router_addr\":%q,\"router_scheme\":%q}\n", paths.SocketPath, firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()), routerScheme)
+		_, _ = fmt.Fprintf(os.Stdout, "{\"type\":\"agent.start\",\"socket_path\":%q,\"router_addr\":%q,\"router_scheme\":%q}\n", paths.SocketPath, firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()), "http")
 	}
 	dashboardAddr, err := freeLoopbackAddr()
 	if err != nil {
 		return nil, err
 	}
 	server, err := localagent.NewServer(localagent.RunOptions{
-		Home:         paths.Home,
-		SocketPath:   opts.SocketPath,
-		RouterAddr:   opts.RouterAddr,
-		RouterTLS:    opts.effectiveRouterTLS(),
-		InstallTrust: opts.Trust,
+		Home:       paths.Home,
+		SocketPath: opts.SocketPath,
+		RouterAddr: opts.RouterAddr,
 		DashboardBackend: localagent.Backend{
 			Network: "tcp",
 			Addr:    dashboardAddr,
@@ -315,9 +295,7 @@ func agentRestartCommand(args []string) error {
 		logOffset := fileSize(paths.LogPath)
 		if err := localagent.StartProcess(paths, localagent.StartOptions{
 			RouterAddr: opts.RouterAddr,
-			RouterTLS:  opts.effectiveRouterTLS(),
 			RouterHTTP: opts.RouterHTTP,
-			Trust:      opts.Trust,
 		}); err != nil {
 			return err
 		}
@@ -418,9 +396,7 @@ func parseAgentArgs(args []string) (agentOptions, error) {
 	flags := newCLIFlagSet("agent")
 	flags.StringVar(&opts.SocketPath, "socket", "", "")
 	flags.StringVar(&opts.RouterAddr, "router-listen", "", "")
-	flags.BoolFunc("router-tls", "", func(string) error { opts.RouterTLS, opts.RouterHTTP = true, false; return nil })
-	flags.BoolFunc("router-http", "", func(string) error { opts.RouterHTTP, opts.RouterTLS = true, false; return nil })
-	flags.BoolFunc("trust", "", func(string) error { opts.Trust, opts.RouterTLS, opts.RouterHTTP = true, true, false; return nil })
+	flags.BoolVar(&opts.RouterHTTP, "router-http", false, "")
 	flags.BoolVar(&opts.Supervised, "supervised", false, "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
@@ -431,10 +407,6 @@ func parseAgentArgs(args []string) (agentOptions, error) {
 		return agentOptions{}, err
 	}
 	return opts, nil
-}
-
-func (opts agentOptions) effectiveRouterTLS() bool {
-	return opts.Trust || opts.RouterTLS
 }
 
 func currentAgentHealth(ctx context.Context, client *localagent.Client) (localagent.HealthResponse, bool) {

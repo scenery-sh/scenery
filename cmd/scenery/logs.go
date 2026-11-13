@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +29,6 @@ type logsOptions struct {
 	Grep     string
 	Since    time.Duration
 	SinceRaw string
-	TUI      bool
 }
 
 type logsEvent struct {
@@ -52,59 +50,13 @@ type logsEvent struct {
 }
 
 func logsCommand(args []string) error {
-	if len(args) > 0 {
-		switch args[0] {
-		case "query":
-			return runLogsQueryCommand(context.Background(), os.Stdout, args[1:])
-		case "tail":
-			return runLogsTailCommand(context.Background(), os.Stdout, args[1:])
-		}
+	if len(args) > 0 && args[0] == "query" {
+		return runLogsQueryCommand(context.Background(), os.Stdout, args[1:])
 	}
 	return runSceneryLogsFunc(context.Background(), os.Stdout, args)
 }
 
 var runSceneryLogsFunc = runSceneryLogs
-
-func consoleCommand(args []string) error {
-	opts, err := parseLogsArgs(args)
-	if err != nil {
-		return err
-	}
-	opts.TUI = true
-	return runSceneryConsoleOrFallback(context.Background(), os.Stdin, os.Stdout, opts)
-}
-
-func logArgsFromOptions(opts logsOptions, follow bool) []string {
-	out := []string{"--limit", strconv.Itoa(opts.Limit), "--stream", opts.Stream}
-	if follow {
-		out = append([]string{"--follow"}, out...)
-	}
-	if opts.AppRoot != "" {
-		out = append(out, "--app-root", opts.AppRoot)
-	}
-	if opts.Session != "" {
-		out = append(out, "--session", opts.Session)
-	}
-	if opts.JSONL {
-		out = append(out, "-o", "jsonl")
-	}
-	if opts.Source != "" {
-		out = append(out, "--source", opts.Source)
-	}
-	if opts.Kind != "" {
-		out = append(out, "--kind", opts.Kind)
-	}
-	if opts.Level != "" {
-		out = append(out, "--level", opts.Level)
-	}
-	if opts.Grep != "" {
-		out = append(out, "--grep", opts.Grep)
-	}
-	if opts.SinceRaw != "" {
-		out = append(out, "--since", opts.SinceRaw)
-	}
-	return out
-}
 
 func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error {
 	opts, err := parseLogsArgs(args)
@@ -218,7 +170,6 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
 	flags.BoolVar(&opts.Follow, "follow", false, "")
 	registerJSONLinesOutput(flags, &opts.JSONL)
-	flags.BoolVar(&opts.TUI, "tui", false, "")
 	flags.StringVar(&stream, "stream", stream, "")
 	flags.StringVar(&opts.Session, "session", "", "")
 	flags.StringVar(&opts.Source, "source", "", "")

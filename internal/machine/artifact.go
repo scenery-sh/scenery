@@ -80,13 +80,6 @@ func ValidateArtifactIdentity(identity ArtifactIdentity, kind string, schemaDesc
 	return nil
 }
 
-// UsesCurrentSpec reports whether an artifact was produced under the current
-// revision scheme. Durable apply paths use it to distinguish required
-// re-planning from ordinary malformed-artifact failures.
-func UsesCurrentSpec(identity ArtifactIdentity) bool {
-	return identity.SpecRevision == string(spec.CurrentRevision())
-}
-
 func isCanonicalDigest(value string) bool {
 	if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 {
 		return false

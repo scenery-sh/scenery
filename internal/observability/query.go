@@ -10,19 +10,14 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	InspectObservabilityKind = "scenery.inspect.observability"
-	LogsQueryKind            = "scenery.logs.query"
-	LogsTailEntryKind        = "scenery.logs.tail.entry"
-	MetricsQueryKind         = "scenery.metrics.query"
-	MetricsLabelsKind        = "scenery.metrics.labels"
-	MetricsSeriesKind        = "scenery.metrics.series"
+	LogsQueryKind    = "scenery.logs.query"
+	MetricsQueryKind = "scenery.metrics.query"
 )
 
 type PayloadIdentity struct {
@@ -32,12 +27,8 @@ type PayloadIdentity struct {
 
 func NewPayloadIdentity(kind, _ string) PayloadIdentity {
 	revisions := map[string]string{
-		InspectObservabilityKind: "sha256:d4a30b220fd68c3155a257fdbfdece6d58ecf9f6c851fa569f7eacfe9ed7f5aa",
-		LogsQueryKind:            "sha256:d863e3f48e9645e48e8fd1188f50e11a180da452e771868b378d6e5a170cf69b",
-		LogsTailEntryKind:        "sha256:17abdfc0a0061a4e2d712621561b7dfb90e443a64beeba86de111ba2e7db887a",
-		MetricsQueryKind:         "sha256:59ed52449eeb10a9ebcba329f6399917ef3bf1d425ab9d3c4eacaebed730ed6b",
-		MetricsLabelsKind:        "sha256:3ada3931f5afdb8a340d4fc2318613297632bae6646c2218df34ec3b98d22482",
-		MetricsSeriesKind:        "sha256:ccb53b231affc674aa36da784d17aa57f6ed5d9425127327ddace8983d00bb39",
+		LogsQueryKind:    "sha256:56c91a3d7193c11445dfd09cfc6e98ed3fa4a9c1ac1f4f5042b3ee73d811c9b1",
+		MetricsQueryKind: "sha256:a4583fb699388059b33c0f15cc24b547b698a8454521c27cc922ee182383dfae",
 	}
 	return PayloadIdentity{Kind: kind, SchemaRevision: revisions[kind]}
 }
@@ -64,7 +55,6 @@ type QueryBackend struct {
 	BaseURL   string `json:"base_url,omitempty"`
 	Ready     bool   `json:"ready"`
 	QueryPath string `json:"query_path,omitempty"`
-	TailPath  string `json:"tail_path,omitempty"`
 }
 
 type LogsQuery struct {
@@ -106,14 +96,6 @@ type LogsQueryResult struct {
 	Query    LogsQueryRecord `json:"query"`
 	Warnings []string        `json:"warnings,omitempty"`
 	Logs     []LogEntry      `json:"logs"`
-}
-
-type LogsTailEntry struct {
-	PayloadIdentity
-	Scope   QueryScope      `json:"scope"`
-	Backend QueryBackend    `json:"backend"`
-	Query   LogsQueryRecord `json:"query"`
-	Log     LogEntry        `json:"log"`
 }
 
 type MetricsQuery struct {
@@ -161,44 +143,6 @@ type MetricsQueryResult struct {
 	Series     []MetricSeries     `json:"series"`
 }
 
-type MetricsCatalogQuery struct {
-	BaseURL  string
-	Scope    QueryScope
-	Bounds   TimeBounds
-	Match    string
-	Limit    int
-	Timeout  time.Duration
-	Warnings []string
-	client   *http.Client
-}
-
-type MetricsCatalogRecord struct {
-	Match   string `json:"match,omitempty"`
-	Since   string `json:"since,omitempty"`
-	Start   string `json:"start"`
-	End     string `json:"end"`
-	Timeout string `json:"timeout,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-}
-
-type MetricsLabelsResult struct {
-	PayloadIdentity
-	Scope    QueryScope           `json:"scope"`
-	Backend  QueryBackend         `json:"backend"`
-	Query    MetricsCatalogRecord `json:"query"`
-	Warnings []string             `json:"warnings,omitempty"`
-	Labels   []string             `json:"labels"`
-}
-
-type MetricsSeriesResult struct {
-	PayloadIdentity
-	Scope    QueryScope           `json:"scope"`
-	Backend  QueryBackend         `json:"backend"`
-	Query    MetricsCatalogRecord `json:"query"`
-	Warnings []string             `json:"warnings,omitempty"`
-	Series   []map[string]string  `json:"series"`
-}
-
 func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 	return queryLogsWithClient(ctx, nil, q)
 }
@@ -227,30 +171,6 @@ func queryLogsWithClient(ctx context.Context, client *http.Client, q LogsQuery) 
 	}
 	result.Logs = normalizeLogRows(rows, q.Fields, q.Limit)
 	return result, nil
-}
-
-func TailLogs(ctx context.Context, q LogsQuery, emit func(LogsTailEntry) error) error {
-	return tailLogsWithClient(ctx, nil, q, emit)
-}
-
-func tailLogsWithClient(ctx context.Context, client *http.Client, q LogsQuery, emit func(LogsTailEntry) error) error {
-	if strings.TrimSpace(q.BaseURL) == "" {
-		return fmt.Errorf("VictoriaLogs is unavailable")
-	}
-	record := logsQueryRecord(q)
-	return streamLogs(ctx, client, q.BaseURL, "/select/logsql/tail", logTailValues(q), func(row map[string]any) error {
-		entries := normalizeLogRows([]map[string]any{row}, q.Fields, 1)
-		if len(entries) == 0 {
-			return nil
-		}
-		return emit(LogsTailEntry{
-			PayloadIdentity: NewPayloadIdentity(LogsTailEntryKind, "scope,backend,query,log"),
-			Scope:           q.Scope,
-			Backend:         logsBackend(q.BaseURL),
-			Query:           record,
-			Log:             entries[0],
-		})
-	})
 }
 
 func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, error) {
@@ -301,75 +221,8 @@ func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, erro
 	return result, nil
 }
 
-func MetricsLabels(ctx context.Context, q MetricsCatalogQuery) (MetricsLabelsResult, error) {
-	result := MetricsLabelsResult{
-		PayloadIdentity: NewPayloadIdentity(MetricsLabelsKind, "scope,backend,query,warnings,labels"),
-		Scope:           q.Scope,
-		Backend:         metricsBackend(q.BaseURL),
-		Query:           metricsCatalogRecord(q),
-		Warnings:        append([]string(nil), q.Warnings...),
-		Labels:          []string{},
-	}
-	if strings.TrimSpace(q.BaseURL) == "" {
-		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")
-		return result, nil
-	}
-	if q.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
-		defer cancel()
-	}
-	values := catalogValues(q)
-	if q.Match != "" {
-		values.Add("match[]", q.Match)
-	}
-	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, "/prometheus/api/v1/labels", values)
-	if err != nil {
-		return MetricsLabelsResult{}, err
-	}
-	result.Labels, err = normalizeMetricCatalogLabels(payload.Data.Catalog, q.Limit)
-	if err != nil {
-		return MetricsLabelsResult{}, err
-	}
-	sort.Strings(result.Labels)
-	return result, nil
-}
-
-func MetricsSeries(ctx context.Context, q MetricsCatalogQuery) (MetricsSeriesResult, error) {
-	result := MetricsSeriesResult{
-		PayloadIdentity: NewPayloadIdentity(MetricsSeriesKind, "scope,backend,query,warnings,series"),
-		Scope:           q.Scope,
-		Backend:         metricsBackend(q.BaseURL),
-		Query:           metricsCatalogRecord(q),
-		Warnings:        append([]string(nil), q.Warnings...),
-		Series:          []map[string]string{},
-	}
-	if strings.TrimSpace(q.BaseURL) == "" {
-		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")
-		return result, nil
-	}
-	if q.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
-		defer cancel()
-	}
-	values := catalogValues(q)
-	if q.Match != "" {
-		values.Add("match[]", q.Match)
-	}
-	payload, err := fetchMetricsWithClient(ctx, q.client, q.BaseURL, "/prometheus/api/v1/series", values)
-	if err != nil {
-		return MetricsSeriesResult{}, err
-	}
-	result.Series, err = normalizeMetricCatalogSeries(payload.Data.Catalog, q.Limit)
-	if err != nil {
-		return MetricsSeriesResult{}, err
-	}
-	return result, nil
-}
-
 func logsBackend(baseURL string) QueryBackend {
-	return QueryBackend{Kind: "victorialogs", Dialect: "LogsQL", BaseURL: baseURL, Ready: strings.TrimSpace(baseURL) != "", QueryPath: "/select/logsql/query", TailPath: "/select/logsql/tail"}
+	return QueryBackend{Kind: "victorialogs", Dialect: "LogsQL", BaseURL: baseURL, Ready: strings.TrimSpace(baseURL) != "", QueryPath: "/select/logsql/query"}
 }
 
 func metricsBackend(baseURL string) QueryBackend {
@@ -383,21 +236,6 @@ func logValues(q LogsQuery) url.Values {
 	values.Set("end", formatVictoriaTime(q.Bounds.End))
 	if q.Limit > 0 {
 		values.Set("limit", strconv.Itoa(q.Limit))
-	}
-	if q.Timeout > 0 {
-		values.Set("timeout", q.Timeout.String())
-	}
-	for _, filter := range logScopeFilters(q.Scope) {
-		values.Add("extra_filters", filter)
-	}
-	return values
-}
-
-func logTailValues(q LogsQuery) url.Values {
-	values := url.Values{}
-	values.Set("query", q.Query)
-	if q.Bounds.Since != "" {
-		values.Set("start_offset", q.Bounds.Since)
 	}
 	if q.Timeout > 0 {
 		values.Set("timeout", q.Timeout.String())
@@ -566,14 +404,6 @@ func addMetricScope(values url.Values, scope QueryScope) {
 	}
 }
 
-func catalogValues(q MetricsCatalogQuery) url.Values {
-	values := url.Values{}
-	values.Set("start", formatVictoriaTime(q.Bounds.Start))
-	values.Set("end", formatVictoriaTime(q.Bounds.End))
-	addMetricScope(values, q.Scope)
-	return values
-}
-
 func fetchMetricsWithClient(ctx context.Context, client *http.Client, baseURL, path string, values url.Values) (victoriaMetricsResponse, error) {
 	if client == nil {
 		client = http.DefaultClient
@@ -614,7 +444,6 @@ type victoriaMetricsResponse struct {
 type victoriaMetricsData struct {
 	ResultType string
 	Result     []victoriaMetricResult
-	Catalog    []json.RawMessage
 }
 
 func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
@@ -631,7 +460,8 @@ func (d *victoriaMetricsData) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	}
-	return json.Unmarshal(data, &d.Catalog)
+	var other []json.RawMessage
+	return json.Unmarshal(data, &other)
 }
 
 type victoriaMetricResult struct {
@@ -749,17 +579,6 @@ func metricsQueryRecord(q MetricsQuery) MetricsQueryRecord {
 	record.Start = q.Bounds.Start.UTC().Format(time.RFC3339Nano)
 	record.Step = q.Step.String()
 	return record
-}
-
-func metricsCatalogRecord(q MetricsCatalogQuery) MetricsCatalogRecord {
-	return MetricsCatalogRecord{
-		Match:   q.Match,
-		Since:   q.Bounds.Since,
-		Start:   q.Bounds.Start.UTC().Format(time.RFC3339Nano),
-		End:     q.Bounds.End.UTC().Format(time.RFC3339Nano),
-		Timeout: durationString(q.Timeout),
-		Limit:   q.Limit,
-	}
 }
 
 func durationString(d time.Duration) string {

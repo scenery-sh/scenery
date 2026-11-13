@@ -36,8 +36,7 @@ func compileSQLContract(root string) (*compiler.Result, error) {
 // SQL supply validation is pure and always precedes the allocation owner. An
 // external or attached declaration never grants implicit provisioning authority.
 func resolveSQLSupply(requirements compiler.SQLRequirements, env []string, allowManaged bool) ([]compiler.SQLBinding, error) {
-	remoteDurable := lookupEnvValue(env, "SCENERY_DURABLE_ENDPOINT") != ""
-	bindings := requirements.Bindings(remoteDurable)
+	bindings := requirements.Bindings()
 	if len(bindings) == 0 {
 		return bindings, nil
 	}
@@ -51,9 +50,6 @@ func resolveSQLSupply(requirements compiler.SQLRequirements, env []string, allow
 		return nil, &codedCLIError{code: 3, err: fmt.Errorf("app SQL requirements need an external database for scenery worker; configure %s for the selected environment; managed PostgreSQL is a scenery up development capability", appconfig.SQLDatabaseURLKey)}
 	}
 	for _, requirement := range requirements {
-		if remoteDurable && requirement.Kind == compiler.SQLDurable {
-			continue
-		}
 		if requirement.Lifecycle != "managed" {
 			return nil, &codedCLIError{code: 3, err: fmt.Errorf("SQL requirement %s has lifecycle %q, which does not authorize managed provisioning; configure %s for the environment or intentionally declare managed lifecycle in source", requirement.Address, requirement.Lifecycle, appconfig.SQLDatabaseURLKey)}
 		}

@@ -302,7 +302,7 @@ func TestAssistantMCPManifestRegistrationIsStrictAndDependsOnFederation(t *testi
 	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
-	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}, Connections: []mcpcontract.Connection{}}
+	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -347,7 +347,7 @@ func TestAssistantMCPGatewayInitializesAfterFederationBeforeHelperBootstrap(t *t
 	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
-	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}, Connections: []mcpcontract.Connection{}}
+	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -379,7 +379,7 @@ func TestAssistantMCPGatewayStartsAndStopsInAppChild(t *testing.T) {
 	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
-	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}, Connections: []mcpcontract.Connection{}}
+	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -527,7 +527,7 @@ func TestAssistantMCPGatewayFailureLeavesAssistantNeutral(t *testing.T) {
 	if err := RegisterNativeService(NativeServiceRegistration{Address: "app/mcp_server/support", Initialize: func(context.Context) error { return nil }}); err != nil {
 		t.Fatal(err)
 	}
-	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}, Connections: []mcpcontract.Connection{}}
+	manifest := mcpcontract.Manifest{Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "capability-1", Capabilities: []mcpcontract.Capability{}}
 	encoded, err := mcpcontract.MarshalCanonical(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -609,7 +609,7 @@ func TestSwapAssistantClientsChangesAllAssistantsAsOneGeneration(t *testing.T) {
 
 func registerTestAssistant(t *testing.T, address, name string) {
 	t.Helper()
-	if err := RegisterAssistantChecked(AssistantRegistration{Address: address, Name: name, Path: "/assistants/" + name, Access: Public, AssistantAddress: address, RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"}); err != nil {
+	if err := RegisterAssistantChecked(AssistantRegistration{Address: address, Name: name, Path: "/assistants/" + name, Access: Auth, AssistantAddress: address, RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -658,11 +658,11 @@ func TestAssistantTokenKeyFilePersistsHandlesAcrossRegistrationRestart(t *testin
 	}
 	t.Setenv(AssistantTokenKeyEnv, "")
 	t.Setenv(AssistantTokenKeyFileEnv, keyPath)
-	first, _, err := normalizeAssistantRegistration(AssistantRegistration{Address: "app/assistant/support", Name: "support", Path: "/assistants/support", Access: Public, AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"})
+	first, _, err := normalizeAssistantRegistration(AssistantRegistration{Address: "app/assistant/support", Name: "support", Path: "/assistants/support", Access: Auth, AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.TokenManager.Keys == nil || len(first.InitiatorSigner.Key) != 32 {
+	if first.TokenManager.Keys == nil {
 		t.Fatal("persistent token key was not loaded")
 	}
 	claims := assistanttoken.ConversationClaims{AssistantAddress: "app/assistant/support", OwnerDigest: assistanttoken.OwnerDigest("owner"), ConversationDigest: assistanttoken.ConversationDigest("conversation"), PrivateSessionID: "session", ContinuationToken: "continuation"}
@@ -670,7 +670,7 @@ func TestAssistantTokenKeyFilePersistsHandlesAcrossRegistrationRestart(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := normalizeAssistantRegistration(AssistantRegistration{Address: "app/assistant/support", Name: "support", Path: "/assistants/support", Access: Public, AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"})
+	second, _, err := normalizeAssistantRegistration(AssistantRegistration{Address: "app/assistant/support", Name: "support", Path: "/assistants/support", Access: Auth, AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,11 +688,11 @@ func TestAssistantTokenKeyInvalidFileFailsClosedWithoutRandomFallback(t *testing
 	}
 	t.Setenv(AssistantTokenKeyEnv, "")
 	t.Setenv(AssistantTokenKeyFileEnv, keyPath)
-	registration, _, err := normalizeAssistantRegistration(AssistantRegistration{Address: "app/assistant/support", Name: "support", Path: "/assistants/support", Access: Public, AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"})
+	registration, _, err := normalizeAssistantRegistration(AssistantRegistration{Address: "app/assistant/support", Name: "support", Path: "/assistants/support", Access: Auth, AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if registration.TokenManager.Keys != nil || len(registration.InitiatorSigner.Key) != 0 {
+	if registration.TokenManager.Keys != nil {
 		t.Fatal("invalid configured key unexpectedly enabled a fallback key")
 	}
 	if err := os.Chmod(keyPath, 0o644); err != nil {

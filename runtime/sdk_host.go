@@ -89,20 +89,12 @@ func (sdkHost) EncodeJSON(status int, value any) (appsdk.Response, error) {
 	return appsdk.Response{Status: response.Status, Headers: response.Headers, Body: response.Body}, err
 }
 
-func (sdkHost) DurableSignal(ctx context.Context, service, jobID, name, dedupeKey string, payload []byte) error {
-	return DurableSignal(ctx, service, jobID, name, dedupeKey, payload)
-}
-
 func (sdkHost) FrameworkConfigSecret(key string) ([]byte, bool, error) {
 	return FrameworkConfigSecret(key)
 }
 
 func (sdkHost) FrameworkConfigString(key string) (string, bool, error) {
 	return FrameworkConfigString(key)
-}
-
-func (sdkHost) DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) ([]byte, error) {
-	return DurableStep(ctx, key, run)
 }
 
 func (sdkHost) TraceStorageOperation(ctx context.Context, store, operation string) (context.Context, func(int64, error)) {

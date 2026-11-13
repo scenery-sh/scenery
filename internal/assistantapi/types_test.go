@@ -1,36 +1,11 @@
 package assistantapi
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestPublicIdentityAndCreateResponse(t *testing.T) {
-	response, err := NewCreateConversationResponse([]byte{0xab, 0xcd}, "/assistants/support/v1/conversations/conv1_abcd/events", bytes.NewReader(bytes.Repeat([]byte{0x11}, 16)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.ConversationID != "conv1_abcd" || response.RunID != "run_"+strings.Repeat("11", 16) {
-		t.Fatalf("response ids = %#v", response)
-	}
-	encoded, err := MarshalCreateConversationResponse(response)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "kind") || strings.Contains(string(encoded), "schema_revision") {
-		t.Fatalf("public response leaked machine envelope fields: %s", encoded)
-	}
-	decoded, err := DecodeCreateConversationResponse(encoded)
-	if err != nil || decoded != response {
-		t.Fatalf("response round trip = %#v, %v", decoded, err)
-	}
-	if _, err := ConversationEventsURL("support", response.ConversationID); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestStrictPublicRequestsAndErrors(t *testing.T) {
 	request, err := DecodeCreateConversationRequest([]byte(`{"message":{"role":"user","content":"hello"}}`))
@@ -230,9 +205,13 @@ func TestStrictEventEnvelopeAndCursorResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := EncodeNDJSON([]Event{first, second})
-	if err != nil {
-		t.Fatal(err)
+	var encoded []byte
+	for _, event := range []Event{first, second} {
+		line, err := MarshalEvent(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded = append(append(encoded, line...), '\n')
 	}
 	if strings.Contains(string(encoded), "kind") || strings.Contains(string(encoded), "schema_revision") {
 		t.Fatalf("event envelope has unexpected machine fields: %s", encoded)

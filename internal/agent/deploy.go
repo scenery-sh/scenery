@@ -12,8 +12,6 @@ import (
 	"scenery.sh/internal/machine"
 )
 
-const legacyDeployRegistrySchemaVersion = "scenery.deploy.registry.v1"
-
 type DeployRegistry struct {
 	machine.ArtifactIdentity
 	ACMEEmail string         `json:"acme_email,omitempty"`
@@ -66,9 +64,7 @@ func LoadDeployRegistry(path string) (DeployRegistry, error) {
 		return DeployRegistry{}, err
 	}
 	var registry DeployRegistry
-	if err := LoadDurableArtifact(path, &registry, &registry.ArtifactIdentity, DeployRegistryKind, deployRegistrySchemaDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
-		return requireLegacySchemaOrMissing(fields, legacyDeployRegistrySchemaVersion)
-	}); err != nil {
+	if err := LoadDurableArtifact(path, &registry, &registry.ArtifactIdentity, DeployRegistryKind, deployRegistrySchemaDescriptor, 0o600); err != nil {
 		return DeployRegistry{}, err
 	}
 	if registry.ACMECA == "" {

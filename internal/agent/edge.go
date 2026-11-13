@@ -32,11 +32,9 @@ func ReadCurrentEdgeState(path string) (EdgeState, error) {
 }
 
 const (
-	legacyEdgeSchemaVersion       = "scenery.edge.state.v1"
-	legacyEdgeTargetSchemaVersion = "scenery.edge.target.v1"
-	EdgeKindCaddy                 = "caddy"
-	EdgeStatusRunning             = "running"
-	EdgeStatusStopped             = "stopped"
+	EdgeKindCaddy     = "caddy"
+	EdgeStatusRunning = "running"
+	EdgeStatusStopped = "stopped"
 )
 
 func LoadEdgeState(path string) (EdgeState, error) {
@@ -48,13 +46,7 @@ func LoadEdgeState(path string) (EdgeState, error) {
 		return EdgeState{}, err
 	}
 	var state EdgeState
-	if err := LoadDurableArtifact(path, &state, &state.ArtifactIdentity, EdgeStateKind, edgeStateSchemaDescriptor, 0o644, func(fields map[string]json.RawMessage) error {
-		if err := requireLegacySchemaOrMissing(fields, legacyEdgeSchemaVersion); err != nil {
-			return err
-		}
-		renameLegacyField(fields, "kind", "edge_kind")
-		return nil
-	}); err != nil {
+	if err := LoadDurableArtifact(path, &state, &state.ArtifactIdentity, EdgeStateKind, edgeStateSchemaDescriptor, 0o644); err != nil {
 		return EdgeState{}, err
 	}
 	state.Kind = sanitizeLabel(state.Kind)
@@ -88,13 +80,7 @@ func LoadEdgeTargetState(path string) (EdgeTargetState, error) {
 		return EdgeTargetState{}, err
 	}
 	var state EdgeTargetState
-	if err := LoadDurableArtifact(path, &state, &state.ArtifactIdentity, EdgeTargetKind, edgeTargetSchemaDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
-		if err := requireLegacySchemaOrMissing(fields, legacyEdgeTargetSchemaVersion); err != nil {
-			return err
-		}
-		renameLegacyField(fields, "kind", "edge_kind")
-		return nil
-	}); err != nil {
+	if err := LoadDurableArtifact(path, &state, &state.ArtifactIdentity, EdgeTargetKind, edgeTargetSchemaDescriptor, 0o600); err != nil {
 		return EdgeTargetState{}, err
 	}
 	state.Kind = sanitizeLabel(state.Kind)

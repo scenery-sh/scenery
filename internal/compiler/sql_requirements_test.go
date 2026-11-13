@@ -44,7 +44,7 @@ func TestSQLRequirementsPreserveBindingsAndModuleIdentity(t *testing.T) {
 	if got[1].Schema != "billing_data" || got[1].Lifecycle != "external" || got[1].Consumers[0] != "second/service/api" {
 		t.Fatalf("second instance collapsed: %+v", got[1])
 	}
-	if bindings := got.Bindings(false); !reflect.DeepEqual(bindings, []SQLBinding{{Name: "billing-data", Schema: "billing_data"}, {Name: "orders", Schema: "orders"}}) {
+	if bindings := got.Bindings(); !reflect.DeepEqual(bindings, []SQLBinding{{Name: "billing-data", Schema: "billing_data"}, {Name: "orders", Schema: "orders"}}) {
 		t.Fatalf("bindings=%+v", bindings)
 	}
 	for _, service := range RuntimeServices(resources) {
@@ -92,12 +92,8 @@ func TestSQLRequirementsFrameworkAndUnusedCapabilities(t *testing.T) {
 	if got[0].Address != "app/execution_engine/tasks" || got[0].Consumers[0] != "app/execution/task" || got[1].ConfigPath != ".scenery.json#auth.enabled" {
 		t.Fatalf("framework provenance=%+v", got)
 	}
-	if len(got.Bindings(false)) != 1 || len(got.Bindings(true)) != 1 {
-		t.Fatalf("auth must retain reserved SQL even with a remote durable endpoint: %+v", got)
-	}
-	got, diagnostics = ProjectSQLRequirements(resources, false)
-	if len(diagnostics) != 0 || len(got) != 1 || len(got.Bindings(true)) != 0 {
-		t.Fatalf("remote durable-only program needs no local SQL: %+v %+v", got, diagnostics)
+	if len(got.Bindings()) != 1 {
+		t.Fatalf("framework requirements must share one reserved SQL binding: %+v", got)
 	}
 	resources = resources[:len(resources)-1]
 	got, diagnostics = ProjectSQLRequirements(resources, false)

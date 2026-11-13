@@ -1,8 +1,9 @@
 package spec
 
-import "slices"
-
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestMCPAndAssistantResourceSchemas(t *testing.T) {
 	tests := []struct {
@@ -11,7 +12,6 @@ func TestMCPAndAssistantResourceSchemas(t *testing.T) {
 		revision string
 		required []string
 	}{
-		{kind: "scenery.mcp-connection", block: "mcp_connection", revision: "deployment", required: []string{"transport", "url", "auth", "connect_timeout", "call_timeout"}},
 		{kind: "scenery.mcp-server", block: "mcp_server", revision: "contract", required: []string{"capability", "max_input_bytes", "max_result_bytes"}},
 		{kind: "scenery.assistant", block: "assistant", revision: "contract", required: []string{"mcp_server", "implementation", "surface"}},
 	}
@@ -68,36 +68,7 @@ func TestMCPBindingSourceSchemaMetadata(t *testing.T) {
 	}
 }
 
-func TestMCPConnectionServerAndAssistantChildren(t *testing.T) {
-	connection, _ := ResourceSourceSchema("mcp_connection")
-	auth := connection.Children["auth"]
-	if auth.Repeatable || auth.Schema.Labels != 0 || !auth.Schema.Required["scheme"] {
-		t.Fatalf("mcp_connection auth shape = %#v", auth)
-	}
-	if got := auth.Schema.Attributes["secret"].Type["resource_ref"]; got != "scenery.secret" {
-		t.Errorf("mcp_connection auth.secret type = %#v", auth.Schema.Attributes["secret"].Type)
-	}
-	tools := connection.Children["tools"]
-	if tools.Repeatable || tools.Schema.Labels != 0 || tools.Schema.Required["allow"] || tools.Schema.Required["block"] {
-		t.Fatalf("mcp_connection tools shape = %#v", tools)
-	}
-	if got := tools.Schema.Attributes["allow"].Type["collection"]; got != "set" {
-		t.Errorf("mcp_connection tools.allow collection = %#v, want set", got)
-	}
-	if got := tools.Schema.Attributes["block"].Type["collection"]; got != "set" {
-		t.Errorf("mcp_connection tools.block collection = %#v, want set", got)
-	}
-	if got := AuthoredRevisionDomain(tools.Schema.Revision, "allow"); got != "contract" {
-		t.Errorf("mcp_connection tools.allow revision domain = %q, want contract", got)
-	}
-	if got, ok := ResourceFieldRevisionDomain("scenery.mcp-connection", "tools"); !ok || got != "contract" {
-		t.Errorf("mcp_connection tools parent revision domain = %q, %t; want contract", got, ok)
-	}
-	scheme := AuthoredAttributeDefinition("scenery.mcp-connection.auth", "scheme")
-	if values, ok := scheme.Constraints["enum"].([]string); !ok || !sameStrings(values, []string{"none", "bearer", "header"}) {
-		t.Errorf("mcp_connection auth.scheme enum = %#v", scheme.Constraints["enum"])
-	}
-
+func TestMCPServerAndAssistantChildren(t *testing.T) {
 	server, _ := ResourceSourceSchema("mcp_server")
 	capability := server.Children["capability"]
 	if !capability.Repeatable || capability.Ordered || capability.Schema.Labels != 1 {
@@ -135,13 +106,8 @@ func TestMCPConnectionServerAndAssistantChildren(t *testing.T) {
 	}
 }
 
-func TestAssistantMCPConditionalRequirementsAndDiagnostics(t *testing.T) {
-	conditions := AuthoredConditionalRequirements()
-	auth := conditions["scenery.mcp-connection.auth"]
-	if len(auth) != 2 || !containsString(auth[0].Required, "secret") || !containsString(auth[1].Required, "header") {
-		t.Fatalf("mcp auth conditional requirements = %#v", auth)
-	}
-	for _, code := range []string{"SCN2419", "SCN2420", "SCN2421", "SCN2422", "SCN2423", "SCN2424", "SCN2425", "SCN2426", "SCN2427", "SCN2428", "SCN2429", "SCN2430"} {
+func TestAssistantMCPDiagnostics(t *testing.T) {
+	for _, code := range []string{"SCN2419", "SCN2420", "SCN2421", "SCN2422", "SCN2423", "SCN2424", "SCN2425", "SCN2426", "SCN2427", "SCN2430"} {
 		definition, ok := DiagnosticDefinitionFor(code)
 		if !ok {
 			t.Errorf("diagnostic %s is missing", code)
@@ -165,4 +131,12 @@ func sameStrings(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+func ResourceSourceSchema(blockType string) (*SourceBlockSchema, bool) {
+	schema, ok := authoredResourceSourceSchema(blockType)
+	if !ok {
+		return nil, false
+	}
+	return cloneSourceBlockSchema(schema, map[*authoredBlockSchema]*authoredBlockSchema{}), true
 }

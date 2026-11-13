@@ -9,7 +9,7 @@ import (
 
 // deployCommandNames are the words `scenery deploy` reads as commands rather
 // than as an SSH target.
-var deployCommandNames = []string{"setup", "status", "enable", "disable", "publish", "resume", "teardown", "plan", "apply"}
+var deployCommandNames = []string{"setup", "status", "enable", "disable", "publish", "resume", "teardown"}
 
 // deployTargetTypoError refuses a deploy operand that is a misspelled deploy
 // command, such as `statsu`, instead of treating it as an SSH target. Only an

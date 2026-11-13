@@ -81,9 +81,6 @@ const tsRuntimeEncoding = `function encodeTypedValue(
   for (const property of Object.keys(value)) {
     if (!known.has(property) && property !== "unknownFields") invalid(§${path}.${property}§, "unknown record property");
   }
-/*__scenery_runtime_validation_start__*/
-  validateRecordRules(value, descriptor, registry, path);
-/*__scenery_runtime_validation_end__*/
   if (descriptor.preserveUnknown) {
     const unknown = value.unknownFields;
     if (unknown !== undefined) {

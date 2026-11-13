@@ -8,21 +8,8 @@ import (
 	"strings"
 )
 
-type ListOrganizationsResponse struct {
-	CurrentTenantID string                `json:"current_tenant_id"`
-	Sessions        []OrganizationSession `json:"sessions"`
-}
-
-type CreateOrganizationParams struct {
-	Name string `json:"name"`
-}
-
 type SwitchOrganizationParams struct {
 	TenantID string `json:"tenant_id"`
-}
-
-type UpdateOrganizationParams struct {
-	Name string `json:"name"`
 }
 
 type OrganizationMember struct {
@@ -59,96 +46,6 @@ type UpdateMemberRoleParams struct {
 
 type DisableMemberParams struct {
 	UserID string `json:"user_id"`
-}
-
-// ListOrganizations returns all active workspaces for the current user.
-func (s *Service) ListOrganizations(ctx context.Context) (*ListOrganizationsResponse, error) {
-	authData, err := currentAuthData()
-	if err != nil {
-		return nil, err
-	}
-	userID, err := parseUUID(string(authData.UserID))
-	if err != nil {
-		return nil, unauthenticated("invalid user id")
-	}
-	memberships, err := s.query.ListUserMemberships(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	sessions := make([]OrganizationSession, 0, len(memberships))
-	for _, membership := range memberships {
-		sessions = append(sessions, mapOrganization(membership))
-	}
-	return &ListOrganizationsResponse{
-		CurrentTenantID: strings.TrimSpace(string(authData.TenantID)),
-		Sessions:        sessions,
-	}, nil
-}
-
-// CreateOrganization creates a new first-party workspace owned by the current user.
-func (s *Service) CreateOrganization(ctx context.Context, params *CreateOrganizationParams) (*AuthBootstrapResponse, error) {
-	if params == nil || strings.TrimSpace(params.Name) == "" {
-		return nil, invalidArgument("name is required")
-	}
-	authData, err := currentAuthData()
-	if err != nil {
-		return nil, err
-	}
-	userID, err := parseUUID(string(authData.UserID))
-	if err != nil {
-		return nil, unauthenticated("invalid user id")
-	}
-
-	tx, q, err := s.beginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	user, err := q.GetUserByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if !user.EmailVerifiedAt.Valid {
-		return nil, failedPrecondition("email verification is required")
-	}
-	tenantID, err := newUUID()
-	if err != nil {
-		return nil, err
-	}
-	tenant, err := q.CreateTenant(ctx, authdb.CreateTenantParams{
-		ID:   tenantID,
-		Name: strings.TrimSpace(params.Name),
-	})
-	if err != nil {
-		return nil, err
-	}
-	membershipID, err := newUUID()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := q.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{
-		ID:       membershipID,
-		TenantID: tenant.ID,
-		UserID:   user.ID,
-		Role:     roleOwner,
-	}); err != nil {
-		return nil, err
-	}
-	session, err := s.sessionForAuthData(ctx, q, authData, tenant.ID)
-	if err != nil {
-		return nil, err
-	}
-	bootstrap, err := s.buildBootstrap(ctx, q, user, tenant.ID, session)
-	if err != nil {
-		return nil, err
-	}
-	s.recordEvent(ctx, q, "organization_created", user.ID, authdb.UUID{}, tenant.ID, session.ID, nil)
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return bootstrap, nil
 }
 
 // SwitchOrganization scopes the current session to another active workspace.
@@ -195,107 +92,6 @@ func (s *Service) SwitchOrganization(ctx context.Context, params *SwitchOrganiza
 		return nil, err
 	}
 	s.recordEvent(ctx, q, "organization_switched", user.ID, session.ActorUserID, tenantID, session.ID, nil)
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return bootstrap, nil
-}
-
-// UpdateOrganization renames a workspace. Owners only.
-func (s *Service) UpdateOrganization(ctx context.Context, tenantID string, params *UpdateOrganizationParams) (*AuthBootstrapResponse, error) {
-	if params == nil || strings.TrimSpace(params.Name) == "" {
-		return nil, invalidArgument("name is required")
-	}
-	authData, err := currentAuthData()
-	if err != nil {
-		return nil, err
-	}
-	tenantUUID, err := parseUUID(tenantID)
-	if err != nil {
-		return nil, invalidArgument("tenant_id is invalid")
-	}
-	userID, err := parseUUID(string(authData.UserID))
-	if err != nil {
-		return nil, unauthenticated("invalid user id")
-	}
-
-	tx, q, err := s.beginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	if err := s.requireOwner(ctx, q, userID, tenantUUID); err != nil {
-		return nil, err
-	}
-	if _, err := q.UpdateTenantName(ctx, authdb.UpdateTenantNameParams{ID: tenantUUID, Name: strings.TrimSpace(params.Name)}); err != nil {
-		return nil, err
-	}
-	user, err := q.GetUserByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	session, err := s.sessionForAuthData(ctx, q, authData, tenantUUID)
-	if err != nil {
-		return nil, err
-	}
-	bootstrap, err := s.buildBootstrap(ctx, q, user, tenantUUID, session)
-	if err != nil {
-		return nil, err
-	}
-	s.recordEvent(ctx, q, "organization_updated", user.ID, session.ActorUserID, tenantUUID, session.ID, nil)
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return bootstrap, nil
-}
-
-// DeleteOrganization soft-deletes a workspace. Owners only.
-func (s *Service) DeleteOrganization(ctx context.Context, tenantID string) (*AuthBootstrapResponse, error) {
-	authData, err := currentAuthData()
-	if err != nil {
-		return nil, err
-	}
-	tenantUUID, err := parseUUID(tenantID)
-	if err != nil {
-		return nil, invalidArgument("tenant_id is invalid")
-	}
-	userID, err := parseUUID(string(authData.UserID))
-	if err != nil {
-		return nil, unauthenticated("invalid user id")
-	}
-
-	tx, q, err := s.beginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	if err := s.requireOwner(ctx, q, userID, tenantUUID); err != nil {
-		return nil, err
-	}
-	if _, err := q.SoftDeleteTenant(ctx, tenantUUID); err != nil {
-		return nil, err
-	}
-	user, err := q.GetUserByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	nextTenant, err := s.ensureActiveTenant(ctx, q, user, authdb.UUID{})
-	if err != nil {
-		return nil, err
-	}
-	session, err := s.sessionForAuthData(ctx, q, authData, nextTenant)
-	if err != nil {
-		return nil, err
-	}
-	bootstrap, err := s.buildBootstrap(ctx, q, user, nextTenant, session)
-	if err != nil {
-		return nil, err
-	}
-	s.recordEvent(ctx, q, "organization_deleted", user.ID, session.ActorUserID, tenantUUID, session.ID, nil)
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -387,7 +183,6 @@ func (s *Service) InviteOrganizationMember(ctx context.Context, tenantID string,
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	_ = sendInviteEmail(ctx, displayEmail(params.Email), rawToken)
 	response := &InviteMemberResponse{OK: true, Email: displayEmail(params.Email)}
 	if isLocalRuntime() {
 		response.DevInviteToken = rawToken

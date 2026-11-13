@@ -493,3 +493,5 @@ func TestInstallDeployResumeLaunchAgentRejectsCompletedFailure(t *testing.T) {
 		t.Fatalf("install error = %v, want completed resume failure", err)
 	}
 }
+
+func intPtr(value int) *int { return &value }

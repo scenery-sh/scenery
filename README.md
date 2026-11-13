@@ -219,7 +219,6 @@ server.
 | `scenery up` | Build, start and watch the app with its database and frontends |
 | `scenery ps` | List running apps and their URLs |
 | `scenery logs --follow` | Stream the app's logs |
-| `scenery console` | Browse and filter logs in an interactive terminal console |
 | `scenery check` | Validate declarations and generated Go contracts |
 | `scenery generate` | Regenerate TypeScript clients and other configured outputs |
 | `scenery down` | Stop the app |

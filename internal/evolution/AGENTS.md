@@ -2,26 +2,18 @@
 
 ## Purpose
 
-`internal/evolution` owns semantic comparison, source mutation planning,
-migration consequences, approvals, and revision-bound receipts.
+`internal/evolution` owns the revision-checked source transaction that writes
+builtin provider locks for `scenery provider lock`.
 
 ## Local Contracts
 
-- Consume immutable compiler output through `internal/graph`; do not define a
-  second graph model. Production evolution does not import `internal/generate`;
-  CLI and agent sessions inject predicted-artifact and implementation checks.
-  Evolution tests use recording/no-op fakes; live generate coverage stays in
-  `internal/generate`.
-- Keep plans, approvals, and rename receipts bound to exact content revisions.
-- Reject pending artifacts from another spec with `revision_scheme_changed`;
-  never translate an older plan shape. Preserve applied receipts byte-for-byte
-  and accept revision rebind evidence only for an unchanged contract projection.
 - Source mutations must remain confined to the app workspace. Transaction
   metadata and recovery are owned by `internal/workspacetx`; evolution writes
   that shared exact shape and never creates a parallel recovery reader.
-- Explicit builtin provider locking reuses this source transaction writer with
-  the compiler's validated lock snapshot. Preserve unrelated dependency entries;
-  do not require a valid compiled app to bootstrap its missing builtin locks.
+- Builtin provider locking uses the compiler's validated lock snapshot.
+  Preserve unrelated dependency entries; do not require a valid compiled app
+  to bootstrap its missing builtin locks.
+- Do not import `internal/generate`.
 
 ## Verification
 

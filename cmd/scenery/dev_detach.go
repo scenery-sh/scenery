@@ -27,7 +27,6 @@ const (
 	detachedDevStartupTimeout = 30 * time.Second
 	detachedDevReadyTimeout   = 2 * time.Minute
 	detachedDevWaitReady      = "ready"
-	detachedDevWaitRegistered = "registered"
 )
 
 var detachedDevStartupInterval = 100 * time.Millisecond
@@ -140,7 +139,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 	startup := make(chan error, 1)
 	go func() { startup <- readDetachedDevStartupResult(startupReader) }()
 
-	waitTimeout := detachedDevWaitTimeout(waitMode)
+	waitTimeout := detachedDevReadyTimeout
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer waitCancel()
 	startupCtx, startupCancel := context.WithCancelCause(waitCtx)
@@ -182,27 +181,11 @@ func runDetachedDev(args []string, opts devOptions) error {
 	})
 }
 
-func detachedDevWaitTimeout(waitMode string) time.Duration {
-	if waitMode == detachedDevWaitReady {
-		return detachedDevReadyTimeout
-	}
-	return detachedDevStartupTimeout
-}
-
-func liveDetachedDuplicateDevSessionWithLister(ctx context.Context, list detachedDevSessionLister, root string) (*localagent.Session, int, error) {
-	sessions, err := list(ctx, root)
-	if err != nil {
-		return nil, 0, err
-	}
-	session, pid := findLiveDuplicateDevSession(root, sessions)
-	return session, pid, nil
-}
-
 // reportDetachedDevAlreadyRunning adopts an already-live dev runtime for the
 // app root instead of failing: the requested wait readiness is verified
 // against the existing owner and that session is reported as the result.
 func reportDetachedDevAlreadyRunning(client *localagent.Client, root string, cfg app.Config, opts devOptions, waitMode string, ownerPID int) error {
-	waitTimeout := detachedDevWaitTimeout(waitMode)
+	waitTimeout := detachedDevReadyTimeout
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer waitCancel()
 	session, err := waitForDetachedDevSession(waitCtx, client, root, ownerPID, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
@@ -368,10 +351,8 @@ func normalizeDetachedDevWaitMode(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", detachedDevWaitReady:
 		return detachedDevWaitReady, nil
-	case detachedDevWaitRegistered:
-		return detachedDevWaitRegistered, nil
 	default:
-		return "", &codedCLIError{code: 2, err: fmt.Errorf("invalid --wait %q; expected registered or ready", value)}
+		return "", &codedCLIError{code: 2, err: fmt.Errorf("invalid --wait %q; expected ready", value)}
 	}
 }
 
@@ -388,9 +369,6 @@ func detachedDevExpectedFrontendRoutes(frontends map[string]app.FrontendConfig) 
 }
 
 func detachedDevReadinessState(ctx context.Context, session localagent.Session, waitMode string, expectedFrontends []string) (bool, string) {
-	if waitMode == detachedDevWaitRegistered {
-		return true, "registered"
-	}
 	status := strings.TrimSpace(session.Status)
 	if status != "running" {
 		if status == "" {
@@ -453,19 +431,6 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 	for _, name := range sortedRouteNames(routes) {
 		_, _ = fmt.Fprintf(w, "  %-10s %s\n", name, routes[name])
 	}
-	if len(result.Session.Aliases) > 0 {
-		_, _ = fmt.Fprintln(w, "\nAliases currently claimed:")
-	}
-	for _, name := range sortedRouteNames(result.Session.Aliases) {
-		_, _ = fmt.Fprintf(w, "  %-10s %s\n", name, result.Session.Aliases[name])
-	}
-	if len(result.Session.AliasConflicts) > 0 {
-		_, _ = fmt.Fprintln(w, "\nAliases held by other app roots:")
-	}
-	for _, name := range sortedAliasConflictNames(result.Session.AliasConflicts) {
-		conflict := result.Session.AliasConflicts[name]
-		_, _ = fmt.Fprintf(w, "  %-10s %s owned by %s\n", name, conflict.Host, aliasConflictOwnerLabel(conflict))
-	}
 	if conflict := result.Session.DomainHostConflict; conflict != nil {
 		_, _ = fmt.Fprintf(w, "\nDev domain held by another worktree:\n  %s owned by %s\n", conflict.Host, aliasConflictOwnerLabel(*conflict))
 	}
@@ -488,7 +453,7 @@ func detachedDevDomainURL(session localagent.Session) string {
 	if domainURL == "" {
 		return ""
 	}
-	status, err := devDomainEdgeStatus(session.RouteManifest.DomainHost)
+	status, err := devDomainEdgeStatus()
 	if err != nil || !devDomainEdgeComponentsReady(status) {
 		return ""
 	}
@@ -529,18 +494,6 @@ func detachedDevStatusCommand(session localagent.Session) string {
 		return "scenery ps"
 	}
 	return fmt.Sprintf("scenery ps --app-root %q", appRoot)
-}
-
-func sortedAliasConflictNames(conflicts map[string]localagent.AliasLease) []string {
-	names := make([]string, 0, len(conflicts))
-	for name, conflict := range conflicts {
-		if strings.TrimSpace(name) == "" || strings.TrimSpace(conflict.Host) == "" {
-			continue
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 func sortedRouteNames(routes map[string]string) []string {

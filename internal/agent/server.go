@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"scenery.sh/internal/localproxy"
 )
 
 type RunOptions struct {
@@ -26,8 +23,6 @@ type RunOptions struct {
 	Home             string
 	SocketPath       string
 	RouterAddr       string
-	RouterTLS        bool
-	InstallTrust     bool
 	DashboardBackend Backend
 	Identity         Identity
 	JSON             bool
@@ -45,8 +40,6 @@ type Server struct {
 	edgeToken            string
 	dashboard            Backend
 	identity             Identity
-	tlsCA                localproxy.LocalCA
-	tlsCerts             sync.Map
 	unixTransports       UnixTransportCache
 	tcpTransport         http.RoundTripper
 	control              *http.Server
@@ -99,34 +92,10 @@ func NewServer(opts RunOptions) (*Server, error) {
 	if routerAddr == "" {
 		routerAddr = RouterAddrFromEnv()
 	}
-	routerTLS := opts.RouterTLS
 	routerScheme := "http"
-	if routerTLS {
-		routerScheme = "https"
-	}
-	installTrust := opts.InstallTrust || TrustFromEnv()
 	routerLn, actualRouterAddr, err := listenRouter(routerAddr)
 	if err != nil {
 		return nil, startFailure(StartClassUnavailable, err)
-	}
-	var tlsCA localproxy.LocalCA
-	if routerTLS {
-		tlsCA, err = localproxy.LoadOrCreateLocalCA()
-		if err != nil {
-			_ = routerLn.Close()
-			return nil, err
-		}
-		if installTrust {
-			trusted, trustErr := localproxy.LocalCATrusted(tlsCA.CertPath)
-			if trustErr != nil {
-				slog.Warn("failed to check scenery local CA trust", "err", trustErr)
-			}
-			if !trusted {
-				if err := localproxy.InstallLocalCATrust(tlsCA.CertPath); err != nil {
-					slog.Warn("failed to install scenery local CA trust", "err", err)
-				}
-			}
-		}
 	}
 	edgeState, edgeErr := LoadEdgeState(paths.EdgeStatePath)
 	if edgeErr != nil {
@@ -172,7 +141,6 @@ func NewServer(opts RunOptions) (*Server, error) {
 		edgeToken:            readEdgeToken(paths.EdgeTokenPath),
 		dashboard:            normalizeBackend(opts.DashboardBackend),
 		identity:             opts.Identity,
-		tlsCA:                tlsCA,
 		controlLn:            controlLn,
 		routerLn:             routerLn,
 		processLock:          processLock,
@@ -218,11 +186,7 @@ func (s *Server) Run(ctx context.Context) error {
 		errCh <- nil
 	}()
 	go func() {
-		ln := s.routerLn
-		if s.internalRouterScheme == "https" {
-			ln = tls.NewListener(s.routerLn, s.routerTLSConfig())
-		}
-		if err := s.router.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+		if err := s.router.Serve(s.routerLn); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
 			errCh <- fmt.Errorf("router server: %w", err)
 			return
 		}
@@ -263,13 +227,6 @@ func (s *Server) PublicRouterAddr() string {
 		return ""
 	}
 	return s.publicRouterAddr
-}
-
-func (s *Server) ListSessions() []Session {
-	if s == nil || s.registry == nil {
-		return nil
-	}
-	return s.registry.List()
 }
 
 func (s *Server) GetSession(id string) (Session, bool) {
@@ -339,44 +296,6 @@ func normalizeBackend(backend Backend) Backend {
 		return Backend{}
 	}
 	return backend
-}
-
-func (s *Server) routerTLSConfig() *tls.Config {
-	return &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		NextProtos: []string{"h2", "http/1.1"},
-		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			host := ""
-			if hello != nil {
-				host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(hello.ServerName)), ".")
-			}
-			if host == "" {
-				host = "localhost"
-			}
-			if !s.agentTLSHostAllowed(host) {
-				return nil, fmt.Errorf("unsupported scenery agent TLS host %q", host)
-			}
-			if cert, ok := s.tlsCerts.Load(host); ok {
-				tlsCert := cert.(tls.Certificate)
-				return &tlsCert, nil
-			}
-			tlsCert, err := localproxy.LocalLeafCertificate(s.tlsCA, []string{host})
-			if err != nil {
-				return nil, err
-			}
-			actual, _ := s.tlsCerts.LoadOrStore(host, tlsCert)
-			cached := actual.(tls.Certificate)
-			return &cached, nil
-		},
-	}
-}
-
-func (s *Server) agentTLSHostAllowed(host string) bool {
-	host = normalizeRouteRequestHost(host)
-	if host == "localhost" {
-		return true
-	}
-	return s.hasRouteHost(host)
 }
 
 func listenRouter(addr string) (net.Listener, string, error) {

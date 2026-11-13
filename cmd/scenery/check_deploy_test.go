@@ -3,48 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
 
-	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
 )
-
-func TestDeployConfigInfoDiagnosticsReportsUnsetRoot(t *testing.T) {
-	t.Parallel()
-
-	root := persistentTestAppRoot(t, "check-deploy-root")
-	preparePersistentTestApp(t, root, map[string]string{
-		".scenery.json": `{
-		"name": "deploycheck",
-		"frontends": {
-			"web": { "root": "web" },
-			"admin": { "root": "admin" }
-		},
-		"envs": {
-			"local": {"default": true},
-			"production": {
-				"domain": "onlv.dev",
-				"frontends": {"web": {"serve": "production"}, "admin": {"serve": "production"}},
-				"deploy": {}
-			}
-		}
-	}`,
-	})
-	_, cfg, err := appcfg.DiscoverRoot(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	diagnostics := deployConfigInfoDiagnostics(root, cfg)
-	if len(diagnostics) != 1 {
-		t.Fatalf("diagnostics = %+v", diagnostics)
-	}
-	diag := diagnostics[0]
-	if diag.Stage != "config" || diag.Severity != "info" || !strings.Contains(diag.Message, "top-level root is unset") {
-		t.Fatalf("diagnostic = %+v", diag)
-	}
-}
 
 func TestRunSceneryCheckAcceptsNativePersistentFixture(t *testing.T) {
 	t.Parallel()

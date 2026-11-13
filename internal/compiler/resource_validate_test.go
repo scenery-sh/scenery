@@ -52,7 +52,7 @@ func TestOperationIdempotencyRequiresOrderedTypedKeyComponents(t *testing.T) {
 func TestProfileValidationRejectsIncompleteDurableAndTriggerResources(t *testing.T) {
 	resources := []Resource{
 		{Address: "house/execution/process", Module: "house", Kind: "scenery.execution", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.process"}, "mode": "durable", "revision": "0"}},
-		{Address: "house/schedule/nightly", Module: "house", Kind: "scenery.schedule", Spec: map[string]any{"trigger": map[string]any{"cron": "* * * * *", "every": "1m"}, "invoke": map[string]any{}}},
+		{Address: "house/schedule/nightly", Module: "house", Kind: "scenery.schedule", Spec: map[string]any{"trigger": map[string]any{}, "invoke": map[string]any{}}},
 		{Address: "house/binding/internal", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"protocol": "internal", "delivery": "enqueue", "internal": map[string]any{"visibility": "application"}}},
 	}
 	diagnostics := validateResourceSemantics(resources)
@@ -104,16 +104,13 @@ func TestProfileValidationEnforcesDurableEngineAndKeySemantics(t *testing.T) {
 	}
 }
 
-func TestProfileValidationRejectsIncompleteDataAndUIResources(t *testing.T) {
+func TestProfileValidationRejectsIncompleteUIResources(t *testing.T) {
 	resources := []Resource{
-		{Address: "house/entity/scene", Module: "house", Kind: "scenery.entity", Spec: map[string]any{}},
-		{Address: "house/view/recent", Module: "house", Kind: "scenery.view", Spec: map[string]any{}},
-		{Address: "house/crud/scenes", Module: "house", Kind: "scenery.crud", Spec: map[string]any{}},
 		{Address: "house/page/detail", Module: "house", Kind: "scenery.page", Spec: map[string]any{}},
 		{Address: "house/renderer/detail", Module: "house", Kind: "scenery.renderer", Spec: map[string]any{}},
 	}
 	diagnostics := validateResourceSemantics(resources)
-	for _, code := range []string{"SCN2501", "SCN2502", "SCN2503", "SCN2504", "SCN2601", "SCN2602"} {
+	for _, code := range []string{"SCN2601", "SCN2602"} {
 		if !hasDiagnostic(diagnostics, code) {
 			t.Errorf("missing %s in %#v", code, diagnostics)
 		}

@@ -24,7 +24,7 @@ func liveDeployStatusDependencies() deployStatusDependencies {
 	return deployStatusDependencies{
 		serviceManager: deployServiceManagerFunc,
 		edgeStatus: func(paths localagent.Paths, state localagent.EdgeState) edgeStatusCaddy {
-			return edgeStatusForStateDomain(paths, state, "").Edge
+			return edgeStatusForState(paths, state).Edge
 		},
 		privilegedListenerStatus: privilegedListenerStatus,
 		agentStatus:              deployAgentStatusFor,

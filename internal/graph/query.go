@@ -425,11 +425,6 @@ func populateContextIncludes(bundle *ContextBundle, include []string, diagnostic
 	}
 }
 
-func ResourceEdges(resources []Resource) []GraphEdge {
-	known := resourcesByAddress(&Manifest{Resources: resources})
-	return resourceEdges(resources, known)
-}
-
 func resourceEdges(resources []Resource, known map[string]*Resource) []GraphEdge {
 	var edges []GraphEdge
 	for _, resource := range resources {

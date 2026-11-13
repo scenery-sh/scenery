@@ -1,7 +1,7 @@
 {
   "compatibility_catalog": "scenery.compatibility-core",
-  "content_digest": "sha256:5b03e3bed72d28ddadd1f95b6be69a8364316aba37d6d1e27a76d33e95a82632",
-  "contract_revision": "sha256:d17d303d42859564e1b1e17e4415fa563f85c6ddb73d6eb4f5b293fcbfc01689",
+  "content_digest": "sha256:4c57558449c4793c3e5848115bfe7e9b2dd3723fb27477876acddd685e1397a5",
+  "contract_revision": "sha256:e219406853996df625380bc38c39f80dd808b94707c55844881d2cf41961c4ca",
   "covered_bindings": [
     "house/binding/list_scene_events_http",
     "house/binding/process_scene_http"
@@ -30,26 +30,24 @@
   ],
   "generator": "scenery.generate.typescript",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:2a82ba7bfb946f53b1db01ab55d76f5679c8e9fb6937cb51899bb0becfe1c3ea"
+    "app/http_gateway/public_api": "sha256:45c529d2aaa9cf764cb07644b2e6d9771c11a293233f8e9064026677f7755e54"
   },
   "javascript_target": null,
   "kind": "scenery.typescript-client-generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:db9dd85ff0a23d97c1737c0507ac7483e0c4e6fd9653897c7e58636ed2bc2a88"
+    "app/http_gateway/public_api": "sha256:fd68ecd6d4b4bf238111d19fbde42d548c073c7cafb9391ad0acbb2cf0bf2c16"
   },
   "package": "@example/scenery-client",
   "producer": {
-    "version": "v0.3.7-0.20261026175806-0c1f7fcdc229+dirty",
-    "commit": "0c1f7fcdc2293d4907ab5720fc5ac4a744eb32b4",
-    "built_at": "2026-10-26T17:58:06Z",
+    "version": "dev",
     "toolchain": {
       "go_version": "go1.27.0"
     }
   },
   "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",
-  "spec_revision": "sha256:4b8e5399d0d5e8a6706f184878455d65ad897e42d01ce0c287e1ddcd5d7c29b4",
+  "spec_revision": "sha256:011dcb6f6cb027b54f519393fbeb01c4a5ce98333afe5eb6f50a645a1ce567e0",
   "target": "app/typescript_client/public_api",
-  "typescript_client_revision": "sha256:fa17453e12138951b920ae25df9cf38df77a3c553886d81fd1a274b7dc7f8ca4",
+  "typescript_client_revision": "sha256:b56fd4505d1968d83f69f485364d2a7ce53f784037eb724b013342e9528f425e",
   "typescript_version": null,
   "ui_catalog_roots": []
 }

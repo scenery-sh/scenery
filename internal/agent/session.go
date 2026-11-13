@@ -7,7 +7,6 @@ import (
 	"net"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -171,27 +170,6 @@ func sanitizeLabel(value string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// DevDomainHost returns the browser host for a path-mode dev session under a
-// configured dev routing domain: the bare domain on branch main, otherwise
-// "<sanitized-branch>-<domain>". The dash join keeps every worktree host on
-// the domain's first subdomain level, inside the reach of a single-level DNS
-// wildcard and Cloudflare Universal SSL. Empty means no domain host applies
-// (no domain configured, or no usable branch label such as a detached HEAD).
-func DevDomainHost(domain, branch string) string {
-	domain = normalizeRouteHost(domain)
-	if domain == "" {
-		return ""
-	}
-	label := sanitizeLabel(branch)
-	if label == "" {
-		return ""
-	}
-	if label == "main" {
-		return domain
-	}
-	return label + "-" + domain
-}
-
 func discoverGitBranch(root string) string {
 	cmd := exec.Command("git", "-C", root, "branch", "--show-current")
 	out, err := cmd.Output()
@@ -227,10 +205,9 @@ func copyBackends(backends map[string]Backend) map[string]Backend {
 func normalizeRouteNamespace(namespace RouteNamespace, baseAppID string) RouteNamespace {
 	namespace.Workspace = sanitizeLabel(namespace.Workspace)
 	namespace.BaseDomain = normalizeRouteHost(namespace.BaseDomain)
-	namespace.Hosts = copyRouteHosts(namespace.Hosts)
 	if namespace.BaseDomain == "" {
 		if fallback := sanitizeLabel(baseAppID); fallback != "" {
-			if namespace.Workspace == "" && len(namespace.Hosts) == 0 {
+			if namespace.Workspace == "" {
 				namespace.Workspace = fallback
 			}
 		}
@@ -240,26 +217,7 @@ func normalizeRouteNamespace(namespace RouteNamespace, baseAppID string) RouteNa
 }
 
 func routeNamespaceEmpty(namespace RouteNamespace) bool {
-	return strings.TrimSpace(namespace.Workspace) == "" && strings.TrimSpace(namespace.BaseDomain) == "" && len(namespace.Hosts) == 0
-}
-
-func copyRouteHosts(hosts map[string]string) map[string]string {
-	if len(hosts) == 0 {
-		return nil
-	}
-	copied := make(map[string]string, len(hosts))
-	for key, host := range hosts {
-		key = sanitizeLabel(key)
-		host = normalizeRouteHost(host)
-		if key == "" || host == "" {
-			continue
-		}
-		copied[key] = host
-	}
-	if len(copied) == 0 {
-		return nil
-	}
-	return copied
+	return strings.TrimSpace(namespace.Workspace) == "" && strings.TrimSpace(namespace.BaseDomain) == ""
 }
 
 func normalizeRouteHost(value string) string {
@@ -386,7 +344,6 @@ func normalizeRouteManifest(manifest RouteManifest, sessionID, baseAppID, appRoo
 			out.DomainHost = host
 			out.DomainURL = "https://" + host
 		}
-		out.PublicRoutes = normalizePublicRoutes(manifest.PublicRoutes)
 		if out.BaseURL == "" && out.PortLease != nil {
 			out.BaseURL = normalizeBaseURL(out.PortLease.URL)
 		}
@@ -487,30 +444,6 @@ func normalizeRouteRecords(records map[string]RouteRecord) map[string]RouteRecor
 	if len(out) == 0 {
 		return nil
 	}
-	return out
-}
-
-// normalizePublicRoutes canonicalizes a dev domain exposure list: route
-// names sanitized, "runtime" kept as the runtime-surface marker, duplicates
-// dropped, order sorted.
-func normalizePublicRoutes(names []string) []string {
-	if len(names) == 0 {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for _, name := range names {
-		name = normalizeRouteName(name)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		out = append(out, name)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	sort.Strings(out)
 	return out
 }
 
@@ -616,28 +549,11 @@ func sessionRouteHost(route, sessionID string, namespace RouteNamespace) string 
 	if route == "" || sessionID == "" {
 		return ""
 	}
-	if host := namespace.Hosts[route]; host != "" {
-		return insertSessionIntoHost(host, sessionID)
-	}
 	baseDomain := normalizeRouteHost(namespace.BaseDomain)
 	if baseDomain == "" {
 		baseDomain = DefaultRouteBaseDomain
 	}
 	return route + "." + sessionID + "." + baseDomain
-}
-
-func insertSessionIntoHost(host, sessionID string) string {
-	host = normalizeRouteHost(host)
-	sessionID = sanitizeLabel(sessionID)
-	if host == "" || sessionID == "" {
-		return host
-	}
-	labels := strings.Split(host, ".")
-	if len(labels) < 2 {
-		return host
-	}
-	labels = append(labels[:1], append([]string{sessionID}, labels[1:]...)...)
-	return strings.Join(labels, ".")
 }
 
 func routeURL(scheme, host, routerAddr, path string) string {

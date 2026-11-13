@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/spec"
 )
 
 func diagnosticsContain(diagnostics []Diagnostic, code string) bool {
@@ -40,9 +42,6 @@ func deploymentPlanFixture(t *testing.T, lifecycle string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), `"scenery.runtime-http",`, `"scenery.runtime-http",
-    "scenery.data",
-    "scenery.deployment",`, 1))
 	data = append(data, []byte(`
 
 provider "postgres" {
@@ -52,13 +51,6 @@ data_source "database" {
   provider = provider.postgres
   lifecycle = "`+lifecycle+`"
   config = { database = "nativeapp" }
-}
-deployment "preview" {
-  environment = "preview"
-  data_source {
-    target = data_source.database
-    config = { database = "nativeapp_preview" }
-  }
 }
 `)...)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -88,4 +80,51 @@ func writeNestedModuleFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func DiagnosticDefinitions() []DiagnosticDefinition {
+	return spec.DiagnosticDefinitions()
+}
+
+func diagnosticCategory(code string) string {
+	return spec.DiagnosticCategory(code)
+}
+
+func parseDiagnosticDefinitions(rows string) []DiagnosticDefinition {
+	return spec.ParseDiagnosticDefinitions(rows)
+}
+
+func workspaceRevisionInputPathsWithGenerated(root string, sources []*Source, generatedPaths map[string]bool) ([]workspaceRevisionInputPath, error) {
+	return workspaceRevisionInputPathsReading(root, sources, generatedPaths, nil)
+}
+
+func resolveModuleInputValuesWithProvenance(rootResources, packageResources []Resource, packageSources []*Source, module *Block, callerModule string) (map[string]any, map[string]FieldProvenance, []Diagnostic) {
+	return resolveModuleInputValuesWithSourceProvenance(rootResources, packageResources, packageSources, module, module, callerModule)
+}
+
+func resolveModuleInstanceInputsInScope(rootResources, packageResources []Resource, packageSources []*Source, module *Block, callerModule string) ([]Resource, []Diagnostic) {
+	values, provenance, diagnostics := resolveModuleInputValuesWithProvenance(rootResources, packageResources, packageSources, module, callerModule)
+	resolved, substitutionDiagnostics := substituteResolvedModuleInputsWithProvenance(packageResources, values, provenance, deferredConfigurationInputs(packageSources, values))
+	diagnostics = append(diagnostics, substitutionDiagnostics...)
+	return resolved, diagnostics
+}
+
+func authoredAttributeDefinition(revision, name string) authoredAttributeSchema {
+	return spec.AuthoredAttributeDefinition(revision, name)
+}
+
+func authoredRevisionDomain(revision, name string) string {
+	return spec.AuthoredRevisionDomain(revision, name)
+}
+
+func resourceSchemaAllowedFields(kind string) []string {
+	return spec.ResourceSchemaAllowedFields(kind)
+}
+
+func BuiltinProviderLock(source string) (integrity string, ok bool) {
+	descriptor, ok := builtinProviderDescriptors()[source]
+	if !ok {
+		return "", false
+	}
+	return providerDescriptorDigest(descriptor), true
 }

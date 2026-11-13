@@ -12,12 +12,11 @@ import (
 )
 
 func (g *assistantGateway) handleCreate(w http.ResponseWriter, req *http.Request) {
-	identity, err := g.resolveIdentity(req, true)
+	identity, err := g.resolveIdentity(req)
 	if err != nil {
 		g.writeError(w, err)
 		return
 	}
-	writeAssistantIdentityCookie(w, identity)
 	body, err := readAssistantBody(req)
 	if err != nil {
 		g.writeError(w, err)
@@ -98,12 +97,11 @@ func (g *assistantGateway) handleCreate(w http.ResponseWriter, req *http.Request
 }
 
 func (g *assistantGateway) handleTurn(w http.ResponseWriter, req *http.Request) {
-	identity, err := g.resolveIdentity(req, false)
+	identity, err := g.resolveIdentity(req)
 	if err != nil {
 		g.writeError(w, err)
 		return
 	}
-	writeAssistantIdentityCookie(w, identity)
 	conversationID := CurrentRequest().PathParams.Get("conversation_id")
 	claims, err := g.conversationClaims(conversationID, identity)
 	if err != nil {
@@ -175,12 +173,11 @@ func (g *assistantGateway) handleTurn(w http.ResponseWriter, req *http.Request) 
 }
 
 func (g *assistantGateway) handleApproval(w http.ResponseWriter, req *http.Request) {
-	identity, err := g.resolveIdentity(req, false)
+	identity, err := g.resolveIdentity(req)
 	if err != nil {
 		g.writeError(w, err)
 		return
 	}
-	writeAssistantIdentityCookie(w, identity)
 	conversationID := CurrentRequest().PathParams.Get("conversation_id")
 	approvalToken := CurrentRequest().PathParams.Get("approval_id")
 	claims, err := g.conversationClaims(conversationID, identity)
@@ -241,12 +238,11 @@ func (g *assistantGateway) handleApproval(w http.ResponseWriter, req *http.Reque
 }
 
 func (g *assistantGateway) handleCancel(w http.ResponseWriter, req *http.Request) {
-	identity, err := g.resolveIdentity(req, false)
+	identity, err := g.resolveIdentity(req)
 	if err != nil {
 		g.writeError(w, err)
 		return
 	}
-	writeAssistantIdentityCookie(w, identity)
 	conversationID := CurrentRequest().PathParams.Get("conversation_id")
 	runID := CurrentRequest().PathParams.Get("run_id")
 	if err := assistantapi.ValidateRunID(runID); err != nil {

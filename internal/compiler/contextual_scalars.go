@@ -48,7 +48,7 @@ func contextualizeResourceScalars(resources []Resource) ([]Resource, []Diagnosti
 			})
 		case "scenery.service":
 			diagnostics = append(diagnostics, contextualizeConfig(resource, byAddress)...)
-		case "scenery.data-source", "scenery.execution-engine", "scenery.event-bus", "scenery.secret-store":
+		case "scenery.data-source", "scenery.execution-engine", "scenery.secret-store":
 			provider := byAddress[resolveResourceRef(*resource, refString(resource.Spec["provider"]), "provider")]
 			diagnostics = append(diagnostics, contextualizeConfigWithSchema(resource, provider.Spec["config_schema"], byAddress)...)
 		case "scenery.execution":
@@ -81,11 +81,6 @@ func contextualizeResourceScalars(resources []Resource) ([]Resource, []Diagnosti
 					convert(timeouts, field, "duration")
 				}
 			}
-		case "scenery.mcp-connection":
-			convert(resource.Spec, "url", "url")
-			for _, field := range []string{"connect_timeout", "call_timeout"} {
-				convert(resource.Spec, field, "duration")
-			}
 		case "scenery.binding":
 			if httpSpec, ok := resource.Spec["http"].(map[string]any); ok {
 				if timeouts, ok := httpSpec["timeouts"].(map[string]any); ok {
@@ -98,21 +93,6 @@ func contextualizeResourceScalars(resources []Resource) ([]Resource, []Diagnosti
 						convert(cookie, "expires", "datetime")
 					})
 				})
-			}
-		case "scenery.fixture":
-			entity := byAddress[resolveResourceRef(*resource, refString(resource.Spec["entity"]), "entity")]
-			record := byAddress[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
-			if values, ok := resource.Spec["values"].([]any); ok && record.Address != "" {
-				for rowIndex, rawRow := range values {
-					row, _ := rawRow.(map[string]any)
-					converted, err := contextualizeRecordValue(row, record, byAddress)
-					if err != nil {
-						diagnostics = append(diagnostics, Diagnostic{Code: "SCN1212", Severity: "error", Message: err.Error(), Address: resource.Address, Path: fmt.Sprintf("/spec/values/%d", rowIndex)})
-					} else {
-						values[rowIndex] = converted
-					}
-				}
-				resource.Spec["values"] = values
 			}
 		case "scenery.module":
 			inputs, _ := resource.Spec["interface_inputs"].(map[string]any)

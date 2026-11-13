@@ -213,7 +213,6 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	resp.Checks = append(resp.Checks, doctor.DockerChecks(ctx, deps)...)
 	resp.Checks = append(resp.Checks, doctor.PostgresServerCheck(ctx, deps, features))
 	if resp.App != nil {
-		resp.Checks = append(resp.Checks, doctorContractFilenameChecks(resp.App.Root)...)
 		resp.Checks = append(resp.Checks, doctorReactChecks(resp.App.Root)...)
 		resp.Checks = append(resp.Checks, doctorAssistantChecks(ctx, resp.App.Root, cfg, runtimeInfo)...)
 		resp.Checks = append(resp.Checks, doctorBuildBlockCheck(resp.App.Root))
@@ -280,34 +279,6 @@ func doctorReactChecks(root string) []doctor.Check {
 		}
 	}
 	return append(checks, checker)
-}
-
-func doctorContractFilenameChecks(root string) []doctor.Check {
-	result, err := compiler.Compile(root)
-	if err != nil || result == nil {
-		return nil
-	}
-	var checks []doctor.Check
-	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Code != "SCN1021" {
-			continue
-		}
-		check := doctor.Check{
-			ID:              "source.contract_filename",
-			Category:        "source",
-			Name:            "Contract filenames",
-			Status:          doctor.StatusError,
-			Severity:        doctor.SeverityRequired,
-			Message:         diagnostic.Message,
-			SuggestedAction: "Rename the contract file to its current role-named filename.",
-			Observed:        map[string]any{"path": diagnostic.Path, "details": diagnostic.Details},
-		}
-		if len(diagnostic.Suggestions) > 0 {
-			check.SuggestedAction = diagnostic.Suggestions[0]
-		}
-		checks = append(checks, check)
-	}
-	return checks
 }
 
 // doctorAgentStartCheck reports the local agent's start incident: repeated
@@ -463,9 +434,6 @@ func doctorProcessOwnershipCheck(ctx context.Context, deps doctor.ProbeDeps) doc
 	paths := localagent.PathsForHome(home)
 	routerAddr := localagent.RouterAddrFromEnv()
 	configs := []string{paths.EdgeConfigPath}
-	if userHome, err := os.UserHomeDir(); err == nil {
-		configs = append(configs, filepath.Join(userHome, ".onlava", "agent", "edge", "Caddyfile"))
-	}
 	var agents, caddies []int
 	for _, process := range parseRuntimeProcesses(string(out)) {
 		if process.UID != os.Getuid() {

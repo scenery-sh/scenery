@@ -353,7 +353,7 @@ func doctorAssistantNodeCheck(ctx context.Context, root, name string, runtimeInf
 	}
 	store.ManifestSHA256 = toolchain.BundledManifestSHA256()
 	platform := toolchain.Platform{GOOS: runtimeInfo.GOOS, GOARCH: runtimeInfo.GOARCH}
-	status, err := store.Verify(ctx, toolchain.Options{RootDir: root, Platform: platform, Tool: "node", Strict: true})
+	status, err := store.Verify(ctx, toolchain.Options{RootDir: root, Platform: platform, Tool: "node"})
 	if err != nil {
 		return checkError(id, checkName, "managed Node could not be verified", "Run `scenery system toolchain sync --tool node -o json` to repair managed Node.")
 	}

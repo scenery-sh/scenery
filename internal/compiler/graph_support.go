@@ -25,7 +25,6 @@ var (
 	ensureFieldProvenance        = graphmodel.EnsureFieldProvenance
 	nearestFieldProvenance       = graphmodel.NearestFieldProvenance
 	appendUniqueString           = graphmodel.AppendUniqueString
-	canonicalResources           = graphmodel.CanonicalResources
 	contractRevision             = graphmodel.ContractRevision
 	contractResourceProjection   = graphmodel.ContractResourceProjection
 	revisionHash                 = graphmodel.RevisionHash

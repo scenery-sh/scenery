@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -42,9 +41,6 @@ func runHarnessDevSessionCleanupProbeStepWithCheck(ctx context.Context, repoRoot
 }
 
 func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
-	if runtime.GOOS == "windows" {
-		return map[string]any{"proof": "not_applicable_on_windows", "reason": "recorded ownership uses Unix process identities and groups"}, nil, nil
-	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	root, err := os.MkdirTemp("", "scenery-dev-session-cleanup-probe-*")

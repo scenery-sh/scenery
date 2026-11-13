@@ -182,5 +182,5 @@ func TestDevManagedProcessWaitReadyTimeoutUsesFakeDeadline(t *testing.T) {
 func testProcess(done <-chan struct{}) *ManagedProcess {
 	outputDone := make(chan struct{})
 	close(outputDone)
-	return &ManagedProcess{Name: "web", Kind: "frontend", Tail: NewLineTail(10), Done: done, outputDone: outputDone}
+	return &ManagedProcess{Name: "web", Kind: "frontend", Tail: &LineTail{limit: 10}, Done: done, outputDone: outputDone}
 }

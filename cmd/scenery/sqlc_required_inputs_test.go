@@ -60,7 +60,7 @@ func TestSQLCPluginLosingExecutableModeRefusesPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error { return nil }, nil)
+	hooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error { return nil })
 	op, err := newSQLCOperation(root, plan, hooks, io.Discard, true)
 	if err != nil {
 		t.Fatal(err)

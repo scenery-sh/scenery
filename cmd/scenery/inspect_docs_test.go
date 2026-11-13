@@ -135,20 +135,6 @@ func TestRunSceneryInspectDocsReportsAgentChildIndexDrift(t *testing.T) {
 	if payload.Summary.StaleChildIndexEntryCount != 1 || payload.Summary.MissingChildIndexEntryCount != 1 {
 		t.Fatalf("summary = %+v", payload.Summary)
 	}
-
-	diagnostics, summary := validateDocsKnowledge(root)
-	if got, _ := summary["agent_scopes"].(int); got != 3 {
-		t.Fatalf("agent_scopes summary = %v", summary)
-	}
-	joined := diagnosticMessages(diagnostics)
-	for _, want := range []string{
-		"stale Child Agent Index entry: stale/AGENTS.md",
-		"child AGENTS.md is missing from Child Agent Index: cmd/AGENTS.md",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("diagnostics did not include %q: %+v", want, diagnostics)
-		}
-	}
 }
 
 func TestRunSceneryInspectDocsForPathReturnsBoundedTaskContext(t *testing.T) {

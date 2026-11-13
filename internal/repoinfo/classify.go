@@ -123,7 +123,6 @@ func harnessPublicRuntimePath(path string) bool {
 		"cron/",
 		"datasource/",
 		"db/",
-		"durable/",
 		"library/",
 		"middleware/",
 		"model/",
@@ -200,8 +199,6 @@ func harnessDevEventReadPath(path string) bool {
 	switch path {
 	case "cmd/scenery/logs.go",
 		"cmd/scenery/logs_test.go",
-		"cmd/scenery/dev_console.go",
-		"cmd/scenery/dev_console_test.go",
 		"internal/victoria/devlogs.go",
 		"internal/devdash/dev_events.go",
 		"internal/devdash/store.go",

@@ -252,7 +252,7 @@ func resolveAssistantManagedNode(ctx context.Context, root string) (string, stri
 	store.RootDir = root
 	store.ManifestSHA256 = toolchain.BundledManifestSHA256()
 	store.Platform = toolchain.CurrentPlatform()
-	status, err := store.Sync(ctx, toolchain.Options{RootDir: root, Platform: store.Platform, Tool: "node", Strict: true})
+	status, err := store.Sync(ctx, toolchain.Options{RootDir: root, Platform: store.Platform, Tool: "node"})
 	if err != nil {
 		return "", "", "", fmt.Errorf("assistant managed Node sync: %w", err)
 	}

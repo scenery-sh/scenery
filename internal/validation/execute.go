@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -148,43 +147,4 @@ func runStep(ctx context.Context, plan ResolvedPlan, step PlanStep, run StepRunn
 		res.Error = strings.TrimSpace(err.Error())
 	}
 	return res
-}
-
-// RunWithCapturedProcessOutput runs fn while the process-level os.Stdout and
-// os.Stderr are redirected into the given writers, restoring them afterwards.
-func RunWithCapturedProcessOutput(stdout, stderr io.Writer, fn func() error) error {
-	oldStdout := os.Stdout
-	oldStderr := os.Stderr
-	outR, outW, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-	errR, errW, err := os.Pipe()
-	if err != nil {
-		_ = outR.Close()
-		_ = outW.Close()
-		return err
-	}
-	os.Stdout = outW
-	os.Stderr = errW
-	outDone := make(chan struct{})
-	errDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(stdout, outR)
-		close(outDone)
-	}()
-	go func() {
-		_, _ = io.Copy(stderr, errR)
-		close(errDone)
-	}()
-	runErr := fn()
-	_ = outW.Close()
-	_ = errW.Close()
-	os.Stdout = oldStdout
-	os.Stderr = oldStderr
-	<-outDone
-	<-errDone
-	_ = outR.Close()
-	_ = errR.Close()
-	return runErr
 }

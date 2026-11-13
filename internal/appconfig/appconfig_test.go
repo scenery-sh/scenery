@@ -55,7 +55,7 @@ func TestCatalogDerivesConfigurableInputs(t *testing.T) {
 	for _, input := range catalog.Inputs {
 		keys = append(keys, input.Key)
 	}
-	want := "auth.cookie_domain,auth.email_from,auth.jwt_secret,designs.api_token,designs.model_path,designs.simulation_concurrency,designs.weather_pack_root"
+	want := "auth.cookie_domain,auth.jwt_secret,designs.api_token,designs.model_path,designs.simulation_concurrency,designs.weather_pack_root"
 	if strings.Join(keys, ",") != want {
 		t.Fatalf("catalog keys = %s", strings.Join(keys, ","))
 	}

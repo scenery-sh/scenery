@@ -11,8 +11,6 @@ type LineTail struct {
 	lines []string
 }
 
-func NewLineTail(limit int) *LineTail { return &LineTail{limit: limit} }
-
 func (t *LineTail) Add(line string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

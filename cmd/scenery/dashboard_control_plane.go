@@ -18,26 +18,6 @@ const dashboardControlPlanePath = "/__scenery/control-plane"
 
 type dashboardControlPlaneWriter interface {
 	UpsertApp(context.Context, devdash.AppRecord) error
-	WriteProcessEvent(context.Context, string, string, string, any) error
-}
-
-type localDashboardControlPlaneWriter struct {
-	store *devdash.Store
-}
-
-func (w localDashboardControlPlaneWriter) UpsertApp(ctx context.Context, app devdash.AppRecord) error {
-	if w.store == nil {
-		return nil
-	}
-	return w.store.UpsertApp(ctx, app)
-}
-
-func (w localDashboardControlPlaneWriter) WriteProcessEvent(ctx context.Context, appID, sessionID, kind string, payload any) error {
-	_ = sessionID
-	if w.store == nil {
-		return nil
-	}
-	return w.store.WriteProcessEvent(ctx, appID, kind, payload)
 }
 
 type dashboardControlPlaneClient struct {
@@ -48,16 +28,8 @@ type dashboardControlPlaneClient struct {
 }
 
 type dashboardControlPlaneRequest struct {
-	SessionID    string                     `json:"session_id,omitempty"`
-	UpsertApp    *devdash.AppRecord         `json:"upsert_app,omitempty"`
-	ProcessEvent *dashboardProcessEventPost `json:"process_event,omitempty"`
-}
-
-type dashboardProcessEventPost struct {
-	AppID       string          `json:"app_id"`
-	SessionID   string          `json:"session_id,omitempty"`
-	Kind        string          `json:"kind"`
-	PayloadJSON json.RawMessage `json:"payload_json,omitempty"`
+	SessionID string             `json:"session_id,omitempty"`
+	UpsertApp *devdash.AppRecord `json:"upsert_app,omitempty"`
 }
 
 func newDashboardControlPlaneClient(ctx context.Context, agent *localagent.Client, session localagent.Session, token string) (*dashboardControlPlaneClient, error) {
@@ -102,26 +74,6 @@ func (c *dashboardControlPlaneClient) UpsertApp(ctx context.Context, app devdash
 	})
 }
 
-func (c *dashboardControlPlaneClient) WriteProcessEvent(ctx context.Context, appID, sessionID, kind string, payload any) error {
-	if c == nil {
-		return nil
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	sessionID = firstNonEmpty(sessionID, c.sessionID)
-	return c.post(ctx, dashboardControlPlaneRequest{
-		SessionID: sessionID,
-		ProcessEvent: &dashboardProcessEventPost{
-			AppID:       appID,
-			SessionID:   sessionID,
-			Kind:        kind,
-			PayloadJSON: data,
-		},
-	})
-}
-
 func (c *dashboardControlPlaneClient) post(ctx context.Context, payload dashboardControlPlaneRequest) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -159,9 +111,6 @@ func (s *dashboardServer) handleControlPlane(w http.ResponseWriter, req *http.Re
 	if payload.UpsertApp != nil && sessionID == "" {
 		sessionID = payload.UpsertApp.SessionID
 	}
-	if payload.ProcessEvent != nil && sessionID == "" {
-		sessionID = payload.ProcessEvent.SessionID
-	}
 	auth := s.dashboardAuthorizeReport(req, devdash.ReportEnvelope{SessionID: sessionID})
 	if !auth.Authorized {
 		http.Error(w, firstNonEmpty(auth.Reason, "unauthorized"), http.StatusUnauthorized)
@@ -177,17 +126,6 @@ func (s *dashboardServer) handleControlPlane(w http.ResponseWriter, req *http.Re
 			payload.UpsertApp.SessionID = sessionID
 		}
 		if err := store.UpsertApp(req.Context(), *payload.UpsertApp); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-	if payload.ProcessEvent != nil {
-		event := payload.ProcessEvent
-		var raw any
-		if len(event.PayloadJSON) > 0 && json.Valid(event.PayloadJSON) {
-			raw = event.PayloadJSON
-		}
-		if err := store.WriteProcessEvent(req.Context(), event.AppID, event.Kind, raw); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

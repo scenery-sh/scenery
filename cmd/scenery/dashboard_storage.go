@@ -145,12 +145,6 @@ func (s *dashboardServer) storageRPC(ctx context.Context, method string, raw jso
 			return nil, err
 		}
 		return storageListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.list"), Scope: scope, Page: *page}, nil
-	case "storage/stat":
-		object, err := store.Head(ctx, req.Key)
-		if err != nil {
-			return nil, err
-		}
-		return storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Scope: scope, Object: *object}, nil
 	case "storage/delete":
 		if req.IfMatch == "" {
 			return nil, fmt.Errorf("%w: deletion requires the displayed object version", storagefs.ErrPrecondition)

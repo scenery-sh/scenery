@@ -88,3 +88,7 @@ func TestForeignOwnerRecoveryRequiresProof(t *testing.T) {
 func fullTestOwner(pid int, createdBy string) Owner {
 	return Owner{PID: pid, StartedAt: "old", Exe: "/usr/local/bin/scenery", CmdlineHash: "sha256:args", CreatedBy: createdBy}
 }
+
+func ownerIsCurrent(owner Owner) bool {
+	return inspectOwnerState(owner) == ownerCurrent
+}

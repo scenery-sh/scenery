@@ -44,12 +44,7 @@ func buildDesktopWithRunner(ctx context.Context, appRoot string, cfg app.Config,
 	}
 	if domain := strings.TrimSpace(env.Domain); domain != "" {
 		apiBase := "https://" + domain
-		overrides = append(overrides,
-			"API_BASE_URL="+apiBase,
-			"SCENERY_API_BASE_URL="+apiBase,
-			"SCENERY_API_URL="+apiBase,
-			"VITE_API_BASE_URL="+apiBase,
-		)
+		overrides = append(overrides, "VITE_API_BASE_URL="+apiBase)
 	}
 	buildEnv := envWithOverrides(baseEnv, overrides...)
 	result := desktopBuildResult{Environment: env.Name, Frontends: make([]desktopFrontendBuildResult, 0, len(shells))}

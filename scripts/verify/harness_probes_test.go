@@ -10,7 +10,7 @@ import (
 
 func TestHarnessExplicitProofSelection(t *testing.T) {
 	t.Parallel()
-	want := strings.Fields("parallel-runtime postgres ui frontend fixtures storage core-separation capability-authority auth worktree agent-restart assistant-init assistant-runtime assistant-helper assistant-journey build-info cli-process cli-grammar dev-follower dev-process process-model dev-lock dev-cleanup inspect-go toolchain-build worktree-git feature edge generation native-contract snapshot-backup typescript code-task observability victoria desktop deploy-ssh configuration configuration-secrets configuration-deploy validation-git test-cache")
+	want := strings.Fields("parallel-runtime postgres ui frontend fixtures storage core-separation capability-authority auth worktree agent-restart assistant-runtime assistant-helper assistant-journey build-info cli-process cli-grammar dev-follower dev-process process-model dev-lock dev-cleanup inspect-go worktree-git feature edge generation native-contract typescript code-task observability victoria desktop deploy-ssh configuration configuration-secrets configuration-deploy validation-git test-cache")
 	if got := harnessProbeIDs(); !slices.Equal(got, want) {
 		t.Fatalf("functional inventory = %v, want %v", got, want)
 	}
@@ -27,9 +27,6 @@ func TestHarnessExplicitProofSelection(t *testing.T) {
 		{[]string{"--probe", "auth"}, harnessSelfModeProbe, []string{"auth"}},
 		{[]string{"--benchmark", "edit-latency"}, harnessSelfModeBenchmark, nil},
 		{[]string{"--benchmark", "worktree-cost"}, harnessSelfModeBenchmark, nil},
-		{[]string{"--benchmark", "native-reload", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
-		{[]string{"--benchmark", "native-reload-plugin", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
-		{[]string{"--benchmark", "native-reload-attribution", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
 	} {
 		opts, err := parseHarnessSelfArgs(tc.args)
 		if err != nil || opts.Mode != tc.mode {
@@ -63,13 +60,8 @@ func TestHarnessInvalidProofSelectionFailsBeforeWork(t *testing.T) {
 		{"--benchmark", "worktree-cost", "--probe", "auth"},
 		{"--probe", "auth", "--fresh-tests"}, {"--benchmark", "worktree-cost", "--fresh-tests"},
 		{"--probe"}, {"--benchmark"}, {"--probe", ""},
-		{"--benchmark", "native-reload"}, {"--workload-root", "/onlv"},
-		{"--benchmark", "native-reload-plugin"},
-		{"--benchmark", "native-reload-attribution"},
 		{"--benchmark", "native-build-driver"},
 		{"--benchmark", "native-build-compiler"},
-		{"--quick", "--workload-root", "/onlv"},
-		{"--benchmark", "worktree-cost", "--workload-root", "/onlv"},
 		{"--benchmark", "worktree-cost", "--benchmark-short"},
 		{"--benchmark-short"},
 	} {

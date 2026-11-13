@@ -1,5 +1,5 @@
 // Package mcphost links the MCP implementation into a process: the private
-// assistant gateway and the federation of remote MCP servers. It is imported
+// assistant gateway and the MCP server federation. It is imported
 // for its effect by the entrypoints that serve them, the production executable
 // and the development process host. A development service process answers tool
 // calls the host dispatches to it and imports neither, which keeps the MCP SDK

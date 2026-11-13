@@ -9,13 +9,11 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
-	sceneryruntime "scenery.sh/runtime"
 )
 
 // The development runtime RPC is the documented JSON-RPC 2.0 contract served
 // at the app origin's /runtime WebSocket (docs/local-contract.md). Every method
-// here is part of that contract except traces/clear, which only
-// `scenery traces clear` sends. An admitted call runs under its class's
+// here is part of that contract. An admitted call runs under its class's
 // deadline, derived from the connection so a disconnect cancels it too.
 func (s *dashboardServer) handleRPC(ctx context.Context, call runtimeCall, req rpcRequest) rpcResponse {
 	ctx, cancel := context.WithTimeoutCause(ctx, call.deadline, errRuntimeCallDeadline)
@@ -72,9 +70,7 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		result := newRuntimeStatus(status)
-		if s.supervisor != nil && status.AppRoot == s.supervisor.root {
-			result.Serving, result.SourceFreshness = s.supervisor.currentServingState(ctx)
-		} else if controller, ok := s.controller.(*agentDashboardController); ok {
+		if controller, ok := s.controller.(*agentDashboardController); ok {
 			result.Serving, result.SourceFreshness = controller.servingState(ctx, status)
 		}
 		if result.Observability != nil {
@@ -102,37 +98,6 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, fmt.Errorf("the selected app is not served by this worktree's running scenery up")
 		}
 		return supervisor.waitForSourceSnapshot(ctx, time.Duration(params.TimeoutMS)*time.Millisecond)
-	case "cli/invoke":
-		var params struct {
-			AppID      string                            `json:"app_id"`
-			Request    sceneryruntime.ContractCLIRequest `json:"request"`
-			Generation uint64                            `json:"generation"`
-		}
-		if err := decodeRuntimeParams(raw, &params); err != nil {
-			return nil, err
-		}
-		status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
-		if err != nil {
-			return nil, err
-		}
-		supervisor := s.servingSupervisorFor(status)
-		if supervisor == nil {
-			return nil, fmt.Errorf("the selected app is not served by this worktree's running scenery up")
-		}
-		return supervisor.invokeLiveCLI(ctx, sceneryruntime.ProcessHostCLIRequest{Request: params.Request, Generation: params.Generation})
-	case "traces/clear":
-		var params struct {
-			AppID string `json:"app_id"`
-		}
-		_ = json.Unmarshal(raw, &params)
-		status, err := s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
-		if err != nil {
-			return nil, err
-		}
-		if victoria := s.dashboardVictoria(); victoria != nil {
-			victoria.MarkCleared(dashboardStoreAppID(status), time.Now().UTC())
-		}
-		return "ok", nil
 	case "postgres/tables":
 		var params dashboardPostgresRequest
 		if err := decodeRuntimeParams(raw, &params); err != nil {
@@ -302,9 +267,6 @@ func newRuntimeSignal(state devdash.ObservabilityBackendState) runtimeSignal {
 // servingSupervisorFor returns the supervisor that serves status's app and
 // session, or nil when another process owns it.
 func (s *dashboardServer) servingSupervisorFor(status devdash.AppStatus) *devSupervisor {
-	if s.supervisor != nil && status.AppRoot == s.supervisor.root {
-		return s.supervisor
-	}
 	controller, ok := s.controller.(*agentDashboardController)
 	if !ok {
 		return nil

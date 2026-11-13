@@ -183,15 +183,6 @@ func FrameworkConfigString(key string) (string, bool, error) {
 	return text, true, nil
 }
 
-// CurrentConfigRevision reports the snapshot revision this process runs.
-func CurrentConfigRevision() string {
-	snapshot, err := LoadConfigSnapshot()
-	if err != nil || snapshot == nil {
-		return ""
-	}
-	return snapshot.Revision
-}
-
 // PublicConfigPath serves the application's public configuration: the
 // values of inputs declared public, pinned to the configuration revision the
 // process runs. Frontends read it at startup instead of build-time variables.

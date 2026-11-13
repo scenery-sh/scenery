@@ -44,13 +44,6 @@ type Artifact struct {
 	DefaultBinary string                      `json:"default_binary,omitempty"`
 	Binaries      []string                    `json:"binaries,omitempty"`
 	Platforms     map[string]PlatformArtifact `json:"platforms,omitempty"`
-	SourceBuild   *SourceBuildArtifact        `json:"source_build,omitempty"`
-	Images        []ImageArtifact             `json:"images,omitempty"`
-}
-
-type SourceBuildArtifact struct {
-	Kind    string `json:"kind"`
-	Package string `json:"package"`
 }
 
 type PlatformArtifact struct {
@@ -62,14 +55,6 @@ type PlatformArtifact struct {
 	StripComponents int      `json:"strip_components,omitempty"`
 	Build           []string `json:"build,omitempty"`
 	BuildOutput     string   `json:"build_output,omitempty"`
-}
-
-type ImageArtifact struct {
-	Ref       string `json:"ref"`
-	Digest    string `json:"digest,omitempty"`
-	Optional  bool   `json:"optional,omitempty"`
-	Usage     string `json:"usage,omitempty"`
-	Stability string `json:"stability,omitempty"`
 }
 
 type Platform struct {
@@ -149,7 +134,7 @@ func (m Manifest) Validate() error {
 		}
 		seenArtifacts[artifact.Name] = true
 		switch artifact.Kind {
-		case "binary", "image", "plugin":
+		case "binary", "plugin":
 		default:
 			return fmt.Errorf("artifact %q has invalid kind %q", artifact.Name, artifact.Kind)
 		}
@@ -158,17 +143,6 @@ func (m Manifest) Validate() error {
 		}
 		if artifact.Kind == "binary" && strings.TrimSpace(artifact.DefaultBinary) == "" {
 			return fmt.Errorf("binary artifact %q missing default_binary", artifact.Name)
-		}
-		if artifact.SourceBuild != nil {
-			if artifact.Kind != "binary" {
-				return fmt.Errorf("artifact %q has source_build but kind %q", artifact.Name, artifact.Kind)
-			}
-			if artifact.SourceBuild.Kind != "go" {
-				return fmt.Errorf("artifact %q has unsupported source_build kind %q", artifact.Name, artifact.SourceBuild.Kind)
-			}
-			if cleanSourceBuildPackage(artifact.SourceBuild.Package) == "" {
-				return fmt.Errorf("artifact %q source_build missing valid package", artifact.Name)
-			}
 		}
 		for key, platform := range artifact.Platforms {
 			if _, err := ParsePlatform(key); err != nil {
@@ -188,14 +162,6 @@ func (m Manifest) Validate() error {
 			}
 			if len(platform.Build) > 0 && cleanExtract(platform.BuildOutput) == "" {
 				return fmt.Errorf("artifact %q platform %s missing valid build_output", artifact.Name, key)
-			}
-		}
-		for j, image := range artifact.Images {
-			if strings.TrimSpace(image.Ref) == "" {
-				return fmt.Errorf("artifact %q images[%d] missing ref", artifact.Name, j)
-			}
-			if image.Digest != "" && !strings.HasPrefix(image.Digest, "sha256:") {
-				return fmt.Errorf("artifact %q images[%d] has invalid digest", artifact.Name, j)
 			}
 		}
 	}
@@ -224,12 +190,6 @@ func ManifestSHA256(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func BundledManifestBytes() []byte {
-	out := make([]byte, len(bundledManifestBytes))
-	copy(out, bundledManifestBytes)
-	return out
-}
-
 func LoadBundledManifest() (Manifest, error) {
 	return ParseManifest(bundledManifestBytes)
 }
@@ -242,21 +202,6 @@ func cleanExtract(value string) string {
 	value = filepath.ToSlash(filepath.Clean(strings.TrimSpace(value)))
 	if value == "." || value == "" || strings.HasPrefix(value, "../") || strings.HasPrefix(value, "/") {
 		return ""
-	}
-	return value
-}
-
-func cleanSourceBuildPackage(value string) string {
-	raw := filepath.ToSlash(strings.TrimSpace(value))
-	if !strings.HasPrefix(raw, "./") {
-		return ""
-	}
-	value = filepath.ToSlash(filepath.Clean(raw))
-	if value == "." || value == "" || strings.HasPrefix(value, "../") || strings.HasPrefix(value, "/") {
-		return ""
-	}
-	if !strings.HasPrefix(value, ".") {
-		value = "./" + value
 	}
 	return value
 }

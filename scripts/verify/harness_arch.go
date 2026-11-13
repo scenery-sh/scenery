@@ -105,7 +105,6 @@ var retainedVersionedABIs = map[string]struct{}{
 	"scenery.data-runtime/v1":        {},
 	"scenery.data-migration/v1":      {},
 	"scenery.execution-runtime/v1":   {},
-	"scenery.events-runtime/v1":      {},
 	"scenery.secrets-runtime/v1":     {},
 	"scenery.deployment-provider/v1": {},
 }
@@ -113,30 +112,13 @@ var retainedVersionedABIs = map[string]struct{}{
 // Legacy identities remain only where current code detects and atomically
 // migrates or safely refuses non-disposable state produced before plan 0111.
 var legacyIdentityMigrationFiles = map[string]struct{}{
-	// The release probe preserves the existing durable DNS migration boundary.
-	"scripts/verify/harness_self_edge.go":            {},
-	"cmd/scenery/dev_ports.go":                       {},
-	"cmd/scenery/dev_ports_test.go":                  {},
-	"cmd/scenery/dev_services_postgres.go":           {},
-	"cmd/scenery/dev_services_test.go":               {},
-	"internal/agent/artifact_migration_test.go":      {},
-	"internal/agent/deploy.go":                       {},
-	"internal/agent/deploy_test.go":                  {},
-	"internal/agent/edge.go":                         {},
-	"internal/agent/identity_test.go":                {},
-	"internal/agent/registry.go":                     {},
-	"internal/agent/state.go":                        {},
-	"internal/deployplan/deployment_state.go":        {},
-	"internal/deployplan/deployplan_test.go":         {},
-	"internal/deployplan/recovery.go":                {},
-	"internal/edge/dns.go":                           {},
-	"internal/edge/dns_test.go":                      {},
-	"internal/evolution/approval.go":                 {},
-	"internal/evolution/changes_transaction.go":      {},
-	"internal/evolution/changes_transaction_test.go": {},
-	"internal/evolution/recovery.go":                 {},
-	"internal/workspacetx/recover.go":                {},
-	"internal/machine/envelope_test.go":              {},
+	"cmd/scenery/dev_ports.go":             {},
+	"cmd/scenery/dev_ports_test.go":        {},
+	"cmd/scenery/dev_services_postgres.go": {},
+	"cmd/scenery/dev_services_test.go":     {},
+	"internal/agent/identity_test.go":      {},
+	"internal/workspacetx/recover.go":      {},
+	"internal/machine/envelope_test.go":    {},
 }
 
 var historicalKnowledgeLines = map[string]struct{}{
@@ -158,7 +140,7 @@ var packageLayerRules = []packageLayerRule{
 		// links the runtime's implementation closure (assistant, MCP, durable
 		// store) into application packages and their tests.
 		Name:             "application SDK packages stay free of the runtime implementation",
-		PathPrefixes:     []string{"auth/", "db/", "durable/", "errs/", "object/", "storage/", "datasource/", "internal/appsdk/", "runtime/shared/"},
+		PathPrefixes:     []string{"auth/", "db/", "errs/", "object/", "storage/", "datasource/", "internal/appsdk/", "runtime/shared/"},
 		ForbiddenImports: []string{"scenery.sh/runtime", "scenery.sh/internal/uigen", "scenery.sh/ui", "scenery.sh/internal/connectionvault", "scenery.sh/internal/connectionvault/sqlstore", "scenery.sh/internal/connectionruntime", "scenery.sh/internal/authprovider/google", "scenery.sh/internal/authprovider/oauth2"},
 		AllowTestImports: []string{"scenery.sh/runtime"},
 	},
@@ -190,7 +172,7 @@ var packageLayerRules = []packageLayerRule{
 		Name: "compiler-side packages stay free of the app runtime",
 		PathPrefixes: []string{
 			"internal/scn/", "internal/graph/", "internal/compiler/", "internal/generate/",
-			"internal/evolution/", "internal/deployplan/", "internal/contractagent/",
+			"internal/evolution/", "internal/contractagent/",
 			"internal/build/", "internal/workspacetx/",
 			"internal/contract/", "internal/contractpolicy/",
 		},
@@ -207,7 +189,6 @@ var packageLayerRules = []packageLayerRule{
 			"scenery.sh/internal/compiler",
 			"scenery.sh/internal/evolution",
 			"scenery.sh/internal/generate",
-			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
 		},
 	},
@@ -220,7 +201,6 @@ var packageLayerRules = []packageLayerRule{
 			"scenery.sh/internal/compiler",
 			"scenery.sh/internal/evolution",
 			"scenery.sh/internal/generate",
-			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
 		},
 	},
@@ -231,7 +211,6 @@ var packageLayerRules = []packageLayerRule{
 			"scenery.sh/internal/compiler",
 			"scenery.sh/internal/evolution",
 			"scenery.sh/internal/generate",
-			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
 		},
 	},
@@ -252,7 +231,6 @@ var packageLayerRules = []packageLayerRule{
 		ForbiddenImports: []string{
 			"scenery.sh/internal/evolution",
 			"scenery.sh/internal/generate",
-			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
 			"scenery.sh/internal/parse",
 		},
@@ -285,7 +263,6 @@ var packageLayerRules = []packageLayerRule{
 		PathPrefixes: []string{"internal/generate/"},
 		ForbiddenImports: []string{
 			"scenery.sh/internal/evolution",
-			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
 		},
 	},
@@ -304,19 +281,11 @@ var packageLayerRules = []packageLayerRule{
 		},
 	},
 	{
-		Name:         "internal/evolution stays below deployment and protocol composition",
+		Name:         "internal/evolution stays below protocol composition",
 		PathPrefixes: []string{"internal/evolution/"},
 		ForbiddenImports: []string{
-			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
 			"scenery.sh/internal/generate",
-		},
-	},
-	{
-		Name:         "internal/deployplan stays below protocol composition",
-		PathPrefixes: []string{"internal/deployplan/"},
-		ForbiddenImports: []string{
-			"scenery.sh/internal/contractagent",
 		},
 	},
 	{
@@ -331,7 +300,6 @@ var packageLayerRules = []packageLayerRule{
 			"scenery.sh/internal/compiler",
 			"scenery.sh/internal/evolution",
 			"scenery.sh/internal/generate",
-			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
 		},
 	},

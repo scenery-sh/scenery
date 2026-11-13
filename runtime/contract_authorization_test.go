@@ -11,26 +11,6 @@ import (
 	"scenery.sh/runtime/shared"
 )
 
-func TestPopulateContractContextJSONAddsOnlyRuntimeTrustedValues(t *testing.T) {
-	restore := enterState(&requestState{request: shared.Request{}, auth: AuthInfo{UID: "local:501", Data: map[string]any{"tenant_id": "tenant-1"}}})
-	defer restore()
-	mappings := []ContractContextMapping{{Source: "principal.tenant_id", Target: "tenant_id"}}
-	raw, err := PopulateContractContextJSON([]byte(`{"scene_id":"scene-42"}`), mappings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["tenant_id"] != "tenant-1" || got["scene_id"] != "scene-42" {
-		t.Fatalf("context input = %#v", got)
-	}
-	if _, err := PopulateContractContextJSON([]byte(`{"tenant_id":"forged"}`), mappings); err == nil {
-		t.Fatal("caller-supplied trusted context was accepted")
-	}
-}
-
 func TestContractAuthorizationEvaluatesTypedPrincipalContextAndInput(t *testing.T) {
 	state := &requestState{auth: AuthInfo{UID: "user-42", Data: map[string]any{"tenant_id": "tenant-1", "roles": []string{"member"}}}, request: shared.Request{Method: "POST", Path: "/house/process"}}
 	restore := enterState(state)
@@ -128,26 +108,6 @@ func TestContractAuthorizationFailsClosed(t *testing.T) {
 		}
 	}
 	if err := authorizeContractInvocation(&ContractHTTPPolicy{AuthorizationStrategy: "public"}, nil); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestContractAuthorizationRequiresRuntimeMintedLocalDeveloper(t *testing.T) {
-	policy := &ContractHTTPPolicy{AuthorizationStrategy: "local_developer"}
-	for _, auth := range []AuthInfo{
-		{},
-		{UID: "local:501", Data: map[string]any{"local_developer": false}},
-	} {
-		restore := enterState(&requestState{request: shared.Request{}, auth: auth})
-		err := authorizeContractInvocation(policy, nil)
-		restore()
-		if errs.Code(err) != errs.PermissionDenied {
-			t.Fatalf("auth %#v returned %v", auth, err)
-		}
-	}
-	restore := enterState(&requestState{request: shared.Request{}, auth: AuthInfo{UID: "local:501", Data: map[string]any{"local_developer": true}}})
-	defer restore()
-	if err := authorizeContractInvocation(policy, nil); err != nil {
 		t.Fatal(err)
 	}
 }

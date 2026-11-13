@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -45,9 +44,6 @@ func runHarnessAgentRestartProbeStepWithCheck(ctx context.Context, repoRoot stri
 }
 
 func runHarnessAgentRestartProbeCheck(ctx context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
-	if runtime.GOOS == "windows" {
-		return map[string]any{"proof": "not_applicable_on_windows", "reason": "local agent control uses a Unix socket"}, nil, nil
-	}
 	home, err := os.MkdirTemp("", "scenery-agent-restart-probe-*")
 	if err != nil {
 		return nil, nil, err

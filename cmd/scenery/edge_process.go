@@ -3,8 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,38 +124,4 @@ func processCommand(pid int) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-func tailFileFromOffset(path string, offset, limit int64) string {
-	file, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err == nil {
-		if offset < 0 {
-			offset = 0
-		}
-		if offset > info.Size() {
-			offset = info.Size()
-		}
-		if info.Size()-offset > limit {
-			offset = info.Size() - limit
-		}
-		_, _ = file.Seek(offset, io.SeekStart)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, limit))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
-func splitHostPort(addr string) (string, string) {
-	host, port, err := net.SplitHostPort(strings.TrimSpace(addr))
-	if err != nil {
-		return "", ""
-	}
-	return host, port
 }

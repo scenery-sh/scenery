@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -45,9 +44,6 @@ func runHarnessDevNamedLockProbeStepWithCheck(ctx context.Context, repoRoot stri
 }
 
 func runHarnessDevNamedLockProbeCheck(ctx context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
-	if runtime.GOOS == "windows" {
-		return map[string]any{"proof": "not_applicable_on_windows", "reason": "process helper uses Unix advisory locking"}, nil, nil
-	}
 	root, err := os.MkdirTemp("", "scenery-dev-lock-probe-*")
 	if err != nil {
 		return nil, nil, err

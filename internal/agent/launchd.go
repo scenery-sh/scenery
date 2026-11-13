@@ -337,10 +337,6 @@ func parseAgentInvocation(args []string) (string, string, StartOptions, error) {
 			}
 		case "--router-http":
 			opts.RouterHTTP = true
-		case "--router-tls":
-			opts.RouterTLS = true
-		case "--trust":
-			opts.Trust = true
 		case "--supervised":
 			opts.Supervised = true
 		default:

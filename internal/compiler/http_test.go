@@ -35,21 +35,6 @@ func TestHTTPValidationAcceptsExplicitDenyAllAuthorization(t *testing.T) {
 	}
 }
 
-func TestHTTPValidationRejectsStreamingWithoutAStreamingProfile(t *testing.T) {
-	resources := []Resource{
-		{Address: "app/http_gateway/public", Kind: "scenery.http-gateway", Spec: map[string]any{"exposure": "internet", "base_path": "/"}},
-		{Address: "house/binding/stream", Module: "house", Kind: "scenery.binding", Spec: map[string]any{
-			"gateway": map[string]any{"$ref": "app/http_gateway/public"}, "protocol": "http", "delivery": "stream",
-			"authentication": map[string]any{"$ref": "std.authentication.none"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"},
-			"http": map[string]any{"method": "GET", "path": "/events", "codec_profile": map[string]any{"$ref": "std.codec.http_json_v1"}, "response": map[string]any{"name": "events", "when": map[string]any{"$ref": "result.events"}, "status": "200", "body": map[string]any{"codec": "server_sent_events", "from": map[string]any{"$ref": "result.events"}}}},
-		}},
-	}
-	diagnostics := validateHTTPResources(resources)
-	if !hasDiagnostic(diagnostics, "SCN7008") {
-		t.Fatalf("unsupported streaming declaration was accepted: %#v", diagnostics)
-	}
-}
-
 func TestHTTPValidationAcceptsDirectTypedByteStream(t *testing.T) {
 	resources := []Resource{
 		{Address: "app/http_gateway/public", Kind: "scenery.http-gateway", Spec: map[string]any{"exposure": "internet", "base_path": "/"}},
@@ -68,7 +53,7 @@ func TestHTTPValidationAcceptsDirectTypedByteStream(t *testing.T) {
 	}
 	diagnostics := validateHTTPResources(resources)
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "SCN7008" || diagnostic.Code == "SCN2111" || diagnostic.Code == "SCN2114" {
+		if diagnostic.Code == "SCN2111" || diagnostic.Code == "SCN2114" {
 			t.Fatalf("typed byte stream was rejected: %#v", diagnostics)
 		}
 	}

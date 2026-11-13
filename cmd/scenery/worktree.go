@@ -195,10 +195,6 @@ func runWorktreeListWithGit(ctx context.Context, stdout io.Writer, opts worktree
 	return nil
 }
 
-func runWorktreeRemoveWithList(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
-	return runWorktreeRemoveWithGit(ctx, stdout, opts, listWorktrees, runGitCommand)
-}
-
 func runWorktreeRemoveWithGit(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error), runGit func(context.Context, ...string) error) error {
 	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {

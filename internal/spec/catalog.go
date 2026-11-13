@@ -27,7 +27,6 @@ type SemanticRevisions struct {
 	Expansion            Revision `json:"expansion"`
 	ReferenceResolution  Revision `json:"reference_resolution"`
 	ContractProjection   Revision `json:"contract_projection"`
-	EvolutionRules       Revision `json:"evolution_rules"`
 	GoGeneration         Revision `json:"go_generation"`
 	TypeScriptGeneration Revision `json:"typescript_generation"`
 }
@@ -72,7 +71,6 @@ func CurrentSemanticRevisions() SemanticRevisions {
 		Expansion:            "sha256:4b8b4df0b6cbe195627827006ecc65f98977d9774d8dd2aed5e2a0960cb14301",
 		ReferenceResolution:  "sha256:27e6c67b69271a6f99cb6eb2c62a414c56feae8e20554105efe16d843d1d06a0",
 		ContractProjection:   "sha256:35bf6a93c2b8acbf829a6253c7aba39bedb6d41c708ec213f5454a1bbf455fcc",
-		EvolutionRules:       "sha256:b143c9be9c74f9c3542a56d7ea4dd92ca05dd711a472cc4c3f24dc51e81ce481",
 		GoGeneration:         "sha256:ab020bfc57f634dcdcb0931903ab6a636ae4f77fbf9d5749a348a44ac73ab7a7",
 		TypeScriptGeneration: "sha256:56619ac5779f7d9ba66cded32ecd5a9eedefe2d13b8976715ba9e6ca692c60a6",
 	}

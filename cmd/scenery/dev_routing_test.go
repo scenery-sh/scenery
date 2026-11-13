@@ -12,7 +12,7 @@ func TestPathRouteManifestForLeaseRegistersRootFrontendOnce(t *testing.T) {
 	manifest := pathRouteManifestForLease(localagent.PortLease{
 		Port: 4747,
 		URL:  "http://localhost:4747",
-	}, "app.local.test", nil, "web")
+	}, "app.local.test", "web")
 	root := manifest.Routes["root"]
 	if root.Name != "root" || root.Kind != "frontend" || root.Path != "/" || root.URL != "http://localhost:4747/" || root.Backend != "web" {
 		t.Fatalf("root route = %+v", root)
@@ -29,7 +29,7 @@ func TestPathRouteManifestForLeaseRegistersRootFrontendOnce(t *testing.T) {
 func TestPathRouteManifestRootFrontendUsesBackendLabelSanitizer(t *testing.T) {
 	t.Parallel()
 
-	manifest := pathRouteManifestForLease(localagent.PortLease{URL: "http://localhost:4748"}, "", nil, "web@2")
+	manifest := pathRouteManifestForLease(localagent.PortLease{URL: "http://localhost:4748"}, "", "web@2")
 	if got, want := manifest.Routes["root"].Backend, localagentLabel("web@2"); got != want {
 		t.Fatalf("root backend = %q, want %q", got, want)
 	}

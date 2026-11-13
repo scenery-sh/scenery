@@ -65,15 +65,6 @@ func wireName(field map[string]any, fallback string) string {
 	return fallback
 }
 
-func sortedBoolKeys(values map[string]bool) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func goName(value string) string {
 	var builder strings.Builder
 	for _, part := range strings.FieldsFunc(value, func(char rune) bool { return char == '_' || char == '-' }) {
@@ -468,44 +459,6 @@ func canonicalContractTypeExpression(raw string) string {
 		arguments[index] = canonicalContractTypeExpression(arguments[index])
 	}
 	return name + "(" + strings.Join(arguments, ",") + ")"
-}
-
-func eventEmissionKeyExpression(resources map[string]Resource, operation Resource, variantName string, value any) (string, string, error) {
-	if value == nil {
-		return "", "", nil
-	}
-	parts := strings.Split(refOrString(value), ".")
-	if len(parts) < 3 || parts[0] != "result" || parts[1] != variantName {
-		return "", "", fmt.Errorf("must reference a field of result.%s", variantName)
-	}
-	var resultType any
-	for _, variant := range namedChildren(operation.Spec, "result") {
-		if stringValue(variant["name"]) == variantName {
-			resultType = variant["type"]
-			break
-		}
-	}
-	keyType := recordFieldType(resources, operation.Module, resultType, parts[2:])
-	if keyType == nil {
-		return "", "", fmt.Errorf("references an unknown result field")
-	}
-	expression := typeExpression(keyType)
-	if !eventKeyTypeSupported(expression) {
-		return "", "", fmt.Errorf("must reference a supported non-null scalar key, got %s", expression)
-	}
-	return strings.Join(parts[2:], "."), expression, nil
-}
-
-func eventKeyTypeSupported(expression string) bool {
-	if strings.HasPrefix(expression, "enum.") || strings.Contains(expression, "/enum/") {
-		return true
-	}
-	switch expression {
-	case "bool", "int", "int32", "uint32", "int64", "uint64", "decimal", "float32", "float64", "string", "uuid", "date", "datetime", "duration", "size", "url", "relative_path":
-		return true
-	default:
-		return false
-	}
 }
 
 func namedChildren(values map[string]any, name string) []map[string]any {

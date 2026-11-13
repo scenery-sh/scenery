@@ -51,25 +51,13 @@ func readSQLCInputSnapshot(root string, spec *sqlcGeneratorPlan) (*sqlcInputSnap
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
-	var producedSchemas []string
 	required := spec.InputSnapshot == nil
-	for _, schema := range spec.Schemas {
-		if schema.AtlasSource != "" {
-			producedSchemas = append(producedSchemas, filepath.ToSlash(filepath.Clean(schema.SQLCSchema)))
-		}
-	}
 	for _, block := range spec.Config.SQL {
 		for _, query := range block.Queries.Values {
 			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: query, Suffix: ".sql", Required: required})
 		}
 		for _, schema := range block.Schema.Values {
-			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema, Suffix: ".sql", Required: required, Produced: producedSchemas})
-		}
-	}
-	for _, schema := range spec.Schemas {
-		if schema.AtlasSource != "" {
-			snapshot.excluded[filepath.ToSlash(filepath.Clean(schema.SQLCSchema))] = true
-			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema.AtlasSource, Required: required})
+			snapshot.selections = append(snapshot.selections, compiler.InputSelection{Path: schema, Suffix: ".sql", Required: required})
 		}
 	}
 	for _, path := range sqlcLocalPluginInputs(spec.Config) {

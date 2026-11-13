@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"errors"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -262,79 +261,9 @@ func TestApprovalSealOpenBindsDecisionContextAndRotatesKeys(t *testing.T) {
 	}
 }
 
-func TestInitiatorSignerCookieFlagsSigningAndRotation(t *testing.T) {
-	now := time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC)
-	key := bytes.Repeat([]byte{0x44}, 32)
-	signer := InitiatorSigner{Key: key, Now: func() time.Time { return now }, TTL: time.Hour}
-	cookie, err := signer.Issue()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cookie.Name != CookieName || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" || !strings.HasPrefix(cookie.Value, initiatorPrefix) {
-		t.Fatalf("initiator cookie = %#v", cookie)
-	}
-	identity, err := signer.Verify(cookie)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if identity.ID == "" || identity.Version != TokenVersion || identity.ExpiresAt.Before(now) {
-		t.Fatalf("identity = %#v", identity)
-	}
-	boundedSigner := InitiatorSigner{Key: key, Now: func() time.Time { return now }, TTL: 365 * 24 * time.Hour}
-	boundedIdentity, _, err := boundedSigner.IssueIdentity()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if boundedIdentity.ExpiresAt.After(now.Add(MaxCookieTTL)) {
-		t.Fatalf("cookie expiry exceeded cap: %s", boundedIdentity.ExpiresAt)
-	}
-	if OwnerDigest(identity.ID) == identity.ID {
-		t.Fatal("owner digest did not hash identity")
-	}
-
-	tampered := *cookie
-	tampered.Value = cookie.Value[:len(cookie.Value)-1] + string(flipHex(cookie.Value[len(cookie.Value)-1]))
-	if _, err := signer.Verify(&tampered); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("tampered cookie error = %v", err)
-	}
-	expiredSigner := signer
-	expiredSigner.Now = func() time.Time { return now.Add(time.Hour) }
-	if _, err := expiredSigner.Verify(cookie); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expired cookie error = %v", err)
-	}
-
-	oldKey := bytes.Repeat([]byte{0x55}, 32)
-	newKey := bytes.Repeat([]byte{0x66}, 32)
-	oldSigner := InitiatorSigner{Keys: NewStaticKeyring("old", oldKey, nil), Now: func() time.Time { return now }, TTL: time.Hour}
-	oldCookie, err := oldSigner.Issue()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rotatedSigner := InitiatorSigner{Keys: NewStaticKeyring("new", newKey, map[string][]byte{"old": oldKey}), Now: func() time.Time { return now }, TTL: time.Hour}
-	rotatedIdentity, replacement, err := rotatedSigner.VerifyOrRotate(oldCookie)
-	if err != nil || replacement == nil {
-		t.Fatalf("rotation identity=%#v replacement=%#v err=%v", rotatedIdentity, replacement, err)
-	}
-	if rotatedIdentity.ID != mustVerify(t, oldSigner, oldCookie).ID {
-		t.Fatalf("rotation changed anonymous identity")
-	}
-	if _, err := rotatedSigner.Verify(replacement); err != nil {
-		t.Fatalf("replacement verification: %v", err)
-	}
-}
-
 func flipHex(char byte) byte {
 	if char == '0' {
 		return '1'
 	}
 	return '0'
-}
-
-func mustVerify(t *testing.T, signer InitiatorSigner, cookie *http.Cookie) AnonymousIdentity {
-	t.Helper()
-	identity, err := signer.Verify(cookie)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return identity
 }

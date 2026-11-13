@@ -255,7 +255,6 @@ func frameworkInputs(options FrameworkOptions) []Input {
 	inputs = append(inputs, []Input{
 		{Key: "auth.jwt_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
 		{Key: "auth.cookie_domain", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
-		{Key: "auth.email_from", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
 	}...)
 	if options.GoogleOAuth {
 		inputs = append(inputs,

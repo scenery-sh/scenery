@@ -14,11 +14,11 @@ func TestResourceViewClonePreservesJSONShapeAndOwnership(t *testing.T) {
 		"nil_map": map[string]any(nil), "empty_map": map[string]any{},
 		"nil_slice": []any(nil), "empty_slice": []any{},
 	}, Origin: Origin{
-		Patches: []string{"patch"}, ModuleChain: []string{"module"}, DeclarationRange: span,
+		ModuleChain: []string{"module"}, DeclarationRange: span,
 		AttributeRanges:  map[string]Range{"field": *span},
 		ExpansionLineage: []ExpansionStep{{SourceRange: span}},
 		FieldProvenance:  map[string]FieldProvenance{"field": {DeclaredAt: span, Transformations: []string{"default"}}},
-	}}, {Spec: map[string]any{}, Origin: Origin{Patches: []string{}, AttributeRanges: map[string]Range{}, FieldProvenance: map[string]FieldProvenance{}}}}
+	}}, {Spec: map[string]any{}, Origin: Origin{AttributeRanges: map[string]Range{}, FieldProvenance: map[string]FieldProvenance{}}}}
 	data, err := json.Marshal(resources)
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +32,6 @@ func TestResourceViewClonePreservesJSONShapeAndOwnership(t *testing.T) {
 		t.Fatal("direct copy differs from graph JSON normalization")
 	}
 	cloned[0].Spec["nested"].(map[string]any)["items"].([]any)[0].(map[string]any)["value"] = "changed"
-	cloned[0].Origin.Patches[0] = "changed"
 	cloned[0].Origin.ModuleChain[0] = "changed"
 	cloned[0].Origin.DeclarationRange.SourceID = "changed"
 	cloned[0].Origin.AttributeRanges["field"] = Range{}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"

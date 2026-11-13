@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"scenery.sh/runtime"
+	"scenery.sh/runtime/shared"
 )
 
 var _ *runtime.Span = (*Span)(nil)
@@ -23,8 +24,8 @@ func TestMetaIncludesLocalEnvironmentDefaults(t *testing.T) {
 	if meta.Environment.Name != "local" {
 		t.Fatalf("Meta().Environment.Name = %q, want %q", meta.Environment.Name, "local")
 	}
-	if meta.Environment.Type != EnvDevelopment {
-		t.Fatalf("Meta().Environment.Type = %q, want %q", meta.Environment.Type, EnvDevelopment)
+	if meta.Environment.Type != shared.EnvDevelopment {
+		t.Fatalf("Meta().Environment.Type = %q, want %q", meta.Environment.Type, shared.EnvDevelopment)
 	}
 	if meta.Environment.Cloud != CloudLocal {
 		t.Fatalf("Meta().Environment.Cloud = %q, want %q", meta.Environment.Cloud, CloudLocal)

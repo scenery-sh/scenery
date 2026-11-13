@@ -19,6 +19,23 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0225-prune-unused-and-dead-surface.md",
+      "title": "Prune Unused And Dead Surface",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
+      "summary": "Sequential removal of features no application uses and of literal dead code, including tests, schemas, diagnostics, CLI grammar and living docs; records the owner keep decisions, the green baseline and the per-step validation commands.",
+      "tags": [
+        "plans",
+        "execplans",
+        "maintenance",
+        "cleanup"
+      ]
+    },
+    {
       "path": "docs/plans/0224-measured-startup-and-check-latency.md",
       "title": "Measured Startup, Shutdown And Check Latency",
       "owner": "scenery runtime / build",
@@ -777,18 +794,6 @@
       "tags": ["plans", "execplans", "build", "runtime", "performance"]
     },
     {
-      "path": "docs/native-build-compiler-decision.md",
-      "title": "Native Build Compiler Decision",
-      "owner": "scenery verifier / native development execution",
-      "status": "reference",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-10-21",
-      "review_after": "2026-11-20",
-      "summary": "Retained direct executor policy, the five-path short ONLV comparison, full-ONLV link attribution, and the DWARF-free development link and Darwin scheduling policy.",
-      "tags": ["build", "runtime", "benchmark", "performance", "decision"]
-    },
-    {
       "path": "docs/plans/0194-retained-go-compiler.md",
       "title": "Retained Go Compiler Experiment",
       "owner": "scenery verifier / native development execution",
@@ -813,18 +818,6 @@
       "tags": ["plans", "execplans", "build", "runtime", "benchmark"]
     },
     {
-      "path": "docs/native-build-driver-decision.md",
-      "title": "Native Build Driver Decision",
-      "owner": "scenery verifier / native development execution",
-      "status": "reference",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-10-21",
-      "review_after": "2026-11-20",
-      "summary": "Decision report for the full-ONLV retained standard Go compiler and linker experiment.",
-      "tags": ["build", "runtime", "benchmark", "performance"]
-    },
-    {
       "path": "docs/plans/0192-identical-full-onlv-build-comparison.md",
       "title": "Identical Full ONLV Build Comparison",
       "owner": "scenery verifier / native development execution",
@@ -840,12 +833,12 @@
       "path": "docs/product-and-island-build-comparison.md",
       "title": "Product and Island Build Comparison",
       "owner": "scenery verifier / native development execution",
-      "status": "reference",
+      "status": "deprecated",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-21",
-      "review_after": "2026-11-20",
-      "summary": "Identical full ONLV comparison: 30 paired 620-package builds, byte-identical executables, product Go p50 1170 ms and direct-driver experiment 1171 ms. No observed same-scope build-speed advantage; historical small-island cohort retained separately.",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
+      "summary": "Historical; its benchmark was removed by plan 0225. Identical full ONLV comparison: 30 paired 620-package builds, byte-identical executables, product Go p50 1170 ms and direct-driver experiment 1171 ms. No observed same-scope build-speed advantage; historical small-island cohort retained separately.",
       "tags": [
         "build",
         "runtime",
@@ -876,12 +869,12 @@
       "path": "docs/native-build-first-execution-attribution.md",
       "title": "Native Build and First-Execution Attribution Report",
       "owner": "scenery verifier / native development execution",
-      "status": "reference",
+      "status": "deprecated",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-10-21",
-      "review_after": "2026-11-20",
-      "summary": "Measured macOS AHJ experiment: disabling Git stamping reduces build p50 551 to 399 ms and edit p50 993 to 690 ms. Product app builds already disable stamping; these are not product-path timings. Developer Tools enabled; Linux deferred.",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
+      "summary": "Historical; its benchmark was removed by plan 0225. Measured macOS AHJ experiment: disabling Git stamping reduces build p50 551 to 399 ms and edit p50 993 to 690 ms. Product app builds already disable stamping; these are not product-path timings. Developer Tools enabled; Linux deferred.",
       "tags": ["build", "runtime", "performance", "verification"]
     },
     {
@@ -1748,18 +1741,6 @@
       "tags": ["plans", "execplans", "generation", "navigation", "provenance", "react", "typescript", "ui-catalog", "micro"]
     },
     {
-      "path": "docs/schemas/scenery.agent.cleanup.schema.json",
-      "title": "scenery.agent.cleanup Schema",
-      "owner": "scenery runtime / agent lifecycle",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "Current machine-output schema for the report-only pre-rebrand process check and explicit legacy state cleanup.",
-      "tags": ["schemas", "agent", "cleanup", "machine-protocol"]
-    },
-    {
       "path": "docs/schemas/scenery.prune.schema.json",
       "title": "scenery.prune Schema",
       "owner": "scenery runtime / agent lifecycle",
@@ -2116,30 +2097,6 @@
       "tags": ["schema", "build", "cli", "json"]
     },
     {
-      "path": "docs/schemas/scenery.assistant.init.schema.json",
-      "title": "scenery.assistant.init Schema",
-      "owner": "scenery assistants / CLI",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "Strict JSON data payload for idempotent assistant scaffolding, dry runs, source transaction revisions, and authored-file preservation.",
-      "tags": ["schema", "assistant", "cli", "scaffolding"]
-    },
-    {
-      "path": "docs/schemas/scenery.assistant.sync.schema.json",
-      "title": "scenery.assistant.sync Schema",
-      "owner": "scenery assistants / CLI",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "Strict JSON data payload for managed Node/npm dependency synchronization, exact lock digests, and content-addressed cache reuse.",
-      "tags": ["schema", "assistant", "cli", "dependencies"]
-    },
-    {
       "path": "docs/schemas/scenery.assistant.control.event.schema.json",
       "title": "scenery.assistant.control.event Schema",
       "owner": "scenery assistants / runtime",
@@ -2248,18 +2205,6 @@
       "tags": ["schema", "assistant", "cli", "status", "inspection"]
     },
     {
-      "path": "docs/schemas/scenery.inspect.assistants.schema.json",
-      "title": "scenery.inspect.assistants Schema",
-      "owner": "scenery assistants / CLI",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "Provider-neutral assistant inspection envelope with an explicit developer/operator implementation view for adapter, lock, private listener, and child diagnostics.",
-      "tags": ["schema", "assistant", "cli", "inspection", "public-private"]
-    },
-    {
       "path": "docs/plans/0108-remove-remaining-v0-compatibility.md",
       "title": "Remove Remaining v0 Compatibility",
       "owner": "scenery maintainers / CLI / runtime / auth",
@@ -2278,78 +2223,6 @@
         "runtime",
         "auth"
       ]
-    },
-    {
-      "path": "docs/schemas/scenery.approval-token.schema.json",
-      "title": "scenery.approval-token Schema",
-      "owner": "scenery compiler / approval verification",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "JSON Schema for signed, caller-bound, expiring detached approval tokens used by semantic changes and deployments.",
-      "tags": ["schema", "compiler", "approval", "security"]
-    },
-    {
-      "path": "docs/schemas/scenery.approval-trust.schema.json",
-      "title": "scenery.approval-trust Schema",
-      "owner": "scenery compiler / approval verification",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "JSON Schema for the app-local Ed25519 public-key trust store used to verify detached approval tokens.",
-      "tags": ["schema", "compiler", "approval", "security"]
-    },
-    {
-      "path": "docs/schemas/scenery.change-plan.schema.json",
-      "title": "scenery.change-plan Schema",
-      "owner": "scenery compiler / immutable changes",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "JSON Schema for immutable semantic change plans, normalized operations, revision-bound rename receipts, predicted revisions, source edits, risks, capabilities, and approvals.",
-      "tags": ["schema", "compiler", "changes", "transactions"]
-    },
-    {
-      "path": "docs/schemas/scenery.change-receipt.schema.json",
-      "title": "scenery.change-receipt Schema",
-      "owner": "scenery compiler / immutable changes",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "JSON Schema for applied semantic change receipts, durable rename evidence, and resulting revisions.",
-      "tags": ["schema", "compiler", "changes", "transactions"]
-    },
-    {
-      "path": "docs/schemas/scenery.deployment-plan.schema.json",
-      "title": "scenery.deployment-plan Schema",
-      "owner": "scenery compiler / deployment",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "JSON Schema for immutable deployment plans, exact implementation revisions, provider plans, risks, and approvals.",
-      "tags": ["schema", "compiler", "deployment", "transactions"]
-    },
-    {
-      "path": "docs/schemas/scenery.deployment-receipt.schema.json",
-      "title": "scenery.deployment-receipt Schema",
-      "owner": "scenery compiler / deployment",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "JSON Schema for committed deployment receipts and exact workspace, contract, implementation, deployment, and provider-plan revisions.",
-      "tags": ["schema", "compiler", "deployment", "transactions"]
     },
     {
       "path": "docs/schemas/scenery.generated.schema.json",
@@ -2569,9 +2442,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "Normative current specification: singular .scn source, explicit offline builtin locks and content-scoped provider identity, MCP/assistant public surfaces and private adapters, exact machine envelopes, HTTP path tails, generated clients/pages, graph provenance, authenticated transactions and Go implementation boundaries.",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
+      "summary": "Normative current specification: singular .scn source, explicit offline builtin locks and content-scoped provider identity, MCP/assistant public surfaces and private adapters, exact machine envelopes, HTTP path tails, generated clients/pages, graph provenance and Go implementation boundaries.",
       "tags": [
         "spec",
         "language",
@@ -2591,7 +2464,7 @@
       "freshness": "current",
       "last_reviewed": "2026-11-04",
       "review_after": "2026-12-04",
-      "summary": "Normative current Go implementation contract for ignored in-module public projections, graph-valid bootstrap, read-only freshness and expected-overlay ABI verification, cached private composition, descriptor-authenticated publication, ordinary Go tooling, explicit module distribution and one-time old-workfile cutover.",
+      "summary": "Normative current Go implementation contract for ignored in-module public projections, graph-valid bootstrap, read-only freshness and expected-overlay ABI verification, cached private composition, descriptor-authenticated publication, ordinary Go tooling and explicit module distribution.",
       "tags": [
         "spec",
         "go",
@@ -2628,8 +2501,8 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
       "summary": "Normative additive terminal path-tail contract for source syntax, typed zero-or-more segment mapping, deterministic route precedence, strict decoding, generated Go and TypeScript behavior, OpenAPI projection, security, and conformance.",
       "tags": [
         "spec",
@@ -2647,8 +2520,8 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-27",
-      "review_after": "2026-11-26",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
       "summary": "Deterministic TypeScript client API and wire contracts with TypeScript-only library generation, including empty-selector refresh.",
       "tags": [
         "spec",
@@ -2657,24 +2530,6 @@
         "typescript-client",
         "assistants",
         "ndjson"
-      ]
-    },
-    {
-      "path": "docs/spec/evolution.md",
-      "title": "Scenery Evolution Rules",
-      "owner": "scenery compiler / evolution",
-      "status": "reference",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
-      "summary": "Normative multidimensional semantic evolution rules for canonical Scenery resource graphs, including MCP capability/server changes, assistant public-surface compatibility, private adapter rebuild consequences, and revision-bound rename receipts.",
-      "tags": [
-        "spec",
-        "evolution",
-        "semantic-diff",
-        "mcp",
-        "assistants"
       ]
     },
     {
@@ -2829,8 +2684,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
       "summary": "Documentation map with multi-path agent discovery, compact validation context and repeated context evaluations.",
       "tags": [
         "docs",
@@ -2903,8 +2758,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-27",
-      "review_after": "2026-11-26",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
       "summary": "App and repository workflows, local feature integration, application acceptance, captured source revision conflicts, read-only inspection/check behavior and input-bound validation context.",
       "tags": [
         "agents",
@@ -2959,8 +2814,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-10-15",
-      "review_after": "2026-11-14",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
       "summary": "Repository code map and local feature coordination independent of app runtime/data ownership, with shared lifecycle planning, explicit publication owners, Go destinations and TypeScript-only library selection.",
       "tags": [
         "architecture",
@@ -2978,8 +2833,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-11-04",
-      "review_after": "2026-12-04",
+      "last_reviewed": "2026-11-13",
+      "review_after": "2026-12-13",
       "summary": "Local CLI and JSON contracts, including descriptor-bound report coverage, exact finite EOF and completed log-line framing, and numerically exact normalized structured fields. Explicit retained lifecycle roots remain scoped after checkout deletion or invalid retained state; Git worktree removal refuses multiple matching checkout paths. Plain logs and interactive console preserve the selected root and refuse pending retained upgrades; console retains valid configured display names. Git inventory uses NUL delimiters to preserve embedded newline and ordinary path bytes. Upgrade preview/apply and pending retry parse configuration at the selected retained root, refusing missing or malformed child markers without parent redirection. Literal selected pathname whitespace is preserved; Git removal normalization keeps trailing-space paths distinct. CREATE shell follow-up output preserves the literal target through existing reproduction formatting. CREATE keeps nonblank refs as revision operands; invalid option-shaped values refuse without checkout or branch allocation. Successful Git warnings remain separate from inventory and preserve complete ambiguity admission. Removal compares decoded literal branch names without removing a second transport prefix. Unregistered removal targets are invalid requests with a concrete SCN8001 message and exit 2. CREATE/REMOVE names sanitizing to empty keep configured discovery precedence and refuse as SCN8001/exit 2 before Git. Public ps always returns a sessions array and excludes noncanonical key spellings without modifying locator files; canonical corrupt records remain visible. Selected Go destinations, TypeScript-only library refresh, required SQLC inputs and executable-mode revalidation retain source/publication ownership contracts. Machine envelopes, current machine artifacts and environment documents enforce strict JSON syntax and exact field names while preserving declared output representations.",
       "tags": [
         "contract",
@@ -3012,32 +2867,19 @@
         "docs/schemas/scenery.agent_context.summary.schema.json",
         "docs/schemas/scenery.inspect.docs.schema.json",
         "docs/schemas/scenery.inspect.harness.schema.json",
-        "docs/schemas/scenery.inspect.observability.schema.json",
         "docs/schemas/scenery.inspect.ui.schema.json",
         "docs/schemas/scenery.logs.query.schema.json",
-        "docs/schemas/scenery.logs.tail.entry.schema.json",
         "docs/schemas/scenery.help.schema.json",
         "docs/schemas/scenery.down.schema.json",
-        "docs/schemas/scenery.metrics.labels.schema.json",
         "docs/schemas/scenery.metrics.query.schema.json",
-        "docs/schemas/scenery.metrics.series.schema.json",
         "docs/schemas/scenery.telemetry.schema.json",
         "docs/schemas/scenery.dev-runtime.status.schema.json",
-        "docs/schemas/scenery.inspect.validation.schema.json",
         "docs/schemas/scenery.inspect.durable.schema.json",
-        "docs/schemas/scenery.internal.devtools.versions.schema.json",
-        "docs/schemas/scenery.durable.worker_token.create.schema.json",
         "docs/schemas/scenery.durable.jobs.schema.json",
-        "docs/schemas/scenery.validation.list.schema.json",
-        "docs/schemas/scenery.validation.inspect.schema.json",
-        "docs/schemas/scenery.validation.graph.schema.json",
         "docs/schemas/scenery.validation.plan.schema.json",
         "docs/schemas/scenery.validation.result.schema.json",
-        "docs/schemas/scenery.agent.capabilities.schema.json",
         "docs/schemas/scenery.agent.restart.schema.json",
         "docs/schemas/scenery.agent.status.schema.json",
-        "docs/schemas/scenery.contract-cli.request.schema.json",
-        "docs/schemas/scenery.contract-cli.response.schema.json",
         "docs/schemas/scenery.db.server.stop.schema.json",
         "docs/schemas/scenery.dev.detach.schema.json",
         "docs/schemas/scenery.deploy.target.schema.json",
@@ -3047,7 +2889,6 @@
         "docs/schemas/scenery.deploy.teardown.schema.json",
         "docs/schemas/scenery.doctor.deploy.schema.json",
         "docs/schemas/scenery.edge.trust.schema.json",
-        "docs/schemas/scenery.edge.dns.status.schema.json",
         "docs/schemas/scenery.edge.status.schema.json",
         "docs/schemas/scenery.local.health.schema.json",
         "docs/schemas/scenery.local.routes.schema.json",
@@ -3059,15 +2900,12 @@
         "docs/schemas/scenery.assistant.control.event.schema.json",
         "docs/schemas/scenery.assistant.control.request.schema.json",
         "docs/schemas/scenery.assistant.control.response.schema.json",
-        "docs/schemas/scenery.assistant.init.schema.json",
         "docs/schemas/scenery.assistant.public-error.schema.json",
         "docs/schemas/scenery.assistant.public-event.schema.json",
         "docs/schemas/scenery.assistant.public.request.schema.json",
         "docs/schemas/scenery.assistant.public.response.schema.json",
         "docs/schemas/scenery.assistant.runtime-descriptor.schema.json",
         "docs/schemas/scenery.assistant.status.schema.json",
-        "docs/schemas/scenery.assistant.sync.schema.json",
-        "docs/schemas/scenery.inspect.assistants.schema.json",
         "docs/schemas/scenery.feature.schema.json",
         "docs/schemas/scenery.feature.policy.schema.json"
       ]
@@ -3081,7 +2919,7 @@
       "freshness": "current",
       "last_reviewed": "2026-10-27",
       "review_after": "2026-11-26",
-      "summary": "Human reference for scenery-owned environment variables, including optional dotenv layering and process precedence, fixed canonical standard-auth names and rejected legacy selectors, app-injected process identity, Postgres app database URLs and schema registry env, Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
+      "summary": "Human reference for scenery-owned environment variables, including optional dotenv layering and process precedence, fixed canonical standard-auth names and rejected legacy selectors, app-injected process identity, Postgres app database URLs and schema registry env, Google OAuth and token-cipher envs, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
         "env",
@@ -3291,12 +3129,8 @@
         "agents"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.inspect.observability.schema.json",
         "docs/schemas/scenery.logs.query.schema.json",
-        "docs/schemas/scenery.logs.tail.entry.schema.json",
-        "docs/schemas/scenery.metrics.labels.schema.json",
-        "docs/schemas/scenery.metrics.query.schema.json",
-        "docs/schemas/scenery.metrics.series.schema.json"
+        "docs/schemas/scenery.metrics.query.schema.json"
       ]
     },
     {

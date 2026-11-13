@@ -87,16 +87,8 @@ func MarshalRequest(request Request) ([]byte, error) {
 	return MarshalCanonical(request)
 }
 
-func MarshalResponse(response Response) ([]byte, error) {
-	return MarshalCanonical(response)
-}
-
 func MarshalEvent(event Event) ([]byte, error) {
 	return MarshalCanonical(event)
-}
-
-func MarshalRuntimeDescriptor(descriptor RuntimeDescriptor) ([]byte, error) {
-	return MarshalCanonical(descriptor)
 }
 
 func decodeStrict(data []byte, target any) error {

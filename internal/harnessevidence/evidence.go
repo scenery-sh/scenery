@@ -58,11 +58,6 @@ func NewArtifact(name, path, kind string, exists bool) harnessreport.Artifact {
 	return harnessreport.Artifact{Name: name, Path: path, Kind: identity.Kind, SchemaRevision: identity.SchemaRevision, Exists: exists}
 }
 
-func NewArtifactReference(name, path, kind string) harnessreport.EvidenceArtifact {
-	identity := harnessArtifactPayloadIdentity(kind)
-	return harnessreport.EvidenceArtifact{Name: name, Path: path, Kind: identity.Kind, SchemaRevision: identity.SchemaRevision}
-}
-
 func OptionalContext(items []Context) Context {
 	if len(items) == 0 {
 		return Context{}
@@ -276,19 +271,6 @@ func ExitCode(err error) *int {
 	}
 	code := 1
 	return &code
-}
-
-func ArtifactReferences(items []harnessreport.Artifact) []harnessreport.EvidenceArtifact {
-	out := make([]harnessreport.EvidenceArtifact, 0, len(items))
-	for _, item := range items {
-		out = append(out, harnessreport.EvidenceArtifact{
-			Name:           item.Name,
-			Path:           item.Path,
-			Kind:           item.Kind,
-			SchemaRevision: item.SchemaRevision,
-		})
-	}
-	return out
 }
 
 func WriteDiagnostic(name string, err error) harnessreport.Diagnostic {

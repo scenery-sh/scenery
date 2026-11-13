@@ -1,47 +1,9 @@
 package generate
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
-
-func TestTypeScriptValidationUsesClientPropertiesOnly(t *testing.T) {
-	source := `value.scene_id == "" || value.field_map.snake_key == ""`
-	resource := Resource{Spec: map[string]any{"validation": map[string]any{"name": "required", "when": map[string]any{"$expression": source}}}}
-	encoded, err := json.Marshal(tsValidationDescriptors(resource)[0].(map[string]any)["expression"])
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"sceneId", "fieldMap", "snake_key"} {
-		if !strings.Contains(string(encoded), `"name":"`+name+`"`) {
-			t.Fatalf("missing projected name %q: %s", name, encoded)
-		}
-	}
-	if !strings.Contains(validationProgramJSON(source), `"name":"scene_id"`) {
-		t.Fatal("TypeScript projection changed the shared Go validation program")
-	}
-}
-
-func TestTypeScriptValidationCapabilityFollowsReachableRecords(t *testing.T) {
-	validated := Resource{Address: "geometry/record/point", Module: "geometry", Kind: "scenery.record", Name: "point", Spec: map[string]any{
-		"field":      map[string]any{"name": "x", "type": map[string]any{"$ref": "float64"}},
-		"validation": map[string]any{"name": "positive", "when": map[string]any{"$expression": "value.x <= 0"}, "code": "POINT_INVALID", "message": "x must be positive"},
-	}}
-	resources := []Resource{
-		validated,
-		{Address: "house/record/shape", Module: "house", Kind: "scenery.record", Name: "shape", Spec: map[string]any{"field": map[string]any{"name": "point", "type": map[string]any{"$expression": "list(geometry/record/point)"}}}},
-		{Address: "house/operation/get", Module: "house", Kind: "scenery.operation", Name: "get", Spec: map[string]any{"input": map[string]any{"$ref": "house/record/shape"}}},
-	}
-	bindings := []Resource{{Address: "house/binding/get", Module: "house", Kind: "scenery.binding", Name: "get", Spec: map[string]any{"operation": map[string]any{"$ref": "house/operation/get"}}}}
-	if !tsRuntimeCapabilitiesFor(Resource{}, bindings, resources).validation {
-		t.Fatal("nested cross-module validation was omitted")
-	}
-	resources = append(resources[:1], resources[2:]...)
-	if tsRuntimeCapabilitiesFor(Resource{}, bindings, resources).validation {
-		t.Fatal("unreachable validation retained the evaluator")
-	}
-}
 
 func TestTypeScriptFailureSetsPreserveExactOperationUnions(t *testing.T) {
 	var operations, bindings []Resource

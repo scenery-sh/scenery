@@ -14,8 +14,6 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
-	inspectdata "scenery.sh/internal/inspect"
-	"scenery.sh/internal/lifecycle"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/postgresname"
 )
@@ -30,7 +28,7 @@ type dbCLIOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("usage: scenery db list|shell|apply|migrate|seed|setup|reset|drop|server [--app-root <path>]")
+		return usageErrorf("usage: scenery db list|shell|migrate|seed|setup|reset|drop|server [--app-root <path>]")
 	}
 	if err := flagBeforeWord(args, "the db subcommand"); err != nil {
 		return err
@@ -40,8 +38,6 @@ func dbCommand(args []string) error {
 		return dbListCommand(args[1:])
 	case "shell":
 		return dbShellCommand(args[1:])
-	case "apply":
-		return dbApplyCommand(args[1:])
 	case "migrate":
 		return dbMigrateCommand(args[1:])
 	case "seed":
@@ -57,96 +53,6 @@ func dbCommand(args []string) error {
 	default:
 		return usageErrorf("unknown db command %q", args[0])
 	}
-}
-
-func dbApplyCommand(args []string) error {
-	return runDBApply(context.Background(), os.Stdout, args)
-}
-
-func runDBApply(ctx context.Context, stdout io.Writer, args []string) error {
-	return runDBApplyWithHooks(ctx, stdout, args, defaultLifecycleHooks())
-}
-
-func runDBApplyWithHooks(ctx context.Context, stdout io.Writer, args []string, hooks lifecycleHooks) error {
-	opts, err := parseDBApplyArgs(args)
-	if err != nil {
-		return err
-	}
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	applyStdout := stdout
-	if opts.JSON {
-		applyStdout = io.Discard
-	}
-	if err := runLifecycleEffect(ctx, "database.apply", []lifecycle.Capability{lifecycle.ReadSource, lifecycle.MutateDatabase}, func(ctx context.Context) error {
-		return runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, cfg.Database.Apply, applyStdout, os.Stderr, hooks)
-	}); err != nil {
-		return err
-	}
-	result := buildDBApplyResult(appRoot, cfg)
-	if opts.JSON {
-		return writeInspectJSON(stdout, result)
-	}
-	_, _ = fmt.Fprintln(stdout, "scenery: database apply complete")
-	return nil
-}
-
-type dbApplyOptions struct {
-	AppRoot string
-	JSON    bool
-}
-
-type dbApplyResult struct {
-	cliPayloadIdentity
-	App   inspectdata.AppRef `json:"app"`
-	Apply dbApplyRecord      `json:"apply"`
-}
-
-type dbApplyRecord struct {
-	Command string `json:"command,omitempty"`
-	CWD     string `json:"cwd,omitempty"`
-	Status  string `json:"status"`
-}
-
-func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
-	return dbApplyResult{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.apply.result"),
-		App: inspectdata.AppRef{
-			Name:       cfg.Name,
-			ID:         cfg.ID,
-			Root:       appRoot,
-			ConfigPath: cfg.SourcePath(appRoot),
-		},
-		Apply: dbApplyRecord{
-			Command: cfg.Database.Apply.Command,
-			CWD:     cfg.Database.Apply.CWD,
-			Status:  "applied",
-		},
-	}
-}
-
-func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, stdout, stderr io.Writer, hooks lifecycleHooks) (returnErr error) {
-	requirements, err := compileSQLRequirements(appRoot)
-	if err != nil {
-		return err
-	}
-	migrations, err := discoverDBMigrationPlans(appRoot, cfg, requirements)
-	if err != nil {
-		return err
-	}
-	env := envpolicy.Environ()
-	env, closeOperation, err := beginDatabaseLifecycleEnv(ctx, appRoot, cfg, requirements, env)
-	if err != nil {
-		return err
-	}
-	defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
-	if len(migrations) > 0 {
-		_, err := runDBMigrationPlans(ctx, cfg.AppID(), requirements, migrations, env, postgresdb.SchemaMigrationOptions{})
-		return err
-	}
-	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, hooks)
 }
 
 func runDatabaseApplyCommandWithEnvIO(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer) error {
@@ -169,6 +75,14 @@ func runDatabaseApplyCommandWithEnvIOHooks(ctx context.Context, appRoot string, 
 		Stdout:  stdout,
 		Stderr:  stderr,
 	})
+}
+
+func isTerminal(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && (info.Mode()&os.ModeCharDevice) != 0
 }
 
 func dbListCommand(args []string) error {
@@ -395,7 +309,7 @@ func resolveDatabaseURLForConfigFromEnv(requirements compiler.SQLRequirements, e
 	if svc, ok := requirements.Binding("db"); ok {
 		return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 	}
-	services := requirements.Bindings(lookupEnvValue(env, "SCENERY_DURABLE_ENDPOINT") != "")
+	services := requirements.Bindings()
 	if len(services) != 1 {
 		return "", fmt.Errorf("database service name is required when %d services are configured", len(services))
 	}
@@ -408,7 +322,7 @@ func resolveDatabaseURLForServiceFromEnv(requirements compiler.SQLRequirements, 
 		if svc, ok := requirements.Binding(service); ok {
 			return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 		}
-		if len(requirements.Bindings(lookupEnvValue(env, "SCENERY_DURABLE_ENDPOINT") != "")) > 1 {
+		if len(requirements.Bindings()) > 1 {
 			return "", fmt.Errorf("seed service %q has no matching canonical SQL binding; select its data_source config.database name", service)
 		}
 	}
@@ -578,7 +492,7 @@ func managedPostgresAdmin(ctx context.Context, database postgresdb.Database) (*s
 
 func databaseEnvKeys(requirements compiler.SQLRequirements) []string {
 	keys := []string{appDatabaseURLEnv, postgresdb.RegistryEnv}
-	for _, svc := range requirements.Bindings(false) {
+	for _, svc := range requirements.Bindings() {
 		keys = append(keys, postgresname.ServiceDatabaseURLEnv(svc.Name))
 	}
 	return keys
@@ -593,10 +507,6 @@ func envMap(env []string) map[string]string {
 		}
 	}
 	return out
-}
-
-type dbResetOptions struct {
-	AppRoot string
 }
 
 type databaseListResponse struct {
@@ -673,35 +583,6 @@ func parseDBTargetArgs(args []string) (dbCLIOptions, error) {
 	}
 	if len(positionals) > 1 {
 		return dbCLIOptions{}, usageErrorf("unexpected argument %q", positionals[1])
-	}
-	return opts, nil
-}
-
-func parseDBResetArgs(args []string) (dbResetOptions, error) {
-	var opts dbResetOptions
-	flags := newCLIFlagSet("db reset")
-	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return dbResetOptions{}, err
-	}
-	if err := rejectCLIPositionals(positionals); err != nil {
-		return dbResetOptions{}, err
-	}
-	return opts, nil
-}
-
-func parseDBApplyArgs(args []string) (dbApplyOptions, error) {
-	var opts dbApplyOptions
-	flags := newCLIFlagSet("db apply")
-	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	registerJSONOutput(flags, &opts.JSON)
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return dbApplyOptions{}, err
-	}
-	if err := rejectCLIPositionals(positionals); err != nil {
-		return dbApplyOptions{}, err
 	}
 	return opts, nil
 }

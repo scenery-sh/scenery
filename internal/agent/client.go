@@ -14,11 +14,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/machine"
 )
 
 type Client struct {
@@ -48,9 +46,7 @@ func IsNotFound(err error) bool {
 
 type StartOptions struct {
 	RouterAddr string
-	RouterTLS  bool
 	RouterHTTP bool
-	Trust      bool
 	// Supervised marks the launchd or systemd job's agent, which contains
 	// repeated start failures instead of letting its supervisor restart it
 	// forever.
@@ -68,78 +64,6 @@ func NewClient(socketPath string) *Client {
 		socketPath: socketPath,
 		http:       &http.Client{Transport: transport, Timeout: 5 * time.Second},
 	}
-}
-
-func DefaultClient() (*Client, error) {
-	paths, err := DefaultPaths()
-	if err != nil {
-		return nil, err
-	}
-	return NewClient(paths.SocketPath), nil
-}
-
-// Ensure connects to the local agent, starting one when none is running.
-// A running agent is shared only when its schema and specification match.
-// Build age never authorizes replacing another worktree's control plane.
-func Ensure(ctx context.Context, current Identity) (*Client, error) {
-	return EnsureWith(ctx, current, Paths{})
-}
-
-// EnsureWith is Ensure with an explicit agent home. A zero Paths resolves
-// from the process environment (SCENERY_AGENT_HOME / ~/.scenery).
-func EnsureWith(ctx context.Context, current Identity, paths Paths) (*Client, error) {
-	if paths.Home == "" {
-		var err error
-		paths, err = DefaultPaths()
-		if err != nil {
-			return nil, err
-		}
-	}
-	client := NewClient(paths.SocketPath)
-	if health, err := client.Health(ctx); err == nil {
-		if err := compatibleAgent(health, current); err != nil {
-			client.CloseIdleConnections()
-			return nil, err
-		}
-		return client, nil
-	} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ECONNREFUSED) {
-		client.CloseIdleConnections()
-		return nil, fmt.Errorf("failed_precondition: inspect existing scenery agent without replacing it: %w", err)
-	}
-	if err := StartProcess(paths, StartOptions{}); err != nil {
-		return nil, err
-	}
-	return waitForAgentReady(ctx, client, paths)
-}
-
-func compatibleAgent(health HealthResponse, current Identity) error {
-	if err := machine.ValidateArtifactIdentity(health.ArtifactIdentity, AgentStateKind, agentStateSchemaDescriptor, "connect to shared agent"); err != nil {
-		return fmt.Errorf("failed_precondition: incompatible scenery agent (running %s; CLI %s; required spec %s): %w; existing sessions are untouched; use the matching CLI or a private SCENERY_AGENT_HOME and distinct router address (this does not isolate global Docker containers/volumes or DNS/edge listeners), or explicitly restart the agent after stopping its sessions", health.Identity, current, agentStateIdentity().SpecRevision, err)
-	}
-	return nil
-}
-
-func waitForAgentReady(ctx context.Context, client *Client, paths Paths) (*Client, error) {
-	deadline := time.Now().Add(5 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		health, err := client.Health(ctx)
-		if err == nil {
-			if err := compatibleAgent(health, Identity{}); err != nil {
-				return nil, err
-			}
-			return client, nil
-		}
-		if err != nil {
-			lastErr = err
-		}
-		select {
-		case <-ctx.Done():
-			return nil, errors.Join(ctx.Err(), lastErr)
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	return nil, fmt.Errorf("timed out waiting for scenery agent at %s: %w", paths.SocketPath, lastErr)
 }
 
 // StartProcess starts the local agent. When a launchd supervisor owns the
@@ -185,14 +109,7 @@ func agentProcessArgs(paths Paths, opts StartOptions) []string {
 		routerAddr = RouterAddrFromEnv()
 	}
 	args := []string{"system", "agent", "--socket", paths.SocketPath, "--router-listen", routerAddr}
-	switch {
-	case opts.Trust:
-		args = append(args, "--trust")
-	case opts.RouterTLS:
-		args = append(args, "--router-tls")
-	default:
-		args = append(args, "--router-http")
-	}
+	args = append(args, "--router-http")
 	if opts.Supervised {
 		args = append(args, "--supervised")
 	}

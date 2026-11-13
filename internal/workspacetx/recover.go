@@ -99,9 +99,6 @@ func recoverWithOwnerInspector(root string, force, allowCurrentOwner bool, inspe
 	if err != nil {
 		return err
 	}
-	if hasLegacyIdentity(encoded, "scenery.change-transaction/v1") {
-		return legacyStateError(journalPath)
-	}
 	var journal Journal
 	if decodeExact(encoded, &journal) != nil || machine.ValidateArtifactIdentity(journal.ArtifactIdentity, journalKind, journalDescriptor, "re-plan") != nil {
 		return fmt.Errorf("failed_precondition: invalid workspace change transaction journal")
@@ -188,9 +185,6 @@ func readLock(path string) (Lock, bool, error) {
 	encoded, err := os.ReadFile(path)
 	if err != nil {
 		return Lock{}, false, err
-	}
-	if hasLegacyIdentity(encoded, "scenery.change-transaction-lock/v1") {
-		return Lock{}, false, legacyStateError(path)
 	}
 	var lock Lock
 	if decodeExact(encoded, &lock) != nil || machine.ValidateArtifactIdentity(lock.ArtifactIdentity, lockKind, lockDescriptor, "retry") != nil {
@@ -305,17 +299,6 @@ func decodeExact(encoded []byte, target any) error {
 		return fmt.Errorf("unexpected trailing JSON")
 	}
 	return nil
-}
-
-func hasLegacyIdentity(encoded []byte, identity string) bool {
-	var value struct {
-		APIVersion string `json:"api_version"`
-	}
-	return json.Unmarshal(encoded, &value) == nil && value.APIVersion == identity
-}
-
-func legacyStateError(path string) error {
-	return fmt.Errorf("failed_precondition: legacy change transaction recovery state at %s must be recovered with the previous Scenery binary before using this binary; no state was modified", filepath.ToSlash(path))
 }
 
 type activeTransactionError struct{ pid int }

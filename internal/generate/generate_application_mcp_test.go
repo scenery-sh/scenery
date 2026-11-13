@@ -34,7 +34,6 @@ func TestGeneratedApplicationAdapterRegistersMCPToolThroughRuntime(t *testing.T)
 			"RegisterMCPTool",
 			"AssistantAddress: \"app/assistant/support\"",
 			"Name: \"house__process_scene\"",
-			"InvokeContractPolicy",
 			"service.ProcessScene",
 		} {
 			if !strings.Contains(source, fragment) {
@@ -44,34 +43,6 @@ func TestGeneratedApplicationAdapterRegistersMCPToolThroughRuntime(t *testing.T)
 		return
 	}
 	t.Fatal("generated application adapter was not rendered")
-}
-
-func TestGeneratedDurableMCPTypeErrorUsesValidFormattingDirective(t *testing.T) {
-	binding := Resource{Address: "house/binding/process_scene_mcp", Module: "house", Kind: "scenery.binding", Spec: map[string]any{
-		"authorization": map[string]any{"$ref": "std.authorization.public"},
-		"pipeline":      map[string]any{"$ref": "std.pipeline.empty"},
-	}}
-	operation := Resource{Address: "house/operation/process_scene", Module: "house", Kind: "scenery.operation", Name: "process_scene", Spec: map[string]any{
-		"handler": map[string]any{"method": "ProcessScene"},
-	}}
-	execution := Resource{Address: "house/execution/process_scene_durable", Module: "house", Kind: "scenery.execution", Name: "process_scene_durable"}
-	service := Resource{Address: "house/service/house", Module: "house", Kind: "scenery.service", Name: "house"}
-	target := mcpToolTarget{
-		Binding: binding, Operation: operation, Execution: execution,
-		AssistantAddress: "app/assistant/support", Name: "house__process_scene",
-		Durable: true, DurableService: "house", DurableTask: execution.Address,
-	}
-	var source strings.Builder
-	if err := renderMCPToolRegistrations(&source, service, []mcpToolTarget{target}, []Resource{binding, operation, execution}); err != nil {
-		t.Fatal(err)
-	}
-	generated := source.String()
-	if !strings.Contains(generated, `fmt.Errorf("MCP durable tool returned %T, want scenery.ExecutionReceipt", value)`) {
-		t.Fatalf("durable MCP type error is missing its formatting directive:\n%s", generated)
-	}
-	if strings.Contains(generated, `MCP durable tool returned %%T`) {
-		t.Fatalf("durable MCP type error escaped its formatting directive into generated Go:\n%s", generated)
-	}
 }
 
 func TestGeneratedMCPCompatibilityBindingBuffersHTTPStreamExplicitly(t *testing.T) {
@@ -149,7 +120,7 @@ func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) 
 		`Address: "app/assistant/support"`,
 		`Name: "support"`,
 		`Path: "/assistants/support"`,
-		`Access: sceneryruntime.Public`,
+		`Access: sceneryruntime.Auth`,
 		`BindingAddress: "app/assistant/support"`,
 		`GatewayAddress: "app/http_gateway/public_api"`,
 		`CORS: "none"`,
@@ -177,7 +148,7 @@ func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) 
 	if strings.Contains(composition, "eve") {
 		t.Fatalf("provider adapter leaked into generated runtime registration:\n%s", composition)
 	}
-	for _, forbidden := range []string{"TokenManager:", "InitiatorSigner:", "Client:", "remote-secret", "secret-plaintext"} {
+	for _, forbidden := range []string{"TokenManager:", "Client:", "secret-plaintext"} {
 		if strings.Contains(composition, forbidden) {
 			t.Fatalf("generated assistant registration includes runtime secret/client material %q:\n%s", forbidden, composition)
 		}
@@ -251,9 +222,9 @@ func TestGeneratedApplicationCompositionSupportsAssistantOnlyApps(t *testing.T) 
 		case "scenery.service", "scenery.operation", "scenery.binding", "scenery.execution", "scenery.module":
 			continue
 		case "scenery.mcp-server":
-			// Keep the server and its external connection, but remove local
-			// capabilities whose bindings were removed above. This leaves a
-			// valid external-only assistant manifest for projection.
+			// Keep the server, but remove local capabilities whose bindings
+			// were removed above. This leaves a valid assistant manifest
+			// without capabilities for projection.
 			spec := make(map[string]any, len(resource.Spec))
 			maps.Copy(spec, resource.Spec)
 			spec["capability"] = []any{}
@@ -280,7 +251,7 @@ func TestGeneratedApplicationCompositionSupportsAssistantOnlyApps(t *testing.T) 
 		t.Fatal("generated assistant-only composition was not rendered")
 	}
 	for _, fragment := range []string{
-		`var RequiredAddresses = []string{"app/assistant/support", "app/mcp_connection/docs", "app/mcp_server/support"}`,
+		`var RequiredAddresses = []string{"app/assistant/support", "app/mcp_server/support"}`,
 		`registry.Register("scenery/assistants"`,
 		`RegisterAssistantChecked`,
 	} {
@@ -310,39 +281,21 @@ func TestMCPOnlyBindingOwnershipIncludesExecution(t *testing.T) {
 	}
 }
 
-func TestMCPFederationProjectionIsPrivateSymbolicAndDeterministic(t *testing.T) {
+func TestMCPFederationProjectionIsDeterministic(t *testing.T) {
 	server := Resource{Address: "app/mcp_server/support", Kind: "scenery.mcp-server", Spec: map[string]any{
 		"max_input_bytes": 1024, "max_result_bytes": 2048,
 		"capability": []any{
 			map[string]any{"name": "zeta"}, map[string]any{"name": "alpha"},
 		},
-		"connection": []any{
-			map[string]any{"connection": map[string]any{"$ref": "mcp_connection.z"}, "namespace": "z", "required": true},
-			map[string]any{"connection": map[string]any{"$ref": "mcp_connection.a"}, "namespace": "a"},
-		},
 	}}
 	sharedServer := Resource{Address: "app/mcp_server/shared", Kind: "scenery.mcp-server", Spec: map[string]any{
 		"max_input_bytes": 1024, "max_result_bytes": 2048,
 		"capability": []any{map[string]any{"name": "shared"}},
-		"connection": []any{map[string]any{"connection": map[string]any{"$ref": "mcp_connection.a"}, "namespace": "shared"}},
 	}}
-	connectionA := Resource{Address: "app/mcp_connection/a", Kind: "scenery.mcp-connection", Spec: map[string]any{
-		"url": "https://a.example.test/mcp", "connect_timeout": "2s", "call_timeout": "3s",
-		"auth":  map[string]any{"scheme": "header", "header": "X-Remote-Key", "secret": map[string]any{"$ref": "secret.a"}},
-		"tools": map[string]any{"allow": []any{"second", "first"}},
-	}}
-	connectionZ := Resource{Address: "app/mcp_connection/z", Kind: "scenery.mcp-connection", Spec: map[string]any{
-		"url": "https://z.example.test/mcp", "connect_timeout": "4s", "call_timeout": "5s",
-		"auth": map[string]any{"scheme": "none"}, "tools": map[string]any{"block": []any{"blocked"}},
-	}}
-	secret := Resource{Address: "app/secret/a", Kind: "scenery.secret", Spec: map[string]any{
-		"store": map[string]any{"$ref": "secret_store.remote"}, "key": "REMOTE_TOKEN",
-	}}
-	store := Resource{Address: "app/secret_store/remote", Kind: "scenery.secret-store", Spec: map[string]any{}}
 	assistantZ := Resource{Address: "app/assistant/z", Kind: "scenery.assistant", Spec: map[string]any{"mcp_server": map[string]any{"$ref": "mcp_server.support"}}}
 	assistantA := Resource{Address: "app/assistant/a", Kind: "scenery.assistant", Spec: map[string]any{"mcp_server": map[string]any{"$ref": "mcp_server.support"}}}
 	sharedAssistant := Resource{Address: "app/assistant/shared", Kind: "scenery.assistant", Spec: map[string]any{"mcp_server": map[string]any{"$ref": "mcp_server.shared"}}}
-	result := &Result{Manifest: &Manifest{ContractRevision: "sha256:" + strings.Repeat("a", 64), Resources: []Resource{server, sharedServer, connectionZ, connectionA, secret, store, assistantZ, assistantA, sharedAssistant}}}
+	result := &Result{Manifest: &Manifest{ContractRevision: "sha256:" + strings.Repeat("a", 64), Resources: []Resource{server, sharedServer, assistantZ, assistantA, sharedAssistant}}}
 	targets, err := mcpFederationTargets(result)
 	if err != nil {
 		t.Fatal(err)
@@ -350,28 +303,11 @@ func TestMCPFederationProjectionIsPrivateSymbolicAndDeterministic(t *testing.T) 
 	if len(targets) != 2 || targets[0].Server.Address != "app/mcp_server/shared" || targets[1].Server.Address != "app/mcp_server/support" || !slices.Equal(targets[1].AssistantAddresses, []string{"app/assistant/a", "app/assistant/z"}) || !slices.Equal(targets[1].LocalToolNames, []string{"alpha", "zeta"}) {
 		t.Fatalf("deterministic target ordering = %#v", targets)
 	}
-	if got := targets[1].Connections; len(got) != 2 || got[0].Address != "app/mcp_connection/a" || got[1].Address != "app/mcp_connection/z" {
-		t.Fatalf("deterministic connection ordering = %#v", targets[1].Connections)
-	}
-	if got := targets[0].Connections; len(got) != 1 || got[0].Address != "app/mcp_connection/a" {
-		t.Fatalf("shared connection projection = %#v", targets[0].Connections)
-	}
 	var generated strings.Builder
 	if err := renderMCPFederationRegistrations(result, &generated); err != nil {
 		t.Fatal(err)
 	}
-	source := generated.String()
-	if strings.Count(source, "RegisterMCPFederationChecked") != 2 || strings.Count(source, "app/mcp_connection/a") != 3 {
-		t.Fatalf("shared connection was not emitted once per server spec with one ownership claim:\n%s", source)
-	}
-	for _, want := range []string{"https://a.example.test/mcp", "AuthScheme: \"header\"", "AuthHeader: \"X-Remote-Key\"", "ResourceAddress: \"app/secret/a\"", "StoreAddress: \"app/secret_store/remote\"", "Key: \"REMOTE_TOKEN\""} {
-		if !strings.Contains(source, want) {
-			t.Fatalf("private federation projection missing %q:\n%s", want, source)
-		}
-	}
-	for _, forbidden := range []string{"remote-secret", "Bearer ", "Authorization: \""} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("private federation projection leaked secret material %q:\n%s", forbidden, source)
-		}
+	if source := generated.String(); strings.Count(source, "RegisterMCPFederationChecked") != 2 {
+		t.Fatalf("federation was not emitted once per server:\n%s", source)
 	}
 }

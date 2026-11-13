@@ -107,57 +107,6 @@ ON scenery.durable_job_events(service, job_id, seq);
 CREATE INDEX IF NOT EXISTS durable_job_events_type_idx
 ON scenery.durable_job_events(service, event_type, created_at);
 
-CREATE TABLE IF NOT EXISTS scenery.durable_job_steps (
-  service TEXT NOT NULL,
-  job_id TEXT NOT NULL,
-  step_key TEXT NOT NULL,
-  step_version INTEGER NOT NULL DEFAULT 1,
-  state TEXT NOT NULL CHECK (state IN ('started', 'succeeded', 'failed', 'skipped')),
-  attempt INTEGER NOT NULL DEFAULT 0,
-  input_hash TEXT,
-  idempotency_key TEXT NOT NULL,
-  result_codec TEXT,
-  result_blob BYTEA,
-  error_codec TEXT,
-  error_blob BYTEA,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (service, job_id, step_key),
-  FOREIGN KEY (service, job_id) REFERENCES scenery.durable_jobs(service, id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS scenery.durable_job_signals (
-  service TEXT NOT NULL,
-  job_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  dedupe_key TEXT NOT NULL,
-  payload_codec TEXT NOT NULL DEFAULT 'json',
-  payload_blob BYTEA NOT NULL,
-  consumed_at TIMESTAMPTZ,
-  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (service, job_id, name, dedupe_key),
-  FOREIGN KEY (service, job_id) REFERENCES scenery.durable_jobs(service, id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS scenery.durable_schedules (
-  service TEXT NOT NULL,
-  id TEXT NOT NULL,
-  task_name TEXT NOT NULL,
-  enabled BOOLEAN NOT NULL DEFAULT true,
-  spec_codec TEXT NOT NULL DEFAULT 'json',
-  spec_blob BYTEA NOT NULL,
-  overlap_policy TEXT NOT NULL CHECK (overlap_policy IN ('skip', 'buffer_one', 'buffer_all', 'allow_all')) DEFAULT 'skip',
-  catchup_window_ms INTEGER NOT NULL DEFAULT 60000,
-  next_fire_at TIMESTAMPTZ,
-  last_fire_at TIMESTAMPTZ,
-  input_codec TEXT NOT NULL DEFAULT 'json',
-  input_blob BYTEA NOT NULL DEFAULT '{}'::bytea,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (service, id),
-  FOREIGN KEY (service, task_name) REFERENCES scenery.durable_tasks(service, name)
-);
-
 CREATE TABLE IF NOT EXISTS scenery.durable_worker_tokens (
   service TEXT NOT NULL,
   id TEXT NOT NULL,

@@ -30,21 +30,10 @@ func TestValidationCommandUsesLiteralArgvAndProfileEnvironment(t *testing.T) {
 	}
 }
 
-func TestValidationCommandInspectionAndDryRun(t *testing.T) {
+func TestValidationCommandDryRun(t *testing.T) {
 	t.Parallel()
 	root := validationFixtureRoot(t, `{"name":"demo","validation":{"default":"quick","profiles":{"quick":{"commands":[{"command":"never-execute-this","args":["a b",""]}]}}}}`)
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"validation", "--app-root", root, "-o", "json"}, &out); err != nil {
-		t.Fatal(err)
-	}
-	var inspected inspectValidationResponse
-	if err := decodeCLIJSON(out.Bytes(), &inspected); err != nil {
-		t.Fatal(err)
-	}
-	if len(inspected.Diagnostics) != 0 || len(inspected.Profiles) != 1 || len(inspected.Profiles[0].Commands) != 1 || inspected.Profiles[0].StepCount != 1 {
-		t.Fatalf("inspection=%+v", inspected)
-	}
-	out.Reset()
 	if err := runSceneryValidate(context.Background(), &out, []string{"quick", "--app-root", root, "--dry-run", "-o", "json"}); err != nil {
 		t.Fatal(err)
 	}

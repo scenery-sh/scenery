@@ -26,7 +26,6 @@ type inspectOptions struct {
 	AppRoot          string
 	RepoRoot         string
 	JSON             bool
-	Implementation   bool
 	VerifyGeneration bool
 	StorageStats     bool
 	Docs             inspectDocsOptions
@@ -201,7 +200,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return err
 	}
 	var merged *compiler.Result
-	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" || opts.Subject == "assistants" || opts.Subject == "generators" {
+	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" || opts.Subject == "generators" {
 		compiled, compileErr := compileSourcePlan(context.Background(), appRoot)
 		if compileErr != nil {
 			return compileErr
@@ -264,26 +263,12 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return writeSourceResult(stdout, "json", false, merged, resp)
 	case "durable":
 		return writeSourceResult(stdout, "json", false, merged, buildInspectDurableResponse(appRoot, cfg, merged))
-	case "assistants":
-		resp, err := buildInspectAssistantsResponse(appRoot, cfg, merged, opts.Implementation)
-		if err != nil {
-			return err
-		}
-		return writeSourceResult(stdout, "json", false, merged, resp)
 	case "storage":
 		plan, err := resolveStorageNamespacePlan(cfg, appRoot, "")
 		if err != nil {
 			return err
 		}
 		return runInspectStorage(context.Background(), stdout, plan, cfg, opts)
-	case "validation":
-		return writeInspectJSON(stdout, buildInspectValidationResponse(appRoot, cfg))
-	case "observability":
-		resp, err := buildInspectObservabilityResponse(context.Background(), appRoot, cfg, opts.Trace.Session)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, resp)
 	case "ui":
 		resp, err := buildInspectUIResponse(appRoot, cfg, opts.UI.Frontend)
 		if err != nil {
@@ -364,7 +349,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
-	flags.BoolVar(&opts.Implementation, "implementation", false, "")
 	flags.BoolVar(&opts.VerifyGeneration, "verify-generation", false, "")
 	flags.BoolVar(&opts.StorageStats, "stats", false, "")
 	flags.Func("for-path", "repository path (repeatable)", func(value string) error {
@@ -403,9 +387,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	}
 	if cliFlagSet(flags, "frontend") && opts.Subject != "ui" {
 		return inspectOptions{}, usageErrorf("--frontend is only supported for inspect ui")
-	}
-	if cliFlagSet(flags, "implementation") && opts.Subject != "assistants" {
-		return inspectOptions{}, usageErrorf("--implementation is only supported for inspect assistants")
 	}
 	for _, name := range []string{"for-path", "include-text", "tag", "review-due", "all"} {
 		if cliFlagSet(flags, name) && opts.Subject != "docs" {
@@ -463,13 +444,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 			opts.Docs.Status = strings.ToLower(strings.TrimSpace(*traceValues[name]))
 			if opts.Docs.Status == "" {
 				return inspectOptions{}, usageErrorf("--status must not be empty")
-			}
-			continue
-		}
-		if name == "session" && opts.Subject == "observability" {
-			opts.Trace.Session = strings.TrimSpace(*traceValues[name])
-			if opts.Trace.Session == "" {
-				return inspectOptions{}, usageErrorf("invalid session %q", *traceValues[name])
 			}
 			continue
 		}

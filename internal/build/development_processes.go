@@ -89,7 +89,7 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	if result == nil || result.Contract == nil || result.Contract.Manifest == nil || result.Target == nil {
 		return nil, nil, fmt.Errorf("development processes require a prepared contract and target")
 	}
-	if result.Target.Role != "development" || result.Ephemeral || result.ProductionAssets {
+	if result.Target.Role != "development" || result.ProductionAssets {
 		return nil, nil, fmt.Errorf("development processes require an ordinary development target")
 	}
 	if err := requireGenerateHooks(); err != nil {
@@ -208,9 +208,6 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 				bindingOwners[address] = service.Name
 			}
 		}
-		for _, address := range service.CLIBindings {
-			bindingOwners[address] = service.Name
-		}
 	}
 	identityStarted := time.Now()
 	mains := make([]string, len(names))
@@ -312,7 +309,6 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 			return nil, err
 		}
 	}
-	retireCompilerState(ctx, result.Dir)
 	keep := map[string]bool{}
 	result.DevelopmentProcessBinaries = result.DevelopmentProcessBinaries[:0]
 	for _, process := range processes {

@@ -195,9 +195,6 @@ func saveSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 	return result, nil
 }
 
-func verifySnapshot(path string) (snapshotVerifyResult, error) {
-	return verifySnapshotPinned(context.Background(), path, "")
-}
 func verifySnapshotPinned(ctx context.Context, path, expected string) (snapshotVerifyResult, error) {
 	input, err := filepath.Abs(path)
 	if err != nil {

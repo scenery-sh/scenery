@@ -2,8 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"maps"
 	"os"
 
@@ -55,56 +53,27 @@ func NewRouteManifestIdentity() machine.ArtifactIdentity { return routeManifestI
 func NewPortLeaseIdentity() machine.ArtifactIdentity     { return portLeaseIdentity() }
 func NewEdgeStateIdentity() machine.ArtifactIdentity     { return edgeStateIdentity() }
 
-// LoadDurableArtifact rebinds unchanged schemas to the current specification
-// and migrates one identity-only legacy JSON shape. Payload values stay intact.
-func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIdentity, kind, descriptor string, perm os.FileMode, migrate func(map[string]json.RawMessage) error) error {
+// LoadDurableArtifact rebinds unchanged schemas to the current specification.
+// Payload values stay intact.
+func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIdentity, kind, descriptor string, perm os.FileMode) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if err := machine.DecodeArtifact(data, target, identity, kind, descriptor, "rerun the state migration"); err == nil {
-		if _, backupErr := os.Stat(path + ".legacy.bak"); backupErr == nil {
-			if _, markerErr := os.Stat(path + ".legacy.migrated"); markerErr == nil {
-				return nil
-			} else if !errors.Is(markerErr, os.ErrNotExist) {
-				return markerErr
-			}
-			return writeMigrationMarker(path)
-		}
+	decodeErr := machine.DecodeArtifact(data, target, identity, kind, descriptor, "rerun the state migration")
+	if decodeErr == nil {
 		return nil
 	}
 	currentIdentity := machine.NewArtifactIdentity(kind, descriptor)
 	var storedIdentity machine.ArtifactIdentity
-	if err := json.Unmarshal(data, &storedIdentity); err == nil &&
-		storedIdentity.Kind == currentIdentity.Kind &&
-		storedIdentity.SchemaRevision == currentIdentity.SchemaRevision &&
-		storedIdentity.SpecRevision != currentIdentity.SpecRevision {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(data, &fields); err != nil {
-			return err
-		}
-		addIdentityFields(fields, currentIdentity)
-		current, err := json.MarshalIndent(fields, "", "  ")
-		if err != nil {
-			return err
-		}
-		current = append(current, '\n')
-		if err := machine.DecodeArtifact(current, target, identity, kind, descriptor, "rerun the state migration"); err != nil {
-			return err
-		}
-		if err := atomicWriteFile(path, current, perm); err != nil {
-			return err
-		}
-		return writeMigrationMarker(path)
-	}
-	if _, err := os.Stat(path + ".legacy.migrated"); err == nil {
-		return fmt.Errorf("legacy state remained after completed migration: %s", path)
+	if err := json.Unmarshal(data, &storedIdentity); err != nil ||
+		storedIdentity.Kind != currentIdentity.Kind ||
+		storedIdentity.SchemaRevision != currentIdentity.SchemaRevision ||
+		storedIdentity.SpecRevision == currentIdentity.SpecRevision {
+		return decodeErr
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	if err := migrate(fields); err != nil {
 		return err
 	}
 	addIdentityFields(fields, currentIdentity)
@@ -116,17 +85,7 @@ func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIden
 	if err := machine.DecodeArtifact(current, target, identity, kind, descriptor, "rerun the state migration"); err != nil {
 		return err
 	}
-	if _, err := os.Stat(path + ".legacy.bak"); errors.Is(err, os.ErrNotExist) {
-		if err := atomicWriteFile(path+".legacy.bak", data, 0o600); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	if err := atomicWriteFile(path, current, perm); err != nil {
-		return err
-	}
-	return writeMigrationMarker(path)
+	return atomicWriteFile(path, current, perm)
 }
 
 func addIdentityFields(fields map[string]json.RawMessage, identity machine.ArtifactIdentity) {
@@ -134,37 +93,4 @@ func addIdentityFields(fields map[string]json.RawMessage, identity machine.Artif
 	var identityFields map[string]json.RawMessage
 	_ = json.Unmarshal(encodedIdentity, &identityFields)
 	maps.Copy(fields, identityFields)
-}
-
-func writeMigrationMarker(path string) error {
-	return atomicWriteFile(path+".legacy.migrated", []byte("current\n"), 0o600)
-}
-
-func requireLegacySchema(fields map[string]json.RawMessage, want string) error {
-	var got string
-	if raw := fields["schema_version"]; len(raw) > 0 {
-		_ = json.Unmarshal(raw, &got)
-	}
-	if got != want {
-		return fmt.Errorf("unsupported legacy schema %q", got)
-	}
-	delete(fields, "schema_version")
-	return nil
-}
-
-func requireLegacySchemaOrMissing(fields map[string]json.RawMessage, want string) error {
-	if len(fields["schema_version"]) == 0 {
-		if len(fields["schema_revision"]) > 0 || len(fields["spec_revision"]) > 0 || len(fields["producer"]) > 0 {
-			return fmt.Errorf("invalid current artifact identity")
-		}
-		return nil
-	}
-	return requireLegacySchema(fields, want)
-}
-
-func renameLegacyField(fields map[string]json.RawMessage, oldName, newName string) {
-	if value, ok := fields[oldName]; ok {
-		fields[newName] = value
-		delete(fields, oldName)
-	}
 }

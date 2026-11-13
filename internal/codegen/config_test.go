@@ -124,7 +124,7 @@ func TestApplicationWithoutServicesRendersAHostServingItself(t *testing.T) {
 	entrypoint := string(output.Generated["scenery_internal_main/main.go"])
 	for _, fragment := range []string{
 		`const contractRevision = "sha256:contract"`, `Fallback: ""`, "sceneryruntime.MainProcessHost(",
-		`sceneryauth "scenery.sh/auth"`, "sceneryruntime.ConfigureSQLBindings(", `{Name: "scenery", Schema: "scenery", DurableOnly: false}`,
+		`sceneryauth "scenery.sh/auth"`, "sceneryruntime.ConfigureSQLBindings(", `{Name: "scenery", Schema: "scenery"}`,
 		"sceneryauth.RegisterStandard(", `Observability: sceneryruntime.ObservabilityConfig{Logs: sceneryruntime.EndpointFilterConfig{ExcludeEndpoints: []string{"users.DevBootstrap"}}}`,
 	} {
 		if !strings.Contains(host, fragment) {

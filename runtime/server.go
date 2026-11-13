@@ -176,12 +176,6 @@ func newServer(listenAddr string) (*http.Server, error) {
 		}
 		s.registerTyped(ep)
 	}
-	if storageHTTPConfigured() {
-		s.registerStorageRoutes()
-	}
-	if durableHTTPConfigured() {
-		s.registerDurableRoutes()
-	}
 	if processLinkConfigured() {
 		s.registerProcessLinkRoutes()
 		s.registerProcessServiceRoutes()
@@ -189,7 +183,6 @@ func newServer(listenAddr string) (*http.Server, error) {
 	s.registerPublicConfiguration()
 	if devEndpointsEnabled() {
 		s.registerSceneryConfig()
-		s.registerPlatformStats()
 		s.registerPProf()
 	}
 
@@ -264,17 +257,6 @@ func (s *server) registerSceneryConfig() {
 			errs.HTTPError(w, errs.Wrap(err, "encode scenery config"))
 		}
 	})
-}
-
-func (s *server) registerPlatformStats() {
-	handler := func(w http.ResponseWriter, req *http.Request, _ routeParams) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		if err := json.NewEncoder(w).Encode(collectPlatformStats()); err != nil {
-			errs.HTTPError(w, errs.Wrap(err, "encode platform stats"))
-		}
-	}
-	registerRoute(s.public, "/platform.Stats", []string{http.MethodGet}, handler)
 }
 
 func (s *server) registerPProf() {

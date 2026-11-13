@@ -43,7 +43,7 @@ func checkResponseCompressionIsolation(worker int) error {
 		}
 		saved = append(saved, savedResponse{response.Body, payload})
 
-		stream := NewContractByteStream(io.NopCloser(bytes.NewReader(payload)), int64(len(payload)))
+		stream := ContractByteStream{Reader: io.NopCloser(bytes.NewReader(payload)), Size: int64(len(payload))}
 		var streamed bytes.Buffer
 		if err := writeContractByteStream(&streamed, ContractHTTPResponse{Stream: &stream, StreamEncoding: "gzip"}); err != nil {
 			return err

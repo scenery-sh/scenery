@@ -2,11 +2,11 @@
 
 ## Purpose
 
-`internal/edge` owns the managed Caddy process lifecycle used by `scenery system edge` (start, stop, reload, local-CA trust, and persistence of the matching edge state) plus the pure edge config and parsing surfaces: Caddyfile generation (`caddyconfig.go`), dnsmasq/resolver config generation and edge DNS state persistence (`dns.go`), launchd plist parsing helpers (`launchd.go`), the production-frontend deploy artifact publisher (`publish.go`), and the Linux systemd edge unit lifecycle (`systemd.go`).
+`internal/edge` owns the managed Caddy process lifecycle used by `scenery system edge` (start, stop, reload, local-CA trust, and persistence of the matching edge state) plus the pure edge config and parsing surfaces: Caddyfile generation (`caddyconfig.go`), launchd plist parsing helpers (`launchd.go`), the production-frontend deploy artifact publisher (`publish.go`), and the Linux systemd edge unit lifecycle (`systemd.go`).
 
 ## Ownership
 
-- Keep CLI parsing, output rendering, managed-tool resolution, dnsmasq/helper process orchestration, and privileged-listener setup in `cmd/scenery`.
+- Keep CLI parsing, output rendering, managed-tool resolution, helper process orchestration, and privileged-listener setup in `cmd/scenery`.
 - `ListenTCP` owns only the existing dual-stack socket binding primitive;
   the CLI still selects privileged addresses, ports, and forwarding policy.
 - Keep edge state schemas and path derivation in `internal/agent`.
@@ -42,10 +42,6 @@ Release proof for static frontend HTTP behavior lives in
 step. Preserve its cache, SPA, method, byte-range, proxy, blocked-path, and
 traversal checks when changing the renderer or publisher. A missing managed
 Caddy fails that proof explicitly; it must not turn into a passing skip.
-
-That release step also proves durable DNS-state migration with exact backup
-bytes and preserved resolver ownership in a temporary fixture. Ordinary DNS
-tests cover the pure conversion and current-state read without durable writes.
 
 ## Child Agent Index
 

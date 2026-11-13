@@ -10,7 +10,7 @@ process ownership checks, and recovery before any compiler source read.
 - Stay below compiler and evolution; never import either package.
 - Normal reads recover stale unreceipted work or reject a live owner.
 - Only the current transaction owner may perform staged validation reads.
-- Preserve strict current artifact identities and safely refuse legacy state.
+- Preserve strict current artifact identities.
 - Generated publication uses the same lock/journal boundary; callers establish
   descriptor/digest ownership before returning updates. Serialize recovery with
   the kernel-owned recovery gate, verify backup bytes, and remove journals before

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +17,6 @@ import (
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/runtimeassets"
-	"scenery.sh/internal/scn"
 )
 
 const harnessGenerationCompileProbeName = "generation compile probes"
@@ -121,25 +119,15 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}); err != nil {
 		return summary, nil, err
 	}
-	if err := runSegment("explicit ownership-verified workfile cutover", func() error {
-		proof, proofErr := runHarnessGoWorkCutover(ctx, repoRoot, filepath.Join(probeRoot, "cutover"))
-		summary["workfile_cutover"] = proof
-		return proofErr
-	}); err != nil {
-		return summary, nil, err
-	}
 	appRoot := filepath.Join(probeRoot, "provider-private-workspace")
-	if err := runSegment("prepare provider CRUD fixture", func() error {
-		if err := copyHarnessNativeContractFixture(repoRoot, appRoot); err != nil {
-			return err
-		}
-		return configureHarnessProviderCRUDFixture(appRoot)
+	if err := runSegment("prepare private workspace fixture", func() error {
+		return copyHarnessNativeContractFixture(repoRoot, appRoot)
 	}); err != nil {
 		return summary, nil, err
 	}
 
 	var changed []string
-	if err := runSegment("generate provider CRUD contracts", func() error {
+	if err := runSegment("generate private workspace contracts", func() error {
 		result, generateErr := generate.GenerateGoContracts(appRoot, false)
 		changed = result.Changed
 		return generateErr
@@ -148,14 +136,13 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}
 	var providerCompiled *compiler.Result
 	var contractRevision string
-	var adapterPath string
-	if err := runSegment("verify provider CRUD adapter", func() error {
+	if err := runSegment("render private workspace adapters", func() error {
 		compiled, compileErr := compiler.Compile(appRoot)
 		if compileErr != nil {
 			return compileErr
 		}
 		if !compiled.Valid() {
-			return fmt.Errorf("generated provider CRUD graph is invalid: %#v", compiled.Diagnostics)
+			return fmt.Errorf("generated private workspace graph is invalid: %#v", compiled.Diagnostics)
 		}
 		providerCompiled = compiled
 		contractRevision = compiled.Manifest.ContractRevision
@@ -174,20 +161,19 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 				return err
 			}
 		}
-		adapterPath, compileErr = findHarnessProviderCRUDAdapter(appRoot)
-		return compileErr
+		return nil
 	}); err != nil {
 		return summary, nil, err
 	}
 	var goTestOutput string
-	if err := runSegment("compile generated provider CRUD application", func() error {
+	if err := runSegment("compile generated private workspace application", func() error {
 		command := exec.CommandContext(ctx, "go", "test", "./...")
 		command.Dir = appRoot
 		command.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=off", "GOMAXPROCS=2")
 		output, runErr := command.CombinedOutput()
 		goTestOutput = strings.TrimSpace(string(output))
 		if runErr != nil {
-			return fmt.Errorf("go test generated provider CRUD application: %w\n%s", runErr, output)
+			return fmt.Errorf("go test generated private workspace application: %w\n%s", runErr, output)
 		}
 		return nil
 	}); err != nil {
@@ -383,9 +369,7 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}
 
 	summary["proof"] = "generation_external_boundaries_passed"
-	summary["provider_crud_proof"] = "generated_provider_crud_adapter_compiles_in_disposable_clone"
 	summary["contract_revision"] = contractRevision
-	summary["adapter_path"] = adapterPath
 	summary["changed_files"] = len(changed)
 	summary["go_test_output"] = goTestOutput
 	summary["assistant_asset_registry_proof"] = "generated_embedded_asset_package_compiled_by_real_go_toolchain"
@@ -474,104 +458,6 @@ func runHarnessAssistantAssetRegistryCompile(ctx context.Context, probeRoot, app
 	return strings.TrimSpace(string(output)), nil
 }
 
-func configureHarnessProviderCRUDFixture(appRoot string) error {
-	appPath := filepath.Join(appRoot, "app.scn")
-	appSource, err := os.ReadFile(appPath)
-	if err != nil {
-		return err
-	}
-	updatedApp := strings.Replace(string(appSource), "    gateway = http_gateway.public_api", "    gateway  = http_gateway.public_api\n    database = data_source.house_database", 1)
-	if updatedApp == string(appSource) {
-		return fmt.Errorf("native fixture module input shape changed")
-	}
-	updatedApp += `
-
-provider "postgres" {
-  source = "registry.scenery.dev/core/postgres"
-}
-
-data_source "house_database" {
-  provider             = provider.postgres
-  lifecycle            = "external"
-  require_capabilities = ["sql.query/v1", "sql.transaction/v1"]
-  config                = { database = "house" }
-}
-`
-	if err := os.WriteFile(appPath, []byte(updatedApp), 0o644); err != nil {
-		return err
-	}
-
-	packagePath := filepath.Join(appRoot, "house", "package.scn")
-	packageSource, err := os.ReadFile(packagePath)
-	if err != nil {
-		return err
-	}
-	packageSource = append(packageSource, []byte(`
-
-input "database" { type = resource_ref("data_source") }
-
-record "scene_row" {
-  field "id" { type = uuid }
-  field "tenant_id" { type = string }
-  field "name" { type = string }
-  field "created_at" { type = datetime }
-}
-
-entity "scene" {
-  type        = record.scene_row
-  data_source = var.database
-  mapping { relation = "scenes" }
-  field "id" {
-    column      = "id"
-    primary_key = true
-    default { strategy = "uuid_v7" }
-  }
-  field "tenant_id" {
-    column     = "tenant_id"
-    tenant_key = true
-    immutable  = true
-  }
-  field "name" { column = "name" }
-  field "created_at" { column = "created_at" }
-}
-
-crud "scene_api" {
-  entity         = entity.scene
-  implementation = std.crud.entity
-  actions        = ["list", "get", "create", "update", "delete"]
-  execution {
-    mode    = "direct"
-    timeout = "15s"
-  }
-  list {
-    filters       = ["name", "created_at"]
-    search        = ["tenant_id"]
-    sorts         = ["name"]
-    default_sort  = { field = "name", direction = "asc" }
-    max_page_size = 25
-  }
-  http {
-    path           = "/scenes"
-    codec_profile  = std.codec.http_json_v1
-    gateway        = var.gateway
-    authentication = std.authentication.none
-    authorization  = std.authorization.public
-    pipeline       = std.pipeline.empty
-  }
-}
-`)...)
-	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
-		return err
-	}
-
-	integrity, ok := compiler.BuiltinProviderLock("registry.scenery.dev/core/postgres")
-	if !ok {
-		return fmt.Errorf("built-in PostgreSQL provider lock is unavailable")
-	}
-	lock := fmt.Sprintf("lock {}\nprovider \"postgres\" {\n  source = \"registry.scenery.dev/core/postgres\"\n  integrity = %q\n}\n", integrity)
-	return os.WriteFile(filepath.Join(appRoot, scn.AppLockFilename), []byte(lock), 0o644)
-}
-
 func configureHarnessInvalidImplementationFixture(appRoot string) error {
 	servicePath := filepath.Join(appRoot, "house", "service.go")
 	service, err := os.ReadFile(servicePath)
@@ -586,38 +472,6 @@ func configureHarnessInvalidImplementationFixture(appRoot string) error {
 		return err
 	}
 	return os.RemoveAll(filepath.Join(appRoot, "house", "scenerycontract"))
-}
-
-func findHarnessProviderCRUDAdapter(appRoot string) (string, error) {
-	generatedRoot := filepath.Join(appRoot, "internal", "scenerygen")
-	var found string
-	err := filepath.WalkDir(generatedRoot, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".go" {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if bytes.Contains(data, []byte("type providerCRUDService struct")) && bytes.Contains(data, []byte("datasource.InvokeCRUD")) {
-			found, err = filepath.Rel(appRoot, path)
-			if err != nil {
-				return err
-			}
-			return fs.SkipAll
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if found == "" {
-		return "", fmt.Errorf("generated provider CRUD adapter is missing")
-	}
-	return filepath.ToSlash(found), nil
 }
 
 func configureHarnessNestedContractFixture(repoRoot, appRoot string) error {

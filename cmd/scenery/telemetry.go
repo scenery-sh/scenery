@@ -316,7 +316,7 @@ func telemetryMode(args []string) string {
 		if options, err := parseFeatureArgs(args[1:]); err == nil && options.Watch {
 			return "long_running"
 		}
-	case "up", "worker", "console":
+	case "up", "worker":
 		return "long_running"
 	case "logs":
 		for _, arg := range args[1:] {

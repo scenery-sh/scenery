@@ -127,17 +127,6 @@ func InstallContext(ctx context.Context, stateRoot string, archive Archive) (Ins
 	return InstallResult{Path: finalPath, Digest: archive.Descriptor.Digest, Descriptor: cloneDescriptor(archive.Descriptor)}, nil
 }
 
-// InstalledPath returns the deterministic final path for a tree digest.
-func InstalledPath(stateRoot, digest string) (string, error) {
-	if err := validateStateRoot(stateRoot); err != nil {
-		return "", err
-	}
-	if !validDigest(digest) {
-		return "", fmt.Errorf("invalid tree digest %q", digest)
-	}
-	return filepath.Join(stateRoot, AssetDirectory, strings.TrimPrefix(digest, "sha256:")), nil
-}
-
 func (a Archive) Validate() error {
 	if err := a.Descriptor.Validate(); err != nil {
 		return fmt.Errorf("descriptor: %w", err)

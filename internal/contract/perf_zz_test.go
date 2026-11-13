@@ -38,20 +38,6 @@ func BenchmarkValidateContractValuePattern(b *testing.B) {
 	}
 }
 
-func BenchmarkValidateContractRecordProgram(b *testing.B) {
-	const program = `{"source":"count > 0","expression":{"kind":"binary","operator":">","left":{"kind":"field","name":"count"},"right":{"kind":"literal","value":0}}}`
-	fields := map[string]any{"count": int64(5)}
-	fieldTypes := map[string]string{"count": "int64"}
-	// Establish that the program shape is accepted before measuring.
-	if err := ValidateContractRecord(fields, fieldTypes, program, "SCN0000", "count must be positive", "/count"); err != nil {
-		b.Skipf("validation program shape not supported here: %v", err)
-	}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = ValidateContractRecord(fields, fieldTypes, program, "SCN0000", "count must be positive", "/count")
-	}
-}
-
 func BenchmarkContractCacheBeforeAfter(b *testing.B) {
 	b.Run("wire-type/uncached", func(b *testing.B) {
 		b.ReportAllocs()

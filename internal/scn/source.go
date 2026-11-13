@@ -547,9 +547,6 @@ func SourceFiles(dir string, root bool) ([]string, error) {
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
-		if legacyErr := legacyFilenameError(path); legacyErr != nil {
-			return nil, legacyErr
-		}
 		info, infoErr := entry.Info()
 		if infoErr != nil {
 			return nil, infoErr

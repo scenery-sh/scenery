@@ -34,10 +34,6 @@ func defaultString(value, fallback string) string {
 	return clientprojection.DefaultString(value, fallback)
 }
 
-func stringValues(value any) []string { return clientprojection.StringValues(value) }
-
-func cloneMapValue(value any) map[string]any { return clientprojection.CloneMapValue(value) }
-
 func integerValue(value any) (int, bool) { return clientprojection.IntegerValue(value) }
 
 type operationInputField = clientprojection.OperationInputField

@@ -22,9 +22,6 @@ const (
 	defaultEdgePublicAddr     = "127.0.0.1:443"
 	defaultEdgeTargetAddr     = "127.0.0.1:19443"
 	defaultEdgeHTTPTargetAddr = "127.0.0.1:19080"
-	defaultEdgeDNSDomain      = localagent.DefaultRouteBaseDomain
-	defaultEdgeDNSListen      = "127.0.0.1:53535"
-	defaultEdgeDNSAddress     = "127.0.0.1"
 	edgeHighPortMin           = 19000
 	edgeHighPortMax           = 19999
 
@@ -40,32 +37,23 @@ const (
 var caddyStartupSettle = 1500 * time.Millisecond
 
 var (
-	edgeDNSResolverStatusFunc       = edgelifecycle.DNSResolverStatus
-	edgeDNSResolverServesDomainFunc = edgelifecycle.DNSResolverServesDomain
-	edgeHelperLaunchStatusFunc      = edgeHelperLaunchStatus
-	edgeHelperPlistOptionsFunc      = installedEdgeHelperOptions
-	reloadCaddyEdgeConfigFunc       = reloadCaddyEdgeConfig
-	validateCaddyEdgeConfigFunc     = edgelifecycle.ValidateCaddyConfig
+	edgeHelperLaunchStatusFunc  = edgeHelperLaunchStatus
+	edgeHelperPlistOptionsFunc  = installedEdgeHelperOptions
+	reloadCaddyEdgeConfigFunc   = reloadCaddyEdgeConfig
+	validateCaddyEdgeConfigFunc = edgelifecycle.ValidateCaddyConfig
 )
 
 type edgeOptions struct {
 	JSON   bool
-	Domain string
 	Deploy bool
 	Quiet  bool
 }
 
 func edgeCommand(args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("usage: scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]")
+		return usageErrorf("usage: scenery system edge install|trust|status|restart|uninstall|privileged [-o json]")
 	}
 	cmd := args[0]
-	if cmd == "dns" {
-		return edgeDNSCommand(args[1:])
-	}
-	if cmd == "dns-helper" {
-		return edgeDNSHelperCommand(args[1:])
-	}
 	if cmd == "privileged" {
 		return edgePrivilegedCommand(args[1:])
 	}
@@ -94,19 +82,12 @@ func parseEdgeArgs(args []string) (edgeOptions, error) {
 	var opts edgeOptions
 	flags := newCLIFlagSet("system edge")
 	registerJSONOutput(flags, &opts.JSON)
-	flags.StringVar(&opts.Domain, "domain", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return edgeOptions{}, err
 	}
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return edgeOptions{}, err
-	}
-	if opts.Domain != "" {
-		opts.Domain = normalizeRouteNamespaceHost(opts.Domain)
-		if opts.Domain == "" {
-			return edgeOptions{}, usageErrorf("--domain must be a valid domain")
-		}
 	}
 	return opts, nil
 }
@@ -222,22 +203,14 @@ func edgeRestart(opts edgeOptions) error {
 		return err
 	}
 	if opts.JSON {
-		return writeEdgeStatusJSON(edgeStatusForStateDomain(paths, state, opts.Domain))
+		return writeEdgeStatusJSON(edgeStatusForState(paths, state))
 	}
-	status := edgeStatusForStateDomain(paths, state, opts.Domain)
-	if edgeRestartReady(status, opts.Deploy) {
+	status := edgeStatusForState(paths, state)
+	if edgeRestartReady(status) {
 		if !opts.Quiet {
 			_, _ = fmt.Fprintf(os.Stdout, "scenery system edge running at https://%s\n", state.PublicAddr)
 		}
 		return nil
-	}
-	if !status.DNS.Ready {
-		if !opts.Quiet {
-			_, _ = fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but wildcard local DNS is not installed or healthy.")
-			_, _ = fmt.Fprintln(os.Stdout, "Run:")
-			_, _ = fmt.Fprintln(os.Stdout, "  scenery system edge dns install")
-		}
-		return fmt.Errorf("scenery system edge dns is required for browser HTTPS routes under %s", defaultEdgeDNSDomain)
 	}
 	if !opts.Quiet {
 		_, _ = fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
@@ -249,13 +222,9 @@ func edgeRestart(opts edgeOptions) error {
 	return fmt.Errorf("scenery system edge privileged listener is required for browser HTTPS on 127.0.0.1:443")
 }
 
-// Public deploy recovery does not depend on the optional local.dev resolver.
-// The same Caddy/helper/agent chain serves public hosts, while ordinary local
-// edge restart keeps wildcard DNS as part of its browser-route contract.
-func edgeRestartReady(status edgeStatusResult, deploy bool) bool {
-	if !deploy {
-		return status.Ready
-	}
+// edgeRestartReady reports a serving Caddy/helper/agent chain from the
+// component fields of an edge status.
+func edgeRestartReady(status edgeStatusResult) bool {
 	return status.Edge.State == localagent.EdgeStatusRunning &&
 		status.PrivilegedListener.State == "running" &&
 		status.PrivilegedListener.Target == status.Edge.HTTPSListen &&
@@ -293,7 +262,7 @@ func edgeStatus(opts edgeOptions) error {
 	} else if !localagent.EdgeStateRunning(state) {
 		state.Status = localagent.EdgeStatusStopped
 	}
-	status := edgeStatusForStateDomain(paths, state, opts.Domain)
+	status := edgeStatusForState(paths, state)
 	if opts.JSON {
 		return writeEdgeStatusJSON(status)
 	}
@@ -305,8 +274,6 @@ func edgeStatus(opts edgeOptions) error {
 		_, _ = fmt.Fprintf(os.Stdout, " (privileged listener missing; run `scenery system edge privileged install`)")
 	} else if status.PrivilegedListener.State != "running" {
 		_, _ = fmt.Fprintf(os.Stdout, " (privileged listener %s)", status.PrivilegedListener.State)
-	} else if !status.DNS.Ready {
-		_, _ = fmt.Fprintf(os.Stdout, " (dns %s; run `scenery system edge dns install`)", status.DNS.DNSMasq.State)
 	}
 	_, _ = fmt.Fprintln(os.Stdout)
 	return nil
@@ -358,7 +325,7 @@ func edgeUninstall(opts edgeOptions) error {
 	}
 	_ = os.Remove(paths.EdgeTargetPath)
 	if opts.JSON {
-		return writeEdgeStatusJSON(edgeStatusForStateDomain(paths, state, opts.Domain))
+		return writeEdgeStatusJSON(edgeStatusForState(paths, state))
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "stopped scenery system edge")
 	_, _ = fmt.Fprintln(os.Stdout, "privileged listener is still installed if previously configured")
@@ -376,7 +343,6 @@ type edgeStatusResult struct {
 	Ready              bool                         `json:"ready"`
 	PublicBase         string                       `json:"public_base"`
 	Edge               edgeStatusCaddy              `json:"edge"`
-	DNS                edgeDNSStatusResult          `json:"dns"`
 	PrivilegedListener edgeStatusPrivilegedListener `json:"privileged_listener"`
 }
 
@@ -412,7 +378,7 @@ type edgeStatusPrivilegedListener struct {
 	Message                  string   `json:"message,omitempty"`
 }
 
-func edgeStatusForStateDomain(paths localagent.Paths, state localagent.EdgeState, domain string) edgeStatusResult {
+func edgeStatusForState(paths localagent.Paths, state localagent.EdgeState) edgeStatusResult {
 	edgeState := state.Status
 	if edgeState == "" {
 		edgeState = localagent.EdgeStatusStopped
@@ -423,11 +389,10 @@ func edgeStatusForStateDomain(paths localagent.Paths, state localagent.EdgeState
 	caddyUID, _ := processUID(state.PID)
 	helper := privilegedListenerStatus(paths)
 	agentRouter := liveAgentRouterAddr(paths)
-	dns := edgeDNSStatusFor(paths, domain)
 	helperTargetsState := helper.Target == state.HTTPSListen && helper.TargetPID == state.PID
 	return edgeStatusResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.edge.status"),
-		Ready:              edgeState == localagent.EdgeStatusRunning && dns.Ready && helper.State == "running" && helperTargetsState && agentRouter == state.UpstreamAddr,
+		Ready:              edgeState == localagent.EdgeStatusRunning && helper.State == "running" && helperTargetsState && agentRouter == state.UpstreamAddr,
 		PublicBase:         publicBaseForEdge(state.PublicAddr),
 		Edge: edgeStatusCaddy{
 			Kind:        localagent.EdgeKindCaddy,
@@ -442,7 +407,6 @@ func edgeStatusForStateDomain(paths localagent.Paths, state localagent.EdgeState
 			LogPath:     state.LogPath,
 			Error:       state.Error,
 		},
-		DNS:                dns,
 		PrivilegedListener: helper,
 	}
 }

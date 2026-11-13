@@ -94,18 +94,6 @@ binding "status_http" {
   }
 }
 
-entity "processed_event" {
-  type        = record.processed_event
-  data_source = var.database
-  mapping { relation = "processed_events" }
-  field "event_id" {
-    column      = "event_id"
-    primary_key = true
-  }
-  field "payload" { column = "payload" }
-  field "sha256" { column = "sha256" }
-}
-
 operation "process" {
   service = service.inbox
   input   = record.event

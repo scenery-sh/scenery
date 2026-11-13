@@ -217,17 +217,6 @@ func TestGetRejectsNonPostgresDatabaseURL(t *testing.T) {
 	}
 }
 
-func TestMustGetPanicsOnError(t *testing.T) {
-	resetDBForTest(t)
-
-	defer func() {
-		if recover() == nil {
-			t.Fatal("MustGet did not panic")
-		}
-	}()
-	MustGet(context.Background())
-}
-
 func resetDBForTest(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{"SCENERY_DATABASE_JSON", "DATABASE_URL", "AUTH_DATABASE_URL", "REPORTS_DATABASE_URL"} {

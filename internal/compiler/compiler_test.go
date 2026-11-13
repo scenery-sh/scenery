@@ -169,11 +169,6 @@ func TestContractRevisionUsesOnlyContractDomains(t *testing.T) {
 	if implementationRevision != base {
 		t.Fatal("implementation-only symbols changed contract revision")
 	}
-	withDeployment := append(append([]Resource(nil), resources...), Resource{Address: "app/deployment/prod", Module: "app", Name: "prod", Kind: "scenery.deployment", Spec: map[string]any{"replicas": "4"}})
-	deploymentRevision, _ := contractRevision(withDeployment, "app")
-	if deploymentRevision != base {
-		t.Fatal("deployment-only resource changed contract revision")
-	}
 	changedContract := append([]Resource(nil), resources...)
 	changedContract[2].Spec = map[string]any{"protocol": "http", "http": map[string]any{"method": "GET", "path": "/two"}}
 	contractChange, _ := contractRevision(changedContract, "app")

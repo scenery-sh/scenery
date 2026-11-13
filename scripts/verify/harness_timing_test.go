@@ -262,10 +262,6 @@ func TestHarnessTimingIncludesParallelSubtestsWithoutQueueWait(t *testing.T) {
 		`{"Time":"2026-08-24T12:00:01.090Z","Action":"pass","Package":"example.com/app","Test":"TestRoot","Elapsed":0.01}`,
 	}, "\n")
 
-	samples := testElapsedSamplesFromGoTestJSON([]byte(output), "example.com/app", "TestRoot")
-	if len(samples) != 1 || samples[0] < 0.099 || samples[0] > 0.101 {
-		t.Fatalf("root samples = %#v, want active wall time 0.10s", samples)
-	}
 	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
 	if len(report.ObservedSlowTests) != 1 || report.ObservedSlowTests[0].Name != "TestRoot" || report.ObservedSlowTests[0].Seconds != 0.10 {
 		t.Fatalf("observed root timing = %+v", report.ObservedSlowTests)

@@ -72,17 +72,8 @@ func TestHTTPDirectoryGroupsExcludeRegistryAncestryAndNonHTTPBindings(t *testing
 	}
 }
 
-func TestHTTPDirectoryGroupsFeedCRUDAndCollisionValidation(t *testing.T) {
-	crud := httpGroupBinding("maps", "/items")
-	crud.Kind = "scenery.crud"
-	resources := []Resource{httpGroupModule("maps", "group1/maps"), crud}
-	applyHTTPDirectoryGroups(resources)
-	httpSpec := resources[1].Spec["http"].(map[string]any)
-	generated := expandCRUDHTTPBinding(resources[1], Resource{}, Resource{}, "list", "list", "direct", nil, nil, httpSpec, func(string, string) Origin { return Origin{} })
-	if got := generated.Spec["http"].(map[string]any)["path"]; got != "/group1/items" {
-		t.Fatalf("CRUD path = %v", got)
-	}
-	resources = []Resource{
+func TestHTTPDirectoryGroupsFeedCollisionValidation(t *testing.T) {
+	resources := []Resource{
 		{Address: "app/http_gateway/public", Kind: "scenery.http-gateway", Spec: map[string]any{"base_path": "/v1"}},
 		httpGroupModule("maps", "group1/maps"), httpGroupBinding("maps", "/items"),
 		httpGroupModule("geometry", "group2/geometry"), httpGroupBinding("geometry", "/items"),

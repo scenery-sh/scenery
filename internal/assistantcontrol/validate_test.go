@@ -52,7 +52,7 @@ func TestResponseVariantsRoundTrip(t *testing.T) {
 	}
 	for _, original := range tests {
 		response := withResponseIdentity(original)
-		encoded, err := MarshalResponse(response)
+		encoded, err := MarshalCanonical(response)
 		if err != nil {
 			t.Fatalf("%s marshal: %v", response.Type, err)
 		}
@@ -163,7 +163,7 @@ func TestEventVariantsRoundTripAndSignals(t *testing.T) {
 
 func TestRuntimeDescriptorRoundTripAndRevisions(t *testing.T) {
 	descriptor := validDescriptor()
-	encoded, err := MarshalRuntimeDescriptor(descriptor)
+	encoded, err := MarshalCanonical(descriptor)
 	if err != nil {
 		t.Fatal(err)
 	}

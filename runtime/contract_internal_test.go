@@ -16,17 +16,17 @@ func TestContractInternalBindingIsExactAndDuplicateSafe(t *testing.T) {
 	previous := global
 	global = &registry{contractBindings: map[string]ContractInternalBindingRegistration{}}
 	t.Cleanup(func() { global = previous })
-	if err := RegisterContractInternalBinding("house/binding/get", func(_ context.Context, invocation, input any) (any, error) {
+	if err := RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: "house/binding/get", Visibility: "application", Invoke: func(_ context.Context, invocation, input any) (any, error) {
 		return []any{invocation, input}, nil
-	}); err != nil {
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterContractInternalBinding("house/binding/get", func(context.Context, any, any) (any, error) { return nil, nil }); err == nil {
+	if err := RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: "house/binding/get", Visibility: "application", Invoke: func(context.Context, any, any) (any, error) { return nil, nil }}); err == nil {
 		t.Fatal("duplicate internal binding was accepted")
 	}
-	invocation := runtimeapi.NewInvocation("invocation-1", "principal", "", "", time.Time{})
+	invocation := runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-1", Principal: "principal"})
 	ctx := runtimeapi.WithInvocation(context.Background(), invocation)
-	value, err := InvokeContractBinding(ctx, "house/binding/get", invocation, "input")
+	value, err := InvokeContractBindingFrom(ctx, "house/binding/get", "", invocation, "input")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,10 +34,10 @@ func TestContractInternalBindingIsExactAndDuplicateSafe(t *testing.T) {
 	if items[0] != invocation || items[1] != "input" {
 		t.Fatalf("value = %#v", value)
 	}
-	if _, err := InvokeContractBinding(context.Background(), "house/binding/get", runtimeapi.Invocation{}, "input"); err == nil {
+	if _, err := InvokeContractBindingFrom(context.Background(), "house/binding/get", "", runtimeapi.Invocation{}, "input"); err == nil {
 		t.Fatal("forged internal invocation was accepted")
 	}
-	if _, err := InvokeContractBinding(context.Background(), "missing", nil, nil); err == nil {
+	if _, err := InvokeContractBindingFrom(context.Background(), "missing", "", nil, nil); err == nil {
 		t.Fatal("missing internal binding was accepted")
 	}
 }
@@ -46,7 +46,7 @@ func TestContractInternalBindingEnforcesVisibilityAuthorizationAndPipeline(t *te
 	previous := global
 	global = &registry{contractBindings: map[string]ContractInternalBindingRegistration{}}
 	t.Cleanup(func() { global = previous })
-	invocation := runtimeapi.NewInvocation("invocation-policy", "principal", "", "", time.Time{})
+	invocation := runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-policy", Principal: "principal"})
 	ctx := runtimeapi.WithInvocation(context.Background(), invocation)
 	if err := RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{
 		Address: "house/binding/package", Visibility: "package", Package: "house",

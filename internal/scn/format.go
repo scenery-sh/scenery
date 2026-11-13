@@ -80,9 +80,6 @@ func formattingPaths(root string, selected []string) ([]string, error) {
 		if filepath.Ext(path) != ".scn" {
 			return nil, fmt.Errorf("format path %q is not Scenery source", item)
 		}
-		if legacyErr := legacyFilenameError(path); legacyErr != nil {
-			return nil, legacyErr
-		}
 		paths = append(paths, path)
 	}
 	return paths, nil
@@ -352,8 +349,6 @@ func formatterExpectedPrimitive(source []byte, positions *PositionIndex, block *
 	case block.Type == "timeouts" && (attribute == "read" || attribute == "write" || attribute == "idle" || attribute == "total_invocation"):
 		return "duration"
 	case block.Type == "typescript_client" && attribute == "output_root":
-		return "relative_path"
-	case block.Type == "implementation" && parent == "view" && attribute == "file":
 		return "relative_path"
 	case block.Type == "renderer" && attribute == "module":
 		return "relative_path"

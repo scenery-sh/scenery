@@ -4,7 +4,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -164,20 +163,18 @@ func Ping(context.Context) (*Response, error) {
 		writeBuildTestFile(t, root, rel, "x")
 	}
 	socketPaths := []string{}
-	if runtime.GOOS != "windows" {
-		for _, rel := range []string{"var/browser/SingletonSocket", "assets/live.sock"} {
-			path := filepath.Join(root, filepath.FromSlash(rel))
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			ln, err := net.Listen("unix", path)
-			if err != nil {
-				t.Logf("skipping unix socket fixture %s: %v", rel, err)
-				continue
-			}
-			t.Cleanup(func() { _ = ln.Close() })
-			socketPaths = append(socketPaths, rel)
+	for _, rel := range []string{"var/browser/SingletonSocket", "assets/live.sock"} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
 		}
+		ln, err := net.Listen("unix", path)
+		if err != nil {
+			t.Logf("skipping unix socket fixture %s: %v", rel, err)
+			continue
+		}
+		t.Cleanup(func() { _ = ln.Close() })
+		socketPaths = append(socketPaths, rel)
 	}
 
 	files, err := listSourceFiles(root)
@@ -216,39 +213,4 @@ func Ping(context.Context) (*Response, error) {
 		}
 	}
 
-}
-
-// `scenery test` tidies a prepared workspace outside this package after Go
-// rejects its module files. That mutation must serialize against the
-// preparation and compilation of other processes, and must not outlive fn.
-func TestWithWorkspaceLockHoldsTheWorkspaceLockForTheCallback(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, ".scenery-workspace.lock")
-	var acquiredDuring, existedDuring bool
-	if err := WithWorkspaceLock(dir, func() error {
-		release, acquired, existing, err := trySharedBinaryExistingLock(lockPath)
-		if err != nil {
-			return err
-		}
-		if acquired {
-			release()
-		}
-		acquiredDuring, existedDuring = acquired, existing
-		return nil
-	}); err != nil {
-		t.Fatalf("WithWorkspaceLock() error = %v", err)
-	}
-	if runtime.GOOS == "windows" {
-		return // No workspace lock, therefore no serialized private workspace.
-	}
-	if acquiredDuring || !existedDuring {
-		t.Fatalf("callback ran without the workspace lock: acquired=%t existing=%t", acquiredDuring, existedDuring)
-	}
-	release, acquired, _, err := trySharedBinaryExistingLock(lockPath)
-	if err != nil || !acquired {
-		t.Fatalf("WithWorkspaceLock retained the workspace lock: acquired=%t err=%v", acquired, err)
-	}
-	release()
 }

@@ -4,14 +4,6 @@ package "house" {
   }
 }
 
-input "task_engine" {
-  type  = resource_ref("execution_engine")
-  phase = "deployment"
-  requires = [
-    "execution.durable/v1",
-  ]
-}
-
 service "house" {
   runtime = "go"
 
@@ -55,26 +47,6 @@ execution "process_scene_direct" {
   timeout   = "30s"
 }
 
-execution "process_scene_durable" {
-  operation = operation.process_scene
-  mode      = "durable"
-
-  engine   = var.task_engine
-  revision = 1
-  timeout  = "30s"
-  lease    = "15s"
-  attempts = 1
-
-  retry {
-    strategy = "none"
-  }
-
-  retention {
-    success = "1h"
-    failure = "1h"
-  }
-}
-
 binding "process_scene_mcp" {
   operation = operation.process_scene
   execution = execution.process_scene_direct
@@ -97,32 +69,6 @@ binding "process_scene_mcp" {
   }
 }
 
-binding "process_scene_durable_mcp" {
-  operation = operation.process_scene
-  execution = execution.process_scene_durable
-  protocol  = "mcp"
-  delivery  = "call"
-
-  exposure       = "application"
-  authentication = std.authentication.inherit
-  authorization  = std.authorization.public
-  pipeline       = std.pipeline.empty
-
-  mcp {
-    name        = "process_scene_durable"
-    title       = "Process a scene durably"
-    description = "Enqueue scene processing and return a durable receipt."
-    read_only   = false
-    destructive = false
-    idempotent  = false
-    open_world  = false
-  }
-}
-
 export "process_scene_mcp" {
   value = binding.process_scene_mcp
-}
-
-export "process_scene_durable_mcp" {
-  value = binding.process_scene_durable_mcp
 }

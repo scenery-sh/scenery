@@ -7,11 +7,7 @@ import (
 
 func TestTablePageValidatesAndExpandsToExistingPageRendererContract(t *testing.T) {
 	resources := tablePageFixtureResources()
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	expanded, diagnostics = expandTablePageResources(expanded)
+	expanded, diagnostics := expandTablePageResources(resources)
 	if hasErrors(diagnostics) {
 		t.Fatal(diagnostics)
 	}
@@ -20,13 +16,13 @@ func TestTablePageValidatesAndExpandsToExistingPageRendererContract(t *testing.T
 	}
 	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
 	page, renderer := byAddress["house/page/scenes"], byAddress["house/renderer/scenes_web"]
-	if refString(page.Spec["load"]) != "house/binding/scene_api_list_internal" || renderer.Spec["module"] != tablePageRendererModule || renderer.Origin.ExpansionLineage[0].Generator != "house/table_page/scenes" {
+	if refString(page.Spec["load"]) != "house/binding/scenes_load_internal" || renderer.Spec["module"] != tablePageRendererModule || renderer.Origin.ExpansionLineage[0].Generator != "house/table_page/scenes" {
 		t.Fatalf("page=%#v renderer=%#v", page, renderer)
 	}
 
 	for _, table := range expanded {
 		if table.Address == "house/table_page/scenes" {
-			table.Spec["page_size"] = 101
+			table.Spec["page_size"] = 0
 			if diagnostics := validateTablePage(byAddress, table); !hasDiagnostic(diagnostics, "SCN2613") {
 				t.Fatalf("page size diagnostics = %#v", diagnostics)
 			}
@@ -37,18 +33,14 @@ func TestTablePageValidatesAndExpandsToExistingPageRendererContract(t *testing.T
 
 func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 	resources := tablePageFixtureResources()
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	base := byAddress["house/table_page/scenes"]
 	tests := []struct {
 		name string
 		code string
 		edit func(map[string]any)
 	}{
-		{"missing source", "SCN2608", func(spec map[string]any) { spec["source"] = map[string]any{"$ref": "crud.missing"} }},
+		{"missing source", "SCN2608", func(spec map[string]any) { spec["source"] = map[string]any{"$ref": "binding.missing"} }},
 		{"unknown column", "SCN2609", func(spec map[string]any) { spec["column"] = map[string]any{"name": "missing"} }},
 		{"all columns hidden", "SCN2609", func(spec map[string]any) { spec["column"] = map[string]any{"name": "name", "hidden": true} }},
 		{"filter outside allowlist", "SCN2610", func(spec map[string]any) { spec["filter"] = map[string]any{"name": "name"} }},
@@ -71,7 +63,6 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 			spec["export"] = map[string]any{"file_name": "scenes-{timestamp}.csv"}
 		}},
 		{"unknown row link field", "SCN2612", func(spec map[string]any) { spec["row_link"] = "/scenes/{missing}" }},
-		{"page size exceeds CRUD limit", "SCN2613", func(spec map[string]any) { spec["page_size"] = 101 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -89,11 +80,7 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 	}
 
 	resources = append(resources, Resource{Address: "house/page/scenes", Module: "house", Name: "scenes", Kind: "scenery.page"})
-	expanded, diagnostics = expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	_, diagnostics = expandTablePageResources(expanded)
+	_, diagnostics := expandTablePageResources(resources)
 	if !hasDiagnostic(diagnostics, "SCN2614") {
 		t.Fatalf("collision diagnostics = %#v", diagnostics)
 	}
@@ -101,11 +88,7 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 
 func TestTablePageValidatesGroupingAndDetailPresentation(t *testing.T) {
 	resources := tablePageFixtureResources()
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	base := byAddress["house/table_page/scenes"]
 	byAddress["house/form_dialog/edit"] = Resource{
 		Address: "house/form_dialog/edit",
@@ -252,6 +235,7 @@ func TestTablePageBindingSourceExpandsAndValidatesCompleteTypedList(t *testing.T
 		resources[index].Spec = cloneMapValue(resources[index].Spec)
 		resources[index].Spec["source"] = map[string]any{"$ref": "binding.search_scenes_http"}
 		resources[index].Spec["items"] = "rows"
+		delete(resources[index].Spec, "pagination")
 		resources[index].Spec["filter"] = map[string]any{
 			"name": "name", "status_map": map[string]any{"$ref": "status_map.scene_name"},
 		}
@@ -260,11 +244,7 @@ func TestTablePageBindingSourceExpandsAndValidatesCompleteTypedList(t *testing.T
 		}
 		break
 	}
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	expanded, diagnostics = expandTablePageResources(expanded)
+	expanded, diagnostics := expandTablePageResources(resources)
 	if hasErrors(diagnostics) {
 		t.Fatal(diagnostics)
 	}
@@ -280,8 +260,9 @@ func TestTablePageBindingSourceExpandsAndValidatesCompleteTypedList(t *testing.T
 func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 	resources := tablePageFixtureResources()
 	for index := range resources {
-		if resources[index].Address == "house/crud/scene_api" {
-			resources[index].Spec["list"].(map[string]any)["filters"] = []any{"name"}
+		if resources[index].Address == "house/record/scene_list_input" {
+			fields := resources[index].Spec["field"].([]any)
+			resources[index].Spec["field"] = append(fields, map[string]any{"name": "name", "type": map[string]any{"$expression": "optional(list(string))"}})
 		}
 	}
 	resources = append(resources,
@@ -312,11 +293,7 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 		}},
 		Resource{Address: "house/form_dialog/create", Module: "house", Name: "create", Kind: "scenery.form-dialog", Spec: map[string]any{"source": map[string]any{"$ref": "binding.create_http"}, "title": "Create"}},
 	)
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	table := byAddress["house/table_page/scenes"]
 	table.Spec = cloneMapValue(table.Spec)
 	table.Spec["stats"] = map[string]any{
@@ -405,19 +382,19 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 	}
 
 	for index := range resources {
-		if resources[index].Address == "house/crud/scene_api" {
-			resources[index].Spec["list"].(map[string]any)["filters"] = []any{"name", "created_at"}
+		if resources[index].Address == "house/record/scene_list_input" {
+			fields := resources[index].Spec["field"].([]any)
+			resources[index].Spec["field"] = append(fields,
+				map[string]any{"name": "created_at_from", "type": map[string]any{"$expression": "optional(datetime)"}},
+				map[string]any{"name": "created_at_to", "type": map[string]any{"$expression": "optional(datetime)"}},
+			)
 		}
 		if resources[index].Address == "house/record/scene_row" {
 			fields := resources[index].Spec["field"].([]any)
 			resources[index].Spec["field"] = append(fields, map[string]any{"name": "created_at", "type": map[string]any{"$expression": "datetime"}})
 		}
 	}
-	expanded, diagnostics = expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress = resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress = resourcesByAddress(&Manifest{Resources: resources})
 	presetTable := byAddress["house/table_page/scenes"]
 	presetTable.Spec = cloneMapValue(presetTable.Spec)
 	presetTable.Spec["filter"] = map[string]any{
@@ -440,18 +417,14 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 
 func TestTablePageBindingPaginationQueryAndPredicates(t *testing.T) {
 	resources := tablePageBindingPaginationFixtureResources()
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	table := byAddress["house/table_page/scenes"]
 	contract, diagnostics := resolveTablePageSource(byAddress, table)
 	if hasErrors(diagnostics) {
 		t.Fatalf("source diagnostics = %#v", diagnostics)
 	}
-	if !contract.paginated || contract.maxPageSize != 0 {
-		t.Fatalf("source contract = %#v, want unbounded page pagination", contract)
+	if !contract.paginated {
+		t.Fatalf("source contract = %#v, want page pagination", contract)
 	}
 	if diagnostics := validateTablePage(byAddress, table); hasErrors(diagnostics) {
 		t.Fatalf("table page diagnostics = %#v", diagnostics)
@@ -484,11 +457,7 @@ func TestTablePageBindingMetadataRequiresDistinctAuxiliaryResultFields(t *testin
 			resources[index].Spec["metadata"] = []any{"summary", "stages"}
 		}
 	}
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	base := byAddress["house/table_page/scenes"]
 	if diagnostics := validateTablePage(byAddress, base); hasErrors(diagnostics) {
 		t.Fatalf("valid metadata diagnostics = %#v", diagnostics)
@@ -508,27 +477,11 @@ func TestTablePageBindingMetadataRequiresDistinctAuxiliaryResultFields(t *testin
 			}
 		})
 	}
-
-	crud := byAddress["house/table_page/scenes"]
-	crud.Spec = cloneMapValue(crud.Spec)
-	crud.Spec["source"] = map[string]any{"$ref": "crud.scene_api"}
-	delete(crud.Spec, "items")
-	delete(crud.Spec, "pagination")
-	delete(crud.Spec, "query")
-	delete(crud.Spec, "predicate")
-	crud.Spec["metadata"] = []any{"summary"}
-	if diagnostics := validateTablePage(byAddress, crud); !hasDiagnostic(diagnostics, "SCN2622") {
-		t.Fatalf("CRUD metadata diagnostics = %#v", diagnostics)
-	}
 }
 
 func TestTablePageBindingMappingsRejectInvalidFieldsAndValues(t *testing.T) {
 	resources := tablePageBindingPaginationFixtureResources()
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	base := byAddress["house/table_page/scenes"]
 	tests := []struct {
 		name string
@@ -605,50 +558,9 @@ func TestTablePageBindingFilterAcceptsEnumInputForStringRowField(t *testing.T) {
 			}
 		}
 	}
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	if diagnostics := validateTablePage(byAddress, byAddress["house/table_page/scenes"]); hasErrors(diagnostics) {
 		t.Fatalf("enum input for string row field diagnostics = %#v", diagnostics)
-	}
-}
-
-func TestTablePageCRUDPredicatesUseAllowlistedFilterItemTypes(t *testing.T) {
-	resources := tablePageFixtureResources()
-	for index := range resources {
-		if resources[index].Address == "house/crud/scene_api" {
-			list := resources[index].Spec["list"].(map[string]any)
-			list["filters"] = []any{"name"}
-			delete(list, "max_page_size")
-		}
-		if resources[index].Address == "house/table_page/scenes" {
-			resources[index].Spec["predicate"] = map[string]any{"name": "name", "value": "fixed"}
-		}
-	}
-	expanded, diagnostics := expandDataResources(resources)
-	if hasErrors(diagnostics) {
-		t.Fatal(diagnostics)
-	}
-	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
-	base := byAddress["house/table_page/scenes"]
-	if diagnostics := validateTablePage(byAddress, base); hasDiagnostic(diagnostics, "SCN2613") || hasDiagnostic(diagnostics, "SCN2625") {
-		t.Fatalf("valid CRUD predicate diagnostics = %#v", diagnostics)
-	}
-
-	wrongType := base
-	wrongType.Spec = cloneMapValue(base.Spec)
-	wrongType.Spec["predicate"].(map[string]any)["value"] = 42
-	if diagnostics := validateTablePage(byAddress, wrongType); !hasDiagnostic(diagnostics, "SCN2625") {
-		t.Fatalf("wrong-type CRUD predicate diagnostics = %#v", diagnostics)
-	}
-
-	notAllowlisted := base
-	notAllowlisted.Spec = cloneMapValue(base.Spec)
-	notAllowlisted.Spec["predicate"].(map[string]any)["name"] = "id"
-	if diagnostics := validateTablePage(byAddress, notAllowlisted); !hasDiagnostic(diagnostics, "SCN2625") {
-		t.Fatalf("non-allowlisted CRUD predicate diagnostics = %#v", diagnostics)
 	}
 }
 
@@ -700,16 +612,36 @@ func tablePageBindingPaginationFixtureResources() []Resource {
 }
 
 func tablePageFixtureResources() []Resource {
-	resources := dataProfileFixtureResources()
-	crud := &resources[4]
-	crud.Spec["actions"] = []any{"list"}
-	crud.Spec["list"] = map[string]any{"filters": []any{}, "sorts": []any{"name"}, "default_sort": map[string]any{"field": "name", "direction": "desc"}, "max_page_size": 100}
-	return append(resources,
-		Resource{Address: "house/react_component/name_cell", Module: "house", Name: "name_cell", Kind: "scenery.react-component", Spec: map[string]any{"module": "components/name-cell.tsx", "export": "NameCell"}},
-		Resource{Address: "house/table_page/scenes", Module: "house", Name: "scenes", Kind: "scenery.table-page", Origin: Origin{Kind: "authored", SourceID: "src_house"}, Spec: map[string]any{
-			"path": "/scenes", "source": map[string]any{"$ref": "crud.scene_api"}, "title": "Scenes", "page_size": 50, "row_link": "/scenes/{id}",
-			"column": []any{map[string]any{"name": "id", "appearance": "text"}, map[string]any{"name": "name", "component": map[string]any{"$ref": "react_component.name_cell"}}},
-			"sort":   map[string]any{"name": "name", "default": "desc"},
+	return []Resource{
+		{Address: "house/record/scene_row", Module: "house", Name: "scene_row", Kind: "scenery.record", Spec: map[string]any{"field": []any{
+			map[string]any{"name": "id", "type": map[string]any{"$ref": "uuid"}},
+			map[string]any{"name": "tenant_id", "type": map[string]any{"$ref": "string"}},
+			map[string]any{"name": "name", "type": map[string]any{"$ref": "string"}},
+		}}},
+		{Address: "house/enum/scene_list_sort", Module: "house", Name: "scene_list_sort", Kind: "scenery.enum", Spec: map[string]any{"value": []any{map[string]any{"name": "name"}}}},
+		{Address: "house/enum/scene_list_direction", Module: "house", Name: "scene_list_direction", Kind: "scenery.enum", Spec: map[string]any{"value": []any{map[string]any{"name": "asc"}, map[string]any{"name": "desc"}}}},
+		{Address: "house/record/scene_list_input", Module: "house", Name: "scene_list_input", Kind: "scenery.record", Spec: map[string]any{"field": []any{
+			map[string]any{"name": "sort", "type": map[string]any{"$expression": "optional(enum.scene_list_sort)"}},
+			map[string]any{"name": "direction", "type": map[string]any{"$expression": "optional(enum.scene_list_direction)"}},
+			map[string]any{"name": "page", "type": map[string]any{"$expression": "int32"}},
+			map[string]any{"name": "limit", "type": map[string]any{"$expression": "int32"}},
+		}}},
+		{Address: "house/record/scene_list_result", Module: "house", Name: "scene_list_result", Kind: "scenery.record", Spec: map[string]any{"field": []any{
+			map[string]any{"name": "items", "type": map[string]any{"$expression": "list(record.scene_row)"}},
+			map[string]any{"name": "total", "type": map[string]any{"$expression": "int64"}},
+		}}},
+		{Address: "house/operation/scene_list", Module: "house", Name: "scene_list", Kind: "scenery.operation", Spec: map[string]any{
+			"input": map[string]any{"$ref": "record.scene_list_input"}, "result": map[string]any{"name": "ok", "type": map[string]any{"$ref": "record.scene_list_result"}},
 		}},
-	)
+		{Address: "house/binding/scene_list_http", Module: "house", Name: "scene_list_http", Kind: "scenery.binding", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.scene_list"}, "protocol": "http", "delivery": "call",
+		}},
+		{Address: "house/react_component/name_cell", Module: "house", Name: "name_cell", Kind: "scenery.react-component", Spec: map[string]any{"module": "components/name-cell.tsx", "export": "NameCell"}},
+		{Address: "house/table_page/scenes", Module: "house", Name: "scenes", Kind: "scenery.table-page", Origin: Origin{Kind: "authored", SourceID: "src_house"}, Spec: map[string]any{
+			"path": "/scenes", "source": map[string]any{"$ref": "binding.scene_list_http"}, "items": "items", "title": "Scenes", "page_size": 50, "row_link": "/scenes/{id}",
+			"column":     []any{map[string]any{"name": "id", "appearance": "text"}, map[string]any{"name": "name", "component": map[string]any{"$ref": "react_component.name_cell"}}},
+			"sort":       map[string]any{"name": "name", "default": "desc"},
+			"pagination": map[string]any{"page": "page", "page_size": "limit", "total": "total"},
+		}},
+	}
 }

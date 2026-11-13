@@ -31,9 +31,8 @@
 - Edge-only worktree proxy leases forward only to explicit loopback endpoints
   with verified domain ownership; they neither own runtime children nor write
   a checkout's session manifest.
-- Agent home is injected with `PathsForHome`, `RunOptions.Home`, or `EnsureWith`. Tests pass a temp dir; only the CLI/runtime boundary reads `SCENERY_AGENT_HOME`.
+- Agent home is injected with `PathsForHome` or `RunOptions.Home`. Tests pass a temp dir; only the CLI/runtime boundary reads `SCENERY_AGENT_HOME`.
 - The privileged edge helper is the one reader that must NOT use strict current decoding: it outlives scenery upgrades as a root LaunchDaemon, so it reads target metadata only through `LoadEdgeHelperTarget` in `edgehelper.go` — a frozen, tolerant, read-only handoff contract identified by `EdgeHelperContractRevision`. Never route helper reads through `LoadDurableArtifact`, never let the helper rewrite the file, and bump the contract revision when a frozen field is renamed, removed, or revalidated differently (additive fields need no bump).
-- Durable identity migrations preserve the exact legacy bytes in an owner-only backup, fsync the replacement, and write an idempotent completion marker.
 - Never recreate deploy ownership, live process ownership, or credentials after a decode failure.
 - Closing or restarting the agent never signals registered substrate processes. Substrate-specific owners perform destructive shutdown explicitly.
 - Ensuring an agent never replaces a live agent based on build age. Require

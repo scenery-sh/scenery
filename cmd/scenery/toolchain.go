@@ -16,8 +16,6 @@ type toolchainOptions struct {
 	All                bool
 	Tool               string
 	Platform           toolchain.Platform
-	Images             bool
-	Strict             bool
 	IncludeSourceLocks bool
 }
 
@@ -49,8 +47,6 @@ func runToolchain(ctx context.Context, stdout io.Writer, args []string) error {
 		RootDir:  cwd,
 		Platform: opts.Platform,
 		Tool:     opts.Tool,
-		Strict:   opts.Strict,
-		Images:   opts.Images,
 	}
 	switch opts.Command {
 	case "list":
@@ -64,20 +60,7 @@ func runToolchain(ctx context.Context, stdout io.Writer, args []string) error {
 		if err != nil {
 			return err
 		}
-		if opts.Strict {
-			for _, artifact := range status.Artifacts {
-				for _, image := range artifact.Images {
-					if image.Status == "invalid" {
-						err = fmt.Errorf("toolchain image %s is invalid: %s", image.Ref, image.Message)
-						break
-					}
-				}
-			}
-		}
-		if renderErr := renderToolchainStatus(stdout, opts.JSON, opts.All, status); renderErr != nil {
-			return renderErr
-		}
-		return err
+		return renderToolchainStatus(stdout, opts.JSON, opts.All, status)
 	case "sync":
 		status, err := store.Sync(ctx, common)
 		if err != nil {
@@ -114,8 +97,6 @@ func parseToolchainArgs(args []string) (toolchainOptions, error) {
 	flags := newCLIFlagSet("system toolchain")
 	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.All, "all", false, "")
-	flags.BoolVar(&opts.Images, "images", false, "")
-	flags.BoolVar(&opts.Strict, "strict", false, "")
 	flags.BoolVar(&opts.IncludeSourceLocks, "include-source-locks", false, "")
 	flags.StringVar(&opts.Tool, "tool", "", "")
 	flags.StringVar(&platformName, "platform", "", "")

@@ -53,7 +53,7 @@ func runtimeCallClassOf(method string) runtimeCallClass {
 	switch method {
 	case "wait":
 		return runtimeWaitCall
-	case "traces/list", "traces/get", "postgres/tables", "postgres/schema", "postgres/rows", "db/query", "cli/invoke":
+	case "traces/list", "traces/get", "postgres/tables", "postgres/schema", "postgres/rows", "db/query":
 		return runtimeWorkCall
 	}
 	if strings.HasPrefix(method, "storage/") {

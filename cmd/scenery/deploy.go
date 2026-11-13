@@ -214,9 +214,6 @@ func runDeployCommandWithStatusDependencies(stdout io.Writer, args []string, sta
 	if strings.HasPrefix(subcommand, "-") {
 		return runDeploySSH(stdout, "", args, deploySSHTools{})
 	}
-	if subcommand == "plan" || subcommand == "apply" {
-		return runDeployment(stdout, args)
-	}
 	if subcommand == "receive" {
 		return deployReceiveCommand(stdout, args[1:])
 	}

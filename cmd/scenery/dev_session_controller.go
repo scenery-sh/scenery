@@ -12,19 +12,17 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/localproxy"
 )
 
 type DevSessionController struct {
-	root             string
-	cfg              app.Config
-	env              app.ResolvedEnv
-	listen           devListenRequest
-	console          *runConsole
-	paths            *localagent.Paths
-	environment      []string
-	frontendOverride frontendOverrideResolver
-	onRegister       func(localagent.RegisterRequest)
+	root        string
+	cfg         app.Config
+	env         app.ResolvedEnv
+	listen      devListenRequest
+	console     *runConsole
+	paths       *localagent.Paths
+	environment []string
+	onRegister  func(localagent.RegisterRequest)
 }
 
 func (c *DevSessionController) agentPaths() (localagent.Paths, error) {
@@ -78,9 +76,6 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	if err := validateFrontendServeModes(c.cfg); err != nil {
 		return prepared, &codedCLIError{code: 3, err: err}
 	}
-	if _, err := devRoutingMode(c.env); err != nil {
-		return prepared, err
-	}
 	machinePaths, err := c.agentPaths()
 	if err != nil {
 		return prepared, err
@@ -128,21 +123,11 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		URL: fmt.Sprintf("http://localhost:%d", port), OwnerPID: os.Getpid(),
 		Owner: localagent.CaptureOwner(os.Getpid(), "scenery worktree router"), CreatedAt: now, UpdatedAt: now,
 	}
-	publicRoutes, err := devExposeRouteNames(c.cfg, c.env)
-	if err != nil {
-		return prepared, err
-	}
 	// Local path routing remains available independently of machine-edge domains.
-	manifest := pathRouteManifestForLease(lease, "", publicRoutes, c.cfg.RootFrontend())
+	manifest := pathRouteManifestForLease(lease, "", c.cfg.RootFrontend())
 	backend := devBackend{Network: "unix", Addr: filepath.Join(owner.paths.SocketDir, "api.sock")}
 	if c.listen.Addr != "" {
 		backend = devBackend{Network: "tcp", Addr: c.listen.Addr}
-	} else if c.listen.PreferTCP {
-		addr, err := freeLoopbackAddr()
-		if err != nil {
-			return prepared, err
-		}
-		backend = devBackend{Network: "tcp", Addr: addr}
 	}
 	backends := map[string]localagent.Backend{localagent.RouteAPI: {Network: backend.Network, Addr: backend.Addr}}
 	existing, err := client.List(ctx, root)
@@ -161,11 +146,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	if len(configuredFrontends(c.cfg.Frontends)) > 0 {
 		if err := c.runPhase("Starting frontend dev servers", func() error {
-			resolveOverride := c.frontendOverride
-			if resolveOverride == nil {
-				resolveOverride = localproxy.FrontendOverride
-			}
-			frontends, processes, wait, err := beginManagedFrontendBackendsForSessionWithOverride(ctx, root, c.cfg, baseEnv, seed, resolveOverride)
+			frontends, processes, wait, err := beginManagedFrontendBackendsForSession(ctx, root, c.cfg, baseEnv, seed)
 			prepared.FrontendProcesses = processes
 			cleanup = append(cleanup, func() { stopManagedFrontendProcesses(processes) })
 			for name, backend := range frontends {

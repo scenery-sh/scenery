@@ -18,24 +18,22 @@ import (
 )
 
 const (
-	mcpConnectionKind = "scenery.mcp-connection"
-	mcpServerKind     = "scenery.mcp-server"
-	assistantKind     = "scenery.assistant"
-	bindingKind       = "scenery.binding"
-	operationKind     = "scenery.operation"
-	executionKind     = "scenery.execution"
-	recordKind        = "scenery.record"
-	enumKind          = "scenery.enum"
-	unionKind         = "scenery.union"
-	secretKind        = "scenery.secret"
+	mcpServerKind = "scenery.mcp-server"
+	assistantKind = "scenery.assistant"
+	bindingKind   = "scenery.binding"
+	operationKind = "scenery.operation"
+	executionKind = "scenery.execution"
+	recordKind    = "scenery.record"
+	enumKind      = "scenery.enum"
+	unionKind     = "scenery.union"
+	secretKind    = "scenery.secret"
 )
 
 const (
-	projectionTypeCode       = "SCN2421"
-	sensitiveOutputCode      = "SCN2422"
-	toolIdentityCode         = "SCN2420"
-	projectionLimitsCode     = "SCN2419"
-	projectionConnectionCode = "SCN2428"
+	projectionTypeCode   = "SCN2421"
+	sensitiveOutputCode  = "SCN2422"
+	toolIdentityCode     = "SCN2420"
+	projectionLimitsCode = "SCN2419"
 )
 
 const (
@@ -89,7 +87,7 @@ func assistantServerReference(value any) string {
 
 // CapabilityRevision identifies what an assistant can do through its MCP
 // server: the assistant's contract projection and the server's projected
-// capabilities and connections, with the application identity and
+// capabilities, with the application identity and
 // specification revision. It excludes the application's contract and source
 // revisions, so a contract change elsewhere in the application leaves it, and
 // the assistant's prepared helper runtime, unchanged. The server's capability
@@ -111,8 +109,7 @@ func CapabilityRevision(manifest *graph.Manifest, assistant, server string) (str
 		Server          string                   `json:"server"`
 		ProtocolVersion string                   `json:"protocol_version"`
 		Capabilities    []mcpcontract.Capability `json:"capabilities"`
-		Connections     []mcpcontract.Connection `json:"connections"`
-	}{manifest.SpecRevision, manifest.Application.Name, contract, server, projected.ProtocolVersion, projected.Capabilities, projected.Connections}), nil
+	}{manifest.SpecRevision, manifest.Application.Name, contract, server, projected.ProtocolVersion, projected.Capabilities}), nil
 }
 
 // ProjectManifest projects an expanded graph and uses sourceRevision as the
@@ -133,10 +130,6 @@ func ProjectManifest(manifest *graph.Manifest, sourceRevision, server string) (m
 	if err != nil {
 		return mcpcontract.Manifest{}, err
 	}
-	connections, err := projectConnections(serverResource, resources)
-	if err != nil {
-		return mcpcontract.Manifest{}, err
-	}
 
 	// Construct through JSON so the projection stays coupled to the stable
 	// provider-neutral contract tags, not to provider/runtime implementation
@@ -148,7 +141,6 @@ func ProjectManifest(manifest *graph.Manifest, sourceRevision, server string) (m
 		"source_revision":   sourceRevision,
 		"contract_revision": manifest.ContractRevision,
 		"capabilities":      capabilities,
-		"connections":       connections,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -239,8 +231,6 @@ func projectCapabilities(server graph.Resource, resources map[string]graph.Resou
 		if !ok || operation.Kind != operationKind {
 			return nil, projectionErrorAt(projectionTypeCode, binding.Address, "/spec/operation", "MCP binding operation is unavailable")
 		}
-		execution, executionOK := resources[executionAddress]
-		durable := executionOK && execution.Kind == executionKind && stringValue(execution.Spec["mode"]) == "durable"
 		mcp, _ := binding.Spec["mcp"].(map[string]any)
 		input, _, err := schemaForType(binding, operation.Spec["input"], operation.Module, resources, newSchemaState())
 		if err != nil {
@@ -250,12 +240,6 @@ func projectCapabilities(server graph.Resource, resources map[string]graph.Resou
 			return nil, projectionErrorAt(projectionTypeCode, binding.Address, "/spec/operation/input", "MCP tool input schema must have an object root")
 		}
 		output, outputSensitive, err := operationOutputSchema(operation, resources)
-		if durable {
-			// A durable tool call returns the acceptance receipt, never the
-			// operation outcome; the outcome is read later through the
-			// framework status tool.
-			output, outputSensitive, err = durableAcceptanceSchema(), false, nil
-		}
 		if err != nil {
 			return nil, projectionErrorAt(projectionTypeCode, binding.Address, "/spec/operation/result", err.Error())
 		}
@@ -285,41 +269,7 @@ func projectCapabilities(server graph.Resource, resources map[string]graph.Resou
 			"input_schema": input, "output_schema": output, "operation_address": operationAddress, "execution_address": executionAddress,
 			"origin": map[string]any{"kind": "local", "address": binding.Address}, "auth": auth,
 			"limits": map[string]any{"max_input_bytes": maxInput, "max_result_bytes": maxResult}, "effect": effect, "approval": approval,
-			"allow_sensitive_output": boolValue(mcp["allow_sensitive_output"]), "durable": durable,
-		})
-	}
-	return result, nil
-}
-
-func projectConnections(server graph.Resource, resources map[string]graph.Resource) ([]map[string]any, error) {
-	children := namedChildren(server.Spec, "connection")
-	sort.SliceStable(children, func(i, j int) bool {
-		left, right := stringValue(children[i]["namespace"]), stringValue(children[j]["namespace"])
-		if left != right {
-			return left < right
-		}
-		return refString(children[i]["connection"]) < refString(children[j]["connection"])
-	})
-	seen := map[string]string{}
-	result := make([]map[string]any, 0, len(children))
-	for _, child := range children {
-		namespace := stringValue(child["namespace"])
-		if namespace == "" {
-			return nil, projectionErrorAt(toolIdentityCode, server.Address, "/spec/connection/namespace", "MCP connection namespace is required")
-		}
-		if previous, exists := seen[namespace]; exists {
-			return nil, projectionErrorAt(toolIdentityCode, server.Address, "/spec/connection/namespace", "duplicate MCP connection namespace "+namespace+" (previous connection "+previous+")")
-		}
-		address := resolveAddress(server, refString(child["connection"]), "mcp_connection")
-		connection, ok := resources[address]
-		if !ok || connection.Kind != mcpConnectionKind {
-			return nil, projectionErrorAt(projectionConnectionCode, server.Address, "/spec/connection/connection", "MCP connection reference is unavailable")
-		}
-		seen[namespace] = connection.Address
-		tools, _ := connection.Spec["tools"].(map[string]any)
-		result = append(result, map[string]any{
-			"address": connection.Address, "namespace": namespace, "required": boolValue(child["required"]),
-			"allow": stringList(tools["allow"]), "block": stringList(tools["block"]),
+			"allow_sensitive_output": boolValue(mcp["allow_sensitive_output"]),
 		})
 	}
 	return result, nil
@@ -332,7 +282,7 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 		return rawSchema(map[string]any{"type": "object", "oneOf": []any{map[string]any{
 			"type": "object", "additionalProperties": false,
 			"properties": map[string]any{
-				"outcome": map[string]any{"type": "string", "not": map[string]any{"enum": []string{mcpcontract.AcceptedOutcome, mcpcontract.FailedOutcome}}},
+				"outcome": map[string]any{"type": "string", "not": map[string]any{"enum": []string{mcpcontract.FailedOutcome}}},
 				"value":   map[string]any{"type": "object", "additionalProperties": false, "maxProperties": 0},
 			},
 			"required": []string{"outcome", "value"},
@@ -363,7 +313,7 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 		if child.name == "" {
 			return nil, false, fmt.Errorf("operation outcome name is required")
 		}
-		if child.name == mcpcontract.AcceptedOutcome || child.name == mcpcontract.FailedOutcome {
+		if child.name == mcpcontract.FailedOutcome {
 			return nil, false, fmt.Errorf("operation outcome name %s is reserved by the MCP result envelope", child.name)
 		}
 		if scannedNames[child.name] {
@@ -395,27 +345,6 @@ func operationOutputSchema(operation graph.Resource, resources map[string]graph.
 	}
 	variants = append(variants, frameworkFailureSchema())
 	return rawSchema(map[string]any{"type": "object", "oneOf": variants}), sensitive, nil
-}
-
-// durableAcceptanceSchema describes the result a durable MCP tool call
-// returns when the runtime accepts the work.
-func durableAcceptanceSchema() json.RawMessage {
-	return rawSchema(map[string]any{"type": "object", "oneOf": []any{map[string]any{
-		"type": "object", "additionalProperties": false,
-		"properties": map[string]any{
-			"outcome": map[string]any{"type": "string", "const": mcpcontract.AcceptedOutcome},
-			"receipt": map[string]any{
-				"type": "object", "additionalProperties": false,
-				"properties": map[string]any{
-					"durable_identity":  map[string]any{"type": "string"},
-					"execution_id":      map[string]any{"type": "string"},
-					"accepted_revision": map[string]any{"type": "string"},
-				},
-				"required": []string{"accepted_revision", "durable_identity", "execution_id"},
-			},
-		},
-		"required": []string{"outcome", "receipt"},
-	}, frameworkFailureSchema()}})
 }
 
 // frameworkFailureSchema describes the result the gateway returns when the
@@ -816,7 +745,7 @@ func resolveTypeAddress(module, expression, kind string) string {
 
 func isRootKind(kind string) bool {
 	switch kind {
-	case "application", "workspace", "go_module", "go_toolchain", "go_target", "http_gateway", "authentication", "authorization", "workload_identity", "pipeline", "provider", "data_source", "execution_engine", "event_bus", "secret_store", "secret", "deployment", "typescript_client", "patch", "mcp_connection", "mcp_server", "assistant":
+	case "application", "workspace", "go_module", "go_toolchain", "go_target", "http_gateway", "authentication", "authorization", "workload_identity", "pipeline", "provider", "data_source", "execution_engine", "secret_store", "secret", "typescript_client", "mcp_server", "assistant":
 		return true
 	default:
 		return false
@@ -895,18 +824,6 @@ func decimalText(coefficient string, scale int) string {
 func boolValue(value any) bool {
 	parsed, _ := value.(bool)
 	return parsed
-}
-
-func stringList(value any) []string {
-	items, _ := value.([]any)
-	result := make([]string, 0, len(items))
-	for _, item := range items {
-		if text := stringValue(item); text != "" {
-			result = append(result, text)
-		}
-	}
-	sort.Strings(result)
-	return result
 }
 
 func wireName(field map[string]any) string {

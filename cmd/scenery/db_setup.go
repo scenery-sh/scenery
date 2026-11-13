@@ -68,11 +68,11 @@ func runDBSetupOwnedWithHooks(ctx context.Context, stdout io.Writer, args []stri
 	defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
 	result := dbSetupResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.setup.result"),
-		App:                buildDBApplyResult(appRoot, cfg).App,
+		App:                taskAppRef(appRoot, cfg),
 		Apply:              dbSetupPhase{Status: "pending"},
 		Seed: dbSeedResult{
 			cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.seed.result"),
-			App:                buildDBApplyResult(appRoot, cfg).App,
+			App:                taskAppRef(appRoot, cfg),
 			Seeds:              []dbSeedRecord{},
 		},
 	}

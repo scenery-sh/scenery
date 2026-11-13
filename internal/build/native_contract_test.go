@@ -51,14 +51,10 @@ func TestGenerateNativeContractApplicationEntrypointInProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 		source := string(generated.Generated["scenery_internal_main/main.go"])
-		if strings.Count(source, `Name: "scenery"`) != 1 || !strings.Contains(source, `Name: "billing-data", Schema: "billing_data", DurableOnly: false`) {
+		if strings.Count(source, `Name: "scenery"`) != 1 || !strings.Contains(source, `Name: "billing-data", Schema: "billing_data"`) {
 			t.Fatalf("binding deduplication or schema changed:\n%s", source)
 		}
-		want := `Name: "scenery", Schema: "scenery", DurableOnly: true`
-		if authEnabled {
-			want = `Name: "scenery", Schema: "scenery", DurableOnly: false`
-		}
-		if !strings.Contains(source, want) || strings.Index(source, "ConfigureSQLBindings") > strings.Index(source, "scenerycomposition.Register") {
+		if !strings.Contains(source, `Name: "scenery", Schema: "scenery"`) || strings.Index(source, "ConfigureSQLBindings") > strings.Index(source, "scenerycomposition.Register") {
 			t.Fatalf("compiled SQL bindings must precede constructors:\n%s", source)
 		}
 		if authEnabled && strings.Index(source, "ConfigureSQLBindings") > strings.Index(source, "sceneryauth.RegisterStandard") {

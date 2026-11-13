@@ -18,12 +18,8 @@ import (
 )
 
 const (
-	validationInspectKind       = "scenery.inspect.validation"
-	validationListKind          = "scenery.validation.list"
-	validationInspectDetailKind = "scenery.validation.inspect"
-	validationGraphKind         = "scenery.validation.graph"
-	validationPlanKind          = "scenery.validation.plan"
-	validationResultKind        = "scenery.validation.result"
+	validationPlanKind   = "scenery.validation.plan"
+	validationResultKind = "scenery.validation.result"
 )
 
 type validateOptions struct {
@@ -48,54 +44,6 @@ type validationProfileRecord struct {
 	Artifacts   []string                         `json:"artifacts"`
 	Default     bool                             `json:"default,omitempty"`
 	StepCount   int                              `json:"step_count,omitempty"`
-}
-
-type inspectValidationResponse struct {
-	cliPayloadIdentity
-	App         inspectdata.AppRef        `json:"app"`
-	Default     string                    `json:"default,omitempty"`
-	Profiles    []validationProfileRecord `json:"profiles"`
-	Diagnostics []validation.Diagnostic   `json:"diagnostics"`
-}
-
-type validationListResponse struct {
-	cliPayloadIdentity
-	App         inspectdata.AppRef        `json:"app"`
-	Default     string                    `json:"default,omitempty"`
-	Profiles    []validationProfileRecord `json:"profiles"`
-	Diagnostics []validation.Diagnostic   `json:"diagnostics,omitempty"`
-}
-
-type validationInspectResponse struct {
-	cliPayloadIdentity
-	App         inspectdata.AppRef      `json:"app"`
-	Profile     validationProfileRecord `json:"profile"`
-	Resolved    []validation.PlanStep   `json:"resolved_steps"`
-	Tasks       []taskListRecord        `json:"tasks,omitempty"`
-	Diagnostics []validation.Diagnostic `json:"diagnostics,omitempty"`
-	Source      string                  `json:"source"`
-}
-
-type validationGraphResponse struct {
-	cliPayloadIdentity
-	App         inspectdata.AppRef      `json:"app"`
-	Profile     string                  `json:"profile"`
-	Nodes       []validationGraphNode   `json:"nodes"`
-	Edges       []validationGraphEdge   `json:"edges"`
-	Diagnostics []validation.Diagnostic `json:"diagnostics,omitempty"`
-}
-
-type validationGraphNode struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Source string `json:"source,omitempty"`
-}
-
-type validationGraphEdge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	Kind string `json:"kind"`
 }
 
 type validationPlanResponse struct {
@@ -186,41 +134,6 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 		return err
 	}
 	switch opts.Action {
-	case "list":
-		resp := buildValidationListResponse(appRoot, cfg)
-		if opts.JSON {
-			return writeInspectJSON(stdout, resp)
-		}
-		for _, profile := range resp.Profiles {
-			mark := " "
-			if profile.Default {
-				mark = "*"
-			}
-			_, _ = fmt.Fprintf(stdout, "%s %s\t%s\t%d steps\n", mark, profile.Name, profile.Cost, profile.StepCount)
-		}
-		return nil
-	case "inspect":
-		resp, err := buildValidationInspectResponse(appRoot, cfg, opts.Profile)
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return writeInspectJSON(stdout, resp)
-		}
-		_, _ = fmt.Fprintf(stdout, "%s\n  cost: %s\n  steps: %s\n", resp.Profile.Name, resp.Profile.Cost, strings.Join(resp.Profile.Steps, ", "))
-		return nil
-	case "graph":
-		resp, err := buildValidationGraphResponse(appRoot, cfg, opts.Profile)
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return writeInspectJSON(stdout, resp)
-		}
-		for _, edge := range resp.Edges {
-			_, _ = fmt.Fprintf(stdout, "%s -> %s\t%s\n", edge.From, edge.To, edge.Kind)
-		}
-		return nil
 	case "run", "changed":
 		planner := newValidationPlanner(appRoot, cfg)
 		plan, err := planner.Plan(ctx, validation.PlanRequest{
@@ -301,29 +214,14 @@ func parseValidateArgs(args []string) (validateOptions, error) {
 		return validateOptions{}, err
 	}
 	if len(positionals) > 0 {
-		switch positionals[0] {
-		case "list", "inspect", "graph", "changed":
+		if positionals[0] == "changed" {
 			opts.Action = positionals[0]
 			positionals = positionals[1:]
 		}
 	}
-	switch opts.Action {
-	case "inspect":
-		if len(positionals) == 0 {
-			return validateOptions{}, usageErrorf("missing validation profile")
-		}
+	if opts.Action == "run" && len(positionals) > 0 {
 		opts.Profile = positionals[0]
 		positionals = positionals[1:]
-	case "graph":
-		if len(positionals) > 0 {
-			opts.Profile = positionals[0]
-			positionals = positionals[1:]
-		}
-	case "run":
-		if len(positionals) > 0 {
-			opts.Profile = positionals[0]
-			positionals = positionals[1:]
-		}
 	}
 	if len(positionals) > 0 {
 		return validateOptions{}, usageErrorf("unexpected argument %q", positionals[0])
@@ -335,127 +233,7 @@ func parseValidateArgs(args []string) (validateOptions, error) {
 	if opts.Base == "" {
 		return validateOptions{}, usageErrorf("--base must not be empty")
 	}
-	if (opts.Action == "graph" || opts.Action == "list" || opts.Action == "inspect") && opts.Write {
-		return validateOptions{}, usageErrorf("--write is only supported when running validation")
-	}
 	return opts, nil
-}
-
-func buildInspectValidationResponse(appRoot string, cfg appcfg.Config) inspectValidationResponse {
-	return inspectValidationResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity(validationInspectKind),
-		App:                taskAppRef(appRoot, cfg),
-		Default:            cfg.Validation.Default,
-		Profiles:           validationProfileRecords(cfg),
-		Diagnostics:        nonNilValidationDiagnostics(newValidationPlanner(appRoot, cfg).ValidateConfig()),
-	}
-}
-
-func buildValidationListResponse(appRoot string, cfg appcfg.Config) validationListResponse {
-	return validationListResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity(validationListKind),
-		App:                taskAppRef(appRoot, cfg),
-		Default:            cfg.Validation.Default,
-		Profiles:           validationProfileRecords(cfg),
-		Diagnostics:        newValidationPlanner(appRoot, cfg).ValidateConfig(),
-	}
-}
-
-func buildValidationInspectResponse(appRoot string, cfg appcfg.Config, profile string) (validationInspectResponse, error) {
-	planner := newValidationPlanner(appRoot, cfg)
-	profile = planner.ResolveProfileName(profile)
-	rec, ok := validationProfileRecordFor(cfg, profile)
-	if !ok {
-		return validationInspectResponse{}, unconfiguredValidationProfile(profile)
-	}
-	plan, _ := planner.NamedPlan(profile, validation.Selection{Mode: "explicit", Requested: []string{profile}})
-	tasks := referencedValidationTasks(appRoot, cfg, plan.Steps)
-	return validationInspectResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity(validationInspectDetailKind),
-		App:                taskAppRef(appRoot, cfg),
-		Profile:            rec,
-		Resolved:           plan.Steps,
-		Tasks:              tasks,
-		Diagnostics:        plan.Diagnostics,
-		Source:             cfg.SourcePath(appRoot),
-	}, nil
-}
-
-func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile string) (validationGraphResponse, error) {
-	planner := newValidationPlanner(appRoot, cfg)
-	profile = planner.ResolveProfileName(profile)
-	if _, ok := cfg.Validation.Profiles[profile]; !ok {
-		return validationGraphResponse{}, unconfiguredValidationProfile(profile)
-	}
-	resp := validationGraphResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity(validationGraphKind),
-		App:                taskAppRef(appRoot, cfg),
-		Profile:            profile,
-		Nodes:              []validationGraphNode{},
-		Edges:              []validationGraphEdge{},
-	}
-	seen := map[string]bool{}
-	configRel := cfg.SourceRelPath(appRoot)
-	addNode := func(node validationGraphNode) {
-		if node.ID == "" || seen[node.ID] {
-			return
-		}
-		seen[node.ID] = true
-		resp.Nodes = append(resp.Nodes, node)
-	}
-	var walk func(name string, stack []string)
-	walk = func(name string, stack []string) {
-		id := "profile:" + name
-		addNode(validationGraphNode{ID: id, Name: name, Kind: "profile", Source: configRel})
-		for _, active := range stack {
-			if active == name {
-				resp.Diagnostics = append(resp.Diagnostics, validationDiagnostic("validation", "error", "profile cycle detected: "+strings.Join(append(stack, name), " -> ")))
-				return
-			}
-		}
-		prof, ok := cfg.Validation.Profiles[name]
-		if !ok {
-			resp.Diagnostics = append(resp.Diagnostics, validationDiagnostic("validation", "error", "unknown validation profile "+name))
-			return
-		}
-		for _, step := range prof.Steps {
-			ref := validation.ParseStepRef(step)
-			if ref.Name == "" {
-				continue
-			}
-			childID := ref.Kind + ":" + ref.Name
-			if ref.Kind == "builtin" {
-				childID = "builtin:" + ref.Name
-			}
-			addNode(validationGraphNode{ID: childID, Name: ref.Name, Kind: ref.Kind, Source: validationStepSource(ref, configRel)})
-			resp.Edges = append(resp.Edges, validationGraphEdge{From: id, To: childID, Kind: ref.Kind})
-			if ref.Kind == "profile" {
-				walk(ref.Name, append(stack, name))
-			}
-		}
-		for index, command := range prof.Commands {
-			childID := fmt.Sprintf("command:%s:%d", name, index+1)
-			addNode(validationGraphNode{ID: childID, Name: command.Command, Kind: "command", Source: configRel})
-			resp.Edges = append(resp.Edges, validationGraphEdge{From: id, To: childID, Kind: "command"})
-		}
-	}
-	walk(profile, nil)
-	sort.Slice(resp.Nodes, func(i, j int) bool { return resp.Nodes[i].ID < resp.Nodes[j].ID })
-	sort.Slice(resp.Edges, func(i, j int) bool {
-		if resp.Edges[i].From == resp.Edges[j].From {
-			return resp.Edges[i].To < resp.Edges[j].To
-		}
-		return resp.Edges[i].From < resp.Edges[j].From
-	})
-	resp.Diagnostics = append(resp.Diagnostics, planner.ValidateConfig()...)
-	return resp, nil
-}
-
-func validationStepSource(ref validation.StepRef, configRel string) string {
-	if ref.Kind == "builtin" {
-		return "scenery"
-	}
-	return configRel
 }
 
 func validationProfileRecords(cfg appcfg.Config) []validationProfileRecord {
@@ -499,39 +277,8 @@ func nonNilStrings(values []string) []string {
 	return append([]string(nil), values...)
 }
 
-func nonNilValidationDiagnostics(values []validation.Diagnostic) []validation.Diagnostic {
-	if values == nil {
-		return []validation.Diagnostic{}
-	}
-	return values
-}
-
 func validationDiagnostic(stage, severity, message string) validation.Diagnostic {
 	return validation.Diagnostic{Stage: stage, Severity: severity, Message: message}
-}
-
-func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []validation.PlanStep) []taskListRecord {
-	var out []taskListRecord
-	seen := map[string]bool{}
-	for _, step := range steps {
-		ref := validation.ParseStepRef(step.Name)
-		if ref.Kind != "task" || seen[ref.Name] {
-			continue
-		}
-		seen[ref.Name] = true
-		if _, err := taskTargetKind(ref.Name); err != nil {
-			continue
-		}
-		target, err := parseScriptTarget(ref.Name)
-		if err != nil {
-			continue
-		}
-		candidate, _, err := resolveScriptCandidate(appRoot, target, "")
-		if err == nil {
-			out = append(out, codeTaskListRecord(candidate))
-		}
-	}
-	return out
 }
 
 func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, plan validation.ResolvedPlan, opts validateOptions, runCommand scriptCommandRunner) validationResultResponse {
@@ -615,38 +362,8 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 	case "task":
 		return runValidationTask(ctx, appRoot, cfg, ref.Name, nil, stdout, stderr, step.Env, runCommand)
 	case "builtin":
-		switch ref.Name {
-		case "harness", "harness:core":
-			return runSceneryHarness(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
-		case "check":
+		if ref.Name == "check" {
 			return runSceneryCheck(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
-		case "test", "test:go":
-			return runSceneryTestOutput(ctx, []string{"--app-root", appRoot}, stdout)
-		case "generate":
-			return runGenerate(ctx, stdout, []string{"--app-root", appRoot})
-		case "generate:sqlc":
-			return runGenerate(ctx, stdout, []string{"sqlc", "--app-root", appRoot})
-		case "db:apply":
-			if capture {
-				return validation.RunWithCapturedProcessOutput(stdout, stderr, func() error {
-					return dbApplyCommand([]string{"--app-root", appRoot})
-				})
-			}
-			return dbApplyCommand([]string{"--app-root", appRoot})
-		case "db:seed":
-			if capture {
-				return validation.RunWithCapturedProcessOutput(stdout, stderr, func() error {
-					return dbSeedCommand([]string{"--app-root", appRoot})
-				})
-			}
-			return dbSeedCommand([]string{"--app-root", appRoot})
-		case "db:setup":
-			if capture {
-				return validation.RunWithCapturedProcessOutput(stdout, stderr, func() error {
-					return dbSetupCommand([]string{"--app-root", appRoot})
-				})
-			}
-			return dbSetupCommand([]string{"--app-root", appRoot})
 		}
 	}
 	return fmt.Errorf("unsupported validation step %q", step.Name)
@@ -740,13 +457,4 @@ func writeValidationCoverage(stdout io.Writer, selection validation.Selection) {
 	for _, path := range selection.Coverage {
 		_, _ = fmt.Fprintf(stdout, "coverage %s\t%s\t%s\n", path.Status, path.Path, path.Reason)
 	}
-}
-
-// unconfiguredValidationProfile names the profile the request selected, or says
-// that none was selected because the app declares no default.
-func unconfiguredValidationProfile(profile string) error {
-	if profile == "" {
-		return usageErrorf("no validation profile was named and the app declares no default or quick profile")
-	}
-	return usageErrorf("validation profile %q is not configured; use `scenery validate list`", profile)
 }

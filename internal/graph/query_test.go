@@ -9,23 +9,20 @@ import (
 
 func TestResourceEdgesResolveAssistantRootsFromNestedModules(t *testing.T) {
 	resources := []Resource{
-		{Address: "app/mcp_connection/docs", Module: "app", Kind: "scenery.mcp-connection"},
 		{Address: "app/mcp_server/support", Module: "app", Kind: "scenery.mcp-server"},
 		{Address: "app/assistant/support", Module: "app", Kind: "scenery.assistant"},
 		{
 			Address: "house/record/request", Module: "house", Kind: "scenery.record",
 			Spec: map[string]any{
-				"connection": map[string]any{"$ref": "mcp_connection.docs"},
-				"server":     map[string]any{"$ref": "mcp_server.support"},
-				"assistant":  map[string]any{"$ref": "assistant.support"},
+				"server":    map[string]any{"$ref": "mcp_server.support"},
+				"assistant": map[string]any{"$ref": "assistant.support"},
 			},
 		},
 	}
 
-	edges := ResourceEdges(resources)
+	edges := resourceEdges(resources, resourcesByAddress(&Manifest{Resources: resources}))
 	want := []GraphEdge{
 		{From: "house/record/request", To: "app/assistant/support", Path: "/spec/assistant"},
-		{From: "house/record/request", To: "app/mcp_connection/docs", Path: "/spec/connection"},
 		{From: "house/record/request", To: "app/mcp_server/support", Path: "/spec/server"},
 	}
 	if len(edges) != len(want) {

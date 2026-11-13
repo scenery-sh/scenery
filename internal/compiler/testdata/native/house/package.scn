@@ -157,37 +157,6 @@ binding "process_scene_internal" {
   }
 }
 
-binding "process_scene_cli" {
-  operation = operation.process_scene
-  execution = execution.process_scene_direct
-  protocol  = "cli"
-  delivery  = "call"
-
-  exposure       = "local"
-  authentication = std.authentication.local_developer
-  authorization  = std.authorization.local_developer
-  pipeline       = std.pipeline.empty
-
-  cli {
-    command = ["house", "process-scene"]
-
-    argument "scene_id" {
-      position = 0
-      to       = operation.process_scene.input.scene_id
-    }
-
-    outcome "processed" {
-      when = result.processed
-      exit = 0
-
-      stdout {
-        codec = "json"
-        from  = result.processed
-      }
-    }
-  }
-}
-
 binding "process_scene_mcp" {
   operation = operation.process_scene
   execution = execution.process_scene_direct

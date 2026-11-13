@@ -9,7 +9,7 @@ import (
 
 func tracesCommand(args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("usage: scenery traces list|clear [-o json] [--app-root <path>]")
+		return usageErrorf("usage: scenery traces list [-o json] [--app-root <path>]")
 	}
 	if err := flagBeforeWord(args, "the traces subcommand"); err != nil {
 		return err
@@ -17,8 +17,6 @@ func tracesCommand(args []string) error {
 	switch args[0] {
 	case "list":
 		return runObservabilityList(context.Background(), os.Stdout, "traces", args[1:])
-	case "clear":
-		return runTracesClear(context.Background(), os.Stdout, args[1:])
 	default:
 		return usageErrorf("unknown traces command %q", args[0])
 	}
@@ -26,7 +24,7 @@ func tracesCommand(args []string) error {
 
 func metricsCommand(args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("usage: scenery metrics list|query|labels|series [-o json] [--app-root <path>]")
+		return usageErrorf("usage: scenery metrics list|query [-o json] [--app-root <path>]")
 	}
 	if err := flagBeforeWord(args, "the metrics subcommand"); err != nil {
 		return err
@@ -36,10 +34,6 @@ func metricsCommand(args []string) error {
 		return runObservabilityList(context.Background(), os.Stdout, "metrics", args[1:])
 	case "query":
 		return runMetricsQueryCommand(context.Background(), os.Stdout, args[1:])
-	case "labels":
-		return runMetricsLabelsCommand(context.Background(), os.Stdout, args[1:])
-	case "series":
-		return runMetricsSeriesCommand(context.Background(), os.Stdout, args[1:])
 	default:
 		return usageErrorf("unknown metrics command %q", args[0])
 	}
@@ -86,60 +80,4 @@ func runObservabilityList(ctx context.Context, stdout io.Writer, subject string,
 	default:
 		return usageErrorf("unknown observability subject %q", subject)
 	}
-}
-
-func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error {
-	return runTracesClearWith(ctx, stdout, args, clearWorktreeTraces)
-}
-
-func runTracesClearWith(ctx context.Context, stdout io.Writer, args []string, clear func(context.Context, string, string) error) error {
-	opts, err := parseTracesClearArgs(args)
-	if err != nil {
-		return err
-	}
-	start, err := resolveAppRoot(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	appRoot, cfg, err := discoverConfiguredApp(start)
-	if err != nil {
-		return err
-	}
-	appID := cfg.AppID()
-	if err := clear(ctx, appRoot, appID); err != nil {
-		return err
-	}
-	resp := adminResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.traces.clear"),
-		OK:                 true,
-		Command:            "scenery traces clear",
-		App: adminAppRef{
-			Name: cfg.Name,
-			Root: appRoot,
-		},
-		Data: map[string]any{
-			"app_id":  appID,
-			"cleared": "traces",
-		},
-	}
-	if opts.JSON {
-		return writeAdminJSON(stdout, resp)
-	}
-	_, err = fmt.Fprintf(stdout, "cleared traces for %s\n", appID)
-	return err
-}
-
-func parseTracesClearArgs(args []string) (adminOptions, error) {
-	opts := adminOptions{Domain: "traces", Action: "clear"}
-	flags := newCLIFlagSet("traces clear")
-	registerJSONOutput(flags, &opts.JSON)
-	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return adminOptions{}, err
-	}
-	if err := rejectCLIPositionals(positionals); err != nil {
-		return adminOptions{}, err
-	}
-	return opts, nil
 }

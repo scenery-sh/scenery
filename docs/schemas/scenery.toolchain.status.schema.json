@@ -46,14 +46,7 @@
         "source": { "type": "string" },
         "managed_path": { "type": "string" },
         "home_path": { "type": "string" },
-        "message": { "type": "string" },
-        "images": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        }
+        "message": { "type": "string" }
       }
     }
   }

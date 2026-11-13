@@ -114,11 +114,11 @@ func TestDiagnosticCategoriesCoverEveryDeclaredRange(t *testing.T) {
 	wants := map[string]string{
 		"SCN1000": "syntax", "SCN1100": "identity", "SCN1200": "types_and_evaluation",
 		"SCN2000": "operation_and_http_binding", "SCN2200": "execution_and_delivery", "SCN2400": "binding_and_cli",
-		"SCN2500": "data", "SCN2600": "ui", "SCN2700": "events", "SCN2800": "deployment", "SCN2900": "patches",
+		"SCN2500": "data", "SCN2600": "ui",
 		"SCN3000": "packages_modules_and_registry", "SCN3200": "providers_entities_and_extensions", "SCN3400": "go_configuration",
 		"SCN4000": "security_and_secret_flow", "SCN4200": "runtime_policy",
 		"SCN6000": "go_implementation_abi", "SCN6200": "go_generation_and_verification", "SCN6300": "typescript_generation",
-		"SCN6400": "compatibility", "SCN7000": "profile_conformance", "SCN8000": "request_protocol", "SCN9000": "internal",
+		"SCN8000": "request_protocol", "SCN9000": "internal",
 	}
 	for code, want := range wants {
 		if got := diagnosticCategory(code); got != want {

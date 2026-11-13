@@ -33,7 +33,6 @@ type AppRecord struct {
 	Metadata            json.RawMessage
 	APIEncoding         json.RawMessage
 	Routes              map[string]string
-	Aliases             map[string]string
 	Offline             bool
 	Running             bool
 	SessionStatus       string
@@ -58,7 +57,6 @@ type AppStatus struct {
 	APIEncoding         json.RawMessage     `json:"apiEncoding,omitempty"`
 	Observability       *ObservabilityState `json:"observability,omitempty"`
 	Routes              map[string]string   `json:"routes,omitempty"`
-	Aliases             map[string]string   `json:"aliases,omitempty"`
 	SessionStatus       string              `json:"sessionStatus,omitempty"`
 	SessionStatusReason string              `json:"sessionStatusReason,omitempty"`
 	Compiling           bool                `json:"compiling"`

@@ -84,9 +84,6 @@ func TestLoadEdgeHelperTargetToleratesFutureRevisionsAndNeverRewrites(t *testing
 	if string(after) != string(future) {
 		t.Fatalf("helper reader rewrote target metadata:\n%s", after)
 	}
-	if _, err := os.Stat(path + ".legacy.migrated"); err == nil {
-		t.Fatalf("helper reader left a migration marker next to target metadata")
-	}
 }
 
 func TestLoadEdgeHelperTargetRejectsMissingAndMalformedFiles(t *testing.T) {

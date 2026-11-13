@@ -97,7 +97,7 @@ func TestSQLCLocalProcessPluginUsesCapturedConfigRelativeExecutable(t *testing.T
 			t.Fatalf("staged plugin is not executable: %v", err)
 		}
 		return nil
-	}, nil)
+	})
 	hooks.toolIdentity = func(program string) (string, error) {
 		if program != "sqlc" {
 			t.Fatalf("local plugin resolved through ambient tool lookup: %q", program)

@@ -63,13 +63,6 @@ func localSceneryReplaceRoot(goModPath string) (string, bool, error) {
 	return "", false, nil
 }
 
-// frameworkFingerprintFiles lists the framework source input files: Go and
-// native sources, module files and the files their embed directives select.
-func frameworkFingerprintFiles(repoRoot string) ([]string, error) {
-	files, _, err := frameworkSourceFiles(repoRoot)
-	return files, err
-}
-
 // frameworkSourceFiles is frameworkFingerprintFiles with the metadata the walk
 // read for each Go file, so a caller stamping those files need not read it
 // again.

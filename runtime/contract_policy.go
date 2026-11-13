@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -57,60 +56,6 @@ type ContractAuthorizationRule struct {
 	Name       string
 	Effect     string
 	Expression string
-}
-
-// PopulateContractContextJSON merges runtime-trusted context into a record
-// before generated decoding enforces required fields and type constraints.
-func PopulateContractContextJSON(input []byte, mappings []ContractContextMapping) ([]byte, error) {
-	if len(mappings) == 0 {
-		return input, nil
-	}
-	object, err := decodeContractJSONObject(input)
-	if err != nil {
-		return nil, fmt.Errorf("contract context input must be an object: %w", err)
-	}
-	for _, mapping := range mappings {
-		if mapping.Target == "" {
-			return nil, fmt.Errorf("contract context target is required")
-		}
-		if _, exists := object[mapping.Target]; exists {
-			return nil, fmt.Errorf("context field %q cannot be supplied by the caller", mapping.Target)
-		}
-		value, err := contractContextValue(mapping.Source)
-		if err != nil {
-			return nil, fmt.Errorf("resolve trusted contract context: %w", err)
-		}
-		raw, err := json.Marshal(value)
-		if err != nil {
-			return nil, fmt.Errorf("encode trusted contract context: %w", err)
-		}
-		object[mapping.Target] = raw
-	}
-	return json.Marshal(object)
-}
-
-func PopulateContractContext(input any, mappings []ContractContextMapping) error {
-	if len(mappings) == 0 {
-		return nil
-	}
-	value := reflect.ValueOf(input)
-	if value.Kind() != reflect.Pointer || value.IsNil() || value.Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("contract context target must be a non-nil record pointer")
-	}
-	for _, mapping := range mappings {
-		source, err := contractContextValue(mapping.Source)
-		if err != nil {
-			return err
-		}
-		field := value.Elem().FieldByName(contractGoFieldName(mapping.Target))
-		if !field.IsValid() || !field.CanSet() {
-			return fmt.Errorf("contract context target %q does not exist", mapping.Target)
-		}
-		if err := assignContractContextValue(field, source); err != nil {
-			return fmt.Errorf("populate contract context %s: %w", mapping.Target, err)
-		}
-	}
-	return nil
 }
 
 func contractContextValue(source string) (any, error) {
@@ -185,22 +130,6 @@ func contractNestedValue(value any, path string) (any, error) {
 		return nil, nil
 	}
 	return current.Interface(), nil
-}
-
-func assignContractContextValue(target reflect.Value, source any) error {
-	if source == nil {
-		return nil
-	}
-	sourceValue := reflect.ValueOf(source)
-	if sourceValue.Type().AssignableTo(target.Type()) {
-		target.Set(sourceValue)
-		return nil
-	}
-	if sourceValue.Type().ConvertibleTo(target.Type()) {
-		target.Set(sourceValue.Convert(target.Type()))
-		return nil
-	}
-	return fmt.Errorf("%s is not assignable to %s", sourceValue.Type(), target.Type())
 }
 
 func contractGoFieldName(value string) string {

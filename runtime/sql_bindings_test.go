@@ -124,12 +124,6 @@ func TestRuntimeSQLBindingEndpointPrecedence(t *testing.T) {
 				Schemas: []postgresdb.Service{{Name: "scenery", Schema: "scenery", URL: "postgres://user:secret@base.invalid/app?search_path=scenery&sslmode=disable"}}},
 		},
 		{
-			name:     "remote durable-only binding needs no local endpoint",
-			env:      map[string]string{envDurableEndpoint: "https://worker.invalid"},
-			bindings: []SQLBinding{{Name: "scenery", Schema: "scenery", DurableOnly: true}},
-			want:     postgresdb.Database{Source: postgresdb.SourceExternal},
-		},
-		{
 			name:     "empty compiled schema remains invalid",
 			env:      map[string]string{"REPORTS_DATABASE_URL": override},
 			bindings: []SQLBinding{{Name: "reports"}},
@@ -165,7 +159,7 @@ func TestRuntimeSQLBindingEndpointPrecedence(t *testing.T) {
 }
 
 func TestRuntimeSQLBindingsUseCompiledNamesAndExplicitSupply(t *testing.T) {
-	bindings := []SQLBinding{{Name: "billing-data", Schema: "billing_data"}, {Name: "scenery", Schema: "scenery", DurableOnly: true}}
+	bindings := []SQLBinding{{Name: "billing-data", Schema: "billing_data"}, {Name: "scenery", Schema: "scenery"}}
 	for _, tc := range []struct {
 		name      string
 		env       map[string]string
@@ -174,8 +168,6 @@ func TestRuntimeSQLBindingsUseCompiledNamesAndExplicitSupply(t *testing.T) {
 	}{
 		{name: "app URL", env: map[string]string{"DATABASE_URL": "postgres://u:p@localhost/app"}, count: 2},
 		{name: "framework uses canonical URL", env: map[string]string{"DATABASE_URL": "postgres://u:p@localhost/app", "SCENERY_DATABASE_URL": "invalid"}, count: 2},
-		{name: "remote durable", env: map[string]string{"DATABASE_URL": "postgres://u:p@localhost/app", envDurableEndpoint: "https://worker.invalid"}, count: 1},
-		{name: "per binding supply", env: map[string]string{"BILLING_DATA_DATABASE_URL": "postgres://u:p@localhost/billing", envDurableEndpoint: "https://worker.invalid"}, count: 1},
 		{name: "missing supply", env: map[string]string{}, wantError: true},
 		{name: "invalid URL", env: map[string]string{"DATABASE_URL": "postgres://private:password@localhost/%ZZ"}, wantError: true},
 		{name: "invalid registry", env: map[string]string{postgresdb.RegistryEnv: "private:password"}, wantError: true},
@@ -195,18 +187,6 @@ func TestRuntimeSQLBindingsUseCompiledNamesAndExplicitSupply(t *testing.T) {
 				t.Fatalf("compiled identity or source changed: %+v", database)
 			}
 		})
-	}
-}
-
-func TestRuntimeSQLBindingsDoNotRequireLocalDurableSupply(t *testing.T) {
-	database, err := resolveRuntimeSQLBindings([]SQLBinding{{Name: "scenery", Schema: "scenery", DurableOnly: true}}, func(key string) string {
-		if key == envDurableEndpoint {
-			return "https://worker.invalid"
-		}
-		return ""
-	})
-	if err != nil || len(database.Schemas) != 0 {
-		t.Fatalf("remote durable-only binding=%+v err=%v", database, err)
 	}
 }
 

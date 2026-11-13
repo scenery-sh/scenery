@@ -10,7 +10,7 @@ import (
 )
 
 func TestPostgresEarlyStartRequiresManagedLocalSupply(t *testing.T) {
-	for _, scenario := range []string{"no-sql", "external", "remote-durable", "unmanaged"} {
+	for _, scenario := range []string{"no-sql", "external", "unmanaged"} {
 		t.Run(scenario, func(t *testing.T) {
 			contract := &compiler.Result{Manifest: &compiler.Manifest{}, ContractStatus: "valid"}
 			s := &devSupervisor{root: t.TempDir(), worktreeRootPaths: &localagent.WorktreePaths{}, invocationEnvironment: []string{}}
@@ -20,9 +20,6 @@ func TestPostgresEarlyStartRequiresManagedLocalSupply(t *testing.T) {
 			switch scenario {
 			case "external":
 				s.invocationEnvironment = []string{"DATABASE_URL=postgres://localhost/books"}
-			case "remote-durable":
-				contract.SQLRequirements[0].Kind = compiler.SQLDurable
-				s.invocationEnvironment = []string{"SCENERY_DURABLE_ENDPOINT=http://localhost:8123"}
 			case "unmanaged":
 				contract.SQLRequirements[0].Lifecycle = "external"
 			}

@@ -17,7 +17,7 @@ Shared pure graph/naming queries live in `internal/clientprojection`.
 - Consume canonical `graph.Resource` values; never parse or compile declarations
   again, import `internal/generate`, or publish files.
 - A target without a `react` map returns no UI files or catalog roots.
-- Keep ordinary clients, backend SQL/CRUD and server authorization in their
+- Keep ordinary clients, backend SQL and server authorization in their
   owning packages. UI metadata never supplies server authorization.
 - Preserve app-owned component slots and the existing generated query/error/
   route contracts. Render into memory; all selected outputs are checked and

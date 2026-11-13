@@ -138,68 +138,6 @@ func (s *Stack) ListDevEvents(ctx context.Context, query devdash.DevEventQuery) 
 	return items, nil
 }
 
-// ListDevSources aggregates the distinct dev event sources for an app session.
-func (s *Stack) ListDevSources(ctx context.Context, appID, sessionID string) ([]devdash.DevSource, error) {
-	items, err := s.ListDevEvents(ctx, devdash.DevEventQuery{
-		AppID:     appID,
-		SessionID: sessionID,
-		Limit:     10000,
-	})
-	if err != nil {
-		return nil, err
-	}
-	byID := make(map[string]devdash.DevSource)
-	for _, item := range items {
-		source := item.Source
-		if source.ID == "" {
-			continue
-		}
-		byID[source.ID] = mergeDevSource(byID[source.ID], source)
-	}
-	sources := make([]devdash.DevSource, 0, len(byID))
-	for _, source := range byID {
-		sources = append(sources, source)
-	}
-	sort.Slice(sources, func(i, j int) bool {
-		return sources[i].ID < sources[j].ID
-	})
-	return sources, nil
-}
-
-func mergeDevSource(base, next devdash.DevSource) devdash.DevSource {
-	if base.ID == "" {
-		return next
-	}
-	if next.Kind != "" {
-		base.Kind = next.Kind
-	}
-	if next.Name != "" {
-		base.Name = next.Name
-	}
-	if next.Role != "" {
-		base.Role = next.Role
-	}
-	if next.PID != "" {
-		base.PID = next.PID
-	}
-	if next.Stream != "" {
-		base.Stream = next.Stream
-	}
-	if next.RestartID != "" {
-		base.RestartID = next.RestartID
-	}
-	if next.Status != "" {
-		base.Status = next.Status
-	}
-	if next.URL != "" {
-		base.URL = next.URL
-	}
-	if next.Reason != "" {
-		base.Reason = next.Reason
-	}
-	return base
-}
-
 func queryVictoriaDevEvents(ctx context.Context, baseURL string, query devdash.DevEventQuery) ([]map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

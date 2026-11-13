@@ -97,24 +97,11 @@ func RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress string,
 	return nil
 }
 
-// RegisterAssistantMCPManifest is the panic-on-invalid convenience for hand
-// written compositions. Generated code uses the checked form.
-func RegisterAssistantMCPManifest(assistantAddress, serverAddress string, manifestJSON []byte) {
-	if err := RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress, manifestJSON); err != nil {
-		panic(err)
-	}
-}
-
 func cloneMCPManifest(manifest mcpcontract.Manifest) mcpcontract.Manifest {
 	manifest.Capabilities = append([]mcpcontract.Capability(nil), manifest.Capabilities...)
 	for index := range manifest.Capabilities {
 		manifest.Capabilities[index].InputSchema = append([]byte(nil), manifest.Capabilities[index].InputSchema...)
 		manifest.Capabilities[index].OutputSchema = append([]byte(nil), manifest.Capabilities[index].OutputSchema...)
-	}
-	manifest.Connections = append([]mcpcontract.Connection(nil), manifest.Connections...)
-	for index := range manifest.Connections {
-		manifest.Connections[index].Allow = append([]string(nil), manifest.Connections[index].Allow...)
-		manifest.Connections[index].Block = append([]string(nil), manifest.Connections[index].Block...)
 	}
 	return manifest
 }
@@ -222,7 +209,7 @@ func initializeAssistantMCPGateway(ctx context.Context, assistantAddress string)
 	if value, exists := LookupAssistantMCPFederation(assistantAddress); exists {
 		federation = value
 	}
-	dispatch, durable := assistantMCPDispatchers()
+	dispatch := assistantMCPDispatcher()
 	if mcpapi.NewGateway == nil {
 		// Only a process that serves assistants links the gateway.
 		setAssistantMCPGatewayReadiness(assistantAddress, nil, false, "gateway_unavailable")
@@ -234,7 +221,6 @@ func initializeAssistantMCPGateway(ctx context.Context, assistantAddress string)
 		Secret:             []byte(descriptor.MCPBridgeSecret),
 		Audience:           "scenery",
 		Dispatch:           dispatch,
-		Durable:            durable,
 		ListenAddr:         descriptor.MCPListenAddress,
 		Version:            "scenery-app-assistant",
 	}
