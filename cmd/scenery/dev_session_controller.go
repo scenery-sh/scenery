@@ -12,6 +12,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/generate"
 )
 
 type DevSessionController struct {
@@ -145,6 +146,22 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, err
 	}
 	if len(configuredFrontends(c.cfg.Frontends)) > 0 {
+		// A dev server keeps a failed import of a client that appears later,
+		// so a client that was never written comes before the servers. The
+		// build reports whatever prevents it. The startup scan reads source
+		// and would refuse the write's transaction, so it finishes first.
+		joinScan := func() {
+			if owner.startupScan != nil {
+				_, _ = owner.startupScan.wait()
+			}
+		}
+		if missing, err := generate.MaterializeMissingCachedTypeScriptClients(ctx, root, joinScan); len(missing) > 0 && c.console != nil {
+			fields := map[string]any{"clients": missing, "ok": err == nil}
+			if err != nil {
+				fields["error"] = err.Error()
+			}
+			c.console.Event("frontend.clients", fields)
+		}
 		if err := c.runPhase("Starting frontend dev servers", func() error {
 			frontends, processes, wait, err := beginManagedFrontendBackendsForSession(ctx, root, c.cfg, baseEnv, seed)
 			prepared.FrontendProcesses = processes
