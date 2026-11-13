@@ -13,13 +13,11 @@ type authoredAttributeSchema struct {
 	RevisionSource    string
 	Sensitive         bool
 	SensitivitySource string
-	Patchable         bool
 	Ordered           bool
 	Default           any
 	Constraints       map[string]any
 	MetadataStatus    string
 	DefaultSource     string
-	UnsupportedDraft  string
 }
 
 type authoredFieldKey struct {
@@ -36,7 +34,6 @@ type authoredFieldOverride struct {
 	Default           any
 	DefaultSource     string
 	Constraints       map[string]any
-	UnsupportedDraft  string
 }
 
 type AuthoredFieldKey = authoredFieldKey
@@ -52,7 +49,6 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 
 	{Revision: "scenery.authorization.rule", Name: "allow"}:                           {Phase: "runtime"},
 	{Revision: "scenery.authorization.rule", Name: "deny"}:                            {Phase: "runtime"},
-	{Revision: "scenery.record.validation", Name: "when"}:                             {Phase: "runtime"},
 	{Revision: "scenery.operation.idempotency", Name: "key"}:                          {Phase: "runtime", Ordered: true, Constraints: map[string]any{"min_items": 1, "reference_root": "input", "reference_shape": "direct_input_field"}},
 	{Revision: "scenery.execution.concurrency", Name: "key"}:                          {Phase: "runtime"},
 	{Revision: "scenery.binding.http.context", Name: "from"}:                          {Phase: "runtime"},
@@ -60,17 +56,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.binding.http.response-body", Name: "from"}:                    {Phase: "runtime"},
 	{Revision: "scenery.binding.http.response-header", Name: "from"}:                  {Phase: "runtime"},
 	{Revision: "scenery.binding.http.response-cookie", Name: "from"}:                  {Phase: "runtime"},
-	{Revision: "scenery.binding.cli.context", Name: "from"}:                           {Phase: "runtime"},
-	{Revision: "scenery.binding.cli.output", Name: "from"}:                            {Phase: "runtime"},
-	{Revision: "scenery.binding.cli.outcome", Name: "when"}:                           {Phase: "runtime"},
-	{Revision: "scenery.binding.event.map", Name: "from"}:                             {Phase: "runtime"},
-	{Revision: "scenery.binding.event", Name: "ordering_key"}:                         {Phase: "runtime"},
-	{Revision: "scenery.binding.event", Name: "deduplication_key"}:                    {Phase: "runtime"},
-	{Revision: "scenery.source.event_emission", Name: "ordering_key"}:                 {Phase: "runtime"},
-	{Revision: "scenery.source.event_emission", Name: "deduplication_key"}:            {Phase: "runtime"},
-	{Revision: "scenery.event-emission.from", Name: "when"}:                           {Phase: "runtime"},
-	{Revision: "scenery.event-emission.from", Name: "payload"}:                        {Phase: "runtime"},
-	{Revision: "scenery.source.authorization", Name: "strategy"}:                      {Default: "deny_unless_allowed", DefaultSource: "spec", Constraints: enumConstraint("all_must_allow", "allow_if_all", "allow_if_any", "any_allow", "deny_unless_allowed", "first_applicable")},
+	{Revision: "scenery.source.authorization", Name: "strategy"}:                      {Default: "deny_unless_allowed", DefaultSource: "spec", Constraints: enumConstraint("all_must_allow", "deny_unless_allowed", "first_applicable")},
 	{Revision: "scenery.source.record", Name: "unknown_fields"}:                       {Default: "reject", DefaultSource: "spec", Constraints: enumConstraint("preserve", "reject")},
 	{Revision: "scenery.source.enum", Name: "open"}:                                   {Default: false, DefaultSource: "spec"},
 	{Revision: "scenery.source.union", Name: "open"}:                                  {Default: false, DefaultSource: "spec"},
@@ -80,8 +66,6 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.binding.http.response-cookie", Name: "http_only"}:             {Default: true, DefaultSource: "http_profile"},
 	{Revision: "scenery.binding.http.response-cookie", Name: "same_site"}:             {Default: "lax", DefaultSource: "http_profile", Constraints: enumConstraint("lax", "none", "strict")},
 	{Revision: "scenery.binding.http", Name: "guarantee"}:                             {Default: "framework_enforced", DefaultSource: "http_profile"},
-	{Revision: "scenery.binding.cli", Name: "command"}:                                {Ordered: true},
-	{Revision: "scenery.deployment.http-listener", Name: "http_versions"}:             {Ordered: true},
 	{Revision: "scenery.source.typescript_client", Name: "module"}:                    {Constraints: enumConstraint("esm")},
 	{Revision: "scenery.source.typescript_client", Name: "runtime"}:                   {Constraints: enumConstraint("fetch")},
 	{Revision: "scenery.source.typescript_client", Name: "materialization"}:           {Default: "source", DefaultSource: "spec", Constraints: enumConstraint("cache", "source")},
@@ -90,34 +74,21 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.typescript-client.retry", Name: "maximum_delay_milliseconds"}: {Constraints: map[string]any{"maximum": 86_400_000}},
 	{Revision: "scenery.typescript-client.retry", Name: "statuses"}:                   {Constraints: map[string]any{"item_minimum": 400, "item_maximum": 599, "unique_items": true}},
 	{Revision: "scenery.operation.idempotency", Name: "mode"}:                         {Constraints: enumConstraint("keyed", "none")},
-	{Revision: "scenery.source.execution", Name: "mode"}:                              {Constraints: enumConstraint("direct", "durable", "workflow")},
+	{Revision: "scenery.source.execution", Name: "mode"}:                              {Constraints: enumConstraint("direct", "durable")},
 	{Revision: "scenery.execution.retry", Name: "strategy"}:                           {Constraints: enumConstraint("exponential", "none")},
 	{Revision: "scenery.execution.deduplication", Name: "conflict"}:                   {Constraints: enumConstraint("return_existing")},
 	{Revision: "scenery.source.binding", Name: "delivery"}:                            {Constraints: enumConstraint("call", "enqueue", "stream", "wait")},
 	{Revision: "scenery.source.binding", Name: "exposure"}:                            {Constraints: enumConstraint("application", "internet", "local", "package", "private_network")},
-	{Revision: "scenery.source.binding", Name: "protocol"}:                            {Constraints: enumConstraint("cli", "event", "http", "internal", "mcp")},
+	{Revision: "scenery.source.binding", Name: "protocol"}:                            {Constraints: enumConstraint("http", "internal", "mcp")},
 	{Revision: "scenery.binding.mcp", Name: "name"}:                                   {Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]{0,127}$"}},
 	{Revision: "scenery.binding.mcp", Name: "allow_sensitive_output"}:                 {Default: false, DefaultSource: "spec"},
-	{Revision: "scenery.source.mcp_connection", Name: "transport"}:                    {Constraints: enumConstraint("streamable_http")},
-	{Revision: "scenery.source.mcp_connection", Name: "tools"}:                        {RevisionDomain: "contract"},
-	{Revision: "scenery.mcp-connection.auth", Name: "scheme"}:                         {Constraints: enumConstraint("none", "bearer", "header")},
-	{Revision: "scenery.mcp-connection.auth", Name: "header"}:                         {Constraints: map[string]any{"pattern": httpHeaderLabelPattern}},
 	{Revision: "scenery.mcp-server.capability", Name: "approval"}:                     {Constraints: enumConstraint("always", "never")},
 	{Revision: "scenery.mcp-server.capability", Name: "name"}:                         {Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]{0,127}$"}},
-	{Revision: "scenery.mcp-server.connection", Name: "required"}:                     {Default: false, DefaultSource: "spec"},
-	{Revision: "scenery.mcp-server.connection", Name: "namespace"}:                    {Constraints: map[string]any{"name_pattern": semanticLabelPattern}},
 	{Revision: "scenery.source.assistant", Name: "implementation"}:                    {RevisionDomain: "implementation"},
 	{Revision: "scenery.assistant.surface", Name: "session_access"}:                   {Constraints: enumConstraint("initiator")},
 	{Revision: "scenery.binding.internal", Name: "visibility"}:                        {Constraints: enumConstraint("application", "package")},
 	{Revision: "scenery.binding.internal", Name: "principal"}:                         {Constraints: enumConstraint("inherit")},
-	{Revision: "scenery.binding.event", Name: "direction"}:                            {Constraints: enumConstraint("consume")},
-	{Revision: "scenery.binding.event", Name: "guarantee"}:                            {Constraints: enumConstraint("at_least_once", "at_most_once", "exactly_once")},
-	{Revision: "scenery.source.event_emission", Name: "guarantee"}:                    {Constraints: enumConstraint("at_least_once", "at_most_once", "exactly_once")},
-	{Revision: "scenery.event.broker-retry", Name: "backoff"}:                         {Constraints: enumConstraint("exponential", "fixed", "none")},
 	{Revision: "scenery.source.schedule", Name: "overlap"}:                            {Constraints: enumConstraint("allow", "queue", "replace", "skip")},
-	{Revision: "scenery.entity.field-default", Name: "strategy"}:                      {Constraints: enumConstraint("current_datetime", "provider", "uuid_v7")},
-	{Revision: "scenery.crud.execution", Name: "mode"}:                                {Constraints: enumConstraint("direct", "durable")},
-	{Revision: "scenery.crud.list", Name: "max_page_size"}:                            {Default: 100, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1, "maximum": 1000}},
 	{Revision: "scenery.source.table_page", Name: "page_size"}:                        {Default: 50, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1}},
 	{Revision: "scenery.source.table_page", Name: "metadata"}:                         {Constraints: map[string]any{"min_items": 1, "unique_items": true}},
 	{Revision: "scenery.source.table_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
@@ -155,10 +126,6 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.table-page.action", Name: "icon"}:                             {Constraints: semanticIconConstraint()},
 	{Revision: "scenery.table-page.export", Name: "label"}:                            {Default: "Export", DefaultSource: "spec"},
 	{Revision: "scenery.table-page.export", Name: "icon"}:                             {Constraints: semanticIconConstraint()},
-	{Revision: "scenery.source.fixture", Name: "mode"}:                                {Constraints: enumConstraint("insert", "replace", "upsert")},
-	{Revision: "scenery.deployment.secret", Name: "value"}:                            {Sensitive: true},
-	{Revision: "scenery.deployment.http-listener", Name: "certificate"}:               {UnsupportedDraft: "platform_listener_and_certificate_schemas"},
-	{Revision: "scenery.deployment.http-listener", Name: "platform_identity"}:         {UnsupportedDraft: "platform_listener_and_certificate_schemas"},
 
 	{Revision: "scenery.source.service", Name: "implementation"}:         {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.service", Name: "lifecycle"}:              {RevisionDomain: "implementation"},
@@ -169,11 +136,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.provider", Name: "config"}:                {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.data_source", Name: "config"}:             {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.execution_engine", Name: "config"}:        {RevisionDomain: "implementation"},
-	{Revision: "scenery.source.event_bus", Name: "config"}:               {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.secret_store", Name: "config"}:            {RevisionDomain: "implementation"},
-	{Revision: "scenery.source.view", Name: "implementation"}:            {RevisionDomain: "implementation"},
-	{Revision: "scenery.source.view", Name: "implementation_digest"}:     {RevisionDomain: "implementation"},
-	{Revision: "scenery.source.crud", Name: "implementation"}:            {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.renderer", Name: "module"}:                {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.renderer", Name: "config"}:                {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.renderer", Name: "implementation_digest"}: {RevisionDomain: "implementation"},
@@ -182,7 +145,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 func authoredAttributeDefinition(revision, name string) authoredAttributeSchema {
 	typeDefinition, status := authoredAttributeType(revision, name)
 	definition := authoredAttributeSchema{
-		Type: typeDefinition, Phase: "compile", RevisionDomain: authoredRevisionDomain(revision, name), Patchable: true,
+		Type: typeDefinition, Phase: "compile", RevisionDomain: authoredRevisionDomain(revision, name),
 		DefaultSource: "none", Constraints: authoredPrimitiveConstraints(typeDefinition), MetadataStatus: status,
 	}
 	applyAuthoredFieldOverride(&definition, authoredFieldOverrides[authoredFieldKey{Name: name}])
@@ -245,8 +208,6 @@ func authoredPrimitiveConstraints(typeDefinition map[string]any) map[string]any 
 		constraints["format"] = "absolute_normalized_route"
 	case "url":
 		constraints["format"] = "absolute_url"
-	case "json_pointer":
-		constraints["format"] = "json_pointer"
 	}
 	return constraints
 }
@@ -271,14 +232,7 @@ func applyAuthoredFieldOverride(definition *authoredAttributeSchema, override au
 	if override.Ordered {
 		definition.Ordered = true
 	}
-	if override.UnsupportedDraft != "" {
-		definition.UnsupportedDraft = override.UnsupportedDraft
-	}
 	maps.Copy(definition.Constraints, override.Constraints)
-}
-
-func UnsupportedDraftCapability(revision, name string) string {
-	return authoredFieldOverrides[authoredFieldKey{Revision: revision, Name: name}].UnsupportedDraft
 }
 
 func authoredRevisionDomain(revision, name string) string {
@@ -290,19 +244,10 @@ func authoredRevisionDomain(revision, name string) string {
 }
 
 func authoredDefaultRevisionDomain(revision string) string {
-	if revision == "scenery.mcp-connection.tools" {
-		return "contract"
-	}
-	if strings.HasPrefix(revision, "scenery.deployment.") || revision == "scenery.source.deployment" || strings.HasPrefix(revision, "scenery.mcp-connection.") || revision == "scenery.source.mcp_connection" {
-		return "deployment"
-	}
 	if revision == "scenery.source.secret" {
 		return "deployment"
 	}
-	if revision == "scenery.source.module" || revision == "scenery.source.patch" {
-		return "workspace_only"
-	}
-	if revision == "scenery.patch.operation" {
+	if revision == "scenery.source.module" {
 		return "workspace_only"
 	}
 	if strings.HasPrefix(revision, "scenery.source.go-") || strings.HasPrefix(revision, "scenery.go-target.") || revision == "scenery.source.typescript_client" || revision == "scenery.assistant.implementation" {
@@ -312,7 +257,7 @@ func authoredDefaultRevisionDomain(revision string) string {
 		return "implementation"
 	}
 	switch revision {
-	case "scenery.service.implementation", "scenery.service.lifecycle", "scenery.service.config", "scenery.operation.handler", "scenery.view.implementation":
+	case "scenery.service.implementation", "scenery.service.lifecycle", "scenery.service.config", "scenery.operation.handler":
 		return "implementation"
 	}
 	return "contract"

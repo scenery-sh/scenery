@@ -1,13 +1,14 @@
 package spec
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
-	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.status-map", "scenery.form-dialog", "scenery.table-page", "scenery.split-page", "scenery.content-page", "scenery.workspace-page", "scenery.detail-page"} {
-		if !resourceCreateKindSupported(kind) {
+	for _, kind := range []string{"scenery.react-component", "scenery.status-map", "scenery.form-dialog", "scenery.table-page", "scenery.split-page", "scenery.content-page", "scenery.workspace-page", "scenery.detail-page"} {
+		if !slices.Contains(resourceCreateSchemaRevisions(), kind) {
 			t.Fatalf("%s is not advertised as a creatable resource kind", kind)
 		}
 		blockType := strings.ReplaceAll(strings.TrimPrefix(kind, "scenery."), "-", "_")
@@ -234,7 +235,7 @@ func TestCurrentCatalogUsesUnversionedKindsAndContentRevisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(semantics), "sha256:") != 8 {
+	if strings.Count(string(semantics), "sha256:") != 7 {
 		t.Fatalf("semantic revision gates = %s", semantics)
 	}
 }

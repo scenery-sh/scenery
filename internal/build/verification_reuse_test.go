@@ -48,7 +48,7 @@ func TestImplementationCheckIsReusedOnlyForTheInputsThatPassed(t *testing.T) {
 	run := func(result *Result) error {
 		t.Helper()
 		result.verification = &preparedVerification{}
-		return completePreparedVerification(t.Context(), result)
+		return compileWithPreparedVerification(t.Context(), result, func(context.Context) error { return nil })
 	}
 	result := verificationReuseResult()
 	if err := run(result); err != nil || analyses != 1 || reuses != 0 || result.verifiedImplementation == "" {

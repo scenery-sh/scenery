@@ -42,21 +42,6 @@ const registry: TypeRegistry = Object.freeze({
       },
     ],
     preserveUnknown: false,
-    validations: [
-      {
-        name: "positive_count",
-        source: "value.count <= 0",
-        expression: {
-          kind: "binary",
-          operator: "<=",
-          left: { kind: "attribute", source: { kind: "value" }, name: "count" },
-          right: { kind: "literal", type: "number", value: "0" },
-        },
-        code: "TEST_NON_POSITIVE_COUNT",
-        message: "count must be positive",
-        path: "record.value.count",
-      },
-    ],
   },
 });
 
@@ -114,18 +99,6 @@ describe("Scenery TypeScript client exact codecs", () => {
 		}
 		expect(await bundle("PublicApiClient")).not.toContain("operationMethods:");
 		expect(await bundle("PublicApiClient, clientMetadata")).toContain("operationMethods:");
-	});
-
-	test("retains reachable validation on generated multipart calls before fetch", async () => {
-		let requests = 0;
-		const client = new HouseClient({
-			baseUrl: "https://example.test" as URLString,
-			fetch: (async () => { requests++; return Response.json({ status: "processed" }); }) as typeof fetch,
-		});
-		await expect(client.processScene({ sceneId: "" })).rejects.toMatchObject({ code: "HOUSE_SCENE_ID_REQUIRED" });
-		expect(requests).toBe(0);
-		await expect(client.processScene({ sceneId: "scene-1" })).resolves.toMatchObject({ kind: "result", name: "processed" });
-		expect(requests).toBe(1);
 	});
 
 	test("encodes path tails one semantic segment at a time", () => {
@@ -216,9 +189,6 @@ describe("Scenery TypeScript client exact codecs", () => {
       ClientError,
     );
     expect(() => encodeTypedJSON({ count: 1n, note: "X" }, valueDescriptor, registry)).toThrow(ClientError);
-    expect(() => encodeTypedJSON({ count: 0n }, valueDescriptor, registry)).toThrow(
-      expect.objectContaining({ code: "TEST_NON_POSITIVE_COUNT", message: "record.value.count: count must be positive" }),
-    );
   });
 
   test("orders sets by canonical JSON UTF-8 bytes rather than UTF-16 code units", async () => {

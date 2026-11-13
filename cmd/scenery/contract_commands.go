@@ -1,19 +1,14 @@
 package main
 
 import (
-	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/contractagent"
-	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/scn"
@@ -29,405 +24,9 @@ type contractOptions struct {
 	Quiet          bool
 }
 
-func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) error {
-	const usage = "usage: scenery agent serve --stdio|--mcp [--app-root <path>]"
-	if len(args) == 0 || args[0] != "serve" {
-		return usageErrorf(usage)
-	}
-	var appRoot string
-	var stdio, mcpServer bool
-	flags := newCLIFlagSet("agent serve")
-	flags.BoolVar(&stdio, "stdio", false, "")
-	flags.BoolVar(&mcpServer, "mcp", false, "")
-	flags.StringVar(&appRoot, "app-root", "", "")
-	positionals, err := parseCLIFlags(flags, args[1:])
-	if err != nil {
-		return err
-	}
-	if stdio == mcpServer || len(positionals) != 0 {
-		return usageErrorf(usage)
-	}
-	if mcpServer {
-		return runDevelopmentMCPServer(context.Background(), stdin, stdout, appRoot)
-	}
-	// Resolve the application root before accepting requests. The root is a
-	// process-owned boundary of this stdio server; it must not be selected or
-	// overridden by model-controlled request parameters.
-	root, err := findContractRoot(appRoot)
-	if err != nil {
-		return err
-	}
-	scanner := bufio.NewScanner(stdin)
-	scanner.Buffer(make([]byte, 64*1024), 2_000_000)
-	encoder := json.NewEncoder(stdout)
-	session := contractagent.NewAgentSessionWithContext(contractagent.AgentExecutionContext{
-		Principal:                 "local",
-		GrantedCapabilities:       []string{"scenery.agent-mutation"},
-		AppRoot:                   root,
-		CheckPredictedGoContracts: generate.CheckPredictedGoContracts,
-		CheckPredictedTypeScript:  generate.CheckPredictedTypeScriptClients,
-		CheckGenerated:            generate.ApplyImplementationCheck,
-	})
-	snapshots := newAgentServeSnapshots(root)
-	for scanner.Scan() {
-		var request contractagent.AgentRequest
-		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
-			if encodeErr := encoder.Encode(contractagent.AgentResponse{JSONRPC: "2.0", Error: &contractagent.AgentError{Code: -32700, Kind: "invalid_request", Message: "invalid JSON"}}); encodeErr != nil {
-				return encodeErr
-			}
-			continue
-		}
-		if !contractagent.MethodNeedsSnapshot(request.Method) {
-			if err := encoder.Encode(session.Handle(nil, request)); err != nil {
-				return err
-			}
-			continue
-		}
-		result, compileErr := snapshots.current()
-		if compileErr != nil {
-			return compileErr
-		}
-		if err := encoder.Encode(session.Handle(result, request)); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
-}
-
-// agentServeSnapshots keeps the last compiled graph of an agent server and
-// reuses it while its captured sources are unchanged, so read-only requests do
-// not re-discover, re-parse and re-expand the application each time.
-type agentServeSnapshots struct {
-	root     string
-	compile  func(string) (*compiler.Result, error)
-	verify   func(*compiler.Result) (bool, error)
-	last     *compiler.Result
-	compiles int
-}
-
-func newAgentServeSnapshots(root string) *agentServeSnapshots {
-	return &agentServeSnapshots{root: root, compile: compiler.Compile, verify: compiler.SnapshotUnchanged}
-}
-
-func (s *agentServeSnapshots) current() (*compiler.Result, error) {
-	if s.last != nil {
-		unchanged, err := s.verify(s.last)
-		if err != nil {
-			return nil, err
-		}
-		if unchanged {
-			return s.last, nil
-		}
-	}
-	result, err := s.compile(s.root)
-	if err != nil {
-		return nil, err
-	}
-	s.last = result
-	s.compiles++
-	return result, nil
-}
-
-func runContractChanges(stdout io.Writer, args []string) error {
-	if len(args) == 0 {
-		return usageErrorf("usage: scenery changes plan|apply")
-	}
-	if err := flagBeforeWord(args, "the changes subcommand"); err != nil {
-		return err
-	}
-	subcommand := args[0]
-	var appRoot, output, changesPath, planPath, outPath string
-	var baseWorkspace, baseContract, expectWorkspace, expectContract string
-	var approvalTokenPaths []string
-	var dryRun, nonInteractive, quiet bool
-	flags := newCLIFlagSet("changes " + subcommand)
-	flags.StringVar(&appRoot, "app-root", "", "")
-	flags.StringVar(&output, "o", "human", "")
-	flags.StringVar(&changesPath, "changes", "", "")
-	flags.StringVar(&planPath, "plan", "", "")
-	flags.StringVar(&outPath, "out", "", "")
-	flags.StringVar(&baseWorkspace, "base-workspace-revision", "", "")
-	flags.StringVar(&baseContract, "base-contract-revision", "", "")
-	flags.StringVar(&expectWorkspace, "expect-workspace-revision", "", "")
-	flags.StringVar(&expectContract, "expect-contract-revision", "", "")
-	flags.BoolVar(&dryRun, "dry-run", false, "")
-	flags.BoolVar(&nonInteractive, "non-interactive", false, "")
-	flags.BoolVar(&quiet, "quiet", false, "")
-	flags.Func("approval-token", "", func(value string) error { approvalTokenPaths = append(approvalTokenPaths, value); return nil })
-	positionals, err := parseCLIFlags(flags, args[1:])
-	if err != nil {
-		return err
-	}
-	if err := validateContractOutput(output); err != nil {
-		return err
-	}
-	root, err := findContractRoot(appRoot)
-	if err != nil {
-		return err
-	}
-	switch subcommand {
-	case "plan":
-		if changesPath == "" || outPath == "" || len(positionals) > 0 {
-			return usageErrorf("usage: scenery changes plan --changes FILE --base-workspace-revision REV --base-contract-revision REV --out PLAN")
-		}
-		operations, err := readSemanticOperations(changesPath)
-		if err != nil {
-			return err
-		}
-		plan, err := evolution.PlanChanges(root, withPredictedGenerateChecks(evolution.ChangeRequest{BaseWorkspaceRevision: baseWorkspace, BaseContractRevision: revisionFlag(baseContract), Caller: "local", Operations: operations}))
-		if err != nil {
-			return err
-		}
-		b, _ := json.MarshalIndent(plan, "", "  ")
-		b = append(b, '\n')
-		temporary := outPath + ".tmp"
-		if err := os.WriteFile(temporary, b, 0o644); err != nil {
-			return err
-		}
-		if err := os.Rename(temporary, outPath); err != nil {
-			return err
-		}
-		if output == "json" {
-			envelope := newCLIEnvelope(true, plan, nil)
-			envelope.WorkspaceRevision = plan.BaseWorkspaceRevision
-			envelope.ContractRevision = plan.BaseContractRevision
-			return json.NewEncoder(stdout).Encode(envelope)
-		}
-		if !quiet {
-			_, err = fmt.Fprintln(stdout, plan.PlanID)
-		}
-		return err
-	case "apply":
-		if planPath == "" && len(positionals) == 1 {
-			planPath = positionals[0]
-		} else if planPath == "" || len(positionals) > 0 {
-			return usageErrorf("usage: scenery changes apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
-		}
-		var plan evolution.ChangePlan
-		if err := readExactPlanFile(planPath, "change plan", &plan); err != nil {
-			return err
-		}
-		approvalTokens, err := readApprovalTokens(approvalTokenPaths)
-		if err != nil {
-			return err
-		}
-		approvalVerifier, err := approvalVerifierForTokens(root, approvalTokens)
-		if err != nil {
-			return err
-		}
-		receipt, err := evolution.ApplyChangePlanWithOptions(root, plan, withGeneratedCheck(evolution.ApplyOptions{ExpectedWorkspaceRevision: expectWorkspace, ExpectedContractRevision: revisionFlag(expectContract), Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier}))
-		if err != nil {
-			return err
-		}
-		if output == "json" {
-			envelope := newCLIEnvelope(true, receipt, nil)
-			envelope.WorkspaceRevision = receipt.WorkspaceRevision
-			envelope.ContractRevision = receipt.ContractRevision
-			return json.NewEncoder(stdout).Encode(envelope)
-		}
-		if !quiet {
-			_, err = fmt.Fprintln(stdout, receipt.PlanID)
-		}
-		return err
-	case "rename":
-		if len(positionals) != 2 {
-			return usageErrorf("usage: scenery changes rename ADDRESS NEW_NAME [--dry-run] [-o json]")
-		}
-		base, err := compiler.Compile(root)
-		if err != nil {
-			return err
-		}
-		if !base.Valid() {
-			return preconditionErrorf("current contract is invalid")
-		}
-		plan, err := evolution.PlanChanges(root, withPredictedGenerateChecks(evolution.ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: revisionFlag(base.Manifest.ContractRevision), Caller: "local", Operations: []evolution.SemanticOperation{{Op: "resource.rename", Address: positionals[0], Value: positionals[1]}}}))
-		if err != nil {
-			return err
-		}
-		data := any(plan)
-		workspaceRevision, contractRevision := base.WorkspaceRevision, base.Manifest.ContractRevision
-		if !dryRun {
-			approvalTokens, tokenErr := readApprovalTokens(approvalTokenPaths)
-			if tokenErr != nil {
-				return tokenErr
-			}
-			approvalVerifier, verifierErr := approvalVerifierForTokens(root, approvalTokens)
-			if verifierErr != nil {
-				return verifierErr
-			}
-			receipt, applyErr := evolution.ApplyChangePlanWithOptions(root, plan, withGeneratedCheck(evolution.ApplyOptions{
-				ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: revisionFlag(base.Manifest.ContractRevision),
-				Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier,
-			}))
-			if applyErr != nil {
-				return applyErr
-			}
-			data = receipt
-			workspaceRevision, contractRevision = receipt.WorkspaceRevision, receipt.ContractRevision
-		}
-		if output == "json" {
-			envelope := newCLIEnvelope(true, data, nil)
-			envelope.WorkspaceRevision = workspaceRevision
-			envelope.ContractRevision = contractRevision
-			return json.NewEncoder(stdout).Encode(envelope)
-		}
-		if !quiet {
-			_, err = fmt.Fprintln(stdout, plan.PlanID)
-		}
-		return err
-	default:
-		return usageErrorf("unknown scenery changes subcommand %q", subcommand)
-	}
-}
-
-func readSemanticOperations(path string) ([]evolution.SemanticOperation, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var operations []evolution.SemanticOperation
-	if err := json.Unmarshal(b, &operations); err == nil {
-		return operations, nil
-	}
-	var request evolution.ChangeRequest
-	if err := json.Unmarshal(b, &request); err != nil {
-		return nil, err
-	}
-	return request.Operations, nil
-}
-
-func revisionFlag(value string) *string {
-	value = strings.TrimSpace(value)
-	if value == "" || strings.EqualFold(value, "none") || strings.EqualFold(value, "null") {
-		return nil
-	}
-	return &value
-}
-
-func runContractGraph(stdout io.Writer, args []string) error {
-	var appRoot, output, direction, view string
-	var depth, maxResources int
-	var nonInteractive, quiet bool
-	flags := newCLIFlagSet("graph")
-	flags.StringVar(&appRoot, "app-root", "", "")
-	flags.StringVar(&output, "o", "human", "")
-	flags.StringVar(&direction, "direction", "both", "")
-	flags.StringVar(&view, "view", "effective", "")
-	flags.IntVar(&depth, "depth", 1, "")
-	flags.IntVar(&maxResources, "max-resources", 100, "")
-	flags.BoolVar(&nonInteractive, "non-interactive", false, "")
-	flags.BoolVar(&quiet, "quiet", false, "")
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return err
-	}
-	if err := validateContractOutput(output); err != nil {
-		return err
-	}
-	if len(positionals) != 1 {
-		return usageErrorf("usage: scenery graph ADDRESS [--direction dependencies|dependents|both]")
-	}
-	result, err := compileContractRoot(appRoot)
-	if err != nil {
-		return err
-	}
-	if !result.Valid() {
-		return writeSourceResult(stdout, output, quiet, result, nil)
-	}
-	manifest, err := result.ManifestForView(view)
-	if err != nil {
-		return err
-	}
-	resourceGraph, err := graph.Graph(manifest, positionals[0], graph.GraphOptions{Direction: direction, Depth: depth, MaxResources: maxResources})
-	if err != nil {
-		return err
-	}
-	return writeSourceResult(stdout, output, quiet, result, resourceGraph)
-}
-
-func runContractDiff(stdout io.Writer, args []string) error {
-	var output, view, renameReceiptsPath string
-	var semantic, exitCode, nonInteractive, quiet bool
-	flags := newCLIFlagSet("diff")
-	flags.BoolVar(&semantic, "semantic", false, "")
-	flags.BoolVar(&exitCode, "exit-code", false, "")
-	flags.StringVar(&output, "o", "human", "")
-	flags.StringVar(&view, "view", "expanded", "")
-	flags.StringVar(&renameReceiptsPath, "rename-receipts", "", "")
-	flags.BoolVar(&nonInteractive, "non-interactive", false, "")
-	flags.BoolVar(&quiet, "quiet", false, "")
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return err
-	}
-	if err := validateContractOutput(output); err != nil {
-		return err
-	}
-	if !semantic || len(positionals) != 2 {
-		return usageErrorf("usage: scenery diff --semantic BASE TARGET [--rename-receipts change-plan-or-receipt.json] [-o human|json]")
-	}
-	base, err := evolution.LoadManifestReference(positionals[0])
-	if err != nil {
-		return fmt.Errorf("load base: %w", err)
-	}
-	target, err := evolution.LoadManifestReference(positionals[1])
-	if err != nil {
-		return fmt.Errorf("load target: %w", err)
-	}
-	var renames []evolution.RenameReceipt
-	var rebinds []evolution.RevisionRebind
-	if renameReceiptsPath != "" {
-		renames, rebinds, err = evolution.LoadRenameEvidence(renameReceiptsPath)
-		if err != nil {
-			// Preserve the existing bare-array receipt format.
-			renames, err = evolution.LoadRenameReceipts(renameReceiptsPath)
-		}
-		if err != nil {
-			return fmt.Errorf("load rename evidence: %w", err)
-		}
-	}
-	for _, reference := range []string{positionals[1], positionals[0]} {
-		if info, statErr := os.Stat(reference); statErr == nil && info.IsDir() {
-			persisted, persistedRebinds, loadErr := evolution.LoadAppliedRenameEvidence(reference)
-			if loadErr != nil {
-				return fmt.Errorf("load applied rename receipts: %w", loadErr)
-			}
-			renames = append(renames, persisted...)
-			rebinds = append(rebinds, persistedRebinds...)
-			break
-		}
-	}
-	diff := evolution.CompareManifests(base, target, evolution.CompareOptions{View: view, Renames: renames, Rebinds: rebinds})
-	if output == "json" {
-		envelope := newCLIEnvelope(true, diff, nil)
-		envelope.ContractRevision = target.ContractRevision
-		if err := json.NewEncoder(stdout).Encode(envelope); err != nil {
-			return err
-		}
-	} else if output == "human" && !quiet {
-		_, err = fmt.Fprintf(stdout, "%d compatible, %d breaking, %d migration required, %d unknown\n", diff.Summary.Compatible, diff.Summary.Breaking, diff.Summary.MigrationRequired, diff.Summary.Unknown)
-		if err != nil {
-			return err
-		}
-	} else {
-		return usageErrorf("unsupported output %q", output)
-	}
-	if exitCode && len(diff.Changes) > 0 {
-		return &silentCLIError{err: fmt.Errorf("semantic differences found")}
-	}
-	return nil
-}
-
 func runContractGenerate(stdout io.Writer, args []string) error {
 	opts := contractOptions{Output: "human"}
 	var target string
-	for _, arg := range args {
-		name, _, _ := strings.Cut(arg, "=")
-		switch name {
-		case "--materialize", "--prune-materialized-go", "--merge-editor-workspace":
-			return fmt.Errorf("invalid_request: %s has been removed; use scenery generate --target contracts [--check] for ordinary in-module Go packages; existing managed workfiles require the documented one-time ownership-verified cutover", name)
-		}
-	}
 	flags := newCLIFlagSet("generate")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Output, "o", opts.Output, "")
@@ -486,9 +85,6 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 			}
 			if len(compilation.ImplementationRevisions) > 0 {
 				envelope.ImplementationRevision = compilation.ImplementationRevisions
-			}
-			if len(compilation.DeploymentRevisions) > 0 {
-				envelope.DeploymentRevision = compilation.DeploymentRevisions
 			}
 			envelope.Diagnostics = append(envelope.Diagnostics, compilation.Diagnostics...)
 		}
@@ -571,11 +167,6 @@ func findContractRoot(value string) (string, error) {
 		if pathExistsLocal(filepath.Join(abs, scn.AppFilename)) {
 			return abs, nil
 		}
-		// A retired root name identifies where compilation should report
-		// SCN1021. It is never parsed or accepted as an application source.
-		if pathExistsLocal(filepath.Join(abs, scn.LegacyAppFilename)) {
-			return abs, nil
-		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
 			return "", usageErrorf("no %s found from %s; run inside a Scenery app or pass --app-root <path>", scn.AppFilename, start)
@@ -601,8 +192,8 @@ func runContractCheck(stdout io.Writer, args []string) error {
 		return err
 	}
 	// check is a validation gate: it reports statuses, revisions, and a
-	// compact manifest summary. The full graph stays on `scenery compile`,
-	// `list`, `get`, and `explain`.
+	// compact manifest summary. The full graph stays on `scenery compile`
+	// and `list`.
 	data := map[string]any{"contract_status": result.ContractStatus, "implementation_status": result.ImplementationStatus, "manifest_summary": contractManifestSummary(result.Manifest), "http_surface_revision": result.HTTPSurfaceRevisions, "openapi_revision": result.OpenAPIRevisions}
 	if result.PartialGraph != nil {
 		data["partial_graph"] = result.PartialGraph
@@ -676,45 +267,6 @@ func runContractList(stdout io.Writer, args []string) error {
 		}
 	}
 	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, map[string]any{"view": opts.View, "resources": resources})
-}
-
-func runContractGet(stdout io.Writer, args []string, explain bool) error {
-	name := "get"
-	if explain {
-		name = "explain"
-	}
-	opts, positionals, err := parseContractOptions(name, args)
-	if err != nil {
-		return err
-	}
-	if len(positionals) != 1 {
-		return usageErrorf("usage: scenery %s <address>", name)
-	}
-	result, err := compileContractRoot(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	manifest, err := result.ManifestForView(opts.View)
-	if err != nil {
-		return err
-	}
-	var found *graph.Resource
-	if manifest != nil {
-		for i := range manifest.Resources {
-			if manifest.Resources[i].Address == positionals[0] {
-				found = &manifest.Resources[i]
-				break
-			}
-		}
-	}
-	if found == nil {
-		return fmt.Errorf("resource %q not found", positionals[0])
-	}
-	data := map[string]any{"view": opts.View, "resource": found}
-	if explain {
-		data["provenance"] = found.Origin
-	}
-	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, data)
 }
 
 func runContractSchema(stdout io.Writer, args []string) error {

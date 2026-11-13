@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/tscheck"
 	"scenery.sh/internal/uigen"
@@ -26,7 +27,7 @@ func TestRenderReactDetailPageUsesTypedParamsSharedContentAndRelatedTable(t *tes
 			break
 		}
 	}
-	target.Spec = cloneMapValue(target.Spec)
+	target.Spec = clientprojection.CloneMapValue(target.Spec)
 	target.Spec["react"] = map[string]any{"tsconfig": "tsconfig.json"}
 	resources := append([]Resource(nil), result.Manifest.Resources...)
 	resources = append(resources, result.FrameworkResources...)

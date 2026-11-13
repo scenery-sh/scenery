@@ -115,26 +115,6 @@ func recordVerifiedImplementation(result *Result, verification *preparedVerifica
 	_ = saveBuildState(result.Dir, state)
 }
 
-func completePreparedVerification(ctx context.Context, result *Result) error {
-	if result.verification == nil {
-		return nil
-	}
-	check, err := preparedChecker(result)
-	if err != nil {
-		return err
-	}
-	verification := result.verification
-	checked, err := check(ctx)
-	if err != nil {
-		return err
-	}
-	result.Contract, result.verification = checked, nil
-	if verification.passed != "" && verification.passed == implementationVerificationKey(result) {
-		result.verifiedImplementation = verification.passed
-	}
-	return nil
-}
-
 // The caller holds the workspace lock and has completed every write-capable
 // preparation step. Both branches consume those same bytes; neither publishes
 // success. A build error still waits for authoritative native diagnostics;

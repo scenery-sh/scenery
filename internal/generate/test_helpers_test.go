@@ -3,7 +3,6 @@ package generate
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"scenery.sh/internal/appwalk"
@@ -80,23 +79,5 @@ func TestCopyTreeSkipsNonSourceDirectories(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(target, rel)); !os.IsNotExist(err) {
 			t.Fatalf("ignored directory %q was copied: %v", rel, err)
 		}
-	}
-}
-
-func rewriteFixtureSceneryReplace(t *testing.T, root string) {
-	t.Helper()
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	repositoryRoot := filepath.Clean(filepath.Join(workingDirectory, "..", ".."))
-	path := filepath.Join(root, "go.mod")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = []byte(strings.Replace(string(data), "replace scenery.sh => ../../../..", "replace scenery.sh => "+filepath.ToSlash(repositoryRoot), 1))
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
 	}
 }

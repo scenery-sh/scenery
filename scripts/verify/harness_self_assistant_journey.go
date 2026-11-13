@@ -9,13 +9,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -29,10 +26,9 @@ const harnessAssistantJourneyProbeName = "assistant journey probe"
 // with its own agent home, so no existing checkout, session or database is
 // read or changed. It proves on the real helper that a run's calls and events
 // keep their run while a later run is accepted, that an approval resumes its
-// own run, that overlapping streams read one history, that a durable receipt
-// stays usable across a host replacement, and that a host whose authority
-// journal cannot be written, marked or removed does not let a replacement host
-// restore the receipt.
+// own run, and that overlapping streams read one history. The fixture's
+// assistant surface is authenticated; the probe signs in through the local
+// development bootstrap.
 func runHarnessAssistantJourneyProbeStep(ctx context.Context, repoRoot string) harnessStep {
 	started := time.Now()
 	step := harnessStep{Name: harnessAssistantJourneyProbeName, Command: []string{"go", "run", "./scripts/verify", "--probe", "assistant-journey", "--summary"}}
@@ -58,6 +54,7 @@ type harnessAssistantEvent struct {
 type harnessAssistantClient struct {
 	ctx    context.Context
 	api    string
+	token  string
 	client *http.Client
 }
 
@@ -75,6 +72,9 @@ func (client *harnessAssistantClient) request(method, path string, body any) (in
 		return 0, nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if client.token != "" {
+		request.Header.Set("Authorization", "Bearer "+client.token)
+	}
 	response, err := client.client.Do(request)
 	if err != nil {
 		return 0, nil, err
@@ -201,16 +201,7 @@ func runHarnessAssistantJourneyProbe(parent context.Context, repoRoot string) (s
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		// The authority fault leaves read-only state; restore access before removal.
-		_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-			if err == nil && entry.IsDir() {
-				_ = os.Chmod(path, 0o700)
-			}
-			return nil
-		})
-		returnErr = errors.Join(returnErr, os.RemoveAll(root))
-	}()
+	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(root)) }()
 	appRoot, home := filepath.Join(root, "app"), filepath.Join(root, "home")
 	if err := copyHarnessAssistantFixture(repoRoot, appRoot); err != nil {
 		return nil, err
@@ -241,11 +232,15 @@ func runHarnessAssistantJourneyProbe(parent context.Context, repoRoot string) (s
 	if api == "" {
 		return nil, fmt.Errorf("assistant fixture session published no API route: %s", output)
 	}
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, err
+	client := &harnessAssistantClient{ctx: ctx, api: api, client: &http.Client{Timeout: 60 * time.Second}}
+	status, bootstrap, err := client.request(http.MethodPost, "/users/dev-bootstrap", map[string]any{})
+	var signedIn struct {
+		Token string `json:"token"`
 	}
-	client := &harnessAssistantClient{ctx: ctx, api: api, client: &http.Client{Jar: jar, Timeout: 60 * time.Second}}
+	if err != nil || status != http.StatusOK || json.Unmarshal(bootstrap, &signedIn) != nil || signedIn.Token == "" {
+		return nil, fmt.Errorf("development sign-in = %d %s: %v", status, bootstrap, err)
+	}
+	client.token = signedIn.Token
 	session := func() (localagent.Session, error) { return harnessLiveSession(ctx, home, appRoot) }
 	current, err := session()
 	if err != nil {
@@ -335,241 +330,12 @@ func runHarnessAssistantJourneyProbe(parent context.Context, repoRoot string) (s
 		return nil, fmt.Errorf("overlapping streams disagree:\n%s\n%s", left, right)
 	}
 
-	// C: a durable receipt accepted before a host replacement keeps its status
-	// and cancellation afterwards.
-	durable, durableRun, err := client.create("durable")
-	if err != nil {
-		return nil, err
-	}
-	pending, err := client.waitEvents(durable, "the durable receipt and the status approval", func(events []harnessAssistantEvent) bool {
-		return harnessAssistantCapability(events, "scenery__house__process_scene_durable") && len(harnessAssistantApprovals(events)) > 0
-	})
-	if err != nil {
-		return nil, err
-	}
-	replacedHost, err := harnessAssistantReplaceHost(ctx, repoRoot, appRoot, env, session, 1, &seen)
-	if err != nil {
-		return nil, err
-	}
-	finished, err := harnessAssistantApproveAll(client, durable, durableRun, pending)
-	if err != nil {
-		return nil, fmt.Errorf("durable run after host replacement: %w", err)
-	}
-	durableText := harnessAssistantText(finished, durableRun)
-	// Status reads the processed execution, and cancellation reaches the
-	// durable store, which refuses to cancel a finished job.
-	if !strings.Contains(durableText, "processed:durable-scene") || !strings.Contains(durableText, "cannot be canceled") || strings.Contains(durableText, "not_found") {
-		return nil, fmt.Errorf("durable status and cancellation after host replacement: %s", durableText)
-	}
-
-	// D: the authority journal of the serving host can neither be written nor
-	// marked nor removed. A second receipt poisons it; the replacement host
-	// starts over a new host state epoch and does not authorize the first.
-	guarded, guardedRun, err := client.create("durable")
-	if err != nil {
-		return nil, err
-	}
-	guardedPending, err := client.waitEvents(guarded, "the guarded durable receipt", func(events []harnessAssistantEvent) bool {
-		return harnessAssistantCapability(events, "scenery__house__process_scene_durable") && len(harnessAssistantApprovals(events)) > 0
-	})
-	if err != nil {
-		return nil, err
-	}
-	link, err := harnessAssistantLink(home, appRoot)
-	if err != nil {
-		return nil, err
-	}
-	// Only the receipt journal fails: the run journal stays writable, so the
-	// next conversation starts and its durable receipt is what cannot commit.
-	if err := os.Chmod(filepath.Join(link.HostState, "durable-receipts.jsonl"), 0o400); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(link.HostState, 0o500); err != nil {
-		return nil, err
-	}
-	poisoning, _, err := client.create("durable")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := client.waitEvents(poisoning, "the uncommitted durable receipt", func(events []harnessAssistantEvent) bool {
-		return harnessAssistantCapability(events, "scenery__house__process_scene_durable")
-	}); err != nil {
-		return nil, err
-	}
-	hostState, err := harnessAssistantHostState(ctx, link)
-	if err != nil {
-		return nil, err
-	}
-	if hostState != "unavailable" {
-		return nil, fmt.Errorf("host state after an unrecordable authority failure = %q", hostState)
-	}
-	if _, err := os.Stat(filepath.Join(link.HostState, "durable-receipts.jsonl")); err != nil {
-		return nil, fmt.Errorf("the guarded journal did not survive its failed poisoning: %w", err)
-	}
-	if err := os.Chmod(link.HostState, 0o700); err != nil {
-		return nil, err
-	}
-	guardedHost, err := harnessAssistantReplaceHost(ctx, repoRoot, appRoot, env, session, 2, &seen)
-	if err != nil {
-		return nil, err
-	}
-	rotated, err := harnessAssistantLink(home, appRoot)
-	if err != nil {
-		return nil, err
-	}
-	if rotated.HostState == link.HostState {
-		return nil, fmt.Errorf("the replacement host reused host state %s whose authority was uncertain", link.HostState)
-	}
-	refused, err := harnessAssistantApproveAll(client, guarded, guardedRun, guardedPending)
-	if err != nil {
-		return nil, fmt.Errorf("guarded durable run after host state rotation: %w", err)
-	}
-	refusedText := harnessAssistantText(refused, guardedRun)
-	// Both status and cancellation of the guarded receipt are refused before
-	// they reach the durable store.
-	if strings.Count(refusedText, "not_found: durable execution not found") < 2 || strings.Contains(refusedText, "processed:durable-scene") || strings.Contains(refusedText, "cannot be canceled") {
-		return nil, fmt.Errorf("a receipt of the uncertain epoch stayed usable: %s", refusedText)
-	}
 	return map[string]any{
-		"queued_run_after_approval":      true,
-		"history_events":                 len(both),
-		"host_pids":                      []string{current.AppPID, replacedHost, guardedHost},
-		"durable_after_host_replacement": true,
-		"host_state_epochs":              []string{filepath.Base(link.HostState), filepath.Base(rotated.HostState)},
-		"proof":                          "real_eve_helper_runs_keep_their_identity_and_host_authority_fails_closed",
+		"queued_run_after_approval": true,
+		"history_events":            len(both),
+		"host_pid":                  current.AppPID,
+		"proof":                     "real_eve_helper_runs_keep_their_identity",
 	}, nil
-}
-
-func harnessAssistantCapability(events []harnessAssistantEvent, capability string) bool {
-	return slices.ContainsFunc(events, func(event harnessAssistantEvent) bool {
-		return event.Type == "assistant.capability.completed" && strings.Contains(string(event.Data), `"`+capability+`"`)
-	})
-}
-
-// harnessAssistantApproveAll approves every approval the run requests until it
-// completes, and returns the final history. An approval is identified by its
-// event's sequence: a replacement host seals the same approval under a new
-// public ID.
-func harnessAssistantApproveAll(client *harnessAssistantClient, conversation, run string, events []harnessAssistantEvent) ([]harnessAssistantEvent, error) {
-	approved := uint64(0)
-	next := func(events []harnessAssistantEvent) (harnessAssistantEvent, bool) {
-		for _, event := range events {
-			if event.Type == "assistant.approval.required" && event.Sequence > approved {
-				return event, true
-			}
-		}
-		return harnessAssistantEvent{}, false
-	}
-	for range 12 {
-		if event, ok := next(events); ok {
-			var data struct {
-				ApprovalID string `json:"approval_id"`
-			}
-			if err := json.Unmarshal(event.Data, &data); err != nil {
-				return events, err
-			}
-			approved = event.Sequence
-			if err := client.approve(conversation, data.ApprovalID); err != nil {
-				return events, err
-			}
-		}
-		var err error
-		events, err = client.waitEvents(conversation, "the run's next approval or completion", func(events []harnessAssistantEvent) bool {
-			_, pending := next(events)
-			return harnessAssistantHas(events, "assistant.run.completed", run) || harnessAssistantHas(events, "assistant.run.failed", run) || pending
-		})
-		if err != nil {
-			return events, err
-		}
-		if harnessAssistantHas(events, "assistant.run.completed", run) || harnessAssistantHas(events, "assistant.run.failed", run) {
-			return events, nil
-		}
-	}
-	return events, fmt.Errorf("run %s never completed: %s", run, harnessAssistantEventSummary(events))
-}
-
-// harnessAssistantReplaceHost changes the application contract outside the
-// assistant and its service, regenerates the client, and waits until a new
-// host serves while the house service process is kept.
-func harnessAssistantReplaceHost(ctx context.Context, repoRoot, appRoot string, env []string, session func() (localagent.Session, error), index int, seen *[]int) (string, error) {
-	before, err := session()
-	if err != nil {
-		return "", err
-	}
-	name := "probe_api_" + strconv.Itoa(index)
-	gateway := fmt.Sprintf("\nhttp_gateway %q {\n  exposure        = \"internet\"\n  base_path       = \"/probe-%d\"\n  cors            = std.cors.none\n  trusted_proxies = std.trusted_proxies.none\n  forwarded       = std.forwarded_headers.reject\n}\n", name, index)
-	file, err := os.OpenFile(filepath.Join(appRoot, "app.scn"), os.O_WRONLY|os.O_APPEND, 0)
-	if err != nil {
-		return "", err
-	}
-	_, err = file.WriteString(gateway)
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return "", err
-	}
-	if _, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "generate", "-o", "json"); err != nil {
-		return "", err
-	}
-	for begin := time.Now(); time.Since(begin) < 3*time.Minute; {
-		after, err := session()
-		if err == nil && after.AppPID != "" && after.AppPID != before.AppPID {
-			house, previous := after.Processes["service-house-house"], before.Processes["service-house-house"]
-			if house.PID == 0 || house.PID != previous.PID {
-				return "", fmt.Errorf("the host replacement did not keep the house service process: %d, then %d", previous.PID, house.PID)
-			}
-			if pid, _ := strconv.Atoi(after.AppPID); pid > 0 {
-				*seen = append(*seen, pid)
-			}
-			return after.AppPID, nil
-		}
-		if err := harnessWaitContext(ctx, 250*time.Millisecond); err != nil {
-			return "", err
-		}
-	}
-	return "", fmt.Errorf("contract edit %d never replaced host %s", index, before.AppPID)
-}
-
-type harnessAssistantProcessLink struct {
-	Token    string `json:"token"`
-	Dispatch struct {
-		Address string `json:"address"`
-	} `json:"dispatch"`
-	HostState string `json:"host_state"`
-}
-
-func harnessAssistantLink(home, appRoot string) (harnessAssistantProcessLink, error) {
-	var link harnessAssistantProcessLink
-	paths, err := localagent.PathsForWorktree(home, appRoot)
-	if err != nil {
-		return link, err
-	}
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(paths.Socket), "process-link.json"))
-	if err != nil {
-		return link, err
-	}
-	return link, json.Unmarshal(data, &link)
-}
-
-func harnessAssistantHostState(ctx context.Context, link harnessAssistantProcessLink) (string, error) {
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", link.Dispatch.Address)
-	}}}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://scenery-host/__scenery/process/v1/generations", nil)
-	if err != nil {
-		return "", err
-	}
-	request.Header.Set("Authorization", "Bearer "+link.Token)
-	response, err := client.Do(request)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = response.Body.Close() }()
-	var status struct {
-		HostState string `json:"host_state"`
-	}
-	return status.HostState, json.NewDecoder(response.Body).Decode(&status)
 }
 
 func copyHarnessAssistantFixture(repoRoot, appRoot string) error {

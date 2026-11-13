@@ -118,7 +118,7 @@ func withNewRuntimeInvocation(ctx context.Context, state *requestState) context.
 		Deadline: deadline, CallerBinding: state.request.CallerBinding,
 		ExecutionID: state.request.ExecutionID, Deployment: state.request.Deployment,
 		Locale:           state.request.Locale,
-		ConnectionWorker: state.request.Type == shared.DurableCall || state.request.Type == shared.EventCall || state.request.CronIdempotencyKey != "",
+		ConnectionWorker: state.request.Type == shared.DurableCall || state.request.CronIdempotencyKey != "",
 	})
 	return runtimeapi.WithInvocation(ctx, state.invocation)
 }

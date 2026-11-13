@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -20,27 +19,8 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/watchignore"
 )
-
-func applyWatchTimingOverridesFromEnv() {
-	watchPollInterval = watchDurationFromEnv("SCENERY_TEST_WATCH_POLL_MS", watchPollInterval)
-	watchBackupPollInterval = watchDurationFromEnv("SCENERY_TEST_WATCH_BACKUP_POLL_MS", watchBackupPollInterval)
-	watchSettleDelay = watchDurationFromEnv("SCENERY_TEST_WATCH_SETTLE_DELAY_MS", watchSettleDelay)
-}
-
-func watchDurationFromEnv(name string, fallback time.Duration) time.Duration {
-	value := strings.TrimSpace(envpolicy.Get(name))
-	if value == "" {
-		return fallback
-	}
-	millis, err := strconv.Atoi(value)
-	if err != nil || millis <= 0 {
-		return fallback
-	}
-	return time.Duration(millis) * time.Millisecond
-}
 
 func routeNamespaceForConfig(cfg app.Config) localagent.RouteNamespace {
 	return localagent.RouteNamespace{
@@ -97,13 +77,6 @@ type devSessionAlreadyRunningError struct {
 
 func (e *devSessionAlreadyRunningError) Error() string {
 	return fmt.Sprintf("scenery up is already running for app root %s under owner PID %d; stop it with `scenery down --app-root %q`, or use a separate Git worktree for another live code copy", e.root, e.ownerPID, e.root)
-}
-
-func rejectLiveDuplicateDevSession(root string, existing []localagent.Session) error {
-	if session, pid := findLiveDuplicateDevSession(root, existing); session != nil {
-		return &devSessionAlreadyRunningError{root: root, ownerPID: pid, session: *session}
-	}
-	return nil
 }
 
 var devSessionOwnerExitPollInterval = 2 * time.Second

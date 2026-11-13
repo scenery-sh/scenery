@@ -213,9 +213,6 @@ export function encodeRequestBody(
   }
   const resolved = resolveDescriptor(descriptor, registry, new Set());
   if (resolved.kind !== "record" || !isObject(value)) invalid("$", §${codec} body requires a record§);
-/*__scenery_runtime_validation_start__*/
-  validateRecordRules(value, resolved, registry, "$");
-/*__scenery_runtime_validation_end__*/
   if (codec === "form") {
     const form = new URLSearchParams();
     for (const field of resolved.fields) {

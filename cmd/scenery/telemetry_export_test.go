@@ -28,7 +28,6 @@ func (v exportTestVictoria) QueryTraceSummaries(context.Context, devdash.TraceQu
 func (v exportTestVictoria) ListDevEvents(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error) {
 	return nil, nil
 }
-func (v exportTestVictoria) MarkCleared(string, time.Time) {}
 func (v exportTestVictoria) URLs() map[string]string       { return nil }
 func (v exportTestVictoria) Endpoint(signal string) string { return v.base + "/" + signal }
 
@@ -70,7 +69,7 @@ func TestReportIntakeRefusesAnOversizedReport(t *testing.T) {
 
 	server := newDashboardServerWithController(exportTestController{runtimeRPCTestController: runtimeRPCTestController{status: devdash.AppStatus{
 		AppID: "demo", Observability: &devdash.ObservabilityState{Enabled: true},
-	}}}, t.TempDir(), "127.0.0.1:0", nil)
+	}}}, "127.0.0.1:0")
 	t.Cleanup(func() { _ = server.Close() })
 	body, err := marshalTestReportBatch(devdash.ReportEnvelope{Type: "log", LogEvent: &devdash.LogEvent{Message: strings.Repeat("x", dashboardReportMaxBytes)}})
 	if err != nil {
@@ -159,7 +158,7 @@ func TestTelemetryExportBatchesReportsPerSignal(t *testing.T) {
 		}
 	}))
 	t.Cleanup(backend.Close)
-	server := newDashboardServerWithController(exportTestController{victoria: exportTestVictoria{base: backend.URL}}, t.TempDir(), "127.0.0.1:0", nil)
+	server := newDashboardServerWithController(exportTestController{victoria: exportTestVictoria{base: backend.URL}}, "127.0.0.1:0")
 	t.Cleanup(func() { _ = server.Close() })
 	now := time.Now()
 	batch := []telemetryExportJob{

@@ -43,7 +43,7 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 		return nil, err
 	}
 	home := filepath.Join(root, "state")
-	env := envWithOverrides(harnessAppEnv(home), "SCENERY_DATABASE_JSON=", "SCENERY_DURABLE_ENDPOINT=", "SCENERY_ROLE=", "INBOX_DATABASE_URL=")
+	env := envWithOverrides(harnessAppEnv(home), "SCENERY_DATABASE_JSON=", "SCENERY_ROLE=", "INBOX_DATABASE_URL=")
 	segments := &harnessNativeContractProbeSegments{}
 	summary = map[string]any{"fixture_root": root, "candidate": harnessLocalSceneryBinaryPath(repoRoot), "assertions": segments.entries}
 	summary["candidate_sha256"], err = worktreeProbeFileSHA(harnessLocalSceneryBinaryPath(repoRoot))
@@ -170,7 +170,7 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 		if err != nil {
 			return err
 		}
-		if len(requirements) != 3 || len(requirements.Bindings(false)) != 2 || len(requirements.Bindings(true)) != 2 {
+		if len(requirements) != 3 || len(requirements.Bindings()) != 2 {
 			return fmt.Errorf("webhook must retain data, auth and durable identities: %+v", requirements)
 		}
 		output, err := cli(appRoot, "up", "--detach", "--wait", "ready", "-o", "json")

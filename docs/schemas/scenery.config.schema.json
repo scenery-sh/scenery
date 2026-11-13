@@ -265,13 +265,11 @@
 	  "type": "object",
 	  "properties": {
 		"default": { "type": "boolean" },
-		"mode": { "enum": ["", "path", "host"] },
         "domain": {
           "type": "string",
           "maxLength": 253,
           "pattern": "^$|^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
         },
-		"expose": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
 		"port": { "type": "integer", "minimum": 0, "maximum": 65535 },
 		"port_start": { "type": "integer", "minimum": 0, "maximum": 65535 },
 		"port_end": { "type": "integer", "minimum": 0, "maximum": 65535 },
@@ -279,7 +277,6 @@
 		  "type": ["object", "null"],
 		  "additionalProperties": { "$ref": "#/$defs/environmentFrontend" }
 		},
-		"deploy": { "$ref": "#/$defs/deploy" },
 		"ui_catalog": {
 		  "type": "string",
 		  "description": "Local development override: path to a live @scenery/ui catalog source directory, resolved against the app root. Only envs.local may set it."
@@ -294,25 +291,6 @@
 	  },
 	  "additionalProperties": false
 	},
-    "deploy": {
-      "type": "object",
-	  "description": "Beta source-sync targets for one named environment.",
-	  "properties": {
-        "ssh": {
-          "type": "array",
-          "description": "Allowed OpenSSH host aliases for direct source-sync deployment.",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
-            "not": {
-              "enum": ["plan", "apply", "setup", "status", "enable", "disable", "resume", "teardown"]
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
     "storage": {
       "type": "object",
       "description": "Beta Scenery-owned durable object/file storage capability.",
@@ -374,41 +352,8 @@
         },
         "config": {
           "type": "string"
-        },
-        "dev_url": {
-          "type": "string"
-        },
-        "schemas": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "$ref": "#/$defs/sqlcGeneratorSchema"
-          }
         }
       },
-      "additionalProperties": false
-    },
-    "sqlcGeneratorSchema": {
-      "type": "object",
-      "properties": {
-        "sqlc_schema": {
-          "type": "string"
-        },
-        "atlas_schema": {
-          "type": "string"
-        },
-        "atlas_source": {
-          "type": "string"
-        },
-        "atlas_dev_url": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "sqlc_schema"
-      ],
       "additionalProperties": false
     },
     "databaseMigration": {
@@ -447,7 +392,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Whether scenery discovers and applies SQL, fixture, and command seeds. Defaults to true."
+          "description": "Whether scenery discovers and applies SQL and command seeds. Defaults to true."
         },
         "commands": {
           "type": "array",
@@ -587,9 +532,6 @@
           "type": "boolean"
         },
         "default_user_email": {
-          "type": "string"
-        },
-        "default_user_id": {
           "type": "string"
         },
         "default_tenant_id": {

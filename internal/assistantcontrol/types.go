@@ -77,15 +77,6 @@ type Request struct {
 	Data               json.RawMessage `json:"data,omitempty"`
 }
 
-// CreateRequest is the typed payload represented by RequestCreateConversation.
-// The envelope remains flat for a compact line-oriented control channel.
-type CreateRequest struct {
-	Principal          string          `json:"principal"`
-	ConversationDigest string          `json:"conversation_digest"`
-	Message            string          `json:"message,omitempty"`
-	Data               json.RawMessage `json:"data,omitempty"`
-}
-
 // TurnRequest is the typed payload represented by RequestSendTurn.
 type TurnRequest struct {
 	Principal          string          `json:"principal"`
@@ -95,15 +86,6 @@ type TurnRequest struct {
 	RunID              string          `json:"run_id,omitempty"`
 	Message            string          `json:"message,omitempty"`
 	Data               json.RawMessage `json:"data,omitempty"`
-}
-
-// ResumeRequest is the typed payload represented by RequestResumeEvents.
-type ResumeRequest struct {
-	Principal          string `json:"principal"`
-	ConversationDigest string `json:"conversation_digest"`
-	PrivateSessionID   string `json:"private_session_id"`
-	ContinuationToken  string `json:"continuation_token"`
-	After              uint64 `json:"after,omitempty"`
 }
 
 // ApprovalRequest is the typed payload represented by RequestResolveApproval.

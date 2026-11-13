@@ -67,7 +67,6 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("auth", runHarnessStandardAuthStep),
 		harnessSingleProbe("worktree", runHarnessWorktreeRuntimeProbeStep),
 		harnessSingleProbe("agent-restart", runHarnessAgentRestartProbeStep),
-		harnessSingleProbe("assistant-init", runHarnessAssistantInitProbeStep),
 		harnessSingleProbe("assistant-runtime", runHarnessAssistantProductionProbeStep),
 		{id: "assistant-helper", run: runHarnessAssistantHelperProbe},
 		harnessSingleProbe("assistant-journey", runHarnessAssistantJourneyProbeStep),
@@ -80,7 +79,6 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("dev-lock", runHarnessDevNamedLockProbeStep),
 		harnessSingleProbe("dev-cleanup", runHarnessDevSessionCleanupProbeStep),
 		harnessSingleProbe("inspect-go", runHarnessInspectDocsGoPackageProbeStep),
-		harnessSingleProbe("toolchain-build", runHarnessToolchainSourceBuildProbeStep),
 		harnessSingleProbe("worktree-git", runHarnessWorktreeGitProbeStep),
 		harnessSingleProbe("feature", runHarnessFeatureProbeStep),
 		harnessSingleProbe("edge", runHarnessEdgeProcessProbeStep),
@@ -90,7 +88,6 @@ func harnessProbeCatalog() []harnessProbe {
 				return runHarnessNativeContractApplicationProbeCheckWithArtifacts(ctx, root, artifacts)
 			}))
 		}},
-		harnessSingleProbe("snapshot-backup", runHarnessSnapshotBackupProbeStep),
 		harnessSingleProbe("typescript", runHarnessTypeScriptCheckerProbeStep),
 		harnessSingleProbe("code-task", runHarnessCodeTaskProcessProbeStep),
 		{id: "observability", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
@@ -98,10 +95,8 @@ func harnessProbeCatalog() []harnessProbe {
 		}},
 		harnessSingleProbe("victoria", runHarnessVictoriaProcessProbeStep),
 		harnessSingleProbe("desktop", runHarnessDesktopProcessProbeStep),
-		harnessSingleProbe("deploy-ssh", runHarnessDeploySSHProcessProbeStep),
 		harnessSingleProbe("configuration", configurationProbeStep("environment configuration probe", runHarnessConfigurationProbe)),
 		harnessSingleProbe("configuration-secrets", configurationProbeStep("environment configuration secrets probe", runHarnessConfigurationSecretsProbe)),
-		harnessSingleProbe("configuration-deploy", configurationProbeStep("environment configuration deploy probe", runHarnessConfigurationDeployProbe)),
 		{id: "validation-git", run: func(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext) {
 			resp.Steps = append(resp.Steps, runHarnessValidationGitProbeStepWithCheck(ctx, root, func(ctx context.Context, root string) (map[string]any, []checkDiagnostic, error) {
 				return runHarnessValidationGitProbeCheckWithArtifacts(ctx, root, artifacts)

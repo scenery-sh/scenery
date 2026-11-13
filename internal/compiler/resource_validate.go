@@ -18,40 +18,13 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 		case "scenery.binding":
 			diagnostics = append(diagnostics, validateBinding(resource)...)
 			diagnostics = append(diagnostics, validateMCPBinding(resource, byAddress)...)
-		case "scenery.mcp-connection", "scenery.mcp-server", "scenery.assistant":
+		case "scenery.mcp-server", "scenery.assistant":
 			diagnostics = append(diagnostics, validateMCPResource(resource, byAddress)...)
 		case "scenery.schedule":
 			diagnostics = append(diagnostics, validateSchedule(resource)...)
-		case "scenery.event":
-			if resource.Spec["payload"] == nil || !positiveInteger(resource.Spec["version"]) {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2701", "event requires payload and positive version", resource))
-			}
-		case "scenery.event-emission":
-			if missingAny(resource.Spec, "bus", "channel", "contract", "guarantee", "from") {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2702", "event emission requires bus, channel, contract, guarantee, and from", resource))
-			}
 		case "scenery.data-source":
 			if missingAny(resource.Spec, "provider", "lifecycle") {
 				diagnostics = append(diagnostics, resourceDiagnostic("SCN2505", "data source requires provider and lifecycle", resource))
-			}
-		case "scenery.entity":
-			if resource.Spec["type"] == nil {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2501", "entity requires a record type", resource))
-			}
-			if resource.Spec["data_source"] == nil {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2502", "entity requires a data source", resource))
-			}
-		case "scenery.view":
-			if missingAny(resource.Spec, "data_source", "input", "result", "implementation") {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2503", "view requires data_source, input, result, and implementation", resource))
-			}
-		case "scenery.crud":
-			if missingAny(resource.Spec, "entity", "implementation", "actions", "execution") {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2504", "CRUD requires entity, implementation, actions, and execution", resource))
-			}
-		case "scenery.fixture":
-			if missingAny(resource.Spec, "entity", "environments", "mode", "values") {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2511", "fixture requires entity, environments, mode, and values", resource))
 			}
 		case "scenery.page":
 			if missingAny(resource.Spec, "path") {
@@ -61,17 +34,11 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 			if missingAny(resource.Spec, "page", "runtime", "module") {
 				diagnostics = append(diagnostics, resourceDiagnostic("SCN2602", "renderer requires page, runtime, and module", resource))
 			}
-		case "scenery.deployment":
-			if resource.Spec["environment"] == nil {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2805", "deployment requires environment", resource))
-			}
-			diagnostics = append(diagnostics, validateDeploymentDraftSurfaces(resource)...)
 		}
 	}
 	diagnostics = append(diagnostics, validateExecutionBindings(resources, byAddress)...)
-	diagnostics = append(diagnostics, validateCLIBindings(resources, byAddress)...)
 	diagnostics = append(diagnostics, validateDurableExecutions(resources, byAddress)...)
-	diagnostics = append(diagnostics, validateScheduleAndEventSemantics(resources, byAddress)...)
+	diagnostics = append(diagnostics, validateSchedulesSemantics(resources, byAddress)...)
 	diagnostics = append(diagnostics, validateMCPGraph(resources, byAddress)...)
 	return diagnostics
 }
@@ -137,31 +104,10 @@ func inputKeyFieldName(value any) (string, bool) {
 	return name, true
 }
 
-func InputKeyFieldName(value any) (string, bool) { return inputKeyFieldName(value) }
-
-func validateDeploymentDraftSurfaces(deployment Resource) []Diagnostic {
-	var diagnostics []Diagnostic
-	for _, gateway := range namedChildren(deployment.Spec, "http_gateway") {
-		for _, listener := range namedChildren(gateway, "listener") {
-			for name := range listener {
-				capability := unsupportedDraftCapability(deploymentListenerSourceSchema.Revision, name)
-				if capability == "" {
-					continue
-				}
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN7009", "unsupported_draft: deployment listener field "+name+" requires unresolved capability "+capability, deployment))
-			}
-		}
-	}
-	return diagnostics
-}
-
 func validateExecution(resource Resource) []Diagnostic {
 	mode, _ := resource.Spec["mode"].(string)
 	if mode == "" || resource.Spec["operation"] == nil {
 		return []Diagnostic{resourceDiagnostic("SCN2200", "execution requires operation and mode", resource)}
-	}
-	if mode == "workflow" {
-		return []Diagnostic{resourceDiagnostic("SCN2204", "feature_unavailable: workflow execution is not available in the current Scenery build", resource)}
 	}
 	if mode != "durable" {
 		return nil
@@ -308,26 +254,14 @@ func validateBinding(resource Resource) []Diagnostic {
 			diagnostics = append(diagnostics, resourceDiagnostic("SCN2406", "internal binding exposure must match its package/application visibility", resource))
 		}
 	}
-	if protocol == "event" {
-		event, _ := resource.Spec["event"].(map[string]any)
-		if event == nil || missingAny(event, "direction", "bus", "channel", "contract", "guarantee") {
-			diagnostics = append(diagnostics, resourceDiagnostic("SCN2703", "event binding requires direction, bus, channel, contract, and guarantee", resource))
-		}
-	}
 	return diagnostics
 }
 
 func validateSchedule(resource Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	trigger, _ := resource.Spec["trigger"].(map[string]any)
-	selectors := 0
-	for _, name := range []string{"cron", "every", "at", "calendar"} {
-		if trigger != nil && trigger[name] != nil {
-			selectors++
-		}
-	}
-	if selectors != 1 {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2301", "schedule requires exactly one trigger selector", resource))
+	if trigger == nil || trigger["every"] == nil {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2301", "schedule trigger requires every", resource))
 	}
 	invoke, _ := resource.Spec["invoke"].(map[string]any)
 	if invoke == nil || missingAny(invoke, "operation", "execution", "identity", "authorization", "pipeline", "input") {

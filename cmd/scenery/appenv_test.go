@@ -20,7 +20,7 @@ func TestPoisonedDotenvNeverReachesApplicationProcesses(t *testing.T) {
 	}
 	cfg := app.Config{Name: "demo", Envs: map[string]app.EnvConfig{
 		"local":      {Default: true},
-		"production": {Deploy: &app.EnvDeployConfig{}},
+		"production": {},
 	}}
 	for _, name := range []string{"local", "production"} {
 		processEnv, err := appProcessEnv(root, cfg, nil, "json", name)

@@ -15,7 +15,7 @@ func TestLockedBuiltinProviderDerivesCapabilitiesAndSchema(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
 	root := deploymentPlanFixture(t, "external")
-	result, err := CompileContractGraph(root)
+	result, err := Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -36,7 +36,6 @@ func TestLockedBuiltinProviderDerivesCapabilitiesAndSchema(t *testing.T) {
 func TestBuiltinProviderLockDigestsAreStable(t *testing.T) {
 	want := map[string]string{
 		"registry.scenery.dev/core/durable":  "sha256:1d096d5c72c3433f0b728da8279fbb91b9a5076b0f656b695d1a9a60fbd62079",
-		"registry.scenery.dev/core/kafka":    "sha256:66d2a8e53f7740ee8bd39c12e8946922c092189312de25be34f388e8dc87562d",
 		"registry.scenery.dev/core/postgres": "sha256:42156917276bd7d0b85efb35c54c0fa898101d8ed4db1da6876cb2a34b27152f",
 		"registry.scenery.dev/core/storage":  "sha256:1772629d332b4d3276fd042f5b13ea4fd770a3b3448a7e15430f7a401a0817e6",
 		"registry.scenery.dev/core/vault":    "sha256:3b0b5bff3751155cbbe028c719a7b5477db6265c2dcaf6aa889867d7d6470ea1",
@@ -273,4 +272,8 @@ module "geometry" {
 	if err != nil || tampered.Valid() || tampered.WorkspaceRevision != workspaceRevision || !hasDiagnostic(tampered.Diagnostics, "SCN3101") {
 		t.Fatalf("tampered: err=%v workspace=%q/%q diagnostics=%#v", err, workspaceRevision, tampered.WorkspaceRevision, tampered.Diagnostics)
 	}
+}
+
+func compilePackage(root, dir, module string) ([]Resource, []*Source, []Diagnostic) {
+	return compilePackageLogical(root, dir, module, "")
 }

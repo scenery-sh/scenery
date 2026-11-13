@@ -155,15 +155,6 @@ func pruneWorkspace(path string, protectedRoot bool, opts WorkspacePruneOptions)
 	if err := os.RemoveAll(path); err != nil {
 		return item, err
 	}
-	roots, err := retiredCompilerStateRoots(path)
-	if err != nil {
-		return item, err
-	}
-	for _, root := range roots {
-		if err := os.RemoveAll(root); err != nil {
-			return item, err
-		}
-	}
 	return item, nil
 }
 

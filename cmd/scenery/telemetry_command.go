@@ -8,11 +8,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	localagent "scenery.sh/internal/agent"
 	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	localagent "scenery.sh/internal/agent"
 )
 
 const (

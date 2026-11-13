@@ -120,7 +120,6 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "running"}, "info", "build started", map[string]any{
 		"initial": initial,
 	})
-	s.writeProcessEvent(ctx, "compile-start", s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event("process.compile-start", map[string]any{
 			"initial": initial,
@@ -212,7 +211,6 @@ func (s *devSupervisor) publishActivatedApp(ctx context.Context, initial bool, s
 	if reload {
 		method = "process/reload"
 	}
-	s.writeProcessEvent(ctx, method, s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event(method, map[string]any{
 			"pid":         current.pid,

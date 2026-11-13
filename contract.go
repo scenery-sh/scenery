@@ -3,7 +3,6 @@ package scenery
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/runtimeapi"
@@ -43,7 +42,6 @@ func NoneOf[T any]() Optional[T]      { return contract.NoneOf[T]() }
 type Nullable[T any] = contract.Nullable[T]
 
 func ValueOf[T any](value T) Nullable[T] { return contract.ValueOf(value) }
-func NullOf[T any]() Nullable[T]         { return contract.NullOf[T]() }
 
 // Set is represented canonically by generator/runtime adapters.
 type Set[T any] = contract.Set[T]
@@ -71,10 +69,6 @@ type ContractConstraints = contract.ContractConstraints
 // tagged unions while the shared runtime continues to recurse through
 // optional, nullable, collection, map, and tuple wrappers.
 type ContractNamedDecoder = contract.ContractNamedDecoder
-
-// ContractValidationError is a declared record-validation failure. Code,
-// message, and path come from the named validation block in the contract.
-type ContractValidationError = contract.ContractValidationError
 
 func ParseInt(value string) (Int, error)                   { return contract.ParseInt(value) }
 func ParseDecimal(value string) (Decimal, error)           { return contract.ParseDecimal(value) }
@@ -140,32 +134,4 @@ func UnmarshalContractValueWithNamed(data []byte, target any, typeExpression str
 // the generated Go representation.
 func ValidateContractValue(value any, typeExpression string, constraints ContractConstraints) error {
 	return contract.ValidateContractValue(value, typeExpression, constraints)
-}
-
-// ValidateContractRecord evaluates a compiler-validated, data-only expression
-// over generated record fields. The public runtime deliberately does not
-// include the HCL compiler; generated packages carry the compiled expression.
-func ValidateContractRecord(fields map[string]any, fieldTypes map[string]string, encodedProgram, code, message, path string) error {
-	return contract.ValidateContractRecord(fields, fieldTypes, encodedProgram, code, message, path)
-}
-
-// ApprovalToken is a detached, plan-bound authorization for explicitly named
-// risk scopes. Signature is excluded from ApprovalTokenPayload.
-type ApprovalToken = contract.ApprovalToken
-
-// NewApprovalToken creates the current detached approval shape. The caller
-// signs ApprovalTokenPayload and then fills Signature.
-func NewApprovalToken(planID, caller string, riskScopes []string, expiresAt time.Time) ApprovalToken {
-	return contract.NewApprovalToken(planID, caller, riskScopes, expiresAt)
-}
-
-// ApprovalTokenPayload returns the canonical bytes an approval service signs.
-func ApprovalTokenPayload(token ApprovalToken) ([]byte, error) {
-	return contract.ApprovalTokenPayload(token)
-}
-
-// ValidateApprovalToken enforces the current scenery.approval-token shape and
-// signature encoding before a caller attempts trust-root verification.
-func ValidateApprovalToken(token ApprovalToken) error {
-	return contract.ValidateApprovalToken(token)
 }

@@ -109,7 +109,7 @@ func parseTraceParent(value string) (string, string, bool) {
 }
 
 // Generated policy metadata identifies the semantic operation independently of
-// its HTTP, internal, event, CLI or MCP transport.
+// its HTTP, internal or MCP transport.
 func operationTraceIdentity(policy *ContractHTTPPolicy, fallback string, attributes map[string]any) (string, map[string]any) {
 	if attributes == nil {
 		attributes = map[string]any{}

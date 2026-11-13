@@ -23,11 +23,7 @@ func (value ProcessSceneInput) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode field scene_id: %w", err)
 	}
 	object["scene_id"] = rawSceneId
-	encoded, err := json.Marshal(object)
-	if err != nil {
-		return nil, err
-	}
-	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+	return json.Marshal(object)
 }
 
 func (value *ProcessSceneInput) UnmarshalJSON(data []byte) error {
@@ -71,11 +67,7 @@ func (value ProcessSceneResult) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("encode field status: %w", err)
 	}
 	object["status"] = rawStatus
-	encoded, err := json.Marshal(object)
-	if err != nil {
-		return nil, err
-	}
-	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+	return json.Marshal(object)
 }
 
 func (value *ProcessSceneResult) UnmarshalJSON(data []byte) error {

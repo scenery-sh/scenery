@@ -50,14 +50,10 @@ func (requirements SQLRequirements) Binding(name string) (SQLBinding, bool) {
 	return SQLBinding{}, false
 }
 
-// Bindings returns the distinct local SQL bindings. An explicit remote durable
-// endpoint supplies durable execution without a local framework database.
-func (requirements SQLRequirements) Bindings(remoteDurable bool) []SQLBinding {
+// Bindings returns the distinct local SQL bindings.
+func (requirements SQLRequirements) Bindings() []SQLBinding {
 	byName := map[string]SQLBinding{}
 	for _, requirement := range requirements {
-		if remoteDurable && requirement.Kind == SQLDurable {
-			continue
-		}
 		byName[requirement.Name] = SQLBinding{Name: requirement.Name, Schema: requirement.Schema}
 	}
 	bindings := make([]SQLBinding, 0, len(byName))

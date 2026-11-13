@@ -19,7 +19,6 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/netprobe"
 	"scenery.sh/internal/victoria"
 )
 
@@ -55,7 +54,6 @@ type devSupervisor struct {
 
 	store       *devdash.Store
 	storeWriter dashboardControlPlaneWriter
-	dashboard   *dashboardServer
 	victoria    *victoria.Stack
 	// victoriaProcesses is an explicit per-supervisor configuration seam for
 	// lifecycle tests. Its zero value uses Victoria's environment contract.
@@ -221,7 +219,6 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		ErrOutput: os.Stderr,
 	})
 	s.assistantTokenKeyPath = assistantTokenKeyPath
-	s.dashboard = newDashboardServer(s)
 	s.events = newDevEventSink(s)
 	return s, nil
 }
@@ -282,9 +279,6 @@ func (s *devSupervisor) Close() error {
 			fn   func() error
 		}
 		closers := []closer{}
-		if s.dashboard != nil {
-			closers = append(closers, closer{name: "dashboard", fn: s.dashboard.Close})
-		}
 		if s.storageProxy != nil {
 			closers = append(closers, closer{name: "storage-proxy", fn: s.storageProxy.Close})
 		}
@@ -398,11 +392,6 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	}
 	if err := s.persistStatus(ctx); err != nil {
 		return err
-	}
-	if s.agent == nil {
-		if err := s.dashboard.Start(ctx); err != nil {
-			return err
-		}
 	}
 	ready := s.startDevServiceStartup(s.ctx)
 	s.mu.Lock()
@@ -581,7 +570,6 @@ func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
 	s.mu.Unlock()
 
 	_ = s.persistStatus(ctx)
-	s.writeProcessEvent(ctx, "process-stop", s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event("process.stop", map[string]any{
 			"pid": app.pid,
@@ -822,8 +810,4 @@ func copySessionProcesses(values map[string]localagent.Process) map[string]local
 		copied[key] = value
 	}
 	return copied
-}
-
-func portAvailable(addr string) error {
-	return netprobe.BindFree(addr)
 }

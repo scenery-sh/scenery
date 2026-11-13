@@ -22,17 +22,16 @@ var rootResourceKinds = map[string]bool{
 	"http_gateway": true, "authentication": true, "authorization": true,
 	"workload_identity": true,
 	"pipeline":          true, "provider": true, "data_source": true,
-	"execution_engine": true, "event_bus": true, "secret_store": true,
-	"secret": true, "deployment": true, "typescript_client": true,
-	"patch": true, "mcp_connection": true, "mcp_server": true, "assistant": true,
+	"execution_engine": true, "secret_store": true,
+	"secret": true, "typescript_client": true,
+	"mcp_server": true, "assistant": true,
 }
 
 var packageResourceKinds = map[string]bool{
 	"service": true, "record": true, "enum": true, "union": true,
 	"operation": true, "execution": true, "binding": true,
-	"schedule": true, "event": true, "event_emission": true,
-	"entity": true, "view": true, "crud": true, "fixture": true,
-	"page": true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "workspace_page": true, "detail_page": true, "middleware": true,
+	"schedule": true,
+	"page":     true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "workspace_page": true, "detail_page": true, "middleware": true,
 }
 
 func Compile(root string) (*Result, error) {
@@ -67,18 +66,6 @@ func compileValidatedResult(ctx context.Context, root string, mode workspacetx.R
 	return result, nil
 }
 
-// CompileDuringChangeTransaction compiles the graph while evolution owns an
-// active source transaction in this process.
-func CompileDuringChangeTransaction(root string) (*Result, error) {
-	return compileValidatedResult(context.Background(), root, workspacetx.CurrentOwnerRead)
-}
-
-// CompileContractGraph resolves and validates the canonical contract graph.
-// Build, generation, and deployment phases consume this immutable result.
-func CompileContractGraph(root string) (*Result, error) {
-	return Compile(root)
-}
-
 func compileResult(root string) (*Result, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -91,10 +78,6 @@ func compileResult(root string) (*Result, error) {
 	defer func() { backfillDiagnosticPaths(result) }()
 	paths, err := scn.SourceFiles(absRoot, true)
 	if err != nil {
-		if diagnostic, ok := legacyFilenameDiagnostic(err); ok {
-			result.Diagnostics = append(result.Diagnostics, diagnostic)
-			return result, nil
-		}
 		return nil, err
 	}
 	if !containsBase(paths, scn.AppFilename) {
@@ -161,9 +144,6 @@ func compileResult(root string) (*Result, error) {
 		// implementation_revision is produced only when a build supplies an
 		// exact content-addressed input manifest for a verified target.
 		result.ImplementationRevisions = nil
-		// Deployment revisions are produced only by deployment planning, after
-		// provider plans exist. Compilation deliberately has no provider plan.
-		result.DeploymentRevisions = nil
 		manifest.Diagnostics = append([]Diagnostic{}, result.Diagnostics...)
 	}
 	return result, nil
@@ -295,10 +275,6 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 			}
 		case block.Type == "module":
 			modules = append(modules, block)
-		case block.Type == "extension" || block.Type == "resource":
-			diagnostic := diagnosticForBlock("SCN7001", "feature_unavailable: declarative extensions are not implemented", block)
-			diagnostic.Details = map[string]any{"syntax": block.Type}
-			diagnostics = append(diagnostics, diagnostic)
 		case rootResourceKinds[block.Type]:
 			resource, diag := resourceFromBlock("app", block, item.Source.ID)
 			if diag != nil {
@@ -407,18 +383,12 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	applyHTTPEffectiveDefaults(resources)
 	applyAuthoredEffectiveDefaults(resources)
-	resources, resourceDiagnostics = applyPatches(resources)
-	diagnostics = append(diagnostics, resourceDiagnostics...)
 	diagnostics = append(diagnostics, applyHTTPDirectoryGroups(resources)...)
-	resources, resourceDiagnostics = enrichDataImplementationDigests(root, resources)
-	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = enrichUIImplementationDigests(root, resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	completeFieldProvenance(sourceNative, "source")
 	completeFieldProvenance(resources, "effective")
 	effectiveNative := cloneResourceView(resources)
-	resources, resourceDiagnostics = expandDataResources(resources)
-	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = expandTablePageResources(resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = expandSplitPageResources(resources)
@@ -428,8 +398,6 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 	resources, resourceDiagnostics = expandWorkspacePageResources(resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = expandDetailPageResources(resources)
-	diagnostics = append(diagnostics, resourceDiagnostics...)
-	resources, resourceDiagnostics = enrichDataImplementationDigests(root, resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = enrichUIImplementationDigests(root, resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
@@ -547,16 +515,9 @@ func blocksFromSources(sources []*Source) []sourcedBlock {
 	return result
 }
 
-func compilePackage(root, dir, module string) ([]Resource, []*Source, []Diagnostic) {
-	return compilePackageLogical(root, dir, module, "")
-}
-
 func compilePackageLogical(root, dir, module, logicalBase string) ([]Resource, []*Source, []Diagnostic) {
 	paths, err := scn.SourceFiles(dir, false)
 	if err != nil {
-		if diagnostic, ok := legacyFilenameDiagnostic(err); ok {
-			return nil, nil, []Diagnostic{diagnostic}
-		}
 		return nil, nil, []Diagnostic{{Code: "SCN3004", Severity: "error", Message: err.Error()}}
 	}
 	if !containsBase(paths, scn.PackageFilename) {
@@ -747,8 +708,7 @@ func validateResources(root string, resources []Resource) []Diagnostic {
 	diagnostics = append(diagnostics, validateSecurityResources(resources)...)
 	diagnostics = append(diagnostics, validateReferences(resources)...)
 	diagnostics = append(diagnostics, validateResourceSemantics(resources)...)
-	diagnostics = append(diagnostics, validateDataSemantics(root, resources)...)
-	diagnostics = append(diagnostics, validateDeploymentSemantics(&Manifest{Resources: resources})...)
+	diagnostics = append(diagnostics, validateDataSemantics(resources)...)
 	diagnostics = append(diagnostics, validateUISemantics(root, resources)...)
 	diagnostics = append(diagnostics, validateMCPAssistantPaths(root, resources)...)
 	byAddress := make(map[string]Resource, len(resources))
@@ -872,10 +832,6 @@ func splitGlobValue(value string, storage []string) []string {
 		storage = append(storage, segment)
 	}
 	return storage
-}
-
-func matchesAnyGlob(patterns []string, value string) bool {
-	return newGlobMatcher(patterns).matches(value)
 }
 
 func matchGlobSegments(pattern, value []string) bool {

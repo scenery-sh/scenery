@@ -18,7 +18,7 @@
       "const": "scenery.doctor.result"
     },
     "schema_revision": {
-      "const": "sha256:1c9484e483506f4a9a82a134e5f4a84e6664166b4051cfe9bbe680d477bedaa6"
+      "const": "sha256:610e01220961d047b9fa4efc7d6641422c3729df2d5f998ebdaa14c8f1f9f152"
     },
     "ok": {
       "type": "boolean"
@@ -34,9 +34,6 @@
     },
     "environment": {
       "$ref": "#/$defs/environment"
-    },
-    "deploy": {
-      "$ref": "#/$defs/deploy"
     },
     "checks": {
       "type": "array",
@@ -157,139 +154,6 @@
         "total_bytes": {
           "type": "integer",
           "minimum": 0
-        }
-      }
-    },
-    "deploy": {
-      "type": "object",
-      "required": [
-        "kind",
-        "schema_revision",
-        "ready",
-        "registry_path",
-        "targets",
-        "diagnostics"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "scenery.doctor.deploy"
-        },
-        "schema_revision": {
-          "const": "sha256:212b8e95bb1af8f330b1a0a4a88f6611294f7832dfff5a002511df9a9e7b1294"
-        },
-        "ready": {
-          "type": "boolean"
-        },
-        "registry_path": {
-          "type": "string"
-        },
-        "targets": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/deploy_target"
-          }
-        },
-        "diagnostics": {
-          "$ref": "#/$defs/deploy_diagnostics"
-        }
-      }
-    },
-    "deploy_target": {
-      "type": "object",
-      "required": [
-        "domain",
-        "app_root",
-        "enabled",
-        "live_session",
-        "cert_present"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "domain": {
-          "type": "string",
-          "minLength": 1
-        },
-        "app_root": {
-          "type": "string",
-          "minLength": 1
-        },
-        "root_service": {
-          "type": "string"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "live_session": {
-          "type": "boolean"
-        },
-        "session_id": {
-          "type": "string"
-        },
-        "cert_present": {
-          "type": "boolean"
-        },
-        "cert_not_after": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "diagnostics": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "deploy_diagnostics": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "lan_ip": {
-          "type": "string"
-        },
-        "public_ip": {
-          "type": "string"
-        },
-        "checks": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/deploy_diagnostic_check"
-          }
-        }
-      }
-    },
-    "deploy_diagnostic_check": {
-      "type": "object",
-      "required": [
-        "id",
-        "status",
-        "message"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "status": {
-          "enum": [
-            "ok",
-            "warn",
-            "error",
-            "skipped"
-          ]
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "suggested_action": {
-          "type": "string"
-        },
-        "observed": {
-          "type": "object",
-          "additionalProperties": true
         }
       }
     },

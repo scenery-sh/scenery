@@ -27,12 +27,10 @@ references when the task crosses their boundary, not as a startup checklist.
 | Start or diagnose a runtime | `scenery ps -o json`; `scenery doctor -o json` for environment failures; bounded `scenery logs -o jsonl --limit 200` | [Runtime command choice](docs/agent-guide.md#runtime-command-choice) |
 | Connect an external user account | Declare a provider and inspect its generated operations | [User connections](docs/auth-connections.md) |
 | Generate TypeScript or React UI | Regenerate the declared client target; customize app-owned slots | [Client integration](docs/agent-guide.md#typescript-client-integration) and [optional UI](docs/generated-ui.md) |
-| Declare or debug an assistant | `scenery inspect assistants -o json` | [Assistant change loop](docs/agent-guide.md#assistant-change-loop) |
+| Declare or debug an assistant | `scenery assistant status <name> -o json` | [Assistant change loop](docs/agent-guide.md#assistant-change-loop) |
 | Change storage, SQL, migrations, or snapshots | Inspect the selected resource and retained owner before mutation | [Storage and databases](docs/agent-guide.md#storage-and-databases) |
-| Plan a semantic mutation | Inspect schemas and capabilities, then review the issued revision-bound plan | [Diagnostics and semantic changes](docs/agent-guide.md#diagnostics-and-semantic-changes) |
 | Generate Go contracts or library facades | Generate into the declared existing module | [Native change loop](docs/agent-guide.md#native-change-loop) |
 | Run an app-local code task | `scenery task list -o json` | [Code tasks](docs/app-development-cookbook.md#app-local-code-tasks) |
-| Deploy an authorized change | Inspect the configured environment and deployment status | [Deployment](docs/agent-guide.md#runtime-command-choice) |
 | Validate app work | Select app-owned profiles and the acceptance scenario | [Application validation](docs/agent-guide.md#application-validation-and-completion) |
 | Coordinate feature worktrees or land a checkpoint | `scenery feature list -o json`; inspect the repository policy and exact candidate | [Local feature integration](docs/feature-workflow.md) |
 | Change Scenery itself | Read its root and applicable child instructions | [Repository workflow](docs/agent-guide.md#working-in-the-scenery-repository) |
@@ -61,8 +59,7 @@ an unavailable procedure. Practical examples live in the
   selected framework itself; do not kill it to upgrade.
 - Use `scenery up` for the live loop and another worktree for another code copy.
   Discover URLs through `scenery ps -o json`; after an edit, `scenery ps --wait
-  -o json` returns once exactly that source is served, and an app CLI binding's
-  `--live` runs in that serving generation. An incompatible owner is not
+  -o json` returns once exactly that source is served. An incompatible owner is not
   permission to replace a live runtime. Installation does not migrate apps/data.
 - Prefer `-o json` and `-o jsonl`. Check schema/spec revisions and producer
   identity, branch on stable `SCNxxxx` diagnostics, and resolve opaque source

@@ -404,18 +404,6 @@ func packageElapsedFromGoTestJSON(output []byte, packageName string) (float64, b
 	return seconds, found
 }
 
-func testElapsedSamplesFromGoTestJSON(output []byte, packageName, testName string) []float64 {
-	var samples []float64
-	rootClock := newGoTestRootClock()
-	scanGoTestJSONEvents(output, func(event goTestJSONEvent) {
-		seconds, finished := rootClock.observe(event)
-		if finished && event.Package == packageName && event.Test == testName {
-			samples = append(samples, seconds)
-		}
-	})
-	return samples
-}
-
 // goTestRootClock measures the full active lifetime of an exact top-level test
 // across every run/continue-to-pause/terminal segment. Queue time between a
 // t.Parallel pause and continue is excluded, but work before the pause is not.

@@ -15,7 +15,6 @@ func cloneResourceView(resources []Resource) []Resource {
 	for i := range cloned {
 		cloned[i].Spec, _ = cloneResourceValue(resources[i].Spec).(map[string]any)
 		origin := resources[i].Origin
-		origin.Patches = cloneNonemptyStrings(origin.Patches)
 		origin.ModuleChain = cloneNonemptyStrings(origin.ModuleChain)
 		origin.DeclarationRange = cloneResourceRange(origin.DeclarationRange)
 		origin.AttributeRanges = nil

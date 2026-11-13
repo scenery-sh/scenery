@@ -144,10 +144,6 @@ func init() {
 	wireBuildGenerateHooks()
 }
 
-func run(args []string) error {
-	return runWithCLITelemetry(args, nil)
-}
-
 func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error {
 	if len(args) == 0 {
 		writeRootHelp(os.Stdout)
@@ -162,14 +158,10 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 	switch args[0] {
 	case "help":
 		return helpCommand(args[1:])
-	case "completion":
-		return runBindingCompletion(os.Stdout, args[1:])
 	case "up":
 		return upCommandWithTelemetry(args[1:], telemetry)
 	case "ps":
 		return statusCommand(args[1:])
-	case "console":
-		return consoleCommand(args[1:])
 	case "down":
 		return downCommand(args[1:])
 	case "prune":
@@ -197,8 +189,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return storageCommand(args[1:])
 	case "snapshot":
 		return snapshotCommand(args[1:])
-	case "deploy":
-		return deployCommand(args[1:])
 	case "config":
 		return configCommand(args[1:])
 	case "worker":
@@ -219,18 +209,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return runContractSchema(os.Stdout, args[1:])
 	case "list":
 		return runContractList(os.Stdout, args[1:])
-	case "get":
-		return runContractGet(os.Stdout, args[1:], false)
-	case "explain":
-		return runContractGet(os.Stdout, args[1:], true)
-	case "diff":
-		return runContractDiff(os.Stdout, args[1:])
-	case "graph":
-		return runContractGraph(os.Stdout, args[1:])
-	case "agent":
-		return agentCommand(args[1:])
-	case "changes":
-		return runContractChanges(os.Stdout, args[1:])
 	case "harness":
 		return harnessCommand(args[1:])
 	case "inspect":
@@ -239,8 +217,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return assistantCommand(args[1:])
 	case "logs":
 		return logsCommand(args[1:])
-	case "test":
-		return testCommand(args[1:])
 	case "traces":
 		return tracesCommand(args[1:])
 	case "metrics":
@@ -250,9 +226,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 	case "system":
 		return systemCommand(args[1:])
 	default:
-		if handled, err := runBindingCLI(os.Stdout, os.Stderr, args); handled {
-			return err
-		}
 		return usageErrorf("unknown command %q; %s", args[0], unknownWordHint(args[0], builtinCommandNames(), "scenery help"))
 	}
 }
@@ -374,10 +347,6 @@ var (
 	runDetachedDevFunc = runDetachedDev
 )
 
-func upCommand(args []string) error {
-	return upCommandWithTelemetry(args, nil)
-}
-
 func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) error {
 	opts, err := parseDevArgs(args)
 	if err != nil {
@@ -447,10 +416,7 @@ type devOptions struct {
 }
 
 type devListenRequest struct {
-	Network      string
 	Addr         string
-	Explicit     bool
-	PreferTCP    bool
 	ClaimAliases bool
 }
 
@@ -474,7 +440,7 @@ func parseDevArgs(args []string) (devOptions, error) {
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return devOptions{}, err
 	}
-	opts.PortSet = cliFlagSet(flags, "port", "p")
+	opts.PortSet = cliFlagSet(flags, "port")
 	opts.ListenSet = cliFlagSet(flags, "listen")
 	if opts.PortSet && (opts.Port < 0 || opts.Port > 65535) {
 		return devOptions{}, usageErrorf("--port must be between 0 and 65535")
@@ -503,9 +469,7 @@ func parseDevArgs(args []string) (devOptions, error) {
 func resolveDevListenRequest(opts devOptions) devListenRequest {
 	if opts.ListenSet || opts.PortSet {
 		return devListenRequest{
-			Network:      "tcp",
 			Addr:         resolveListenAddr(opts.Listen, opts.Port),
-			Explicit:     true,
 			ClaimAliases: opts.ClaimAliases,
 		}
 	}

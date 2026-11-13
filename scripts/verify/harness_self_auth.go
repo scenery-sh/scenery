@@ -171,7 +171,7 @@ func runHarnessAuthCase(ctx context.Context, admin *sql.DB, base, root, binary s
 	path := filepath.Join(root, name+".json")
 	command := commandTreeContext(ctx, binary, "--case", name, "--report", path, "--source-root", sourceRoot)
 	command.Dir = root
-	command.Env = envWithOverrides(harnessAppEnv(home), "DATABASE_URL="+u.String(), "SCENERY_DATABASE_JSON=", "SCENERY_ROLE=", "SCENERY_LISTEN_NETWORK=", "SCENERY_DURABLE_ENDPOINT=")
+	command.Env = envWithOverrides(harnessAppEnv(home), "DATABASE_URL="+u.String(), "SCENERY_DATABASE_JSON=", "SCENERY_ROLE=", "SCENERY_LISTEN_NETWORK=")
 	output, commandErr := command.CombinedOutput()
 	encoded, readErr := os.ReadFile(path)
 	if readErr != nil {

@@ -23,5 +23,5 @@ func newTestDashboardServer(t *testing.T) *dashboardServer {
 		store:       store,
 		reportToken: "test-token",
 	}
-	return newDashboardServer(supervisor)
+	return newDashboardServerWithController(supervisor, "127.0.0.1:0")
 }

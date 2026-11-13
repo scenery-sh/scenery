@@ -8,10 +8,6 @@ import (
 	"net/http"
 )
 
-func DecodeContractJSON[T any](request *http.Request) (T, error) {
-	return DecodeContractInput[T](request, nil, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json"}})
-}
-
 func DecodeContractInput[T any](request *http.Request, pathValues map[string]string, schema ContractRequestSchema) (T, error) {
 	var value T
 	err := decodeContractInputInto(request, pathValues, schema, &value)

@@ -3,7 +3,6 @@ package devdash
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -64,56 +63,6 @@ func TestOpenStorePersistsJSONState(t *testing.T) {
 	}
 }
 
-func TestStoreSaveStateCompactsAndPrunesLocalHistory(t *testing.T) {
-	t.Parallel()
-
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-
-	state := newStoreState()
-	now := time.Now().UTC()
-	for i := range maxStoredProcessOutput + 100 {
-		state.ProcessOutput = append(state.ProcessOutput, ProcessOutput{
-			AppID:     "app-test",
-			SessionID: "session-a",
-			PID:       fmt.Sprintf("%d", i),
-			Stream:    "stdout",
-			Output:    []byte(strings.Repeat("x", 256)),
-			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
-		})
-	}
-
-	if err := store.saveState(state); err != nil {
-		t.Fatalf("save state: %v", err)
-	}
-	data, err := os.ReadFile(store.path)
-	if err != nil {
-		t.Fatalf("read state: %v", err)
-	}
-	if bytes.Contains(data, []byte("\n  \"")) {
-		t.Fatalf("state was written with pretty indentation")
-	}
-
-	var saved storeState
-	if err := json.Unmarshal(data, &saved); err != nil {
-		t.Fatalf("unmarshal saved state: %v", err)
-	}
-	if len(saved.ProcessOutput) > maxStoredProcessOutput {
-		t.Fatalf("process output count = %d, want <= %d", len(saved.ProcessOutput), maxStoredProcessOutput)
-	}
-	if len(saved.ProcessOutput) == 0 {
-		t.Fatal("byte budget pruned all process output, want recent history retained")
-	}
-	if len(data) > softStoreFileBytes {
-		t.Fatalf("saved state size = %d, want <= soft budget %d", len(data), softStoreFileBytes)
-	}
-}
-
 func TestStoreDropsLegacyObservabilityArraysOnSave(t *testing.T) {
 	t.Parallel()
 
@@ -164,7 +113,7 @@ func TestStoreBudgetRejectsLargeSessions(t *testing.T) {
 	// If metadata were still stored inline, these sessions would exceed the
 	// soft store budget. Keep the fixture only just large enough to prove that
 	// boundary so the test does not spend time hashing throwaway megabytes.
-	metadata := largeAppMetadata(t, "rev-shared", softStoreFileBytes/sessionCount+1024)
+	metadata := largeAppMetadata(t, "rev-shared", 2*1024*1024/sessionCount+1024)
 	apiEncoding := json.RawMessage(`{"rpc":"shape"}`)
 	now := time.Now().UTC()
 	for i := range sessionCount {
@@ -183,9 +132,6 @@ func TestStoreBudgetRejectsLargeSessions(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("upsert session %d: %v", i, err)
 		}
-	}
-	if err := store.Flush(ctx); err != nil {
-		t.Fatalf("flush: %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(cacheRoot, "devdash.json"))
@@ -236,51 +182,6 @@ func TestStoreBudgetRejectsLargeSessions(t *testing.T) {
 	}
 }
 
-func TestStoreStateSerializedSizeUnderBudget(t *testing.T) {
-	t.Parallel()
-
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-
-	state := newStoreState()
-	now := time.Now().UTC()
-	for i := range 300 {
-		state.ProcessOutput = append(state.ProcessOutput, ProcessOutput{
-			ID:        int64(i + 1),
-			AppID:     "app-test",
-			SessionID: "session-a",
-			PID:       "123",
-			Stream:    "stdout",
-			Output:    bytes.Repeat([]byte("x"), 64*1024),
-			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
-		})
-	}
-	state.NextProcessOutputID = 301
-
-	if err := store.saveState(state); err != nil {
-		t.Fatalf("save oversized state: %v", err)
-	}
-	data, err := os.ReadFile(store.path)
-	if err != nil {
-		t.Fatalf("read saved state: %v", err)
-	}
-	if len(data) > softStoreFileBytes {
-		t.Fatalf("saved store size = %d, want <= soft budget %d", len(data), softStoreFileBytes)
-	}
-	var saved storeState
-	if err := json.Unmarshal(data, &saved); err != nil {
-		t.Fatalf("unmarshal saved state: %v", err)
-	}
-	if len(saved.ProcessOutput) >= 300 {
-		t.Fatalf("process output count = %d, want byte-pruned below 300", len(saved.ProcessOutput))
-	}
-}
-
 func largeAppMetadata(t *testing.T, revision string, payloadBytes int) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(map[string]any{
@@ -297,35 +198,7 @@ func largeAppMetadata(t *testing.T, revision string, payloadBytes int) json.RawM
 	return data
 }
 
-func TestStoreFlushErrorAllowsDeferredRetry(t *testing.T) {
-	t.Parallel()
-
-	// A regular file where the parent directory should be makes the store
-	// path unwritable even though saves create missing parent directories.
-	blocked := filepath.Join(t.TempDir(), "blocked")
-	if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	store := &Store{
-		path: filepath.Join(blocked, "devdash.json"),
-		shared: &storeShared{
-			state:       newStoreState(),
-			dirty:       true,
-			savePending: true,
-		},
-	}
-	if err := store.Flush(context.Background()); err == nil {
-		t.Fatal("Flush returned nil for unwritable store path")
-	}
-	if !store.shared.dirty {
-		t.Fatal("failed flush cleared dirty state")
-	}
-	if store.shared.savePending {
-		t.Fatal("failed flush left savePending set, blocking retry scheduling")
-	}
-}
-
-func TestStorePersistsSessionIdentityAndFiltersOutput(t *testing.T) {
+func TestStorePersistsSessionIdentity(t *testing.T) {
 	t.Parallel()
 
 	store, err := OpenStore(t.TempDir())
@@ -355,84 +228,6 @@ func TestStorePersistsSessionIdentityAndFiltersOutput(t *testing.T) {
 	if app.SessionID != "feature-a-123abc" || app.RuntimeAppID != "app-test--feature-a" || app.BaseAppID != "app-test" {
 		t.Fatalf("app identity = %+v", app)
 	}
-
-	for _, output := range []ProcessOutput{
-		{AppID: "app-test", SessionID: "feature-a-123abc", PID: "1", Stream: "stdout", Output: []byte("a\n")},
-		{AppID: "app-test", SessionID: "feature-b-456def", PID: "2", Stream: "stdout", Output: []byte("b\n")},
-	} {
-		if err := store.WriteProcessOutput(ctx, output); err != nil {
-			t.Fatalf("write process output: %v", err)
-		}
-	}
-	all, err := store.ListProcessOutput(ctx, "app-test", 10)
-	if err != nil {
-		t.Fatalf("list output: %v", err)
-	}
-	if len(all) != 2 {
-		t.Fatalf("all output count = %d, want 2", len(all))
-	}
-	filtered, err := store.ListProcessOutputForSession(ctx, "app-test", "feature-a-123abc", 10)
-	if err != nil {
-		t.Fatalf("list filtered output: %v", err)
-	}
-	if len(filtered) != 1 || filtered[0].SessionID != "feature-a-123abc" || string(filtered[0].Output) != "a\n" {
-		t.Fatalf("filtered output = %+v", filtered)
-	}
-}
-
-func TestStoreDevEventsRoundTripAndFilters(t *testing.T) {
-	t.Parallel()
-
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-
-	ctx := context.Background()
-	now := time.Now().UTC()
-	events := []DevEvent{
-		DevEventFromOutput("app-test", "session-a", DevSource{ID: "api", Kind: "app", Name: "api", PID: "111", Stream: "stdout", Status: "running"}, []byte(`{"level":"info","msg":"registered","task":"SendEmail"}`+"\n"), now),
-		DevEventFromOutput("app-test", "session-a", DevSource{ID: "worker:durable", Kind: "worker", Name: "durable", PID: "222", Stream: "stderr", Status: "running"}, []byte(`2026-05-31T12:00:00Z ERROR task failed task=SyncUser attempt=2`+"\n"), now.Add(time.Second)),
-		DevEventFromOutput("app-test", "session-b", DevSource{ID: "api", Kind: "app", Name: "api", PID: "333", Stream: "stdout", Status: "running"}, []byte("other session\n"), now.Add(2*time.Second)),
-	}
-	for _, event := range events {
-		if err := store.WriteDevEvent(ctx, event); err != nil {
-			t.Fatalf("write dev event: %v", err)
-		}
-	}
-
-	filtered, err := store.ListDevEvents(ctx, DevEventQuery{
-		AppID:     "app-test",
-		SessionID: "session-a",
-		SourceID:  "worker:durable",
-		Level:     "error",
-		Grep:      "SyncUser",
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("list filtered dev events: %v", err)
-	}
-	if len(filtered) != 1 {
-		t.Fatalf("filtered events = %d, want 1: %+v", len(filtered), filtered)
-	}
-	event := filtered[0]
-	if event.Source.ID != "worker:durable" || event.Source.Kind != "worker" || event.Level != "error" || event.Message != "task failed" {
-		t.Fatalf("filtered event = %+v", event)
-	}
-	if string(event.Fields) != `{"attempt":2,"task":"SyncUser"}` {
-		t.Fatalf("fields = %s", event.Fields)
-	}
-
-	sources, err := store.ListDevSources(ctx, "app-test", "session-a")
-	if err != nil {
-		t.Fatalf("list dev sources: %v", err)
-	}
-	if len(sources) != 2 {
-		t.Fatalf("sources = %d, want 2: %+v", len(sources), sources)
-	}
 }
 
 func TestDevEventFromOutputKeepsShortLevelAboveStderr(t *testing.T) {
@@ -448,55 +243,6 @@ func TestDevEventFromOutputKeepsShortLevelAboveStderr(t *testing.T) {
 	}
 	if event.Parse.Format != "level-text" {
 		t.Fatalf("parse format = %q, want level-text", event.Parse.Format)
-	}
-}
-
-func TestStoreDevEventIDsAreAssignedBeforeInsert(t *testing.T) {
-	t.Parallel()
-
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-
-	ctx := context.Background()
-	first := NewDevEvent("app-test", "session-a", DevSource{ID: "api", Kind: "app"}, "info", "first", nil, time.Now().UTC())
-	firstID, err := store.WriteDevEventReturningID(ctx, first)
-	if err != nil {
-		t.Fatalf("write first event: %v", err)
-	}
-	if firstID <= 0 {
-		t.Fatalf("first id = %d, want positive", firstID)
-	}
-
-	explicit := NewDevEvent("app-test", "session-a", DevSource{ID: "api", Kind: "app"}, "info", "explicit", nil, time.Now().UTC())
-	explicit.ID = firstID + 10
-	explicitID, err := store.WriteDevEventReturningID(ctx, explicit)
-	if err != nil {
-		t.Fatalf("write explicit event: %v", err)
-	}
-	if explicitID != explicit.ID {
-		t.Fatalf("explicit id = %d, want %d", explicitID, explicit.ID)
-	}
-
-	next := NewDevEvent("app-test", "session-a", DevSource{ID: "api", Kind: "app"}, "info", "next", nil, time.Now().UTC())
-	nextID, err := store.WriteDevEventReturningID(ctx, next)
-	if err != nil {
-		t.Fatalf("write next event: %v", err)
-	}
-	if nextID != explicit.ID+1 {
-		t.Fatalf("next id = %d, want %d", nextID, explicit.ID+1)
-	}
-
-	followed, err := store.ListDevEvents(ctx, DevEventQuery{AppID: "app-test", SessionID: "session-a", AfterID: explicit.ID, Limit: 10})
-	if err != nil {
-		t.Fatalf("list after id: %v", err)
-	}
-	if len(followed) != 1 || followed[0].ID != nextID || followed[0].Message != "next" {
-		t.Fatalf("followed events = %+v, want next id %d", followed, nextID)
 	}
 }
 
@@ -579,146 +325,5 @@ func TestStoreKeepsDistinctAppSessionsForSameApp(t *testing.T) {
 	}
 	if sessionB.PID != "222" || sessionB.RouteID != "session-b" {
 		t.Fatalf("session-b record = %+v", sessionB)
-	}
-}
-
-func TestWriteProcessEventTruncatesOversizedPayloads(t *testing.T) {
-	t.Parallel()
-
-	store, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-
-	ctx := context.Background()
-	huge := map[string]any{"meta": strings.Repeat("x", maxProcessEventPayloadBytes+1)}
-	if err := store.WriteProcessEvent(ctx, "app-test", "process/reload", huge); err != nil {
-		t.Fatalf("write oversized process event: %v", err)
-	}
-	if err := store.WriteProcessEvent(ctx, "app-test", "process/start", map[string]any{"pid": "42"}); err != nil {
-		t.Fatalf("write small process event: %v", err)
-	}
-
-	events, err := store.ListProcessEvents(ctx, "app-test", 10)
-	if err != nil {
-		t.Fatalf("list process events: %v", err)
-	}
-	if len(events) != 2 {
-		t.Fatalf("events = %d, want 2", len(events))
-	}
-	for _, event := range events {
-		if len(event.PayloadJSON) > maxProcessEventPayloadBytes {
-			t.Fatalf("stored payload for %s is %d bytes, want <= %d", event.Kind, len(event.PayloadJSON), maxProcessEventPayloadBytes)
-		}
-	}
-	var truncated struct {
-		Truncated     bool `json:"truncated"`
-		OriginalBytes int  `json:"original_bytes"`
-	}
-	for _, event := range events {
-		if event.Kind != "process/reload" {
-			continue
-		}
-		if err := json.Unmarshal(event.PayloadJSON, &truncated); err != nil {
-			t.Fatalf("unmarshal truncated payload: %v", err)
-		}
-	}
-	if !truncated.Truncated || truncated.OriginalBytes <= maxProcessEventPayloadBytes {
-		t.Fatalf("truncated marker = %+v", truncated)
-	}
-}
-
-func TestPruneTruncatesOversizedProcessEventPayloadsFromOlderWriters(t *testing.T) {
-	t.Parallel()
-
-	huge, err := json.Marshal(map[string]any{"meta": strings.Repeat("x", maxProcessEventPayloadBytes+1)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := &storeState{
-		Version: 1,
-		ProcessEvents: []ProcessEvent{
-			{ID: 1, AppID: "app-test", Kind: "compile-start", PayloadJSON: huge, CreatedAt: time.Now().UTC()},
-			{ID: 2, AppID: "app-test", Kind: "process/start", PayloadJSON: json.RawMessage(`{"pid":"42"}`), CreatedAt: time.Now().UTC()},
-		},
-	}
-	pruneStoreState(state)
-	if got := len(state.ProcessEvents[0].PayloadJSON); got > maxProcessEventPayloadBytes {
-		t.Fatalf("oversized payload survived prune: %d bytes", got)
-	}
-	var marker struct {
-		Truncated     bool `json:"truncated"`
-		OriginalBytes int  `json:"original_bytes"`
-	}
-	if err := json.Unmarshal(state.ProcessEvents[0].PayloadJSON, &marker); err != nil {
-		t.Fatalf("unmarshal truncation marker: %v", err)
-	}
-	if !marker.Truncated || marker.OriginalBytes != len(huge) {
-		t.Fatalf("marker = %+v, want truncated with original_bytes %d", marker, len(huge))
-	}
-	if string(state.ProcessEvents[1].PayloadJSON) != `{"pid":"42"}` {
-		t.Fatalf("small payload was modified: %s", state.ProcessEvents[1].PayloadJSON)
-	}
-}
-
-func TestHighFrequencyWritersDeferPersistUntilFlush(t *testing.T) {
-	t.Parallel()
-
-	cacheRoot := t.TempDir()
-	store, err := OpenStore(cacheRoot)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	path := filepath.Join(cacheRoot, "devdash.json")
-
-	ctx := context.Background()
-	if err := store.WriteProcessOutput(ctx, ProcessOutput{
-		AppID:  "app-defer",
-		Stream: "stdout",
-		Output: []byte("deferred line"),
-	}); err != nil {
-		t.Fatalf("write process output: %v", err)
-	}
-	if err := store.WriteProcessEvent(ctx, "app-defer", "status", map[string]string{"phase": "ready"}); err != nil {
-		t.Fatalf("write process event: %v", err)
-	}
-	id, err := store.WriteDevEventReturningID(ctx, DevEvent{AppID: "app-defer", Message: "hello"})
-	if err != nil {
-		t.Fatalf("write dev event: %v", err)
-	}
-	if id <= 0 {
-		t.Fatalf("dev event id = %d, want > 0", id)
-	}
-
-	// Readers on the shared in-memory state observe the writes immediately.
-	items, err := store.ListProcessOutput(ctx, "app-defer", 10)
-	if err != nil {
-		t.Fatalf("list process output: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("in-memory process output count = %d, want 1", len(items))
-	}
-
-	// The on-disk file stays behind until the coalesced save runs.
-	if data, err := os.ReadFile(path); err == nil && bytes.Contains(data, []byte("app-defer")) {
-		t.Fatal("high-frequency write persisted immediately; want deferred persistence")
-	}
-
-	if err := store.Flush(ctx); err != nil {
-		t.Fatalf("flush: %v", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read store file after flush: %v", err)
-	}
-	encodedOutput := base64.StdEncoding.EncodeToString([]byte("deferred line"))
-	for _, want := range []string{"app-defer", encodedOutput, "hello"} {
-		if !bytes.Contains(data, []byte(want)) {
-			t.Fatalf("flushed store file missing %q", want)
-		}
 	}
 }

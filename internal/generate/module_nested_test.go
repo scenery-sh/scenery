@@ -35,7 +35,7 @@ record "point" {
 }
 export "point" { value = record.point }
 `)
-	result, err := compiler.CompileContractGraph(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -145,7 +145,7 @@ record "point" {
 }
 export "point" { value = record.point }
 `)
-	result, err := compiler.CompileContractGraph(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}

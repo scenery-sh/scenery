@@ -36,7 +36,6 @@ var defaultMappings = map[string]string{
 	"GOOGLE_OAUTH_CLIENT_SECRET": "auth.google_client_secret",
 	"AUTH_TOKEN_CIPHER_KEY":      "auth.token_cipher_key",
 	"AUTH_COOKIE_DOMAIN":         "auth.cookie_domain",
-	"AUTH_EMAIL_FROM":            "auth.email_from",
 	"OPENAI_API_KEY":             "assistant.openai_api_key",
 	"DATABASE_URL":               "sql.database_url",
 }

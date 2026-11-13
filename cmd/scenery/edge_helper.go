@@ -143,8 +143,7 @@ func edgePrivilegedHelperInstall(opts edgeHelperOptions) error {
 // edgeHelperLaunchctlRetryWindow bounds retries of launchctl bootstrap and
 // kickstart during install. `launchctl bootout` returns before launchd has
 // finished tearing the old service down, so an immediate bootstrap of the
-// replacement can fail transiently with exit status 5 (EIO); one re-run of
-// `scenery deploy setup` used to be the workaround.
+// replacement can fail transiently with exit status 5 (EIO).
 const edgeHelperLaunchctlRetryWindow = 10 * time.Second
 
 func runEdgeHelperLaunchctl(args ...string) ([]byte, error) {

@@ -18,58 +18,6 @@ func TestAssistantStatusSnapshotSchemaRevisionMatchesDescriptor(t *testing.T) {
 	}
 }
 
-func TestInspectAssistantsDefaultsToProviderNeutral(t *testing.T) {
-	root := copyFixtureRoot(t, "native")
-	output := captureStdout(t, func() error {
-		return runSceneryInspect([]string{"assistants", "--app-root", root, "-o", "json"}, os.Stdout)
-	})
-	var payload inspectAssistantsResponse
-	if err := decodeCLIJSON([]byte(output), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Kind != inspectAssistantsKind || payload.SchemaRevision != newCLIPayloadIdentity(inspectAssistantsKind).SchemaRevision {
-		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
-	}
-	if len(payload.Assistants) != 1 || payload.Assistants[0].Name != "support" {
-		t.Fatalf("assistants = %#v", payload.Assistants)
-	}
-	if payload.Assistants[0].Status != "not_started" || payload.Assistants[0].Ready {
-		t.Fatalf("default status = %#v", payload.Assistants[0])
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, forbidden := range []string{"eve", "adapter", "node_version", "package_lock", "overlay_path", "private_control_addr", "private_mcp_addr", "pid"} {
-		if strings.Contains(string(encoded), forbidden) {
-			t.Fatalf("provider implementation detail %q escaped default inspection: %s", forbidden, encoded)
-		}
-	}
-	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.inspect.assistants.schema.json"), payload); len(diagnostics) != 0 {
-		t.Fatalf("schema diagnostics = %v", diagnostics)
-	}
-}
-
-func TestInspectAssistantsImplementationIsExplicit(t *testing.T) {
-	root := copyFixtureRoot(t, "native")
-	output := captureStdout(t, func() error {
-		return runSceneryInspect([]string{"assistants", "--implementation", "--app-root", root, "-o", "json"}, os.Stdout)
-	})
-	var payload inspectAssistantsResponse
-	if err := decodeCLIJSON([]byte(output), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Assistants) != 1 || payload.Assistants[0].Implementation == nil {
-		t.Fatalf("implementation view = %#v", payload.Assistants)
-	}
-	if payload.Assistants[0].Implementation.Adapter != "eve" {
-		t.Fatalf("adapter = %q", payload.Assistants[0].Implementation.Adapter)
-	}
-	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.inspect.assistants.schema.json"), payload); len(diagnostics) != 0 {
-		t.Fatalf("schema diagnostics = %v", diagnostics)
-	}
-}
-
 func TestAssistantStatusReadsSnapshotAndRemainsProviderNeutral(t *testing.T) {
 	root := copyFixtureRoot(t, "native")
 	output := captureStdout(t, func() error {
@@ -112,17 +60,6 @@ func TestAssistantStatusReadsSnapshotAndRemainsProviderNeutral(t *testing.T) {
 	encoded, _ := json.Marshal(payload)
 	if strings.Contains(string(encoded), "private_") || strings.Contains(string(encoded), "pid") {
 		t.Fatalf("private status escaped = %s", encoded)
-	}
-	output = captureStdout(t, func() error {
-		return runSceneryInspect([]string{"assistants", "--implementation", "--app-root", root, "-o", "json"}, os.Stdout)
-	})
-	var inspectPayload inspectAssistantsResponse
-	if err := decodeCLIJSON([]byte(output), &inspectPayload); err != nil {
-		t.Fatal(err)
-	}
-	implementation := inspectPayload.Assistants[0].Implementation
-	if implementation == nil || implementation.NodeVersion != "v24.18.0" || implementation.PID != 42 || implementation.PrivateControlAddr == "" {
-		t.Fatalf("implementation status = %#v", implementation)
 	}
 }
 

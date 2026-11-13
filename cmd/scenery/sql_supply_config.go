@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
@@ -45,11 +44,11 @@ func applyConfiguredSQLSupply(ctx context.Context, args []string) error {
 	if len(args) == 0 || !sqlSupplyCommands[args[0]] {
 		return nil
 	}
-	root, cfg, err := discoverConfiguredApp(flagValue(args[1:], "app-root"))
+	_, cfg, err := discoverConfiguredApp(flagValue(args[1:], "app-root"))
 	if err != nil {
 		return nil
 	}
-	env, err := cfg.ResolveEnv(sqlSupplyEnvironment(root, cfg, flagValue(args[1:], "env")))
+	env, err := cfg.ResolveEnv(flagValue(args[1:], "env"))
 	if err != nil {
 		return nil
 	}
@@ -57,7 +56,7 @@ func applyConfiguredSQLSupply(ctx context.Context, args []string) error {
 	if err != nil || !configured {
 		return err
 	}
-	if args[0] == "up" && !env.Deployable() {
+	if args[0] == "up" {
 		return preconditionErrorf("environment %s configures %s, one external database for every worktree that runs it; development runtimes each use their own managed database, so unset it with `scenery config unset %s --env %s`", env.Name, appconfig.SQLDatabaseURLKey, appconfig.SQLDatabaseURLKey, env.Name)
 	}
 	if err := validateAppPostgresURL(value); err != nil {
@@ -97,35 +96,6 @@ func defaultConfigSecretBackend(store *appconfig.Store) (appconfig.SecretBackend
 		return configSecretBackendOverride(store)
 	}
 	return appconfig.DefaultSecretBackend(store)
-}
-
-// sqlSupplyEnvironment is the environment a command's SQL supply belongs to:
-// the explicit --env, else the deployable environment whose stable runtime
-// root this is, else the default environment.
-func sqlSupplyEnvironment(root string, cfg appcfg.Config, explicit string) string {
-	if explicit != "" || strings.TrimSpace(cfg.ID) == "" {
-		return explicit
-	}
-	paths, err := commandAgentPaths()
-	if err != nil {
-		return ""
-	}
-	home := paths.Home
-	if canonical, err := filepath.EvalSymlinks(home); err == nil {
-		home = canonical
-	}
-	if canonical, err := filepath.EvalSymlinks(root); err == nil {
-		root = canonical
-	}
-	relative, err := filepath.Rel(filepath.Join(home, "deployments", cfg.ID), root)
-	if err != nil {
-		return ""
-	}
-	environment, rest, ok := strings.Cut(filepath.ToSlash(relative), "/")
-	if !ok || rest != "source" || environment == ".." {
-		return ""
-	}
-	return environment
 }
 
 // flagValue returns the last value of --name in args, in either the

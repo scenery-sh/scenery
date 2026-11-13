@@ -21,7 +21,6 @@ func TestNativeMCPFixtureIsDeterministicAndPreservesRevisionDomains(t *testing.T
 	}
 
 	wantKinds := map[string]string{
-		"app/mcp_connection/docs":         "scenery.mcp-connection",
 		"app/mcp_server/support":          "scenery.mcp-server",
 		"app/assistant/support":           "scenery.assistant",
 		"house/binding/process_scene_mcp": "scenery.binding",
@@ -82,10 +81,6 @@ func TestNativeMCPFixtureIsDeterministicAndPreservesRevisionDomains(t *testing.T
 	capabilityProvenance := server.Origin.FieldProvenance["/spec/capability/binding"]
 	if capabilityProvenance.Kind != "module_export" || capabilityProvenance.Input != "module.house.process_scene_mcp" || capabilityProvenance.ProvidedBy != "app/module/house/export/process_scene_mcp" || !containsString(capabilityProvenance.Transformations, "module_export_substitution") {
 		t.Fatalf("MCP capability provenance = %#v", capabilityProvenance)
-	}
-	connections := namedChildren(server.Spec, "connection")
-	if len(connections) != 1 || refString(connections[0]["connection"]) != "mcp_connection.docs" {
-		t.Fatalf("expanded MCP server connection = %#v", connections)
 	}
 	assistant := resourcesByAddress(expanded)["app/assistant/support"]
 	if refString(assistant.Spec["mcp_server"]) != "mcp_server.support" {

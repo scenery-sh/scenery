@@ -105,9 +105,6 @@ export type TypeDescriptor =
       readonly kind: "record";
       readonly fields: readonly FieldDescriptor[];
       readonly preserveUnknown: boolean;
-/*__scenery_runtime_validation_start__*/
-      readonly validations?: readonly ValidationDescriptor[];
-/*__scenery_runtime_validation_end__*/
     }
   | { readonly kind: "enum"; readonly values: readonly string[]; readonly open: boolean }
   | {
@@ -140,29 +137,6 @@ export interface ConstraintDescriptor {
   readonly deprecated?: unknown;
 }
 
-/*__scenery_runtime_validation_start__*/
-export interface ValidationDescriptor {
-  readonly name: string;
-  readonly source: string;
-  readonly expression: ValidationExpression;
-  readonly code: string;
-  readonly message: string;
-  readonly path: string;
-}
-
-export type ValidationExpression =
-  | { readonly kind: "literal"; readonly type: "null" | "bool" | "string" | "number"; readonly value?: boolean | string }
-  | { readonly kind: "value" }
-  | { readonly kind: "attribute"; readonly source: ValidationExpression; readonly name: string }
-  | { readonly kind: "index"; readonly collection: ValidationExpression; readonly key: ValidationExpression }
-  | { readonly kind: "call"; readonly name: string; readonly arguments: readonly ValidationExpression[] }
-  | { readonly kind: "binary"; readonly operator: string; readonly left: ValidationExpression; readonly right: ValidationExpression }
-  | { readonly kind: "unary"; readonly operator: string; readonly value: ValidationExpression }
-  | { readonly kind: "conditional"; readonly condition: ValidationExpression; readonly true_result: ValidationExpression; readonly false_result: ValidationExpression }
-  | { readonly kind: "tuple"; readonly values: readonly ValidationExpression[] }
-  | { readonly kind: "object"; readonly entries: readonly { readonly key: ValidationExpression; readonly value: ValidationExpression }[] }
-  | { readonly kind: "template"; readonly parts: readonly ValidationExpression[] };
-/*__scenery_runtime_validation_end__*/
 
 export type TypeRegistry = Readonly<Record<string, TypeDescriptor>>;
 

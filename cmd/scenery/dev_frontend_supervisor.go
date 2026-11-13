@@ -165,10 +165,6 @@ func (s *devSupervisor) restartManagedFrontend(ctx context.Context, name string,
 	if !ok {
 		return fmt.Errorf("frontend %q is no longer configured", name)
 	}
-	if override := strings.TrimSpace(localproxy.FrontendOverride(name)); override != "" {
-		s.clearManagedFrontend(name, previous)
-		return s.updateManagedFrontendSession(ctx, name, localagent.Backend{Network: "tcp", Addr: override}, nil)
-	}
 	baseEnv := envpolicy.Environ()
 	result := startManagedFrontend(ctx, s.root, s.activeAppID(), 0, frontend, baseEnv, *session)
 	if result.err != nil {

@@ -61,10 +61,6 @@ func WorkspaceDirAt(cacheRoot, appRoot, appName string) (string, error) {
 	return filepath.Join(cacheRoot, "build", name+"-"+hex.EncodeToString(sum[:8])), nil
 }
 
-func WorkspaceDir(appRoot, appName string) (string, error) {
-	return workspaceDir(appRoot, appName)
-}
-
 func BuildStatePathAt(cacheRoot, appRoot, appName string) (string, error) {
 	root, err := WorkspaceDirAt(cacheRoot, appRoot, appName)
 	if err != nil {

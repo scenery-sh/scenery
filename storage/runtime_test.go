@@ -101,19 +101,6 @@ func TestLocalAdapterPreservesVersionConditionsAndFullSize(t *testing.T) {
 		t.Fatal("delete lost condition")
 	}
 }
-func TestPackagePutFileUsesOnlyPut(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "input")
-	if err := os.WriteFile(path, []byte("file bytes"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	backend := &recordingStore{}
-	if _, err := PutFile(context.Background(), backend, "a", path, PutOptions{IfMatch: "etag"}); err != nil {
-		t.Fatal(err)
-	}
-	if backend.body != "file bytes" || backend.putOptions.IfMatch != "etag" {
-		t.Fatalf("PutFile: %#v", backend)
-	}
-}
 
 type recordingStore struct {
 	keys          []string

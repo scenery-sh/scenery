@@ -24,9 +24,6 @@ type mcpToolTarget struct {
 	OpenWorld        bool
 	MaxInputBytes    int64
 	MaxResultBytes   int64
-	Durable          bool
-	DurableService   string
-	DurableTask      string
 }
 
 func mcpBindingsForService(resources []Resource, byAddress map[string]Resource, service Resource, operations []Resource) []mcpToolTarget {
@@ -70,11 +67,6 @@ func mcpBindingsForService(resources []Resource, byAddress map[string]Resource, 
 						Approval: stringValue(capability["approval"]), ReadOnly: mcpSpec["read_only"] == true, Destructive: mcpSpec["destructive"] == true,
 						Idempotent: mcpSpec["idempotent"] == true, OpenWorld: mcpSpec["open_world"] == true,
 						MaxInputBytes: maxInput, MaxResultBytes: maxResult,
-						Durable: stringValue(execution.Spec["mode"]) == "durable", DurableService: service.Name,
-						DurableTask: stringValue(execution.Spec["external_name"]),
-					}
-					if target.DurableTask == "" {
-						target.DurableTask = execution.Address
 					}
 					targets = append(targets, target)
 				}
@@ -114,24 +106,18 @@ func renderMCPToolRegistrations(b *strings.Builder, service Resource, targets []
 	resourceMap := resourcesByAddress(&Manifest{Resources: resources})
 	for _, target := range targets {
 		operationName := goName(target.Operation.Name)
-		handlerMethod := operationHandlerMethod(target.Operation)
+		handler, _ := target.Operation.Spec["handler"].(map[string]any)
+		handlerMethod := stringValue(handler["method"])
 		if handlerMethod == "" {
 			return fmt.Errorf("MCP binding %s operation %s has no handler method", target.Binding.Address, target.Operation.Address)
 		}
 		policy := renderContractInvocationPolicy(resourceMap, target.Binding, target.Binding.Address, target.Binding.Spec["authorization"], target.Binding.Spec["pipeline"])
 		registrationID := target.AssistantAddress + "#" + target.Binding.Address
-		fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: %q, Name: %q, AssistantAddress: %q, OperationAddress: %q, ExecutionAddress: %q, Policy: %s, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: %d, MaxResultBytes: %d}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: %t, Destructive: %t, Idempotent: %t, OpenWorld: %t}, Approval: %q, Durable: %t, DurableService: %q, DurableTask: %q, ", registrationID, target.Name, target.AssistantAddress, target.Operation.Address, target.Execution.Address, policy, target.MaxInputBytes, target.MaxResultBytes, target.ReadOnly, target.Destructive, target.Idempotent, target.OpenWorld, target.Approval, target.Durable, target.DurableService, target.DurableTask)
+		fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: %q, Name: %q, AssistantAddress: %q, OperationAddress: %q, ExecutionAddress: %q, Policy: %s, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: %d, MaxResultBytes: %d}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: %t, Destructive: %t, Idempotent: %t, OpenWorld: %t}, Approval: %q, ", registrationID, target.Name, target.AssistantAddress, target.Operation.Address, target.Execution.Address, policy, target.MaxInputBytes, target.MaxResultBytes, target.ReadOnly, target.Destructive, target.Idempotent, target.OpenWorld, target.Approval)
 		fmt.Fprintf(b, "DecodeInput: func(data []byte) (any, error) { return contract.Unmarshal%sInput(data) }, ", operationName)
-		if target.Durable {
-			b.WriteString("EncodeOutput: func(value any) ([]byte, error) { receipt, ok := value.(scenery.ExecutionReceipt); if !ok { return nil, fmt.Errorf(\"MCP durable tool returned %T, want scenery.ExecutionReceipt\", value) }; return scenery.MarshalContractValue(receipt, \"std.type.execution_receipt\") }, ")
-		} else {
-			fmt.Fprintf(b, "EncodeOutput: func(value any) ([]byte, error) { typed, ok := value.(contract.%sOutcome); if !ok { return nil, fmt.Errorf(\"MCP tool returned %%T, want contract.%sOutcome\", value) }; return contract.Marshal%sOutcome(typed) }, ", operationName, operationName, operationName)
-		}
+		fmt.Fprintf(b, "EncodeOutput: func(value any) ([]byte, error) { typed, ok := value.(contract.%sOutcome); if !ok { return nil, fmt.Errorf(\"MCP tool returned %%T, want contract.%sOutcome\", value) }; return contract.Marshal%sOutcome(typed) }, ", operationName, operationName, operationName)
 		fmt.Fprintf(b, "Invoke: func(ctx context.Context, call sceneryruntime.MCPToolCallContext, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"MCP input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; ", operationName, operationName)
-		if target.Durable {
-			optionsFunction := durableDispatchOptionsFunction(target.Execution)
-			fmt.Fprintf(b, "options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; if call.IdempotencyKey != \"\" { options.DedupeKey = call.IdempotencyKey }; return sceneryruntime.DispatchContractDurableExecutionWithOptions(ctx, %q, copied, options) }, }); err != nil { return err }\n", optionsFunction, target.Execution.Address)
-		} else if operationUsesHTTPStream(target.Operation, resources) {
+		if operationUsesHTTPStream(target.Operation, resources) {
 			fmt.Fprintf(b, "if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; outcome, stream, err := service.%s(ctx, copied); if err != nil { _ = stream.Close(); if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; ", handlerMethod)
 			if err := renderMCPStreamOutcomeBuffer(b, target, resources); err != nil {
 				return err

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,7 +95,6 @@ type assistantTestServer struct {
 	helper   *assistantruntime.FakeHelper
 	clock    *assistantTestClock
 	manager  assistanttoken.Manager
-	signer   assistanttoken.InitiatorSigner
 	basePath string
 }
 
@@ -111,7 +111,6 @@ func newAssistantTestServerWithRegistration(t *testing.T, config assistantruntim
 		config.AssistantAddress = "support"
 	}
 	clock := &assistantTestClock{value: time.Unix(1_754_280_000, 0).UTC()}
-	signerClock := &assistantTestClock{value: clock.value}
 	if config.Now == nil {
 		config.Now = clock.Now
 	}
@@ -124,23 +123,30 @@ func newAssistantTestServerWithRegistration(t *testing.T, config assistantruntim
 	key := bytes.Repeat([]byte{0x41}, 32)
 	keyring := assistanttoken.NewStaticKeyring("test", key, nil)
 	manager := assistanttoken.Manager{Keys: keyring, Now: clock.Now, TTL: time.Hour}
-	signer := assistanttoken.InitiatorSigner{Key: append([]byte(nil), key...), KeyID: "test", Now: signerClock.Now, TTL: time.Hour}
 	registration := AssistantRegistration{
 		Address:            "app/assistant/support",
 		Name:               "support",
 		Path:               "/assistants/support",
-		Access:             Public,
+		Access:             Auth,
 		AssistantAddress:   "support",
 		RuntimeRevision:    "runtime-1",
 		CapabilityRevision: "capability-1",
 		Client:             helper,
 		TokenManager:       manager,
-		InitiatorSigner:    signer,
 		RunIDReader:        &counterReader{next: 1},
 		Random:             &counterReader{next: 101},
 	}
 	if configure != nil {
 		configure(&registration)
+	}
+	global.mu.RLock()
+	authenticated := global.authHandler != nil
+	global.mu.RUnlock()
+	if !authenticated {
+		// Every test principal is its own bearer token.
+		RegisterAuthHandler(&AuthHandler{Name: "test-auth", Authenticate: func(_ context.Context, token string) (AuthInfo, error) {
+			return AuthInfo{UID: token}, nil
+		}})
 	}
 	if err := RegisterAssistantChecked(registration); err != nil {
 		t.Fatalf("register assistant: %v", err)
@@ -149,18 +155,18 @@ func newAssistantTestServerWithRegistration(t *testing.T, config assistantruntim
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
-	return assistantTestServer{server: server, helper: helper, clock: clock, manager: manager, signer: signer, basePath: assistantTestPath}
+	return assistantTestServer{server: server, helper: helper, clock: clock, manager: manager, basePath: assistantTestPath}
 }
 
-func assistantRequest(t *testing.T, server *http.Server, method, path string, body any, cookie *http.Cookie) *httptest.ResponseRecorder {
-	return assistantRequestWithEncoding(t, server, method, path, body, cookie, "")
+func assistantRequest(t *testing.T, server *http.Server, method, path string, body any, principal string) *httptest.ResponseRecorder {
+	return assistantRequestWithEncoding(t, server, method, path, body, principal, "")
 }
 
-func assistantRequestWithEncoding(t *testing.T, server *http.Server, method, path string, body any, cookie *http.Cookie, acceptEncoding string) *httptest.ResponseRecorder {
-	return assistantRequestWithHeaders(t, server, method, path, body, cookie, acceptEncoding, nil)
+func assistantRequestWithEncoding(t *testing.T, server *http.Server, method, path string, body any, principal string, acceptEncoding string) *httptest.ResponseRecorder {
+	return assistantRequestWithHeaders(t, server, method, path, body, principal, acceptEncoding, nil)
 }
 
-func assistantRequestWithHeaders(t *testing.T, server *http.Server, method, path string, body any, cookie *http.Cookie, acceptEncoding string, headers http.Header) *httptest.ResponseRecorder {
+func assistantRequestWithHeaders(t *testing.T, server *http.Server, method, path string, body any, principal string, acceptEncoding string, headers http.Header) *httptest.ResponseRecorder {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
@@ -174,8 +180,8 @@ func assistantRequestWithHeaders(t *testing.T, server *http.Server, method, path
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if cookie != nil {
-		req.AddCookie(cookie)
+	if principal != "" {
+		req.Header.Set("Authorization", "Bearer "+principal)
 	}
 	for key, values := range headers {
 		for _, value := range values {
@@ -190,9 +196,9 @@ func assistantRequestWithHeaders(t *testing.T, server *http.Server, method, path
 	return recorder
 }
 
-func assistantEventsRequest(t *testing.T, server *http.Server, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
+func assistantEventsRequest(t *testing.T, server *http.Server, path string, principal string) *httptest.ResponseRecorder {
 	t.Helper()
-	return assistantRequestWithEncoding(t, server, http.MethodGet, path, nil, cookie, "gzip")
+	return assistantRequestWithEncoding(t, server, http.MethodGet, path, nil, principal, "gzip")
 }
 
 func decodeJSONMap(t *testing.T, recorder *httptest.ResponseRecorder) map[string]json.RawMessage {
@@ -330,18 +336,6 @@ func findEvent(events []assistantapi.Event, typ string) (assistantapi.Event, boo
 	return assistantapi.Event{}, false
 }
 
-func cookieFrom(t *testing.T, recorder *httptest.ResponseRecorder) *http.Cookie {
-	t.Helper()
-	cookies := recorder.Result().Cookies()
-	for _, cookie := range cookies {
-		if cookie.Name == assistanttoken.CookieName {
-			return cookie
-		}
-	}
-	t.Fatalf("response did not issue %q cookie; headers=%v", assistanttoken.CookieName, recorder.Header())
-	return nil
-}
-
 func assertNotFoundResponse(t *testing.T, recorder *httptest.ResponseRecorder, wantBody string) {
 	t.Helper()
 	if recorder.Code != http.StatusNotFound {
@@ -356,30 +350,27 @@ func assertNotFoundResponse(t *testing.T, recorder *httptest.ResponseRecorder, w
 	}
 }
 
-func createConversation(t *testing.T, testServer assistantTestServer, cookie *http.Cookie) (assistantapi.CreateConversationResponse, *http.Cookie) {
+var assistantTestPrincipals atomic.Uint64
+
+// createConversation creates a conversation as principal, or as a new
+// principal when it is empty, and returns the principal that owns it.
+func createConversation(t *testing.T, testServer assistantTestServer, principal string) (assistantapi.CreateConversationResponse, string) {
 	t.Helper()
+	if principal == "" {
+		principal = "user-" + strconv.FormatUint(assistantTestPrincipals.Add(1), 10)
+	}
 	recorder := assistantRequest(t, testServer.server, http.MethodPost, testServer.basePath, map[string]any{
 		"message": map[string]string{"role": "user", "content": "hello"},
-	}, cookie)
-	response := decodeCreateResponse(t, recorder)
-	if cookie == nil {
-		cookie = cookieFrom(t, recorder)
-	}
-	return response, cookie
+	}, principal)
+	return decodeCreateResponse(t, recorder), principal
 }
 
 func TestAssistantGatewayBindsEachConversationToDistinctPrivateSession(t *testing.T) {
 	testServer := newAssistantTestServer(t, assistantruntime.FakeConfig{})
-	first, cookie := createConversation(t, testServer, nil)
-	second, _ := createConversation(t, testServer, cookie)
+	first, principal := createConversation(t, testServer, "")
+	second, _ := createConversation(t, testServer, principal)
 
-	// Resolve the owner through the same signed cookie path instead of relying
-	// on the cookie payload format.
-	identity, err := testServer.signer.Verify(cookie)
-	if err != nil {
-		t.Fatalf("verify initiator cookie: %v", err)
-	}
-	owner := assistanttoken.OwnerDigest(identity.ID)
+	owner := assistanttoken.OwnerDigest(principal)
 	expectation := assistanttoken.ConversationExpectation{AssistantAddress: "support", OwnerDigest: owner}
 	firstClaims, err := testServer.manager.UnsealConversation(first.ConversationID, expectation)
 	if err != nil {
@@ -402,24 +393,9 @@ func TestAssistantGatewayPublicProtocolAndReconnect(t *testing.T) {
 		TextChunks: []string{"hello ", "E", "ve", ".", " event"},
 	})
 
-	created, cookie := createConversation(t, testServer, nil)
-	if cookie.Value == "" || !strings.HasPrefix(cookie.Value, "anon1_") {
-		t.Fatalf("initiator cookie = %q", cookie.Value)
-	}
-	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode {
-		t.Fatalf("initiator cookie flags = HttpOnly:%v SameSite:%v", cookie.HttpOnly, cookie.SameSite)
-	}
-	identity, err := testServer.signer.Verify(cookie)
-	if err != nil || identity.ID == "" {
-		t.Fatalf("initiator cookie did not verify: identity=%+v err=%v", identity, err)
-	}
-	tamperedCookie := *cookie
-	tamperedCookie.Value += "0"
-	if _, err := testServer.signer.Verify(&tamperedCookie); err == nil {
-		t.Fatal("tampered initiator cookie was accepted")
-	}
+	created, principal := createConversation(t, testServer, "")
 
-	eventsRecorder := assistantEventsRequest(t, testServer.server, created.EventsURL, cookie)
+	eventsRecorder := assistantEventsRequest(t, testServer.server, created.EventsURL, principal)
 	events := decodePublicEvents(t, eventsRecorder)
 	if len(events) == 0 {
 		t.Fatal("initial events stream was empty")
@@ -478,8 +454,8 @@ func TestAssistantGatewayPublicProtocolAndReconnect(t *testing.T) {
 
 	last := events[len(events)-1].Sequence
 	resumePath := created.EventsURL + "?after=" + strconv.FormatUint(last-1, 10)
-	firstTail := assistantEventsRequest(t, testServer.server, resumePath, cookie)
-	secondTail := assistantEventsRequest(t, testServer.server, resumePath, cookie)
+	firstTail := assistantEventsRequest(t, testServer.server, resumePath, principal)
+	secondTail := assistantEventsRequest(t, testServer.server, resumePath, principal)
 	tail := decodePublicEvents(t, firstTail)
 	repeat := decodePublicEvents(t, secondTail)
 	if !reflect.DeepEqual(tail, repeat) {
@@ -493,7 +469,7 @@ func TestAssistantGatewayPublicProtocolAndReconnect(t *testing.T) {
 
 	turnRecorder := assistantRequest(t, testServer.server, http.MethodPost, created.EventsURL[:strings.Index(created.EventsURL, "/events")]+"/turns", map[string]any{
 		"message": map[string]string{"role": "user", "content": "follow up"},
-	}, cookie)
+	}, principal)
 	if turnRecorder.Code != http.StatusOK {
 		t.Fatalf("turn status = %d, body=%s", turnRecorder.Code, turnRecorder.Body.String())
 	}
@@ -517,32 +493,32 @@ func TestAssistantGatewayPublicProtocolAndReconnect(t *testing.T) {
 
 func TestAssistantGatewayOwnershipAndHandleFailures(t *testing.T) {
 	testServer := newAssistantTestServer(t, assistantruntime.FakeConfig{Text: "private"})
-	created, ownerCookie := createConversation(t, testServer, nil)
-	_, otherCookie := createConversation(t, testServer, nil)
+	created, ownerPrincipal := createConversation(t, testServer, "")
+	_, otherPrincipal := createConversation(t, testServer, "")
 
-	unknown := assistantRequest(t, testServer.server, http.MethodGet, testServer.basePath+"/conv1_deadbeef/events", nil, ownerCookie)
+	unknown := assistantRequest(t, testServer.server, http.MethodGet, testServer.basePath+"/conv1_deadbeef/events", nil, ownerPrincipal)
 	assertNotFoundResponse(t, unknown, `{"code":"not_found","message":"assistant resource not found"}`)
 	wantNotFound := unknown.Body.String()
 
-	crossOwner := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, otherCookie)
+	crossOwner := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, otherPrincipal)
 	assertNotFoundResponse(t, crossOwner, wantNotFound)
 
-	malformed := assistantRequest(t, testServer.server, http.MethodGet, testServer.basePath+"/not-a-handle/events", nil, ownerCookie)
+	malformed := assistantRequest(t, testServer.server, http.MethodGet, testServer.basePath+"/not-a-handle/events", nil, ownerPrincipal)
 	assertNotFoundResponse(t, malformed, wantNotFound)
 
-	// Advance only the conversation token clock. The signed initiator cookie
-	// remains valid, so this specifically proves expired handles normalize to
+	// Advance only the conversation token clock. The principal remains
+	// authenticated, so this specifically proves expired handles normalize to
 	// the same not_found response as an unknown or cross-principal handle.
 	testServer.clock.value = testServer.clock.value.Add(2 * time.Hour)
-	expired := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, ownerCookie)
+	expired := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, ownerPrincipal)
 	assertNotFoundResponse(t, expired, wantNotFound)
 
 	// Every route must enforce ownership, not only event reads.
 	turn := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(created.EventsURL, "/events")+"/turns", map[string]any{
 		"message": map[string]string{"role": "user", "content": "no"},
-	}, otherCookie)
+	}, otherPrincipal)
 	assertNotFoundResponse(t, turn, wantNotFound)
-	cancel := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(created.EventsURL, "/events")+"/runs/"+created.RunID+"/cancel", nil, otherCookie)
+	cancel := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(created.EventsURL, "/events")+"/runs/"+created.RunID+"/cancel", nil, otherPrincipal)
 	assertNotFoundResponse(t, cancel, wantNotFound)
 }
 
@@ -553,8 +529,8 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 		CapabilityInput: json.RawMessage(`{"resource":"private"}`),
 		RequireApproval: true,
 	})
-	created, cookie := createConversation(t, testServer, nil)
-	initialRecorder := assistantEventsRequest(t, testServer.server, created.EventsURL, cookie)
+	created, principal := createConversation(t, testServer, "")
+	initialRecorder := assistantEventsRequest(t, testServer.server, created.EventsURL, principal)
 	initial := decodePublicEvents(t, initialRecorder)
 	approvalEvent, ok := findEvent(initial, assistantapi.EventApprovalRequired)
 	if !ok {
@@ -573,7 +549,7 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 	}
 
 	allowPath := strings.TrimSuffix(created.EventsURL, "/events") + "/approvals/" + approvalID
-	allowRecorder := assistantRequest(t, testServer.server, http.MethodPost, allowPath, map[string]string{"decision": assistantapi.ApprovalApprove}, cookie)
+	allowRecorder := assistantRequest(t, testServer.server, http.MethodPost, allowPath, map[string]string{"decision": assistantapi.ApprovalApprove}, principal)
 	if allowRecorder.Code != http.StatusOK {
 		t.Fatalf("approval allow status = %d, body=%s", allowRecorder.Code, allowRecorder.Body.String())
 	}
@@ -587,7 +563,7 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 		t.Fatalf("allow response = %+v", allow)
 	}
 
-	allowEventsRecorder := assistantEventsRequest(t, testServer.server, created.EventsURL+"?after="+strconv.FormatUint(approvalEvent.Sequence, 10), cookie)
+	allowEventsRecorder := assistantEventsRequest(t, testServer.server, created.EventsURL+"?after="+strconv.FormatUint(approvalEvent.Sequence, 10), principal)
 	allowEvents := decodePublicEvents(t, allowEventsRecorder)
 	if _, ok := findEvent(allowEvents, assistantapi.EventCapabilityStarted); !ok {
 		t.Fatal("allow did not expose assistant.capability.started")
@@ -601,8 +577,8 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 
 	// A second conversation exercises the deny branch and proves that the
 	// sealed approval ID cannot be substituted across conversations.
-	createdDeny, cookieDeny := createConversation(t, testServer, nil)
-	denyInitialRecorder := assistantEventsRequest(t, testServer.server, createdDeny.EventsURL, cookieDeny)
+	createdDeny, principalDeny := createConversation(t, testServer, "")
+	denyInitialRecorder := assistantEventsRequest(t, testServer.server, createdDeny.EventsURL, principalDeny)
 	denyInitial := decodePublicEvents(t, denyInitialRecorder)
 	denyEvent, ok := findEvent(denyInitial, assistantapi.EventApprovalRequired)
 	if !ok {
@@ -616,11 +592,11 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 	if err := assistantapi.ValidateApprovalID(denyID); err != nil {
 		t.Fatalf("deny approval ID is invalid: %v", err)
 	}
-	wrongConversation := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(createdDeny.EventsURL, "/events")+"/approvals/"+approvalID, map[string]string{"decision": assistantapi.ApprovalApprove}, cookieDeny)
+	wrongConversation := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(createdDeny.EventsURL, "/events")+"/approvals/"+approvalID, map[string]string{"decision": assistantapi.ApprovalApprove}, principalDeny)
 	if wrongConversation.Code != http.StatusNotFound {
 		t.Fatalf("cross-conversation approval status = %d, body=%s", wrongConversation.Code, wrongConversation.Body.String())
 	}
-	denyRecorder := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(createdDeny.EventsURL, "/events")+"/approvals/"+denyID, map[string]string{"decision": assistantapi.ApprovalDeny}, cookieDeny)
+	denyRecorder := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(createdDeny.EventsURL, "/events")+"/approvals/"+denyID, map[string]string{"decision": assistantapi.ApprovalDeny}, principalDeny)
 	if denyRecorder.Code != http.StatusOK {
 		t.Fatalf("approval deny status = %d, body=%s", denyRecorder.Code, denyRecorder.Body.String())
 	}
@@ -633,7 +609,7 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 	if deny.ApprovalID != denyID || deny.Decision != assistantapi.ApprovalDeny {
 		t.Fatalf("deny response = %+v", deny)
 	}
-	denyEventsRecorder := assistantEventsRequest(t, testServer.server, createdDeny.EventsURL+"?after="+strconv.FormatUint(denyEvent.Sequence, 10), cookieDeny)
+	denyEventsRecorder := assistantEventsRequest(t, testServer.server, createdDeny.EventsURL+"?after="+strconv.FormatUint(denyEvent.Sequence, 10), principalDeny)
 	denyEvents := decodePublicEvents(t, denyEventsRecorder)
 	if _, ok := findEvent(denyEvents, assistantapi.EventRunFailed); !ok {
 		t.Fatal("deny did not expose assistant.run.failed")
@@ -644,7 +620,7 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 
 	turnRecorder := assistantRequest(t, testServer.server, http.MethodPost, strings.TrimSuffix(createdDeny.EventsURL, "/events")+"/turns", map[string]any{
 		"message": map[string]string{"role": "user", "content": "cancel me"},
-	}, cookieDeny)
+	}, principalDeny)
 	if turnRecorder.Code != http.StatusOK {
 		t.Fatalf("turn before cancel status = %d, body=%s", turnRecorder.Code, turnRecorder.Body.String())
 	}
@@ -653,7 +629,7 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 		t.Fatalf("decode cancel turn: %v", err)
 	}
 	cancelPath := strings.TrimSuffix(createdDeny.EventsURL, "/events") + "/runs/" + turn.RunID + "/cancel"
-	cancelRecorder := assistantRequest(t, testServer.server, http.MethodPost, cancelPath, nil, cookieDeny)
+	cancelRecorder := assistantRequest(t, testServer.server, http.MethodPost, cancelPath, nil, principalDeny)
 	if cancelRecorder.Code != http.StatusOK {
 		t.Fatalf("cancel status = %d, body=%s", cancelRecorder.Code, cancelRecorder.Body.String())
 	}
@@ -666,7 +642,7 @@ func TestAssistantGatewayApprovalSealsIDsAndCancellation(t *testing.T) {
 	if cancelled.RunID != turn.RunID || cancelled.State != "cancelled" {
 		t.Fatalf("cancel response = %+v", cancelled)
 	}
-	cancelEventsRecorder := assistantEventsRequest(t, testServer.server, createdDeny.EventsURL+"?after="+strconv.FormatUint(denyEvent.Sequence, 10), cookieDeny)
+	cancelEventsRecorder := assistantEventsRequest(t, testServer.server, createdDeny.EventsURL+"?after="+strconv.FormatUint(denyEvent.Sequence, 10), principalDeny)
 	cancelEvents := decodePublicEvents(t, cancelEventsRecorder)
 	if _, ok := findEvent(cancelEvents, assistantapi.EventRunCancelled); !ok {
 		t.Fatal("cancel did not expose assistant.run.cancelled")
@@ -769,10 +745,10 @@ func TestAssistantGatewayStreamsBeforeHelperEOFAndNeutralizesLateMalformedEvent(
 
 func TestAssistantGatewayHelperFailuresAndMalformedPrivateEvents(t *testing.T) {
 	testServer := newAssistantTestServer(t, assistantruntime.FakeConfig{Text: "hello"})
-	created, cookie := createConversation(t, testServer, nil)
+	created, principal := createConversation(t, testServer, "")
 
 	testServer.helper.SetUnavailable()
-	unavailable := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, cookie)
+	unavailable := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, principal)
 	if unavailable.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unavailable status = %d, body=%s", unavailable.Code, unavailable.Body.String())
 	}
@@ -785,7 +761,7 @@ func TestAssistantGatewayHelperFailuresAndMalformedPrivateEvents(t *testing.T) {
 		t.Fatalf("restart fake helper: %v", err)
 	}
 	testServer.helper.InjectMalformedEvent(assistantcontrol.Event{})
-	malformed := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, cookie)
+	malformed := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, principal)
 	if malformed.Code != http.StatusInternalServerError {
 		t.Fatalf("malformed private event status = %d, body=%s", malformed.Code, malformed.Body.String())
 	}
@@ -798,14 +774,14 @@ func TestAssistantGatewayHelperFailuresAndMalformedPrivateEvents(t *testing.T) {
 	// provider-neutral restart event after a successful restart.
 	testServer.helper.ClearMalformedEvents()
 	testServer.helper.Crash()
-	crashed := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, cookie)
+	crashed := assistantRequest(t, testServer.server, http.MethodGet, created.EventsURL, nil, principal)
 	if crashed.Code != http.StatusServiceUnavailable {
 		t.Fatalf("crashed helper status = %d, body=%s", crashed.Code, crashed.Body.String())
 	}
 	if err := testServer.helper.Restart(context.Background()); err != nil {
 		t.Fatalf("restart crashed fake helper: %v", err)
 	}
-	restarting := assistantEventsRequest(t, testServer.server, created.EventsURL, cookie)
+	restarting := assistantEventsRequest(t, testServer.server, created.EventsURL, principal)
 	if restarting.Code != http.StatusOK {
 		t.Fatalf("post-crash event status = %d, body=%s", restarting.Code, restarting.Body.String())
 	}
@@ -821,7 +797,7 @@ func TestAssistantGatewayAuthenticatedOwnershipAndAuthData(t *testing.T) {
 	testServer := newAssistantTestServerWithRegistration(t, assistantruntime.FakeConfig{Text: "auth"}, func(registration *AssistantRegistration) {
 		registration.Access = Auth
 		registration.Policy = &ContractHTTPPolicy{
-			AuthorizationStrategy: "any_allow", AuthorizationRuleCount: 2,
+			AuthorizationStrategy: "deny_unless_allowed", AuthorizationRuleCount: 2,
 			AuthorizationRules: []ContractAuthorizationRule{
 				{Name: "support-tenant", Effect: "allow", Expression: `context.tenant_id == "tenant-a" && contains(principal.roles, "support")`},
 				{Name: "viewer-tenant", Effect: "allow", Expression: `context.tenant_id == "tenant-b" && contains(principal.roles, "viewer")`},
@@ -848,20 +824,20 @@ func TestAssistantGatewayAuthenticatedOwnershipAndAuthData(t *testing.T) {
 	}
 	aCreateRecorder := assistantRequestWithHeaders(t, testServer.server, http.MethodPost, testServer.basePath, map[string]any{
 		"message": map[string]string{"role": "user", "content": "hello from A"},
-	}, nil, "", authHeader("user-a"))
+	}, "", "", authHeader("user-a"))
 	aCreated := decodeCreateResponse(t, aCreateRecorder)
 	bCreateRecorder := assistantRequestWithHeaders(t, testServer.server, http.MethodPost, testServer.basePath, map[string]any{
 		"message": map[string]string{"role": "user", "content": "hello from B"},
-	}, nil, "", authHeader("user-b"))
+	}, "", "", authHeader("user-b"))
 	_ = decodeCreateResponse(t, bCreateRecorder)
 
-	aEvents := assistantRequestWithHeaders(t, testServer.server, http.MethodGet, aCreated.EventsURL, nil, nil, "gzip", authHeader("user-a"))
+	aEvents := assistantRequestWithHeaders(t, testServer.server, http.MethodGet, aCreated.EventsURL, nil, "", "gzip", authHeader("user-a"))
 	if events := decodePublicEvents(t, aEvents); len(events) == 0 {
 		t.Fatal("authenticated owner could not read its conversation")
 	}
-	unknown := assistantRequestWithHeaders(t, testServer.server, http.MethodGet, testServer.basePath+"/conv1_deadbeef/events", nil, nil, "", authHeader("user-b"))
+	unknown := assistantRequestWithHeaders(t, testServer.server, http.MethodGet, testServer.basePath+"/conv1_deadbeef/events", nil, "", "", authHeader("user-b"))
 	assertNotFoundResponse(t, unknown, `{"code":"not_found","message":"assistant resource not found"}`)
-	crossOwner := assistantRequestWithHeaders(t, testServer.server, http.MethodGet, aCreated.EventsURL, nil, nil, "", authHeader("user-b"))
+	crossOwner := assistantRequestWithHeaders(t, testServer.server, http.MethodGet, aCreated.EventsURL, nil, "", "", authHeader("user-b"))
 	assertNotFoundResponse(t, crossOwner, unknown.Body.String())
 
 }

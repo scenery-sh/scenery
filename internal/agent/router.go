@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -27,10 +26,6 @@ func (s *Server) routerMux() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if cleanRequestPath(req.URL.Path) == "/v1/tls/allow" {
 			s.handleTLSAllow(w, req)
-			return
-		}
-		if s.trustedPublicEdgeRequest(req) {
-			s.handlePublicEdgeRoute(w, req)
 			return
 		}
 		if s.trustedLocalPathRequest(req) {
@@ -55,19 +50,8 @@ func (s *Server) routerMux() http.Handler {
 				return
 			}
 			manifest := devDomainRouteManifest(session.RouteManifest, normalizeRouteRequestHost(host))
-			if len(manifest.PublicRoutes) > 0 {
-				if !publicRouteExposed(manifest, "runtime") && isPathModeRuntimePath(req.URL.Path) {
-					http.NotFound(w, req)
-					return
-				}
-				if !publicPathExposed(manifest, req.URL.Path) {
-					http.NotFound(w, req)
-					return
-				}
-				manifest = filterExposedRouteRecords(manifest)
-			}
 			if session.WorktreeProxy != nil {
-				// Exposure and verified domain ownership were checked above.
+				// Verified domain ownership was checked above.
 				// Forward the original path to its private runtime router, which
 				// owns frontend restarts, console and all backend selection.
 				s.proxyBackendWithOptions(w, req, *session.WorktreeProxy, proxyBackendOptions{baseURL: manifest.BaseURL})
@@ -97,11 +81,6 @@ func (s *Server) routeTargetForHost(host string) (Session, string, bool) {
 	return s.registry.RouteTargetForHost(host)
 }
 
-func (s *Server) hasRouteHost(host string) bool {
-	_, _, ok := s.routeTargetForHost(host)
-	return ok
-}
-
 func (s *Server) tlsAllowedHost(host string) bool {
 	session, _, ok := s.routeTargetForHost(host)
 	if !ok {
@@ -122,133 +101,9 @@ func (r *Registry) sessionOwnerVerifies(session Session) bool {
 	return r.verifyOwner(owner) == nil
 }
 
-func (s *Server) handlePublicEdgeRoute(w http.ResponseWriter, req *http.Request) {
-	route, ok := s.publicRouteForHost(requestHost(req))
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	if !route.running {
-		http.Error(w, "app is not running", http.StatusServiceUnavailable)
-		return
-	}
-	s.handlePublicPathRoute(w, req, route.session, route.target)
-}
-
-func (s *Server) handlePublicPathRoute(w http.ResponseWriter, req *http.Request, session Session, target DeployTarget) {
-	requestPath := cleanRequestPath(req.URL.Path)
-	if isPublicRouteBlockedPath(requestPath) {
-		http.NotFound(w, req)
-		return
-	}
-	manifest := publicRouteManifest(session, target)
-	record, ok := routeForPath(manifest, requestPath)
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	backend, ok := session.Backends[record.Backend]
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	if isFrontendSessionBackend(record.Backend) {
-		if shouldRedirectPathPrefix(req, record) {
-			http.Redirect(w, req, record.Path, http.StatusMovedPermanently)
-			return
-		}
-		if isProtectedFrontendRoutePath(requestPath, record) {
-			http.NotFound(w, req)
-			return
-		}
-		s.proxyBackendWithOptions(w, req, backend, pathProxyOptions(sessionWithRouteManifest(session, manifest), record).withSPAFallback(shouldUseSPAFallback(req)))
-		return
-	}
-	s.proxyBackendWithOptions(w, req, backend, pathProxyOptions(sessionWithRouteManifest(session, manifest), record))
-}
-
-func isPublicRouteBlockedPath(value string) bool {
-	value = cleanRequestPath(value)
-	for _, prefix := range PublicBlockedPathPrefixes() {
-		if value == prefix || strings.HasPrefix(value, prefix+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func publicRouteManifest(session Session, target DeployTarget) RouteManifest {
-	baseURL := "https://" + strings.ToLower(strings.TrimSpace(target.Domain))
-	records := map[string]RouteRecord{}
-	root := normalizeRouteName(target.RootService)
-	if isFrontendRouteName(root) {
-		if _, ok := session.Backends[root]; ok {
-			records["root"] = RouteRecord{Name: "root", Kind: publicRouteKind(root), URL: joinRouteURL(baseURL, "/"), Path: "/", Backend: root}
-		}
-	}
-	if _, ok := session.Backends[RouteAPI]; ok {
-		records[RouteAPI] = RouteRecord{Name: RouteAPI, Kind: RouteAPI, URL: joinRouteURL(baseURL, "/api/"), Path: "/api/", StripPrefix: "/api", Backend: RouteAPI}
-	}
-	for name := range session.Backends {
-		name = normalizeRouteName(name)
-		if !isFrontendRouteName(name) || name == root {
-			continue
-		}
-		routePath := "/" + name + "/"
-		records[name] = RouteRecord{Name: name, Kind: "frontend", URL: joinRouteURL(baseURL, routePath), Path: routePath, StripPrefix: strings.TrimSuffix(routePath, "/"), Backend: name}
-	}
-	return RouteManifest{
-		ArtifactIdentity: routeManifestIdentity(),
-		Mode:             RouteModePath,
-		BaseURL:          baseURL,
-		Root:             root,
-		Worktree:         session.RouteManifest.Worktree,
-		Routes:           normalizeRouteRecords(records),
-	}
-}
-
-func publicRouteKind(backend string) string {
-	if isFrontendRouteName(backend) {
-		return "frontend"
-	}
-	return backend
-}
-
 func sessionWithRouteManifest(session Session, manifest RouteManifest) Session {
 	session.RouteManifest = manifest
 	return session
-}
-
-func publicRouteExposed(manifest RouteManifest, name string) bool {
-	return slices.Contains(manifest.PublicRoutes, name)
-}
-
-func publicPathExposed(manifest RouteManifest, requestPath string) bool {
-	record, ok := routeForPath(manifest, requestPath)
-	return !ok || publicRouteExposed(manifest, record.Name)
-}
-
-func isPathModeRuntimePath(value string) bool {
-	value = cleanRequestPath(value)
-	return value == PathModeRuntimePrefix || strings.HasPrefix(value, PathModeRuntimePrefix+"/") || value == "/__scenery" || strings.HasPrefix(value, "/__scenery/")
-}
-
-// filterExposedRouteRecords drops route records not named by PublicRoutes so
-// the dev domain origin serves only the configured surface; the localhost
-// listener keeps the unfiltered manifest.
-func filterExposedRouteRecords(manifest RouteManifest) RouteManifest {
-	allowed := make(map[string]bool, len(manifest.PublicRoutes))
-	for _, name := range manifest.PublicRoutes {
-		allowed[name] = true
-	}
-	routes := make(map[string]RouteRecord, len(manifest.Routes))
-	for name, record := range manifest.Routes {
-		if allowed[name] {
-			routes[name] = record
-		}
-	}
-	manifest.Routes = routes
-	return manifest
 }
 
 // devDomainRouteManifest rebases a path-mode manifest onto the session's dev
@@ -454,7 +309,7 @@ func isBackendUnavailableError(err error) bool {
 
 func isFrontendSessionBackend(kind string) bool {
 	switch kind {
-	case "", RouteAPI, RouteDashboard, "removed-agent-transport":
+	case "", RouteAPI, RouteDashboard:
 		return false
 	default:
 		return true
@@ -486,12 +341,6 @@ func isProtectedFrontendRoutePath(requestPath string, record RouteRecord) bool {
 		}
 	}
 	return false
-}
-
-// PublicBlockedPathPrefixes is the shared protected top-level path contract
-// used by both the agent proxy and the managed Caddy static edge.
-func PublicBlockedPathPrefixes() []string {
-	return []string{PathModeRuntimePrefix, "/__scenery"}
 }
 
 // FrontendProtectedPathPrefixes are control/data prefixes that must never be
@@ -578,10 +427,6 @@ func (s *Server) trustedEdgeRequest(req *http.Request) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func (s *Server) trustedPublicEdgeRequest(req *http.Request) bool {
-	return s.trustedEdgeRequest(req) && strings.TrimSpace(req.Header.Get("X-Scenery-Public-Edge")) == "1"
 }
 
 func (s *Server) trustedLocalPathRequest(req *http.Request) bool {

@@ -79,20 +79,6 @@ type RefreshParams struct {
 	RefreshToken string
 }
 
-type PasswordResetRequestParams struct {
-	Email string `json:"email"`
-}
-
-type PasswordResetRequestResponse struct {
-	OK            bool   `json:"ok"`
-	DevResetToken string `json:"dev_reset_token,omitempty"`
-}
-
-type PasswordResetConfirmParams struct {
-	Token       string `json:"token"`
-	NewPassword string `json:"new_password"`
-}
-
 func invalidArgument(message string) error {
 	return errs.B().Code(errs.InvalidArgument).Msg(message).Err()
 }

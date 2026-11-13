@@ -17,7 +17,6 @@ var secrets struct {
 	PublicAppURL            string
 	APIBaseURL              string
 	AuthCookieDomain        string
-	AuthEmailFrom           string
 }
 
 // AuthUserID is the unique identifier for a standard-auth user.

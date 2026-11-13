@@ -41,9 +41,6 @@ func validateAuthoredBlock(block *Block, schema *authoredBlockSchema) []Diagnost
 		if _, expectsBlock := schema.Children[name]; expectsBlock {
 			add("SCN1017", "field "+name+" must be authored as a block", block)
 		} else if field, allowed := schema.Attributes[name]; allowed {
-			if field.UnsupportedDraft != "" {
-				add("SCN7009", "unsupported_draft: attribute "+name+" requires unresolved capability "+field.UnsupportedDraft, block)
-			}
 			if value, literal := literalString(block, name); literal && !authoredEnumAllows(field, value) {
 				add("SCN1020", "attribute "+name+" in "+block.Type+" is outside its declared enum", block)
 			}

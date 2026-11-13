@@ -25,8 +25,7 @@ var assistantStatusSnapshotSchemaRevision = string(spec.SchemaRevision(assistant
 
 // assistantStatusRecord is the canonical state written by the dev supervisor
 // and consumed by later CLI invocations. Its optional implementation member is
-// retained only for the explicit implementation inspection path; default
-// payload construction drops it before encoding.
+// never part of a public payload.
 type assistantStatusRecord struct {
 	Address                    string                         `json:"address"`
 	Name                       string                         `json:"name"`

@@ -20,10 +20,6 @@ type ContractInternalBindingRegistration struct {
 	Invoke       ContractInternalInvoke
 }
 
-func RegisterContractInternalBinding(address string, invoke ContractInternalInvoke) error {
-	return RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: address, Visibility: "application", Invoke: invoke})
-}
-
 func InvokeContractBindingJSON(ctx context.Context, address, callerPackage string, input []byte) ([]byte, error) {
 	global.mu.RLock()
 	registration := global.contractBindings[address]
@@ -97,10 +93,6 @@ func RegisterContractInternalBindingWithPolicy(registration ContractInternalBind
 	}
 	global.contractBindings[registration.Address] = registration
 	return nil
-}
-
-func InvokeContractBinding(ctx context.Context, address string, invocation, input any) (any, error) {
-	return InvokeContractBindingFrom(ctx, address, "", invocation, input)
 }
 
 func InvokeContractBindingFrom(ctx context.Context, address, callerPackage string, invocation, input any) (result any, resultErr error) {

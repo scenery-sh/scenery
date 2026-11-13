@@ -4,5 +4,12 @@
     "local": {
       "default": true
     }
+  },
+  "auth": {
+    "enabled": true,
+    "auto_bootstrap_database": true,
+    "dev_bootstrap": {
+      "enabled": true
+    }
   }
 }

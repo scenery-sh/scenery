@@ -36,31 +36,11 @@ type GoogleOAuthConfig struct {
 type DevBootstrapConfig struct {
 	Enabled          bool
 	DefaultUserEmail string
-	DefaultUserID    string
 	DefaultTenantID  string
 	TokenTTL         time.Duration
 }
 
 const standardAuthInitializationTimeout = 30 * time.Second
-
-type EmailMessage struct {
-	From    string
-	To      []string
-	Subject string
-	Text    string
-}
-
-type EmailSender func(context.Context, EmailMessage) error
-
-var defaultEmailSender EmailSender = func(context.Context, EmailMessage) error { return nil }
-
-func SetEmailSender(sender EmailSender) {
-	if sender == nil {
-		defaultEmailSender = func(context.Context, EmailMessage) error { return nil }
-		return
-	}
-	defaultEmailSender = sender
-}
 
 var standardAuthState struct {
 	mu   sync.Mutex
@@ -124,9 +104,6 @@ func RegisterStandard(config StandardConfig) error {
 }
 
 func normalizeStandardConfig(config StandardConfig) StandardConfig {
-	if strings.TrimSpace(config.DevBootstrap.DefaultUserID) == "" {
-		config.DevBootstrap.DefaultUserID = "dev-user"
-	}
 	if strings.TrimSpace(config.DevBootstrap.DefaultTenantID) == "" {
 		config.DevBootstrap.DefaultTenantID = "00000000-0000-0000-0000-000000000001"
 	}
@@ -171,7 +148,7 @@ func applyStandardSecrets() error {
 		return err
 	}
 	secrets.GoogleOAuthClientSecret = strings.TrimSpace(string(clientSecret))
-	for key, target := range map[string]*string{"auth.google_client_id": &secrets.GoogleOAuthClientID, "auth.cookie_domain": &secrets.AuthCookieDomain, "auth.email_from": &secrets.AuthEmailFrom} {
+	for key, target := range map[string]*string{"auth.google_client_id": &secrets.GoogleOAuthClientID, "auth.cookie_domain": &secrets.AuthCookieDomain} {
 		value, _, err := configuredAuthString(key)
 		if err != nil {
 			return err
@@ -236,9 +213,6 @@ func registerStandardAuthEndpoints(host appsdk.Host, config StandardConfig) {
 	registerStandardJSON(host, "auth", "ConfirmEmailVerification", runtimeapi.Public, "/auth/email-verification/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationConfirmParams) (*AuthSessionResponse, error) {
 		return svc.ConfirmEmailVerification(ctx, input)
 	})
-	registerStandardJSON(host, "auth", "ResendEmailVerification", runtimeapi.Public, "/auth/email-verification/resend", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationResendParams) (*EmailVerificationResendResponse, error) {
-		return svc.ResendEmailVerification(ctx, input)
-	})
 	registerStandardJSON(host, "auth", "LoginEmail", runtimeapi.Public, "/auth/login/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailLoginParams) (*AuthSessionResponse, error) {
 		return svc.LoginEmail(ctx, input)
 	})
@@ -250,12 +224,6 @@ func registerStandardAuthEndpoints(host appsdk.Host, config StandardConfig) {
 	})
 	registerStandardEmpty(host, "auth", "Me", runtimeapi.Auth, "/auth/me", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*AuthBootstrapResponse, error) {
 		return svc.Me(ctx)
-	})
-	registerStandardJSON(host, "auth", "RequestPasswordReset", runtimeapi.Public, "/auth/password-reset/request", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetRequestParams) (*PasswordResetRequestResponse, error) {
-		return svc.RequestPasswordReset(ctx, input)
-	})
-	registerStandardJSON(host, "auth", "ConfirmPasswordReset", runtimeapi.Public, "/auth/password-reset/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetConfirmParams) (*AuthSessionResponse, error) {
-		return svc.ConfirmPasswordReset(ctx, input)
 	})
 	registerStandardOrganizations(host)
 	registerStandardImpersonation(host)

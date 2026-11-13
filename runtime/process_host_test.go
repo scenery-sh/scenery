@@ -252,7 +252,7 @@ func TestProcessHostPinsRequestsAndCallsToTheirGeneration(t *testing.T) {
 	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: control}
 	call := func(pinnedGeneration uint64) (string, error) {
 		state := &requestState{processGeneration: pinnedGeneration}
-		ctx := withState(runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocation("invocation-9", "", "", "", time.Time{})), state)
+		ctx := withState(runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-9"})), state)
 		restore := enterState(state)
 		defer restore()
 		invocation, _ := runtimeapi.InvocationFromContext(ctx)
@@ -333,8 +333,6 @@ func serveProcessMCPOwnerForTest(t *testing.T, served *atomic.Int32) processGene
 		switch req.URL.Path {
 		case processMCPCallPath:
 			owner.handleProcessMCPCall(w, req, nil)
-		case processMCPDurablePath:
-			owner.handleProcessMCPDurable(w, req, nil)
 		default:
 			http.NotFound(w, req)
 		}
@@ -342,7 +340,7 @@ func serveProcessMCPOwnerForTest(t *testing.T, served *atomic.Int32) processGene
 	return processGenerationInstance{Network: socket.Network, Address: socket.Address, PID: os.Getpid(), Identity: processInstanceIdentity(CurrentLinkedContractBundle())}
 }
 
-func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacement(t *testing.T) {
+func TestProcessHostForwardsMCPTools(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	useLinkedProcessIdentityForTest(t)
@@ -350,20 +348,21 @@ func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacemen
 	calls := 0
 	if err := RegisterMCPTool(MCPToolRegistration{
 		ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support",
-		DecodeInput:  func(data []byte) (any, error) { return string(data), nil },
-		EncodeOutput: func(value any) ([]byte, error) { return json.Marshal(value) },
-		Durable:      true, DurableService: "house", DurableTask: "process_scene",
+		DecodeInput: func(data []byte) (any, error) { return string(data), nil },
+		EncodeOutput: func(value any) ([]byte, error) {
+			return []byte(`{"kind":"result","name":"ok","value":` + string(value.([]byte)) + `}`), nil
+		},
 		Invoke: func(ctx context.Context, call MCPToolCallContext, input any) (any, error) {
 			calls++
 			if auth := CurrentAuth(); auth == nil || auth.UID != "principal-1" || input != `{"scene":"a"}` {
 				t.Errorf("owner call auth %#v input %#v", auth, input)
 			}
-			return runtimeapi.ExecutionReceipt{DurableIdentity: "house/process_scene", ExecutionID: "execution-1", AcceptedRevision: processHostTestContract}, nil
+			return []byte(`{"status":"done"}`), nil
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var acceptedBy, replacementServed atomic.Int32
+	var acceptedBy atomic.Int32
 	accepting := serveProcessMCPOwnerForTest(t, &acceptedBy)
 	host, err := newProcessHost(ProcessHostConfig{Name: "house", Fallback: "house_house", MCPTools: []ProcessHostMCPTool{
 		{Process: "house_house", AssistantAddress: "app/assistant/support", Name: "house__process_scene"},
@@ -376,38 +375,14 @@ func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacemen
 	}
 	setActiveProcessHost(host)
 	t.Cleanup(func() { setActiveProcessHost(nil) })
-	dispatch, durable := assistantMCPDispatchers()
+	dispatch := assistantMCPDispatcher()
 	call := MCPToolCallContext{Principal: "principal-1", AssistantAddress: "app/assistant/support", RequestID: "request-1"}
 	outcome, err := dispatch.CallTool(context.Background(), call, "house__process_scene", json.RawMessage(`{"scene":"a"}`))
-	if err != nil || outcome.Outcome != "accepted" || outcome.Receipt == nil || outcome.Receipt.ExecutionID != "execution-1" || calls != 1 {
+	if err != nil || outcome.Outcome != "ok" || string(outcome.Value) != `{"status":"done"}` || calls != 1 || acceptedBy.Load() != 1 {
 		t.Fatalf("forwarded MCP call = %#v, %v (calls %d)", outcome, err, calls)
 	}
 	if _, err := dispatch.CallTool(context.Background(), call, "house__missing", json.RawMessage(`{}`)); errs.Code(err) != errs.NotFound {
 		t.Fatalf("unknown MCP tool = %v", err)
-	}
-	// A replacement instance starts without the accepting process's receipt
-	// records; the host authorizes the principal and names the durable task.
-	replacement := serveProcessMCPOwnerForTest(t, &replacementServed)
-	if err := host.publish(processGenerationManifest{Generation: 2, ContractRevision: processHostTestContract, Identity: processHostTestBuild(2), Processes: map[string]processGenerationInstance{"house_house": replacement}}); err != nil {
-		t.Fatal(err)
-	}
-	mcpDurableOwners.Lock()
-	mcpDurableOwners.values, mcpDurableOwners.order = map[string]mcpDurableOwner{}, nil
-	mcpDurableOwners.Unlock()
-	other := call
-	other.Principal = "principal-2"
-	if _, err := durable.Status(context.Background(), other, "execution-1"); errs.Code(err) != errs.NotFound || replacementServed.Load() != 0 {
-		t.Fatalf("status for another principal = %v (replacement served %d)", err, replacementServed.Load())
-	}
-	// Without a durable store the replacement reports its own store failure,
-	// which proves it read the authorized receipt instead of a missing record.
-	for _, operation := range []func(context.Context, MCPToolCallContext, string) (json.RawMessage, error){durable.Status, durable.Cancel} {
-		if _, err := operation(context.Background(), call, "execution-1"); err == nil || !strings.Contains(err.Error(), "durable execution store is unavailable") {
-			t.Fatalf("durable operation after replacement = %v", err)
-		}
-	}
-	if replacementServed.Load() != 2 || acceptedBy.Load() != 1 {
-		t.Fatalf("replacement served %d durable requests, accepting instance served %d requests", replacementServed.Load(), acceptedBy.Load())
 	}
 }
 
@@ -453,7 +428,7 @@ func TestProcessHostPinsForwardedMCPToolCallsAndTheirInternalCalls(t *testing.T)
 	}
 	setActiveProcessHost(host)
 	t.Cleanup(func() { setActiveProcessHost(nil) })
-	dispatch, _ := assistantMCPDispatchers()
+	dispatch := assistantMCPDispatcher()
 	call := MCPToolCallContext{Principal: "principal-1", AssistantAddress: "app/assistant/support", RequestID: "request-1"}
 	type result struct {
 		outcome MCPToolOutcome
@@ -628,33 +603,6 @@ func TestProcessHostCountsStreamsAndUpgradedConnectionsAsPinnedWork(t *testing.T
 	}
 }
 
-func TestProcessDurableReceiptOwnersAreBoundedAndFailClosed(t *testing.T) {
-	var owners processHostDurableOwners
-	owner := processHostDurableOwner{process: "house_house", service: "house", taskName: "process_scene"}
-	for index := range processHostDurableOwnerLimit + 1 {
-		_ = owners.store("principal-1", strconv.Itoa(index), owner)
-	}
-	if _, ok, _ := owners.load("principal-1", "0"); ok {
-		t.Fatal("the oldest receipt beyond the limit stayed authorized")
-	}
-	if got, ok, _ := owners.load("principal-1", strconv.Itoa(processHostDurableOwnerLimit)); !ok || got != owner {
-		t.Fatalf("newest receipt = %#v, %v", got, ok)
-	}
-	conflicting := owner
-	conflicting.process = "maps_maps"
-	_ = owners.store("principal-1", "1", conflicting)
-	if _, ok, _ := owners.load("principal-1", "1"); ok {
-		t.Fatal("an execution ID accepted by two owners stayed authorized")
-	}
-	var local mcpDurableOwnerStore
-	for index := range mcpDurableOwnerLimit + 1 {
-		local.Store("house", strconv.Itoa(index), mcpDurableOwner{Principal: "principal-1", TaskName: "process_scene"})
-	}
-	if _, ok := local.Load("house", "0"); ok || len(local.values) != mcpDurableOwnerLimit {
-		t.Fatalf("process-local receipts = %d, oldest retained %v", len(local.values), ok)
-	}
-}
-
 // processBackgroundForTest records activation and drain requests.
 type processBackgroundForTest struct {
 	activations, drains int
@@ -800,7 +748,7 @@ func TestProcessHostFailsSelectedWorkOnPurpose(t *testing.T) {
 	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: control}
 	call := func() (string, error) {
 		state := &requestState{processGeneration: 1}
-		ctx := withState(runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocation("invocation-7", "", "", "", time.Time{})), state)
+		ctx := withState(runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{ID: "invocation-7"})), state)
 		restore := enterState(state)
 		defer restore()
 		invocation, _ := runtimeapi.InvocationFromContext(ctx)

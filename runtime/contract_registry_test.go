@@ -96,7 +96,7 @@ func TestContractRegistrySealRollsBackRuntimeRegistrations(t *testing.T) {
 	if err := registry.Register("adapter/one", ContractRegistration{
 		ContractRevision: "sha256:contract", PackageContractABIRevision: "sha256:one", RuntimeABI: ContractRuntimeABI,
 		CoveredAddresses: []string{"house/service/one"}, Apply: func() error {
-			return RegisterContractInternalBinding(binding, func(context.Context, any, any) (any, error) { return nil, nil })
+			return RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: binding, Visibility: "application", Invoke: func(context.Context, any, any) (any, error) { return nil, nil }})
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestContractRegistrySealRollsBackRuntimeRegistrations(t *testing.T) {
 	if err := registry.Seal(); !errors.Is(err, boom) {
 		t.Fatalf("seal error = %v", err)
 	}
-	if err := RegisterContractInternalBinding(binding, func(context.Context, any, any) (any, error) { return nil, nil }); err != nil {
+	if err := RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{Address: binding, Visibility: "application", Invoke: func(context.Context, any, any) (any, error) { return nil, nil }}); err != nil {
 		t.Fatalf("failed Seal leaked binding registration: %v", err)
 	}
 	global.mu.Lock()

@@ -768,12 +768,6 @@ func harnessStepEffects(step harnessStep) []string {
 		for _, effect := range []string{"external-binary", "filesystem-write", "loopback-network", "ports", "tempdir", "node-runtime"} {
 			set[effect] = true
 		}
-	case harnessNativeReloadName, harnessNativeReloadPluginName, harnessNativeAttributionName:
-		set["external-binary"] = true
-		set["filesystem-read"] = true
-		set["filesystem-write"] = true
-		set["tempdir"] = true
-		set["test-cache"] = true
 	case harnessStandardAuthName:
 		for _, effect := range []string{"external-binary", "filesystem-write", "loopback-network", "ports", "tempdir", "agent-socket", "docker"} {
 			set[effect] = true
@@ -802,10 +796,6 @@ func harnessStepEffects(step harnessStep) []string {
 		set["loopback-network"] = true
 		set["node-runtime"] = true
 		set["tempdir"] = true
-	case harnessSnapshotBackupProbeName:
-		set["external-binary"] = true
-		set["filesystem-write"] = true
-		set["tempdir"] = true
 	case harnessTypeScriptCheckerProbeName:
 		set["external-binary"] = true
 		set["filesystem-write"] = true
@@ -827,10 +817,6 @@ func harnessStepEffects(step harnessStep) []string {
 		set["loopback-network"] = true
 		set["ports"] = true
 		set["tempdir"] = true
-	case harnessDeploySSHProcessProbeName:
-		set["external-binary"] = true
-		set["filesystem-write"] = true
-		set["tempdir"] = true
 	case harnessValidationGitProbeName:
 		set["external-binary"] = true
 		set["filesystem-write"] = true
@@ -840,10 +826,6 @@ func harnessStepEffects(step harnessStep) []string {
 		set["filesystem-write"] = true
 		set["tempdir"] = true
 		set["test-cache"] = true
-	case harnessToolchainSourceBuildProbeName:
-		set["external-binary"] = true
-		set["filesystem-write"] = true
-		set["tempdir"] = true
 	case harnessWorktreeGitProbeName:
 		set["external-binary"] = true
 		set["filesystem-write"] = true
@@ -851,11 +833,6 @@ func harnessStepEffects(step harnessStep) []string {
 	case harnessBuildInfoProbeName:
 		set["external-binary"] = true
 		set["filesystem-write"] = true
-		set["tempdir"] = true
-	case harnessAssistantInitProbeName:
-		set["external-binary"] = true
-		set["filesystem-write"] = true
-		set["node-runtime"] = true
 		set["tempdir"] = true
 	case harnessAgentRestartProbeName:
 		set["agent-socket"] = true

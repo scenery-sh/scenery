@@ -134,7 +134,6 @@ func TestPruneWorkspacesRemovesOrphanedAndStaleWorkspacesOnly(t *testing.T) {
 	writeBuildTestFile(t, cacheRoot, "build/shared-binaries/v1/abc/scenery-app", "shared")
 	writeBuildTestFile(t, cacheRoot, "build/framework-fingerprint-0123456789abcdef.json", "{}")
 	writeBuildTestFile(t, cacheRoot, "build/lookalike-0123456789abcdef/go.mod", "module x\n")
-	writeBuildTestFile(t, cacheRoot, "build/retained-go-compiler/v1/unrelated/state", "x")
 
 	cutoff := now.Add(-24 * time.Hour)
 	_, preview, err := PruneWorkspaces(context.Background(), WorkspacePruneOptions{Cutoff: cutoff, ProtectedAppRoots: []string{protectedRoot}, Preview: true})
@@ -188,7 +187,7 @@ func TestPruneWorkspacesRemovesOrphanedAndStaleWorkspacesOnly(t *testing.T) {
 	if byPath[orphan.path].AppRoot != orphanRoot || byPath[orphan.path].AppName != "gone-app" || byPath[unmarked.path].AppRoot != "" {
 		t.Fatalf("recorded app roots = %+v / %+v", byPath[orphan.path], byPath[unmarked.path])
 	}
-	for _, kept := range []string{"build/shared-binaries/v1/abc/scenery-app", "build/framework-fingerprint-0123456789abcdef.json", "build/lookalike-0123456789abcdef/go.mod", "build/retained-go-compiler/v1/unrelated/state"} {
+	for _, kept := range []string{"build/shared-binaries/v1/abc/scenery-app", "build/framework-fingerprint-0123456789abcdef.json", "build/lookalike-0123456789abcdef/go.mod"} {
 		if _, err := os.Stat(filepath.Join(cacheRoot, kept)); err != nil {
 			t.Fatalf("prune touched %s: %v", kept, err)
 		}

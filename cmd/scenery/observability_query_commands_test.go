@@ -10,7 +10,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 )
 
-func TestParseLogsQueryArgsDefaultsAndRejectsLogQL(t *testing.T) {
+func TestParseLogsQueryArgsDefaults(t *testing.T) {
 	t.Parallel()
 
 	opts, err := parseLogsQueryArgs([]string{"--query", "error", "--fields", "_time,message"})
@@ -23,15 +23,12 @@ func TestParseLogsQueryArgsDefaultsAndRejectsLogQL(t *testing.T) {
 	if strings.Join(opts.Fields, ",") != "_time,message" {
 		t.Fatalf("fields = %+v", opts.Fields)
 	}
-	if _, err := parseLogsQueryArgs([]string{"--logql", `{app="demo"} |= "error"`}); err == nil || !strings.Contains(err.Error(), "LogsQL") {
-		t.Fatalf("logql error = %v", err)
-	}
 	if _, err := parseLogsQueryArgs([]string{"--query", "error", "--since", "nope"}); err == nil || !strings.Contains(err.Error(), "invalid since duration") {
 		t.Fatalf("since error = %v", err)
 	}
 }
 
-func TestParseLogsQueryArgsClampsLimitAndTailRejectsBounds(t *testing.T) {
+func TestParseLogsQueryArgsClampsLimit(t *testing.T) {
 	t.Parallel()
 
 	opts, err := parseLogsQueryArgs([]string{"--query", "*", "--limit", "1000000"})
@@ -40,9 +37,6 @@ func TestParseLogsQueryArgsClampsLimitAndTailRejectsBounds(t *testing.T) {
 	}
 	if opts.Limit != logsQueryLimitMax || len(opts.Warnings) != 1 || !strings.Contains(opts.Warnings[0], "clamped") {
 		t.Fatalf("limit clamp = %d warnings=%+v", opts.Limit, opts.Warnings)
-	}
-	if _, err := parseLogsTailArgs([]string{"--query", "*", "--start", "2026-06-08T10:00:00Z"}); err == nil || !strings.Contains(err.Error(), "start_offset") {
-		t.Fatalf("tail bounds error = %v", err)
 	}
 }
 
@@ -58,24 +52,6 @@ func TestParseMetricsQueryArgsDefaults(t *testing.T) {
 	}
 	if _, err := parseMetricsQueryArgs([]string{"--instant"}); err == nil || !strings.Contains(err.Error(), "missing required --promql") {
 		t.Fatalf("promql error = %v", err)
-	}
-}
-
-func TestParseMetricsCatalogArgs(t *testing.T) {
-	t.Parallel()
-
-	opts, err := parseMetricsCatalogArgs([]string{"--match", "scenery_request_duration_seconds", "--since", "30m", "--timeout", "4s", "--limit", "100000"}, true)
-	if err != nil {
-		t.Fatalf("parseMetricsCatalogArgs: %v", err)
-	}
-	if opts.Session != "current" || opts.Since != 30*time.Minute || opts.Match != "scenery_request_duration_seconds" || opts.Limit != metricsCatalogLimitMax || opts.Timeout != 4*time.Second {
-		t.Fatalf("unexpected options: %+v", opts)
-	}
-	if len(opts.Warnings) != 1 || !strings.Contains(opts.Warnings[0], "clamped") {
-		t.Fatalf("warnings = %+v", opts.Warnings)
-	}
-	if _, err := parseMetricsCatalogArgs(nil, true); err == nil || !strings.Contains(err.Error(), "missing required --match") {
-		t.Fatalf("match error = %v", err)
 	}
 }
 

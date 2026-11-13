@@ -19,13 +19,6 @@ import (
 	"scenery.sh/runtime/shared"
 )
 
-type durableContextKey string
-
-const (
-	durableContextStore durableContextKey = "durable.store"
-	durableContextJobID durableContextKey = "durable.job_id"
-)
-
 type DurableStartRequest struct {
 	Service        string
 	TaskName       string
@@ -97,16 +90,6 @@ type durableRuntime struct {
 	revoked bool
 }
 
-// startDurableRuntime opens the durable runtime and starts its background work.
-func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Context) error, error) {
-	durable, err := openDurableRuntime(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	durable.StartBackground()
-	return durable.Close, nil
-}
-
 func openDurableRuntime(ctx context.Context, cfg AppConfig) (*durableRuntime, error) {
 	durable := &durableRuntime{ctx: ctx}
 	tasks := listDurableTasks()
@@ -125,15 +108,6 @@ func openDurableRuntime(ctx context.Context, cfg AppConfig) (*durableRuntime, er
 			handlers[service] = make(map[string]durableRegisteredHandler)
 		}
 		handlers[service][task.Name] = durableRegisteredHandler{handler: task.Handler, timeout: task.DefaultTimeout, slots: durableTaskSlots(task.MaxConcurrency)}
-	}
-	if remoteCfg := durableRemoteWorkerConfigFromEnv(); remoteCfg.Endpoint != "" {
-		if remoteCfg.Token == "" {
-			return nil, fmt.Errorf("runtime: %s is required when %s is set", envDurableToken, envDurableEndpoint)
-		}
-		durable.start = func(ctx context.Context) func(context.Context) error {
-			return startDurableRemoteWorkers(ctx, handlers, remoteCfg)
-		}
-		return durable, nil
 	}
 	databaseURL, err := durableDatabaseURL()
 	if err != nil {
@@ -169,16 +143,15 @@ func openDurableRuntime(ctx context.Context, cfg AppConfig) (*durableRuntime, er
 	durable.stores = opened
 	durable.start = func(ctx context.Context) func(context.Context) error {
 		stopWorkers := startDurableLocalWorkers(ctx, opened, handlers, cfg.Role)
-		stopSchedules := startDurableScheduleLoop(ctx, opened, cfg.Role)
 		stopRetention := startDurableRetentionLoop(ctx, opened)
 		return func(stopCtx context.Context) error {
-			return errors.Join(stopWorkers(stopCtx), stopSchedules(stopCtx), stopRetention(stopCtx))
+			return errors.Join(stopWorkers(stopCtx), stopRetention(stopCtx))
 		}
 	}
 	return durable, nil
 }
 
-// StartBackground starts acquisition, schedules and retention once, unless
+// StartBackground starts acquisition and retention once, unless
 // they were revoked.
 func (durable *durableRuntime) StartBackground() {
 	durable.mu.Lock()
@@ -484,46 +457,6 @@ func startDurableLocalWorkers(parent context.Context, stores []*store.Store, han
 	}
 }
 
-func startDurableScheduleLoop(parent context.Context, stores []*store.Store, role string) func(context.Context) error {
-	if strings.EqualFold(strings.TrimSpace(role), "worker") {
-		return func(context.Context) error { return nil }
-	}
-	ctx, cancel := context.WithCancel(parent)
-	var wg sync.WaitGroup
-	for _, db := range stores {
-		wg.Add(1)
-		go func(db *store.Store) {
-			defer wg.Done()
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for {
-				if _, err := db.RunDueSchedules(ctx, time.Now()); err != nil {
-					sleepDurableWorker(ctx)
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
-		}(db)
-	}
-	return func(stopCtx context.Context) error {
-		cancel()
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-		select {
-		case <-done:
-			return nil
-		case <-stopCtx.Done():
-			return stopCtx.Err()
-		}
-	}
-}
-
 // durableIdlePoll retries acquisition errors and stores without deadline
 // guidance. Healthy empty local acquisitions use their next known deadline.
 var durableIdlePoll = time.Second
@@ -584,9 +517,7 @@ func runDurableLocalAttempt(ctx context.Context, db *store.Store, workerID, leas
 		sleepDurableWorker(ctx)
 		return
 	}
-	jobCtx := context.WithValue(admitted, durableContextStore, db)
-	jobCtx = context.WithValue(jobCtx, durableContextJobID, job.ID)
-	jobCtx, restore := enterDurableInvocation(jobCtx, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
+	jobCtx, restore := enterDurableInvocation(admitted, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
 	stopHeartbeat := startDurableHeartbeat(jobCtx, time.Duration(job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
 		return db.HeartbeatJob(heartbeatCtx, job.ID, workerID, leaseID)
 	})
@@ -738,61 +669,6 @@ func durableStoreTaskDeclaration(task *DurableTask) store.TaskDeclaration {
 		DeduplicationConflict:    task.DeduplicationConflict,
 		RequirementsJSON:         normalizedRequirementsJSON(task.RequirementsJSON),
 	}
-}
-
-func DurableSignal(ctx context.Context, service, jobID, name, dedupeKey string, payload []byte) error {
-	service, err := store.NormalizeServiceName(service)
-	if err != nil {
-		return err
-	}
-	activeDurableStores.mu.RLock()
-	db := activeDurableStores.stores[service]
-	activeDurableStores.mu.RUnlock()
-	if db == nil {
-		return fmt.Errorf("runtime: durable service %q is not active", service)
-	}
-	return db.SignalJob(ctx, jobID, name, dedupeKey, payload)
-}
-
-func DurableSchedule(ctx context.Context, service, taskName, id string, every time.Duration, input []byte) error {
-	service, err := store.NormalizeServiceName(service)
-	if err != nil {
-		return err
-	}
-	activeDurableStores.mu.RLock()
-	db := activeDurableStores.stores[service]
-	activeDurableStores.mu.RUnlock()
-	if db == nil {
-		return fmt.Errorf("runtime: durable service %q is not active", service)
-	}
-	return db.UpsertSchedule(ctx, id, taskName, every, input)
-}
-
-func DurableStep(ctx context.Context, key string, run func(context.Context) ([]byte, error)) (result []byte, resultErr error) {
-	if run == nil {
-		return nil, errors.New("runtime: durable step function is required")
-	}
-	db, _ := ctx.Value(durableContextStore).(*store.Store)
-	jobID, _ := ctx.Value(durableContextJobID).(string)
-	if db == nil || strings.TrimSpace(jobID) == "" {
-		return run(ctx)
-	}
-	ctx, end := beginOperationTrace(ctx, "STEP", db.Service, key, map[string]any{"execution_id": jobID})
-	defer finishOperation(end, &resultErr)
-	if step, ok, err := db.GetStep(ctx, jobID, key); err != nil {
-		return nil, err
-	} else if ok && step.State == "succeeded" {
-		return step.ResultBlob, nil
-	}
-	result, err := run(ctx)
-	if err != nil {
-		_ = db.SaveStep(ctx, jobID, key, "failed", "json", nil, []byte(err.Error()))
-		return nil, err
-	}
-	if err := db.SaveStep(ctx, jobID, key, "succeeded", "json", result, nil); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 func durationMS(d time.Duration) int {

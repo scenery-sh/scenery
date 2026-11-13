@@ -50,11 +50,7 @@ func executableStatKey(path string, info os.FileInfo) string {
 
 // goToolchainBinaryPath is the `go` command implied by a GOROOT.
 func goToolchainBinaryPath(goroot string) string {
-	name := "go"
-	if runtime.GOOS == "windows" {
-		name = "go.exe"
-	}
-	return filepath.Join(goroot, "bin", name)
+	return filepath.Join(goroot, "bin", "go")
 }
 
 // stillCurrent reports whether the resolved go binary is unchanged since this
@@ -245,7 +241,7 @@ func resolveGoToolIdentities(target *gotarget.Context) error {
 		return err
 	}
 	goBinary := goToolchainBinaryPath(environment.GOROOT)
-	compiler := filepath.Join(environment.GOROOT, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, map[bool]string{true: "compile.exe", false: "compile"}[runtime.GOOS == "windows"])
+	compiler := filepath.Join(environment.GOROOT, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, "compile")
 	goDigest, goPath, err := digestExecutable(goBinary)
 	if err != nil {
 		return fmt.Errorf("resolve selected Go command: %w", err)

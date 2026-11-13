@@ -8,16 +8,13 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"scenery.sh/errs"
 	"scenery.sh/internal/contract"
-	"scenery.sh/internal/durable/store"
 	"scenery.sh/internal/mcpcontract"
-	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
 )
 
@@ -47,7 +44,7 @@ type MCPToolEffect struct {
 }
 
 // MCPToolRegistration is emitted by generated composition. Invoke must call
-// the generated service adapter (or its durable dispatch path), never a native
+// the generated service adapter, never a native
 // implementation directly. A tool call reaches it only through an assistant's
 // MCP gateway, which admits a call only with the assistant's current capability
 // revision, so a registration records no application revision.
@@ -61,41 +58,14 @@ type MCPToolRegistration struct {
 	Limits           MCPToolLimits
 	Effect           MCPToolEffect
 	Approval         string
-	Durable          bool
-	DurableService   string
-	DurableTask      string
 	DecodeInput      func([]byte) (any, error)
 	EncodeOutput     func(any) ([]byte, error)
 	Invoke           func(context.Context, MCPToolCallContext, any) (any, error)
 }
 
 // MCPToolOutcome is the public runtime name for the provider-neutral tool
-// outcome. MCPToolResult remains an alias for callers of the initial runtime
-// bridge API.
+// outcome.
 type MCPToolOutcome = mcpcontract.ToolOutcome
-type MCPToolResult = mcpcontract.ToolOutcome
-
-// MCPDurableReceipt is the public runtime name for the provider-neutral
-// receipt returned by a durable tool.
-type MCPDurableReceipt = mcpcontract.DurableReceipt
-
-// MCPDurableStatus is the ownership-filtered durable state view.
-type MCPDurableStatus struct {
-	Service      string          `json:"service"`
-	TaskName     string          `json:"task_name"`
-	ExecutionID  string          `json:"execution_id"`
-	State        string          `json:"state"`
-	Result       json.RawMessage `json:"result,omitempty"`
-	ErrorMessage string          `json:"error,omitempty"`
-}
-
-// MCPDurableRequest identifies a receipt and principal for status/cancel.
-type MCPDurableRequest struct {
-	Principal   string
-	Service     string
-	TaskName    string
-	ExecutionID string
-}
 
 // MCPToolDispatcher resolves generated registrations and runs them with the
 // same runtime auth, invocation, policy, and cancellation machinery as HTTP or
@@ -106,25 +76,6 @@ type MCPToolDispatcher struct{}
 // dispatcher. The public aliases above let generated external applications
 // construct calls without importing Scenery's internal contract package.
 var _ mcpcontract.ToolDispatcher = MCPToolDispatcher{}
-
-type mcpDurableOwner struct {
-	Principal   string
-	Service     string
-	TaskName    string
-	ExecutionID string
-}
-
-// mcpDurableOwnerLimit bounds the receipts one process authorizes; the oldest
-// receipt is forgotten first and then reads as not found.
-const mcpDurableOwnerLimit = 4096
-
-type mcpDurableOwnerStore struct {
-	sync.RWMutex
-	values map[string]mcpDurableOwner
-	order  []string
-}
-
-var mcpDurableOwners = mcpDurableOwnerStore{values: map[string]mcpDurableOwner{}}
 
 func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, name string, input json.RawMessage) (result MCPToolOutcome, resultErr error) {
 	if ctx == nil {
@@ -174,15 +125,6 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 	if err != nil {
 		return MCPToolOutcome{}, err
 	}
-	if receipt, ok := value.(runtimeapi.ExecutionReceipt); ok {
-		result := MCPToolOutcome{Outcome: "accepted", Receipt: &MCPDurableReceipt{
-			DurableIdentity: receipt.DurableIdentity, ExecutionID: receipt.ExecutionID, AcceptedRevision: receipt.AcceptedRevision,
-		}}
-		if registration.Durable && registration.DurableService != "" && registration.DurableTask != "" {
-			mcpDurableOwners.Store(registration.DurableService, receipt.ExecutionID, mcpDurableOwner{Principal: call.Principal, Service: registration.DurableService, TaskName: registration.DurableTask})
-		}
-		return result, nil
-	}
 	encoded, err := registration.EncodeOutput(value)
 	if err != nil {
 		return MCPToolOutcome{}, ContractSystemError(fmt.Errorf("encode MCP tool output: %w", err))
@@ -204,127 +146,6 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 		return MCPToolOutcome{}, ContractSystemError(fmt.Errorf("decode MCP tool outcome: unsupported kind %q", kind))
 	}
 	return result, nil
-}
-
-// DurableStatus returns state only to the principal that accepted the receipt.
-func (MCPToolDispatcher) DurableStatus(ctx context.Context, request MCPDurableRequest) (MCPDurableStatus, error) {
-	request = normalizeMCPDurableRequest(request)
-	owner, ok := mcpDurableOwners.Load(request.Service, request.ExecutionID)
-	if !ok || owner.Principal != request.Principal || owner.TaskName != request.TaskName {
-		return MCPDurableStatus{}, mcpError(errs.NotFound, "durable execution not found")
-	}
-	return readMCPDurableStatus(ctx, request)
-}
-
-// readMCPDurableStatus reads a receipt whose owner was already authorized.
-func readMCPDurableStatus(ctx context.Context, request MCPDurableRequest) (MCPDurableStatus, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	db, ok := activeDurableStore(request.Service)
-	if !ok {
-		return MCPDurableStatus{}, mcpError(errs.Unavailable, "durable execution store is unavailable")
-	}
-	job, found, err := db.GetJob(ctx, request.ExecutionID)
-	if err != nil {
-		return MCPDurableStatus{}, err
-	}
-	if !found || job.TaskName != request.TaskName {
-		return MCPDurableStatus{}, mcpError(errs.NotFound, "durable execution not found")
-	}
-	status := MCPDurableStatus{Service: request.Service, TaskName: request.TaskName, ExecutionID: job.ID, State: job.State}
-	if job.ResultCodec == "json" && len(job.ResultBlob) > 0 {
-		status.Result = append(json.RawMessage(nil), job.ResultBlob...)
-	}
-	if len(job.ErrorBlob) > 0 {
-		status.ErrorMessage = string(job.ErrorBlob)
-	}
-	return status, nil
-}
-
-// CancelDurable cancels only a receipt owned by the principal that accepted it.
-func (MCPToolDispatcher) CancelDurable(ctx context.Context, request MCPDurableRequest) error {
-	request = normalizeMCPDurableRequest(request)
-	owner, ok := mcpDurableOwners.Load(request.Service, request.ExecutionID)
-	if !ok || owner.Principal != request.Principal || owner.TaskName != request.TaskName {
-		return mcpError(errs.NotFound, "durable execution not found")
-	}
-	return cancelMCPDurable(ctx, request)
-}
-
-// cancelMCPDurable cancels a receipt whose owner was already authorized.
-func cancelMCPDurable(ctx context.Context, request MCPDurableRequest) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	db, ok := activeDurableStore(request.Service)
-	if !ok {
-		return mcpError(errs.Unavailable, "durable execution store is unavailable")
-	}
-	return db.CancelJob(ctx, request.ExecutionID)
-}
-
-func normalizeMCPDurableRequest(request MCPDurableRequest) MCPDurableRequest {
-	request.Principal = strings.TrimSpace(request.Principal)
-	request.Service = strings.TrimSpace(request.Service)
-	request.TaskName = strings.TrimSpace(request.TaskName)
-	request.ExecutionID = strings.TrimSpace(request.ExecutionID)
-	return request
-}
-
-// Status exposes the framework-owned durable status shape expected by the
-// private MCP gateway. A raw execution ID is never sufficient to read another
-// principal's job; the owner map remains the authorization source.
-func (dispatcher MCPToolDispatcher) Status(ctx context.Context, call MCPToolCallContext, executionID string) (json.RawMessage, error) {
-	principal := strings.TrimSpace(call.Principal)
-	executionID = strings.TrimSpace(executionID)
-	owner, ok := mcpDurableOwners.Find(principal, executionID)
-	if !ok {
-		return nil, mcpError(errs.NotFound, "durable execution not found")
-	}
-	return mcpDurableStatusPayload(dispatcher.DurableStatus(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID}))
-}
-
-// Cancel exposes the framework-owned durable cancel shape expected by the
-// private MCP gateway and enforces the same principal ownership check as
-// DurableStatus.
-func (dispatcher MCPToolDispatcher) Cancel(ctx context.Context, call MCPToolCallContext, executionID string) (json.RawMessage, error) {
-	principal := strings.TrimSpace(call.Principal)
-	executionID = strings.TrimSpace(executionID)
-	owner, ok := mcpDurableOwners.Find(principal, executionID)
-	if !ok {
-		return nil, mcpError(errs.NotFound, "durable execution not found")
-	}
-	return mcpDurableCancelPayload(executionID, dispatcher.CancelDurable(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID}))
-}
-
-func mcpDurableStatusPayload(status MCPDurableStatus, err error) (json.RawMessage, error) {
-	if err != nil {
-		return nil, err
-	}
-	payload := mcpcontract.ExecutionStatus{ExecutionID: status.ExecutionID, State: status.State, Outcome: status.Result}
-	if status.ErrorMessage != "" {
-		payload.Outcome, err = json.Marshal(map[string]string{"error": status.ErrorMessage})
-		if err != nil {
-			return nil, ContractSystemError(err)
-		}
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return nil, ContractSystemError(err)
-	}
-	return json.RawMessage(encoded), nil
-}
-
-func mcpDurableCancelPayload(executionID string, err error) (json.RawMessage, error) {
-	if err != nil {
-		return nil, err
-	}
-	encoded, err := json.Marshal(mcpcontract.CancelResult{ExecutionID: executionID, State: "canceled"})
-	if err != nil {
-		return nil, ContractSystemError(err)
-	}
-	return json.RawMessage(encoded), nil
 }
 
 func lookupMCPTool(assistantAddress, name string) (MCPToolRegistration, error) {
@@ -393,13 +214,6 @@ func newMCPToolState(call MCPToolCallContext, registration MCPToolRegistration, 
 	return state
 }
 
-func activeDurableStore(service string) (*store.Store, bool) {
-	activeDurableStores.mu.RLock()
-	defer activeDurableStores.mu.RUnlock()
-	db := activeDurableStores.stores[service]
-	return db, db != nil
-}
-
 func RegisterMCPTool(registration MCPToolRegistration) error {
 	registration.ID = strings.TrimSpace(registration.ID)
 	registration.Name = strings.TrimSpace(registration.Name)
@@ -409,9 +223,6 @@ func RegisterMCPTool(registration MCPToolRegistration) error {
 	}
 	if registration.DecodeInput == nil || registration.EncodeOutput == nil || registration.Invoke == nil {
 		return fmt.Errorf("runtime: MCP tool %s has incomplete generated codecs or invoke path", registration.Name)
-	}
-	if registration.Durable && (strings.TrimSpace(registration.DurableService) == "" || strings.TrimSpace(registration.DurableTask) == "") {
-		return fmt.Errorf("runtime: MCP durable tool %s has no durable service/task identity", registration.Name)
 	}
 	if err := validateContractHTTPPolicy(registration.Policy); err != nil {
 		return fmt.Errorf("runtime: MCP tool %s policy: %w", registration.Name, err)
@@ -437,51 +248,6 @@ func cloneMCPToolRegistrations(values map[string]MCPToolRegistration) map[string
 	clone := make(map[string]MCPToolRegistration, len(values))
 	maps.Copy(clone, values)
 	return clone
-}
-
-func (owners *mcpDurableOwnerStore) Store(service, executionID string, owner mcpDurableOwner) {
-	owners.Lock()
-	defer owners.Unlock()
-	if owners.values == nil {
-		owners.values = map[string]mcpDurableOwner{}
-	}
-	owner.Service = service
-	owner.ExecutionID = executionID
-	key := service + "\x00" + executionID
-	if _, exists := owners.values[key]; exists {
-		return
-	}
-	if len(owners.order) >= mcpDurableOwnerLimit {
-		delete(owners.values, owners.order[0])
-		owners.order = owners.order[1:]
-	}
-	owners.values[key] = owner
-	owners.order = append(owners.order, key)
-}
-
-func (owners *mcpDurableOwnerStore) Load(service, executionID string) (mcpDurableOwner, bool) {
-	owners.RLock()
-	defer owners.RUnlock()
-	owner, ok := owners.values[service+"\x00"+executionID]
-	return owner, ok
-}
-
-func (owners *mcpDurableOwnerStore) Find(principal, executionID string) (mcpDurableOwner, bool) {
-	owners.RLock()
-	defer owners.RUnlock()
-	var match mcpDurableOwner
-	for _, owner := range owners.values {
-		if owner.Principal != principal || owner.ExecutionID != executionID {
-			continue
-		}
-		if match.ExecutionID != "" {
-			// The same execution ID across services is not a portable receipt
-			// identity; fail closed rather than selecting an arbitrary owner.
-			return mcpDurableOwner{}, false
-		}
-		match = owner
-	}
-	return match, match.ExecutionID != ""
 }
 
 // mcpError is a typed MCP dispatch failure. The gateway reports its code to

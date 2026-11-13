@@ -12,15 +12,13 @@
       "const": "scenery.edge.status"
     },
     "schema_revision": {
-      "const": "sha256:f3078edc6896e0e859339cc97443e533e8e622f3a4feed6b658488263e0cc467"
+      "const": "sha256:fb04d0f874cb7d7eaa301abe534e20e145a71ba719b40d3d3f5bfdd157506ddb"
     },
     "ready": {
     },
     "public_base": {
     },
     "edge": {
-    },
-    "dns": {
     },
     "privileged_listener": {
     }

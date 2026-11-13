@@ -16,7 +16,7 @@ var probeConfiguredEdgeRoute configuredEdgeRouteProber = defaultConfiguredEdgeRo
 
 // devDomainEdgeStatus loads the current edge component status for a dev
 // domain host check without turning unreadiness into an error.
-func devDomainEdgeStatus(domain string) (edgeStatusResult, error) {
+func devDomainEdgeStatus() (edgeStatusResult, error) {
 	paths, err := commandAgentPaths()
 	if err != nil {
 		return edgeStatusResult{}, err
@@ -35,14 +35,14 @@ func devDomainEdgeStatus(domain string) (edgeStatusResult, error) {
 			LogPath:      paths.EdgeLogPath,
 		}
 	}
-	return edgeStatusForStateDomain(paths, state, domain), nil
+	return edgeStatusForState(paths, state), nil
 }
 
 // devDomainEdgeComponentsReady reports whether managed Caddy, the privileged
 // loopback listener forwarding to it, and the live agent router as its
-// upstream can serve a dev domain host right now. Managed DNS is
-// intentionally excluded: dev domain resolution is operator-owned public DNS
-// (wildcard to 127.0.0.1), so the end-to-end HTTPS probe is the DNS truth.
+// upstream can serve a dev domain host right now. Dev domain resolution is
+// operator-owned public DNS (wildcard to 127.0.0.1), so the end-to-end HTTPS
+// probe is the DNS truth.
 func devDomainEdgeComponentsReady(status edgeStatusResult) bool {
 	return status.Edge.State == localagent.EdgeStatusRunning &&
 		status.PrivilegedListener.State == "running" &&
@@ -65,7 +65,7 @@ func validateDevDomainURL(ctx context.Context, session localagent.Session) (stri
 	if domainURL == "" {
 		return "", ""
 	}
-	status, err := devDomainEdgeStatus(session.RouteManifest.DomainHost)
+	status, err := devDomainEdgeStatus()
 	if err != nil {
 		return "", fmt.Sprintf("dev domain %s not advertised; edge status unavailable: %v", domainURL, err)
 	}

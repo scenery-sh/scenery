@@ -83,20 +83,9 @@ mcp {
 name="process_scene"
 }
 }
-mcp_connection "docs" {
-auth {
-scheme="bearer"
-}
-tools {
-allow=["search","fetch"]
-}
-}
 mcp_server "support" {
 capability "process_scene" {
 binding=module.house.process_scene_mcp
-}
-connection "docs" {
-connection=mcp_connection.docs
 }
 }
 assistant "support" {
@@ -117,12 +106,8 @@ path="/assistants/support"
 	}
 	for _, want := range []string{
 		`binding "process_scene_mcp" {`,
-		`mcp_connection "docs" {`,
-		`  auth {`,
-		`  tools {`,
 		`mcp_server "support" {`,
 		`  capability "process_scene" {`,
-		`  connection "docs" {`,
 		`assistant "support" {`,
 		`  implementation {`,
 		`  surface {`,
@@ -172,11 +157,7 @@ func TestFormatterUsesNestedSchemaPrimitiveMetadata(t *testing.T) {
 }
 
 func TestFormatterCanonicalizesNewAssistantMCPPrimitiveMetadata(t *testing.T) {
-	before := []byte(`mcp_connection "docs" {
-connect_timeout = duration("5s")
-call_timeout = duration("30s")
-}
-assistant "support" {
+	before := []byte(`assistant "support" {
 implementation {
 source = "assistants/Café"
 package = "assistants/Café/package.json"
@@ -190,8 +171,6 @@ package_lock = "assistants/Café/package-lock.json"
 	}
 	text := string(formatted)
 	for _, want := range []string{
-		`connect_timeout`, `"5s"`,
-		`call_timeout`, `"30s"`,
 		`source`, `"assistants/Café"`,
 		`package`, `"assistants/Café/package.json"`,
 		`package_lock`, `"assistants/Café/package-lock.json"`,
@@ -199,9 +178,6 @@ package_lock = "assistants/Café/package-lock.json"
 		if !strings.Contains(text, want) {
 			t.Errorf("formatted source missing %q:\n%s", want, formatted)
 		}
-	}
-	if strings.Contains(text, `duration("`) {
-		t.Fatalf("formatter retained contextual duration constructors:\n%s", formatted)
 	}
 	second, err := CanonicalFormat(formatted, AppFilename)
 	if err != nil {

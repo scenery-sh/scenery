@@ -286,12 +286,6 @@ export interface StorageListResult {
 	};
 }
 
-export interface StorageObjectResult {
-	readonly kind: "scenery.storage.object";
-	readonly scope: StorageScope;
-	readonly object: StorageObject;
-}
-
 export interface StorageDeletePreview {
 	readonly prefix: string;
 	readonly objects: number;
@@ -608,10 +602,6 @@ export class DevRuntimeClient {
 			cursor: options.cursor ?? "",
 			limit: options.limit ?? 0,
 		}, options.signal);
-	}
-
-	storageStat(target: StorageTarget, key: string, signal?: AbortSignal): Promise<StorageObjectResult> {
-		return this.#call("storage/stat", { ...storageParams(target), key }, signal);
 	}
 
 	/** Delete one object, only while it still has the displayed version. */

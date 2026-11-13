@@ -1,5 +1,9 @@
 # Native Build and First-Execution Attribution
 
+The `native-reload-attribution` benchmark and its `--workload-root` flag were
+removed by plan 0225; the commands below record how the evidence was produced
+and no longer run.
+
 Status: macOS measurement complete; Git stamping follow-up identifies a large
 avoidable driver cost. Exact platform-loading causality remains unresolved.
 Linux is deferred by the human. No production backend changed. The human added

@@ -198,14 +198,6 @@ func loadBuildState(root string) (buildState, error) {
 	return state, nil
 }
 
-func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*CachedGraph, bool, error) {
-	return LoadCachedGraphContext(context.Background(), appRoot, cfg, graphFingerprint)
-}
-
-func LoadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config, graphFingerprint string) (cached *CachedGraph, hit bool, err error) {
-	return loadCachedGraphContext(ctx, appRoot, cfg, graphFingerprint, "", nil)
-}
-
 // LoadCachedPreparationContext reuses declaration-derived preparation across
 // implementation-only source changes. graphFingerprint remains the identity of
 // the complete captured input set; preparationFingerprint deliberately omits
@@ -369,30 +361,8 @@ func cachedArtifactSetCurrent(root string, paths []string, expected map[string]s
 	return err == nil && maps.Equal(current, expected), err
 }
 
-func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
-	return RefreshCachedWorkspaceWithSnapshot(appRoot, result, nil)
-}
-
-func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot *SourceSnapshot) (bool, error) {
-	return RefreshCachedWorkspaceWithSnapshotContext(context.Background(), appRoot, result, snapshot)
-}
-
-func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot string, result *Result, snapshot *SourceSnapshot) (reused bool, err error) {
-	prepared, err := PrepareCachedWorkspaceWithSnapshotContext(ctx, appRoot, app.Config{}, result, snapshot)
-	return prepared, err
-}
-
-// PrepareCachedWorkspaceWithSnapshotContext refreshes a declaration-equivalent
-// private workspace for the current captured implementation. A true result
-// means the workspace can proceed directly to CompileContext. Executable reuse
-// belongs exclusively to the identity-bound shared binary cache; a bare old
-// workspace executable has no generation-specific identity to authorize reuse.
-func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, result *Result, snapshot *SourceSnapshot) (prepared bool, err error) {
-	return prepareCachedWorkspace(ctx, appRoot, cfg, result, snapshot, false)
-}
-
-// PrepareCachedWorkspaceHeldContext is PrepareCachedWorkspaceWithSnapshotContext
-// for a caller that compiles the prepared workspace next: a prepared result
+// PrepareCachedWorkspaceHeldContext refreshes a declaration-equivalent private
+// workspace for a caller that compiles the prepared workspace next: a prepared result
 // keeps the workspace lock under which this preparation established the
 // workspace's membership and bytes, so BuildDevelopmentProcessesContext
 // consumes it without locking and verifying them again. The caller releases
@@ -474,7 +444,7 @@ func prepareCachedWorkspace(ctx context.Context, appRoot string, cfg app.Config,
 	// the mutation and the identity it establishes, so another process cannot
 	// observe a half-synced workspace or lose its in-flight build outputs to
 	// this removal pass. The lock is released before the caller reaches
-	// CompileContext or PrimeWorkspaceContext, which acquire it themselves.
+	// CompileContext, which acquires it itself.
 	unlock, err := lockWorkspace(result.Dir)
 	if err != nil {
 		return false, err
@@ -586,13 +556,6 @@ func cachedProjectionCurrent(appRoot string, result *Result, snapshot *SourceSna
 	return true, nil
 }
 
-// A cached executable is usable only after publishing the current public
-// projection and proving its private workspace still contains those bytes.
-// Cache metadata alone cannot establish this after deletion or a branch switch.
-func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceSnapshot, prepared ...*compiler.Result) (bool, error) {
-	return refreshCachedGoProjectionContext(context.Background(), appRoot, result, snapshot, prepared...)
-}
-
 func refreshCachedGoProjectionContext(ctx context.Context, appRoot string, result *Result, snapshot *SourceSnapshot, prepared ...*compiler.Result) (bool, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return false, err
@@ -689,10 +652,6 @@ func workspaceBuildFingerprintFromInventory(inventory *workspaceInventory, goBui
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceFiles []string) ([]string, error) {
-	return syncGeneratedFilesObserved(root, appRoot, gen, prev, sourceFiles, nil)
 }
 
 func syncGeneratedFilesObserved(root, appRoot string, gen *codegen.Output, prev, sourceFiles []string, mutation *workspaceMutation) ([]string, error) {

@@ -2,14 +2,11 @@ package mcpcontract
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
-	"sort"
 	"strings"
 
 	"scenery.sh/internal/spec"
@@ -49,21 +46,6 @@ func (manifest Manifest) Validate() error {
 		capabilityIDs[capability.ID], toolNames[capability.Name] = true, true
 		previousName = capability.Name
 	}
-	namespaces := map[string]bool{}
-	previousNamespace := ""
-	for index, connection := range manifest.Connections {
-		if err := connection.validate(); err != nil {
-			return fmt.Errorf("connection %d: %w", index, err)
-		}
-		if namespaces[connection.Namespace] {
-			return fmt.Errorf("duplicate MCP connection namespace %q", connection.Namespace)
-		}
-		if previousNamespace != "" && connection.Namespace < previousNamespace {
-			return errors.New("MCP connections are not sorted by namespace")
-		}
-		namespaces[connection.Namespace] = true
-		previousNamespace = connection.Namespace
-	}
 	return nil
 }
 
@@ -80,7 +62,7 @@ func (capability Capability) validate() error {
 	if err := validateJSONObjectSchema(capability.OutputSchema, false); err != nil {
 		return fmt.Errorf("output schema: %w", err)
 	}
-	if capability.Origin.Kind != "local" && capability.Origin.Kind != "federated" {
+	if capability.Origin.Kind != "local" {
 		return fmt.Errorf("origin kind %q is unsupported", capability.Origin.Kind)
 	}
 	if strings.TrimSpace(capability.Origin.Address) == "" {
@@ -94,28 +76,6 @@ func (capability Capability) validate() error {
 	}
 	if capability.Approval != ApprovalNever && capability.Approval != ApprovalAlways {
 		return fmt.Errorf("approval %q is unsupported", capability.Approval)
-	}
-	return nil
-}
-
-func (connection Connection) validate() error {
-	if strings.TrimSpace(connection.Address) == "" || !toolNameRE.MatchString(connection.Namespace) {
-		return errors.New("connection address and portable namespace are required")
-	}
-	if len(connection.Allow) > 0 && len(connection.Block) > 0 {
-		return errors.New("connection cannot specify both allow and block")
-	}
-	for _, values := range [][]string{connection.Allow, connection.Block} {
-		if !sort.StringsAreSorted(values) {
-			return errors.New("connection filters must be sorted")
-		}
-		seen := map[string]bool{}
-		for _, value := range values {
-			if strings.TrimSpace(value) == "" || seen[value] {
-				return errors.New("connection filters must contain unique non-empty names")
-			}
-			seen[value] = true
-		}
 	}
 	return nil
 }
@@ -159,15 +119,6 @@ func Parse(data []byte) (Manifest, error) {
 	return manifest, nil
 }
 
-func Digest(manifest Manifest) (string, error) {
-	encoded, err := MarshalCanonical(manifest)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(append([]byte(ManifestKind+"\x00"), encoded...))
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
 func MarshalOutcome(outcome ToolOutcome) ([]byte, error) {
 	if strings.TrimSpace(outcome.Outcome) == "" {
 		return nil, errors.New("tool outcome name is required")
@@ -185,14 +136,8 @@ func MarshalOutcome(outcome ToolOutcome) ([]byte, error) {
 		}
 		payloads++
 	}
-	if outcome.Receipt != nil {
-		if outcome.Receipt.ExecutionID == "" || outcome.Receipt.DurableIdentity == "" || outcome.Receipt.AcceptedRevision == "" {
-			return nil, errors.New("durable receipt identity, execution id, and revision are required")
-		}
-		payloads++
-	}
 	if payloads != 1 {
-		return nil, errors.New("tool outcome must contain exactly one value, problem, or receipt")
+		return nil, errors.New("tool outcome must contain exactly one value or problem")
 	}
 	return spec.MarshalCanonical(outcome)
 }

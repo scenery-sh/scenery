@@ -20,7 +20,7 @@ func RuntimeCheck(info RuntimeInfo) Check {
 		status = StatusWarn
 		severity = SeverityOptional
 		message += " is not a routinely tested scenery development platform"
-		action = "Prefer linux, darwin, or windows for local development when possible."
+		action = "Prefer linux or darwin for local development when possible."
 	}
 	return Check{
 		ID:              "os.runtime",
@@ -39,7 +39,7 @@ func RuntimeCheck(info RuntimeInfo) Check {
 
 func supportedRuntime(goos string) bool {
 	switch goos {
-	case "linux", "darwin", "windows":
+	case "linux", "darwin":
 		return true
 	default:
 		return false

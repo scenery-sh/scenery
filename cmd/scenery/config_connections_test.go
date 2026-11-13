@@ -23,35 +23,26 @@ func TestDisabledStandardAuthDoesNotRequirePreparedConnectionInputs(t *testing.T
 			t.Fatal(err)
 		}
 		for _, key := range []string{"auth.connections.google.client_id", "auth.connections.google.callback_uri", "auth.token_cipher_key"} {
-			input, exists := catalog.Lookup(key)
-			if exists != enabled || enabled && !input.Required(true) {
-				t.Fatalf("enabled=%t key=%s exists=%t required=%t", enabled, key, exists, input.Required(true))
+			if _, exists := catalog.Lookup(key); exists != enabled {
+				t.Fatalf("enabled=%t key=%s exists=%t", enabled, key, exists)
 			}
 		}
-		if resolved := appconfig.Resolve(catalog, appconfig.Document{}, true); !enabled && (!resolved.Valid() || len(resolved.Missing()) != 0) {
-			t.Fatalf("disabled auth blocks deployment: %#v", resolved)
+		if resolved := appconfig.Resolve(catalog, appconfig.Document{}); !enabled && (!resolved.Valid() || len(resolved.Missing()) != 0) {
+			t.Fatalf("disabled auth blocks a start: %#v", resolved)
 		}
 	}
 }
 
-func TestConnectionCredentialMigrationUsesSelectedAuthorityAndSafelyReruns(t *testing.T) {
+func TestConnectionCredentialMigrationUsesSelectedEnvironmentAndSafelyReruns(t *testing.T) {
 	for _, environment := range []string{"local", "production"} {
 		t.Run(environment, func(t *testing.T) {
 			e := newConfigTestEnv(t)
-			cfg := `{"name":"clean-tech","id":"clean-tech","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["prod-host"]}}},"auth":{"enabled":true,"google_oauth":{"enabled":true},"connections":[{"id":"google","preset":"google","allowed_scopes":["calendar.read"]}]}}`
+			cfg := `{"name":"clean-tech","id":"clean-tech","envs":{"local":{"default":true},"production":{}},"auth":{"enabled":true,"google_oauth":{"enabled":true},"connections":[{"id":"google","preset":"google","allowed_scopes":["calendar.read"]}]}}`
 			if err := os.WriteFile(filepath.Join(e.root, app.PrimaryConfigFilename), []byte(cfg), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			store := mustStore(t, e)
 			backend := e.local
-			if environment == "production" {
-				var err error
-				store, err = appconfig.OpenStore(e.target.home, "clean-tech")
-				if err != nil {
-					t.Fatal(err)
-				}
-				backend = e.target.secrets
-			}
 			if _, err := store.Mutate(t.Context(), environment, appconfig.Mutation{Key: "auth.google_client_id", Value: json.RawMessage(`"client"`)}); err != nil {
 				t.Fatal(err)
 			}
@@ -106,12 +97,6 @@ func TestConnectionCredentialMigrationUsesSelectedAuthorityAndSafelyReruns(t *te
 			if err == nil || cliExitCode(err) != 3 {
 				t.Fatalf("stale configuration revision classification: %v", err)
 			}
-			if environment == "production" {
-				local, _, err := mustStore(t, e).Read(environment)
-				if err != nil || len(local.Values) != 0 || len(local.Secrets) != 0 {
-					t.Fatal("deployable migration wrote a local fallback")
-				}
-			}
 		})
 	}
 }
@@ -152,7 +137,7 @@ func TestConnectionCredentialMigrationRefusesConflictsAndResumesPartialCopy(t *t
 func TestConnectionCredentialMigrationClassifiesExpectedFailures(t *testing.T) {
 	e := newConfigTestEnv(t)
 	store := mustStore(t, e)
-	request := configRemoteRequest{Operation: "migrate_connections", Key: "auth.connections.google"}
+	request := configMutationRequest{Operation: "migrate_connections", Key: "auth.connections.google"}
 	backend := func() (appconfig.SecretBackend, error) { return e.local, nil }
 	if _, err := applyLocalConfigMutation(t.Context(), store, "local", request, backend); cliExitCode(err) != 3 {
 		t.Fatalf("missing source must be a precondition: %v", err)

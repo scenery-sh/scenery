@@ -620,10 +620,6 @@ func EncodeContractJSON(status int, value any) (ContractHTTPResponse, error) {
 	return encodeContractJSON(status, value, "application/json", 0)
 }
 
-func EncodeContractJSONForRequest(request *http.Request, status int, value any, produced []string, maxBytes int64) (ContractHTTPResponse, error) {
-	return EncodeContractRepresentationForRequest(request, status, value, "json", produced, maxBytes)
-}
-
 type ContractResponseOptions struct {
 	MaxBytes              int64
 	CompressionAlgorithms []string

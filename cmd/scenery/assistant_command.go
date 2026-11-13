@@ -13,10 +13,7 @@ import (
 	inspectdata "scenery.sh/internal/inspect"
 )
 
-const (
-	inspectAssistantsKind = "scenery.inspect.assistants"
-	assistantStatusKind   = "scenery.assistant.status"
-)
+const assistantStatusKind = "scenery.assistant.status"
 
 type assistantPolicyRecord struct {
 	Authentication string `json:"authentication"`
@@ -46,25 +43,18 @@ type assistantImplementationRecord struct {
 }
 
 type assistantInspectionRecord struct {
-	Address        string                         `json:"address"`
-	Name           string                         `json:"name"`
-	Path           string                         `json:"path"`
-	Access         string                         `json:"access"`
-	SessionAccess  string                         `json:"session_access"`
-	Policy         assistantPolicyRecord          `json:"policy"`
-	Revisions      assistantRevisionsRecord       `json:"revisions"`
-	Ready          bool                           `json:"ready"`
-	Status         string                         `json:"status"`
-	RestartCount   int                            `json:"restart_count"`
-	LastFailure    string                         `json:"last_failure"`
-	LogSource      string                         `json:"log_source"`
-	Implementation *assistantImplementationRecord `json:"implementation,omitempty"`
-}
-
-type inspectAssistantsResponse struct {
-	cliPayloadIdentity
-	App        inspectdata.AppRef          `json:"app"`
-	Assistants []assistantInspectionRecord `json:"assistants"`
+	Address       string                   `json:"address"`
+	Name          string                   `json:"name"`
+	Path          string                   `json:"path"`
+	Access        string                   `json:"access"`
+	SessionAccess string                   `json:"session_access"`
+	Policy        assistantPolicyRecord    `json:"policy"`
+	Revisions     assistantRevisionsRecord `json:"revisions"`
+	Ready         bool                     `json:"ready"`
+	Status        string                   `json:"status"`
+	RestartCount  int                      `json:"restart_count"`
+	LastFailure   string                   `json:"last_failure"`
+	LogSource     string                   `json:"log_source"`
 }
 
 type assistantStatusResponse struct {
@@ -81,10 +71,6 @@ func assistantCommand(args []string) error {
 		return err
 	}
 	switch args[0] {
-	case "init":
-		return runAssistantInit(args[1:], os.Stdout)
-	case "sync":
-		return runAssistantSync(args[1:], os.Stdout)
 	case "status":
 		return runAssistantStatus(args[1:], os.Stdout)
 	default:
@@ -141,30 +127,8 @@ func runAssistantStatus(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	record := assistantInspectionFromResource(resource, compiled, records[resource.Address], false)
+	record := assistantInspectionFromResource(resource, compiled, records[resource.Address])
 	return writeInspectJSON(stdout, assistantStatusResponse{cliPayloadIdentity: newCLIPayloadIdentity(assistantStatusKind), App: inspectAppInfo(root, cfg, nil), Assistant: record})
-}
-
-func buildInspectAssistantsResponse(appRoot string, cfg appcfg.Config, compiled *compiler.Result, implementation bool) (inspectAssistantsResponse, error) {
-	if compiled == nil || compiled.Manifest == nil {
-		return inspectAssistantsResponse{}, fmt.Errorf("assistant inspection requires a compiled manifest")
-	}
-	records, err := readAssistantStatusSnapshot(appRoot)
-	if err != nil {
-		return inspectAssistantsResponse{}, err
-	}
-	assistants := make([]graph.Resource, 0)
-	for _, resource := range compiled.Manifest.Resources {
-		if resource.Kind == "scenery.assistant" {
-			assistants = append(assistants, resource)
-		}
-	}
-	sort.Slice(assistants, func(i, j int) bool { return assistants[i].Address < assistants[j].Address })
-	result := make([]assistantInspectionRecord, 0, len(assistants))
-	for _, resource := range assistants {
-		result = append(result, assistantInspectionFromResource(resource, compiled, records[resource.Address], implementation))
-	}
-	return inspectAssistantsResponse{cliPayloadIdentity: newCLIPayloadIdentity(inspectAssistantsKind), App: inspectAppInfo(appRoot, cfg, nil), Assistants: result}, nil
 }
 
 func assistantResourceByName(manifest *graph.Manifest, name string) (graph.Resource, bool) {
@@ -183,7 +147,7 @@ func assistantResourceByName(manifest *graph.Manifest, name string) (graph.Resou
 	return graph.Resource{}, false
 }
 
-func assistantInspectionFromResource(resource graph.Resource, compiled *compiler.Result, status assistantStatusRecord, implementation bool) assistantInspectionRecord {
+func assistantInspectionFromResource(resource graph.Resource, compiled *compiler.Result, status assistantStatusRecord) assistantInspectionRecord {
 	surface, _ := resource.Spec["surface"].(map[string]any)
 	path := assistantStringValue(surface["path"])
 	if path == "" {
@@ -197,9 +161,6 @@ func assistantInspectionFromResource(resource graph.Resource, compiled *compiler
 		sessionAccess = "initiator"
 	}
 	access := "auth"
-	if authentication == "std.authentication.none" {
-		access = "public"
-	}
 	expectedRuntime := assistantExpectedRuntimeRevision(compiled)
 	expectedCapability := assistantCapabilityRevision(compiled, resource.Address)
 	if status.Address == "" {
@@ -221,24 +182,11 @@ func assistantInspectionFromResource(resource graph.Resource, compiled *compiler
 		Ready: status.Ready, Status: firstNonEmpty(status.Status, "not_started"), RestartCount: status.RestartCount,
 		LastFailure: status.LastFailure, LogSource: firstNonEmpty(status.LogSource, "assistant:"+resource.Name),
 	}
-	if implementation {
-		implementationSpec, _ := resource.Spec["implementation"].(map[string]any)
-		record.Implementation = &assistantImplementationRecord{
-			Adapter: assistantStringValue(implementationSpec["adapter"]), Source: assistantStringValue(implementationSpec["source"]),
-			Package: assistantStringValue(implementationSpec["package"]), PackageLock: assistantStringValue(implementationSpec["package_lock"]),
-		}
-		if status.Implementation != nil {
-			mergeAssistantImplementation(record.Implementation, status.Implementation)
-		}
-	}
 	return record
 }
 
 // writeAssistantLiveStatusSnapshot adapts the supervisor's provider-neutral
-// live records to the canonical graph-backed snapshot consumed by inspection.
-// The live type intentionally includes private process details so the
-// explicit implementation view can surface them; default inspection drops
-// those fields before encoding its public payload.
+// live records to the canonical graph-backed snapshot consumed by status.
 func writeAssistantLiveStatusSnapshot(appRoot string, compiled *compiler.Result, live []AssistantStatusRecord) error {
 	if compiled == nil || compiled.Manifest == nil {
 		return fmt.Errorf("assistant status snapshot requires a compiled manifest")
@@ -255,7 +203,7 @@ func writeAssistantLiveStatusSnapshot(appRoot string, compiled *compiler.Result,
 		if !ok {
 			continue
 		}
-		canonical := assistantInspectionFromResource(resource, compiled, assistantStatusRecord{}, false)
+		canonical := assistantInspectionFromResource(resource, compiled, assistantStatusRecord{})
 		lastFailure := strings.TrimSpace(current.LastFailure)
 		if lastFailure != "" && !assistantStatusCode(lastFailure) {
 			lastFailure = "runtime_unavailable"
@@ -278,45 +226,6 @@ func writeAssistantLiveStatusSnapshot(appRoot string, compiled *compiler.Result,
 		records = append(records, record)
 	}
 	return writeAssistantStatusSnapshot(appRoot, records)
-}
-
-func mergeAssistantImplementation(base, overlay *assistantImplementationRecord) {
-	if base == nil || overlay == nil {
-		return
-	}
-	if overlay.Adapter != "" {
-		base.Adapter = overlay.Adapter
-	}
-	if overlay.Source != "" {
-		base.Source = overlay.Source
-	}
-	if overlay.Package != "" {
-		base.Package = overlay.Package
-	}
-	if overlay.PackageLock != "" {
-		base.PackageLock = overlay.PackageLock
-	}
-	if overlay.NodeVersion != "" {
-		base.NodeVersion = overlay.NodeVersion
-	}
-	if overlay.RuntimePackage != "" {
-		base.RuntimePackage = overlay.RuntimePackage
-	}
-	if overlay.PackageLockDigest != "" {
-		base.PackageLockDigest = overlay.PackageLockDigest
-	}
-	if overlay.OverlayPath != "" {
-		base.OverlayPath = overlay.OverlayPath
-	}
-	if overlay.PrivateControlAddr != "" {
-		base.PrivateControlAddr = overlay.PrivateControlAddr
-	}
-	if overlay.PrivateMCPAddr != "" {
-		base.PrivateMCPAddr = overlay.PrivateMCPAddr
-	}
-	if overlay.PID > 0 {
-		base.PID = overlay.PID
-	}
 }
 
 func assistantExpectedRuntimeRevision(result *compiler.Result) string {

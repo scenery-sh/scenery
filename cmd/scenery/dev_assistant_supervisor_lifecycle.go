@@ -513,3 +513,10 @@ func (s *assistantSupervisor) emitStep(ctx context.Context, definition assistant
 	}
 	s.emit(ctx, definition, level, "assistant.step", fields)
 }
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

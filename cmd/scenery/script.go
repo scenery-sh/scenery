@@ -51,46 +51,7 @@ type scriptOptions struct {
 
 type scriptCommandRunner func(*exec.Cmd) error
 
-type scriptInspectOutput struct {
-	Target    scriptTarget      `json:"target"`
-	Candidate scriptCandidate   `json:"candidate"`
-	Searched  []scriptCandidate `json:"searched"`
-}
-
 var scriptCommandContext = commandTreeContext
-
-func parseScriptRunArgs(args []string) (scriptOptions, error) {
-	var opts scriptOptions
-	flags := newCLIFlagSet("script run")
-	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.StringVar(&opts.Env, "env", "", "")
-	lang := ""
-	flags.StringVar(&lang, "lang", "", "")
-	rest, err := parseLeadingCLIFlags(flags, args)
-	if err != nil {
-		return scriptOptions{}, err
-	}
-	if len(rest) == 0 {
-		return scriptOptions{}, errors.New(scriptRunUsage)
-	}
-	opts.Env = strings.TrimSpace(opts.Env)
-	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return scriptOptions{}, usageErrorf("--env must not be empty")
-	}
-	opts.Lang, err = normalizeScriptLang(lang)
-	if err != nil {
-		return scriptOptions{}, err
-	}
-	opts.Target = rest[0]
-	opts.Args = append([]string(nil), rest[1:]...)
-	if len(opts.Args) > 0 && opts.Args[0] == "--" {
-		opts.Args = opts.Args[1:]
-	}
-	if _, err := parseScriptTarget(opts.Target); err != nil {
-		return scriptOptions{}, err
-	}
-	return opts, nil
-}
 
 func normalizeScriptLang(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
@@ -134,27 +95,6 @@ func validScriptSegment(value string) bool {
 		}
 	}
 	return true
-}
-
-func runSceneryScriptInspect(ctx context.Context, stdout io.Writer, opts scriptOptions) error {
-	root, _, err := discoverScriptApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	target, err := parseScriptTarget(opts.Target)
-	if err != nil {
-		return err
-	}
-	candidate, searched, err := resolveScriptCandidate(root, target, opts.Lang)
-	if err != nil {
-		return err
-	}
-	if opts.JSON {
-		return writeCLIJSON(stdout, scriptInspectOutput{Target: target, Candidate: candidate, Searched: searched})
-	}
-	_, err = fmt.Fprintf(stdout, "%s:%s\n  lang: %s\n  layout: %s\n  path: %s\n", target.Domain, target.Name, candidate.Lang, candidate.Layout, candidate.Path)
-	_ = ctx
-	return err
 }
 
 func runSceneryScript(ctx context.Context, opts scriptOptions) error {

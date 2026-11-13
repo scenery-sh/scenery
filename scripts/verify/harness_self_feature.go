@@ -8,10 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"scenery.sh/internal/envpolicy"
 	"slices"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/envpolicy"
 
 	"scenery.sh/internal/feature"
 )

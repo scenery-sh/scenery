@@ -1,13 +1,13 @@
 # Optional Generated UI
 
 A `typescript_client` without a `react` block generates ordinary HTTP contracts,
-types and a client. It emits no React pages, hooks or UI catalog. Go backends and
-CRUD do not require a TypeScript target, Node, Bun or the page stack.
+types and a client. It emits no React pages, hooks or UI catalog. Go backends
+do not require a TypeScript target, Node, Bun or the page stack.
 
 The canonical `.scn` graph remains the declaration surface for records, SQL,
-CRUD, pages and renderers. Backend authorization is enforced by the server.
+pages and renderers. Backend authorization is enforced by the server.
 Choosing or hiding a page does not change that authorization. Presentation-only
-edits preserve SQL requirements and backend CRUD projection; the canonical graph
+edits preserve SQL requirements; the canonical graph
 revision still changes to identify the edited application.
 
 ## Select a UI projection

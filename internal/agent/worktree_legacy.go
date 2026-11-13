@@ -39,14 +39,7 @@ func CheckLegacyWorktreeClaim(machinePaths Paths, worktree WorktreePaths) error 
 	}
 	var registry registryFile
 	if err := machine.DecodeArtifact(data, &registry, &registry.ArtifactIdentity, AgentRegistryKind, agentRegistrySchemaDescriptor, "inspect the original registry with its matching Scenery binary before migrating retained data"); err != nil {
-		// The cutover only added an optional edge proxy field. This exact
-		// predecessor schema is read solely as migration provenance, never
-		// as a live protocol, credential authority, or writable registry.
-		// Unknown shapes/specifications still fail closed.
-		const predecessor = `{"identity":"artifact","registry":"sessions-substrates-aliases"}`
-		if err := machine.DecodeArtifact(data, &registry, &registry.ArtifactIdentity, AgentRegistryKind, predecessor, "inspect retained ownership with its matching binary"); err != nil {
-			return fmt.Errorf("existing machine registry provenance is incompatible or malformed; verify retained application data with its matching Scenery binary before allocating PostgreSQL")
-		}
+		return fmt.Errorf("existing machine registry provenance is incompatible or malformed; verify retained application data with its matching Scenery binary before allocating PostgreSQL")
 	}
 	for claimedRoot := range registry.CurrentByAppRoot {
 		root, err := canonicalWorktreePath(claimedRoot)

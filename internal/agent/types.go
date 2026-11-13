@@ -7,23 +7,21 @@ import (
 )
 
 const (
-	SessionKind        = "scenery.dev.session"
-	RouteManifestKind  = "scenery.route-manifest"
-	PortLeaseKind      = "scenery.dev.port-lease"
-	SubstrateKind      = "scenery.dev.substrate"
-	AgentStateKind     = "scenery.agent.state"
-	AgentOwnerKind     = "scenery.agent.owner"
-	AgentRegistryKind  = "scenery.agent.registry"
-	DeployRegistryKind = "scenery.deploy.registry"
-	EdgeStateKind      = "scenery.edge.state"
-	EdgeTargetKind     = "scenery.edge.target"
+	SessionKind       = "scenery.dev.session"
+	RouteManifestKind = "scenery.route-manifest"
+	PortLeaseKind     = "scenery.dev.port-lease"
+	SubstrateKind     = "scenery.dev.substrate"
+	AgentStateKind    = "scenery.agent.state"
+	AgentOwnerKind    = "scenery.agent.owner"
+	AgentRegistryKind = "scenery.agent.registry"
+	EdgeStateKind     = "scenery.edge.state"
+	EdgeTargetKind    = "scenery.edge.target"
 
 	RouteAPI = "api"
 	// RouteDashboard names the worktree's runtime control backend (development
 	// runtime RPC, storage transfers, report intake). It is a backend, never a
 	// browser route.
 	RouteDashboard = "dashboard"
-	RoutePublic    = "public"
 
 	// RoutePathMode marks a registered route host that dispatches the whole
 	// path-mode manifest instead of one backend route. It is internal-only
@@ -64,23 +62,21 @@ type Owner struct {
 
 type Session struct {
 	machine.ArtifactIdentity
-	SessionID      string                `json:"session_id"`
-	BaseAppID      string                `json:"base_app_id"`
-	Environment    string                `json:"environment"`
-	RuntimeAppID   string                `json:"runtime_app_id"`
-	RouteNamespace RouteNamespace        `json:"route_namespace"`
-	AppRoot        string                `json:"app_root"`
-	StateRoot      string                `json:"state_root"`
-	Branch         string                `json:"branch,omitempty"`
-	Status         string                `json:"status"`
-	StatusReason   string                `json:"status_reason,omitempty"`
-	OwnerPID       int                   `json:"owner_pid,omitempty"`
-	Owner          Owner                 `json:"owner"`
-	AppPID         string                `json:"app_pid,omitempty"`
-	Processes      map[string]Process    `json:"processes,omitempty"`
-	RouteManifest  RouteManifest         `json:"route_manifest,omitempty"`
-	Aliases        map[string]string     `json:"aliases,omitempty"`
-	AliasConflicts map[string]AliasLease `json:"alias_conflicts,omitempty"`
+	SessionID      string             `json:"session_id"`
+	BaseAppID      string             `json:"base_app_id"`
+	Environment    string             `json:"environment"`
+	RuntimeAppID   string             `json:"runtime_app_id"`
+	RouteNamespace RouteNamespace     `json:"route_namespace"`
+	AppRoot        string             `json:"app_root"`
+	StateRoot      string             `json:"state_root"`
+	Branch         string             `json:"branch,omitempty"`
+	Status         string             `json:"status"`
+	StatusReason   string             `json:"status_reason,omitempty"`
+	OwnerPID       int                `json:"owner_pid,omitempty"`
+	Owner          Owner              `json:"owner"`
+	AppPID         string             `json:"app_pid,omitempty"`
+	Processes      map[string]Process `json:"processes,omitempty"`
+	RouteManifest  RouteManifest      `json:"route_manifest,omitempty"`
 	// DomainHostConflict reports the live session that already owns this
 	// session's requested dev domain host; the host is stripped from the
 	// route manifest when set.
@@ -119,25 +115,20 @@ type RegisterRequest struct {
 }
 
 type RouteNamespace struct {
-	Workspace  string            `json:"workspace,omitempty"`
-	BaseDomain string            `json:"base_domain,omitempty"`
-	Hosts      map[string]string `json:"hosts,omitempty"`
+	Workspace  string `json:"workspace,omitempty"`
+	BaseDomain string `json:"base_domain,omitempty"`
 }
 
 type RouteManifest struct {
 	machine.ArtifactIdentity
-	Mode       RouteMode `json:"mode,omitempty"`
-	BaseURL    string    `json:"base_url,omitempty"`
-	DomainHost string    `json:"domain_host,omitempty"`
-	DomainURL  string    `json:"domain_url,omitempty"`
-	// PublicRoutes narrows what the dev domain origin serves to the listed
-	// route names (root, api, dashboard, runtime, frontend names). Empty
-	// means the full path-mode surface. Localhost dispatch ignores it.
-	PublicRoutes []string               `json:"public_routes,omitempty"`
-	Root         string                 `json:"root,omitempty"`
-	Worktree     string                 `json:"worktree,omitempty"`
-	Routes       map[string]RouteRecord `json:"routes,omitempty"`
-	PortLease    *PortLease             `json:"port_lease,omitempty"`
+	Mode       RouteMode              `json:"mode,omitempty"`
+	BaseURL    string                 `json:"base_url,omitempty"`
+	DomainHost string                 `json:"domain_host,omitempty"`
+	DomainURL  string                 `json:"domain_url,omitempty"`
+	Root       string                 `json:"root,omitempty"`
+	Worktree   string                 `json:"worktree,omitempty"`
+	Routes     map[string]RouteRecord `json:"routes,omitempty"`
+	PortLease  *PortLease             `json:"port_lease,omitempty"`
 }
 
 func (m RouteManifest) URLs() map[string]string {

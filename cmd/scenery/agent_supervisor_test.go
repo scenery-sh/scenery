@@ -6,16 +6,12 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
 )
 
@@ -95,33 +91,6 @@ func withAgentSupervisorHooks(t *testing.T, status localagent.LaunchdAgentStatus
 	}
 	if bootstrap != nil {
 		agentSupervisorBootstrapFunc = bootstrap
-	}
-}
-
-func deployStatusTestDependencies(supervisor localagent.LaunchdAgentStatus, launchAgent deployLaunchAgentStatus) deployStatusDependencies {
-	return deployStatusDependencies{
-		serviceManager: func() string { return "launchd" },
-		edgeStatus: func(localagent.Paths, localagent.EdgeState) edgeStatusCaddy {
-			return edgeStatusCaddy{Kind: localagent.EdgeKindCaddy, State: localagent.EdgeStatusRunning}
-		},
-		privilegedListenerStatus: func(localagent.Paths) edgeStatusPrivilegedListener {
-			return edgeStatusPrivilegedListener{
-				Installed: true,
-				State:     "running",
-				Listen:    []string{"0.0.0.0:80", "0.0.0.0:443"},
-			}
-		},
-		agentStatus: func(paths localagent.Paths) deployAgentStatus {
-			return deployAgentStatus{State: "running", StatePath: paths.StatePath, SocketPath: paths.SocketPath}
-		},
-		agentSupervisorStatus: func(localagent.Paths) deployAgentSupervisorStatus {
-			return deployAgentSupervisorStatusFromService(supervisor)
-		},
-		launchAgentStatus:      func() deployLaunchAgentStatus { return launchAgent },
-		systemdSnapshotOverlay: func(*deploydiag.Snapshot) {},
-		diagnosticsReport: func(context.Context, deploydiag.Snapshot) deploydiag.Report {
-			return deploydiag.Report{}
-		},
 	}
 }
 
@@ -322,174 +291,5 @@ func TestRestartAgentViaSupervisorReportsLaunchdSpawnFailure(t *testing.T) {
 	_, _, _, err = restartAgentViaSupervisor(context.Background(), client, paths, localagent.HealthResponse{}, false)
 	if err == nil || strings.HasPrefix(err.Error(), "failed_precondition:") {
 		t.Fatalf("plain start error = %v", err)
-	}
-}
-
-func TestDeployStatusRequiresLoadedSupervisor(t *testing.T) {
-	t.Parallel()
-
-	paths := localagent.PathsForHome(t.TempDir())
-	launchAgent := deployLaunchAgentStatus{Installed: true, Loaded: true, State: "exited", LastExitCode: intPtr(0)}
-
-	// Installed but unloaded supervisor: plist presence must not read as
-	// supervision, and status must not be ready.
-	supervisor := localagent.LaunchdAgentStatus{
-		Supported:        true,
-		PlistPresent:     true,
-		SupervisesSocket: true,
-		Loaded:           false,
-		PlistPath:        "/Users/example/Library/LaunchAgents/dev.scenery.agent.plist",
-		Label:            localagent.AgentLaunchdLabel,
-	}
-	status := buildDeployStatusWithDependencies(context.Background(), paths, localagent.EmptyDeployRegistry(), deployStatusTestDependencies(supervisor, launchAgent))
-	if status.Ready {
-		t.Fatalf("status must not be ready with unloaded supervisor: %+v", status)
-	}
-	if !status.AgentSupervisor.Installed || status.AgentSupervisor.Loaded {
-		t.Fatalf("agent supervisor status = %+v", status.AgentSupervisor)
-	}
-	found := false
-	for _, diag := range status.Diagnostics {
-		if strings.Contains(diag, "supervisor LaunchAgent is installed but not loaded") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("missing unloaded-supervisor diagnostic: %v", status.Diagnostics)
-	}
-
-	supervisor = localagent.LaunchdAgentStatus{
-		Supported:        true,
-		PlistPresent:     false,
-		SupervisesSocket: false,
-	}
-	status = buildDeployStatusWithDependencies(context.Background(), paths, localagent.EmptyDeployRegistry(), deployStatusTestDependencies(supervisor, launchAgent))
-	found = false
-	for _, diag := range status.Diagnostics {
-		if strings.Contains(diag, "supervisor LaunchAgent is not installed") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("missing uninstalled-supervisor diagnostic: %v", status.Diagnostics)
-	}
-}
-
-func TestDeployLaunchAgentStatusDistinguishesLoaded(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("deploy resume LaunchAgents are macOS-only")
-	}
-	t.Setenv("HOME", t.TempDir())
-	oldLaunchctl := deployLaunchctlFunc
-	t.Cleanup(func() { deployLaunchctlFunc = oldLaunchctl })
-
-	status := deployLaunchAgentStatusFor()
-	if status.Installed || status.Loaded {
-		t.Fatalf("missing plist status = %+v", status)
-	}
-
-	paths := localagent.PathsForHome(t.TempDir())
-	oldExe := deployPrivilegedHelperExecutableFunc
-	t.Cleanup(func() { deployPrivilegedHelperExecutableFunc = oldExe })
-	deployPrivilegedHelperExecutableFunc = func() (string, error) { return "/usr/local/bin/scenery", nil }
-	var calls []string
-	deployLaunchctlFunc = func(args ...string) ([]byte, error) {
-		calls = append(calls, strings.Join(args, " "))
-		if args[0] == "print" {
-			return []byte("state = running"), nil
-		}
-		return nil, nil
-	}
-	if err := installDeployResumeLaunchAgent(paths); err != nil {
-		t.Fatalf("installDeployResumeLaunchAgent: %v", err)
-	}
-	if len(calls) != 4 || !strings.HasPrefix(calls[0], "bootout gui/") || !strings.HasPrefix(calls[1], "bootstrap gui/") || !strings.HasPrefix(calls[2], "kickstart gui/") || !strings.HasPrefix(calls[3], "print gui/") {
-		t.Fatalf("install launchctl calls = %v", calls)
-	}
-
-	deployLaunchctlFunc = func(args ...string) ([]byte, error) {
-		return []byte("Could not find service"), &net.AddrError{Err: "not loaded"}
-	}
-	status = deployLaunchAgentStatusFor()
-	if !status.Installed || status.Loaded {
-		t.Fatalf("unloaded job status = %+v", status)
-	}
-
-	deployLaunchctlFunc = func(args ...string) ([]byte, error) { return []byte("state = running"), nil }
-	status = deployLaunchAgentStatusFor()
-	if !status.Installed || !status.Loaded {
-		t.Fatalf("loaded job status = %+v", status)
-	}
-
-	calls = nil
-	deployLaunchctlFunc = func(args ...string) ([]byte, error) {
-		calls = append(calls, strings.Join(args, " "))
-		return nil, nil
-	}
-	removed, err := removeDeployResumeLaunchAgent()
-	if err != nil || !removed {
-		t.Fatalf("removeDeployResumeLaunchAgent = %v, %v", removed, err)
-	}
-	if len(calls) != 1 || !strings.HasPrefix(calls[0], "bootout gui/") {
-		t.Fatalf("remove launchctl calls = %v", calls)
-	}
-}
-
-func TestDeployLaunchAgentStatusParsesFailedLastExit(t *testing.T) {
-	t.Parallel()
-
-	resumePath := filepath.Join(t.TempDir(), "dev.scenery.deploy-resume.plist")
-	if err := os.MkdirAll(filepath.Dir(resumePath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(resumePath, []byte("plist"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	status := deployLaunchAgentStatusForPath(resumePath, func() deployLaunchAgentStatus {
-		return deployLaunchAgentStatus{Loaded: true, State: "exited", LastExitCode: intPtr(10)}
-	})
-	if !status.Installed || !status.Loaded || status.State != "exited" || status.LastExitCode == nil || *status.LastExitCode != 10 || !status.failed() {
-		t.Fatalf("failed resume status = %+v", status)
-	}
-
-	paths := localagent.PathsForHome(t.TempDir())
-	supervisor := localagent.LaunchdAgentStatus{
-		Supported: true, PlistPresent: true, SupervisesSocket: true, Loaded: true, Running: true,
-	}
-	deploy := buildDeployStatusWithDependencies(context.Background(), paths, localagent.EmptyDeployRegistry(), deployStatusTestDependencies(supervisor, status))
-	found := false
-	for _, diagnostic := range deploy.Diagnostics {
-		if strings.Contains(diagnostic, "completed with exit code 10") {
-			found = true
-		}
-	}
-	if !found || deploy.Ready {
-		t.Fatalf("deploy status did not degrade for failed resume job: ready=%v diagnostics=%v", deploy.Ready, deploy.Diagnostics)
-	}
-}
-
-func TestInstallDeployResumeLaunchAgentRejectsCompletedFailure(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("deploy resume LaunchAgents are macOS-only")
-	}
-	t.Setenv("HOME", t.TempDir())
-	paths := localagent.PathsForHome(t.TempDir())
-	oldExe := deployPrivilegedHelperExecutableFunc
-	oldLaunchctl := deployLaunchctlFunc
-	t.Cleanup(func() {
-		deployPrivilegedHelperExecutableFunc = oldExe
-		deployLaunchctlFunc = oldLaunchctl
-	})
-	deployPrivilegedHelperExecutableFunc = func() (string, error) { return "/usr/local/bin/scenery", nil }
-	deployLaunchctlFunc = func(args ...string) ([]byte, error) {
-		if args[0] == "print" {
-			return []byte("state = exited\nlast exit code = 10\n"), nil
-		}
-		return nil, nil
-	}
-
-	err := installDeployResumeLaunchAgent(paths)
-	if err == nil || !strings.Contains(err.Error(), "exit code 10") {
-		t.Fatalf("install error = %v, want completed resume failure", err)
 	}
 }

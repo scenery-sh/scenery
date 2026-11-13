@@ -19,8 +19,6 @@ var (
 	httpPathTailPattern      = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\.\.\.\}`)
 )
 
-const openAPIVersion = "3.1.1"
-
 var primitiveTypes = map[string]bool{
 	"bool": true, "int": true, "int32": true, "int64": true,
 	"uint32": true, "uint64": true, "decimal": true, "float32": true,
@@ -89,17 +87,6 @@ func projectionRevisionsForGateways(result *Result, references []string, revisio
 		}
 	}
 	return selected
-}
-
-func httpBindingsForGateway(resources []Resource, gateway Resource) []Resource {
-	var bindings []Resource
-	for _, binding := range resources {
-		if binding.Kind == "scenery.binding" && stringValue(binding.Spec["protocol"]) == "http" && resolveResourceRef(binding, refString(binding.Spec["gateway"]), "http_gateway") == gateway.Address {
-			bindings = append(bindings, binding)
-		}
-	}
-	sort.Slice(bindings, func(i, j int) bool { return bindings[i].Address < bindings[j].Address })
-	return bindings
 }
 
 func inputKeyFieldName(value any) (string, bool) {

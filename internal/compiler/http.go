@@ -30,9 +30,6 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			continue
 		}
 		httpSpec, _ := binding.Spec["http"].(map[string]any)
-		if httpUsesUnsupportedStreamingCodec(httpSpec) {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN7008", Severity: "error", Message: "feature_unavailable: server_sent_events is not implemented", Address: binding.Address})
-		}
 		method, _ := httpSpec["method"].(string)
 		bindingPath, _ := httpSpec["path"].(string)
 		gatewayRef := resolveResourceRef(binding, refString(binding.Spec["gateway"]), "http_gateway")
@@ -172,18 +169,6 @@ func validateHTTPWireLabels(binding Resource, httpSpec map[string]any) []Diagnos
 		validate("response cookie", httpResponseCookieSourceSchema, namedChildren(response, "cookie"))
 	}
 	return diagnostics
-}
-
-func httpUsesUnsupportedStreamingCodec(httpSpec map[string]any) bool {
-	if body, _ := httpSpec["body"].(map[string]any); stringValue(body["codec"]) == "server_sent_events" {
-		return true
-	}
-	for _, response := range namedChildren(httpSpec, "response") {
-		if body, _ := response["body"].(map[string]any); stringValue(body["codec"]) == "server_sent_events" {
-			return true
-		}
-	}
-	return false
 }
 
 func validateHTTPEffectiveLimits(binding, gateway Resource, httpSpec map[string]any) []Diagnostic {

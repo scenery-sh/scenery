@@ -54,7 +54,3 @@ func (w *postgresMetadataWriter) UpsertApp(_ context.Context, app devdash.AppRec
 	w.app = app
 	return nil
 }
-
-func (*postgresMetadataWriter) WriteProcessEvent(context.Context, string, string, string, any) error {
-	return nil
-}

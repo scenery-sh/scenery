@@ -9,14 +9,12 @@ Prefer `.scenery.json` for structural app settings. Application configuration va
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `HOME` | host input | Host home directory, read as a fallback during browser discovery and default agent-home resolution. Not a scenery configuration surface. |
-| `SCENERY_AGENT_HOME` | user input | Overrides the durable state home, including `worktrees/<canonical-root-hash>/` and explicit machine edge/deploy state. Default is `~/.scenery`. Ordinary runtimes and managed SQL resources are owned per root without a private-home setting. This does not isolate machine-global DNS/edge listeners. |
+| `SCENERY_AGENT_HOME` | user input | Overrides the durable state home, including `worktrees/<canonical-root-hash>/` and explicit machine edge state. Default is `~/.scenery`. Ordinary runtimes and managed SQL resources are owned per root without a private-home setting. This does not isolate machine-global DNS/edge listeners. |
 | `SCENERY_EXECUTION_PURPOSE` | internal attribution | Native CLI telemetry purpose: `development`, `verification`, `release`, or `unknown` for an unset/unrecognized marker. Verification and release entrypoints inject it for descendants. It does not select runtime behavior, and neither `dev` version nor a private home implies a purpose. |
 | `SCENERY_AGENT_SOCKET` | user input | Overrides only the explicitly managed machine agent Unix control socket. Ordinary worktree runtimes derive private sockets from their retained root identity. |
 | `SCENERY_AGENT_ROUTER_ADDR` | user input | Overrides only the explicitly managed machine agent router address (default `127.0.0.1:9440`), not ordinary worktree routing. |
-| `SCENERY_AGENT_TRUST` | user input | `1` asks the agent to trust the existing local scenery CA when starting HTTPS routing. |
 | `SCENERY_DEV_CACHE_DIR` | user input | Overrides build cache and explicitly standalone cache consumers, not durable worktree ownership or its private dashboard. |
 | `SCENERY_DEV_DASHBOARD_ADDR` | internal/user input | Dashboard client backend address. Ordinary development sets it from the acquired worktree owner; a parent value cannot select or redirect that owner. |
-| `SCENERY_FRONTEND_<NAME>_ADDR` | user input | Manual frontend upstream override, for example `SCENERY_FRONTEND_PULSE_ADDR=127.0.0.1:4321`. |
 
 ## App Child Identity
 
@@ -31,11 +29,7 @@ Application processes started by `scenery up` and `scenery worker` do not inheri
 | `SCENERY_LISTEN_NETWORK` | injected | Runtime listen network, usually `unix` in agent dev or `tcp` otherwise. |
 | `SCENERY_LISTEN_ADDR` | injected | Runtime listen address or Unix socket path. |
 | `SCENERY_ROLE` | injected | Generated binary role: `all`, `api`, or `worker`. |
-| `SCENERY_PROCESS_LINK` | injected | Private process-link file for development service processes and their host: session token, the host's private dispatch listener and the session's private host state directory. A service runtime started with it serves requests but acquires schedules, event consumers and durable work only after the supervisor activates it. Invalid wiring fails runtime startup. |
-| `SCENERY_DURABLE_ENDPOINT` | injected | Remote durable API endpoint for `scenery worker durable`. |
-| `SCENERY_DURABLE_TOKEN` | injected secret | Remote durable worker bearer token passed by `scenery worker durable`. |
-| `SCENERY_DURABLE_SERVICES` | injected | Comma-separated durable services the remote worker should poll. |
-| `SCENERY_DURABLE_WORKER_ID` | injected | Optional durable remote worker ID; defaults to the worker process ID. |
+| `SCENERY_PROCESS_LINK` | injected | Private process-link file for development service processes and their host: session token, the host's private dispatch listener and the session's private host state directory. A service runtime started with it serves requests but acquires schedules and durable work only after the supervisor activates it. Invalid wiring fails runtime startup. |
 | `SCENERY_LOG_FORMAT` | injected/user input | Runtime log format selected by CLI flags or env. |
 | `SCENERY_ENV` | injected | Resolved `.scenery.json` environment name; always present in app, frontend, task, and worker processes. |
 | `SCENERY_RUNTIME_ENV` | injected | Same resolved environment name for runtime internals. |
@@ -45,8 +39,6 @@ Application processes started by `scenery up` and `scenery worker` do not inheri
 | `SCENERY_APP_ROOT_HASH` | injected | Stable hash of the app root path. |
 | `SCENERY_BRANCH` | injected | Git branch captured for the dev session. |
 | `SCENERY_WORKTREE` | injected | Worktree directory name captured for the dev session. |
-| `SCENERY_ROUTE_MODE` | injected | Dev routing mode for the current session, usually `path` or `host`. |
-| `SCENERY_BASE_URL` | injected | Browser-facing base URL for the current dev runtime. In default path mode this is `http://localhost:<port>`. |
 | `SCENERY_DEV_SUPERVISOR` | injected | Marks a child process launched by `scenery up`. |
 | `SCENERY_DEV_SUPERVISOR_PID` | injected | Parent dev supervisor PID. |
 | `SCENERY_PARENT_MONITOR` | injected/user input | Enables runtime parent monitoring. |
@@ -88,17 +80,13 @@ other names in this section are injected handoff values.
 | `DATABASE_URL` | injected | App-level Postgres database URL that Scenery supplies to app processes: the managed app database, or the environment's configured `sql.database_url`. The CLI ignores an inherited value; a standalone generated runtime launched without Scenery reads it as its explicit SQL endpoint. |
 | `<SERVICE>_DATABASE_URL` | injected | Compiled logical binding's Postgres URL with `search_path=<schema>,scenery`; standalone generated runtimes also accept an explicit per-binding endpoint. |
 | `SCENERY_DATABASE_JSON` | injected | Resolved SQL supply (app database, source and logical schemas), configured before generated constructors. Not a requirements or ownership cache. |
-| `API_BASE_URL` | injected | API route exposed to app/frontends. |
-| `SCENERY_API_BASE_URL` | injected | scenery-prefixed API route exposed to app/frontends. |
-| `SCENERY_API_URL` | injected | Canonical API route URL exposed to app/frontends. |
-| `SCENERY_API_BASE_PATH` | injected | API path prefix for path-mode routing, normally `/api/`. |
+| `SCENERY_API_BASE_URL` | injected | API route exposed to the app process. |
 | `VITE_API_BASE_URL` | injected | Vite-compatible frontend API route. |
 | `SCENERY_FRONTEND_BASE_PATH` | injected | Managed frontend path prefix for the current frontend in path mode. |
-| `SCENERY_FRONTEND_PUBLIC_URL` | injected | Browser-facing URL for the current managed frontend. |
-| `VITE_SCENERY_*` | injected | Vite-compatible mirrors of Scenery dev route metadata for managed frontends. |
+| `VITE_SCENERY_ROUTE_MODE` | injected | Vite-compatible dev routing mode for managed frontends, usually `path` or `host`. |
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
 
-Standard auth reads its configuration from the environment configuration snapshot, never the process environment: `auth.jwt_secret`, `auth.google_client_secret` and `auth.token_cipher_key` (base64 of 32 bytes) are secrets; `auth.google_client_id`, `auth.cookie_domain` and `auth.email_from` are strings. The former variables `JWT_SECRET`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `AUTH_TOKEN_CIPHER_KEY`, `AUTH_COOKIE_DOMAIN` and `AUTH_EMAIL_FROM` have no effect. A deployable environment must configure the JWT secret, and with Google OAuth enabled also the client ID, client secret and token cipher key; local development keeps its dev-only defaults. `refresh_cookie_name` has no configuration replacement: deployed runtimes read, issue, and clear only `app_refresh`, and a local runtime derives `app_refresh_<host>_<port>` from its public base URL so that several local runtimes can share one browser profile.
+Standard auth reads its configuration from the environment configuration snapshot, never the process environment: `auth.jwt_secret`, `auth.google_client_secret` and `auth.token_cipher_key` (base64 of 32 bytes) are secrets; `auth.google_client_id` and `auth.cookie_domain` are strings. The former variables `JWT_SECRET`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `AUTH_TOKEN_CIPHER_KEY`, `AUTH_COOKIE_DOMAIN` and `AUTH_EMAIL_FROM` have no effect. A deployable environment must configure the JWT secret, and with Google OAuth enabled also the client ID, client secret and token cipher key; local development keeps its dev-only defaults. `refresh_cookie_name` has no configuration replacement: deployed runtimes read, issue, and clear only `app_refresh`, and a local runtime derives `app_refresh_<host>_<port>` from its public base URL so that several local runtimes can share one browser profile.
 
 `scenery check -o json` warns when Google OAuth is enabled but the default local environment does not configure `auth.google_client_id` and `auth.google_client_secret`. Local `scenery up` derives a dev-only Google token cipher key from the local JWT secret when `auth.token_cipher_key` is not configured.
 
@@ -109,7 +97,7 @@ Standard auth reads its configuration from the environment configuration snapsho
 | `SCENERY_TOOLCHAIN_DIR` | user input | Overrides the managed toolchain store root. Default is `.scenery/toolchain/` under the app or repo root; machine-level edge tools use `~/.scenery/toolchain/`. |
 | `SCENERY_TOOLCHAIN_DOWNLOAD` | user input | `0` disables automatic downloads for managed toolchain binaries. |
 
-Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driven downloads or source builds into the managed store. Scenery-owned toolchain binaries and images do not fall back to ambient system `PATH` binaries.
+Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driven downloads into the managed store. Scenery-owned toolchain binaries do not fall back to ambient system `PATH` binaries.
 
 ## Managed Dev Services
 
@@ -124,7 +112,6 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_DEV_OBSERVABILITY_BACKEND` | injected | Current dev observability backend, for example `victoria`. |
 | `SCENERY_DEV_VICTORIA` | user input | `0` disables Victoria sidecars. |
 | `SCENERY_DEV_VICTORIA_DOWNLOAD` | user input | `0` disables automatic Victoria managed-toolchain downloads. |
-| `SCENERY_DEV_VICTORIA_DIR` | user input | Overrides Victoria runtime state root. Managed binaries still live under `.scenery/toolchain/` or `SCENERY_TOOLCHAIN_DIR`. |
 | `SCENERY_VICTORIA_METRICS_BIN` | user input | Explicit VictoriaMetrics binary path. |
 | `SCENERY_VICTORIA_LOGS_BIN` | user input | Explicit VictoriaLogs binary path. |
 | `SCENERY_VICTORIA_TRACES_BIN` | user input | Explicit VictoriaTraces binary path. |
@@ -134,9 +121,6 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_VICTORIA_METRICS_VERSION` | user input | Overrides the pinned VictoriaMetrics version. |
 | `SCENERY_VICTORIA_LOGS_VERSION` | user input | Overrides the pinned VictoriaLogs version. |
 | `SCENERY_VICTORIA_TRACES_VERSION` | user input | Overrides the pinned VictoriaTraces version. |
-| `SCENERY_VICTORIA_METRICS_PORT` | user input | Preferred VictoriaMetrics loopback port. |
-| `SCENERY_VICTORIA_LOGS_PORT` | user input | Preferred VictoriaLogs loopback port. |
-| `SCENERY_VICTORIA_TRACES_PORT` | user input | Preferred VictoriaTraces loopback port. |
 | `SCENERY_VICTORIA_METRICS_URL` | injected | VictoriaMetrics base URL exposed to children. |
 | `SCENERY_VICTORIA_LOGS_URL` | injected | VictoriaLogs base URL exposed to children. |
 | `SCENERY_VICTORIA_TRACES_URL` | injected | VictoriaTraces base URL exposed to children. |
@@ -160,8 +144,5 @@ scenery also injects standard OpenTelemetry endpoint variables when Victoria sid
 | `SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT` | user input | Optional external app root for release-gate smoke validation. |
 | `SCENERY_RELEASE_GATE_LOG_DIR` | user input | Release-gate log directory override. |
 | `SCENERY_TEST_DATABASE_URL` | test input secret | Optional live Postgres DSN for gated durable store, runtime and worker tests; tests create and drop per-test databases. Standard-auth release proof provisions its own database and does not read this variable. |
-| `SCENERY_TEST_WATCH_BACKUP_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch backup poll interval in integration tests so missed fsnotify events do not wait on the production fallback delay. |
-| `SCENERY_TEST_WATCH_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch polling interval in integration tests that intentionally exercise polling paths. |
-| `SCENERY_TEST_WATCH_SETTLE_DELAY_MS` | test escape hatch | Overrides `scenery up` file-watch settle delay in integration tests so reload assertions do not wait on production debounce timing. This is intentionally registry-approved because the process under test is production dev code. |
 
 Variables named `SCENERY_TEST_*` that appear only inside tests are not part of the user-facing contract.

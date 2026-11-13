@@ -50,10 +50,8 @@ type Querier interface {
 	RotateRefreshSession(ctx context.Context, arg RotateRefreshSessionParams) (ScenerySceneryAuthRefreshSession, error)
 	SaveConnection(ctx context.Context, arg SaveConnectionParams) (ScenerySceneryAuthConnection, error)
 	SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSessionTenantParams) (ScenerySceneryAuthRefreshSession, error)
-	SoftDeleteTenant(ctx context.Context, id UUID) (ScenerySceneryAuthTenant, error)
 	UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIdentityPasswordHashParams) (ScenerySceneryAuthAuthIdentity, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (ScenerySceneryAuthOrganizationMembership, error)
-	UpdateTenantName(ctx context.Context, arg UpdateTenantNameParams) (ScenerySceneryAuthTenant, error)
 	UpdateUserProfileFromProvider(ctx context.Context, arg UpdateUserProfileFromProviderParams) (ScenerySceneryAuthUser, error)
 	UpsertAuthAttempt(ctx context.Context, arg UpsertAuthAttemptParams) (ScenerySceneryAuthAuthAttempt, error)
 }

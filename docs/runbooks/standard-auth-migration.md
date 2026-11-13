@@ -43,7 +43,7 @@ Preserve:
 - `auth_identities`, especially email password hashes and Google identities
 - `organization_memberships`
 - active and recently rotated `refresh_sessions` if you want existing browser sessions to survive
-- unexpired `one_time_tokens` for email verification, password reset, and invites if the legacy app has equivalent data
+- unexpired `one_time_tokens` for email verification and invites if the legacy app has equivalent data
 
 Usually do not preserve:
 

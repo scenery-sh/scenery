@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
 )
 
@@ -23,7 +24,7 @@ func TestOptionalUIRetirementPreservesCommonClientAndAuthoredSlots(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	target.Spec = cloneMapValue(target.Spec)
+	target.Spec = clientprojection.CloneMapValue(target.Spec)
 	target.Spec["react"] = map[string]any{}
 	withUI, err := renderTypeScriptTargetWithCatalog(result, target, output, nil)
 	if err != nil {

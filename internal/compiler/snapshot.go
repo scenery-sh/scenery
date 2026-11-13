@@ -133,7 +133,7 @@ func canonicalDiagnosticSet(diagnostics []Diagnostic) ([]byte, error) {
 	return json.Marshal(items)
 }
 
-// SQL and renderer digests describe bytes consumed before expansion, rather
+// Renderer digests describe bytes consumed before expansion, rather
 // than later bytes present when workspace hashing ran.
 func consumedResourceBytesUnchanged(result *Result) (bool, error) {
 	manifests := []*Manifest{result.Manifest}
@@ -154,9 +154,6 @@ func consumedResourceBytesUnchanged(result *Result) (bool, error) {
 			var path string
 			var err error
 			switch resource.Kind {
-			case "scenery.view":
-				implementation, _ := resource.Spec["implementation"].(map[string]any)
-				path, err = dataImplementationPath(result.Root, resources, resource, stringValue(implementation["file"]))
 			case "scenery.renderer":
 				path, err = rendererModulePath(result.Root, resources, resource)
 			default:

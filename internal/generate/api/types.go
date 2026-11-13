@@ -18,7 +18,7 @@ type RuntimeIntegrationPlan struct {
 	ContractRevision  string
 	Services          []ServiceProcessPlan
 	// HostApplication is the generated source of the host's application-level
-	// registrations (assistants and MCP federation); empty when there are none.
+	// registrations (assistants); empty when there are none.
 	HostApplication []byte
 }
 
@@ -35,9 +35,6 @@ type ServiceProcessPlan struct {
 	RequiredAddresses []string
 	Routes            []ServiceProcessRoute
 	MCPTools          []ServiceProcessMCPTool
-	// CLIBindings are the application CLI bindings whose operations the
-	// service implements; live invocations of them run in its process.
-	CLIBindings []string
 }
 
 // ServiceProcessMCPTool is one MCP tool a service adapter registers.

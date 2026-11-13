@@ -12,16 +12,6 @@ func authorizeContractInvocation(policy *ContractHTTPPolicy, input any) error {
 	if policy == nil || policy.AuthorizationStrategy == "public" {
 		return nil
 	}
-	if policy.AuthorizationStrategy == "local_developer" {
-		auth := CurrentAuth()
-		if auth != nil && auth.UID != "" {
-			data, _ := auth.Data.(map[string]any)
-			if local, _ := data["local_developer"].(bool); local {
-				return nil
-			}
-		}
-		return contractAuthorizationDenied("local developer authorization is required")
-	}
 	if policy.AuthorizationStrategy == "none" || len(policy.AuthorizationRules) == 0 {
 		return contractAuthorizationDenied("authorization policy did not allow invocation")
 	}
@@ -47,13 +37,13 @@ func authorizeContractInvocation(policy *ContractHTTPPolicy, input any) error {
 		return contractAuthorizationDenied("authorization policy did not allow invocation")
 	}
 	switch policy.AuthorizationStrategy {
-	case "deny_unless_allowed", "any_allow", "allow_if_any":
+	case "deny_unless_allowed":
 		for _, value := range allowed {
 			if value {
 				return nil
 			}
 		}
-	case "all_must_allow", "allow_if_all":
+	case "all_must_allow":
 		for _, value := range allowed {
 			if !value {
 				return contractAuthorizationDenied("authorization policy denied invocation")

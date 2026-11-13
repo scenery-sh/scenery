@@ -3,7 +3,6 @@ package mcpcontract
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"scenery.sh/internal/spec"
@@ -32,10 +31,6 @@ func TestManifestCanonicalRoundTripAndDigest(t *testing.T) {
 	if !bytes.Equal(first, second) {
 		t.Fatalf("canonical manifest changed:\n%s\n%s", first, second)
 	}
-	digest, err := Digest(manifest)
-	if err != nil || !strings.HasPrefix(digest, "sha256:") || len(digest) != 71 {
-		t.Fatalf("digest = %q, %v", digest, err)
-	}
 }
 
 func TestManifestRejectsInvalidContracts(t *testing.T) {
@@ -51,7 +46,6 @@ func TestManifestRejectsInvalidContracts(t *testing.T) {
 		{"effects", func(m *Manifest) {
 			m.Capabilities[0].Effect.ReadOnly, m.Capabilities[0].Effect.Destructive = true, true
 		}},
-		{"filters", func(m *Manifest) { m.Connections[0].Block = []string{"other"} }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -85,6 +79,5 @@ func validManifest() Manifest {
 			OperationAddress: "house/operation/process", ExecutionAddress: "house/execution/process", Origin: Origin{Kind: "local", Address: "house/binding/process"},
 			Auth: Auth{Authentication: "std.authentication.inherit", Authorization: "std.authorization.public"}, Limits: Limits{MaxInputBytes: 1024, MaxResultBytes: 2048}, Approval: ApprovalAlways,
 		}},
-		Connections: []Connection{{Address: "app/mcp_connection/docs", Namespace: "docs", Allow: []string{"fetch", "search"}}},
 	}
 }

@@ -37,63 +37,6 @@ func postVictoriaProtobuf(ctx context.Context, endpoint string, payload []byte) 
 	return nil
 }
 
-func buildOTLPTracePayload(summary *devdash.TraceSummary, events []*devdash.TraceEvent) map[string]any {
-	start := unixNanoString(summary.StartedAt)
-	end := unixNanoString(summary.StartedAt.Add(time.Duration(summary.DurationNanos)))
-	span := map[string]any{
-		"traceId":           validOTLPTraceID(summary.TraceID),
-		"spanId":            validOTLPSpanID(summary.SpanID),
-		"name":              traceSpanName(summary),
-		"kind":              traceOTLPKindName(summary.Type),
-		"startTimeUnixNano": start,
-		"endTimeUnixNano":   end,
-		"attributes":        traceSummaryAttributes(summary),
-	}
-	if otlpEvents := traceEventsToOTLP(events); len(otlpEvents) > 0 {
-		span["events"] = otlpEvents
-	}
-	if summary.ParentSpanID != nil {
-		if parent := validOTLPSpanID(*summary.ParentSpanID); parent != "" {
-			span["parentSpanId"] = parent
-		}
-	}
-	if summary.IsError {
-		span["status"] = map[string]any{"code": "STATUS_CODE_ERROR"}
-	}
-	return map[string]any{
-		"resourceSpans": []any{
-			map[string]any{
-				"resource": resourceAttributes(summary.AppID),
-				"scopeSpans": []any{
-					map[string]any{
-						"scope": map[string]any{
-							"name":    "scenery",
-							"version": sceneryVersion,
-						},
-						"spans": []any{span},
-					},
-				},
-			},
-		},
-	}
-}
-
-func traceEventsToOTLP(events []*devdash.TraceEvent) []any {
-	out := make([]any, 0, len(events))
-	for _, event := range events {
-		if event == nil || event.EventTime.IsZero() {
-			continue
-		}
-		name := traceEventName(event)
-		out = append(out, map[string]any{
-			"timeUnixNano": unixNanoString(event.EventTime),
-			"name":         name,
-			"attributes":   attrsToJSON(traceEventAttributePairs(event)),
-		})
-	}
-	return out
-}
-
 func traceEventName(event *devdash.TraceEvent) string {
 	for key := range event.Event {
 		switch key {
@@ -104,37 +47,6 @@ func traceEventName(event *devdash.TraceEvent) string {
 		}
 	}
 	return "scenery.event"
-}
-
-func buildOTLPLogPayload(event *devdash.LogEvent) map[string]any {
-	record := map[string]any{
-		"timeUnixNano": unixNanoString(event.Timestamp),
-		"severityText": strings.ToUpper(event.Level),
-		"body":         otlpValue(event.Message),
-		"attributes":   logAttributes(event),
-	}
-	if traceID := validOTLPTraceID(event.TraceID); traceID != "" {
-		record["traceId"] = traceID
-	}
-	if spanID := validOTLPSpanID(event.SpanID); spanID != "" {
-		record["spanId"] = spanID
-	}
-	return map[string]any{
-		"resourceLogs": []any{
-			map[string]any{
-				"resource": resourceAttributes(event.AppID),
-				"scopeLogs": []any{
-					map[string]any{
-						"scope": map[string]any{
-							"name":    "scenery",
-							"version": sceneryVersion,
-						},
-						"logRecords": []any{record},
-					},
-				},
-			},
-		},
-	}
 }
 
 func buildOTLPTraceProto(summary *devdash.TraceSummary, events []*devdash.TraceEvent) []byte {
@@ -218,16 +130,6 @@ func buildOTLPMetricProto(summary *devdash.TraceSummary) []byte {
 	return protoMessage(1, resourceMetrics)
 }
 
-func resourceAttributes(appID string) map[string]any {
-	return map[string]any{
-		"attributes": attrsToJSON(resourceAttributePairs(appID)),
-	}
-}
-
-func traceSummaryAttributes(summary *devdash.TraceSummary) []any {
-	return attrsToJSON(traceSummaryAttributePairs(summary))
-}
-
 func traceEventAttributePairs(event *devdash.TraceEvent) []otlpAttribute {
 	attrs := []otlpAttribute{{Key: "scenery.event_id", Value: event.EventID}}
 	if event.SessionID != "" {
@@ -246,10 +148,6 @@ func traceEventAttributePairs(event *devdash.TraceEvent) []otlpAttribute {
 		attrs = append(attrs, otlpAttribute{Key: "scenery.event", Value: event.Event})
 	}
 	return attrs
-}
-
-func logAttributes(event *devdash.LogEvent) []any {
-	return attrsToJSON(logAttributePairs(event))
 }
 
 type otlpAttribute struct {
@@ -349,44 +247,6 @@ func logAttributePairs(event *devdash.LogEvent) []otlpAttribute {
 	return attrs
 }
 
-func attrsToJSON(attrs []otlpAttribute) []any {
-	out := make([]any, 0, len(attrs))
-	for _, attr := range attrs {
-		out = append(out, otlpAttr(attr.Key, attr.Value))
-	}
-	return out
-}
-
-func otlpAttr(key string, value any) map[string]any {
-	return map[string]any{
-		"key":   key,
-		"value": otlpValue(value),
-	}
-}
-
-func otlpValue(value any) map[string]any {
-	switch v := value.(type) {
-	case bool:
-		return map[string]any{"boolValue": v}
-	case int:
-		return map[string]any{"intValue": strconv.FormatInt(int64(v), 10)}
-	case int64:
-		return map[string]any{"intValue": strconv.FormatInt(v, 10)}
-	case uint64:
-		return map[string]any{"intValue": strconv.FormatUint(v, 10)}
-	case float64:
-		return map[string]any{"doubleValue": v}
-	case string:
-		return map[string]any{"stringValue": v}
-	default:
-		data, err := json.Marshal(v)
-		if err != nil {
-			return map[string]any{"stringValue": ""}
-		}
-		return map[string]any{"stringValue": string(data)}
-	}
-}
-
 func traceSpanName(summary *devdash.TraceSummary) string {
 	if summary.EndpointName != nil && *summary.EndpointName != "" {
 		if summary.ServiceName != "" {
@@ -398,13 +258,6 @@ func traceSpanName(summary *devdash.TraceSummary) string {
 		return summary.ServiceName
 	}
 	return "scenery.request"
-}
-
-func unixNanoString(t time.Time) string {
-	if t.IsZero() {
-		t = time.Now().UTC()
-	}
-	return strconv.FormatInt(t.UTC().UnixNano(), 10)
 }
 
 func validOTLPTraceID(value string) string {
@@ -565,12 +418,9 @@ func traceOTLPKind(kind string) uint64 {
 		return 4
 	case "EVENT", "DURABLE":
 		return 5
-	case "INTERNAL", "WORK", "STEP", "AUTH":
+	case "INTERNAL", "WORK", "AUTH":
 		return 1
 	default:
 		return 2
 	}
-}
-func traceOTLPKindName(kind string) string {
-	return []string{"SPAN_KIND_UNSPECIFIED", "SPAN_KIND_INTERNAL", "SPAN_KIND_SERVER", "SPAN_KIND_CLIENT", "SPAN_KIND_PRODUCER", "SPAN_KIND_CONSUMER"}[traceOTLPKind(kind)]
 }

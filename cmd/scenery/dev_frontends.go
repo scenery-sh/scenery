@@ -46,25 +46,18 @@ type managedFrontendStartResult struct {
 	err     error
 }
 
-type managedFrontendStarter func(context.Context, string, string, int, localproxy.FrontendConfig, []string, localagent.Session) managedFrontendStartResult
 type pendingManagedFrontendStarter func(context.Context, context.CancelFunc, string, string, int, localproxy.FrontendConfig, []string, localagent.Session) pendingManagedFrontendStart
-
-type frontendOverrideResolver func(string) string
 
 type pendingManagedFrontendStart struct {
 	managedFrontendStartResult
 	ready <-chan error
 }
 
-func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
-	return managedFrontendBackendsForSessionWithStarter(ctx, root, cfg, baseEnv, session, startManagedFrontend)
+func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
+	return beginManagedFrontendBackendsForSessionWithStarter(ctx, root, cfg, baseEnv, session, beginManagedFrontend)
 }
 
-func beginManagedFrontendBackendsForSessionWithOverride(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, resolveOverride frontendOverrideResolver) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
-	return beginManagedFrontendBackendsForSessionWithOverrideAndStarter(ctx, root, cfg, baseEnv, session, resolveOverride, beginManagedFrontend)
-}
-
-func beginManagedFrontendBackendsForSessionWithOverrideAndStarter(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, resolveOverride frontendOverrideResolver, starter pendingManagedFrontendStarter) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
+func beginManagedFrontendBackendsForSessionWithStarter(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, starter pendingManagedFrontendStarter) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
 	frontends := configuredFrontends(cfg.Frontends)
 	if len(frontends) == 0 {
 		return nil, nil, nil, nil
@@ -77,10 +70,6 @@ func beginManagedFrontendBackendsForSessionWithOverrideAndStarter(ctx context.Co
 	for _, frontend := range frontends {
 		frontend.Name = localagentLabel(frontend.Name)
 		if frontend.Name == "" {
-			continue
-		}
-		if override := resolveOverride(frontend.Name); override != "" {
-			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: override}
 			continue
 		}
 		if frontend.AllowSharedUpstream && frontend.Serve != frontendServeProduction {
@@ -138,50 +127,6 @@ func beginManagedFrontendBackendsForSessionWithOverrideAndStarter(ctx context.Co
 	return backends, processes, wait, nil
 }
 
-func managedFrontendBackendsForSessionWithStarter(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, starter managedFrontendStarter) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
-	frontends := configuredFrontends(cfg.Frontends)
-	if len(frontends) == 0 {
-		return nil, nil, nil
-	}
-	sort.Slice(frontends, func(i, j int) bool {
-		return frontends[i].Name < frontends[j].Name
-	})
-	backends := map[string]localagent.Backend{}
-	var startable []localproxy.FrontendConfig
-	for _, frontend := range frontends {
-		frontend.Name = localagentLabel(frontend.Name)
-		if frontend.Name == "" {
-			continue
-		}
-		if override := localproxy.FrontendOverride(frontend.Name); override != "" {
-			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: override}
-			continue
-		}
-		startable = append(startable, frontend)
-	}
-	results := startManagedFrontends(ctx, root, cfg.AppID(), startable, baseEnv, session, starter)
-	processes := make([]*managedFrontendProcess, 0, len(results))
-	for _, result := range results {
-		if result.process != nil {
-			processes = append(processes, result.process)
-		}
-	}
-	for _, result := range results {
-		if result.err != nil {
-			stopManagedFrontendProcesses(processes)
-			return nil, nil, result.err
-		}
-		if result.name == "" {
-			continue
-		}
-		backends[result.name] = result.backend
-	}
-	if len(backends) == 0 {
-		backends = nil
-	}
-	return backends, processes, nil
-}
-
 func configuredFrontends(frontends map[string]app.FrontendConfig) []localproxy.FrontendConfig {
 	names := make([]string, 0, len(frontends))
 	for name := range frontends {
@@ -215,37 +160,6 @@ func validateFrontendServeModes(cfg app.Config) error {
 		}
 	}
 	return nil
-}
-
-func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session, starter managedFrontendStarter) []managedFrontendStartResult {
-	if len(frontends) == 0 {
-		return nil
-	}
-	if starter == nil {
-		starter = startManagedFrontend
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	resultCh := make(chan managedFrontendStartResult, len(frontends))
-	var wg sync.WaitGroup
-	for i, frontend := range frontends {
-		wg.Add(1)
-		go func(index int, frontend localproxy.FrontendConfig) {
-			defer wg.Done()
-			result := starter(ctx, appRoot, appID, index, frontend, baseEnv, session)
-			if result.err != nil {
-				cancel()
-			}
-			resultCh <- result
-		}(i, frontend)
-	}
-	wg.Wait()
-	close(resultCh)
-	results := make([]managedFrontendStartResult, len(frontends))
-	for result := range resultCh {
-		results[result.index] = result
-	}
-	return results
 }
 
 func beginManagedFrontendsWithStarter(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session, starter pendingManagedFrontendStarter) ([]pendingManagedFrontendStart, context.CancelFunc) {
@@ -296,10 +210,10 @@ func beginManagedFrontend(ctx context.Context, cancel context.CancelFunc, appRoo
 	process, err := startManagedFrontendProcessWithoutWaiting(ctx, appRoot, appID, frontend, baseEnv, session)
 	if err != nil {
 		if strings.TrimSpace(frontend.Upstream) != "" {
-			result.err = fmt.Errorf("start managed frontend %q: %w; configured upstream is ignored unless allow_shared_upstream is true or %s is set", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
+			result.err = fmt.Errorf("start managed frontend %q: %w; configured upstream is ignored unless allow_shared_upstream is true", frontend.Name, err)
 			return result
 		}
-		result.err = fmt.Errorf("start managed frontend %q: %w; set %s for a manual upstream", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
+		result.err = fmt.Errorf("start managed frontend %q: %w", frontend.Name, err)
 		return result
 	}
 	result.process = process
@@ -357,29 +271,11 @@ func startManagedFrontend(ctx context.Context, appRoot, appID string, index int,
 		err = fmt.Errorf("managed frontend did not start")
 	}
 	if strings.TrimSpace(frontend.Upstream) != "" {
-		result.err = fmt.Errorf("start managed frontend %q: %w; configured upstream is ignored unless allow_shared_upstream is true or %s is set", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
+		result.err = fmt.Errorf("start managed frontend %q: %w; configured upstream is ignored unless allow_shared_upstream is true", frontend.Name, err)
 		return result
 	}
-	result.err = fmt.Errorf("start managed frontend %q: %w; set %s for a manual upstream", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
+	result.err = fmt.Errorf("start managed frontend %q: %w", frontend.Name, err)
 	return result
-}
-
-func frontendOverrideEnvName(name string) string {
-	name = strings.ToUpper(strings.TrimSpace(name))
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range name {
-		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	return "SCENERY_FRONTEND_" + strings.Trim(b.String(), "_") + "_ADDR"
 }
 
 func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) (*managedFrontendProcess, error) {

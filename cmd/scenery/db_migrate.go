@@ -123,7 +123,7 @@ func runDBMigrate(ctx context.Context, stdout io.Writer, args []string) (returnE
 		defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
 	}
 	schemas, err := runDBMigrationPlans(ctx, cfg.AppID(), requirements, plans, env, postgresdb.SchemaMigrationOptions{StatusOnly: opts.Status, AdoptInitial: opts.AdoptInitial})
-	result := dbMigrationResult{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.migrate"), App: buildDBApplyResult(root, cfg).App, StatusOnly: opts.Status, Schemas: schemas}
+	result := dbMigrationResult{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.migrate"), App: taskAppRef(root, cfg), StatusOnly: opts.Status, Schemas: schemas}
 	if opts.JSON {
 		return writeDBLifecycleJSON(stdout, result, err)
 	} else {

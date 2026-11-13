@@ -93,8 +93,8 @@ func syncUICatalog(ctx context.Context, console *runConsole, supervisor *devSupe
 		console.Event("ui_catalog.sync", map[string]any{"root": root})
 	}
 	// GenerateTypeScriptClients covers source- and cache-materialized
-	// clients; SyncCachedTypeScriptClients would silently skip the default
-	// source materialization.
+	// clients; SyncCachedTypeScriptClientsContext would silently skip the
+	// default source materialization.
 	result, err := generate.GenerateTypeScriptClients(root, "", false)
 	if err != nil {
 		consolePrintError(console, "ui catalog sync failed", err)

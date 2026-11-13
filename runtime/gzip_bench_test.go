@@ -30,7 +30,7 @@ func BenchmarkResponseCompression(b *testing.B) {
 				b.Run("stream", func(b *testing.B) {
 					b.ReportAllocs()
 					for b.Loop() {
-						stream := NewContractByteStream(io.NopCloser(bytes.NewReader(payload)), int64(len(payload)))
+						stream := ContractByteStream{Reader: io.NopCloser(bytes.NewReader(payload)), Size: int64(len(payload))}
 						response := ContractHTTPResponse{Stream: &stream, StreamEncoding: encoding}
 						var output bytes.Buffer
 						if err := writeContractByteStream(&output, response); err != nil {

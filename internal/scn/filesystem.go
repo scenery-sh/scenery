@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-func PathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func PathWithin(root, path string) bool {
 	relative, err := filepath.Rel(root, path)
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))

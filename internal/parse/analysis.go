@@ -22,14 +22,6 @@ import (
 
 const moduleLookupDisabled = "module lookup disabled by GOPROXY=off"
 
-func Analyze(root, name string) (*model.App, error) {
-	return analyze(context.Background(), root, name, nil, []string{"./..."}, nil)
-}
-
-func AnalyzeTarget(root, name string, overlay map[string][]byte, target gotarget.Context) (*model.App, error) {
-	return AnalyzeTargetContext(context.Background(), root, name, overlay, target)
-}
-
 // AnalyzeTargetContext keeps cancellation attached to the complete Go loader
 // operation, including its toolchain subprocesses.
 func AnalyzeTargetContext(ctx context.Context, root, name string, overlay map[string][]byte, target gotarget.Context) (*model.App, error) {

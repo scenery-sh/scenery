@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
@@ -17,24 +16,12 @@ import (
 	"scenery.sh/internal/runtimeapi"
 )
 
-// processAdmissionTestBus delivers messages synchronously to its subscriber.
-type processAdmissionTestBus struct {
-	handle func(context.Context, ContractEventMessage) error
-}
-
-func (bus *processAdmissionTestBus) Publish(context.Context, ContractEventMessage) error { return nil }
-
-func (bus *processAdmissionTestBus) Subscribe(_ context.Context, subscription ContractEventSubscription) (func(context.Context) error, error) {
-	bus.handle = subscription.Handle
-	return nil, nil
-}
-
-// An event delivery attempt is admitted to the newest generation that includes
+// A scheduled run is admitted to the newest generation that includes
 // its process when the attempt starts. Its internal calls stay in that
 // generation although a replacement is published while it runs, the admission
 // holds the generation until the attempt ends, and an instance no published
 // generation includes runs no attempt.
-func TestEventDeliveryAttemptKeepsTheGenerationItWasAdmittedTo(t *testing.T) {
+func TestScheduledRunKeepsTheGenerationItWasAdmittedTo(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	useLinkedProcessIdentityForTest(t)
@@ -78,35 +65,19 @@ func TestEventDeliveryAttemptKeepsTheGenerationItWasAdmittedTo(t *testing.T) {
 		_ = json.Unmarshal(output, &answer)
 		return answer
 	}
-	bus := &processAdmissionTestBus{}
 	paused, resume, answers := make(chan struct{}, 1), make(chan struct{}, 1), make(chan []string, 1)
-	invoked := 0
-	for _, register := range []error{
-		RegisterContractEventBus("app/event_bus/orders", bus),
-		RegisterContractEventConsumer(ContractEventConsumerRegistration{
-			Address: "worker/consumer/placed", BusAddress: "app/event_bus/orders", Channel: "orders", ContractAddress: "orders/contract/placed", ContractVersion: 1,
-			Guarantee: "at_least_once", Identity: "worker", Attempts: 1, Backoff: "none",
-			Invoke: func(ctx context.Context, _ []byte) error {
-				invoked++
-				first := callEcho(ctx)
-				paused <- struct{}{}
-				<-resume
-				answers <- []string{first, callEcho(ctx)}
-				return nil
-			},
-		}),
-	} {
-		if register != nil {
-			t.Fatal(register)
-		}
-	}
-	events, err := StartContractEventRuntime(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = events.Stop(context.Background()) }()
+	invoked, admitted := 0, uint64(0)
+	job := &CronJob{ID: "placed", Invoke: func(ctx context.Context) error {
+		invoked++
+		admitted = stateFromContext(ctx).processGeneration
+		first := callEcho(ctx)
+		paused <- struct{}{}
+		<-resume
+		answers <- []string{first, callEcho(ctx)}
+		return nil
+	}}
 	deliver := func() error {
-		return bus.handle(context.Background(), ContractEventMessage{ID: "message-1", BusAddress: "app/event_bus/orders", Channel: "orders", ContractAddress: "orders/contract/placed", ContractVersion: 1, Payload: []byte(`{}`)})
+		return invokeAdmittedCronJob(withCronInvocation(context.Background(), time.Now(), "placed-1"), job)
 	}
 
 	publish(1, self, echoOne)
@@ -136,15 +107,8 @@ func TestEventDeliveryAttemptKeepsTheGenerationItWasAdmittedTo(t *testing.T) {
 	if got := <-answers; got[0] != "echo_echo:sha256:echo-2" || got[1] != "echo_echo:sha256:echo-2" {
 		t.Fatalf("a delivery attempt admitted after the replacement answered from %v", got)
 	}
-
-	// A scheduled run is admitted the same way.
-	scheduled := uint64(0)
-	job := &CronJob{ID: "reconcile", Invoke: func(ctx context.Context) error {
-		scheduled = stateFromContext(ctx).processGeneration
-		return nil
-	}}
-	if err := invokeAdmittedCronJob(withCronInvocation(context.Background(), time.Now(), "reconcile-1"), job); err != nil || scheduled != 2 {
-		t.Fatalf("scheduled run admitted to generation %d, %v", scheduled, err)
+	if admitted != 2 {
+		t.Fatalf("scheduled run admitted to generation %d", admitted)
 	}
 
 	replaced := self
@@ -160,32 +124,6 @@ func TestEventDeliveryAttemptKeepsTheGenerationItWasAdmittedTo(t *testing.T) {
 	}
 	if status := host.status(); status.Generations[0].InFlight != 0 {
 		t.Fatalf("a refused admission holds generation %d", status.Generations[0].Generation)
-	}
-}
-
-// A consumer whose bus no provider registered makes background activation fail
-// as capability_unavailable instead of running without its deliveries, and a
-// process-linked runtime refuses its activation as unavailable rather than as a
-// failure worth repeating.
-func TestEventConsumerWithoutARegisteredBusIsUnavailable(t *testing.T) {
-	restore := replaceGlobalRegistryForTest()
-	defer restore()
-	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken, Dispatch: processLinkTarget{Network: "unix", Address: "/unused"}})
-	if err := RegisterContractEventConsumer(ContractEventConsumerRegistration{
-		Address: "worker/consumer/placed", BusAddress: "app/event_bus/orders", Channel: "orders", ContractAddress: "orders/contract/placed", ContractVersion: 1,
-		Guarantee: "at_least_once", Identity: "worker", Attempts: 1, Backoff: "none", Invoke: func(context.Context, []byte) error { return nil },
-	}); err != nil {
-		t.Fatal(err)
-	}
-	background := &runtimeBackground{ctx: context.Background(), durable: &durableRuntime{ctx: context.Background()}}
-	setProcessBackground(background)
-	t.Cleanup(func() { setProcessBackground(nil) })
-	request := httptest.NewRequest(http.MethodPost, processActivatePath, nil)
-	request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
-	recorder := httptest.NewRecorder()
-	(&server{}).handleProcessActivate(recorder, request, nil)
-	if recorder.Code != http.StatusServiceUnavailable || !strings.HasPrefix(recorder.Body.String(), "capability_unavailable: event bus app/event_bus/orders for worker/consumer/placed is not registered") {
-		t.Fatalf("activation without the consumer's bus = %d %q", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -220,46 +158,31 @@ func TestBackgroundAttemptIsInterruptedWhenItsAdmissionEnds(t *testing.T) {
 		serving.Store(host)
 		return host
 	}
-	bus := &processAdmissionTestBus{}
 	paused, resume := make(chan struct{}, 1), make(chan struct{}, 1)
 	type observed struct {
 		interrupted bool
 		second      error
 	}
 	outcomes := make(chan observed, 1)
-	if err := RegisterContractEventBus("app/event_bus/orders", bus); err != nil {
-		t.Fatal(err)
-	}
-	if err := RegisterContractEventConsumer(ContractEventConsumerRegistration{
-		Address: "worker/consumer/placed", BusAddress: "app/event_bus/orders", Channel: "orders", ContractAddress: "orders/contract/placed", ContractVersion: 1,
-		Guarantee: "at_least_once", Identity: "worker", Attempts: 1, Backoff: "none",
-		Invoke: func(ctx context.Context, _ []byte) error {
-			invocation, _ := runtimeapi.InvocationFromContext(ctx)
-			if _, err := invokeProcessLinkedBindingJSON(ctx, config, "echo/binding/echo_internal", "worker", invocation, []byte(`{}`)); err != nil {
-				return err
-			}
-			paused <- struct{}{}
-			<-resume
-			select {
-			case <-ctx.Done():
-			case <-time.After(time.Second):
-			}
-			_, second := invokeProcessLinkedBindingJSON(context.WithoutCancel(ctx), config, "echo/binding/echo_internal", "worker", invocation, []byte(`{}`))
-			outcomes <- observed{interrupted: errors.Is(context.Cause(ctx), errProcessAdmissionLost), second: second}
-			return nil
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	events, err := StartContractEventRuntime(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = events.Stop(context.Background()) }()
+	job := &CronJob{ID: "placed", Invoke: func(ctx context.Context) error {
+		invocation, _ := runtimeapi.InvocationFromContext(ctx)
+		if _, err := invokeProcessLinkedBindingJSON(ctx, config, "echo/binding/echo_internal", "worker", invocation, []byte(`{}`)); err != nil {
+			return err
+		}
+		paused <- struct{}{}
+		<-resume
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+		_, second := invokeProcessLinkedBindingJSON(context.WithoutCancel(ctx), config, "echo/binding/echo_internal", "worker", invocation, []byte(`{}`))
+		outcomes <- observed{interrupted: errors.Is(context.Cause(ctx), errProcessAdmissionLost), second: second}
+		return nil
+	}}
 	deliver := func() chan error {
 		delivered := make(chan error, 1)
 		go func() {
-			delivered <- bus.handle(context.Background(), ContractEventMessage{ID: "message-1", BusAddress: "app/event_bus/orders", Channel: "orders", ContractAddress: "orders/contract/placed", ContractVersion: 1, Payload: []byte(`{}`)})
+			delivered <- invokeAdmittedCronJob(withCronInvocation(context.Background(), time.Now(), "placed-1"), job)
 		}()
 		return delivered
 	}

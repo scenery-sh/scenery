@@ -43,16 +43,7 @@ func DependencyChecks(ctx context.Context, deps ProbeDeps, features AppFeatures,
 			VersionArgs:     []string{"--version"},
 			Relevant:        true,
 			MissingMessage:  bunMissingMessage(features, appFound),
-			SuggestedAction: "Install Bun when working on dashboard UI, managed frontends, benchmarks, or TypeScript workers.",
-		},
-		{
-			ID:              "tool.atlas",
-			Name:            "Atlas",
-			Command:         "atlas",
-			VersionArgs:     []string{"version"},
-			Relevant:        appFound && features.AtlasRelevant,
-			MissingMessage:  "atlas not found; configured SQLC schema refresh uses Atlas source files",
-			SuggestedAction: "Install Atlas if you need `scenery generate sqlc` to refresh schema SQL from Atlas definitions.",
+			SuggestedAction: "Install Bun when working on managed frontends, benchmarks, or TypeScript workers.",
 		},
 		{
 			ID:              "tool.sqlc",
@@ -102,9 +93,9 @@ func bunMissingMessage(features AppFeatures, appFound bool) string {
 	}
 	if len(uses) == 0 {
 		if appFound {
-			return "bun not found; only needed for dashboard UI, benchmarks, TypeScript workers, or TypeScript code tasks"
+			return "bun not found; only needed for benchmarks, TypeScript workers, or TypeScript code tasks"
 		}
-		return "bun not found; optional unless you work on dashboard UI, benchmarks, TypeScript workers, or TypeScript code tasks"
+		return "bun not found; optional unless you work on benchmarks, TypeScript workers, or TypeScript code tasks"
 	}
 	return "bun not found; this app may need it for " + strings.Join(uses, ", ")
 }

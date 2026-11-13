@@ -144,24 +144,6 @@ func BindCapturedWorkspaceRevision(result *Result, captured map[string][]byte) e
 	return nil
 }
 
-// RefreshWorkspaceRevision re-hashes an unchanged compiler result after its
-// already-verified generated artifacts have been materialized.
-func RefreshWorkspaceRevision(result *Result) error {
-	if result == nil {
-		return errors.New("compiler result is unavailable")
-	}
-	revision, err := computeWorkspaceRevision(result.Root, result.Sources)
-	if err != nil {
-		return err
-	}
-	result.WorkspaceRevision = revision
-	return nil
-}
-
-func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte, error) {
-	return declaredWorkspaceEntriesWalked(root, sources, nil)
-}
-
 func declaredWorkspaceEntriesWalked(root string, sources []*Source, walk *implementationWalk) (map[string][]byte, error) {
 	paths, err := workspaceRevisionInputPathsWalked(root, sources, nil, nil, walk)
 	if err != nil {
@@ -185,14 +167,6 @@ type workspaceRevisionInputPath struct {
 	relative       string
 	implementation bool
 	present        bool
-}
-
-func workspaceRevisionInputPaths(root string, sources []*Source) ([]workspaceRevisionInputPath, error) {
-	return workspaceRevisionInputPathsWithGenerated(root, sources, nil)
-}
-
-func workspaceRevisionInputPathsWithGenerated(root string, sources []*Source, generatedPaths map[string]bool) ([]workspaceRevisionInputPath, error) {
-	return workspaceRevisionInputPathsReading(root, sources, generatedPaths, nil)
 }
 
 func workspaceRevisionInputPathsReading(root string, sources []*Source, generatedPaths map[string]bool, readDir DirectoryReader) ([]workspaceRevisionInputPath, error) {
@@ -397,14 +371,6 @@ func declaredResourceFileInputs(root string, sources []*Source) ([]workspaceRevi
 		for _, block := range source.Blocks {
 			var declarations []string
 			switch block.Type {
-			case "view":
-				for _, child := range block.Blocks {
-					if child.Type == "implementation" {
-						if file, ok := literalString(child, "file"); ok {
-							declarations = append(declarations, file)
-						}
-					}
-				}
 			case "renderer":
 				if module, ok := literalString(block, "module"); ok {
 					declarations = append(declarations, module)

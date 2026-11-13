@@ -43,3 +43,7 @@ func TestResolveModuleInstanceInputsRejectsMissingAndWrongKind(t *testing.T) {
 		t.Fatalf("wrong-kind input diagnostics: %#v", diagnostics)
 	}
 }
+
+func resolveModuleInstanceInputs(rootResources, packageResources []Resource, packageSources []*Source, module *Block) ([]Resource, []Diagnostic) {
+	return resolveModuleInstanceInputsInScope(rootResources, packageResources, packageSources, module, "app")
+}

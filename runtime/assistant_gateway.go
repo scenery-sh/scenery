@@ -40,10 +40,9 @@ type AssistantRegistration struct {
 	// Required defaults to true for every declared assistant. The private
 	// bootstrap may still report an unavailable child without terminating the
 	// Go app; this flag is for provider-neutral inspection and orchestration.
-	Required        bool
-	Client          AssistantClient
-	TokenManager    assistanttoken.Manager
-	InitiatorSigner assistanttoken.InitiatorSigner
+	Required     bool
+	Client       AssistantClient
+	TokenManager assistanttoken.Manager
 	// RunIDReader and Random are testable entropy sources. Random is used for
 	// request IDs when RunIDReader is not supplied.
 	RunIDReader io.Reader
@@ -79,15 +78,6 @@ type assistantApprovalState struct {
 	RunID           string
 	OwnerDigest     string
 	DecisionContext string
-}
-
-// RegisterAssistant registers a generated assistant and its five raw public
-// endpoints. It panics on invalid generated composition, matching the other
-// convenience registration functions in this package.
-func RegisterAssistant(registration AssistantRegistration) {
-	if err := RegisterAssistantChecked(registration); err != nil {
-		panic(err)
-	}
 }
 
 // RegisterAssistantChecked validates and registers an assistant atomically at
@@ -135,35 +125,6 @@ func RegisterAssistantChecked(registration AssistantRegistration) error {
 	global.assistantClients[registration.Address] = registration.Client
 	global.mu.Unlock()
 	ensureAssistantBootstrapService()
-	return nil
-}
-
-// RegisterAssistantClient replaces the helper client used by an already
-// registered assistant. Supervision uses this hook to swap a restarted child
-// without rebuilding the public router.
-func RegisterAssistantClient(address string, client AssistantClient) error {
-	address = strings.TrimSpace(address)
-	if address == "" {
-		return errors.New("runtime: assistant client address is required")
-	}
-	if client == nil {
-		return errors.New("runtime: assistant client is required")
-	}
-	global.mu.Lock()
-	defer global.mu.Unlock()
-	if global.assistantClients == nil {
-		global.assistantClients = map[string]AssistantClient{}
-	}
-	if _, exists := global.assistants[address]; !exists {
-		// Keep a pending client so generated registration can arrive later in the
-		// same composition transaction.
-		global.assistantClients[address] = client
-		return nil
-	}
-	global.assistantClients[address] = client
-	registration := global.assistants[address]
-	registration.Client = client
-	global.assistants[address] = registration
 	return nil
 }
 
@@ -267,20 +228,17 @@ func normalizeAssistantRegistration(registration AssistantRegistration) (Assista
 	if !registration.Required {
 		registration.Required = true
 	}
-	if registration.Access != Public && registration.Access != Auth && registration.Access != Private {
-		registration.Access = Public
+	if registration.Access == "" {
+		registration.Access = Auth
 	}
-	if registration.Access == Private {
-		return AssistantRegistration{}, nil, fmt.Errorf("runtime: assistant %s cannot use private public surface", registration.Address)
+	if registration.Access != Auth {
+		return AssistantRegistration{}, nil, fmt.Errorf("runtime: assistant %s surface requires authentication", registration.Address)
 	}
 	if err := validateContractHTTPPolicy(registration.Policy); err != nil {
 		return AssistantRegistration{}, nil, fmt.Errorf("runtime: assistant %s policy: %w", registration.Address, err)
 	}
 	if registration.TokenManager.Keys == nil {
 		registration.TokenManager = defaultAssistantTokenManager(registration.TokenManager)
-	}
-	if registration.InitiatorSigner.Keys == nil && len(registration.InitiatorSigner.Key) == 0 {
-		registration.InitiatorSigner = defaultAssistantInitiatorSigner(registration.InitiatorSigner)
 	}
 	gateway := &assistantGateway{registration: registration, approvals: map[string]assistantApprovalState{}, continuation: map[string]string{}, publicEvents: map[string][]assistantapi.Event{}, publicRuns: map[string][]string{}, privateRuns: map[string]map[string]string{}, cancelled: map[string]map[string]bool{}}
 	return registration, gateway, nil
@@ -325,28 +283,14 @@ func defaultAssistantTokenManager(manager assistanttoken.Manager) assistanttoken
 	return manager
 }
 
-func defaultAssistantInitiatorSigner(signer assistanttoken.InitiatorSigner) assistanttoken.InitiatorSigner {
-	if len(signer.Key) == 0 && signer.Keys == nil {
-		if key := assistantTokenKeyFromRuntime(); len(key) > 0 {
-			signer.KeyID = "runtime"
-			signer.Key = key
-		}
-	}
-	return signer
-}
-
 type assistantIdentity struct {
 	Principal string
 	Owner     string
-	Cookie    *http.Cookie
 	Data      any
 }
 
-// resolveIdentity accepts an authenticated principal when one is available;
-// otherwise it verifies (or, on conversation creation, issues) Scenery's
-// signed anonymous initiator cookie. Invalid cookies are intentionally
-// indistinguishable from unknown conversation handles on non-create routes.
-func (g *assistantGateway) resolveIdentity(req *http.Request, issue bool) (assistantIdentity, error) {
+// resolveIdentity resolves the authenticated principal of a request.
+func (g *assistantGateway) resolveIdentity(req *http.Request) (assistantIdentity, error) {
 	if req == nil {
 		return assistantIdentity{}, errors.New("request is required")
 	}
@@ -354,31 +298,11 @@ func (g *assistantGateway) resolveIdentity(req *http.Request, issue bool) (assis
 	if err != nil {
 		return assistantIdentity{}, err
 	}
-	if principal != "" {
-		var data any
-		if auth := CurrentAuth(); auth != nil {
-			data = auth.Data
-		}
-		return assistantIdentity{Principal: principal, Owner: assistanttoken.OwnerDigest(principal), Data: data}, nil
+	var data any
+	if auth := CurrentAuth(); auth != nil {
+		data = auth.Data
 	}
-	cookie, _ := req.Cookie(assistanttoken.CookieName)
-	if cookie != nil {
-		identity, replacement, verifyErr := g.registration.InitiatorSigner.VerifyOrRotate(cookie)
-		if verifyErr == nil {
-			return assistantIdentity{Principal: "anonymous_" + identity.ID, Owner: assistanttoken.OwnerDigest(identity.ID), Cookie: replacement, Data: map[string]any{"anonymous_id": identity.ID}}, nil
-		}
-		if !issue {
-			return assistantIdentity{}, assistanttoken.ErrNotFound
-		}
-	}
-	if !issue {
-		return assistantIdentity{}, assistanttoken.ErrNotFound
-	}
-	identity, value, issueErr := g.registration.InitiatorSigner.IssueIdentity()
-	if issueErr != nil {
-		return assistantIdentity{}, issueErr
-	}
-	return assistantIdentity{Principal: "anonymous_" + identity.ID, Owner: assistanttoken.OwnerDigest(identity.ID), Cookie: identity.Cookie(value, g.registration.InitiatorSigner), Data: map[string]any{"anonymous_id": identity.ID}}, nil
+	return assistantIdentity{Principal: principal, Owner: assistanttoken.OwnerDigest(principal), Data: data}, nil
 }
 
 func (g *assistantGateway) authenticate(req *http.Request) (string, error) {
@@ -386,13 +310,9 @@ func (g *assistantGateway) authenticate(req *http.Request) (string, error) {
 		return strings.TrimSpace(auth.UID), nil
 	}
 	// Raw routes are admitted by the native Endpoint.Access gate before this
-	// handler runs. If an authenticated route somehow reaches the handler
-	// without an auth state, fail closed instead of treating the request as
-	// anonymous.
-	if g.registration.Access == Auth {
-		return "", errs.B().Code(errs.Unauthenticated).Msg("assistant authentication missing").Err()
-	}
-	return "", nil
+	// handler runs. If a route somehow reaches the handler without an auth
+	// state, fail closed.
+	return "", errs.B().Code(errs.Unauthenticated).Msg("assistant authentication missing").Err()
 }
 
 func (g *assistantGateway) currentClient() AssistantClient {
@@ -720,10 +640,4 @@ func (g *assistantGateway) noClientError() error {
 func (g *assistantGateway) writeError(w http.ResponseWriter, err error) {
 	value, status := assistantErrorFor(err)
 	writeAssistantError(w, status, value)
-}
-
-func writeAssistantIdentityCookie(w http.ResponseWriter, identity assistantIdentity) {
-	if w != nil && identity.Cookie != nil {
-		http.SetCookie(w, identity.Cookie)
-	}
 }

@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"scenery.sh/internal/machine"
@@ -67,42 +65,4 @@ func TestRuntimeBundleSchemaCoversAssistantAssetDescriptors(t *testing.T) {
 			t.Fatalf("assistant asset descriptor does not require %q: %v", field, definition.Required)
 		}
 	}
-}
-
-func TestPrivateBuildArtifactDescriptorsCoverTypeShapes(t *testing.T) {
-	assertBuildDescriptorFields(t, generatorFingerprintCacheSchemaDescriptor, generatorFingerprintCache{})
-}
-
-func assertBuildDescriptorFields(t *testing.T, descriptor string, value any) {
-	t.Helper()
-	var shape map[string]any
-	if err := json.Unmarshal([]byte(descriptor), &shape); err != nil {
-		t.Fatal(err)
-	}
-	got := make([]string, 0, len(shape))
-	for name := range shape {
-		got = append(got, name)
-	}
-	slices.Sort(got)
-	want := buildJSONFieldNames(reflect.TypeOf(value))
-	if !slices.Equal(got, want) {
-		t.Fatalf("descriptor fields = %v, want %v", got, want)
-	}
-}
-
-func buildJSONFieldNames(value reflect.Type) []string {
-	fields := []string{}
-	for index := 0; index < value.NumField(); index++ {
-		field := value.Field(index)
-		if field.Anonymous {
-			fields = append(fields, buildJSONFieldNames(field.Type)...)
-			continue
-		}
-		name := strings.Split(field.Tag.Get("json"), ",")[0]
-		if name != "" && name != "-" {
-			fields = append(fields, name)
-		}
-	}
-	slices.Sort(fields)
-	return fields
 }

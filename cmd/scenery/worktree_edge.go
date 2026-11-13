@@ -30,7 +30,7 @@ func publishWorktreeDomain(ctx context.Context, paths localagent.Paths, session 
 	if err := localagent.ValidateControlHealth(health, paths.SocketPath); err != nil {
 		return fail(err)
 	}
-	status, err := devDomainEdgeStatus(domain)
+	status, err := devDomainEdgeStatus()
 	if err != nil {
 		return fail(err)
 	}

@@ -158,8 +158,6 @@ func validateBindingAuthentication(resources map[string]Resource, binding Resour
 	standard := map[string]map[string]bool{
 		"http":     {"std.authentication.none": true},
 		"internal": {"std.authentication.inherit": true},
-		"event":    {"std.authentication.service_identity": true},
-		"cli":      {"std.authentication.local_developer": true},
 		"mcp":      {"std.authentication.inherit": true},
 	}
 	if strings.HasPrefix(reference, "std.authentication.") {
@@ -182,7 +180,7 @@ func validateBindingAuthentication(resources map[string]Resource, binding Resour
 
 func validateAuthorizationResource(resource Resource) []Diagnostic {
 	strategy := stringValue(resource.Spec["strategy"])
-	knownStrategies := map[string]bool{"deny_unless_allowed": true, "any_allow": true, "allow_if_any": true, "all_must_allow": true, "allow_if_all": true, "first_applicable": true}
+	knownStrategies := map[string]bool{"deny_unless_allowed": true, "all_must_allow": true, "first_applicable": true}
 	var diagnostics []Diagnostic
 	if !knownStrategies[strategy] {
 		diagnostics = append(diagnostics, securityDiagnostic("SCN4101", "authorization strategy is unsupported or missing", resource, "/spec/strategy"))

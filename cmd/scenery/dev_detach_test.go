@@ -36,13 +36,6 @@ func TestParseDevArgsWaitModes(t *testing.T) {
 	if opts.Wait != detachedDevWaitReady {
 		t.Fatalf("default wait = %q, want ready", opts.Wait)
 	}
-	opts, err = parseDevArgs([]string{"--detach", "--wait=registered"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if opts.Wait != detachedDevWaitRegistered {
-		t.Fatalf("wait = %q, want registered", opts.Wait)
-	}
 	opts, err = parseDevArgs([]string{"--detach", "--wait", "ready"})
 	if err != nil {
 		t.Fatal(err)
@@ -52,16 +45,6 @@ func TestParseDevArgsWaitModes(t *testing.T) {
 	}
 	if _, err := parseDevArgs([]string{"--detach", "--wait=fast"}); err == nil || !strings.Contains(err.Error(), "invalid --wait") {
 		t.Fatalf("parse invalid wait error = %v, want invalid --wait", err)
-	}
-}
-
-func TestDetachedDevWaitTimeoutsSeparateRegistrationFromReadiness(t *testing.T) {
-	t.Parallel()
-	if got := detachedDevWaitTimeout(detachedDevWaitRegistered); got != 30*time.Second {
-		t.Fatalf("registered timeout = %s", got)
-	}
-	if got := detachedDevWaitTimeout(detachedDevWaitReady); got != 2*time.Minute {
-		t.Fatalf("ready timeout = %s", got)
 	}
 }
 
@@ -84,53 +67,6 @@ func TestDetachedDevLogPathIsStableAndSafe(t *testing.T) {
 	got := detachedDevLogPath(paths, filepath.Join("/tmp", "My App"), when)
 	if !strings.HasPrefix(got, "/tmp/scenery-agent/dev/my-app-20260527T123456Z-") || !strings.HasSuffix(got, ".log") {
 		t.Fatalf("detachedDevLogPath = %q", got)
-	}
-}
-
-func TestWaitForDetachedDevSessionFindsOwnerPID(t *testing.T) {
-	oldInterval := detachedDevStartupInterval
-	detachedDevStartupInterval = time.Millisecond
-	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
-
-	appRoot := filepath.Join(t.TempDir(), "app")
-	calls := 0
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
-	defer waitCancel()
-	session, err := waitForDetachedDevSessionWithLister(waitCtx, func(_ context.Context, gotRoot string) ([]localagent.Session, error) {
-		calls++
-		if gotRoot != appRoot {
-			t.Fatalf("list app root = %q, want %q", gotRoot, appRoot)
-		}
-		if calls == 1 {
-			return []localagent.Session{{AppRoot: appRoot, OwnerPID: 1111, Status: "starting"}}, nil
-		}
-		return []localagent.Session{{AppRoot: appRoot, OwnerPID: 4242, Status: "starting"}}, nil
-	}, appRoot, 4242, detachedDevWaitRegistered, nil)
-	if err != nil {
-		t.Fatalf("waitForDetachedDevSession: %v", err)
-	}
-	if session.OwnerPID != 4242 || session.AppRoot != appRoot {
-		t.Fatalf("session = %+v", session)
-	}
-	if calls != 2 {
-		t.Fatalf("list calls = %d, want one mismatched owner followed by the target owner", calls)
-	}
-}
-
-func TestWaitForDetachedDevSessionRegisteredModeReturnsBeforeReady(t *testing.T) {
-	oldInterval := detachedDevStartupInterval
-	detachedDevStartupInterval = time.Millisecond
-	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
-
-	session := localagent.Session{AppRoot: "/tmp/app", OwnerPID: 4242, Status: "starting"}
-	got, err := waitForDetachedDevSessionWithLister(context.Background(), func(context.Context, string) ([]localagent.Session, error) {
-		return []localagent.Session{session}, nil
-	}, "/tmp/app", 4242, detachedDevWaitRegistered, nil)
-	if err != nil {
-		t.Fatalf("waitForDetachedDevSessionWithLister: %v", err)
-	}
-	if got.Status != "starting" {
-		t.Fatalf("status = %q, want starting", got.Status)
 	}
 }
 
@@ -392,15 +328,6 @@ func TestWriteDetachedDevResultTextSeparatesAliases(t *testing.T) {
 			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
 				localagent.RouteAPI: {URL: "https://api.app-abc.demo.localhost/"},
 			}},
-			Aliases: map[string]string{
-				localagent.RouteAPI: "https://api.demo.localhost/",
-			},
-			AliasConflicts: map[string]localagent.AliasLease{
-				"web": {
-					Host:    "demo.localhost",
-					AppRoot: "/tmp/other-app",
-				},
-			},
 		},
 	}
 	var buf bytes.Buffer
@@ -413,8 +340,6 @@ func TestWriteDetachedDevResultTextSeparatesAliases(t *testing.T) {
 		"Use:\n  status  scenery ps --app-root \"/tmp/app\"\n  logs    scenery logs --follow --app-root \"/tmp/app\"\n  stop    scenery down --app-root \"/tmp/app\"",
 		"Log file: /tmp/dev.log",
 		"Routes currently registered:\n  api        https://api.app-abc.demo.localhost/",
-		"Aliases currently claimed:\n  api        https://api.demo.localhost/",
-		"Aliases held by other app roots:\n  web        demo.localhost owned by /tmp/other-app",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)

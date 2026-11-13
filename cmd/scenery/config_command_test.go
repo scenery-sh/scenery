@@ -63,28 +63,9 @@ func (m *memorySecrets) Versions(_ context.Context, environment string) (map[str
 	return result, nil
 }
 
-// receiverTransport serves requests with an in-process receiver over a
-// separate target home, as the SSH transport would on the target.
-type receiverTransport struct {
-	home    string
-	secrets *memorySecrets
-	down    bool
-	calls   int
-}
-
-func (r *receiverTransport) Exchange(ctx context.Context, target string, request []byte) ([]byte, error) {
-	r.calls++
-	if r.down {
-		return nil, unavailableErrorf("configuration target %s is unreachable over SSH: connection refused; no local value was used", target)
-	}
-	response := serveConfigRequest(ctx, r.home, bytes.NewReader(request), func(*appconfig.Store) (appconfig.SecretBackend, error) { return r.secrets, nil })
-	return json.Marshal(response)
-}
-
 type configTestEnv struct {
 	root, home string
 	local      *memorySecrets
-	target     *receiverTransport
 }
 
 func configTestCatalog(root string, cfg app.Config) (appconfig.Catalog, error) {
@@ -111,8 +92,7 @@ func configTestCatalog(root string, cfg app.Config) (appconfig.Catalog, error) {
 func newConfigTestEnv(t *testing.T) *configTestEnv {
 	t.Helper()
 	env := &configTestEnv{root: t.TempDir(), home: t.TempDir(), local: &memorySecrets{values: map[string][]byte{}}}
-	env.target = &receiverTransport{home: t.TempDir(), secrets: &memorySecrets{values: map[string][]byte{}}}
-	config := `{"name":"clean-tech","id":"clean-tech","envs":{"local":{"default":true},"devtools":{},"production":{"deploy":{"ssh":["prod-host"]}}}}`
+	config := `{"name":"clean-tech","id":"clean-tech","envs":{"local":{"default":true},"devtools":{},"production":{}}}`
 	if err := os.WriteFile(filepath.Join(env.root, app.PrimaryConfigFilename), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -120,11 +100,10 @@ func newConfigTestEnv(t *testing.T) *configTestEnv {
 	commandAgentPathsOverride = &paths
 	configCatalogOverride = configTestCatalog
 	configSecretBackendOverride = func(*appconfig.Store) (appconfig.SecretBackend, error) { return env.local, nil }
-	configRemoteTransportOverride = env.target
 	appconfig.DurableFlush = func(*os.File) error { return nil }
 	t.Cleanup(func() {
 		appconfig.DurableFlush = (*os.File).Sync
-		commandAgentPathsOverride, configCatalogOverride, configSecretBackendOverride, configRemoteTransportOverride = nil, nil, nil, nil
+		commandAgentPathsOverride, configCatalogOverride, configSecretBackendOverride = nil, nil, nil
 		configStdin = os.Stdin
 	})
 	return env
@@ -178,7 +157,7 @@ func TestConfigSetShowUnsetLocal(t *testing.T) {
 	}
 	shown := decodeConfigShow(t, output)
 	weather := showInput(shown, "designs.weather_pack_root")
-	if shown.Environment != "local" || shown.Authority != "local" || weather.State != "configured" || string(weather.Value) != `"/Volumes/Drive01/PSM"` {
+	if shown.Environment != "local" || weather.State != "configured" || string(weather.Value) != `"/Volumes/Drive01/PSM"` {
 		t.Fatalf("show = %+v", shown)
 	}
 	if concurrency := showInput(shown, "designs.simulation_concurrency"); concurrency.Source != "default" || string(concurrency.Value) != "2" {
@@ -254,50 +233,6 @@ func TestConfigSecretStoresExactBytesAndNeverShowsThem(t *testing.T) {
 	}
 	if token := showInput(decodeConfigShow(t, output), "designs.api_token"); token.SecretNote != "configured" || token.Value != nil {
 		t.Fatalf("secret input = %+v", token)
-	}
-}
-
-func TestConfigDeployableEnvironmentUsesItsTarget(t *testing.T) {
-	env := newConfigTestEnv(t)
-	output, err := env.run(t, "", "set", "designs.simulation_concurrency", "8", "--env", "production", "-o", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var change configChangeResult
-	if err := decodeCLIJSON([]byte(output), &change); err != nil || change.Authority != "target" || change.Target != "prod-host" || !change.Changed {
-		t.Fatalf("change = %+v %v", change, err)
-	}
-	targetStore, _ := appconfig.OpenStore(env.target.home, "clean-tech")
-	if document, _, err := targetStore.Read("production"); err != nil || string(document.Values["designs.simulation_concurrency"]) != "8" {
-		t.Fatalf("target document = %+v %v", document, err)
-	}
-	if document, exists, _ := mustStore(t, env).Read("production"); exists || len(document.Values) != 0 {
-		t.Fatal("production value was written on the workstation")
-	}
-	if _, err := env.run(t, "prod-token", "set", "designs.api_token", "--env", "production", "--stdin"); err != nil {
-		t.Fatal(err)
-	}
-	output, err = env.run(t, "", "show", "--env", "production", "-o", "json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	shown := decodeConfigShow(t, output)
-	if shown.Authority != "target" || showInput(shown, "designs.api_token").SecretNote != "configured" || strings.Contains(output, "prod-token") {
-		t.Fatalf("remote show = %s", output)
-	}
-	env.target.down = true
-	before := env.target.calls
-	if _, err := env.run(t, "", "set", "designs.simulation_concurrency", "9", "--env", "production"); err == nil || cliExitCode(err) != 4 {
-		t.Fatalf("unreachable target = %v", err)
-	}
-	if _, err := env.run(t, "", "show", "--env", "production"); err == nil {
-		t.Fatal("show fell back without its target")
-	}
-	if env.target.calls != before+2 {
-		t.Fatalf("target calls = %d", env.target.calls-before)
-	}
-	if _, exists, _ := mustStore(t, env).Read("production"); exists {
-		t.Fatal("unreachable target caused a local write")
 	}
 }
 

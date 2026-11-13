@@ -75,7 +75,6 @@ func startRuntimeRPCBackend(t *testing.T, ctx context.Context, server *dashboard
 		defer func() { returned <- struct{}{} }()
 		mux.ServeHTTP(w, req)
 	})
-	server.state.cacheRoot = t.TempDir()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

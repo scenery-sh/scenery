@@ -126,7 +126,7 @@ func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 		_ = store.Close()
 	})
 	controller := &agentDashboardController{store: store, agent: agentRegistry}
-	dashboard := newDashboardServerWithController(controller, t.TempDir(), "127.0.0.1:0", nil)
+	dashboard := newDashboardServerWithController(controller, "127.0.0.1:0")
 
 	app := devdash.AppRecord{
 		ID:        "demo",
@@ -160,25 +160,6 @@ func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 	if stored.ID != "demo" || !stored.Running {
 		t.Fatalf("stored app = %+v", stored)
 	}
-
-	if got := postControlPlane(dashboardControlPlaneRequest{
-		SessionID: session.SessionID,
-		ProcessEvent: &dashboardProcessEventPost{
-			AppID:       "demo",
-			SessionID:   session.SessionID,
-			Kind:        "process/reload",
-			PayloadJSON: json.RawMessage(`{"pid":"42"}`),
-		},
-	}); got != http.StatusNoContent {
-		t.Fatalf("process event status = %d", got)
-	}
-	events, err := store.ListProcessEvents(ctx, "demo", 10)
-	if err != nil {
-		t.Fatalf("process events: %v", err)
-	}
-	if len(events) != 1 || events[0].Kind != "process/reload" || string(events[0].PayloadJSON) != `{"pid":"42"}` {
-		t.Fatalf("events = %+v", events)
-	}
 }
 
 func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T) {
@@ -194,12 +175,6 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		Status:    "running",
 		OwnerPID:  owner.PID,
 		Owner:     owner,
-		RouteNamespace: localagent.RouteNamespace{
-			Hosts: map[string]string{
-				localagent.RouteAPI: "api.demo.localhost",
-				"victoria":          "victoria.demo.localhost",
-			},
-		},
 		Backends: map[string]localagent.Backend{
 			localagent.RouteAPI: {Network: "tcp", Addr: "127.0.0.1:4000"},
 			"victoria":          {Network: "tcp", Addr: "127.0.0.1:8428"},
@@ -207,10 +182,6 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	}, "127.0.0.1:4040", "http", nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-	session.Aliases = map[string]string{
-		localagent.RouteAPI: "http://api.demo.localhost:4040",
-		"victoria":          "http://victoria.demo.localhost:4040",
 	}
 	degradedSession, err := localagent.NewSession(localagent.RegisterRequest{
 		BaseAppID: "demo",
@@ -293,12 +264,6 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	if _, ok := status.Routes["victoria"]; ok {
 		t.Fatalf("live status exposed victoria route: %+v", status.Routes)
 	}
-	if status.Aliases[localagent.RouteAPI] == "" {
-		t.Fatalf("live status aliases missing api entry: %+v", status.Aliases)
-	}
-	if _, ok := status.Aliases["victoria"]; ok {
-		t.Fatalf("live status exposed victoria alias: %+v", status.Aliases)
-	}
 
 	status, err = controller.dashboardStatusFor(ctx, degradedSession.SessionID)
 	if err != nil {
@@ -346,7 +311,7 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	server := newDashboardServerWithController(&agentDashboardController{
 		store: store,
 		agent: agentRegistry,
-	}, t.TempDir(), "127.0.0.1:0", nil)
+	}, "127.0.0.1:0")
 	body, err := marshalTestReportBatch(devdash.ReportEnvelope{
 		Type:      "log",
 		AppID:     "demo",
@@ -394,7 +359,7 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 	}}
 	exported := make(chan *devdash.LogEvent, 1)
 	controller := &agentDashboardController{agent: agentRegistry}
-	server := newDashboardServerWithControllerHooks(controller, t.TempDir(), "127.0.0.1:0", nil, dashboardServerHooks{
+	server := newDashboardServerWithControllerHooks(controller, "127.0.0.1:0", dashboardServerHooks{
 		exportLogEvent: func(event *devdash.LogEvent) {
 			exported <- event
 		},

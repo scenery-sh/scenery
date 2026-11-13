@@ -280,7 +280,7 @@ func TestFakeHelperCrashRestartUnavailableAndMalformed(t *testing.T) {
 	}
 }
 
-func TestFakeHelperConcurrentStreamsAndLauncher(t *testing.T) {
+func TestFakeHelperConcurrentStreams(t *testing.T) {
 	fake := testFake(t, FakeConfig{Text: "parallel"})
 	created, err := fake.StartConversation(context.Background(), StartRequest{RequestMetadata: testMetadata(), RunID: "run_parallel", Message: "parallel"})
 	if err != nil {
@@ -325,37 +325,6 @@ func TestFakeHelperConcurrentStreamsAndLauncher(t *testing.T) {
 		if !reflect.DeepEqual(result, want) {
 			t.Fatalf("concurrent stream differs: got=%+v want=%+v", result, want)
 		}
-	}
-
-	launcher := NewFakeLauncher(FakeConfig{Available: true})
-	client, process, err := launcher.Start(context.Background(), LaunchSpec{AssistantAddress: "support", RuntimeRevision: "runtime-launch", CapabilityRevision: "cap-launch"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if process.PID() == 0 {
-		t.Fatal("fake process has no pid")
-	}
-	health, err := client.Health(context.Background())
-	if err != nil || health.RuntimeRevision != "runtime-launch" || health.CapabilityRevision != "cap-launch" {
-		t.Fatalf("launched health=%+v err=%v", health, err)
-	}
-	fakeClient, ok := client.(*FakeHelper)
-	if !ok {
-		t.Fatalf("launched client type=%T", client)
-	}
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- process.Wait() }()
-	fakeClient.Crash()
-	select {
-	case err := <-waitDone:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("fake process did not observe crash")
-	}
-	if err := client.Close(); err != nil {
-		t.Fatal(err)
 	}
 }
 

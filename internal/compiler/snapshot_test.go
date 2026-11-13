@@ -200,9 +200,11 @@ func TestSnapshotRejectsOldRendererDigestWithNewWorkspaceIdentity(t *testing.T) 
 	result.Manifest.Resources = resources
 	writeCompilerSnapshotFile(t, root, "screen.ts", "export const value = 2;\n")
 	// Model the edit between reading implementation bytes and workspace hashing.
-	if err := RefreshWorkspaceRevision(result); err != nil {
+	revision, err := computeWorkspaceRevision(result.Root, result.Sources)
+	if err != nil {
 		t.Fatal(err)
 	}
+	result.WorkspaceRevision = revision
 	if unchanged, err := SnapshotUnchanged(result); err != nil || unchanged {
 		t.Fatalf("old renderer received new workspace identity: %v %v", unchanged, err)
 	}
@@ -323,4 +325,8 @@ func TestWorkspaceRevisionWalkSkipsACompletelyExcludedDirectoryWithTheSameMember
 	if !slices.Contains(read, "pkg/keep/generated") || !slices.Contains(read, "cachekeeper") {
 		t.Fatalf("a directory no exclusion names was not read: %v", read)
 	}
+}
+
+func workspaceRevisionInputPaths(root string, sources []*Source) ([]workspaceRevisionInputPath, error) {
+	return workspaceRevisionInputPathsWithGenerated(root, sources, nil)
 }

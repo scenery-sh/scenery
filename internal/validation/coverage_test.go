@@ -15,12 +15,12 @@ func coveragePlanner() Planner {
 		Default: "quick",
 		Profiles: map[string]app.ValidationProfileConfig{
 			"quick":        {Steps: []string{"check"}},
-			"go":           {Paths: []string{"service/**/*.go"}, Steps: []string{"test:go"}},
+			"go":           {Paths: []string{"service/**/*.go"}, Steps: []string{"check"}},
 			"web":          {Paths: []string{"apps/web/**"}, Steps: []string{"check"}},
 			"blog":         {Paths: []string{"apps/blog/**/*.astro"}, Steps: []string{"check"}},
 			"ui":           {Paths: []string{"apps/ui/**"}, Steps: []string{"check", "profile:web"}},
 			"dependencies": {Paths: []string{"./package.json", "./bun.lock"}, Steps: []string{"profile:web", "profile:blog", "profile:ui"}},
-			"native":       {Description: "House native owner lane", Manual: true, Paths: []string{"house/native/**"}, Steps: []string{"test:go"}},
+			"native":       {Description: "House native owner lane", Manual: true, Paths: []string{"house/native/**"}, Steps: []string{"check"}},
 		},
 		Exemptions: []app.ValidationExemptionConfig{{Paths: []string{"LICENSE"}, Reason: "License text has no executable behavior."}},
 	}}}

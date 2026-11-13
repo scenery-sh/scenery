@@ -17,7 +17,7 @@ The contract covers:
 - scalar wire forms;
 - response selection and coverage;
 - content negotiation, character encoding, compression, and limits;
-- CORS, forwarded headers, trusted proxies, and deployment listeners;
+- CORS, forwarded headers, and trusted proxies;
 - framework-enforced versus implementation-declared guarantees.
 
 The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
@@ -121,8 +121,7 @@ for base `/v1` and authored `/maps/list`, `group1/maps` serves
 
 The source graph MUST preserve the authored path. Effective and expanded graphs
 MUST carry the grouped `http.path` with `directory_group_prefix` provenance.
-Grouping runs after patches and before CRUD expansion, so generated CRUD bindings
-inherit the same prefix exactly once. An authored `/` becomes the group root.
+Grouping runs once before expansion. An authored `/` becomes the group root.
 Repeated segments are not deduplicated; old routes receive no automatic aliases.
 Directory moves therefore change HTTP/contract revisions and require client
 regeneration and migration of raw URL consumers.
@@ -138,28 +137,6 @@ Two active resources with the same route key are an error. The same method/path 
 Template overlap is deterministic. Routes must have the same segment count to overlap because v1 has no catch-all. At each segment, a literal matches only itself and takes precedence over a parameter. Two templates whose corresponding segments are both parameters or equal literals for the entire path have the same match set and conflict, regardless of parameter names. Thus `/users/me` may coexist with `/users/{user_id}` and wins for `/users/me`; `/users/{id}` conflicts with `/users/{name}`. The router MUST implement this rule exactly.
 
 An explicit `HEAD` route conflicts with another explicit `HEAD` route. A specification-provided automatic `HEAD` projection from `GET` is derived from the owning `GET` route and does not create an independent owner. `OPTIONS` generated for CORS follows the same ownership rule.
-
-### 3.4 Deployment listeners
-
-A deployment binds one or more concrete listeners to a gateway:
-
-~~~hcl
-deployment "production" {
-  http_gateway {
-    target = http_gateway.public_api
-
-    listener {
-      host = "api.onlv.dev"
-      port = 443
-      tls  = "required"
-    }
-  }
-}
-~~~
-
-Listener fields include host, address, port, TLS mode, certificate or secret reference, HTTP protocol versions, and platform-specific listener identity. They are deployment-domain fields and participate in `deployment_revision`, not `contract_revision`.
-
-One deployment may bind multiple listeners to one gateway. They expose the same route contract. A listener cannot make a gateway more exposed than its contract permits.
 
 ## 4. HTTP binding contract
 
@@ -287,7 +264,7 @@ The HTTP contract defines:
 - `form`;
 - `multipart`.
 
-`server_sent_events` requires future explicit streaming support even though its schema name is reserved. The dedicated assistant event route is the only current streaming-shaped HTTP projection; it is not a `server_sent_events` binding and does not relax this requirement.
+The dedicated assistant event route is the only current streaming-shaped HTTP projection.
 
 ### 9.2 No raw transport handle
 
@@ -315,7 +292,7 @@ An HTTP binding with `delivery = "stream"` selects a direct execution and MUST
 map every declared result to a response body whose codec and mapped value are
 exactly required `bytes`. Declared errors remain ordinary buffered problem
 responses. The same operation cannot also have a non-streaming HTTP, internal,
-event, schedule, or durable binding because those bindings require a different
+schedule, or durable binding because those bindings require a different
 native handler ABI. An MCP `call` binding MAY project the operation; that JSON
 transport materializes the byte stream under its own result limit.
 
@@ -477,8 +454,6 @@ Untrusted forwarded values remain ordinary headers and cannot alter security con
 
 CORS is a gateway policy. Preflight behavior is generated from active routes and the effective CORS policy. CORS never grants authorization.
 
-TLS requirements belong to the deployment listener but cannot contradict gateway exposure or project security policy.
-
 ## 16. Guarantees
 
 Each compiled facet records one guarantee:
@@ -492,11 +467,11 @@ Generated clients MUST NOT present an implementation-declared facet as framework
 
 ## 17. Artifact projections and descriptors
 
-The compiler computes `http_surface_revision[gateway]` from the gateway, every active route under it, reachable request/response types, effective codec/mapping/negotiation/limit contract, and framework guarantee classifications. Deployment listeners and implementation bodies are excluded.
+The compiler computes `http_surface_revision[gateway]` from the gateway, every active route under it, reachable request/response types, effective codec/mapping/negotiation/limit contract, and framework guarantee classifications. Implementation bodies are excluded.
 
 `openapi_revision[gateway]` additionally includes the exact OpenAPI generator identity and projection options. A TypeScript client uses `typescript_client_revision[target]` from [typescript-client.md](typescript-client.md), which may cover one or more gateways.
 
-Every generated HTTP runtime table, OpenAPI document, and client descriptor records its smallest projection revision plus the whole `contract_revision` for provenance. A policy or internal-resource change outside the projection does not invalidate the artifact. A route, codec, reachable type, admission guarantee exposed in metadata, or mapping change does.
+Every generated HTTP runtime table and client descriptor records its smallest projection revision plus the whole `contract_revision` for provenance. A policy or internal-resource change outside the projection does not invalidate the artifact. A route, codec, reachable type, admission guarantee exposed in metadata, or mapping change does.
 
 ## 18. House example
 

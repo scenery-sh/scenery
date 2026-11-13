@@ -53,7 +53,7 @@ func AgentSchema(name string) (map[string]any, bool) {
 			"properties": map[string]any{
 				"code": map[string]any{"type": "string"}, "severity": map[string]any{"enum": []string{"error", "warning", "information", "hint"}},
 				"message": map[string]any{"type": "string"}, "report_token": map[string]any{"type": "string", "pattern": "^rpt_[a-z2-7]+$"}, "address": map[string]any{"type": "string"}, "path": map[string]any{"type": "string"},
-				"range": map[string]any{"schema_revision": "scenery.source-range"}, "related": map[string]any{"type": "array"}, "suggestions": map[string]any{"type": "array"}, "fixes": map[string]any{"type": "array"},
+				"range": map[string]any{"schema_revision": "scenery.source-range"}, "related": map[string]any{"type": "array"}, "suggestions": map[string]any{"type": "array"},
 			},
 		}), true
 	case "scenery.semantic-operation":
@@ -127,37 +127,9 @@ func revisionedAgentSchema(schema map[string]any) map[string]any {
 	return schema
 }
 
-func sourceSchemaRevisionForInternalName(name string) string {
-	return string(spec.SourceSchemaRevisionForInternalName(name))
-}
-
-func allResourceSchemaRevisions() []string {
-	resourceSchemas := spec.ResourceSchemas()
-	values := make([]string, 0, len(resourceSchemas))
-	for kind := range resourceSchemas {
-		schema, _ := spec.CoreSchema(kind)
-		values = append(values, stringValue(schema["schema_revision"]))
-	}
-	sort.Strings(values)
-	return values
-}
-
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
-}
-
-func allMutationSchemaRevisions() []string {
-	values := []string{}
-	for _, kind := range []string{"scenery.value", "scenery.diagnostic", "scenery.semantic-operation"} {
-		schema, _ := AgentSchema(kind)
-		values = append(values, stringValue(schema["schema_revision"]))
-	}
-	for operation, kind := range mutationSchemaRevisions {
-		values = append(values, stringValue(semanticOperationSchema(kind, operation)["schema_revision"]))
-	}
-	sort.Strings(values)
-	return values
 }
 
 func mapKeys(values map[string]string) []string {
@@ -166,4 +138,19 @@ func mapKeys(values map[string]string) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+func canonicalStrings(values []string) []string {
+	set := map[string]bool{}
+	for _, value := range values {
+		if value != "" {
+			set[value] = true
+		}
+	}
+	result := make([]string, 0, len(set))
+	for value := range set {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }

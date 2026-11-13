@@ -55,7 +55,7 @@ func TestCatalogDerivesConfigurableInputs(t *testing.T) {
 	for _, input := range catalog.Inputs {
 		keys = append(keys, input.Key)
 	}
-	want := "auth.cookie_domain,auth.email_from,auth.jwt_secret,designs.api_token,designs.model_path,designs.simulation_concurrency,designs.weather_pack_root"
+	want := "auth.cookie_domain,auth.jwt_secret,designs.api_token,designs.model_path,designs.simulation_concurrency,designs.weather_pack_root"
 	if strings.Join(keys, ",") != want {
 		t.Fatalf("catalog keys = %s", strings.Join(keys, ","))
 	}
@@ -64,11 +64,11 @@ func TestCatalogDerivesConfigurableInputs(t *testing.T) {
 		t.Fatalf("simulation_concurrency = %#v", concurrency)
 	}
 	weather, _ := catalog.Lookup("designs.weather_pack_root")
-	if !weather.Optional || weather.Default != nil || weather.Required(true) {
+	if !weather.Optional || weather.Default != nil || weather.Required() {
 		t.Fatalf("weather_pack_root = %#v", weather)
 	}
 	model, _ := catalog.Lookup("designs.model_path")
-	if !model.Required(false) {
+	if !model.Required() {
 		t.Fatalf("model_path must be required: %#v", model)
 	}
 	token, _ := catalog.Lookup("designs.api_token")
@@ -76,7 +76,7 @@ func TestCatalogDerivesConfigurableInputs(t *testing.T) {
 		t.Fatalf("api_token = %#v", token)
 	}
 	jwt, _ := catalog.Lookup("auth.jwt_secret")
-	if jwt.Required(false) || !jwt.Required(true) {
+	if jwt.Required() {
 		t.Fatalf("auth.jwt_secret requiredness = %#v", jwt)
 	}
 	again, err := BuildCatalog(testManifest(), FrameworkOptions{StandardAuth: true})
@@ -124,7 +124,7 @@ func TestResolveAppliesDefaultsThenEnvironment(t *testing.T) {
 	document.Values["designs.future_input"] = json.RawMessage(`true`)
 	document.Secrets["auth.jwt_secret"] = SecretVersion{Backend: "keychain", Version: strings.Repeat("a", 32)}
 	document.Revision = document.contentRevision()
-	resolution := Resolve(catalog, document, false)
+	resolution := Resolve(catalog, document)
 	check := func(key, state, source, value string) {
 		t.Helper()
 		entry, ok := resolution.Entry(key)
@@ -144,7 +144,7 @@ func TestResolveAppliesDefaultsThenEnvironment(t *testing.T) {
 	}
 	document.Values["designs.model_path"] = json.RawMessage(`"/srv/models"`)
 	document.Values["designs.simulation_concurrency"] = json.RawMessage(`"eight"`)
-	resolution = Resolve(catalog, document, false)
+	resolution = Resolve(catalog, document)
 	check("designs.simulation_concurrency", StateInvalid, SourceEnvironment, "")
 	if resolution.Valid() {
 		t.Fatal("an incompatible known type must fail candidate validation")
@@ -344,7 +344,7 @@ func TestCatalogDeclaresExternalSQLSupplyOnlyForSQLApplications(t *testing.T) {
 		t.Fatal(err)
 	}
 	input, ok := with.Lookup(SQLDatabaseURLKey)
-	if !ok || !input.Sensitive || !input.Optional || input.Type != SecretType || input.RequiredWhenDeployable {
+	if !ok || !input.Sensitive || !input.Optional || input.Type != SecretType {
 		t.Fatalf("sql.database_url = %+v", input)
 	}
 }

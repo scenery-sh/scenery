@@ -2,7 +2,7 @@ package main
 
 import "io"
 
-// configMigrateConnectionsCommand uses the selected environment's authority,
+// configMigrateConnectionsCommand uses the selected environment's store,
 // including its existing SSH receiver, without exporting old secret values.
 func configMigrateConnectionsCommand(stdout io.Writer, args []string) error {
 	opts, positionals, err := parseConfigOptions("migrate-connections", args, true)
@@ -25,5 +25,5 @@ func configMigrateConnectionsCommand(stdout io.Writer, args []string) error {
 	if !configured {
 		return preconditionErrorf("declare the google connection preset in auth.connections before migrating its environment credentials")
 	}
-	return session.applyMutation(stdout, opts, configRemoteRequest{Operation: "migrate_connections", Key: "auth.connections.google", ExpectRevision: opts.ExpectRevision})
+	return session.applyMutation(stdout, opts, configMutationRequest{Operation: "migrate_connections", Key: "auth.connections.google", ExpectRevision: opts.ExpectRevision})
 }

@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -19,15 +17,12 @@ import (
 	"scenery.sh/internal/generate"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/lifecycle"
-	"scenery.sh/internal/scn"
 )
 
 type generateOptions struct {
 	Subject string
 	AppRoot string
 	Target  string
-	Lang    string
-	Output  string
 	DryRun  bool
 	JSON    bool
 }
@@ -67,10 +62,8 @@ type sqlcGeneratorPlan struct {
 }
 
 type sqlcSchemaPlan struct {
-	SQLCSchema  string
-	AtlasSource string
-	AtlasDevURL string
-	Engine      string
+	SQLCSchema string
+	Engine     string
 }
 
 type databaseArtifactRecord struct {
@@ -93,20 +86,16 @@ type lifecycleExecRequest struct {
 
 type lifecycleHooks struct {
 	runExec      func(context.Context, lifecycleExecRequest) error
-	outputExec   func(context.Context, lifecycleExecRequest) ([]byte, error)
 	toolIdentity func(string) (string, error)
 }
 
 func defaultLifecycleHooks() lifecycleHooks {
-	return lifecycleHooks{runExec: defaultRunLifecycleExec, outputExec: defaultOutputLifecycleExec, toolIdentity: defaultLifecycleToolIdentity}
+	return lifecycleHooks{runExec: defaultRunLifecycleExec, toolIdentity: defaultLifecycleToolIdentity}
 }
 
 func (h lifecycleHooks) withDefaults() lifecycleHooks {
 	if h.runExec == nil {
 		h.runExec = defaultRunLifecycleExec
-	}
-	if h.outputExec == nil {
-		h.outputExec = defaultOutputLifecycleExec
 	}
 	if h.toolIdentity == nil {
 		h.toolIdentity = defaultLifecycleToolIdentity
@@ -124,26 +113,6 @@ func defaultRunLifecycleExec(ctx context.Context, req lifecycleExecRequest) erro
 	cmd.Stdout = req.Stdout
 	cmd.Stderr = req.Stderr
 	return cmd.Run()
-}
-
-func defaultOutputLifecycleExec(ctx context.Context, req lifecycleExecRequest) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, req.Program, req.Args...)
-	cmd.Dir = req.Dir
-	if req.Env != nil {
-		cmd.Env = req.Env
-	}
-	cmd.Stdin = req.Stdin
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		detail := strings.TrimSpace(stderr.String())
-		if detail != "" {
-			return nil, fmt.Errorf("%s %s: %w: %s", req.Program, strings.Join(req.Args, " "), err, detail)
-		}
-		return nil, fmt.Errorf("%s %s: %w", req.Program, strings.Join(req.Args, " "), err)
-	}
-	return out, nil
 }
 
 func generateCommand(args []string) error {
@@ -193,8 +162,6 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
 	registerJSONOutput(flags, &opts.JSON)
-	flags.StringVar(&opts.Lang, "lang", "", "")
-	flags.StringVar(&opts.Output, "output", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return generateOptions{}, err
@@ -202,9 +169,6 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 	if len(positionals) > 0 && positionals[0] == "sqlc" {
 		opts.Subject = "sqlc"
 		positionals = positionals[1:]
-	}
-	if cliFlagSet(flags, "lang") || cliFlagSet(flags, "output") {
-		return generateOptions{}, usageErrorf("client output flags are not supported here; declare a typescript_client in %s", scn.AppFilename)
 	}
 	if len(positionals) > 0 {
 		return generateOptions{}, usageErrorf("unexpected argument %q", positionals[0])
@@ -360,7 +324,7 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		configPath = filepath.Join(appRoot, configPath)
 	}
 	configExists := pathExists(configPath)
-	if !configExists && conf.Provider == "" && len(conf.Schemas) == 0 {
+	if !configExists && conf.Provider == "" {
 		return nil, false, nil
 	}
 	if !configExists {
@@ -375,7 +339,7 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 	if err := validateSQLCCodegenRoots(sqlcCfg); err != nil {
 		return nil, false, err
 	}
-	schemaPlans := configuredSQLCSchemaPlans(conf)
+	var schemaPlans []sqlcSchemaPlan
 	knownSchemas := map[string]bool{}
 	schemaPlanIndex := map[string]int{}
 	for _, schema := range schemaPlans {
@@ -398,9 +362,7 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		for _, schema := range block.Schema.Values {
 			schema = filepath.ToSlash(schema)
 			if !knownSchemas[schema] {
-				plan := inferSQLCSchemaPlan(conf, schema)
-				plan.Engine = engine
-				schemaPlans = append(schemaPlans, plan)
+				schemaPlans = append(schemaPlans, sqlcSchemaPlan{SQLCSchema: schema, Engine: engine})
 				knownSchemas[schema] = true
 				schemaPlanIndex[schema] = len(schemaPlans) - 1
 			} else if idx, ok := schemaPlanIndex[schema]; ok && schemaPlans[idx].Engine == "" {
@@ -412,13 +374,6 @@ func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, r
 		return nil, false, err
 	}
 	for _, schema := range schemaPlans {
-		if schema.AtlasSource != "" {
-			inputs = append(inputs, filepath.ToSlash(schema.AtlasSource))
-			if schema.SQLCSchema != "" {
-				outputs = append(outputs, filepath.ToSlash(schema.SQLCSchema))
-			}
-			continue
-		}
 		if schema.SQLCSchema != "" {
 			inputs = append(inputs, filepath.ToSlash(schema.SQLCSchema))
 		}
@@ -456,9 +411,6 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan) [
 			if schema.SQLCSchema != "" && engine != "" {
 				engineByPath[filepath.ToSlash(schema.SQLCSchema)] = engine
 			}
-			if schema.AtlasSource != "" && engine != "" {
-				engineByPath[filepath.ToSlash(schema.AtlasSource)] = engine
-			}
 		}
 	}
 	add := func(path, kind, role string) {
@@ -483,15 +435,10 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan) [
 
 	if sqlcPlan != nil {
 		for _, schema := range sqlcPlan.Schemas {
-			add(schema.AtlasSource, "schema-source", "schema")
 			if schema.SQLCSchema != "" {
 				keepMissing[filepath.ToSlash(schema.SQLCSchema)] = true
 			}
-			if schema.AtlasSource != "" {
-				add(schema.SQLCSchema, "generated-schema", "generated-source")
-			} else {
-				add(schema.SQLCSchema, "schema-source", "schema")
-			}
+			add(schema.SQLCSchema, "schema-source", "schema")
 		}
 		for _, query := range sqlcPlan.Queries {
 			add(query, "query", "query-generation-input")
@@ -606,25 +553,6 @@ func databaseArtifactKindRank(kind string) int {
 	}
 }
 
-func configuredSQLCSchemaPlans(conf appcfg.SQLCGeneratorConfig) []sqlcSchemaPlan {
-	var out []sqlcSchemaPlan
-	for _, schema := range conf.Schemas {
-		out = append(out, sqlcSchemaPlan{
-			SQLCSchema:  filepath.ToSlash(schema.SQLCSchema),
-			AtlasSource: filepath.ToSlash(schema.AtlasSource),
-			AtlasDevURL: firstNonEmpty(schema.AtlasDevURL, conf.DevURL),
-		})
-	}
-	return out
-}
-
-func inferSQLCSchemaPlan(conf appcfg.SQLCGeneratorConfig, schemaRel string) sqlcSchemaPlan {
-	return sqlcSchemaPlan{
-		SQLCSchema:  filepath.ToSlash(schemaRel),
-		AtlasDevURL: conf.DevURL,
-	}
-}
-
 type sqlcConfigFile struct {
 	Version string            `yaml:"version"`
 	SQL     []sqlcConfigBlock `yaml:"sql"`
@@ -713,11 +641,6 @@ func (l *yamlStringList) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-func readSQLCConfig(path string) (sqlcConfigFile, error) {
-	cfg, _, err := readSQLCConfigBytes(path)
-	return cfg, err
-}
-
 func readSQLCConfigBytes(path string) (sqlcConfigFile, []byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -775,9 +698,6 @@ func uniqueSorted(values []string) []string {
 }
 
 func shellInvocation(command string) (string, []string) {
-	if runtime.GOOS == "windows" {
-		return "cmd", []string{"/C", command}
-	}
 	return "/bin/sh", []string{"-c", command}
 }
 

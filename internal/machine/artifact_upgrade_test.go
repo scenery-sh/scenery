@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/spec"
 )
 
 type upgradeFixture struct {
@@ -32,7 +34,7 @@ func TestArtifactSpecUpgradePreservesPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(encoded, original) || !ArtifactPayloadEqual(encoded, after) || decoded.Credential != before.Credential || decoded.Metadata["key"] != "value" || !UsesCurrentSpec(decoded.ArtifactIdentity) {
+	if !bytes.Equal(encoded, original) || !ArtifactPayloadEqual(encoded, after) || decoded.Credential != before.Credential || decoded.Metadata["key"] != "value" || decoded.SpecRevision != string(spec.CurrentRevision()) {
 		t.Fatal("upgrade changed source bytes or payload")
 	}
 	again, err := PrepareArtifactSpecUpgrade(after, &decoded, &decoded.ArtifactIdentity, upgradeFixtureKind, upgradeFixtureDescriptor)

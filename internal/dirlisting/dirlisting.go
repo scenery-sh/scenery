@@ -225,16 +225,3 @@ func TreeFor(name string) *Tree {
 	}
 	return tree
 }
-
-// InvalidateAll discards the listings of every registered Tree.
-func InvalidateAll() {
-	registry.Lock()
-	trees := make([]*Tree, 0, len(registry.trees))
-	for _, tree := range registry.trees {
-		trees = append(trees, tree)
-	}
-	registry.Unlock()
-	for _, tree := range trees {
-		tree.Invalidate()
-	}
-}

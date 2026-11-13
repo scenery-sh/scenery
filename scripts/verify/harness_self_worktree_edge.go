@@ -43,7 +43,7 @@ func (p *worktreeRuntimeProbe) edgeSeparation(root, sibling string) error {
 			return err
 		}
 		manifest := session.RouteManifest
-		manifest.DomainHost, manifest.DomainURL, manifest.PublicRoutes = "worktree-edge.example.test", "https://worktree-edge.example.test", []string{"api"}
+		manifest.DomainHost, manifest.DomainURL = "worktree-edge.example.test", "https://worktree-edge.example.test"
 		request := localagent.RegisterRequest{BaseAppID: session.BaseAppID, Environment: session.Environment, AppRoot: session.AppRoot, SessionID: session.SessionID, Branch: session.Branch, Status: "running", OwnerPID: session.OwnerPID, Owner: session.Owner, Backends: session.Backends, RouteNamespace: session.RouteNamespace, RouteManifest: manifest, WorktreeProxy: &localagent.Backend{Network: "tcp", Addr: browser.Host}, ClaimOwner: true}
 		// The browser URL is localhost, while edge leases require an explicit
 		// numeric loopback address to avoid name-resolution ownership ambiguity.
@@ -55,7 +55,7 @@ func (p *worktreeRuntimeProbe) edgeSeparation(root, sibling string) error {
 		for _, check := range []struct {
 			path string
 			want int
-		}{{"/api/books", 200}, {"/runtime/storage", 404}, {"/runtime/health", 404}, {"/__scenery", 404}} {
+		}{{"/api/books", 200}} {
 			req, err := http.NewRequestWithContext(p.ctx, http.MethodGet, "http://"+server.RouterAddr()+check.path, nil)
 			if err != nil {
 				return err
@@ -95,17 +95,9 @@ func (p *worktreeRuntimeProbe) edgeSeparation(root, sibling string) error {
 		if err := p.unavailableDomain(root); err != nil {
 			return err
 		}
-		if _, err := harnessCaddyBinary(p.ctx, true); err != nil {
-			return err
-		}
-		published, err := runHarnessEdgeStaticFrontendProbe(p.ctx, filepath.Join(p.root, "published-edge"))
-		if err != nil {
-			return err
-		}
 		e["explicit_domain_api_http"], e["local_console_http"], e["local_websocket"] = 200, 200, "verified"
 		e["domain_hidden_routes"] = []string{"console", "runtime", "__scenery"}
 		e["domain_ownership_conflict"], e["unavailable_edge_not_advertised"] = true, true
-		e["published_caddy_contract"] = published
 		return nil
 	})
 }

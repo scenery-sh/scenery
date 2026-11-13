@@ -1,11 +1,8 @@
 package edge
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
-
-	localagent "scenery.sh/internal/agent"
 )
 
 func TestCaddyConfigUsesStableAgentRouterContract(t *testing.T) {
@@ -61,108 +58,5 @@ func TestCaddyConfigUsesPrivateListenPortAndPublicForwardedPort(t *testing.T) {
 		if !strings.Contains(config, want) {
 			t.Fatalf("private listener config missing %q:\n%s", want, config)
 		}
-	}
-}
-
-func TestCaddyConfigAddsPublicACMESites(t *testing.T) {
-	t.Parallel()
-
-	config := CaddyConfig(CaddyConfigOptions{
-		ListenAddr:     "127.0.0.1:19443",
-		PublicPort:     "443",
-		Upstream:       "127.0.0.1:9440",
-		AskURL:         "http://127.0.0.1:9440/v1/tls/allow",
-		AdminSocket:    "/tmp/scenery-caddy.sock",
-		Token:          "secret-token",
-		PublicDomains:  []PublicDomainSite{{Domain: "z.onlv.dev"}, {Domain: "onlv.dev"}, {Domain: "onlv.dev"}},
-		ACMEEmail:      "ops@example.com",
-		ACMECA:         "staging",
-		StorageDir:     "/tmp/scenery-caddy-data",
-		HTTPListenPort: "19080",
-	})
-	for _, want := range []string{
-		"storage file_system /tmp/scenery-caddy-data",
-		"email ops@example.com",
-		"http_port 19080",
-		"https_port 19443",
-		"onlv.dev:19443 {",
-		"z.onlv.dev:19443 {",
-		"issuer acme {",
-		"ca https://acme-staging-v02.api.letsencrypt.org/directory",
-		"issuer internal",
-		"header_up X-Scenery-Public-Edge 1",
-		"http://onlv.dev:19080 {",
-		"redir https://{host}{uri} 308",
-	} {
-		if !strings.Contains(config, want) {
-			t.Fatalf("public Caddy config missing %q:\n%s", want, config)
-		}
-	}
-	if strings.Contains(config, "local_certs") {
-		t.Fatalf("public Caddy config should keep internal issuer per-site, not global local_certs:\n%s", config)
-	}
-	if strings.Index(config, "issuer acme") > strings.Index(config, "issuer internal") {
-		t.Fatalf("public Caddy config should prefer ACME before the internal fallback:\n%s", config)
-	}
-	if strings.Count(config, "\nonlv.dev:19443 {") != 1 {
-		t.Fatalf("public Caddy config should de-duplicate domains:\n%s", config)
-	}
-	if strings.Index(config, "onlv.dev:19443 {") > strings.Index(config, "z.onlv.dev:19443 {") {
-		t.Fatalf("public Caddy domains should be sorted:\n%s", config)
-	}
-}
-
-func TestPublicDomainSitesForDeployRegistryUsesEnabledTargets(t *testing.T) {
-	t.Parallel()
-
-	sites := publicDomainSitesForDeployRegistry(localagent.DeployRegistry{
-		Targets: []localagent.DeployTarget{
-			{Domain: "z.onlv.dev", Enabled: true},
-			{Domain: "off.onlv.dev", Enabled: false},
-			{Domain: "onlv.dev", Enabled: true},
-			{Domain: "onlv.dev", Enabled: true},
-		},
-	})
-	if len(sites) != 2 || sites[0].Domain != "onlv.dev" || sites[1].Domain != "z.onlv.dev" {
-		t.Fatalf("sites = %+v", sites)
-	}
-}
-
-func TestCaddyConfigForRegistryUsesDeployTargets(t *testing.T) {
-	t.Parallel()
-
-	paths := localagent.PathsForHome(t.TempDir())
-	registry := localagent.EmptyDeployRegistry()
-	registry.ACMEEmail = "ops@example.com"
-	registry.ACMECA = "staging"
-	registry.Targets = []localagent.DeployTarget{
-		{Domain: "onlv.dev", Enabled: true},
-		{Domain: "off.onlv.dev", Enabled: false},
-	}
-	if err := localagent.WriteDeployRegistry(paths.DeployPath, registry); err != nil {
-		t.Fatal(err)
-	}
-	config, err := CaddyConfigForRegistry(paths, "127.0.0.1:19443", "127.0.0.1:19080", "127.0.0.1:9440", "/tmp/scenery-caddy.sock", "secret-token")
-	if err != nil {
-		t.Fatal(err)
-	}
-	domainSite := "onlv.dev:19443 {"
-	httpSite := "http://onlv.dev:19080 {"
-	if publicDirectDefault() {
-		domainSite = "onlv.dev {"
-		httpSite = "http://onlv.dev {"
-	}
-	for _, want := range []string{
-		"storage file_system " + filepath.Join(paths.EdgeDir, "caddy-data"),
-		"email ops@example.com",
-		domainSite,
-		httpSite,
-	} {
-		if !strings.Contains(config, want) {
-			t.Fatalf("registry Caddy config missing %q:\n%s", want, config)
-		}
-	}
-	if strings.Contains(config, "off.onlv.dev") {
-		t.Fatalf("registry Caddy config included disabled target:\n%s", config)
 	}
 }

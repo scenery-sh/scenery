@@ -32,8 +32,7 @@ type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
 func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error) {
 	services := compiler.RuntimeServices(result.Manifest.Resources)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
-	mcpServers := canonicalMCPServers(result.Manifest.Resources)
-	if len(services) == 0 && len(assistants) == 0 && len(mcpServers) == 0 {
+	if len(services) == 0 && len(assistants) == 0 {
 		// Nothing is composed, but the process model still runs a host that
 		// verifies the linked contract.
 		return RuntimeIntegrationPlan{ContractRevision: result.Manifest.ContractRevision}, nil
@@ -60,7 +59,6 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 		for _, tool := range adapter.MCPBindings {
 			service.MCPTools = append(service.MCPTools, generateapi.ServiceProcessMCPTool{AssistantAddress: tool.AssistantAddress, Name: tool.Name})
 		}
-		service.CLIBindings = resourceAddresses(cliBindingsForOperations(result.Manifest.Resources, adapter.Operations))
 		for _, binding := range adapter.Bindings {
 			httpSpec, _ := binding.Spec["http"].(map[string]any)
 			service.Routes = append(service.Routes, generateapi.ServiceProcessRoute{
@@ -76,8 +74,7 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 func generateApplicationArtifacts(result *Result, idx *resourceIndex, input projectionInput) ([]generatedFile, error) {
 	services := compiler.RuntimeServices(result.Manifest.Resources)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
-	mcpServers := canonicalMCPServers(result.Manifest.Resources)
-	if len(services) == 0 && len(assistants) == 0 && len(mcpServers) == 0 {
+	if len(services) == 0 && len(assistants) == 0 {
 		return nil, nil
 	}
 	generatedRoot, generatedImport, err := resolveApplicationGeneratedRoot(result)
@@ -122,15 +119,6 @@ func generateApplicationArtifacts(result *Result, idx *resourceIndex, input proj
 	}
 	for _, assistant := range assistants {
 		covered[assistant.Address] = true
-	}
-	federations, err := mcpFederationTargets(result)
-	if err != nil {
-		return nil, err
-	}
-	for _, federation := range federations {
-		for _, address := range federation.CoveredAddresses {
-			covered[address] = true
-		}
 	}
 	coveredAddresses := sortedBoolKeys(covered)
 	descriptor := addGeneratedArtifactIdentity(map[string]any{
@@ -241,7 +229,6 @@ type applicationAdapterPlan struct {
 	PackageIdentity      string
 	ImplementationImport string
 	ContractImport       string
-	CRUD                 bool
 	Operations           []Resource
 	Bindings             []Resource
 	MCPBindings          []mcpToolTarget
@@ -282,14 +269,7 @@ func planApplicationAdapter(result *Result, byAddress map[string]Resource, modul
 	covered = append(covered, resourceAddresses(internalBindings)...)
 	covered = append(covered, resourceAddresses(mcpResources)...)
 	allBindings := append(append(append([]Resource(nil), bindings...), internalBindings...), mcpResources...)
-	crud := compiler.IsProviderCRUDService(service)
-	if !crud {
-		eventBindings := eventBindingsForOperations(resources, operations)
-		covered = append(covered, resourceAddresses(eventBindings)...)
-		covered = append(covered, resourceAddresses(schedulesForOperations(resources, operations))...)
-		covered = append(covered, resourceAddresses(eventEmissionsForOperations(resources, operations))...)
-		allBindings = append(allBindings, eventBindings...)
-	}
+	covered = append(covered, resourceAddresses(schedulesForOperations(resources, operations))...)
 	covered = append(covered, pageOwnedResourceAddresses(resources, byAddress, operations)...)
 	covered = append(covered, referencedExecutions(byAddress, allBindings)...)
 	dirName := semanticPathName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
@@ -297,7 +277,7 @@ func planApplicationAdapter(result *Result, byAddress map[string]Resource, modul
 		Address: service.Address, ImportPath: generatedImport + "/" + dirName,
 		PackageName: goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter"), RelativeDir: dirName,
 		Covered: canonicalStrings(covered), PackageIdentity: packageIdentity, ImplementationImport: implementationImport,
-		ContractImport: implementationImport + "/scenerycontract", CRUD: crud, Operations: operations, Bindings: bindings, MCPBindings: mcpBindings,
+		ContractImport: implementationImport + "/scenerycontract", Operations: operations, Bindings: bindings, MCPBindings: mcpBindings,
 	}, nil
 }
 
@@ -316,12 +296,7 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 		ImportPath: plan.ImportPath, PackageName: plan.PackageName, RelativeDir: plan.RelativeDir,
 		Covered: plan.Covered, PackageABI: packageABI, Implementation: plan.ImplementationImport, Contract: plan.ContractImport,
 	}
-	if plan.CRUD {
-		adapter.Implementation = "scenery.sh/datasource"
-		adapter.Source, err = renderProviderCRUDAdapterSource(adapter.ContractRevision, plan.PackageIdentity, packageABI, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
-	} else {
-		adapter.Source, err = renderApplicationAdapterSource(adapter.ContractRevision, plan.PackageIdentity, packageABI, plan.ImplementationImport, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, idx, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
-	}
+	adapter.Source, err = renderApplicationAdapterSource(adapter.ContractRevision, plan.PackageIdentity, packageABI, plan.ImplementationImport, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, idx, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
 	if err != nil {
 		return applicationAdapter{}, err
 	}
@@ -425,7 +400,6 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	if err := renderDurableDispatchOptionHelpers(&b, operations, resources); err != nil {
 		return nil, err
 	}
-	renderCLIOutcomeHelpers(&b, resources, operations)
 	b.WriteString("func Register(registry scenery.Registry) error {\n")
 	fmt.Fprintf(&b, "\treturn registry.Register(%q, sceneryruntime.ContractRegistration{\n", service.Address+"/adapter")
 	fmt.Fprintf(&b, "\t\tContractRevision: ContractRevision, PackageContractABIRevision: PackageContractABIRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI,\n\t\tProviderABIs: %s, CoveredAddresses: %#v,\n", goStringStringMap(providerABIs), covered)
@@ -498,7 +472,7 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	if err := renderMCPToolRegistrations(&b, service, mcpBindings, resources); err != nil {
 		return nil, err
 	}
-	if err := renderScheduleAndEventRegistrations(&b, operations, resources); err != nil {
+	if err := renderScheduleRegistrations(&b, operations, resources); err != nil {
 		return nil, err
 	}
 	for _, binding := range internalBindingsForOperations(resources, operations) {
@@ -528,11 +502,8 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 			}
 			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { return nil, err }; return contract.Unmarshal%sOutcome(data) }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, operationName)
 		default:
-			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, err := service.%s(ctx, copied); if err != nil { if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; if err := sceneryruntime.PublishContractOperationOutcome(ctx, %q, cloned); err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, method, operationName, operation.Address)
+			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, err := service.%s(ctx, copied); if err != nil { if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, method, operationName)
 		}
-	}
-	if err := renderCLIBindingRegistrations(&b, resources, service, operations); err != nil {
-		return nil, err
 	}
 	if err := renderPageRegistrations(&b, resources, operations); err != nil {
 		return nil, err
@@ -556,10 +527,6 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 
 func renderApplicationComposition(result *Result, providerABIs map[string]string, adapters []applicationAdapter, assistants []Resource) ([]byte, error) {
 	covered := map[string]bool{}
-	federations, err := mcpFederationTargets(result)
-	if err != nil {
-		return nil, err
-	}
 	var b strings.Builder
 	b.WriteString("// Code generated by Scenery. DO NOT EDIT.\npackage composition\n\nimport (\n\tscenery \"scenery.sh\"\n")
 	for index, adapter := range adapters {
@@ -577,21 +544,16 @@ func renderApplicationComposition(result *Result, providerABIs map[string]string
 		}
 		assetsImport = generatedImport + "/assets"
 	}
-	if len(assistants) > 0 || len(federations) > 0 {
+	if len(assistants) > 0 {
 		b.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
-		// The executable that registers assistants or federations links their
-		// MCP implementation; no other executable pays for it.
+		// The executable that registers assistants links their MCP
+		// implementation; no other executable pays for it.
 		b.WriteString("\t_ \"scenery.sh/runtime/mcphost\"\n")
 		if assetsImport != "" {
 			fmt.Fprintf(&b, "\tsceneryassets %q\n", assetsImport)
 		}
 		for _, assistant := range assistants {
 			covered[assistant.Address] = true
-		}
-		for _, federation := range federations {
-			for _, address := range federation.CoveredAddresses {
-				covered[address] = true
-			}
 		}
 	}
 	b.WriteString(")\n\n")
@@ -602,7 +564,7 @@ func renderApplicationComposition(result *Result, providerABIs map[string]string
 	for _, adapter := range adapters {
 		revisions[adapter.Address+"/adapter"] = adapter.ContractRevision
 	}
-	for _, address := range applicationRegistrationAddresses(assistants, federations) {
+	for _, address := range applicationRegistrationAddresses(assistants) {
 		revisions[address] = result.Manifest.ContractRevision
 	}
 	fmt.Fprintf(&b, "var ContractRevisions = %s\n\n", goStringStringMap(revisions))
@@ -613,9 +575,6 @@ func renderApplicationComposition(result *Result, providerABIs map[string]string
 		fmt.Fprintf(&b, "\tif err := adapter%d.Register(registry); err != nil { return err }\n", index)
 	}
 	if err := renderAssistantRegistrations(result, &b, assistants); err != nil {
-		return nil, err
-	}
-	if err := renderMCPFederationRegistrations(result, &b); err != nil {
 		return nil, err
 	}
 	b.WriteString("\treturn nil\n}\n")
@@ -760,13 +719,12 @@ func renderAssistantRegistrations(result *Result, b *strings.Builder, assistants
 }
 
 // renderProcessHostApplication renders the process host's application-level
-// registrations: assistants and MCP federation, which no service adapter owns.
+// registrations: assistants, which no service adapter owns.
 // It references the host entrypoint's contractRevision and links no adapter.
 func renderProcessHostApplication(result *Result) ([]byte, error) {
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
-	federations, err := mcpFederationTargets(result)
-	if err != nil || len(assistants) == 0 && len(federations) == 0 {
-		return nil, err
+	if len(assistants) == 0 {
+		return nil, nil
 	}
 	covered := map[string]bool{}
 	var b strings.Builder
@@ -781,23 +739,15 @@ func renderProcessHostApplication(result *Result) ([]byte, error) {
 			covered[assistant.Address] = true
 		}
 	}
-	for _, federation := range federations {
-		for _, address := range federation.CoveredAddresses {
-			covered[address] = true
-		}
-	}
 	b.WriteString(")\n\n// ContractRevision is the revision the application registrations cover.\nconst ContractRevision = contractRevision\n\n")
 	fmt.Fprintf(&b, "var applicationRequiredAddresses = %#v\n\n", sortedBoolKeys(covered))
 	b.WriteString("var applicationContractRevisions = map[string]string{")
-	for _, address := range applicationRegistrationAddresses(assistants, federations) {
+	for _, address := range applicationRegistrationAddresses(assistants) {
 		fmt.Fprintf(&b, "%q: ContractRevision, ", address)
 	}
 	b.WriteString("}\n\n")
 	b.WriteString("func registerApplication(registry scenery.Registry) error {\n")
 	if err := renderAssistantRegistrations(result, &b, assistants); err != nil {
-		return nil, err
-	}
-	if err := renderMCPFederationRegistrations(result, &b); err != nil {
 		return nil, err
 	}
 	b.WriteString("\treturn nil\n}\n")
@@ -809,14 +759,10 @@ func renderProcessHostApplication(result *Result) ([]byte, error) {
 }
 
 // applicationRegistrationAddresses returns the registry addresses of the
-// application-level registrations: assistants and MCP federation.
-func applicationRegistrationAddresses(assistants []Resource, federations []mcpFederationTarget) []string {
-	var addresses []string
-	if len(assistants) > 0 {
-		addresses = append(addresses, "scenery/assistants")
+// application-level registrations.
+func applicationRegistrationAddresses(assistants []Resource) []string {
+	if len(assistants) == 0 {
+		return nil
 	}
-	if len(federations) > 0 {
-		addresses = append(addresses, "scenery/mcp-federation")
-	}
-	return addresses
+	return []string{"scenery/assistants"}
 }

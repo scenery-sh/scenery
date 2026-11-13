@@ -98,7 +98,7 @@ func TestRestoreDatabaseFailureRequiresExactResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.Resuming() {
+	if r.operation == nil {
 		t.Fatal("lost resume state")
 	}
 	if err := r.Stage(ctx, func(*Generation) error { t.Fatal("restaged recorded generation"); return nil }); err != nil {

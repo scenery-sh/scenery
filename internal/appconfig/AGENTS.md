@@ -17,8 +17,8 @@ authoritative per-application store and the secret-backend adapters.
   partial one-key revisions without exporting plaintext.
 - Secret versions: `secrets.go` and one platform adapter per OS
   (`secrets_keychain_darwin.go`, `secrets_systemd_linux.go`).
-- The CLI, SSH receivers, runtime snapshots and deployment releases live in
-  `cmd/scenery` (`config_*.go`, `dev_config*.go`, `deploy_release*.go`);
+- The CLI and runtime snapshots live in
+  `cmd/scenery` (`config_*.go`, `dev_config*.go`);
   runtime decoding lives in `runtime/deployment_config.go`.
 
 ## Local Contracts
@@ -46,8 +46,8 @@ go test -race ./internal/appconfig
 GOOS=linux go vet ./internal/appconfig
 ```
 
-Real Keychain, systemd-creds, SSH and reboot behavior belong to the
-`configuration`, `configuration-secrets` and `configuration-deploy` probes.
+Real Keychain and systemd-creds behavior belong to the
+`configuration` and `configuration-secrets` probes.
 
 ## Child Agent Index
 

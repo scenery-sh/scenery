@@ -69,9 +69,6 @@ func storageCommand(args []string) error {
 	defer stop()
 	return runStorageCommandContext(ctx, args, os.Stdin, os.Stdout)
 }
-func runStorageCommand(args []string, stdout io.Writer) error {
-	return runStorageCommandContext(context.Background(), args, os.Stdin, stdout)
-}
 func runStorageCommandContext(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	opts, err := parseStorageArgs(args)
 	if err != nil {

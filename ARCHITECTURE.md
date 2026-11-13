@@ -65,17 +65,15 @@ Go source or generated artifacts.
 This is the CLI entrypoint and orchestration layer. `main`, `run`, and the
 command-specific functions parse flags and connect internal packages into user
 commands such as `up`, `worker`, `build`, `check`, `inspect`,
-`harness`, `logs`, `console`, `db`, `task`, and `generate`.
+`harness`, `logs`, `db`, `task`, and `generate`.
 
 `scenery up` starts the local
 app session around the app runtime: the development runtime RPC, agent routing, live rebuild behavior,
 logs, traces, metrics, managed dev services, optional frontend routing, and
 process supervision.
 
-The same supervisor owns managed assistant children. `scenery assistant init`,
-`assistant sync`, and `assistant status` are provider-neutral CLI surfaces;
-`inspect assistants --implementation` is the explicit developer/operator view
-for implementation paths and private process descriptors.
+The same supervisor owns managed assistant children. `scenery assistant status`
+is the provider-neutral CLI surface.
 
 Architecture invariant: non-CLI packages must not import `cmd/scenery`. Shared
 logic belongs in `internal/` or a public package, depending on whether user apps
@@ -121,12 +119,6 @@ product executable for product assertions and the existing fresh-test engine
 for repository tests. The application CLI neither dispatches repository
 verification nor depends on its execution engine. Its app/UI harnesses and
 bounded report readers remain product capabilities.
-
-The explicit `native-reload` benchmark keeps the minimal ONLV artifact spike
-under `scripts/verify` and its `testdata`, outside product runtime ownership.
-Its inherited-pipe fixture measures linked identity, executable hashing and
-constructor activation using `internal/devprocess`; it is not a supported
-second runtime. Plan 0181 owns its feasibility decision and promotion gates.
 
 ### `internal/feature`
 
@@ -195,9 +187,7 @@ environment only, and configured values are runtime inputs. They reach
 processes as revision-bound snapshots over inherited pipes
 (`runtime/deployment_config.go`) and never change generated code or
 executables. Local supervisors restart only the service processes whose
-snapshot changed; deployable environments change only through `scenery
-deploy`, whose staged releases pin one configuration revision
-(`cmd/scenery/deploy_release.go`).
+snapshot changed.
 
 ### `internal/desktop`
 
@@ -242,7 +232,7 @@ formatting. `internal/spec` owns the singular current schema and diagnostic
 catalog with digest revisions. `internal/graph` owns canonical resources, graph
 views, provenance, and general revision projections (application and service
 contract revisions among them), including the
-`mcp_connection`, `mcp_server`, and `assistant` resource families.
+`mcp_server` and `assistant` resource families.
 `internal/machine` owns the strict `scenery.cli` and `scenery.cli.event`
 envelopes. Compiler, evolution, generation, deployment, and Go verification
 build on these foundational boundaries; compiler packages remain independent
@@ -259,11 +249,11 @@ application-span, and SDK stream bridge used by the root `scenery.sh` facade.
 The full runtime binds request/span behavior through the current context and
 goroutine invocation. App-facing types remain aliases, so the runtime and facade
 retain identical assignability and method sets without making a facade import
-link runtime orchestration. The application SDK packages `scenery.sh/auth`,
-`scenery.sh/db` and `scenery.sh/durable` reach the runtime only through the one
+link runtime orchestration. The application SDK packages `scenery.sh/auth`
+and `scenery.sh/db` reach the runtime only through the one
 `appsdk.Host` the runtime registers from its package initialization (current
 authentication, standard-auth endpoint and handler registration, JSON contract
-codecs, SQL query tracing, durable signals and steps).
+codecs, SQL query tracing).
 Importing them therefore never links the runtime's implementation closure.
 
 ### Provider-neutral connections
@@ -282,8 +272,8 @@ behavior. Connecting never mutates sign-in identity. Current schema ownership
 and explicit cutover are documented in [user connections](docs/auth-connections.md).
 
 `internal/contract` owns the contract value types, their canonical JSON wire
-form, schema-directed marshalling, constraint validation, composite keys, and
-approval tokens. `internal/contractpolicy` owns the authorization expression
+form, schema-directed marshalling, constraint validation, and composite keys.
+`internal/contractpolicy` owns the authorization expression
 lexer, parser, and evaluator. Both depend only on `internal/spec`,
 `internal/machine`, and `internal/runtimeapi`.
 
@@ -318,8 +308,8 @@ compiler results and never sit below it.
 
 ### `internal/generate`
 
-`internal/generate` renders Go contracts and composition, TypeScript clients,
-OpenAPI projections from one compiler result. It delegates optional React/page
+`internal/generate` renders Go contracts and composition and TypeScript
+clients from one compiler result. It delegates optional React/page
 and binary-owned `@scenery/ui` catalog rendering to `internal/uigen`, which
 consumes validated canonical graph values and returns in-memory files.
 `internal/clientprojection` shares pure graph and naming queries across common
@@ -359,8 +349,8 @@ The standard-library-only planner validates typed producer dependencies,
 duplicate identities, cycles and overlapping paths of different output owners
 before execution. One owner may describe nested output scopes. An output can
 name a shared publication node as its owner; that node must declare publication
-capability and depend on every producer whose paths it owns. SQLC and Atlas use
-their common artifact-set publication owner, while other generators retain
+capability and depend on every producer whose paths it owns. SQLC uses
+its artifact-set publication owner, while other generators retain
 independent destination scopes.
 Go package destination scopes and exact file paths come from the same layout
 used by rendering. TypeScript library entrypoints retain a TypeScript-only
@@ -380,27 +370,23 @@ workspacetx with the verified original-file preconditions. Explicit database ope
 candidate preparation, verification and activation form their own selected
 closure over the existing runtime owners.
 
-### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, `internal/mcpgateway`, and `internal/mcpfederation`
+### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, and `internal/mcpgateway`
 
 These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines
 the manifest, tool policy, assertions, and limits; `internal/mcpprojection`
 projects the expanded graph, including each assistant's capability revision,
-and does not import the compiler; `internal/mcpgateway`
-dispatches local generated bindings and federated tools; and
-`internal/mcpfederation` owns Scenery's external Streamable HTTP clients,
-namespaces, filters, auth, readiness, and refresh lifecycle. They do not expose
+and does not import the compiler; and `internal/mcpgateway`
+dispatches local generated bindings. They do not expose
 a public MCP listener and do not import the developer adapter.
 
-Only `internal/mcpgateway` and `internal/mcpfederation` import the MCP SDK.
-`internal/mcpapi` is their SDK-free boundary: it owns the federation's
-configuration types and the gateway's options, and each implementation installs
-its constructor there when it is linked. `scenery.sh/runtime` imports only that
+Only `internal/mcpgateway` imports the MCP SDK.
+`internal/mcpapi` is the SDK-free boundary: it owns the gateway's options, and
+the gateway installs its constructor there when it is linked. `scenery.sh/runtime` imports only that
 boundary, so the SDK and its dependencies are linked by the executables that
-import `scenery.sh/runtime/mcphost` — generated code that registers assistants
-or federations, that is the production executable and the development process
+import `scenery.sh/runtime/mcphost` — generated code that registers assistants,
+that is the production executable and the development process
 host — and by no development service process. A process asked to start a
-gateway or federation it did not link reports the gateway unavailable or
-`mcpapi.ErrNotLinked`.
+gateway it did not link reports the gateway unavailable.
 
 ### `internal/assistantapi`, `internal/assistantcontrol`, `internal/assistantruntime`, and `internal/assistantadapter`
 
@@ -415,33 +401,19 @@ compiler, graph, or generic runtime packages.
 
 ### `internal/evolution`
 
-`internal/evolution` owns semantic diffs, source mutation plans, approvals,
-migration consequences, and revision-bound receipts. It shares workspace
-transaction metadata/recovery with the compiler through `internal/workspacetx`.
+`internal/evolution` owns the revision-checked source transaction behind
+`scenery provider lock`. It shares workspace transaction metadata/recovery
+with the compiler through `internal/workspacetx`.
 
 Architecture invariant: evolution never defines another graph or transaction
-reader. Production evolution does not import `internal/generate`; predicted-
-artifact and implementation checks are injected by CLI and agent sessions.
-Plans and receipts bind exact current revisions and reject stale or old
-disposable shapes.
-
-### `internal/deployplan`
-
-`internal/deployplan` resolves deployment graphs into exact provider plans and
-applies them with crash-safe progress and revision checks.
-
-Architecture invariant: deployment planning consumes canonical compiler output
-and provider contracts; it does not reinterpret source or own language schema.
+reader and does not import `internal/generate`.
 
 ### `internal/contractagent`
 
-`internal/contractagent` exposes graph inspection and semantic-evolution
-capabilities over JSON-RPC. It composes compiler, evolution, and schema queries
-without owning their models.
+`internal/contractagent` answers `scenery schema` from the compiler and
+specification catalogs without owning their models.
 
-Architecture invariant: advertised capabilities and schemas are exact current
-contracts. The agent rejects unadvertised creation kinds and stale artifacts
-instead of guessing or translating them.
+Architecture invariant: returned schemas are exact current contracts.
 
 ### `internal/codegen`
 
@@ -501,8 +473,7 @@ the production package does not import `internal/generate`.
 
 Every materialization of that private workspace holds its exclusive workspace
 lock: full preparation, the cached-graph refresh that resynchronizes source
-bytes for an unchanged declaration graph, the tidy `scenery test` runs after Go
-rejects the workspace module files, and compilation. Each phase releases the
+bytes for an unchanged declaration graph, and compilation. Each phase releases the
 lock before the next reacquires it, so a refresh in one process can neither
 expose a half-synced workspace nor remove another process's in-flight build
 output.
@@ -511,9 +482,7 @@ Framework preparation snapshots the selected module's relevant source inputs,
 builds its content-stamped CLI and binds both digests into existing build input
 manifests. `cmd/scenery/framework.go` owns explicit preparation/inspection, not
 automatic version changes. A bare executable left in a private build workspace
-never authorizes reuse and never restores runtime identity. Executable reuse is
-owned only by the immutable shared-binary artifact whose manifest binds the
-exact producer, target, build inputs, implementation, and executable digest.
+never authorizes reuse and never restores runtime identity.
 The supervisor still owns current candidate preflight and sequential
 stop/start/recovery; retained generation executables have independent bytes,
 not links into an evictable build cache.
@@ -526,8 +495,7 @@ are not source. The workspace `go.mod` selects the owned roots, while retained
 build state preserves each mutable origin for byte-and-membership freshness
 checks after compilation, during candidate activation and during later current-
 candidate inspection. Corrupt generations are quarantined and rebuilt, and
-bounded pruning protects the current published generation. This boundary does
-not widen shared-executable admission.
+bounded pruning protects the current published generation.
 
 Preparation publishes current public Go before implementation analysis, including
 cache reuse. Cached private bytes must match the current renderer. Authored
@@ -548,14 +516,8 @@ local bytes. Registry-backed external sources retain their conservative
 provider and snapshot validation. Go build-input hashing uses a bounded
 process-local digest cache, but accepts a hit only after current path, type,
 metadata, change-time, device, and inode checks; platforms without a usable
-change timestamp conservatively rehash. A bounded shared-binary coordinator deduplicates an exact in-flight
-development link and atomically publishes producer- and build-input-bound
-executables under the existing cache root. Shared executable admission is limited
-to a freshly discovered standalone pure-Go module whose non-toolchain inputs
-belong to the locked private workspace. Framework source outside it, local
-replacements, module-cache dependencies, native/assembly inputs, custom tool
-flags and unknown provenance bypass lookup, in-flight joins and publication.
-Content-addressed paths or read-only permissions do not prove immutable source.
+change timestamp conservatively rehash. Development executables stay private to
+their build workspace; none is shared between workspaces.
 Every build links with stock `go build` under the fair link budget: `scenery up`
 links the process entrypoints whose identity changed, and single-executable
 builds link the application entrypoint. A process-model build also publishes
@@ -613,8 +575,8 @@ never reuse test results or narrow the `./...` package and test surface.
 
 `internal/edge` owns the managed Caddy lifecycle behind `scenery system edge`:
 process start and stop, admin-socket reload, local-CA trust, and persistence of
-the corresponding `internal/agent` edge state. It also owns Caddyfile and DNS
-configuration, static frontend artifact publication, and the systemd edge unit.
+the corresponding `internal/agent` edge state. It also owns Caddyfile
+generation.
 `cmd/scenery` adapts CLI grammar, output, managed-tool resolution,
 DNS/helper process orchestration, and privileged-listener setup. See
 [the edge instructions](internal/edge/AGENTS.md) for lifecycle boundaries.
@@ -634,7 +596,7 @@ context, current request metadata, structured error responses, middleware,
 observability reports, secrets, DB tracing, durable workers, schedules, and graceful shutdown.
 
 Assistant routes are registered in this same runtime server. The runtime owns
-the five public conversation endpoints, initiator ownership and sealed handles,
+the five public conversation endpoints, principal ownership and sealed handles,
 NDJSON normalization/redaction, approval and cancellation, and revision-bound
 dispatch. Helper control and MCP listeners are private loopback services, so a
 helper crash can degrade an assistant without exposing a second public server.
@@ -643,8 +605,7 @@ Architecture invariant: there is one local app server per generated app process.
 `scenery up` may run extra development services around it, but app API execution
 stays inside generated app binaries. In development the process model
 (Plan 0200) makes the generated binaries a process host that routes requests,
-MCP tool calls and internal calls by published generation and authorizes
-durable MCP receipts, plus one runtime process per native service that acquires
+MCP tool calls and internal calls by published generation, plus one runtime process per native service that acquires
 background work only after its generation is published and admits each
 background attempt to one generation for the attempt's lifetime. The host's
 public answers attest the build of the generation that served them. Production
@@ -662,15 +623,15 @@ The public packages at the module root are what user apps import:
 - `scenery.sh` exposes `Meta`, `CurrentRequest`, and application-owned child
   spans through `StartSpan`
 - `scenery.sh/auth` exposes request auth state helpers and the
-  standard auth module surface (`AuthData`, token helpers, standard auth
-  registration, and pluggable email delivery)
+  standard auth module surface (`AuthData`, token helpers and standard auth
+  registration)
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping
 - `scenery.sh/library` owns verified cgo-free loading, operation calls, and
   load-alongside swaps for generated shared-library facades
 - `scenery.sh/storage` exposes the storage capability and owns the canonical
   local filesystem store used by app runtimes, CLI commands, and the managed
   storage proxy
-- `scenery.sh/durable`, `scenery.sh/db`, `scenery.sh/datasource`,
+- `scenery.sh/db`, `scenery.sh/datasource`,
   `scenery.sh/object`, and related small packages expose runtime capabilities
 
 Architecture invariant: public packages are boundaries. Keep them small,
@@ -742,7 +703,7 @@ disposable materialization; targets get independent clone-or-copy files, never
 links into a shared blob pool. The one-shot legacy exporter lives only under
 `scripts/`; it is not an alternative runtime decoder.
 
-The machine agent and privileged helper remain explicit edge/deploy surfaces.
+The machine agent and privileged helper remain explicit edge surfaces.
 An explicitly configured domain can register an edge-only forwarding lease
 to a compatible live worktree router, without moving runtime ownership or
 writing its session manifest. Localhost serving requires no machine edge.

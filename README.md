@@ -205,8 +205,7 @@ box. The rest is plain Go: your handlers can call any library or service.
 
 **Also included:** a development runtime RPC with a generated `dev-runtime.ts`
 client for building your own dev tools, branded dev domains, declared AI
-assistants over MCP, app-local code tasks, and beta deployment to your own
-server.
+assistants over MCP, and app-local code tasks.
 
 ## One command, the whole app
 
@@ -219,7 +218,6 @@ server.
 | `scenery up` | Build, start and watch the app with its database and frontends |
 | `scenery ps` | List running apps and their URLs |
 | `scenery logs --follow` | Stream the app's logs |
-| `scenery console` | Browse and filter logs in an interactive terminal console |
 | `scenery check` | Validate declarations and generated Go contracts |
 | `scenery generate` | Regenerate TypeScript clients and other configured outputs |
 | `scenery down` | Stop the app |
@@ -344,8 +342,8 @@ replacement out of your commits.
 > [!IMPORTANT]
 > Scenery is used in production today, and it is still under active
 > development. Its app format and CLI evolve together, so upgrades can require
-> changes to your app. Deployment tooling is in beta, and there are no prebuilt
-> releases yet: install from source.
+> changes to your app. There are no prebuilt releases yet: install from
+> source.
 
 You need **Go 1.27+**. Apps that use managed PostgreSQL also need **Docker**.
 

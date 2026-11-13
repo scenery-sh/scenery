@@ -1,8 +1,9 @@
 package spec
 
-import "maps"
-
-import "slices"
+import (
+	"maps"
+	"slices"
+)
 
 const (
 	semanticLabelPattern   = "^[a-z][a-z0-9_]*$"
@@ -77,31 +78,13 @@ var (
 	pipelineStepSourceSchema      = sourceSchema("scenery.pipeline.step", 1, []string{"use"}, []string{"use"}, nil)
 	goTargetTestSourceSchema      = sourceSchema("scenery.go-target.test", 0, []string{"additional_build_tags", "packages"}, nil, nil)
 
-	deploymentResourcesSourceSchema = sourceSchema("scenery.deployment.resources", 0,
-		[]string{"cpu", "memory", "ephemeral_storage"}, nil, nil)
-	deploymentListenerSourceSchema = sourceSchema("scenery.deployment.http-listener", 0,
-		[]string{"host", "address", "port", "tls", "certificate", "secret", "http_versions", "platform_identity"}, []string{"host", "port"}, nil)
-	deploymentModuleSourceSchema = sourceSchema("scenery.deployment.module", 0,
-		[]string{"target", "inputs"}, []string{"target"}, nil)
-	deploymentDataSourceSourceSchema = sourceSchema("scenery.deployment.data-source", 0,
-		[]string{"target", "config"}, []string{"target"}, nil)
-	deploymentServiceSourceSchema = sourceSchema("scenery.deployment.service", 0,
-		[]string{"target", "replicas", "placement", "config"}, []string{"target"}, map[string]authoredChildSchema{"resources": singleton(deploymentResourcesSourceSchema)})
-	deploymentHTTPGatewaySourceSchema = sourceSchema("scenery.deployment.http-gateway", 0,
-		[]string{"target"}, []string{"target"}, map[string]authoredChildSchema{"listener": repeated(deploymentListenerSourceSchema)})
-	deploymentProviderSourceSchema = sourceSchema("scenery.deployment.provider", 0,
-		[]string{"target", "config"}, []string{"target"}, nil)
-	deploymentSecretSourceSchema = sourceSchema("scenery.deployment.secret", 0,
-		[]string{"target", "value", "store", "key"}, []string{"target"}, nil)
-
 	typescriptRetrySourceSchema = sourceSchema("scenery.typescript-client.retry", 0,
 		[]string{"policy", "maximum_attempts", "maximum_delay_milliseconds", "statuses"}, []string{"policy", "maximum_attempts"}, nil)
 	typescriptReactSourceSchema = sourceSchema("scenery.typescript-client.react", 0,
 		[]string{"tsconfig"}, []string{"tsconfig"}, nil)
-	patchOperationSourceSchema = sourceSchema("scenery.patch.operation", 0, []string{"path", "value"}, []string{"path", "value"}, nil)
 
 	serviceImplementationSourceSchema = sourceSchema("scenery.service.implementation", 0,
-		[]string{"constructor", "adapter", "root", "package", "symbol"}, nil, nil)
+		[]string{"constructor"}, nil, nil)
 	serviceDependencySourceSchema = sourceSchema("scenery.service.dependency", 1,
 		[]string{"instance", "requires"}, []string{"instance"}, nil)
 	serviceConfigSourceSchema    = serviceConfigSchema()
@@ -110,13 +93,11 @@ var (
 
 	recordFieldSourceSchema = sourceSchema("scenery.record.field", 1,
 		[]string{"type", "wire_name", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "immutable", "deprecated", "replacement", "description", "examples"}, []string{"type"}, nil)
-	recordValidationSourceSchema = sourceSchema("scenery.record.validation", 1,
-		[]string{"when", "code", "message", "path"}, []string{"when", "code", "message", "path"}, nil)
 	enumValueSourceSchema    = sourceSchema("scenery.enum.value", 1, []string{"wire_value"}, nil, nil)
 	unionVariantSourceSchema = sourceSchema("scenery.union.variant", 1, []string{"type", "wire_tag"}, []string{"type"}, nil)
 
 	operationHandlerSourceSchema = sourceSchema("scenery.operation.handler", 0,
-		[]string{"method", "adapter"}, []string{"method"}, nil)
+		[]string{"method"}, []string{"method"}, nil)
 	operationOutcomeSourceSchema     = sourceSchema("scenery.operation.outcome", 1, []string{"type", "description"}, []string{"type"}, nil)
 	operationIdempotencySourceSchema = sourceSchema("scenery.operation.idempotency", 0, []string{"mode", "key"}, []string{"mode"}, nil)
 
@@ -126,14 +107,8 @@ var (
 	mcpBindingSourceSchema = sourceSchema("scenery.binding.mcp", 0,
 		[]string{"name", "title", "description", "read_only", "destructive", "idempotent", "open_world", "allow_sensitive_output"},
 		[]string{"name", "read_only", "destructive", "idempotent", "open_world"}, nil)
-	mcpConnectionAuthSourceSchema = sourceSchema("scenery.mcp-connection.auth", 0,
-		[]string{"scheme", "secret", "header"}, []string{"scheme"}, nil)
-	mcpConnectionToolsSourceSchema = sourceSchema("scenery.mcp-connection.tools", 0,
-		[]string{"allow", "block"}, nil, nil)
 	mcpServerCapabilitySourceSchema = sourceSchema("scenery.mcp-server.capability", 1,
 		[]string{"binding", "name", "approval"}, []string{"binding", "name", "approval"}, nil)
-	mcpServerConnectionSourceSchema = sourceSchema("scenery.mcp-server.connection", 1,
-		[]string{"connection", "namespace", "required"}, []string{"connection", "namespace"}, nil)
 	assistantImplementationSourceSchema = sourceSchema("scenery.assistant.implementation", 0,
 		[]string{"adapter", "source", "package", "package_lock"}, []string{"adapter", "source", "package", "package_lock"}, nil)
 	assistantSurfaceSourceSchema = sourceSchema("scenery.assistant.surface", 0,
@@ -174,45 +149,11 @@ var (
 		})
 	internalSourceSchema = sourceSchema("scenery.binding.internal", 0, []string{"visibility", "principal"}, []string{"visibility", "principal"}, nil)
 
-	cliContextSourceSchema  = sourceSchema("scenery.binding.cli.context", 1, []string{"from", "to"}, []string{"from", "to"}, nil)
-	cliArgumentSourceSchema = sourceSchema("scenery.binding.cli.argument", 1, []string{"position", "to", "required"}, []string{"position", "to"}, nil)
-	cliFlagSourceSchema     = sourceSchema("scenery.binding.cli.flag", 1, []string{"name", "short", "to", "required"}, []string{"name", "to"}, nil)
-	cliOutputSourceSchema   = sourceSchema("scenery.binding.cli.output", 0, []string{"codec", "from"}, []string{"codec", "from"}, nil)
-	cliOutcomeSourceSchema  = sourceSchema("scenery.binding.cli.outcome", 1, []string{"when", "exit"}, []string{"when", "exit"},
-		map[string]authoredChildSchema{"stdout": singleton(cliOutputSourceSchema), "stderr": singleton(cliOutputSourceSchema)})
-	cliSourceSchema = sourceSchema("scenery.binding.cli", 0, []string{"command"}, []string{"command"},
-		map[string]authoredChildSchema{"context": repeated(cliContextSourceSchema), "argument": repeated(cliArgumentSourceSchema), "flag": repeated(cliFlagSourceSchema), "outcome": repeated(cliOutcomeSourceSchema)})
-
-	eventMapSourceSchema     = sourceSchema("scenery.binding.event.map", 0, []string{"from", "to"}, []string{"from", "to"}, nil)
-	eventRetrySourceSchema   = sourceSchema("scenery.event.broker-retry", 0, []string{"attempts", "backoff"}, []string{"attempts", "backoff"}, nil)
-	eventBindingSourceSchema = sourceSchema("scenery.binding.event", 0,
-		[]string{"direction", "bus", "channel", "contract", "guarantee", "ordering_key", "deduplication_key", "dead_letter_channel"},
-		[]string{"direction", "bus", "channel", "contract", "guarantee"}, map[string]authoredChildSchema{"map": repeated(eventMapSourceSchema), "broker_retry": singleton(eventRetrySourceSchema)})
-
-	scheduleTriggerSourceSchema = sourceSchema("scenery.schedule.trigger", 0, []string{"cron", "every", "at", "calendar", "timezone"}, nil, nil)
+	scheduleTriggerSourceSchema = sourceSchema("scenery.schedule.trigger", 0, []string{"every"}, nil, nil)
 	scheduleInvokeSourceSchema  = sourceSchema("scenery.schedule.invoke", 0,
 		[]string{"operation", "execution", "identity", "authorization", "pipeline", "input"}, []string{"operation", "execution", "identity", "authorization", "pipeline", "input"}, nil)
-	scheduleCatchupSourceSchema   = sourceSchema("scenery.schedule.catchup", 0, []string{"maximum_age"}, []string{"maximum_age"}, nil)
-	eventEmissionFromSourceSchema = sourceSchema("scenery.event-emission.from", 0, []string{"operation", "when", "payload"}, []string{"operation", "when", "payload"}, nil)
+	scheduleCatchupSourceSchema = sourceSchema("scenery.schedule.catchup", 0, []string{"maximum_age"}, []string{"maximum_age"}, nil)
 
-	entityMappingSourceSchema = sourceSchema("scenery.entity.mapping", 0, []string{"relation", "schema"}, []string{"relation"}, nil)
-	entityDefaultSourceSchema = sourceSchema("scenery.entity.field-default", 0, []string{"strategy", "value"}, []string{"strategy"}, nil)
-	entityFieldSourceSchema   = sourceSchema("scenery.entity.field", 1,
-		[]string{"column", "primary_key", "tenant_key", "immutable"}, []string{"column"}, map[string]authoredChildSchema{"default": singleton(entityDefaultSourceSchema)})
-	entityIndexSourceSchema      = sourceSchema("scenery.entity.index", 1, []string{"fields", "unique", "method"}, []string{"fields"}, nil)
-	entityUniqueSourceSchema     = sourceSchema("scenery.entity.unique", 1, []string{"fields"}, []string{"fields"}, nil)
-	entityForeignKeySourceSchema = sourceSchema("scenery.entity.foreign-key", 1,
-		[]string{"fields", "target", "target_fields", "on_delete"}, []string{"fields", "target", "target_fields"}, nil)
-	entityDeletionSourceSchema     = sourceSchema("scenery.entity.deletion", 0, []string{"strategy", "field"}, []string{"strategy"}, nil)
-	viewImplementationSourceSchema = sourceSchema("scenery.view.implementation", 0, []string{"kind", "file", "name"}, []string{"kind", "file", "name"}, nil)
-	crudExecutionSourceSchema      = sourceSchema("scenery.crud.execution", 0, []string{"mode", "timeout"}, []string{"mode", "timeout"}, nil)
-	crudListSourceSchema           = sourceSchema("scenery.crud.list", 0, []string{"filters", "search", "sorts", "default_sort", "max_page_size"}, nil, nil)
-	crudHTTPSourceSchema           = sourceSchema("scenery.crud.http", 0,
-		[]string{"path", "codec_profile", "gateway", "authentication", "authorization", "pipeline"},
-		[]string{"path", "codec_profile", "gateway", "authentication", "authorization", "pipeline"}, nil)
-	crudInternalSourceSchema = sourceSchema("scenery.crud.internal", 0,
-		[]string{"exposure", "authentication", "authorization", "pipeline"}, nil, nil)
-	crudExtensionSourceSchema   = sourceSchema("scenery.crud.extension", 1, []string{"config"}, nil, nil)
 	pageActionSourceSchema      = sourceSchema("scenery.page.action", 1, []string{"invoke"}, []string{"invoke"}, nil)
 	pageParamSourceSchema       = sourceSchema("scenery.page.param", 1, []string{"input"}, []string{"input"}, nil)
 	statusMapStatusSourceSchema = sourceSchema("scenery.status-map.status", 1,
@@ -281,7 +222,7 @@ func serviceConfigSchema() *authoredBlockSchema {
 	schema.AllowUnknownAttributes = true
 	schema.DynamicAttribute = &authoredAttributeSchema{
 		Type: map[string]any{"$ref": "scenery.value", "type_source": "package_input"}, Phase: "compile", InputPhaseSource: "package_input", RevisionSource: "package_input",
-		SensitivitySource: "package_input", Patchable: true, DefaultSource: "none", Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]*$"}, MetadataStatus: "dynamic",
+		SensitivitySource: "package_input", DefaultSource: "none", Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]*$"}, MetadataStatus: "dynamic",
 	}
 	return schema
 }
@@ -290,21 +231,15 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"go_target":         {"test": singleton(goTargetTestSourceSchema)},
 	"authorization":     {"rule": ordered(authorizationRuleSourceSchema)},
 	"pipeline":          {"step": ordered(pipelineStepSourceSchema)},
-	"deployment":        {"module": repeated(deploymentModuleSourceSchema), "data_source": repeated(deploymentDataSourceSourceSchema), "service": repeated(deploymentServiceSourceSchema), "http_gateway": repeated(deploymentHTTPGatewaySourceSchema), "provider": repeated(deploymentProviderSourceSchema), "secret": repeated(deploymentSecretSourceSchema)},
 	"typescript_client": {"retry": singleton(typescriptRetrySourceSchema), "react": singleton(typescriptReactSourceSchema)},
-	"patch":             {"expect": repeated(patchOperationSourceSchema), "set": repeated(patchOperationSourceSchema)},
 	"service":           {"implementation": singleton(serviceImplementationSourceSchema), "dependency": repeated(serviceDependencySourceSchema), "config": singleton(serviceConfigSourceSchema), "client": repeated(serviceClientSourceSchema), "lifecycle": singleton(serviceLifecycleSourceSchema)},
-	"record":            {"field": repeated(recordFieldSourceSchema), "validation": repeated(recordValidationSourceSchema)},
+	"record":            {"field": repeated(recordFieldSourceSchema)},
 	"enum":              {"value": repeated(enumValueSourceSchema)},
 	"union":             {"variant": repeated(unionVariantSourceSchema)},
 	"operation":         {"handler": singleton(operationHandlerSourceSchema), "result": repeated(operationOutcomeSourceSchema), "error": repeated(operationOutcomeSourceSchema), "idempotency": singleton(operationIdempotencySourceSchema)},
 	"execution":         {"retry": singleton(executionRetrySourceSchema), "concurrency": singleton(executionConcurrencySourceSchema), "retention": singleton(executionRetentionSourceSchema), "deduplication": singleton(executionDeduplicationSourceSchema)},
-	"binding":           {"http": singleton(httpSourceSchema), "internal": singleton(internalSourceSchema), "cli": singleton(cliSourceSchema), "event": singleton(eventBindingSourceSchema), "mcp": singleton(mcpBindingSourceSchema)},
+	"binding":           {"http": singleton(httpSourceSchema), "internal": singleton(internalSourceSchema), "mcp": singleton(mcpBindingSourceSchema)},
 	"schedule":          {"trigger": singleton(scheduleTriggerSourceSchema), "invoke": singleton(scheduleInvokeSourceSchema), "catchup": singleton(scheduleCatchupSourceSchema)},
-	"event_emission":    {"broker_retry": singleton(eventRetrySourceSchema), "from": singleton(eventEmissionFromSourceSchema)},
-	"entity":            {"mapping": singleton(entityMappingSourceSchema), "field": repeated(entityFieldSourceSchema), "index": repeated(entityIndexSourceSchema), "unique": repeated(entityUniqueSourceSchema), "foreign_key": repeated(entityForeignKeySourceSchema), "deletion": singleton(entityDeletionSourceSchema)},
-	"view":              {"implementation": singleton(viewImplementationSourceSchema)},
-	"crud":              {"execution": singleton(crudExecutionSourceSchema), "list": singleton(crudListSourceSchema), "http": singleton(crudHTTPSourceSchema), "internal": singleton(crudInternalSourceSchema), "extension": repeated(crudExtensionSourceSchema)},
 	"page":              {"action": repeated(pageActionSourceSchema), "param": repeated(pageParamSourceSchema)},
 	"status_map":        {"status": repeated(statusMapStatusSourceSchema)},
 	"form_dialog":       {"field": repeated(formDialogFieldSourceSchema)},
@@ -313,8 +248,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"content_page":      {"content": singleton(contentPageSlotSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"workspace_page":    {"tab": ordered(workspacePageTabSourceSchema), "stats": singleton(workspacePageStatsSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"detail_page":       {"param": repeated(detailPageParamSourceSchema), "section": ordered(detailPageSectionSourceSchema), "action": ordered(detailPageActionSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "table": ordered(detailPageTableSourceSchema), "search": repeated(pageSearchSourceSchema)},
-	"mcp_connection":    {"auth": singleton(mcpConnectionAuthSourceSchema), "tools": singleton(mcpConnectionToolsSourceSchema)},
-	"mcp_server":        {"capability": repeated(mcpServerCapabilitySourceSchema), "connection": repeated(mcpServerConnectionSourceSchema)},
+	"mcp_server":        {"capability": repeated(mcpServerCapabilitySourceSchema)},
 	"assistant":         {"implementation": singleton(assistantImplementationSourceSchema), "surface": singleton(assistantSurfaceSourceSchema)},
 }
 
@@ -325,8 +259,8 @@ var authoredStructuralSchemas = map[string]*authoredBlockSchema{
 	"module":      sourceSchema("scenery.source.module", 1, []string{"source", "inputs"}, []string{"source"}, nil),
 	"package":     sourceSchema("scenery.source.package", 1, nil, nil, map[string]authoredChildSchema{"go_contract": singleton(goContractSourceSchema)}),
 	"input": sourceSchema("scenery.source.input", 1,
-		[]string{"type", "phase", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "optional", "requires", "deployment_bindable", "public"}, []string{"type"}, nil),
-	"export": sourceSchema("scenery.source.export", 1, []string{"value", "patchable"}, []string{"value"}, nil),
+		[]string{"type", "phase", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "optional", "requires", "public"}, []string{"type"}, nil),
+	"export": sourceSchema("scenery.source.export", 1, []string{"value"}, []string{"value"}, nil),
 }
 
 var authoredResourceSchemas = buildAuthoredResourceSchemas()
@@ -354,14 +288,6 @@ func authoredResourceSourceSchema(blockType string) (*authoredBlockSchema, bool)
 type SourceBlockSchema = authoredBlockSchema
 type SourceAttributeSchema = authoredAttributeSchema
 type SourceChildSchema = authoredChildSchema
-
-func ResourceSourceSchema(blockType string) (*SourceBlockSchema, bool) {
-	schema, ok := authoredResourceSourceSchema(blockType)
-	if !ok {
-		return nil, false
-	}
-	return cloneSourceBlockSchema(schema, map[*authoredBlockSchema]*authoredBlockSchema{}), true
-}
 
 // ResourceSourceSchemas returns one detached resource-schema catalog. Shared
 // child schemas remain shared within the returned catalog, while no pointer or
@@ -408,7 +334,6 @@ func AuthoredEnumAllows(field SourceAttributeSchema, value string) bool {
 
 func NamedSourceSchemas() map[string]*SourceBlockSchema {
 	live := map[string]*SourceBlockSchema{
-		"deployment_listener":      deploymentListenerSourceSchema,
 		"http":                     httpSourceSchema,
 		"http_cookie":              httpCookieSourceSchema,
 		"http_header":              httpHeaderSourceSchema,
@@ -419,10 +344,7 @@ func NamedSourceSchemas() map[string]*SourceBlockSchema {
 		"http_response_cookie":     httpResponseCookieSourceSchema,
 		"http_response_header":     httpResponseHeaderSourceSchema,
 		"mcp":                      mcpBindingSourceSchema,
-		"mcp_connection_auth":      mcpConnectionAuthSourceSchema,
-		"mcp_connection_tools":     mcpConnectionToolsSourceSchema,
 		"mcp_server_capability":    mcpServerCapabilitySourceSchema,
-		"mcp_server_connection":    mcpServerConnectionSourceSchema,
 		"assistant_implementation": assistantImplementationSourceSchema,
 		"assistant_surface":        assistantSurfaceSourceSchema,
 		"operation_idempotency":    operationIdempotencySourceSchema,

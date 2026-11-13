@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,9 +19,6 @@ import (
 )
 
 func runHarnessGenerationRecovery(ctx context.Context, repoRoot, root string) (map[string]any, error) {
-	if runtime.GOOS == "windows" {
-		return map[string]any{"proof": "not_applicable_on_windows", "reason": "interrupted publication probe uses POSIX process suspension"}, nil
-	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}

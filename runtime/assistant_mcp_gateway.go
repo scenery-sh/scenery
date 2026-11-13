@@ -34,18 +34,14 @@ const (
 
 var errAssistantMCPManifest = errors.New("assistant MCP manifest is invalid")
 
-// RegisterAssistantMCPManifestChecked binds the generated MCP manifest and
-// its canonical federation owner to one assistant. The bytes are parsed and
+// RegisterAssistantMCPManifestChecked binds the generated MCP manifest to
+// one assistant. The bytes are parsed and
 // validated before they enter runtime state; generated callers cannot bypass
 // the provider-neutral mcpcontract checks with a hand-written struct.
-func RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress string, manifestJSON []byte) error {
+func RegisterAssistantMCPManifestChecked(assistantAddress string, manifestJSON []byte) error {
 	assistantAddress = strings.TrimSpace(assistantAddress)
-	serverAddress = strings.TrimSpace(serverAddress)
 	if assistantAddress == "" {
 		return fmt.Errorf("%w: assistant address is required", errAssistantMCPManifest)
-	}
-	if !validMCPRuntimeAddress(serverAddress) {
-		return fmt.Errorf("%w: server address is invalid", errAssistantMCPManifest)
 	}
 	if len(manifestJSON) == 0 || int64(len(manifestJSON)) > assistantMCPManifestLimit {
 		return fmt.Errorf("%w: manifest size is invalid", errAssistantMCPManifest)
@@ -83,10 +79,9 @@ func RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress string,
 	ensureAssistantBootstrapService()
 	serviceAddress := assistantMCPGatewayServiceAddress(assistantAddress)
 	if err := RegisterNativeService(NativeServiceRegistration{
-		Address:      serviceAddress,
-		Dependencies: []string{serverAddress},
-		Initialize:   func(ctx context.Context) error { return initializeAssistantMCPGateway(ctx, assistantAddress) },
-		Shutdown:     func(ctx context.Context) error { return shutdownAssistantMCPGateway(ctx, assistantAddress) },
+		Address:    serviceAddress,
+		Initialize: func(ctx context.Context) error { return initializeAssistantMCPGateway(ctx, assistantAddress) },
+		Shutdown:   func(ctx context.Context) error { return shutdownAssistantMCPGateway(ctx, assistantAddress) },
 	}); err != nil {
 		global.mu.Lock()
 		delete(global.assistantMCPManifests, assistantAddress)
@@ -97,24 +92,11 @@ func RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress string,
 	return nil
 }
 
-// RegisterAssistantMCPManifest is the panic-on-invalid convenience for hand
-// written compositions. Generated code uses the checked form.
-func RegisterAssistantMCPManifest(assistantAddress, serverAddress string, manifestJSON []byte) {
-	if err := RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress, manifestJSON); err != nil {
-		panic(err)
-	}
-}
-
 func cloneMCPManifest(manifest mcpcontract.Manifest) mcpcontract.Manifest {
 	manifest.Capabilities = append([]mcpcontract.Capability(nil), manifest.Capabilities...)
 	for index := range manifest.Capabilities {
 		manifest.Capabilities[index].InputSchema = append([]byte(nil), manifest.Capabilities[index].InputSchema...)
 		manifest.Capabilities[index].OutputSchema = append([]byte(nil), manifest.Capabilities[index].OutputSchema...)
-	}
-	manifest.Connections = append([]mcpcontract.Connection(nil), manifest.Connections...)
-	for index := range manifest.Connections {
-		manifest.Connections[index].Allow = append([]string(nil), manifest.Connections[index].Allow...)
-		manifest.Connections[index].Block = append([]string(nil), manifest.Connections[index].Block...)
 	}
 	return manifest
 }
@@ -218,11 +200,7 @@ func initializeAssistantMCPGateway(ctx context.Context, assistantAddress string)
 		setAssistantMCPGatewayReadiness(assistantAddress, nil, false, "gateway_unavailable")
 		return nil
 	}
-	var federation MCPFederation
-	if value, exists := LookupAssistantMCPFederation(assistantAddress); exists {
-		federation = value
-	}
-	dispatch, durable := assistantMCPDispatchers()
+	dispatch := assistantMCPDispatcher()
 	if mcpapi.NewGateway == nil {
 		// Only a process that serves assistants links the gateway.
 		setAssistantMCPGatewayReadiness(assistantAddress, nil, false, "gateway_unavailable")
@@ -234,12 +212,8 @@ func initializeAssistantMCPGateway(ctx context.Context, assistantAddress string)
 		Secret:             []byte(descriptor.MCPBridgeSecret),
 		Audience:           "scenery",
 		Dispatch:           dispatch,
-		Durable:            durable,
 		ListenAddr:         descriptor.MCPListenAddress,
 		Version:            "scenery-app-assistant",
-	}
-	if federation != nil {
-		gatewayConfig.Federation = federation
 	}
 	gateway, err := mcpapi.NewGateway(gatewayConfig)
 	if err != nil {

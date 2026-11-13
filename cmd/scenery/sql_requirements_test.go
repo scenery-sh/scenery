@@ -28,15 +28,6 @@ func TestSQLSupplyDistinguishesRequirementsFromAllocationAuthority(t *testing.T)
 			}
 		}
 	}
-	durable := compiler.SQLRequirements{{Kind: compiler.SQLDurable, Name: "scenery", Schema: "scenery", Lifecycle: "managed"}}
-	remote := []string{"SCENERY_DURABLE_ENDPOINT=https://worker.invalid"}
-	if bindings, err := resolveSQLSupply(durable, remote, false); err != nil || len(bindings) != 0 {
-		t.Fatalf("remote durable-only selected local SQL: %+v %v", bindings, err)
-	}
-	withAuth := append(durable, compiler.SQLRequirement{Kind: compiler.SQLStandardAuth, Name: "scenery", Schema: "scenery", Lifecycle: "managed"})
-	if _, err := resolveSQLSupply(withAuth, remote, false); err == nil {
-		t.Fatal("remote durable endpoint incorrectly satisfied standard-auth SQL")
-	}
 	if bindings, err := resolveSQLSupply(nil, nil, false); err != nil || len(bindings) != 0 {
 		t.Fatalf("no-SQL program required supply: %+v %v", bindings, err)
 	}

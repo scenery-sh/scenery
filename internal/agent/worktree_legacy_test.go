@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"scenery.sh/internal/machine"
 )
 
 func TestLegacyDatabaseAuthorityWithoutSessionsBlocksFreshAllocation(t *testing.T) {
@@ -52,7 +50,7 @@ func TestLegacyRootProvenanceDoesNotClaimUnrelatedWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	registry := registryFile{
-		ArtifactIdentity: machine.NewArtifactIdentity(AgentRegistryKind, `{"identity":"artifact","registry":"sessions-substrates-aliases"}`),
+		ArtifactIdentity: agentRegistryIdentity(),
 		Sessions:         []Session{{AppRoot: source}},
 	}
 	data, err := json.Marshal(registry)

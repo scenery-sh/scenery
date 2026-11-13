@@ -36,7 +36,6 @@ type Related struct {
 type Origin struct {
 	Kind             string                     `json:"kind"`
 	SourceID         string                     `json:"source_id,omitempty"`
-	Patches          []string                   `json:"patches,omitempty"`
 	DeclarationRange *scn.Range                 `json:"declaration_range,omitempty"`
 	AttributeRanges  map[string]scn.Range       `json:"attribute_ranges,omitempty"`
 	ModuleChain      []string                   `json:"module_instantiation_chain,omitempty"`

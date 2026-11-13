@@ -3,7 +3,6 @@ package scenery_test
 import (
 	"reflect"
 	"testing"
-	"time"
 
 	scenery "scenery.sh"
 	"scenery.sh/internal/contract"
@@ -34,9 +33,7 @@ func TestContractFacadeTypeIdentity(t *testing.T) {
 		{"Optional", scenery.Optional[int]{}, contract.Optional[int]{}},
 		{"Nullable", scenery.Nullable[int]{}, contract.Nullable[int]{}},
 		{"Set", scenery.Set[int]{}, contract.Set[int]{}},
-		{"ApprovalToken", scenery.ApprovalToken{}, contract.ApprovalToken{}},
 		{"ContractConstraints", scenery.ContractConstraints{}, contract.ContractConstraints{}},
-		{"ContractValidationError", scenery.ContractValidationError{}, contract.ContractValidationError{}},
 	}
 	for _, pair := range pairs {
 		facade, leaf := reflect.TypeOf(pair.facade), reflect.TypeOf(pair.leaf)
@@ -95,22 +92,6 @@ func TestContractFacadeMethodsRemainReachable(t *testing.T) {
 }
 
 func TestContractFacadeValuesCrossTheBoundary(t *testing.T) {
-	token := scenery.NewApprovalToken(
-		"sha256:"+"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"caller", []string{"scope"}, time.Now().UTC(),
-	)
-	// A facade-built value must validate in the leaf implementation unchanged.
-	if _, err := contract.ApprovalTokenPayload(token); err != nil {
-		t.Fatalf("facade-built ApprovalToken rejected by the leaf: %v", err)
-	}
-	payload, err := scenery.ApprovalTokenPayload(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(payload) == 0 {
-		t.Fatalf("ApprovalTokenPayload returned no bytes through the facade")
-	}
-
 	optional := scenery.Some(42)
 	if !optional.Set || optional.Value != 42 {
 		t.Fatalf("Some() lost data through the facade")
@@ -118,7 +99,7 @@ func TestContractFacadeValuesCrossTheBoundary(t *testing.T) {
 	if scenery.NoneOf[int]().Set {
 		t.Fatalf("NoneOf() should be absent")
 	}
-	if scenery.ValueOf(7).Null || !scenery.NullOf[int]().Null {
+	if scenery.ValueOf(7).Null {
 		t.Fatalf("Nullable constructors lost meaning through the facade")
 	}
 }

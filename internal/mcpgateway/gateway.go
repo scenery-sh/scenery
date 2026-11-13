@@ -18,8 +18,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,27 +51,14 @@ var (
 	// ErrPrivateAddress is returned when a request attempts to reach the private
 	// listener through a non-loopback address or host/origin.
 	ErrPrivateAddress = errors.New("private MCP gateway requires a loopback address")
-	// ErrFederationUnavailable is returned when one or more required external
-	// MCP connections are not currently ready.  The gateway fails closed rather
-	// than exposing a stale remote inventory.
-	ErrFederationUnavailable = errors.New("required federated MCP connection is unavailable")
-	// ErrFederationToolCollision is returned when a federated tool would shadow
-	// a local or framework-owned tool name.
-	ErrFederationToolCollision = errors.New("federated MCP tool name collides with a local tool")
-	// ErrFederationCall is the safe, provider-neutral error exposed when a
-	// federated transport fails.  Remote URLs, headers, and credential-bearing
-	// errors are intentionally never copied into the public result.
-	ErrFederationCall = errors.New("federated MCP tool call failed")
 )
-
-var gatewayToolNameRE = regexp.MustCompile(mcpcontract.ToolNamePattern)
 
 func init() {
 	mcpapi.NewGateway = func(config mcpapi.GatewayConfig) (mcpapi.Gateway, error) {
 		gateway, err := New(Config{
 			Manifest: config.Manifest, CapabilityRevision: config.CapabilityRevision,
-			Verify:   HMACAssertionVerifier{Secret: config.Secret, Audience: config.Audience},
-			Dispatch: config.Dispatch, Durable: config.Durable, Federation: config.Federation,
+			Verify:     HMACAssertionVerifier{Secret: config.Secret, Audience: config.Audience},
+			Dispatch:   config.Dispatch,
 			ListenAddr: config.ListenAddr, Version: config.Version,
 		})
 		if err != nil {
@@ -101,27 +86,6 @@ type CapabilityAuthorizer interface {
 	Visible(context.Context, string, mcpcontract.Capability) bool
 }
 
-// DurableOperations backs the framework-owned status and cancel tools.  The
-// JSON result is deliberately opaque to this package so that execution storage
-// remains an application/runtime concern.
-type DurableOperations interface {
-	Status(context.Context, mcpcontract.ToolCallContext, string) (json.RawMessage, error)
-	Cancel(context.Context, mcpcontract.ToolCallContext, string) (json.RawMessage, error)
-}
-
-// FederatedTools is the narrow gateway boundary implemented by the external
-// MCP federation.  The gateway consumes only the ready, policy-projected
-// capability inventory and dispatches through the same assertion-derived
-// ToolCallContext used by local operations.  A successful call carries the
-// remote MCP CallToolResult JSON in the outcome value (problem for a remote
-// error result); the gateway relays it unchanged.  URL and authentication
-// material never cross this interface.
-type FederatedTools interface {
-	Ready() bool
-	Capabilities() []mcpcontract.Capability
-	CallTool(context.Context, mcpcontract.ToolCallContext, string, json.RawMessage) (mcpcontract.ToolOutcome, error)
-}
-
 // Config configures a private gateway.
 type Config struct {
 	// Manifest is the immutable generated capability manifest.
@@ -135,14 +99,6 @@ type Config struct {
 	Dispatch ToolDispatcher
 	// Authorizer controls principal-specific capability visibility.
 	Authorizer CapabilityAuthorizer
-	// Durable provides status/cancel operations.  Framework tools are only
-	// exposed when Durable is non-nil and at least one manifest capability is
-	// marked durable.
-	Durable DurableOperations
-	// Federation supplies currently-ready external MCP tools.  Optional
-	// connections are omitted by the federation; an unready required
-	// connection makes tools/list fail closed.
-	Federation FederatedTools
 	// MaxBodyBytes bounds every HTTP request body.  Zero uses 16 MiB.
 	MaxBodyBytes int64
 	// SessionTimeout bounds idle SDK sessions.  Zero leaves the SDK default.
@@ -298,18 +254,6 @@ func (g *Gateway) Close() error {
 	return g.closeErr
 }
 
-// NewHandler builds a private gateway handler without allocating a listener.
-// This is useful for tests that mount the handler on httptest.Server.  The
-// returned handler still enforces loopback Host/Origin and assertion checks.
-func NewHandler(cfg Config) (http.Handler, error) {
-	if err := normalizeConfig(&cfg); err != nil {
-		return nil, err
-	}
-	g := &gateway{cfg: cfg, sessions: make(map[string]sessionBinding)}
-	g.sdk = g.newSDKHandler()
-	return http.HandlerFunc(g.serveHTTP), nil
-}
-
 func normalizeConfig(cfg *Config) error {
 	if cfg.Dispatch == nil {
 		return errors.New("mcpgateway: nil tool dispatcher")
@@ -331,11 +275,6 @@ func normalizeConfig(cfg *Config) error {
 	}
 	if err := cfg.Manifest.Validate(); err != nil {
 		return fmt.Errorf("mcpgateway manifest: %w", err)
-	}
-	for _, capability := range cfg.Manifest.Capabilities {
-		if mcpcontract.IsFrameworkToolName(capability.Name) {
-			return fmt.Errorf("mcpgateway manifest reserves framework tool name %q", capability.Name)
-		}
 	}
 	return nil
 }
@@ -541,11 +480,7 @@ func (g *gateway) serverFor(ctx context.Context, callCtx mcpcontract.ToolCallCon
 	server := mcp.NewServer(&mcp.Implementation{Name: "scenery-private-mcp", Version: g.cfg.Version}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
-	// Build the per-request inventory from the current assertion and the
-	// federation snapshot.  A required outage or a collision is remembered by
-	// the receiving middleware below so the SDK returns a typed JSON-RPC error
-	// instead of silently serving a stale/ambiguous list.
-	remoteCapabilities, federationErr := g.federatedCapabilities(ctx, callCtx)
+	// Build the per-request inventory from the current assertion.
 	for _, capability := range g.cfg.Manifest.Capabilities {
 		if capability.Name == "" || (g.cfg.Authorizer != nil && !g.cfg.Authorizer.Visible(ctx, callCtx.Principal, capability)) {
 			continue
@@ -562,32 +497,6 @@ func (g *gateway) serverFor(ctx context.Context, callCtx mcpcontract.ToolCallCon
 			Annotations:  capabilityAnnotations(capability.Effect),
 		}, g.toolHandler(capability))
 	}
-	for _, capability := range remoteCapabilities {
-		server.AddTool(&mcp.Tool{
-			Name:         capability.Name,
-			Title:        capability.Title,
-			Description:  capability.Description,
-			InputSchema:  schemaValue(capability.InputSchema),
-			OutputSchema: schemaValue(capability.OutputSchema),
-			Annotations:  capabilityAnnotations(capability.Effect),
-		}, g.toolHandler(capability))
-	}
-	if g.cfg.Durable != nil && hasDurableCapability(ctx, callCtx.Principal, g.cfg.Manifest.Capabilities, g.cfg.Authorizer) {
-		g.addFrameworkTools(server)
-	}
-	if g.cfg.Federation != nil {
-		server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-			return func(methodCtx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-				if method != "tools/list" && method != "tools/call" {
-					return next(methodCtx, method, req)
-				}
-				if federationErr != nil {
-					return nil, federationErr
-				}
-				return next(methodCtx, method, req)
-			}
-		})
-	}
 	return server
 }
 
@@ -599,47 +508,6 @@ func capabilityAnnotations(effect mcpcontract.Effect) *mcp.ToolAnnotations {
 		IdempotentHint:  effect.Idempotent,
 		OpenWorldHint:   &openWorld,
 	}
-}
-
-// federatedCapabilities returns only tools that are ready and authorized for
-// the current assertion.  Collision checks deliberately happen before the
-// authorizer so hiding a capability for one principal cannot make a global
-// name collision disappear for another principal.
-func (g *gateway) federatedCapabilities(ctx context.Context, callCtx mcpcontract.ToolCallContext) ([]mcpcontract.Capability, error) {
-	if g.cfg.Federation == nil {
-		return nil, nil
-	}
-	if !g.cfg.Federation.Ready() {
-		return nil, ErrFederationUnavailable
-	}
-	capabilities := append([]mcpcontract.Capability(nil), g.cfg.Federation.Capabilities()...)
-	sort.Slice(capabilities, func(i, j int) bool { return capabilities[i].Name < capabilities[j].Name })
-	localNames := make(map[string]struct{}, len(g.cfg.Manifest.Capabilities)+2)
-	for _, capability := range g.cfg.Manifest.Capabilities {
-		localNames[capability.Name] = struct{}{}
-	}
-	localNames[mcpcontract.StatusToolName] = struct{}{}
-	localNames[mcpcontract.CancelToolName] = struct{}{}
-	localNames[mcpcontract.WaitToolName] = struct{}{}
-	seen := make(map[string]struct{}, len(capabilities))
-	visible := make([]mcpcontract.Capability, 0, len(capabilities))
-	for _, capability := range capabilities {
-		if !gatewayToolNameRE.MatchString(capability.Name) || capability.Origin.Kind != "federated" {
-			return nil, ErrFederationToolCollision
-		}
-		if _, exists := localNames[capability.Name]; exists {
-			return nil, ErrFederationToolCollision
-		}
-		if _, exists := seen[capability.Name]; exists {
-			return nil, ErrFederationToolCollision
-		}
-		seen[capability.Name] = struct{}{}
-		if g.cfg.Authorizer != nil && !g.cfg.Authorizer.Visible(ctx, callCtx.Principal, capability) {
-			continue
-		}
-		visible = append(visible, capability)
-	}
-	return visible, nil
 }
 
 func schemaValue(raw json.RawMessage) any {
@@ -677,27 +545,7 @@ func (g *gateway) toolHandler(capability mcpcontract.Capability) mcp.ToolHandler
 			outcome mcpcontract.ToolOutcome
 			err     error
 		)
-		if capability.Origin.Kind == "federated" {
-			if g.cfg.Federation == nil {
-				return errorToolResult(ErrFederationCall), nil
-			}
-			outcome, err = g.cfg.Federation.CallTool(ctx, callCtx, capability.Name, args)
-			if err != nil {
-				// Keep cancellation and deadline semantics useful to callers while
-				// preventing remote transports from leaking URLs or credentials.
-				if errors.Is(err, context.Canceled) {
-					err = context.Canceled
-				} else if errors.Is(err, context.DeadlineExceeded) {
-					err = context.DeadlineExceeded
-				} else {
-					err = ErrFederationCall
-				}
-				return errorToolResult(err), nil
-			}
-			return federatedToolResult(outcome, capability.Limits.MaxResultBytes), nil
-		} else {
-			outcome, err = g.cfg.Dispatch.CallTool(ctx, callCtx, capability.Name, args)
-		}
+		outcome, err = g.cfg.Dispatch.CallTool(ctx, callCtx, capability.Name, args)
 		if err != nil {
 			return errorToolResult(err), nil
 		}
@@ -707,31 +555,6 @@ func (g *gateway) toolHandler(capability mcpcontract.Capability) mcp.ToolHandler
 		}
 		return result, nil
 	}
-}
-
-// federatedToolResult relays the remote MCP result the federation carries in
-// the outcome: its content blocks, structured content and error flag reach the
-// client unchanged, so the remote output schema the gateway advertises still
-// describes the structured content and images stay typed content blocks.
-func federatedToolResult(outcome mcpcontract.ToolOutcome, maxResultBytes int) *mcp.CallToolResult {
-	remote := outcome.Value
-	if len(outcome.Problem) > 0 {
-		remote = outcome.Problem
-	}
-	if maxResultBytes > 0 && len(remote) > maxResultBytes {
-		return errorToolResult(&errs.Error{Code: errs.ResourceExhausted, Message: "tool result exceeds configured limit"})
-	}
-	var result mcp.CallToolResult
-	if len(remote) == 0 || json.Unmarshal(remote, &result) != nil {
-		return errorToolResult(ErrFederationCall)
-	}
-	if len(outcome.Problem) > 0 {
-		result.IsError = true
-	}
-	if result.Content == nil {
-		result.Content = []mcp.Content{}
-	}
-	return &result
 }
 
 func errorToolResult(err error) *mcp.CallToolResult {
@@ -763,8 +586,6 @@ func failureProblem(err error) (string, string) {
 		return string(errs.DeadlineExceeded), err.Error()
 	case errors.Is(err, ErrUnauthorized):
 		return string(errs.PermissionDenied), err.Error()
-	case errors.Is(err, ErrFederationCall):
-		return string(errs.Unavailable), err.Error()
 	}
 	for current := err; current != nil; current = errors.Unwrap(current) {
 		if coded, ok := current.(problemCoder); ok {
@@ -808,15 +629,6 @@ func outcomeResult(outcome mcpcontract.ToolOutcome) (*mcp.CallToolResult, []byte
 	}
 	result.Content = []mcp.Content{&mcp.TextContent{Text: string(encoded)}}
 	return result, encoded
-}
-
-func hasDurableCapability(ctx context.Context, principal string, capabilities []mcpcontract.Capability, authorizer CapabilityAuthorizer) bool {
-	for _, capability := range capabilities {
-		if capability.Durable && (authorizer == nil || authorizer.Visible(ctx, principal, capability)) {
-			return true
-		}
-	}
-	return false
 }
 
 func newRequestID() string {

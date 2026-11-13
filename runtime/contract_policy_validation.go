@@ -16,7 +16,7 @@ func validateContractHTTPPolicy(policy *ContractHTTPPolicy) error {
 	if policy.AuthorizationRuleCount != len(policy.AuthorizationRules) {
 		return fmt.Errorf("authorization rule count mismatch: declared %d, received %d", policy.AuthorizationRuleCount, len(policy.AuthorizationRules))
 	}
-	strategies := map[string]bool{"public": true, "none": true, "local_developer": true, "deny_unless_allowed": true, "any_allow": true, "allow_if_any": true, "all_must_allow": true, "allow_if_all": true, "first_applicable": true}
+	strategies := map[string]bool{"public": true, "none": true, "deny_unless_allowed": true, "all_must_allow": true, "first_applicable": true}
 	if !strategies[policy.AuthorizationStrategy] {
 		return fmt.Errorf("unsupported authorization strategy %q", policy.AuthorizationStrategy)
 	}

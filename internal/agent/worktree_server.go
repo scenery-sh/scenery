@@ -53,7 +53,7 @@ func ValidateRetainedControlHealth(health HealthResponse, socket string) error {
 
 // NewWorktreeServer embeds the current control and routing handlers in the
 // supervisor. The caller holds the live lock for this server's entire lifetime.
-// No machine edge, trust store, deploy registry, launchd or systemd is consulted.
+// No machine edge, trust store or launchd is consulted.
 func NewWorktreeServer(paths WorktreePaths, record WorktreeRecord, identity Identity, dashboard Backend, edgeToken string, router net.Listener) (*Server, error) {
 	if err := paths.validateRecord(record, record.AppID); err != nil {
 		return nil, err

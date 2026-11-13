@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	"maps"
 	"slices"
 	"sync"
 	"testing"
@@ -243,12 +242,6 @@ func TestSetAppConfigUsesSessionIdentityEnv(t *testing.T) {
 func replaceGlobalRegistryForTest() func() {
 	prev := global
 	previousMetadata := *appsdk.Metadata()
-	mcpDurableOwners.Lock()
-	prevMCPDurableOwners := make(map[string]mcpDurableOwner, len(mcpDurableOwners.values))
-	maps.Copy(prevMCPDurableOwners, mcpDurableOwners.values)
-	prevMCPDurableOwnerOrder := mcpDurableOwners.order
-	mcpDurableOwners.values, mcpDurableOwners.order = make(map[string]mcpDurableOwner), nil
-	mcpDurableOwners.Unlock()
 	activeAssistantMCPGateways.Lock()
 	prevAssistantMCPGateways := activeAssistantMCPGateways.values
 	activeAssistantMCPGateways.values = make(map[string]mcpapi.Gateway)
@@ -264,18 +257,10 @@ func replaceGlobalRegistryForTest() func() {
 		contractDurableExecutions: make(map[string]ContractDurableRegistration),
 		contractBindings:          make(map[string]ContractInternalBindingRegistration),
 		mcpTools:                  make(map[string]MCPToolRegistration),
-		mcpFederationSpecs:        make(map[string]MCPFederationRegistration),
-		mcpFederations:            make(map[string]*mcpFederationState),
-		mcpFederationAssistants:   make(map[string]string),
-		mcpSecretResolvers:        make(map[string]MCPSecretResolver),
 		assistantMCPManifests:     make(map[string]mcpcontract.Manifest),
 		assistants:                make(map[string]AssistantRegistration),
 		assistantClients:          make(map[string]AssistantClient),
-		contractCLIBindings:       make(map[string]ContractCLIBindingRegistration),
 		contractPages:             make(map[string]ContractPageRegistration),
-		contractEventBuses:        make(map[string]ContractEventBus),
-		contractEventConsumers:    make(map[string]ContractEventConsumerRegistration),
-		contractEventEmissions:    make(map[string]ContractEventEmissionRegistration),
 		serviceInitializers:       make(map[string]serviceInitializer),
 		serviceInitOrder:          make(map[string]int),
 		serviceShutdowns:          make(map[string]serviceShutdown),
@@ -284,9 +269,6 @@ func replaceGlobalRegistryForTest() func() {
 	return func() {
 		global = prev
 		appsdk.SetMetadata(previousMetadata)
-		mcpDurableOwners.Lock()
-		mcpDurableOwners.values, mcpDurableOwners.order = prevMCPDurableOwners, prevMCPDurableOwnerOrder
-		mcpDurableOwners.Unlock()
 		activeAssistantMCPGateways.Lock()
 		activeAssistantMCPGateways.values = prevAssistantMCPGateways
 		activeAssistantMCPGateways.Unlock()

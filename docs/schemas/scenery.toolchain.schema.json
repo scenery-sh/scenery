@@ -36,7 +36,7 @@
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string", "minLength": 1 },
-        "kind": { "type": "string", "enum": ["binary", "image", "plugin"] },
+        "kind": { "type": "string", "enum": ["binary", "plugin"] },
         "version": { "type": "string", "minLength": 1 },
         "license": { "type": "string" },
         "default_binary": { "type": "string", "minLength": 1 },
@@ -50,11 +50,6 @@
             "^[a-z0-9]+/[a-z0-9]+$": { "$ref": "#/$defs/platform_artifact" }
           },
           "additionalProperties": false
-        },
-        "source_build": { "$ref": "#/$defs/source_build" },
-        "images": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/image" }
         }
       }
     },
@@ -74,30 +69,6 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "build_output": { "type": "string", "minLength": 1 }
-      }
-    },
-    "source_build": {
-      "type": "object",
-      "required": ["kind", "package"],
-      "additionalProperties": false,
-      "properties": {
-        "kind": { "const": "go" },
-        "package": {
-          "type": "string",
-          "pattern": "^\\./[^/].*"
-        }
-      }
-    },
-    "image": {
-      "type": "object",
-      "required": ["ref"],
-      "additionalProperties": false,
-      "properties": {
-        "ref": { "type": "string", "minLength": 1 },
-        "digest": { "type": "string", "pattern": "^sha256:[A-Fa-f0-9]{64}$" },
-        "optional": { "type": "boolean" },
-        "usage": { "type": "string" },
-        "stability": { "type": "string", "enum": ["stable", "unstable"] }
       }
     }
   }

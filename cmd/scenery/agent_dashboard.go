@@ -73,8 +73,7 @@ func startAgentDashboardListener(ctx context.Context, agentServer *localagent.Se
 		store: store,
 		agent: agentServer,
 	}
-	server := newDashboardServerWithController(controller, paths.AgentDir, addr, nil)
-	server.state.cacheRoot = filepath.Join(paths.AgentDir, "dashboard")
+	server := newDashboardServerWithController(controller, addr)
 	start := func() error { return server.Start(ctx) }
 	if listener != nil {
 		start = func() error { return server.startListener(ctx, listener) }
@@ -197,7 +196,6 @@ func (c *agentDashboardController) appRecordWithRegistryLiveness(app devdash.App
 	}
 	applySessionStatusToAppRecord(&app, &session)
 	app.Routes = visibleDashboardRoutesFromAgent(session.RouteManifest.URLs())
-	app.Aliases = visibleDashboardRoutesFromAgent(session.Aliases)
 	return app
 }
 
@@ -227,7 +225,6 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		Addr:                app.ListenAddr,
 		APIEncoding:         app.APIEncoding,
 		Routes:              app.Routes,
-		Aliases:             app.Aliases,
 		SessionStatus:       app.SessionStatus,
 		SessionStatusReason: app.SessionStatusReason,
 		Compiling:           app.Compiling,

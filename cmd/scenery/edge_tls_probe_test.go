@@ -144,7 +144,7 @@ func TestApplyEdgeHelperForwardingProbeRequiresTLSThroughHelper(t *testing.T) {
 	if status.State != "unhealthy" {
 		t.Fatalf("dropping helper state = %+v", status)
 	}
-	if !strings.Contains(status.Message, "deploy setup") {
+	if !strings.Contains(status.Message, "edge privileged install") {
 		t.Fatalf("dropping helper message = %q", status.Message)
 	}
 

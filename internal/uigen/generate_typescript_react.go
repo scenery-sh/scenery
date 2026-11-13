@@ -15,12 +15,12 @@ import (
 )
 
 type reactTablePage struct {
-	table, crud, record, resultRecord, operation, binding Resource
-	stats                                                 *reactTableStats
-	dialogs                                               []reactTableDialog
-	itemsField                                            string
-	metadataFields                                        []string
-	pagination                                            string
+	table, record, resultRecord, operation, binding Resource
+	stats                                           *reactTableStats
+	dialogs                                         []reactTableDialog
+	itemsField                                      string
+	metadataFields                                  []string
+	pagination                                      string
 }
 
 type reactTableStats struct {
@@ -131,49 +131,37 @@ func selectedReactTablePages(resources, bindings []Resource) []reactTablePage {
 		if table.Kind != "scenery.table-page" || table.Origin.Kind == "expanded" {
 			continue
 		}
-		source := byAddress[clientprojection.ResolveResourceRef(table, clientprojection.RefString(table.Spec["source"]), "crud")]
-		var page reactTablePage
-		switch source.Kind {
-		case "scenery.crud":
-			binding := selectedBindings[clientprojection.ResourceAddress(source.Module, "binding", source.Name+"_list_http")]
-			if binding.Address == "" {
-				continue
-			}
-			operation := byAddress[clientprojection.ResolveResourceRef(binding, clientprojection.RefString(binding.Spec["operation"]), "operation")]
-			entity := byAddress[clientprojection.ResolveResourceRef(source, clientprojection.RefString(source.Spec["entity"]), "entity")]
-			record := byAddress[clientprojection.ResolveResourceRef(entity, clientprojection.RefString(entity.Spec["type"]), "record")]
-			page = reactTablePage{table: table, crud: source, record: record, operation: operation, binding: binding, itemsField: "items", pagination: "cursor"}
-		case "scenery.binding":
-			binding := selectedBindings[source.Address]
-			if binding.Address == "" {
-				continue
-			}
-			operation := byAddress[clientprojection.ResolveResourceRef(binding, clientprojection.RefString(binding.Spec["operation"]), "operation")]
-			results := clientprojection.NamedChildren(operation.Spec, "result")
-			if len(results) != 1 {
-				continue
-			}
-			resultRecord := byAddress[clientprojection.ResolveResourceRef(operation, clientprojection.RefString(results[0]["type"]), "record")]
-			itemsField := clientprojection.StringValue(table.Spec["items"])
-			items := namedResourceChild(resultRecord.Spec, "field", itemsField)
-			itemType, ok := unwrapReactCollectionType(clientprojection.TypeExpression(items["type"]), "list")
-			if !ok {
-				continue
-			}
-			record := byAddress[clientprojection.ResolveResourceRef(operation, itemType, "record")]
-			if record.Kind != "scenery.record" {
-				continue
-			}
-			pagination := ""
-			if len(clientprojection.OrderedChildren(table.Spec, "pagination")) > 0 {
-				pagination = "page"
-			}
-			page = reactTablePage{
-				table: table, record: record, resultRecord: resultRecord, operation: operation, binding: binding,
-				itemsField: itemsField, metadataFields: clientprojection.StringValues(table.Spec["metadata"]), pagination: pagination,
-			}
-		default:
+		source := byAddress[clientprojection.ResolveResourceRef(table, clientprojection.RefString(table.Spec["source"]), "binding")]
+		if source.Kind != "scenery.binding" {
 			continue
+		}
+		binding := selectedBindings[source.Address]
+		if binding.Address == "" {
+			continue
+		}
+		operation := byAddress[clientprojection.ResolveResourceRef(binding, clientprojection.RefString(binding.Spec["operation"]), "operation")]
+		results := clientprojection.NamedChildren(operation.Spec, "result")
+		if len(results) != 1 {
+			continue
+		}
+		resultRecord := byAddress[clientprojection.ResolveResourceRef(operation, clientprojection.RefString(results[0]["type"]), "record")]
+		itemsField := clientprojection.StringValue(table.Spec["items"])
+		items := namedResourceChild(resultRecord.Spec, "field", itemsField)
+		itemType, ok := unwrapReactCollectionType(clientprojection.TypeExpression(items["type"]), "list")
+		if !ok {
+			continue
+		}
+		record := byAddress[clientprojection.ResolveResourceRef(operation, itemType, "record")]
+		if record.Kind != "scenery.record" {
+			continue
+		}
+		pagination := ""
+		if len(clientprojection.OrderedChildren(table.Spec, "pagination")) > 0 {
+			pagination = "page"
+		}
+		page := reactTablePage{
+			table: table, record: record, resultRecord: resultRecord, operation: operation, binding: binding,
+			itemsField: itemsField, metadataFields: clientprojection.StringValues(table.Spec["metadata"]), pagination: pagination,
 		}
 		if children := clientprojection.OrderedChildren(table.Spec, "stats"); len(children) == 1 {
 			spec := Resource{Address: table.Address + "/stats", Module: table.Module, Name: table.Name + "_stats", Spec: children[0]}
@@ -714,9 +702,6 @@ func unwrapReactCollectionType(value, collection string) (string, bool) {
 
 func reactTableResultExpression(page reactTablePage) string {
 	metadata := reactTableMetadataResultExpression(page)
-	if page.pagination == "cursor" {
-		return `{ kind: "result", items: outcome.value.items, nextCursor: outcome.value.nextCursor }`
-	}
 	if page.pagination == "page" {
 		pagination := firstReactTableChild(page.table.Spec, "pagination")
 		return fmt.Sprintf(`{ kind: "result", items: outcome.value.%s, total: reactTableSafeTotal(outcome.value.%s)%s }`, clientprojection.TSName(page.itemsField), clientprojection.TSName(clientprojection.StringValue(pagination["total"])), metadata)
@@ -752,10 +737,6 @@ func reactTableMappedName(mapping map[string]any, key, fallback string) string {
 }
 
 func reactTableSearchable(page reactTablePage, shape clientprojection.OperationInputShape, input string) bool {
-	if page.pagination == "cursor" {
-		list, _ := page.crud.Spec["list"].(map[string]any)
-		return len(clientprojection.StringValues(list["search"])) > 0
-	}
 	return shape.Fields[input].Name != ""
 }
 

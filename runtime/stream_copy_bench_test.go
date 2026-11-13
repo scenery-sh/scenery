@@ -22,7 +22,7 @@ func BenchmarkConcurrentStreamCompression(b *testing.B) {
 				b.ReportAllocs()
 				b.RunParallel(func(pb *testing.PB) {
 					for pb.Next() {
-						stream := NewContractByteStream(io.NopCloser(bytes.NewReader(payload)), int64(len(payload)))
+						stream := ContractByteStream{Reader: io.NopCloser(bytes.NewReader(payload)), Size: int64(len(payload))}
 						if err := writeContractByteStream(io.Discard, ContractHTTPResponse{Stream: &stream, StreamEncoding: "gzip"}); err != nil {
 							b.Error(err)
 							return

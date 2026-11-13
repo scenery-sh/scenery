@@ -105,24 +105,10 @@ func devConfigStore(cfg app.Config) (*appconfig.Store, error) {
 }
 
 // devConfigDocument reads the configuration revision a runtime of env must
-// run: the desired revision of a local environment, or the revision the
-// active deployment pinned for a deployable one.
+// run: the environment's desired revision.
 func devConfigDocument(store *appconfig.Store, cfg app.Config, env app.ResolvedEnv) (appconfig.Document, error) {
 	if store == nil {
 		return appconfig.NewDocument(cfg.AppID(), env.Name), nil
-	}
-	if env.Deployable() {
-		paths, err := commandAgentPaths()
-		if err != nil {
-			return appconfig.Document{}, err
-		}
-		active, err := readDeploymentActive(paths.Home, cfg.ID, env.Name)
-		if err != nil {
-			return appconfig.Document{}, err
-		}
-		if active != nil && active.ConfigRevision != "" {
-			return store.ReadRevision(env.Name, active.ConfigRevision)
-		}
 	}
 	document, _, err := store.Read(env.Name)
 	return document, err
@@ -136,7 +122,7 @@ func resolveDevConfig(ctx context.Context, manifest *graph.Manifest, cfg app.Con
 	if err != nil {
 		return nil, err
 	}
-	resolved := appconfig.Resolve(catalog, document, env.Deployable())
+	resolved := appconfig.Resolve(catalog, document)
 	if !resolved.Valid() {
 		var problems []string
 		for _, entry := range resolved.Entries {

@@ -25,9 +25,6 @@ func TestProjectNativeFixtureMatchesGolden(t *testing.T) {
 	if len(projected.Capabilities) != 1 || projected.Capabilities[0].Name != "house__process_scene" {
 		t.Fatalf("capabilities = %#v", projected.Capabilities)
 	}
-	if len(projected.Connections) != 1 || projected.Connections[0].Namespace != "docs" {
-		t.Fatalf("connections = %#v", projected.Connections)
-	}
 	var outputSchema map[string]any
 	if err := json.Unmarshal(projected.Capabilities[0].OutputSchema, &outputSchema); err != nil {
 		t.Fatalf("decode output schema: %v", err)
@@ -85,16 +82,6 @@ func TestProjectNativeFixtureMatchesGolden(t *testing.T) {
 		if !bytes.Equal(encoded, projectedEncoded) {
 			t.Fatalf("equivalent server reference %q changed the projected bytes", reference)
 		}
-	}
-	durableManifest := cloneManifest(manifest)
-	execution := resourceByAddress(durableManifest, "house/execution/process_scene_direct")
-	execution.Spec["mode"] = "durable"
-	durable, err := ProjectManifest(durableManifest, workspaceRevision, "support")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(durable.Capabilities) != 1 || !durable.Capabilities[0].Durable {
-		t.Fatalf("durable capability = %#v", durable.Capabilities)
 	}
 }
 

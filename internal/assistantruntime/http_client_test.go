@@ -46,7 +46,7 @@ func testControlResponse(request assistantcontrol.Request, typ string) assistant
 }
 
 func writeTestControlResponse(w http.ResponseWriter, response assistantcontrol.Response) error {
-	data, err := assistantcontrol.MarshalResponse(response)
+	data, err := assistantcontrol.MarshalCanonical(response)
 	if err != nil {
 		return err
 	}

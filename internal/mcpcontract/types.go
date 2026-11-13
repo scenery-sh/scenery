@@ -11,39 +11,17 @@ import (
 
 const (
 	ManifestKind             = "scenery.mcp-capability-manifest"
-	manifestSchemaDescriptor = `{"kind":"scenery.mcp-capability-manifest","schema_revision":"digest","protocol_version":"2025-11-25","source_revision":"optional_digest","contract_revision":"digest","implementation_revision":"optional_digest","capabilities":"array<capability{id,name,title,description,input_schema,output_schema,operation_address,execution_address,origin,auth,limits,effect,approval,durable,allow_sensitive_output}>","connections":"array<connection{address,namespace,required,allow,block}>"}`
+	manifestSchemaDescriptor = `{"kind":"scenery.mcp-capability-manifest","schema_revision":"digest","protocol_version":"2025-11-25","source_revision":"optional_digest","contract_revision":"digest","implementation_revision":"optional_digest","capabilities":"array<capability{id,name,title,description,input_schema,output_schema,operation_address,execution_address,origin,auth,limits,effect,approval,allow_sensitive_output}>"}`
 	ProtocolVersion          = "2025-11-25"
-	StatusToolName           = "scenery_execution_status"
-	CancelToolName           = "scenery_execution_cancel"
-	WaitToolName             = "scenery_execution_wait"
 	ToolNamePattern          = `^[a-z][a-z0-9_]{0,127}$`
 	MaximumInputBytes        = 16 << 20
 	MaximumResultBytes       = 16 << 20
-	// AcceptedOutcome names the result of a durable tool call whose work the
-	// runtime accepted; the result carries the execution receipt.
-	AcceptedOutcome = "accepted"
 	// FailedOutcome names a framework failure result. Its problem carries a
 	// stable code (errs codes or InternalErrorCode) and a message. Declared
-	// operation outcomes cannot use either reserved name.
+	// operation outcomes cannot use the reserved name.
 	FailedOutcome     = "failed"
 	InternalErrorCode = "internal_error"
 )
-
-// IsFrameworkToolName reports whether name is reserved for a framework-owned
-// durable execution tool.
-func IsFrameworkToolName(name string) bool {
-	return name == StatusToolName || name == CancelToolName || name == WaitToolName
-}
-
-// TerminalExecutionState reports whether a durable execution state is final.
-func TerminalExecutionState(state string) bool {
-	switch state {
-	case "succeeded", "failed", "canceled", "skipped":
-		return true
-	default:
-		return false
-	}
-}
 
 var ManifestSchemaRevision = string(spec.SchemaRevision(manifestSchemaDescriptor))
 
@@ -55,7 +33,6 @@ type Manifest struct {
 	ContractRevision       string       `json:"contract_revision"`
 	ImplementationRevision string       `json:"implementation_revision,omitempty"`
 	Capabilities           []Capability `json:"capabilities"`
-	Connections            []Connection `json:"connections"`
 }
 
 type Capability struct {
@@ -72,18 +49,7 @@ type Capability struct {
 	Limits               Limits          `json:"limits"`
 	Effect               Effect          `json:"effect"`
 	Approval             Approval        `json:"approval"`
-	Durable              bool            `json:"durable"`
 	AllowSensitiveOutput bool            `json:"allow_sensitive_output"`
-}
-
-// Connection identifies a federated capability source without carrying its
-// URL, authentication material, or any provider-specific configuration.
-type Connection struct {
-	Address   string   `json:"address"`
-	Namespace string   `json:"namespace"`
-	Required  bool     `json:"required"`
-	Allow     []string `json:"allow,omitempty"`
-	Block     []string `json:"block,omitempty"`
 }
 
 type Origin struct {
@@ -135,41 +101,6 @@ type ToolOutcome struct {
 	Outcome string          `json:"outcome"`
 	Value   json.RawMessage `json:"value,omitempty"`
 	Problem json.RawMessage `json:"problem,omitempty"`
-	Receipt *DurableReceipt `json:"receipt,omitempty"`
-}
-
-type DeclaredProblem struct {
-	Code    string          `json:"code"`
-	Message string          `json:"message"`
-	Path    string          `json:"path,omitempty"`
-	Details json.RawMessage `json:"details,omitempty"`
-}
-
-type DurableReceipt struct {
-	DurableIdentity  string `json:"durable_identity"`
-	ExecutionID      string `json:"execution_id"`
-	AcceptedRevision string `json:"accepted_revision"`
-}
-
-type ExecutionStatus struct {
-	ExecutionID string          `json:"execution_id"`
-	State       string          `json:"state"`
-	Outcome     json.RawMessage `json:"outcome,omitempty"`
-}
-
-// ExecutionWait is the result of the framework wait tool. Final reports a
-// final execution state; TimedOut reports that the wait ended first, which
-// says nothing about the execution itself.
-type ExecutionWait struct {
-	Status   json.RawMessage `json:"status"`
-	Final    bool            `json:"final"`
-	TimedOut bool            `json:"timed_out"`
-	WaitedMS int64           `json:"waited_ms"`
-}
-
-type CancelResult struct {
-	ExecutionID string `json:"execution_id"`
-	State       string `json:"state"`
 }
 
 type ToolDispatcher interface {

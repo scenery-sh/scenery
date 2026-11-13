@@ -14,11 +14,11 @@ func TestContractInputTypedTargetPreservesPartialDecode(t *testing.T) {
 		r.Header.Set("Content-Type", "application/json")
 		return r
 	}
-	value, err := DecodeContractJSON[mappedContractInput](request())
+	value, err := DecodeContractInput[mappedContractInput](request(), nil, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json"}})
 	if err == nil || value.Name != "decoded" {
 		t.Fatalf("strict partial decode = %#v, %v", value, err)
 	}
-	pointer, err := DecodeContractJSON[*mappedContractInput](request())
+	pointer, err := DecodeContractInput[*mappedContractInput](request(), nil, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json"}})
 	if err == nil || pointer == nil || pointer.Name != "decoded" {
 		t.Fatalf("pointer partial decode = %#v, %v", pointer, err)
 	}

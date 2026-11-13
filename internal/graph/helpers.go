@@ -11,10 +11,10 @@ var rootResourceKinds = map[string]bool{
 	"go_module": true, "go_toolchain": true, "go_target": true,
 	"http_gateway": true, "authentication": true, "authorization": true,
 	"workload_identity": true, "pipeline": true, "provider": true,
-	"data_source": true, "execution_engine": true, "event_bus": true,
-	"secret_store": true, "secret": true, "deployment": true,
-	"mcp_connection": true, "mcp_server": true, "assistant": true,
-	"typescript_client": true, "patch": true,
+	"data_source": true, "execution_engine": true,
+	"secret_store": true, "secret": true,
+	"mcp_server": true, "assistant": true,
+	"typescript_client": true,
 }
 
 func resourcesByAddress(manifest *Manifest) map[string]*Resource {

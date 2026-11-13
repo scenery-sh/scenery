@@ -1488,27 +1488,6 @@ func (q *Queries) SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSes
 	return i, err
 }
 
-const softDeleteTenant = `-- name: SoftDeleteTenant :one
-UPDATE scenery.scenery_auth_tenants
-SET deleted_at = COALESCE(deleted_at, now()),
-    updated_at = now()
-WHERE id = $1
-RETURNING id, name, deleted_at, created_at, updated_at
-`
-
-func (q *Queries) SoftDeleteTenant(ctx context.Context, id UUID) (ScenerySceneryAuthTenant, error) {
-	row := q.db.QueryRowContext(ctx, softDeleteTenant, id)
-	var i ScenerySceneryAuthTenant
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const updateIdentityPasswordHash = `-- name: UpdateIdentityPasswordHash :one
 UPDATE scenery.scenery_auth_auth_identities
 SET password_hash = $1,
@@ -1566,33 +1545,6 @@ func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembership
 		&i.DisabledAt,
 		&i.InvitedByUserID,
 		&i.InvitedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const updateTenantName = `-- name: UpdateTenantName :one
-UPDATE scenery.scenery_auth_tenants
-SET name = $1,
-    updated_at = now()
-WHERE id = $2
-  AND deleted_at IS NULL
-RETURNING id, name, deleted_at, created_at, updated_at
-`
-
-type UpdateTenantNameParams struct {
-	Name string `json:"name"`
-	ID   UUID   `json:"id"`
-}
-
-func (q *Queries) UpdateTenantName(ctx context.Context, arg UpdateTenantNameParams) (ScenerySceneryAuthTenant, error) {
-	row := q.db.QueryRowContext(ctx, updateTenantName, arg.Name, arg.ID)
-	var i ScenerySceneryAuthTenant
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

@@ -21,21 +21,6 @@ func TestContractRevisionIsOrderIndependentAndSpecBound(t *testing.T) {
 	}
 }
 
-func TestCanonicalResourcesSortsWithoutMutatingInput(t *testing.T) {
-	resources := []Resource{{Address: "b"}, {Address: "a"}}
-	first, err := CanonicalResources(resources)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := CanonicalResources([]Resource{{Address: "a"}, {Address: "b"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(first) != string(second) || resources[0].Address != "b" {
-		t.Fatalf("canonical resources changed input or order: %s", first)
-	}
-}
-
 // A service's contract revision follows the contract of its module instance and
 // of the resources its adapter covers, and no other contract change.
 func TestServiceContractRevisionFollowsOnlyTheServiceContract(t *testing.T) {

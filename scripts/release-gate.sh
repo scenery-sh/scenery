@@ -204,7 +204,7 @@ router_safety() {
   addr="127.0.0.1:$port"
   log="$LOG_DIR/router-safety-app.log"
   start_app "$app" "$addr" "$log" >/dev/null
-  for path in /__scenery/config /platform.Stats /debug/pprof/heap; do
+  for path in /__scenery/config /debug/pprof/heap; do
     status="$(curl -sS -o /dev/null -w '%{http_code}' "http://$addr$path")"
     [[ "$status" == "404" ]] || die "$path returned $status, want 404"
   done

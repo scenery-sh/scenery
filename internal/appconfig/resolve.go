@@ -67,7 +67,7 @@ func (r Resolution) Entry(key string) (Entry, bool) {
 // environment's configured values — and validates the result. Stored keys the
 // catalog does not declare (for example written by a newer branch) are
 // reported as unused and never delivered.
-func Resolve(catalog Catalog, document Document, deployable bool) Resolution {
+func Resolve(catalog Catalog, document Document) Resolution {
 	resolution := Resolution{CatalogRevision: catalog.Revision, Revision: document.Revision, Entries: make([]Entry, 0, len(catalog.Inputs)), Unused: []string{}}
 	for _, input := range catalog.Inputs {
 		entry := Entry{Key: input.Key, Type: input.Type, Sensitive: input.Sensitive, Source: SourceNone}
@@ -89,7 +89,7 @@ func Resolve(catalog Catalog, document Document, deployable bool) Resolution {
 			entry.State, entry.Source, entry.Value = StateConfigured, SourceEnvironment, canonical
 		case input.Default != nil:
 			entry.State, entry.Source, entry.Value = StateDefault, SourceDefault, input.Default
-		case input.Required(deployable):
+		case input.Required():
 			entry.State, entry.Problem = StateMissing, "required input is not configured"
 		default:
 			entry.State = StateAbsent

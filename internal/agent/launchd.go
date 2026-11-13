@@ -17,8 +17,7 @@ import (
 )
 
 // AgentLaunchdLabel is the launchd user-agent job that continuously
-// supervises the scenery agent control plane and router. It is the required
-// availability owner for machines that serve public deploy traffic: launchd
+// supervises the scenery agent control plane and router: launchd
 // restarts the agent when it exits, and every scenery stop/start path must
 // cooperate with that supervisor instead of racing its KeepAlive respawn.
 const AgentLaunchdLabel = "dev.scenery.agent"
@@ -230,7 +229,7 @@ func ReconcileAgentLaunchd() (bool, error) {
 	}
 	exe, paths, opts, err := parseAgentLaunchdPlist(data)
 	if err != nil {
-		return false, fmt.Errorf("the installed supervised agent plist %s is not one Scenery renders (%w); reinstall it with scenery deploy setup", plistPath, err)
+		return false, fmt.Errorf("the installed supervised agent plist %s is not one Scenery renders (%w); reinstall it with scenery system agent install", plistPath, err)
 	}
 	rendered := AgentLaunchdPlist(exe, paths, opts)
 	if rendered == string(data) {
@@ -337,10 +336,6 @@ func parseAgentInvocation(args []string) (string, string, StartOptions, error) {
 			}
 		case "--router-http":
 			opts.RouterHTTP = true
-		case "--router-tls":
-			opts.RouterTLS = true
-		case "--trust":
-			opts.Trust = true
 		case "--supervised":
 			opts.Supervised = true
 		default:

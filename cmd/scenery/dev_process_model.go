@@ -113,8 +113,8 @@ type devProcessLink struct {
 	token    string
 	path     string
 	dispatch string
-	// hostState is the session's private host state directory: durable receipt
-	// authorizations and assistant run scopes every host incarnation reads.
+	// hostState is the session's private host state directory: assistant run
+	// scopes every host incarnation reads.
 	hostState string
 	control   *http.Client
 }
@@ -134,8 +134,7 @@ type devProcessInstance struct {
 	// model.mu.
 	activation  string
 	reconciling bool
-	// unavailable is the reason the instance's build refused background work,
-	// such as an event consumer whose bus no provider registered. A refused
+	// unavailable is the reason the instance's build refused background work. A refused
 	// activation is not repeated; a replacement build activates anew. Guarded
 	// by model.mu.
 	unavailable string
@@ -600,12 +599,10 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 			if previousHost == nil || previousHost.launch == nil || previous.host == nil {
 				return false, nil
 			}
-			restored, err := s.restoreDevProcessHost(ctx, model, previousHost, previousStage)
-			if err != nil {
+			if _, err := s.restoreDevProcessHost(ctx, model, previousHost, previousStage); err != nil {
 				return false, err
 			}
 			startAssistants = s.assistants != nil
-			s.writeProcessEvent(ctx, "process/rollback", map[string]any{"pid": restored.pid})
 			return true, nil
 		},
 		commit: func(ctx context.Context) {

@@ -333,7 +333,7 @@ module "second" {
 	if err != nil {
 		return err
 	}
-	if len(requirements) != 3 || len(requirements.Bindings(false)) != 3 {
+	if len(requirements) != 3 || len(requirements.Bindings()) != 3 {
 		return fmt.Errorf("module instance SQL requirements collapsed: %+v", requirements)
 	}
 	for _, requirement := range requirements {

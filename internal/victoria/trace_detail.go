@@ -30,7 +30,7 @@ func (s *Stack) GetTraceDetail(ctx context.Context, query devdash.TraceQuery) (*
 				continue
 			}
 			summary := traceSummaryFromVictoriaSpan(query.AppID, trace, span)
-			if summary == nil || summary.TraceID != query.TraceID || summary.SessionID != query.SessionID || summary.StartedAt.Before(s.ClearedAt(query.AppID)) {
+			if summary == nil || summary.TraceID != query.TraceID || summary.SessionID != query.SessionID {
 				continue
 			}
 			detail := devdash.TraceSpanDetail{TraceSummary: *summary, Events: []devdash.TraceDetailEvent{}}

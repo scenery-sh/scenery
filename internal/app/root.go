@@ -11,7 +11,6 @@ import (
 	"reflect"
 	goruntime "runtime"
 	"scenery.sh/internal/connectionapi"
-	"slices"
 	"sort"
 	"strings"
 )
@@ -153,14 +152,11 @@ type FrontendTauriConfig struct {
 
 type EnvConfig struct {
 	Default   bool                         `json:"default"`
-	Mode      string                       `json:"mode"`
 	Domain    string                       `json:"domain"`
-	Expose    []string                     `json:"expose"`
 	Port      int                          `json:"port"`
 	PortStart int                          `json:"port_start"`
 	PortEnd   int                          `json:"port_end"`
 	Frontends map[string]EnvFrontendConfig `json:"frontends"`
-	Deploy    *EnvDeployConfig             `json:"deploy,omitempty"`
 	// UICatalog points local development at a live @scenery/ui catalog
 	// source directory instead of the binary-embedded copy. Only the
 	// default local environment may set it.
@@ -171,21 +167,14 @@ type EnvFrontendConfig struct {
 	Serve string `json:"serve"`
 }
 
-type EnvDeployConfig struct {
-	SSH []string `json:"ssh,omitempty"`
-}
-
 type ResolvedEnv struct {
 	Name      string
 	Default   bool
 	Domain    string
-	Mode      string
-	Expose    []string
 	Port      int
 	PortStart int
 	PortEnd   int
 	Frontends map[string]FrontendConfig
-	Deploy    *EnvDeployConfig
 	UICatalog string
 }
 
@@ -220,26 +209,10 @@ func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
 	}
 	return ResolvedEnv{
 		Name: name, Default: env.Default, Domain: strings.TrimSpace(env.Domain),
-		Mode: strings.ToLower(strings.TrimSpace(env.Mode)), Expose: append([]string(nil), env.Expose...),
 		Port: env.Port, PortStart: env.PortStart, PortEnd: env.PortEnd,
-		Frontends: frontends, Deploy: env.Deploy,
+		Frontends: frontends,
 		UICatalog: strings.TrimSpace(env.UICatalog),
 	}, nil
-}
-
-func (c Config) EnvForSSHTarget(target string) (ResolvedEnv, error) {
-	for name, env := range c.Envs {
-		if env.Deploy != nil {
-			if slices.Contains(env.Deploy.SSH, target) {
-				return c.ResolveEnv(name)
-			}
-		}
-	}
-	return ResolvedEnv{}, fmt.Errorf("SSH target %q is not configured in any environment", target)
-}
-
-func (e ResolvedEnv) Deployable() bool {
-	return e.Deploy != nil
 }
 
 // UICatalogDir resolves the environment's ui_catalog development override
@@ -297,17 +270,8 @@ type GeneratorsConfig struct {
 }
 
 type SQLCGeneratorConfig struct {
-	Provider string                `json:"provider"`
-	Config   string                `json:"config"`
-	DevURL   string                `json:"dev_url"`
-	Schemas  []SQLCGeneratorSchema `json:"schemas"`
-}
-
-type SQLCGeneratorSchema struct {
-	SQLCSchema  string `json:"sqlc_schema"`
-	AtlasSchema string `json:"atlas_schema"`
-	AtlasSource string `json:"atlas_source"`
-	AtlasDevURL string `json:"atlas_dev_url"`
+	Provider string `json:"provider"`
+	Config   string `json:"config"`
 }
 
 type DatabaseConfig struct {
@@ -393,7 +357,6 @@ type AuthGoogleConfig struct {
 type AuthDevBootstrap struct {
 	Enabled          bool   `json:"enabled"`
 	DefaultUserEmail string `json:"default_user_email"`
-	DefaultUserID    string `json:"default_user_id"`
 	DefaultTenantID  string `json:"default_tenant_id"`
 }
 
@@ -551,7 +514,6 @@ func (c Config) validateEnvs() error {
 		return errors.New("envs must declare environments and exactly one default")
 	}
 	defaults := 0
-	seenSSH := map[string]string{}
 	for name, env := range c.Envs {
 		if !isStorageIdentifier(name) {
 			return fmt.Errorf("envs.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
@@ -561,9 +523,6 @@ func (c Config) validateEnvs() error {
 		}
 		if name == "local" && !env.Default {
 			return errors.New("envs.local must be the default environment")
-		}
-		if name == "local" && env.Deploy != nil {
-			return errors.New("envs.local must not declare deploy")
 		}
 		if strings.TrimSpace(env.UICatalog) != "" && name != "local" {
 			return fmt.Errorf("envs.%s.ui_catalog is a local development override; only envs.local may set it", name)
@@ -589,26 +548,6 @@ func (c Config) validateEnvs() error {
 				return fmt.Errorf("envs.%s.frontends.%s cannot disable the root frontend", name, frontendName)
 			}
 		}
-		if env.Deploy == nil {
-			continue
-		}
-		for frontendName := range c.Frontends {
-			if strings.ToLower(strings.TrimSpace(env.Frontends[frontendName].Serve)) != "production" {
-				return fmt.Errorf("envs.%s.frontends.%s.serve must be \"production\" for a deployable environment", name, frontendName)
-			}
-		}
-		for index, target := range env.Deploy.SSH {
-			if !validDeploySSHTarget(target) {
-				return fmt.Errorf("envs.%s.deploy.ssh[%d] %q must be a safe OpenSSH host alias and not a scenery deploy subcommand", name, index, target)
-			}
-			if previous, exists := seenSSH[target]; exists {
-				return fmt.Errorf("envs.%s.deploy.ssh[%d] duplicates target %q from envs.%s", name, index, target, previous)
-			}
-			seenSSH[target] = name
-		}
-		if len(env.Deploy.SSH) > 0 && !validDeploySSHAppID(c.AppID()) {
-			return fmt.Errorf("app id %q must start with a lowercase letter or number and use only lowercase letters, numbers, dots, underscores, or dashes for SSH deployment", c.AppID())
-		}
 	}
 	if defaults != 1 {
 		return fmt.Errorf("envs must declare exactly one default environment; found %d", defaults)
@@ -617,29 +556,6 @@ func (c Config) validateEnvs() error {
 		return errors.New("envs.local must declare the default local environment")
 	}
 	return nil
-}
-
-func validDeploySSHTarget(target string) bool {
-	if target == "" || target == "plan" || target == "apply" || target == "setup" || target == "status" || target == "enable" || target == "disable" || target == "publish" || target == "resume" || target == "teardown" {
-		return false
-	}
-	for index, r := range target {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || (index > 0 && (r == '.' || r == '_' || r == '-')) {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func validDeploySSHAppID(value string) bool {
-	for index, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || (index > 0 && (r == '.' || r == '_' || r == '-')) {
-			continue
-		}
-		return false
-	}
-	return value != ""
 }
 
 func validateEnvDomain(domain string) error {
@@ -789,7 +705,7 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 			field, ok := fields[name]
 			childPath := appendJSONPath(path, name)
 			if !ok {
-				return unknownConfigFieldError(childPath, configName, child)
+				return unknownConfigFieldError(childPath, configName)
 			}
 			if err := rejectUnknownFieldsValue(child, field.Type, childPath, configName); err != nil {
 				return err
@@ -823,19 +739,10 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 	return nil
 }
 
-func unknownConfigFieldError(path []string, configName string, value any) error {
+func unknownConfigFieldError(path []string, configName string) error {
 	jsonPath := strings.Join(path, ".")
 	if len(path) == 2 && path[0] == "storage" && (path[1] == "cell_id" || path[1] == "share") {
 		return &StorageMigrationError{Field: jsonPath}
-	}
-	if len(path) == 1 && path[0] == "dev" {
-		return fmt.Errorf("unknown %s field %q; remove dev.services: SQL requirements now come from reachable data_source bindings and selected framework registrations; keep endpoint supply in DATABASE_URL and setup in database.apply or database.seed", configName, jsonPath)
-	}
-	if len(path) == 4 && path[0] == "envs" && path[2] == "deploy" && path[3] == "root" {
-		if root, _ := value.(string); strings.TrimSpace(root) == "api" {
-			return fmt.Errorf("unknown %s field %q; remove it because public / now uses the root frontend (or the default agent page when no root frontend is configured), while /api/ remains routed automatically", configName, jsonPath)
-		}
-		return fmt.Errorf("unknown %s field %q; move the frontend name to top-level \"root\"", configName, jsonPath)
 	}
 	return fmt.Errorf("unknown %s field %q", configName, jsonPath)
 }

@@ -1,9 +1,6 @@
 package generate
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"scenery.sh/internal/compiler"
@@ -33,43 +30,6 @@ func TestApplyImplementationCheckUsesInjectedCheckInProcess(t *testing.T) {
 	}
 	if result.ImplementationStatus != "valid" {
 		t.Fatalf("implementation_status = %q diagnostics=%#v", result.ImplementationStatus, result.Diagnostics)
-	}
-}
-
-func TestCheckPredictedGoContractsAcceptsNative(t *testing.T) {
-	parallelIntegrationTest(t)
-	root := t.TempDir()
-	writeMinimalPredictedGoFixture(t, root)
-	result, err := compiler.Compile(root)
-	if err != nil || result == nil || !result.Valid() {
-		t.Fatalf("compile native: %v diagnostics=%#v", err, diagnosticsOf(result))
-	}
-	if err := CheckPredictedGoContracts(result); err != nil {
-		t.Fatal(err)
-	}
-	files, err := RenderGoWorkspaceFiles(result)
-	if err != nil {
-		t.Fatalf("render predicted native adapter: %v", err)
-	}
-	adapter := files["internal/scenerygen/house_house_adapter/adapter.gen.go"]
-	if _, err := os.Stat(filepath.Join(root, "internal", "scenerygen")); !os.IsNotExist(err) {
-		t.Fatal("predicted validation materialized private composition")
-	}
-	if !strings.Contains(string(adapter), "return native.Inspect(ctx, input)") {
-		t.Fatalf("predicted native adapter does not invoke the authored handler:\n%s", adapter)
-	}
-}
-
-func TestCheckPredictedTypeScriptClientsAcceptHouse(t *testing.T) {
-	parallelIntegrationTest(t)
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	result, err := compiler.Compile(root)
-	if err != nil || result == nil || !result.Valid() {
-		t.Fatalf("compile house: %v diagnostics=%#v", err, diagnosticsOf(result))
-	}
-	if err := CheckPredictedTypeScriptClients(result); err != nil {
-		t.Fatal(err)
 	}
 }
 

@@ -71,8 +71,6 @@ func TestManagedRootFrontendUsesSlashWithoutViteBaseFlag(t *testing.T) {
 	env := frontendDevEnv(nil, "/repo/app", "127.0.0.1:49231", session, "web")
 	for _, want := range []string{
 		"SCENERY_FRONTEND_BASE_PATH=/",
-		"VITE_SCENERY_FRONTEND_BASE_PATH=/",
-		"SCENERY_FRONTEND_PUBLIC_URL=http://localhost:4747/",
 	} {
 		if !containsString(env, want) {
 			t.Fatalf("frontendDevEnv() missing %q in %s", want, strings.Join(env, "\n"))
@@ -152,7 +150,6 @@ func TestFrontendDevEnvIncludesSessionRoutes(t *testing.T) {
 		"PORT=49231",
 		"SCENERY_APP_ROOT=/repo/app",
 		"SCENERY_SESSION_ID=main-abc123",
-		"SCENERY_API_BASE_URL=http://api.main-abc123.local.dev:9440/",
 		"VITE_API_BASE_URL=http://api.main-abc123.local.dev:9440/",
 		"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=web.main-abc123.local.dev",
 	} {
@@ -169,13 +166,7 @@ func TestManagedFrontendAllowedHostFromRouteNamespace(t *testing.T) {
 		SessionID: "main-abc123",
 		RouteNamespace: localagent.RouteNamespace{
 			BaseDomain: "onlv.dev",
-			Hosts: map[string]string{
-				"blog": "blog.onlv.dev",
-			},
 		},
-	}
-	if got, want := managedFrontendAllowedHost(session, "blog"), "blog.main-abc123.onlv.dev"; got != want {
-		t.Fatalf("allowed host = %q, want %q", got, want)
 	}
 	if got, want := managedFrontendAllowedHost(session, "pulse"), "pulse.main-abc123.onlv.dev"; got != want {
 		t.Fatalf("fallback allowed host = %q, want %q", got, want)
@@ -194,7 +185,7 @@ func TestManagedFrontendBackendsRequiresExplicitSharedUpstream(t *testing.T) {
 			},
 		},
 	}
-	_, _, err := managedFrontendBackendsForSession(context.Background(), root, cfg, nil, localagent.Session{
+	_, _, _, err := beginManagedFrontendBackendsForSession(context.Background(), root, cfg, nil, localagent.Session{
 		SessionID: "main-test",
 		StateRoot: filepath.Join(root, ".scenery", "sessions", "main-test"),
 	})
@@ -219,7 +210,7 @@ func TestManagedFrontendBackendsAllowsExplicitSharedUpstream(t *testing.T) {
 			},
 		},
 	}
-	backends, processes, err := managedFrontendBackendsForSession(context.Background(), root, cfg, nil, localagent.Session{
+	backends, processes, _, err := beginManagedFrontendBackendsForSession(context.Background(), root, cfg, nil, localagent.Session{
 		SessionID: "main-test",
 		StateRoot: filepath.Join(root, ".scenery", "sessions", "main-test"),
 	})
@@ -241,7 +232,7 @@ func TestManagedFrontendFailsFastWhenChildExitsBeforeReady(t *testing.T) {
 	appRoot := filepath.Join(root, "app")
 
 	start := time.Now()
-	_, _, err := managedFrontendBackendsForSessionWithStarter(context.Background(), appRoot, app.Config{
+	_, _, _, err := beginManagedFrontendBackendsForSessionWithStarter(context.Background(), appRoot, app.Config{
 		Name: "demo",
 		Frontends: map[string]app.FrontendConfig{
 			"web": {Root: "apps/web"},
@@ -249,15 +240,15 @@ func TestManagedFrontendFailsFastWhenChildExitsBeforeReady(t *testing.T) {
 	}, nil, localagent.Session{
 		SessionID: "main-test",
 		StateRoot: filepath.Join(root, "state"),
-	}, func(_ context.Context, _ string, _ string, index int, frontend localproxy.FrontendConfig, _ []string, _ localagent.Session) managedFrontendStartResult {
-		return managedFrontendStartResult{
+	}, func(_ context.Context, _ context.CancelFunc, _ string, _ string, index int, frontend localproxy.FrontendConfig, _ []string, _ localagent.Session) pendingManagedFrontendStart {
+		return pendingManagedFrontendStart{managedFrontendStartResult: managedFrontendStartResult{
 			index: index,
 			name:  frontend.Name,
 			err:   errors.New("frontend web exited before becoming ready: exit status 7\nfrontend-boom"),
-		}
+		}}
 	})
 	if err == nil {
-		t.Fatal("managedFrontendBackendsForSession returned nil error, want early exit")
+		t.Fatal("beginManagedFrontendBackendsForSessionWithStarter returned nil error, want early exit")
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("managed frontend failure took %s, want early exit before timeout", elapsed)
@@ -290,20 +281,20 @@ func TestManagedFrontendBackendsStartsFrontendsConcurrently(t *testing.T) {
 	}
 	started := make(chan string, 2)
 	release := make(chan struct{})
-	starter := func(ctx context.Context, _ string, _ string, index int, frontend localproxy.FrontendConfig, _ []string, _ localagent.Session) managedFrontendStartResult {
+	starter := func(ctx context.Context, _ context.CancelFunc, _ string, _ string, index int, frontend localproxy.FrontendConfig, _ []string, _ localagent.Session) pendingManagedFrontendStart {
 		started <- frontend.Name
 		select {
 		case <-ctx.Done():
-			return managedFrontendStartResult{index: index, name: frontend.Name, err: ctx.Err()}
+			return pendingManagedFrontendStart{managedFrontendStartResult: managedFrontendStartResult{index: index, name: frontend.Name, err: ctx.Err()}}
 		case <-release:
 		}
 		addr := addrs[frontend.Name]
-		return managedFrontendStartResult{
+		return pendingManagedFrontendStart{managedFrontendStartResult: managedFrontendStartResult{
 			index:   index,
 			name:    frontend.Name,
 			backend: localagent.Backend{Network: "tcp", Addr: addr},
 			process: fakeManagedFrontendProcess(frontend.Name, addr, pids[frontend.Name]),
-		}
+		}}
 	}
 	type frontendResult struct {
 		backends  map[string]localagent.Backend
@@ -314,7 +305,7 @@ func TestManagedFrontendBackendsStartsFrontendsConcurrently(t *testing.T) {
 	defer cancel()
 	done := make(chan frontendResult, 1)
 	go func() {
-		backends, processes, err := managedFrontendBackendsForSessionWithStarter(ctx, appRoot, cfg, nil, localagent.Session{
+		backends, processes, _, err := beginManagedFrontendBackendsForSessionWithStarter(ctx, appRoot, cfg, nil, localagent.Session{
 			SessionID: "main-test",
 			StateRoot: filepath.Join(root, "state"),
 		}, starter)
@@ -327,7 +318,7 @@ func TestManagedFrontendBackendsStartsFrontendsConcurrently(t *testing.T) {
 		case name := <-started:
 			seen[name] = true
 		case result := <-done:
-			t.Fatalf("managedFrontendBackendsForSession returned before all starters ran: %+v", result)
+			t.Fatalf("beginManagedFrontendBackendsForSessionWithStarter returned before all starters ran: %+v", result)
 		case <-ctx.Done():
 			t.Fatal(ctx.Err())
 		}
@@ -364,9 +355,8 @@ func TestBeginManagedFrontendBackendsExposesReadinessJoinInProcess(t *testing.T)
 			"web": {Root: "apps/web"},
 		},
 	}
-	backends, processes, wait, err := beginManagedFrontendBackendsForSessionWithOverrideAndStarter(
+	backends, processes, wait, err := beginManagedFrontendBackendsForSessionWithStarter(
 		context.Background(), "/repo/app", cfg, nil, localagent.Session{SessionID: "main-test"},
-		func(string) string { return "" },
 		func(_ context.Context, _ context.CancelFunc, appRoot, appID string, index int, frontend localproxy.FrontendConfig, _ []string, session localagent.Session) pendingManagedFrontendStart {
 			if appRoot != "/repo/app" || appID != cfg.AppID() || index != 0 || frontend.Name != "web" || session.SessionID != "main-test" {
 				t.Fatalf("starter args root=%q app=%q index=%d frontend=%+v session=%+v", appRoot, appID, index, frontend, session)

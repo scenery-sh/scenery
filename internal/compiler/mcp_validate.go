@@ -2,19 +2,15 @@ package compiler
 
 import (
 	"encoding/json"
-	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	scenery "scenery.sh/internal/contract"
 )
 
 // MCP source and graph validation deliberately lives in the compiler. The
 // runtime may consume the resulting graph, but it must not reinterpret source
-// hints (especially effect, approval, or external connection metadata).
+// hints (especially effect or approval metadata).
 const (
 	mcpBindingShapeCode      = "SCN2419"
 	mcpToolIdentityCode      = "SCN2420"
@@ -25,8 +21,6 @@ const (
 	assistantSourcePathCode  = "SCN2425"
 	assistantPackageLockCode = "SCN2426"
 	assistantAdapterCode     = "SCN2427"
-	mcpConnectionTransport   = "SCN2428"
-	mcpConnectionAuth        = "SCN2429"
 	mcpReferenceCycle        = "SCN2430"
 )
 
@@ -38,8 +32,6 @@ const (
 
 func validateMCPResource(resource Resource, byAddress map[string]Resource) []Diagnostic {
 	switch resource.Kind {
-	case "scenery.mcp-connection":
-		return validateMCPConnection(resource, byAddress)
 	case "scenery.mcp-server":
 		return validateMCPServer(resource, byAddress)
 	case "scenery.assistant":
@@ -107,74 +99,8 @@ func validateMCPBinding(binding Resource, byAddress map[string]Resource) []Diagn
 	}
 	executionAddress := resolveResourceRef(binding, refString(binding.Spec["execution"]), "execution")
 	if execution, ok := byAddress[executionAddress]; ok && execution.Kind == "scenery.execution" {
-		if stringValue(execution.Spec["mode"]) == "durable" && stringValue(binding.Spec["delivery"]) != "call" {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpBindingShapeCode, "MCP durable tools must use call delivery", binding, "/spec/delivery"))
-		}
-	}
-	return sortMCPDiagnostics(diagnostics)
-}
-
-func validateMCPConnection(resource Resource, byAddress map[string]Resource) []Diagnostic {
-	var diagnostics []Diagnostic
-	transport := stringValue(resource.Spec["transport"])
-	if transport != "streamable_http" {
-		diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionTransport, "MCP connection transport must be streamable_http", resource, "/spec/transport"))
-	}
-	if rawURL := strings.TrimSpace(stringValue(resource.Spec["url"])); rawURL == "" {
-		diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionTransport, "MCP connection URL is required", resource, "/spec/url"))
-	} else if err := validateMCPURL(rawURL); err != nil {
-		diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionTransport, err.Error(), resource, "/spec/url"))
-	}
-	if timeout := stringValue(resource.Spec["connect_timeout"]); timeout != "" {
-		if !mcpPositiveDuration(timeout) {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionTransport, "MCP connect_timeout must be positive", resource, "/spec/connect_timeout"))
-		}
-	}
-	if timeout := stringValue(resource.Spec["call_timeout"]); timeout != "" {
-		if !mcpPositiveDuration(timeout) {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionTransport, "MCP call_timeout must be positive", resource, "/spec/call_timeout"))
-		}
-	}
-
-	auth, _ := resource.Spec["auth"].(map[string]any)
-	scheme := stringValue(auth["scheme"])
-	if scheme == "" {
-		scheme = "none"
-	}
-	secretReference := refString(auth["secret"])
-	header := strings.TrimSpace(stringValue(auth["header"]))
-	switch scheme {
-	case "none":
-		if secretReference != "" || header != "" {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionAuth, "MCP no-auth connection cannot declare a secret or header", resource, "/spec/auth"))
-		}
-	case "bearer":
-		if !mcpSecretReference(resource, secretReference, byAddress) {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionAuth, "MCP bearer auth requires a typed Scenery secret reference", resource, "/spec/auth/secret"))
-		}
-		if header != "" {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionAuth, "MCP bearer auth cannot declare a custom header", resource, "/spec/auth/header"))
-		}
-	case "header":
-		if !mcpSecretReference(resource, secretReference, byAddress) || !validMCPHeaderName(header) {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionAuth, "MCP header auth requires one valid header name and typed Scenery secret", resource, "/spec/auth"))
-		}
-	default:
-		diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionAuth, "MCP external auth scheme is unsupported", resource, "/spec/auth/scheme"))
-	}
-
-	tools, _ := resource.Spec["tools"].(map[string]any)
-	allow, block := mcpStringList(tools["allow"]), mcpStringList(tools["block"])
-	if len(allow) > 0 && len(block) > 0 {
-		diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionTransport, "MCP connection tools cannot specify both allow and block", resource, "/spec/tools"))
-	}
-	for _, names := range [][]string{allow, block} {
-		seen := map[string]bool{}
-		for _, name := range names {
-			if strings.TrimSpace(name) == "" || seen[name] {
-				diagnostics = append(diagnostics, mcpDiagnostic(mcpConnectionTransport, "MCP connection tool filters must contain unique non-empty names", resource, "/spec/tools"))
-			}
-			seen[name] = true
+		if stringValue(execution.Spec["mode"]) != "direct" {
+			diagnostics = append(diagnostics, mcpDiagnostic(mcpBindingShapeCode, "MCP binding execution must use direct mode", binding, "/spec/execution"))
 		}
 	}
 	return sortMCPDiagnostics(diagnostics)
@@ -190,7 +116,6 @@ func validateMCPServer(resource Resource, byAddress map[string]Resource) []Diagn
 	}
 
 	names := map[string]Resource{}
-	namespaces := map[string]Resource{}
 	for _, capability := range namedChildren(resource.Spec, "capability") {
 		name := stringValue(capability["name"])
 		if !validMCPToolName(name) {
@@ -211,29 +136,6 @@ func validateMCPServer(resource Resource, byAddress map[string]Resource) []Diagn
 			diagnostics = append(diagnostics, mcpDiagnostic(mcpEffectMetadataCode, "MCP capability approval policy is unsupported", resource, "/spec/capability/approval"))
 		}
 	}
-	for _, connection := range namedChildren(resource.Spec, "connection") {
-		namespace := stringValue(connection["namespace"])
-		if !validMCPToolName(namespace) {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpToolIdentityCode, "MCP connection namespace must match ^[a-z][a-z0-9_]{0,127}$", resource, "/spec/connection/namespace"))
-		}
-		if previous, exists := namespaces[namespace]; exists && namespace != "" {
-			diagnostics = append(diagnostics, Diagnostic{Code: mcpToolIdentityCode, Severity: "error", Message: "duplicate MCP connection namespace " + namespace, Address: resource.Address, Path: "/spec/connection/namespace", Related: []Related{{Address: previous.Address}}})
-		} else if namespace != "" {
-			namespaces[namespace] = resource
-		}
-		connectionAddress := resolveResourceRef(resource, refString(connection["connection"]), "mcp_connection")
-		remote, ok := byAddress[connectionAddress]
-		if !ok || remote.Kind != "scenery.mcp-connection" {
-			diagnostics = append(diagnostics, mcpDiagnostic(mcpBindingShapeCode, "MCP server connection must reference an mcp_connection", resource, "/spec/connection/connection"))
-			continue
-		}
-		for _, remoteName := range mcpStringList(mcpToolsField(remote, "allow")) {
-			final := namespace + "__" + remoteName
-			if local, exists := names[final]; exists {
-				diagnostics = append(diagnostics, Diagnostic{Code: mcpToolIdentityCode, Severity: "error", Message: "MCP remote tool collides with local tool " + final, Address: resource.Address, Path: "/spec/connection/namespace", Related: []Related{{Address: local.Address}}})
-			}
-		}
-	}
 	return sortMCPDiagnostics(diagnostics)
 }
 
@@ -251,6 +153,9 @@ func validateAssistantResource(resource Resource, byAddress map[string]Resource)
 		diagnostics = append(diagnostics, mcpDiagnostic(assistantAdapterCode, "assistant adapter is unsupported", resource, "/spec/implementation/adapter"))
 	}
 	surface, _ := resource.Spec["surface"].(map[string]any)
+	if refOrString(surface["authentication"]) == "std.authentication.none" {
+		diagnostics = append(diagnostics, mcpDiagnostic(mcpBindingShapeCode, "assistant surface requires authentication", resource, "/spec/surface/authentication"))
+	}
 	if sessionAccess := stringValue(surface["session_access"]); sessionAccess != "" && sessionAccess != "initiator" {
 		diagnostics = append(diagnostics, mcpDiagnostic(mcpBindingShapeCode, "assistant session_access must be initiator", resource, "/spec/surface/session_access"))
 	}
@@ -266,12 +171,12 @@ func validateMCPGraph(resources []Resource, byAddress map[string]Resource) []Dia
 	var diagnostics []Diagnostic
 	graph := map[string][]string{}
 	for _, resource := range resources {
-		if resource.Kind != "scenery.mcp-server" && resource.Kind != "scenery.mcp-connection" && resource.Kind != "scenery.assistant" {
+		if resource.Kind != "scenery.mcp-server" && resource.Kind != "scenery.assistant" {
 			continue
 		}
 		for _, reference := range mcpReferenceValues(resource.Spec) {
-			address := resolveResourceRef(resource, reference, "mcp_connection")
-			if target, ok := byAddress[address]; ok && (target.Kind == "scenery.mcp-server" || target.Kind == "scenery.mcp-connection" || target.Kind == "scenery.assistant") {
+			address := resolveResourceRef(resource, reference, "mcp_server")
+			if target, ok := byAddress[address]; ok && (target.Kind == "scenery.mcp-server" || target.Kind == "scenery.assistant") {
 				graph[resource.Address] = append(graph[resource.Address], target.Address)
 			}
 		}
@@ -289,7 +194,7 @@ func validateMCPGraph(resources []Resource, byAddress map[string]Resource) []Dia
 			}
 			if state[next] == 1 && !seen[address+"\x00"+next] {
 				seen[address+"\x00"+next] = true
-				diagnostics = append(diagnostics, Diagnostic{Code: mcpReferenceCycle, Severity: "error", Message: "MCP server and connection references contain a cycle", Address: address, Related: []Related{{Address: next}}})
+				diagnostics = append(diagnostics, Diagnostic{Code: mcpReferenceCycle, Severity: "error", Message: "MCP server and assistant references contain a cycle", Address: address, Related: []Related{{Address: next}}})
 			}
 		}
 		state[address] = 2
@@ -585,53 +490,9 @@ func mcpUnionForExpression(expression, module string, resources map[string]Resou
 	return union, ok && union.Kind == "scenery.union"
 }
 
-func validateMCPURL(raw string) error {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
-		return fmt.Errorf("MCP connection URL must be an absolute URL without credentials or fragments")
-	}
-	switch strings.ToLower(parsed.Scheme) {
-	case "https":
-		return nil
-	case "http":
-		host := strings.ToLower(parsed.Hostname())
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-			return nil
-		}
-	}
-	return fmt.Errorf("MCP connection URL must use HTTPS except for loopback development URLs")
-}
-
-func mcpPositiveDuration(value string) bool {
-	duration, err := scenery.ParseDuration(value)
-	return err == nil && duration.Sign() > 0
-}
-
 func mcpPositiveBoundedInteger(value any, maximum int) bool {
 	integer, ok := integerValue(value)
 	return ok && integer > 0 && integer <= maximum
-}
-
-func mcpSecretReference(resource Resource, reference string, byAddress map[string]Resource) bool {
-	if reference == "" {
-		return false
-	}
-	address := resolveResourceRef(resource, reference, "secret")
-	secret, ok := byAddress[address]
-	return ok && secret.Kind == "scenery.secret"
-}
-
-func validMCPHeaderName(value string) bool {
-	if value == "" || strings.TrimSpace(value) != value {
-		return false
-	}
-	for _, char := range value {
-		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", char) {
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 func validMCPToolName(value string) bool {
@@ -653,26 +514,10 @@ func mcpRelativePath(value string) bool {
 	return clean != "." && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func mcpStringList(value any) []string {
-	items, _ := value.([]any)
-	result := make([]string, 0, len(items))
-	for _, item := range items {
-		if text, ok := item.(string); ok {
-			result = append(result, text)
-		}
-	}
-	return result
-}
-
-func mcpToolsField(resource Resource, field string) any {
-	tools, _ := resource.Spec["tools"].(map[string]any)
-	return tools[field]
-}
-
 func mcpReferenceValues(value any) []string {
 	var references []string
 	walkRefs(value, "", func(_ string, reference string) {
-		if strings.Contains(reference, "/mcp_") || strings.HasPrefix(reference, "mcp_server.") || strings.HasPrefix(reference, "mcp_connection.") || strings.HasPrefix(reference, "assistant.") {
+		if strings.Contains(reference, "/mcp_") || strings.HasPrefix(reference, "mcp_server.") || strings.HasPrefix(reference, "assistant.") {
 			references = append(references, reference)
 		}
 	})

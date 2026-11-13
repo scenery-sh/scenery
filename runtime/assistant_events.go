@@ -19,12 +19,11 @@ import (
 )
 
 func (g *assistantGateway) handleEvents(w http.ResponseWriter, req *http.Request) {
-	identity, err := g.resolveIdentity(req, false)
+	identity, err := g.resolveIdentity(req)
 	if err != nil {
 		g.writeError(w, err)
 		return
 	}
-	writeAssistantIdentityCookie(w, identity)
 	conversationID := CurrentRequest().PathParams.Get("conversation_id")
 	claims, err := g.conversationClaims(conversationID, identity)
 	if err != nil {

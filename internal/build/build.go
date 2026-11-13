@@ -38,7 +38,6 @@ type Result struct {
 	PublicGeneratedStamps     map[string]string
 	CachedTypeScriptStamps    map[string]string
 	ManagedGeneratedPaths     []string
-	Ephemeral                 bool
 	GoBuildFlags              []string
 	// RuntimeLinkerMetadata holds the -X linker values injected at go build
 	// time. It stays out of GoBuildFlags so persisted build state keeps only

@@ -23,7 +23,7 @@ func TestAReportTokenResolvesToTheCauseItWithheld(t *testing.T) {
 		commandAgentPathsOverride = nil
 		machine.SetInternalFailureSink(nil)
 	})
-	installFailureReports([]string{"db", "apply", "--app-root", "/apps/shop", "--url", "postgres://shop:hunter2@db.internal/shop"})
+	installFailureReports([]string{"db", "setup", "--app-root", "/apps/shop", "--url", "postgres://shop:hunter2@db.internal/shop"})
 
 	diagnostic := cliErrorDiagnostic(errors.New("dial tcp 10.0.0.7:5432: connect: connection refused"))
 	if diagnostic.Code != "SCN9000" || diagnostic.ReportToken == "" || strings.Contains(diagnostic.Message, "10.0.0.7") {
@@ -33,7 +33,7 @@ func TestAReportTokenResolvesToTheCauseItWithheld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Kind != failureReportKind || report.Code != "SCN9000" || report.Command != "db apply" || report.Origin != "cli" ||
+	if report.Kind != failureReportKind || report.Code != "SCN9000" || report.Command != "db setup" || report.Origin != "cli" ||
 		report.Cause != "dial tcp 10.0.0.7:5432: connect: connection refused" || report.ReportToken != diagnostic.ReportToken {
 		t.Fatalf("report = %+v", report)
 	}

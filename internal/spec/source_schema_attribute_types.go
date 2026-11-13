@@ -90,7 +90,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return map[string]any{"canonical_only": true}, "exact"
 		}
-	case "scenery.source.data_source", "scenery.source.execution_engine", "scenery.source.event_bus", "scenery.source.secret_store":
+	case "scenery.source.data_source", "scenery.source.execution_engine", "scenery.source.secret_store":
 		switch name {
 		case "provider":
 			return resourceRef("provider")
@@ -106,61 +106,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return resourceRef("secret_store")
 		}
 		return primitive("string")
-	case "scenery.source.deployment":
-		if name == "fixture_policy" {
-			return object("scenery.fixture-policy")
-		}
-		return primitive("string")
-	case "scenery.deployment.module":
-		if name == "target" {
-			return resourceRef("module")
-		}
-		return object("typed_module_inputs")
-	case "scenery.deployment.data-source":
-		if name == "target" {
-			return resourceRef("data_source")
-		}
-		return object("provider_config")
-	case "scenery.deployment.service":
-		switch name {
-		case "target":
-			return resourceRef("service")
-		case "replicas":
-			return primitive("positive_int")
-		case "placement", "config":
-			return object("deployment_value")
-		}
-	case "scenery.deployment.resources":
-		return primitive("resource_quantity")
-	case "scenery.deployment.http-gateway":
-		return resourceRef("http_gateway")
-	case "scenery.deployment.http-listener":
-		switch name {
-		case "port":
-			return primitive("tcp_port")
-		case "secret":
-			return resourceRef("secret")
-		case "http_versions":
-			return list("string")
-		default:
-			return primitive("string")
-		}
-	case "scenery.deployment.provider":
-		if name == "target" {
-			return resourceRef("provider")
-		}
-		return object("provider_config")
-	case "scenery.deployment.secret":
-		switch name {
-		case "target":
-			return resourceRef("secret")
-		case "store":
-			return resourceRef("secret_store")
-		case "value":
-			return map[string]any{"secret_value": true}, "exact"
-		default:
-			return primitive("string")
-		}
 	case "scenery.source.typescript_client":
 		switch name {
 		case "gateways":
@@ -187,16 +132,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 	case "scenery.typescript-client.react":
 		return primitive("relative_path")
-	case "scenery.source.patch":
-		if name == "target" {
-			return typedReference()
-		}
-		return primitive("string")
-	case "scenery.patch.operation":
-		if name == "value" {
-			return map[string]any{"$ref": "scenery.value"}, "exact"
-		}
-		return primitive("json_pointer")
 	case "scenery.source.module":
 		switch name {
 		case "source":
@@ -226,15 +161,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return primitive("string")
 		case "examples":
 			return map[string]any{"collection": "list", "items": map[string]any{"value_type_source": "type"}}, "exact"
-		}
-	case "scenery.record.validation":
-		switch name {
-		case "when":
-			return map[string]any{"expression": "typed_predicate"}, "exact"
-		case "path":
-			return typedReference()
-		case "code", "message":
-			return primitive("string")
 		}
 	case "scenery.source.enum":
 		return primitive("bool")
@@ -283,68 +209,10 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		return primitive("string")
 	case "scenery.service.dependency":
 		if name == "instance" {
-			return map[string]any{"resource_ref_one_of": []string{"scenery.data-source", "scenery.event-bus", "scenery.execution-engine", "scenery.secret-store"}}, "exact"
+			return map[string]any{"resource_ref_one_of": []string{"scenery.data-source", "scenery.execution-engine", "scenery.secret-store"}}, "exact"
 		}
 		return list("string")
 	case "scenery.service.lifecycle":
-		return primitive("string")
-	case "scenery.source.event":
-		if name == "payload" {
-			return typeExpression()
-		}
-		return primitive("positive_int")
-	case "scenery.source.entity":
-		if name == "type" {
-			return typeExpression()
-		}
-		if name == "data_source" {
-			return resourceRef("data_source")
-		}
-	case "scenery.entity.mapping":
-		return primitive("string")
-	case "scenery.entity.field-default":
-		if name == "value" {
-			return map[string]any{"value_type_source": "entity_field"}, "exact"
-		}
-		return primitive("string")
-	case "scenery.entity.field":
-		if oneOf(name, "primary_key", "tenant_key", "immutable") {
-			return primitive("bool")
-		}
-		return primitive("string")
-	case "scenery.entity.index":
-		switch name {
-		case "fields":
-			return list("string")
-		case "unique":
-			return primitive("bool")
-		default:
-			return primitive("string")
-		}
-	case "scenery.entity.unique":
-		return list("string")
-	case "scenery.entity.foreign-key":
-		switch name {
-		case "fields", "target_fields":
-			return list("string")
-		case "target":
-			return resourceRef("entity")
-		default:
-			return primitive("string")
-		}
-	case "scenery.entity.deletion":
-		return primitive("string")
-	case "scenery.source.view":
-		switch name {
-		case "data_source":
-			return resourceRef("data_source")
-		case "input", "result":
-			return typeExpression()
-		}
-	case "scenery.view.implementation":
-		if name == "file" {
-			return primitive("relative_path")
-		}
 		return primitive("string")
 	case "scenery.source.binding":
 		switch name {
@@ -370,26 +238,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return primitive("string")
 		}
-	case "scenery.source.mcp_connection":
-		switch name {
-		case "url":
-			return primitive("url")
-		case "connect_timeout", "call_timeout":
-			return primitive("duration")
-		default:
-			return primitive("string")
-		}
-	case "scenery.mcp-connection.auth":
-		switch name {
-		case "secret":
-			return resourceRef("secret")
-		default:
-			return primitive("string")
-		}
-	case "scenery.mcp-connection.tools":
-		if name == "allow" || name == "block" {
-			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
-		}
 	case "scenery.source.mcp_server":
 		switch name {
 		case "max_input_bytes", "max_result_bytes":
@@ -401,15 +249,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		switch name {
 		case "binding":
 			return resourceRef("binding")
-		default:
-			return primitive("string")
-		}
-	case "scenery.mcp-server.connection":
-		switch name {
-		case "connection":
-			return resourceRef("mcp_connection")
-		case "required":
-			return primitive("bool")
 		default:
 			return primitive("string")
 		}
@@ -458,7 +297,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return typedReference()
 		}
 		return primitive("string")
-	case "scenery.binding.http.context", "scenery.binding.event.map":
+	case "scenery.binding.http.context":
 		return typedReference()
 	case "scenery.binding.http.multipart-part":
 		switch name {
@@ -521,54 +360,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return typedReference()
 		}
 		return primitive("string")
-	case "scenery.binding.cli.context":
-		return typedReference()
-	case "scenery.binding.cli.argument":
-		switch name {
-		case "position":
-			return primitive("non_negative_int")
-		case "to":
-			return typedReference()
-		case "required":
-			return primitive("bool")
-		}
-	case "scenery.binding.cli.flag":
-		switch name {
-		case "to":
-			return typedReference()
-		case "required":
-			return primitive("bool")
-		default:
-			return primitive("string")
-		}
-	case "scenery.binding.cli.output":
-		if name == "from" {
-			return typedReference()
-		}
-		return primitive("string")
-	case "scenery.binding.cli.outcome":
-		if name == "when" {
-			return typedReference()
-		}
-		return primitive("int")
-	case "scenery.binding.cli":
-		return list("string")
-	case "scenery.binding.event":
-		switch name {
-		case "bus":
-			return resourceRef("event_bus")
-		case "contract":
-			return typeExpression()
-		case "ordering_key", "deduplication_key":
-			return typedReference()
-		default:
-			return primitive("string")
-		}
-	case "scenery.event.broker-retry":
-		if name == "attempts" {
-			return primitive("positive_int")
-		}
-		return primitive("duration")
 	case "scenery.source.execution":
 		switch name {
 		case "operation":
@@ -606,14 +397,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return map[string]any{"primitive": "string"}, "exact"
 		}
 	case "scenery.schedule.trigger":
-		switch name {
-		case "every":
-			return primitive("duration")
-		case "at":
-			return primitive("datetime")
-		default:
-			return primitive("string")
-		}
+		return primitive("duration")
 	case "scenery.schedule.invoke":
 		switch name {
 		case "operation":
@@ -631,76 +415,10 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 	case "scenery.schedule.catchup":
 		return primitive("duration")
-	case "scenery.source.event_emission":
-		switch name {
-		case "bus":
-			return resourceRef("event_bus")
-		case "contract":
-			return resourceRef("event")
-		case "ordering_key", "deduplication_key":
-			return typedReference()
-		default:
-			return primitive("string")
-		}
-	case "scenery.event-emission.from":
-		return typedReference()
 	case "scenery.service.client":
 		if name == "binding" {
 			return resourceRef("binding")
 		}
-	case "scenery.source.crud":
-		switch name {
-		case "entity":
-			return resourceRef("entity")
-		case "implementation":
-			return map[string]any{"resource_ref": "std.crud"}, "exact"
-		case "actions":
-			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
-		case "list":
-			return object("crud_list")
-		}
-	case "scenery.crud.execution":
-		if name == "timeout" {
-			return primitive("duration")
-		}
-		return primitive("string")
-	case "scenery.crud.list":
-		switch name {
-		case "filters", "search", "sorts":
-			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
-		case "default_sort":
-			return object("crud_default_sort")
-		case "max_page_size":
-			return primitive("positive_int")
-		}
-	case "scenery.crud.http":
-		switch name {
-		case "codec_profile":
-			return map[string]any{"resource_ref": "std.codec"}, "exact"
-		case "gateway":
-			return resourceRef("http_gateway")
-		case "authentication":
-			return resourceRef("authentication")
-		case "authorization":
-			return resourceRef("authorization")
-		case "pipeline":
-			return resourceRef("pipeline")
-		default:
-			return primitive("string")
-		}
-	case "scenery.crud.internal":
-		switch name {
-		case "authentication":
-			return resourceRef("authentication")
-		case "authorization":
-			return resourceRef("authorization")
-		case "pipeline":
-			return resourceRef("pipeline")
-		default:
-			return primitive("string")
-		}
-	case "scenery.crud.extension":
-		return object("provider_config")
 	case "scenery.source.react_component":
 		if name == "module" {
 			return primitive("relative_path")
@@ -723,7 +441,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	case "scenery.source.table_page":
 		switch name {
 		case "source":
-			return map[string]any{"resource_ref_one_of": []string{"scenery.binding", "scenery.crud"}}, "exact"
+			return resourceRef("binding")
 		case "metadata":
 			return list("string")
 		case "page_size":
@@ -901,17 +619,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 	case "scenery.table-page.export":
 		return primitive("string")
-	case "scenery.source.fixture":
-		switch name {
-		case "entity":
-			return resourceRef("entity")
-		case "environments":
-			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
-		case "values":
-			return map[string]any{"collection": "list", "items": map[string]any{"value_type_source": "entity"}}, "exact"
-		default:
-			return primitive("string")
-		}
 	case "scenery.source.page":
 		if name == "load" {
 			return resourceRef("binding")
@@ -945,7 +652,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	if name == "type" {
 		return typeExpression()
 	}
-	if oneOf(name, "required", "optional", "sensitive", "immutable", "deprecated", "unique_items", "open", "secure", "http_only", "multiple", "retain_filename", "unique", "primary_key", "tenant_key", "verify_by_default", "deployment_bindable", "public") {
+	if oneOf(name, "required", "optional", "sensitive", "immutable", "deprecated", "unique_items", "open", "secure", "http_only", "multiple", "retain_filename", "unique", "primary_key", "tenant_key", "verify_by_default", "public") {
 		return map[string]any{"primitive": "bool"}, "inferred"
 	}
 	if oneOf(name, "position", "status", "exit", "port", "replicas", "revision", "attempts", "limit", "maximum_attempts", "maximum_delay_milliseconds", "max_bytes", "max_parts", "max_age", "version") {

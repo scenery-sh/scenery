@@ -25,7 +25,6 @@ type Registry struct {
 	mu               sync.Mutex
 	sessions         map[string]Session
 	substrates       map[string]Substrate
-	aliases          map[string]AliasLease
 	routeHosts       map[string]routeTarget
 	currentByAppRoot map[string]string
 }
@@ -39,7 +38,6 @@ type registryFile struct {
 	machine.ArtifactIdentity
 	Sessions         []Session         `json:"sessions"`
 	Substrates       []Substrate       `json:"substrates,omitempty"`
-	Aliases          []AliasLease      `json:"aliases,omitempty"`
 	CurrentByAppRoot map[string]string `json:"current_by_app_root,omitempty"`
 }
 
@@ -61,7 +59,6 @@ func openRegistry(path, routerAddr, scheme string, strictCurrent bool) (*Registr
 		strictCurrent:    strictCurrent,
 		sessions:         make(map[string]Session),
 		substrates:       make(map[string]Substrate),
-		aliases:          make(map[string]AliasLease),
 		routeHosts:       make(map[string]routeTarget),
 		currentByAppRoot: make(map[string]string),
 	}
@@ -187,9 +184,6 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 	if blocking, ok := r.blockingAppRootSessionLocked(session); ok {
 		blockingPID := firstPositive(blocking.OwnerPID, blocking.Owner.PID)
 		return Session{}, fmt.Errorf("scenery up is already running for app root %s under owner PID %d; use a separate Git worktree for another live code copy", session.AppRoot, blockingPID)
-	}
-	if session.WorktreeProxy == nil {
-		session.Aliases, session.AliasConflicts = r.claimAliasesLocked(session, req.ClaimAliases)
 	}
 	r.claimDomainHostLocked(&session, req.ClaimAliases)
 	r.sessions[session.SessionID] = session
@@ -361,11 +355,6 @@ func (r *Registry) delete(id string, ownerPID int, requestedOwner Owner, strict 
 		}
 		r.substrates[kind] = substrate
 	}
-	for host, alias := range r.aliases {
-		if alias.SessionID == id {
-			delete(r.aliases, host)
-		}
-	}
 	key := filepath.Clean(session.AppRoot)
 	if r.currentByAppRoot[key] == id {
 		delete(r.currentByAppRoot, key)
@@ -432,7 +421,7 @@ func (r *Registry) load() error {
 			return err
 		}
 	} else {
-		if err := LoadDurableArtifact(r.path, &file, &file.ArtifactIdentity, AgentRegistryKind, agentRegistrySchemaDescriptor, 0o644, migrateLegacyRegistry); err != nil {
+		if err := LoadDurableArtifact(r.path, &file, &file.ArtifactIdentity, AgentRegistryKind, agentRegistrySchemaDescriptor, 0o644); err != nil {
 			return err
 		}
 	}
@@ -450,16 +439,6 @@ func (r *Registry) load() error {
 		substrate.Kind = kind
 		r.substrates[kind] = substrate
 	}
-	for _, alias := range file.Aliases {
-		host := normalizeRouteHost(alias.Host)
-		route := normalizeAliasRoute(alias.Route)
-		if host == "" || route == "" || strings.TrimSpace(alias.SessionID) == "" {
-			continue
-		}
-		alias.Host = host
-		alias.Route = route
-		r.aliases[host] = alias
-	}
 	for appRoot, sessionID := range file.CurrentByAppRoot {
 		appRoot = filepath.Clean(strings.TrimSpace(appRoot))
 		sessionID = strings.TrimSpace(sessionID)
@@ -468,85 +447,6 @@ func (r *Registry) load() error {
 		}
 	}
 	r.rebuildRouteHostIndexLocked()
-	return nil
-}
-
-func migrateLegacyRegistry(fields map[string]json.RawMessage) error {
-	if _, ok := fields["sessions"]; !ok {
-		return fmt.Errorf("unsupported legacy agent registry")
-	}
-	if err := migrateLegacyArtifactList(fields, "sessions", func(item map[string]json.RawMessage) error {
-		if err := requireLegacySchemaOrMissing(item, "scenery.dev.session.v1"); err != nil {
-			return err
-		}
-		addIdentityFields(item, sessionIdentity())
-		if raw := item["route_manifest"]; len(raw) > 0 && string(raw) != "null" && string(raw) != "{}" {
-			var manifest map[string]json.RawMessage
-			if err := json.Unmarshal(raw, &manifest); err != nil {
-				return err
-			}
-			if version := manifest["schema_version"]; len(version) > 0 {
-				if err := requireLegacySchema(manifest, "scenery.route_manifest.v1"); err != nil {
-					return err
-				}
-			}
-			addIdentityFields(manifest, routeManifestIdentity())
-			if leaseRaw := manifest["port_lease"]; len(leaseRaw) > 0 && string(leaseRaw) != "null" {
-				var lease map[string]json.RawMessage
-				if err := json.Unmarshal(leaseRaw, &lease); err != nil {
-					return err
-				}
-				if version := lease["schema_version"]; len(version) > 0 {
-					if err := requireLegacySchema(lease, "scenery.dev.port_lease.v1"); err != nil {
-						return err
-					}
-				}
-				addIdentityFields(lease, portLeaseIdentity())
-				encodedLease, err := json.Marshal(lease)
-				if err != nil {
-					return err
-				}
-				manifest["port_lease"] = encodedLease
-			}
-			encodedManifest, err := json.Marshal(manifest)
-			if err != nil {
-				return err
-			}
-			item["route_manifest"] = encodedManifest
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	return migrateLegacyArtifactList(fields, "substrates", func(item map[string]json.RawMessage) error {
-		if err := requireLegacySchemaOrMissing(item, "scenery.dev.substrate.v1"); err != nil {
-			return err
-		}
-		renameLegacyField(item, "kind", "substrate_kind")
-		addIdentityFields(item, substrateIdentity())
-		return nil
-	})
-}
-
-func migrateLegacyArtifactList(fields map[string]json.RawMessage, name string, migrate func(map[string]json.RawMessage) error) error {
-	raw := fields[name]
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	var items []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil {
-		return err
-	}
-	for _, item := range items {
-		if err := migrate(item); err != nil {
-			return err
-		}
-	}
-	encoded, err := json.Marshal(items)
-	if err != nil {
-		return err
-	}
-	fields[name] = encoded
 	return nil
 }
 
@@ -576,17 +476,6 @@ func (r *Registry) rebuildRouteHostIndexLocked() {
 			hosts[host] = routeTarget{SessionID: session.SessionID, Route: route}
 		}
 	}
-	for host, alias := range r.aliases {
-		route := normalizeAliasRoute(alias.Route)
-		host = normalizeRouteHost(firstNonEmpty(alias.Host, host, alias.URL))
-		if host == "" || route == "" || strings.TrimSpace(alias.SessionID) == "" {
-			continue
-		}
-		if _, ok := r.sessions[alias.SessionID]; !ok {
-			continue
-		}
-		hosts[host] = routeTarget{SessionID: alias.SessionID, Route: route}
-	}
 	r.routeHosts = hosts
 }
 
@@ -615,7 +504,6 @@ func (r *Registry) saveLocked() error {
 		ArtifactIdentity: agentRegistryIdentity(),
 		Sessions:         sortedSessions(r.sessions),
 		Substrates:       sortedSubstrates(r.substrates),
-		Aliases:          sortedAliases(r.aliases),
 		CurrentByAppRoot: copyRawStringMap(r.currentByAppRoot),
 	}, "", "  ")
 	if err != nil {
@@ -632,20 +520,6 @@ func sortedSubstrates(substrates map[string]Substrate) []Substrate {
 	}
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].Kind < items[j].Kind
-	})
-	return items
-}
-
-func sortedAliases(aliases map[string]AliasLease) []AliasLease {
-	items := make([]AliasLease, 0, len(aliases))
-	for _, alias := range aliases {
-		items = append(items, alias)
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Host != items[j].Host {
-			return items[i].Host < items[j].Host
-		}
-		return items[i].SessionID < items[j].SessionID
 	})
 	return items
 }

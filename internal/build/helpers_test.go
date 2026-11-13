@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devcache"
+	"scenery.sh/internal/filemeta"
 )
 
 func TestMain(m *testing.M) {
@@ -248,4 +251,155 @@ func prepareCompileTestResult(result *Result) *Result {
 		"scenery.sh/runtime.linkedGoTarget":               "test-target",
 	}
 	return result
+}
+
+// developmentProcessInputs projects the complete input set of one process
+// entrypoint. Identification uses developmentProcessDigest; this projection
+// serves diagnostics and tests that assert membership.
+func (manifest *BuildInputManifest) developmentProcessInputs(name string) (*BuildInputManifest, string, error) {
+	graph := manifest.processes
+	if graph == nil {
+		return nil, "", fmt.Errorf("build inputs do not include development process entrypoints")
+	}
+	main := graph.mains[name]
+	if main == "" {
+		return nil, "", fmt.Errorf("build inputs do not include development process %s", name)
+	}
+	entries := maps.Clone(graph.global)
+	seen := map[string]bool{}
+	pending := []string{main}
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if seen[current] {
+			continue
+		}
+		seen[current] = true
+		maps.Copy(entries, graph.packages[current])
+		pending = append(pending, graph.imports[current]...)
+	}
+	return newBuildInputManifest(manifest.Target, entries), main, nil
+}
+
+func buildInputFileChangeTime(info os.FileInfo) int64 {
+	identity, known := filemeta.Read(info)
+	if !known {
+		return 0
+	}
+	return identity.ChangeTimeNano
+}
+
+func buildInputFileIdentity(info os.FileInfo) (uint64, uint64) {
+	identity, _ := filemeta.Read(info)
+	return identity.Device, identity.Inode
+}
+
+func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
+	return buildInputManifestFromGoListObserved(context.Background(), result, output, nil)
+}
+
+func resetRetainedBuildInputGraphsForTesting() {
+	retainedBuildInputGraphs.Range(func(key, _ any) bool {
+		retainedBuildInputGraphs.Delete(key)
+		return true
+	})
+}
+
+func verifyCurrentSourceState(root, workspace string, state buildState) error {
+	return verifyCurrentSourceStateWithSnapshot(root, workspace, state, nil)
+}
+
+func copyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o644)
+}
+
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && shouldSkipFile(rel) {
+			return nil
+		}
+		if shouldSkipSymlink(path, d) {
+			return nil
+		}
+		if !d.IsDir() && shouldSkipNonRegularFile(path, d) {
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		return copyFile(path, target)
+	})
+}
+
+func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []string) error {
+	return removeUnexpectedFilesFromListsObserved(root, sourceFiles, generatedFiles, nil)
+}
+
+func seedSceneryGoSum(workspaceDir, repoRoot string) error {
+	return seedSceneryGoSumObserved(workspaceDir, repoRoot, nil)
+}
+
+// syncSourceFiles mirrors the app's source files into the workspace and
+// returns the synced file list plus the stamp observed for every file. A file
+// is skipped only when its current stat still matches the stamp recorded by a
+// previous sync and the workspace copy exists; anything else is re-read and
+// rewritten. The sync never trusts external change notifications, so changes
+// missed by a file watcher (git pulls, edits while stopped) are still picked
+// up here. Stamps are captured before reading the content: if a file changes
+// mid-read, the recorded stamp is older than its stat and the next sync
+// rewrites it. Files in skip are tracked and stamped but never written; their
+// workspace content is owned by generated-file sync.
+func syncSourceFiles(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}) ([]string, map[string]SourceStamp, error) {
+	return syncSourceFilesWithSnapshot(root, appRoot, prevStamps, skip, nil)
+}
+
+func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}, snapshot *SourceSnapshot) ([]string, map[string]SourceStamp, error) {
+	return syncSourceFilesWithSnapshotObserved(root, appRoot, prevStamps, skip, snapshot, nil)
+}
+
+// A cached executable is usable only after publishing the current public
+// projection and proving its private workspace still contains those bytes.
+// Cache metadata alone cannot establish this after deletion or a branch switch.
+func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceSnapshot, prepared ...*compiler.Result) (bool, error) {
+	return refreshCachedGoProjectionContext(context.Background(), appRoot, result, snapshot, prepared...)
+}
+
+func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceFiles []string) ([]string, error) {
+	return syncGeneratedFilesObserved(root, appRoot, gen, prev, sourceFiles, nil)
+}
+
+// frameworkFingerprintFiles lists the framework source input files: Go and
+// native sources, module files and the files their embed directives select.
+func frameworkFingerprintFiles(repoRoot string) ([]string, error) {
+	files, _, err := frameworkSourceFiles(repoRoot)
+	return files, err
+}
+
+func LoadCachedGraph(appRoot string, cfg appcfg.Config, graphFingerprint string) (*CachedGraph, bool, error) {
+	return loadCachedGraphContext(context.Background(), appRoot, cfg, graphFingerprint, "", nil)
+}
+
+func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
+	return prepareCachedWorkspace(context.Background(), appRoot, appcfg.Config{}, result, nil, false)
 }

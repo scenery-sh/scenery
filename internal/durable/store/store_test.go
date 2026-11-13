@@ -46,7 +46,7 @@ func TestOpenCreatesPostgresSchemaWithExpectedTables(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	tables := tableNames(t, s.DB())
-	for _, want := range []string{"durable_schema_migrations", "durable_tasks", "durable_jobs", "durable_job_events", "durable_job_steps", "durable_job_signals", "durable_schedules", "durable_worker_tokens"} {
+	for _, want := range []string{"durable_schema_migrations", "durable_tasks", "durable_jobs", "durable_job_events"} {
 		if !tables[want] {
 			t.Fatalf("missing table %q in %#v", want, tables)
 		}
@@ -135,7 +135,7 @@ func TestLeaseCompleteAndFailJobs(t *testing.T) {
 	if !ok || leased.ID != "job-success" || leased.TaskName != "maps.detect.v1" || leased.Attempt != 1 {
 		t.Fatalf("leased = %+v ok=%v", leased, ok)
 	}
-	if err := s.CompleteJob(ctx, leased.ID, []byte(`{"ok":true}`)); err != nil {
+	if err := s.CompleteLeasedJob(ctx, leased.ID, "", "", []byte(`{"ok":true}`)); err != nil {
 		t.Fatal(err)
 	}
 	assertJobState(t, s, "job-success", "succeeded")
@@ -150,34 +150,16 @@ func TestLeaseCompleteAndFailJobs(t *testing.T) {
 	if !ok || leased.ID != "job-fail" {
 		t.Fatalf("leased fail = %+v ok=%v", leased, ok)
 	}
-	if err := s.FailJob(ctx, leased.ID, []byte("boom")); err != nil {
+	if err := s.FailLeasedJob(ctx, leased.ID, "", "", []byte("boom")); err != nil {
 		t.Fatal(err)
 	}
 	assertJobState(t, s, "job-fail", "failed")
 }
 
-func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
+func TestLeasedJobFencing(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
 	defer func() { _ = s.Close() }()
-
-	token, err := s.CreateWorkerToken(ctx, WorkerTokenRequest{ID: "tok-1", Name: "worker token", Secret: "secret-worker-token"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if token.TokenHash == "" || strings.Contains(token.TokenHash, "secret") {
-		t.Fatalf("token hash = %q", token.TokenHash)
-	}
-	auth, ok, err := s.AuthenticateWorkerToken(ctx, "secret-worker-token")
-	if err != nil || !ok {
-		t.Fatalf("AuthenticateWorkerToken ok=%v err=%v", ok, err)
-	}
-	if auth.ID != "tok-1" || auth.TokenHash != token.TokenHash {
-		t.Fatalf("auth token = %+v, want %+v", auth, token)
-	}
-	if _, ok, err := s.AuthenticateWorkerToken(ctx, "wrong"); err != nil || ok {
-		t.Fatalf("AuthenticateWorkerToken(wrong) ok=%v err=%v", ok, err)
-	}
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.remote.v1", HandlerRef: "maps.remote.v1"}}); err != nil {
 		t.Fatal(err)
@@ -185,9 +167,9 @@ func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
 	if _, err := s.Start(ctx, StartRequest{ID: "job-remote", TaskName: "maps.remote.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	leased, ok, err := s.LeaseReadyJobWithToken(ctx, "worker-remote", "lease-good", "maps.remote.v1", token.TokenHash)
+	leased, ok, err := s.LeaseReadyJob(ctx, "worker-remote", "lease-good", "maps.remote.v1")
 	if err != nil || !ok {
-		t.Fatalf("LeaseReadyJobWithToken = %+v ok=%v err=%v", leased, ok, err)
+		t.Fatalf("LeaseReadyJob = %+v ok=%v err=%v", leased, ok, err)
 	}
 	if err := s.HeartbeatJob(ctx, leased.ID, "worker-remote", "wrong-lease"); err == nil {
 		t.Fatal("expected heartbeat with wrong lease to fail")
@@ -280,7 +262,7 @@ func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("first lease = %+v ok=%v err=%v", leased, ok, err)
 	}
-	if err := s.FailJob(ctx, leased.ID, []byte("try again")); err != nil {
+	if err := s.FailLeasedJob(ctx, leased.ID, "", "", []byte("try again")); err != nil {
 		t.Fatal(err)
 	}
 	assertJobState(t, s, "job-retry", "queued")
@@ -289,7 +271,7 @@ func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
 	if leased.Attempt != 2 {
 		t.Fatalf("retry attempt = %d, want 2", leased.Attempt)
 	}
-	if err := s.FailJob(ctx, leased.ID, []byte("done")); err != nil {
+	if err := s.FailLeasedJob(ctx, leased.ID, "", "", []byte("done")); err != nil {
 		t.Fatal(err)
 	}
 	assertJobState(t, s, "job-retry", "failed")
@@ -333,56 +315,6 @@ func TestJobAdminListEventsCancelAndRetry(t *testing.T) {
 		if !slices.Contains(got, want) {
 			t.Fatalf("events = %+v, want %s", got, want)
 		}
-	}
-}
-
-func TestStepsSignalsAndSchedules(t *testing.T) {
-	ctx := context.Background()
-	s := openLiveTestStore(t, "maps")
-	defer func() { _ = s.Close() }()
-
-	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.step.v1", HandlerRef: "maps.step.v1"}, {Name: "maps.scheduled.v1", HandlerRef: "maps.scheduled.v1"}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Start(ctx, StartRequest{ID: "job-step", TaskName: "maps.step.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SaveStep(ctx, "job-step", "fetch", "succeeded", "json", []byte(`{"ok":true}`), nil); err != nil {
-		t.Fatal(err)
-	}
-	step, ok, err := s.GetStep(ctx, "job-step", "fetch")
-	if err != nil || !ok {
-		t.Fatalf("GetStep ok=%v err=%v", ok, err)
-	}
-	if step.State != "succeeded" || string(step.ResultBlob) != `{"ok":true}` {
-		t.Fatalf("step = %+v", step)
-	}
-	if err := s.SignalJob(ctx, "job-step", "wake", "wake-1", []byte(`{"now":true}`)); err != nil {
-		t.Fatal(err)
-	}
-	events, err := s.JobEvents(ctx, "job-step")
-	if err != nil {
-		t.Fatal(err)
-	}
-	foundSignal := false
-	for _, event := range events {
-		if event.EventType == "job.signaled" {
-			foundSignal = true
-		}
-	}
-	if !foundSignal {
-		t.Fatalf("events = %+v, want job.signaled", events)
-	}
-
-	if err := s.UpsertSchedule(ctx, "sched-1", "maps.scheduled.v1", time.Minute, []byte(`{"id":"1"}`)); err != nil {
-		t.Fatal(err)
-	}
-	jobs, err := s.RunDueSchedules(ctx, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(jobs) != 1 || jobs[0].TaskName != "maps.scheduled.v1" {
-		t.Fatalf("jobs = %+v", jobs)
 	}
 }
 

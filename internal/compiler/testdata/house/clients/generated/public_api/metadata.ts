@@ -6,7 +6,7 @@ export const clientMetadata = /* @__PURE__ */ freezeMetadata({
     "house/binding/process_scene_http"
   ],
   "compatibilityCatalog": "compatibility-core",
-  "contractRevision": "sha256:d17d303d42859564e1b1e17e4415fa563f85c6ddb73d6eb4f5b293fcbfc01689",
+  "contractRevision": "sha256:e219406853996df625380bc38c39f80dd808b94707c55844881d2cf41961c4ca",
   "gateways": [
     "http_gateway.public_api"
   ],
@@ -33,5 +33,5 @@ export const clientMetadata = /* @__PURE__ */ freezeMetadata({
     "house/record/scene_events_result"
   ],
   "target": "app/typescript_client/public_api",
-  "typescriptClientRevision": "sha256:fa17453e12138951b920ae25df9cf38df77a3c553886d81fd1a274b7dc7f8ca4"
+  "typescriptClientRevision": "sha256:b56fd4505d1968d83f69f485364d2a7ce53f784037eb724b013342e9528f425e"
 } as const);

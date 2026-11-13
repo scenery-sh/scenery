@@ -21,7 +21,7 @@ func (v *traceRPCBackend) GetTraceDetail(_ context.Context, q devdash.TraceQuery
 }
 func TestTraceRPCPinsScopeAndBoundsResponse(t *testing.T) {
 	backend := &traceRPCBackend{detail: &devdash.TraceDetail{TraceID: strings.Repeat("a", 32), Spans: []devdash.TraceSpanDetail{}}}
-	server := newDashboardServerWithController(exportTestController{runtimeRPCTestController: runtimeRPCTestController{status: devdash.AppStatus{AppID: "route", BaseAppID: "app", RuntimeAppID: "runtime", SessionID: "session"}}, victoria: backend}, t.TempDir(), "127.0.0.1:0", nil)
+	server := newDashboardServerWithController(exportTestController{runtimeRPCTestController: runtimeRPCTestController{status: devdash.AppStatus{AppID: "route", BaseAppID: "app", RuntimeAppID: "runtime", SessionID: "session"}}, victoria: backend}, "127.0.0.1:0")
 	defer func() { _ = server.Close() }()
 	params := json.RawMessage(`{"app_id":"route","trace_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
 	if _, err := server.dispatchRPC(context.Background(), "traces/get", params); err != nil {

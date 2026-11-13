@@ -39,17 +39,6 @@ func assistantSurface(assistant Resource) (map[string]any, error) {
 	return surface, nil
 }
 
-func assistantRuntimeAccess(assistant Resource) (string, error) {
-	surface, err := assistantSurface(assistant)
-	if err != nil {
-		return "", err
-	}
-	if refOrString(surface["authentication"]) == "std.authentication.none" {
-		return "sceneryruntime.Public", nil
-	}
-	return "sceneryruntime.Auth", nil
-}
-
 // renderAssistantHTTPPolicy reuses the HTTP gateway profile renderer while
 // sourcing authentication, authorization, and pipeline from the assistant's
 // public surface. Assistant surfaces do not have their own request/response
@@ -77,10 +66,6 @@ func renderAssistantHTTPPolicy(resources map[string]Resource, assistant Resource
 
 func renderAssistantRegistration(result *Result, resources map[string]Resource, assistant Resource) (string, error) {
 	surface, err := assistantSurface(assistant)
-	if err != nil {
-		return "", err
-	}
-	access, err := assistantRuntimeAccess(assistant)
 	if err != nil {
 		return "", err
 	}
@@ -123,8 +108,8 @@ func renderAssistantRegistration(result *Result, resources map[string]Resource, 
 	if err != nil {
 		return "", fmt.Errorf("assistant %s MCP manifest encoding: %w", assistant.Address, err)
 	}
-	registration := fmt.Sprintf("if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: %q, Name: %q, Path: %q, Access: %s, Policy: %s, AssistantAddress: %q, RuntimeRevision: %q, CapabilityRevision: %q, Required: true}); err != nil { return err }\n", assistant.Address, name, path, access, policy, assistant.Address, assistantRuntimeRevision(result, assistant.Address), capabilityRevision)
-	registration += fmt.Sprintf("if err := sceneryruntime.RegisterAssistantMCPManifestChecked(%q, %q, []byte(%q)); err != nil { return err }\n", assistant.Address, serverAddress, string(manifestJSON))
+	registration := fmt.Sprintf("if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: %q, Name: %q, Path: %q, Access: sceneryruntime.Auth, Policy: %s, AssistantAddress: %q, RuntimeRevision: %q, CapabilityRevision: %q, Required: true}); err != nil { return err }\n", assistant.Address, name, path, policy, assistant.Address, assistantRuntimeRevision(result, assistant.Address), capabilityRevision)
+	registration += fmt.Sprintf("if err := sceneryruntime.RegisterAssistantMCPManifestChecked(%q, []byte(%q)); err != nil { return err }\n", assistant.Address, string(manifestJSON))
 	return registration, nil
 }
 

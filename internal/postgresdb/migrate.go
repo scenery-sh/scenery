@@ -28,18 +28,6 @@ func Migrate(ctx context.Context, db *sql.DB, lockKey string, apply func(ctx con
 	return nil
 }
 
-// MigrateStatements is Migrate for plain idempotent DDL statement lists.
-func MigrateStatements(ctx context.Context, db *sql.DB, lockKey string, statements []string) error {
-	return Migrate(ctx, db, lockKey, func(ctx context.Context, tx *sql.Tx) error {
-		for _, stmt := range statements {
-			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("postgres migrate %s: apply statement: %w", lockKey, err)
-			}
-		}
-		return nil
-	})
-}
-
 func rollbackMigrate(tx *sql.Tx, err error) error {
 	if rbErr := tx.Rollback(); rbErr != nil {
 		return errors.Join(err, rbErr)

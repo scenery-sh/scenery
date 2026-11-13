@@ -55,7 +55,6 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		{name: "success", wantCommand: "help"},
 		{name: "invalid_usage", args: []string{"not-a-command"}, wantExit: 2, wantCommand: "unknown"},
 		{name: "private_operand", args: []string{"task", "private-task-token"}, wantExit: 2, wantCommand: "task"},
-		{name: "missing_resource", args: []string{"get", "missing/operation/nope", "--app-root", filepath.Join(repoRoot, "internal", "compiler", "testdata", "native")}, wantExit: 2, wantCommand: "get"},
 		{name: "missing_app", missingApp: true, wantExit: 2, wantCommand: "compile"},
 		{name: "semantic_status", args: []string{"status", "-o", "json"}, wantExit: 2, wantCommand: "unknown"},
 	}

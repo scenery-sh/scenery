@@ -2,12 +2,9 @@ package compiler
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 )
-
-var validationCodePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 var primitiveTypes = map[string]bool{
 	"bool": true, "int": true, "int32": true, "int64": true,
@@ -52,13 +49,6 @@ func validateTypeSystem(resources []Resource) []Diagnostic {
 					diagnostics = append(diagnostics, validateTypeValue(resource, child["type"], types)...)
 				}
 			}
-		case "scenery.event":
-			diagnostics = append(diagnostics, validateTypeValue(resource, resource.Spec["payload"], types)...)
-		case "scenery.entity":
-			diagnostics = append(diagnostics, validateTypeValue(resource, resource.Spec["type"], types)...)
-		case "scenery.view":
-			diagnostics = append(diagnostics, validateTypeValue(resource, resource.Spec["input"], types)...)
-			diagnostics = append(diagnostics, validateTypeValue(resource, resource.Spec["result"], types)...)
 		}
 	}
 	return diagnostics
@@ -113,11 +103,6 @@ func validateReferences(resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		walkRefs(resource.Spec, "/spec", func(path, reference string) {
-			// Record validation paths name fields, not resources. validateRecord
-			// checks that the path names an existing field on this exact record.
-			if resource.Kind == "scenery.record" && strings.HasPrefix(path, "/spec/validation/") && strings.HasSuffix(path, "/path") {
-				return
-			}
 			referenceModule := resource.Module
 			if resource.Kind == "scenery.module" && (strings.HasPrefix(path, "/spec/exports") || strings.HasPrefix(path, "/spec/export_metadata")) {
 				referenceModule = moduleInstancePath(resource)
@@ -180,29 +165,6 @@ func validateRecord(resource Resource, types map[string]bool) []Diagnostic {
 			wires[wire] = name
 		}
 		diagnostics = append(diagnostics, validateTypeValue(resource, field["type"], types)...)
-	}
-	seenValidations := map[string]bool{}
-	for _, validation := range namedChildren(resource.Spec, "validation") {
-		name := stringValue(validation["name"])
-		code, message := stringValue(validation["code"]), stringValue(validation["message"])
-		expression, path := expressionText(validation["when"]), refString(validation["path"])
-		if name == "" || seenValidations[name] {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN1230", Severity: "error", Message: "record validations require unique non-empty names", Address: resource.Address})
-		}
-		seenValidations[name] = true
-		if expression == "" || !validationCodePattern.MatchString(code) || message == "" {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN1231", Severity: "error", Message: "record validation requires when, upper-case code, and message", Address: resource.Address})
-		}
-		prefix := "record." + resource.Name + "."
-		fieldName, ok := strings.CutPrefix(path, prefix)
-		if !ok || strings.Contains(fieldName, ".") || fieldTypes[fieldName] == "" {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN1232", Severity: "error", Message: "record validation path must reference a field on the validated record", Address: resource.Address})
-		}
-		if expression != "" {
-			if err := validateRecordValidationExpression(expression, fieldTypes); err != nil {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1233", Severity: "error", Message: err.Error(), Address: resource.Address})
-			}
-		}
 	}
 	return diagnostics
 }

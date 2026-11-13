@@ -50,41 +50,13 @@ http_gateway "public_api" {
   forwarded       = std.forwarded_headers.reject
 }
 
-provider "durable" {
-  source = "registry.scenery.dev/core/durable"
-}
-
-execution_engine "durable_tasks" {
-  provider  = provider.durable
-  lifecycle = "managed"
-
-  require_capabilities = [
-    "execution.durable/v1",
-  ]
+authentication "standard" {
+  provider = std.provider.standard_auth
+  scheme   = "session"
 }
 
 module "house" {
   source = "./house"
-
-  inputs = {
-    task_engine = execution_engine.durable_tasks
-  }
-}
-
-mcp_connection "docs" {
-  transport = "streamable_http"
-  url       = "https://docs.example.test/mcp"
-
-  auth {
-    scheme = "none"
-  }
-
-  tools {
-    allow = ["search", "fetch"]
-  }
-
-  connect_timeout = "5s"
-  call_timeout    = "30s"
 }
 
 mcp_server "support" {
@@ -92,18 +64,6 @@ mcp_server "support" {
     binding  = module.house.process_scene_mcp
     name     = "house__process_scene"
     approval = "always"
-  }
-
-  capability "process_scene_durable" {
-    binding  = module.house.process_scene_durable_mcp
-    name     = "house__process_scene_durable"
-    approval = "never"
-  }
-
-  connection "docs" {
-    connection = mcp_connection.docs
-    namespace  = "docs"
-    required   = false
   }
 
   max_input_bytes  = 262144
@@ -123,7 +83,7 @@ assistant "support" {
   surface {
     gateway        = http_gateway.public_api
     path           = "/assistants/support"
-    authentication = std.authentication.none
+    authentication = authentication.standard
     authorization  = std.authorization.public
     pipeline       = std.pipeline.empty
     session_access = "initiator"

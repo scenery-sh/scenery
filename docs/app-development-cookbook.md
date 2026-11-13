@@ -80,35 +80,6 @@ in every application development commit. Use the intended candidate CLI matched
 to the app's `scenery.sh` dependency or deliberate local replacement; generation
 does not install a matching CLI or change dependencies automatically.
 
-### Retire an old Scenery editor workfile
-
-This is an explicit one-time migration, not a runtime compatibility mode. Stop
-old Scenery/editor generation for the selected app before proceeding. From the
-matching Scenery source checkout, first preview the exact ownership check:
-
-```sh
-go run scripts/cutover-go-work.go --app-root /absolute/path/to/app
-```
-
-The script requires `.scenery/editor/go-work-owner.json` to identify that exact
-app and `go.work`. It verifies the full unchanged exclusive workfile, or exactly
-one unchanged managed block in a merged user workfile. A tracked exclusive
-workfile, symlink, missing/corrupt evidence, or changed digest stops for manual
-review. Only after reviewing the preview, apply the bounded change:
-
-```sh
-go run scripts/cutover-go-work.go --app-root /absolute/path/to/app --apply
-```
-
-All user bytes outside a verified merged block survive unchanged. The old owner
-record stays as evidence; `go.work.sum` has no authenticated ownership in that
-record and is always preserved for manual review. Git ignores and global editor
-caches are untouched. Never blindly delete workfiles, global caches or app
-`.scenery` state. Add exact generated-root ignores, then run the intended
-candidate `scenery generate --target contracts` from the app and verify ordinary
-Go tooling. Neither this script nor generation restarts a shared agent or
-modifies databases. A retained user workspace continues to be user-managed.
-
 ## Declare A Typed HTTP Operation
 
 Define wire types, operation behavior, execution policy, and HTTP transport separately:
@@ -276,7 +247,6 @@ scenery config set designs.weather_pack_root /Volumes/Drive01/PSM --env local
 scenery config set designs.api_token --env local      # hidden prompt
 scenery config show --env local -o json
 scenery config set designs.api_token --env production --stdin < token.txt
-scenery deploy --env production
 ```
 
 Browser-facing values such as a maps API key are declared `public = true`
@@ -348,7 +318,6 @@ binding "orders_lookup_mcp" {
 
 mcp_server "support" {
   bindings = [binding.orders_lookup_mcp]
-  # connections = [mcp_connection.vendor]
 }
 
 assistant "support" {
@@ -362,7 +331,7 @@ assistant "support" {
   surface {
     gateway        = http_gateway.public_api
     path           = "/assistants/support"
-    authentication = std.authentication.none
+    authentication = authentication.standard
     authorization  = std.authorization.public
     pipeline       = std.pipeline.empty
     session_access = "initiator"
@@ -375,25 +344,19 @@ The implementation adapter and lock are a developer/operator boundary. The
 current managed adapter is `eve`, but public routes, generated clients,
 OpenAPI, schemas, cookies, handles, events, and errors are provider-neutral.
 Scenery owns the five conversation routes, normalized NDJSON cursor stream,
-approval and cancellation semantics, per-call authorization, and anonymous
-initiator ownership. Remote Streamable HTTP connections terminate credentials
-and readiness in Scenery; the helper is always a supervised child and never
+approval and cancellation semantics, per-call authorization, and initiator
+ownership by authenticated principal. An assistant surface requires
+authentication. The helper is always a supervised child and never
 publishes a second MCP listener.
 
-Initialize and maintain the authored scaffold with the CLI:
+Read an assistant's provider-neutral status with the CLI:
 
 ```sh
-scenery assistant init support --mcp-server support --client public_api -o json
-scenery assistant sync support -o json
 scenery assistant status support -o json
-scenery inspect assistants -o json
-scenery inspect assistants --implementation -o json
 ```
 
-`sync` installs exact package/lock bytes into Scenery's managed,
-content-addressed Node/npm cache and never rewrites authored package files.
-Use the explicit implementation inspection only for provider/runtime debugging;
-default status and inspection are safe to expose to application operators.
+`up` and `build` install exact package/lock bytes into Scenery's managed
+Node/npm cache and never rewrite authored package files.
 When an assistant surface changes, run the public-surface regression scan and
 regenerate the declared TypeScript client.
 
@@ -427,32 +390,6 @@ authenticated user is allowed; add application authorization when records are
 not shared. Invalid bearer tokens return the declared authentication failure,
 not an internal error. The complete wiring is in the
 [webhook inbox example](../examples/webhook-inbox/README.md).
-
-Register one application-owned permission checker during startup:
-
-```go
-type appPermissions struct{}
-
-func (appPermissions) HasPermissions(
-    ctx context.Context,
-    data *auth.AuthData,
-    permissions ...string,
-) (bool, error) {
-    // Query application-owned permission data with data.UserID. Return true
-    // only when the user has every requested permission.
-    return true, nil
-}
-
-func init() {
-    auth.SetPermissionChecker(appPermissions{})
-}
-```
-
-Protected application code can then call
-`allowed, err := auth.HasPermissions(ctx, "Fleet")`. Scenery passes all exact,
-case-sensitive names to the checker once and does not define roles, wildcards,
-storage, caching, or a policy language. The checker is provider-neutral: Google
-and email/password logins both produce the same `*auth.AuthData` identity.
 
 For audit records, call `auth.CurrentAuditIdentity(ctx)` and store both
 `EffectiveUserID` and `ActorUserID`. They are identical normally; during
@@ -511,60 +448,23 @@ not completion, and a missing business row can mean pending or unknown.
 
 Declare durable executions, schedules, event contracts, consumers, and emissions in package `.scn`. Use `external_name` when a durable identity must remain stable. If persisted input changes incompatibly, increment `revision` and drain or migrate active rows first.
 
-`scenery.sh/durable` provides runtime steps and signals but does not register tasks. Start worker-role execution with:
+Start worker-role execution with:
 
 ```sh
 scenery worker --app-root <path> --env development
 scenery inspect durable -o json
 ```
 
-## Data, CRUD, Fixtures, Pages, And Renderers
+## Data, Pages, And Renderers
 
-Use current specification resources for data sources, records, entities, views, CRUD expansion, fixtures, pages, and renderers. Expanded graph inspection shows generated services, operations, bindings, and artifacts:
+Use current specification resources for data sources, records, pages, and renderers. Expanded graph inspection shows generated operations, bindings, and artifacts:
 
 ```sh
 scenery compile --view expanded -o json
-scenery list entity -o json
 scenery list page -o json
-scenery explain <address> <pointer> -o json
 ```
 
-Typed fixtures are selected by environment and shared by deployment planning and local seed generation:
-
-```sh
-scenery db seed --env development --dry-run -o json
-scenery db seed --env development -o json
-```
-
-For a filtered table page, make the list API surface explicit and keep the UI declaration thin:
-
-```hcl
-crud "orders" {
-  entity = entity.order
-  list {
-    filters       = ["status", "created_at"]
-    sorts         = ["created_at"]
-    default_sort  = { field = "created_at", direction = "desc" }
-    max_page_size = 100
-  }
-}
-
-table_page "orders" {
-  path = "/orders"
-  source = crud.orders
-  title = "Orders"
-  column "number" {}
-  column "status" { appearance = "badge" }
-  filter "status" {}
-  filter "created_at" {}
-  sort "created_at" { default = "desc" }
-  row_link = "/orders/{id}"
-}
-```
-
-The CRUD runtime applies exact string/enum filters, datetime ranges, escaped case-insensitive search across declared string fields, query-bound keyset cursors, stable primary-key tie-breaking, and server-side limit clamping. Add declared `react_component` overrides only where the catalog defaults are insufficient.
-
-When an existing operation already returns the complete domain aggregate, keep that operation instead of inventing a shadow CRUD entity. Point the table at its HTTP binding and name the result list:
+For a table page, point the table at the HTTP binding of the operation that returns the list and name the result list. Add declared `react_component` overrides only where the catalog defaults are insufficient:
 
 ```hcl
 record "order_query" {
@@ -599,7 +499,7 @@ table_page "orders" {
 }
 ```
 
-The binding must use call-delivery HTTP and have one result record. `items` must be a `list(record)` field. Add `metadata = ["summary", "types", "manufacturers"]` when response-aware slots need those auxiliary result fields; Scenery validates the names, excludes `items`/pagination `total`, and types `context.metadata` from the result record. Use `query { search, sort, direction }` to map query controls when the operation input names are not the conventional names, and set `search_hidden = true` when an app toolbar renders search and calls `context.controls.setSearch`. Set `filter.input` when a filter's row field and operation input differ. Generated string filters use a `status_map`; a custom string-filter component may instead own dynamic options without inventing a static map. A labeled `predicate` supplies a typed fixed input without exposing a control. The generated table sends only those declared inputs and preserves the explicitly projected result metadata for response-aware app slots. Complete-list pages omit `pagination` and may declare one or more `group` fields; the runtime Group selector includes None, sections preserve the loaded sort order within each bucket, and declared `order` values lead before remaining labels. Cursor-paginated CRUD pages and numeric-page binding tables reject grouping because their section counts would describe only one page.
+The binding must use call-delivery HTTP and have one result record. `items` must be a `list(record)` field. Add `metadata = ["summary", "types", "manufacturers"]` when response-aware slots need those auxiliary result fields; Scenery validates the names, excludes `items`/pagination `total`, and types `context.metadata` from the result record. Use `query { search, sort, direction }` to map query controls when the operation input names are not the conventional names, and set `search_hidden = true` when an app toolbar renders search and calls `context.controls.setSearch`. Set `filter.input` when a filter's row field and operation input differ. Generated string filters use a `status_map`; a custom string-filter component may instead own dynamic options without inventing a static map. A labeled `predicate` supplies a typed fixed input without exposing a control. The generated table sends only those declared inputs and preserves the explicitly projected result metadata for response-aware app slots. Complete-list pages omit `pagination` and may declare one or more `group` fields; the runtime Group selector includes None, sections preserve the loaded sort order within each bucket, and declared `order` values lead before remaining labels. Numeric-page tables reject grouping because their section counts would describe only one page.
 
 When the existing binding uses page numbers, map its contract explicitly:
 
@@ -658,7 +558,8 @@ form_dialog "order_create" {
 
 table_page "orders" {
   path   = "/orders"
-  source = crud.orders
+  source = binding.order_read_http
+  items  = "orders"
   title  = "Orders"
 
   stats {
@@ -736,7 +637,7 @@ over delivered rows. Toolbars default to compact Page-header actions; `placement
 and query-mapped but is omitted from built-in selectors, the popover, and chips.
 Use `pinned = true` only for the few finite catalog selectors that need inline
 quick access. CSV export covers the rows returned by the current query: one
-cursor or numeric page for paginated sources, or the complete filtered result
+numeric page for paginated sources, or the complete filtered result
 for a complete-list binding. Use column `hidden = true` for export-only fields
 and `export = false` for display-only custom cells.
 
@@ -889,59 +790,6 @@ deduplication, retry, and invalidation defaults apply automatically. Generated
 pages do not mark arbitrary API results for persistent storage; enable persistence
 only through an explicit app policy that is appropriate for the data.
 
-## Semantic Changes And Compatibility
-
-Use canonical graph operations rather than editing generated files:
-
-```sh
-scenery list service -o json
-scenery schema scenery.service -o json
-scenery changes plan ... -o json
-scenery changes apply <plan> ... -o json
-scenery diff --semantic <base> <target> -o json
-```
-
-The CLI plan file is a trusted operator/review artifact. Plan/apply is
-revision-bound and tied to the exact issued plan, with one durable commit and
-authenticated receipt replay. A retry of an applied change or deployment plan
-returns its validated receipt without repeating side effects, even if expiry or
-workspace revisions have since changed. A corrupt receipt fails closed. Inspect
-required approvals and risk records before first apply. Use rename receipts for
-semantic identity changes; do not approximate a rename as unrelated
-delete/create when continuity matters.
-
-For an assistant or other model-facing adapter, keep the full plan out of the
-agent loop:
-
-```text
-changes.plan({base_workspace_revision, base_contract_revision, operations})
-  -> {plan_id, base/predicted revisions, summary, affected_resources,
-      affected_resource_count, affected_resources_truncated, risk_records,
-      risk_count, risk_records_truncated, required_approvals, expires_at}
-plans.get({plan_id})
-  -> full canonical plan for a trusted review UI or approval hook
-changes.apply({plan_id})
-  -> {receipt, replayed}
-changes.receipt.get({plan_id})
-  -> {plan_id, status: "applied", receipt}
-```
-
-The adapter may project the complete plan and source diff to the review channel,
-but its model projection contains only the bounded summary and opaque ID.
-Caller identity, granted capabilities, and approval tokens come from the
-server-owned execution context and authenticated approval handler; they are not
-JSON parameters selected by the model. Bind the app root and principal plus any
-protocol/client/session metadata the transport safely exposes. Eve MCP
-connection headers do not currently receive the per-action `callId`, so let the
-Scenery gateway generate a fresh request ID for every tool invocation; do not
-reuse a turn or session ID as a substitute.
-
-Do not reinterpret Eve's opaque tool-approval handle as a change-plan approval
-token. The generated application MCP path and the contract-agent mutation path
-are separate today. For a plan with required approvals, a trusted operator or
-adapter must sign and attach the exact plan/risk-bound token outside model
-input until a server-owned approval broker is added.
-
 ## App-Local Code Tasks
 
 Place single-file Go tasks beneath `<domain>/tasks/` with `//go:build ignore`, or use a task directory. That build constraint keeps the file out of app packages; it is not an application declaration.
@@ -958,7 +806,7 @@ Declare SQL through a `data_source` and typed service dependency in `.scn`.
 Its `config.database` chooses the logical schema; use `lifecycle = "managed"`
 for an intentionally Scenery-owned local allocation, or configure
 `sql.database_url` (`scenery config set sql.database_url --env <env>`) for an
-external database of a deployable environment or worker. Do not add `dev.services` to `.scenery.json`.
+external database. Do not add `dev.services` to `.scenery.json`.
 Inspect `scenery inspect app -o json` for requirements before changing supply.
 Standard auth and durable execution contribute their framework requirement
 automatically. See [App Config](local-contract.md#app-config) for sharing,
@@ -968,12 +816,11 @@ Keep database mutation separate from generation:
 
 ```sh
 scenery db list -o json
-scenery db apply -o json
 scenery db seed --env development --dry-run -o json
 scenery db setup -o json
 ```
 
-`db apply` runs configured schema/app setup. `db seed` applies service-local SQL, typed fixture plans, and declared file-backed import commands. Previously applied SQL changes and destructive seed SQL fail closed. A changed command input reruns the importer and records its new hash only after success. `db setup` runs apply then seed. `scenery generate sqlc` refreshes source only.
+`db seed` applies service-local SQL and declared file-backed import commands. Previously applied SQL changes and destructive seed SQL fail closed. A changed command input reruns the importer and records its new hash only after success. `db setup` runs configured schema/app setup, then seed. `scenery generate sqlc` refreshes source only.
 
 For a large reference dataset, keep one canonical data file and declare every file that determines import behavior:
 
@@ -998,7 +845,7 @@ For a large reference dataset, keep one canonical data file and declare every fi
 }
 ```
 
-Inputs must be regular, non-symlink files inside the app workspace. Scenery hashes the normalized declaration and complete file contents, runs commands after SQL/fixture seeds, pins `DATABASE_URL` to the named service, captures command output in JSON results, skips unchanged input, and reruns changed input. The importer must be transactional or idempotent; if it succeeds but ledger recording fails, Scenery deliberately retries it on the next seed run.
+Inputs must be regular, non-symlink files inside the app workspace. Scenery hashes the normalized declaration and complete file contents, runs commands after SQL seeds, pins `DATABASE_URL` to the named service, captures command output in JSON results, skips unchanged input, and reruns changed input. The importer must be transactional or idempotent; if it succeeds but ledger recording fails, Scenery deliberately retries it on the next seed run.
 
 Save or restore a portable point-in-time copy of the database and worktree storage explicitly. Stop the worktree before either storage capture or import; combined capture requires an already-owned managed database and quiesced external writers:
 
@@ -1012,18 +859,6 @@ scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o j
 The archive is checksummed before load; use `--expect-sha256 <digest>` to pin it and `--dry-run` for non-allocating preflight. Storage-only merge stages the effective result with `--on-conflict fail|skip|overwrite`; combined DB/storage merge is rejected. Interrupted restores block normal access until their exact pinned resume completes. Snapshots are operator-created restore points, not continuous offsite replication.
 
 ### Scheduled Off-Machine Backups
-
-Run the repository's backup runner from the host scheduler during a stopped-worktree window with external writers quiesced. It never stops applications automatically. It serializes runs per output directory, recovers a stale lock after an interrupted job, validates every archive checksum, copies with rclone only after validation, and prunes local history only after all earlier steps succeed:
-
-```sh
-/path/to/scenery/scripts/snapshot-backup.sh \
-  --app-root /srv/my-app \
-  --output-dir /var/backups/my-app \
-  --keep 14 \
-  --copy-to s3:company-backups/my-app
-```
-
-Configure rclone credentials outside the app and apply a remote bucket lifecycle policy for remote retention. The script deliberately installs no Scenery schedule. On macOS, create a user launch agent whose `ProgramArguments` are the command and arguments above and whose `StartCalendarInterval` contains `Hour = 3`; on Linux use a systemd timer, or add the same command to cron. Keep stdout/stderr in an operator-owned log and alert on nonzero exit.
 
 At least monthly, restore the newest replicated archive into a disposable worktree with a separate `SCENERY_AGENT_HOME`, then run the app's data assertions as well as route readiness:
 
@@ -1077,7 +912,7 @@ scenery metrics list -o json --since 1h
 scenery down
 ```
 
-The default wait checks every advertised route and one script or stylesheet asset from each frontend. If this returns successfully, the printed URLs have passed an end-to-end HTTP probe; use `--wait registered` only when another process will own the readiness wait.
+The default wait checks every advertised route and one script or stylesheet asset from each frontend. If this returns successfully, the printed URLs have passed an end-to-end HTTP probe.
 
 Discover URLs from `scenery ps -o json`; do not guess hidden ports. Use a Git worktree for a second live code copy.
 
@@ -1113,7 +948,6 @@ To serve local dev at your own domain instead of `localhost:<port>`, add a path-
 	  "local": {
 		"default": true,
 		"domain": "local.example.com",
-		"expose": ["api", "next"],
 		"frontends": {"next": {"serve": "development"}, "blog": {"serve": "production"}}
 	  }
 	}
@@ -1122,7 +956,7 @@ To serve local dev at your own domain instead of `localhost:<port>`, add a path-
 
 Branch `main` serves the `next` frontend at `https://local.example.com/`; a worktree on branch `pricing` serves it at `https://pricing-local.example.com/` (dash join — every host stays one DNS label deep, inside a single `*.example.com` wildcard and Cloudflare Universal SSL). The root frontend exists only at `/`; `/api/` and `/console/` keep precedence, and non-root frontends remain at `/<frontend>/`.
 
-`expose` narrows what the domain origin serves; absent means everything, and `localhost:<port>` always serves everything. `serve: "production"` builds that frontend once and serves the built `dist/` statically — no dev server, no HMR; editing its sources rebuilds the bundle in place.
+The domain origin and `localhost:<port>` serve the same surface. `serve: "production"` builds that frontend once and serves the built `dist/` statically — no dev server, no HMR; editing its sources rebuilds the bundle in place.
 
 Loopback-only setup (this machine's browser only):
 
@@ -1133,27 +967,10 @@ Cloudflare-fronted setup (reachable from any device; Cloudflare terminates publi
 
 1. Proxied A records for `local.example.com` and the `*.example.com` catch-all pointing at your static IP; explicit records for real sites keep winning over the wildcard.
 2. Set the zone SSL mode to "Full" (not "Full (strict)") so Cloudflare accepts the Scenery edge's internal origin certificate.
-3. Forward router ports 80/443 to the dev machine and run `scenery deploy setup` once so the edge listens publicly.
-4. Consider Cloudflare Access in front of the dev hostnames — with `expose` absent, the whole dev surface (console and runtime included) is internet-reachable.
+3. Forward router ports 80/443 to the dev machine and run `scenery system edge privileged install --public` once so the edge listens publicly.
+4. Consider Cloudflare Access in front of the dev hostnames — the whole dev surface (console and runtime included) is internet-reachable.
 
 When the edge is not serving, `scenery up` still starts and keeps localhost URLs; the warning names the missing setup step. Domain hosts are single-owner per branch label: a second worktree on the same branch keeps localhost URLs and reports `domain_host_conflict`.
-
-## Serve A Production Frontend Publicly
-
-For a public deployment that should not ship the Vite dev runtime, mark the frontend production and give the app a deploy domain:
-
-```json
-{
-  "root": "app",
-  "frontends": { "app": { "root": "apps/app" } },
-  "envs": {
-	"local": {"default": true, "frontends": {"app": {"serve": "development"}}},
-	"production": {"domain": "app.example.com", "frontends": {"app": {"serve": "production"}}, "deploy": {"ssh": ["my-server"]}}
-  }
-}
-```
-
-`scenery deploy my-server` then syncs source, waits for remote readiness, and runs remote `scenery deploy publish`: the root frontend builds with Vite base `/`, lands as an immutable release under the Scenery agent home, and the managed Caddy edge serves it only at `/` — compressed, cached (`/assets/*` immutable, entry document revalidated), with SPA fallback and byte ranges — while `/api/*` keeps flowing through the Scenery router. Non-root frontends build and serve at `/<name>/`. A failed build, invalid Caddyfile, or failed probe leaves the previous frontend public. On a Linux server, run `scenery deploy setup` once as root first (systemd units for the agent, edge, and boot resume). Verify with `scenery deploy status -o json`: each target's `frontends[].mode` should be `caddy_static`.
 
 ## Debug A Failing App
 

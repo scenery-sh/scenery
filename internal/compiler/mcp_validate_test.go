@@ -34,6 +34,11 @@ func TestMCPBindingValidationCoversProjectionAndEffects(t *testing.T) {
 		t.Fatalf("delivery diagnostics = %#v", diagnostics)
 	}
 	binding.Spec["delivery"] = "call"
+	execution.Spec["mode"] = "durable"
+	if diagnostics := validateMCPBinding(binding, byAddress); !hasDiagnostic(diagnostics, mcpBindingShapeCode) {
+		t.Fatalf("durable execution diagnostics = %#v", diagnostics)
+	}
+	execution.Spec["mode"] = "direct"
 	binding.Spec["mcp"].(map[string]any)["name"] = "NotPortable"
 	if diagnostics := validateMCPBinding(binding, byAddress); !hasDiagnostic(diagnostics, mcpToolIdentityCode) {
 		t.Fatalf("name diagnostics = %#v", diagnostics)
@@ -57,54 +62,20 @@ func TestMCPBindingValidationCoversProjectionAndEffects(t *testing.T) {
 	}
 }
 
-func TestMCPServerRejectsLocalRemoteToolCollisions(t *testing.T) {
-	connection := Resource{Address: "app/mcp_connection/docs", Module: "app", Kind: "scenery.mcp-connection", Name: "docs", Spec: map[string]any{
-		"transport": "streamable_http", "url": "https://docs.example.test/mcp", "auth": map[string]any{"scheme": "none"},
-		"tools": map[string]any{"allow": []any{"search"}}, "connect_timeout": "5s", "call_timeout": "30s",
-	}}
-	localBinding := Resource{Address: "house/binding/search", Module: "house", Kind: "scenery.binding", Name: "search", Spec: map[string]any{"protocol": "mcp"}}
-	server := Resource{Address: "app/mcp_server/support", Module: "app", Kind: "scenery.mcp-server", Name: "support", Spec: map[string]any{
-		"capability":      []any{map[string]any{"name": "docs__search", "binding": map[string]any{"$ref": localBinding.Address}, "approval": "always"}},
-		"connection":      []any{map[string]any{"name": "docs", "namespace": "docs", "connection": map[string]any{"$ref": connection.Address}}},
-		"max_input_bytes": 262144, "max_result_bytes": 1048576,
-	}}
-	resources := []Resource{connection, localBinding, server}
-	diagnostics := validateMCPServer(server, resourcesByAddress(&Manifest{Resources: resources}))
-	if !hasDiagnostic(diagnostics, mcpToolIdentityCode) {
-		t.Fatalf("collision diagnostics = %#v", diagnostics)
-	}
-}
-
-func TestMCPConnectionRejectsInsecureExternalAuth(t *testing.T) {
-	connection := Resource{Address: "app/mcp_connection/docs", Module: "app", Kind: "scenery.mcp-connection", Name: "docs", Spec: map[string]any{
-		"transport": "sse", "url": "http://docs.example.test/mcp", "auth": map[string]any{"scheme": "oauth"},
-	}}
-	diagnostics := validateMCPConnection(connection, map[string]Resource{})
-	if !hasDiagnostic(diagnostics, mcpConnectionTransport) || !hasDiagnostic(diagnostics, mcpConnectionAuth) {
-		t.Fatalf("connection diagnostics = %#v", diagnostics)
-	}
-
-	secret := Resource{Address: "app/secret/docs_token", Module: "app", Kind: "scenery.secret", Name: "docs_token", Spec: map[string]any{}}
-	connection = Resource{Address: "app/mcp_connection/header", Module: "app", Kind: "scenery.mcp-connection", Name: "header", Spec: map[string]any{
-		"transport": "streamable_http", "url": "https://docs.example.test/mcp", "auth": map[string]any{
-			"scheme": "header", "header": "X-API-Key", "secret": map[string]any{"$ref": "secret.docs_token"},
-		}, "tools": map[string]any{"allow": []any{"search"}, "block": []any{"private"}},
-	}}
-	diagnostics = validateMCPConnection(connection, resourcesByAddress(&Manifest{Resources: []Resource{connection, secret}}))
-	if !hasDiagnostic(diagnostics, mcpConnectionTransport) || hasDiagnostic(diagnostics, mcpConnectionAuth) {
-		t.Fatalf("header/filter diagnostics = %#v", diagnostics)
-	}
-}
-
 func TestMCPAssistantPathValidationRejectsEscapesAndUnsupportedAdapter(t *testing.T) {
 	assistant := Resource{Address: "app/assistant/support", Module: "app", Kind: "scenery.assistant", Name: "support", Spec: map[string]any{
 		"implementation": map[string]any{"adapter": "unknown", "source": "../outside", "package": "./assistant/package.json", "package_lock": "./assistant/package-lock.json"},
 		"surface":        map[string]any{"path": "/assistants/support", "session_access": "initiator"},
 	}}
 	diagnostics := validateAssistantResource(assistant, map[string]Resource{})
-	if !hasDiagnostic(diagnostics, assistantAdapterCode) {
+	if !hasDiagnostic(diagnostics, assistantAdapterCode) || hasDiagnostic(diagnostics, mcpBindingShapeCode) {
 		t.Fatalf("assistant adapter diagnostics = %#v", diagnostics)
 	}
+	assistant.Spec["surface"].(map[string]any)["authentication"] = map[string]any{"$ref": "std.authentication.none"}
+	if diagnostics := validateAssistantResource(assistant, map[string]Resource{}); !hasDiagnostic(diagnostics, mcpBindingShapeCode) {
+		t.Fatalf("unauthenticated assistant surface diagnostics = %#v", diagnostics)
+	}
+	delete(assistant.Spec["surface"].(map[string]any), "authentication")
 	diagnostics = validateMCPAssistantPaths("", []Resource{assistant})
 	if !hasDiagnostic(diagnostics, assistantSourcePathCode) {
 		t.Fatalf("assistant path diagnostics = %#v", diagnostics)
@@ -128,12 +99,12 @@ func TestMCPAssistantPathValidationRejectsEscapesAndUnsupportedAdapter(t *testin
 
 func TestMCPReferenceCycleValidation(t *testing.T) {
 	server := Resource{Address: "app/mcp_server/support", Module: "app", Kind: "scenery.mcp-server", Name: "support", Spec: map[string]any{
-		"connection": []any{map[string]any{"name": "docs", "connection": map[string]any{"$ref": "mcp_connection.docs"}, "namespace": "docs"}},
+		"assistant": map[string]any{"$ref": "assistant.support"},
 	}}
-	connection := Resource{Address: "app/mcp_connection/docs", Module: "app", Kind: "scenery.mcp-connection", Name: "docs", Spec: map[string]any{
-		"server": map[string]any{"$ref": "mcp_server.support"},
+	assistant := Resource{Address: "app/assistant/support", Module: "app", Kind: "scenery.assistant", Name: "support", Spec: map[string]any{
+		"mcp_server": map[string]any{"$ref": "mcp_server.support"},
 	}}
-	diagnostics := validateMCPGraph([]Resource{server, connection}, resourcesByAddress(&Manifest{Resources: []Resource{server, connection}}))
+	diagnostics := validateMCPGraph([]Resource{server, assistant}, resourcesByAddress(&Manifest{Resources: []Resource{server, assistant}}))
 	if !hasDiagnostic(diagnostics, mcpReferenceCycle) {
 		t.Fatalf("cycle diagnostics = %#v", diagnostics)
 	}

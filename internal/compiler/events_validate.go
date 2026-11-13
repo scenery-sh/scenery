@@ -4,24 +4,15 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
-	"scenery.sh/internal/calendartrigger"
 	scenery "scenery.sh/internal/contract"
 )
 
-func validateScheduleAndEventSemantics(resources []Resource, byAddress map[string]Resource) []Diagnostic {
+func validateSchedulesSemantics(resources []Resource, byAddress map[string]Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
-		switch resource.Kind {
-		case "scenery.schedule":
+		if resource.Kind == "scenery.schedule" {
 			diagnostics = append(diagnostics, validateScheduleSemantics(byAddress, resource)...)
-		case "scenery.binding":
-			if stringValue(resource.Spec["protocol"]) == "event" {
-				diagnostics = append(diagnostics, validateEventBindingSemantics(byAddress, resource)...)
-			}
-		case "scenery.event-emission":
-			diagnostics = append(diagnostics, validateEventEmissionSemantics(byAddress, resource)...)
 		}
 	}
 	return diagnostics
@@ -94,44 +85,9 @@ func validateScheduleTrigger(trigger map[string]any) error {
 	if trigger == nil {
 		return fmt.Errorf("schedule requires a trigger")
 	}
-	selected := ""
-	for _, selector := range []string{"cron", "every", "at", "calendar"} {
-		if trigger[selector] != nil {
-			if selected != "" {
-				return fmt.Errorf("schedule trigger must select exactly one of cron, every, at, or calendar")
-			}
-			selected = selector
-		}
-	}
-	if selected == "" {
-		return fmt.Errorf("schedule trigger must select exactly one of cron, every, at, or calendar")
-	}
-	switch selected {
-	case "cron":
-		if len(strings.Fields(stringValue(trigger["cron"]))) != 5 {
-			return fmt.Errorf("schedule cron must contain five fields")
-		}
-		zone := defaultString(stringValue(trigger["timezone"]), "UTC")
-		if _, err := time.LoadLocation(zone); err != nil {
-			return fmt.Errorf("schedule timezone is invalid")
-		}
-	case "every":
-		value, err := scenery.ParseDuration(stringValue(trigger["every"]))
-		if err != nil || value.Sign() <= 0 || !value.Nanoseconds().IsInt64() {
-			return fmt.Errorf("schedule every duration must be positive")
-		}
-	case "at":
-		if _, err := scenery.ParseDateTime(stringValue(trigger["at"])); err != nil {
-			return fmt.Errorf("schedule at must be an RFC 3339 datetime")
-		}
-	case "calendar":
-		if _, err := calendartrigger.Parse(stringValue(trigger["calendar"])); err != nil {
-			return fmt.Errorf("schedule calendar is invalid: %w", err)
-		}
-		zone := defaultString(stringValue(trigger["timezone"]), "UTC")
-		if _, err := time.LoadLocation(zone); err != nil {
-			return fmt.Errorf("schedule timezone is invalid")
-		}
+	value, err := scenery.ParseDuration(stringValue(trigger["every"]))
+	if err != nil || value.Sign() <= 0 || !value.Nanoseconds().IsInt64() {
+		return fmt.Errorf("schedule every duration must be positive")
 	}
 	return nil
 }
@@ -144,91 +100,6 @@ func validateStaticOperationInput(resources map[string]Resource, operation Resou
 		return fmt.Errorf("schedule input does not match %s: %w", typeExpression(operation.Spec["input"]), err)
 	}
 	return nil
-}
-
-func validateEventBindingSemantics(resources map[string]Resource, binding Resource) []Diagnostic {
-	eventSpec, _ := binding.Spec["event"].(map[string]any)
-	if eventSpec == nil {
-		return nil
-	}
-	var diagnostics []Diagnostic
-	if stringValue(eventSpec["direction"]) != "consume" {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2704", "event binding direction must be consume", binding))
-	}
-	if !validEventGuarantee(stringValue(eventSpec["guarantee"])) || strings.TrimSpace(stringValue(eventSpec["channel"])) == "" {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2705", "event binding requires a channel and supported delivery guarantee", binding))
-	}
-	busAddress := resolveResourceRef(binding, refString(eventSpec["bus"]), "event_bus")
-	contractAddress := resolveResourceRef(binding, refString(eventSpec["contract"]), "event")
-	bus, busOK := resources[busAddress]
-	event, eventOK := resources[contractAddress]
-	if !busOK || bus.Kind != "scenery.event-bus" || !eventOK || event.Kind != "scenery.event" {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2705", "event binding bus and contract must resolve to typed resources", binding))
-		return diagnostics
-	}
-	operationAddress := resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")
-	operation, operationOK := resources[operationAddress]
-	mappings := namedChildren(eventSpec, "map")
-	if !operationOK || len(mappings) != 1 || refOrString(mappings[0]["from"]) != "message.payload" || refOrString(mappings[0]["to"]) != "operation."+operation.Name+".input" || !sameTypeExpression(event.Spec["payload"], operation.Spec["input"]) {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2705", "event payload must map exactly once to a type-compatible operation input", binding))
-	}
-	if retry, ok := eventSpec["broker_retry"].(map[string]any); ok {
-		attempts, attemptsOK := integerValue(retry["attempts"])
-		if !attemptsOK || attempts <= 0 || !eventStringIn([]string{"none", "fixed", "exponential"}, stringValue(retry["backoff"])) {
-			diagnostics = append(diagnostics, resourceDiagnostic("SCN2705", "event broker_retry policy is invalid", binding))
-		}
-	} else if stringValue(eventSpec["guarantee"]) == "at_least_once" {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2705", "at_least_once event consumption requires broker_retry policy", binding))
-	}
-	return diagnostics
-}
-
-func validateEventEmissionSemantics(resources map[string]Resource, emission Resource) []Diagnostic {
-	var diagnostics []Diagnostic
-	busAddress := resolveResourceRef(emission, refString(emission.Spec["bus"]), "event_bus")
-	contractAddress := resolveResourceRef(emission, refString(emission.Spec["contract"]), "event")
-	bus, busOK := resources[busAddress]
-	event, eventOK := resources[contractAddress]
-	if !busOK || bus.Kind != "scenery.event-bus" || !eventOK || event.Kind != "scenery.event" || !validEventGuarantee(stringValue(emission.Spec["guarantee"])) || strings.TrimSpace(stringValue(emission.Spec["channel"])) == "" {
-		return []Diagnostic{resourceDiagnostic("SCN2706", "event emission requires typed bus, contract, channel, and guarantee", emission)}
-	}
-	from, _ := emission.Spec["from"].(map[string]any)
-	operationAddress := resolveResourceRef(emission, refString(from["operation"]), "operation")
-	operation, operationOK := resources[operationAddress]
-	when := strings.Split(refOrString(from["when"]), ".")
-	payload := strings.Split(refOrString(from["payload"]), ".")
-	if !operationOK || len(when) != 2 || when[0] != "result" || len(payload) < 2 || payload[0] != "result" || payload[1] != when[1] {
-		return []Diagnostic{resourceDiagnostic("SCN2706", "event emission must select one operation result and payload", emission)}
-	}
-	var resultType any
-	for _, variant := range namedChildren(operation.Spec, "result") {
-		if stringValue(variant["name"]) == when[1] {
-			resultType = variant["type"]
-			break
-		}
-	}
-	if resultType == nil {
-		return []Diagnostic{resourceDiagnostic("SCN2706", "event emission references an unknown result variant", emission)}
-	}
-	payloadType := resultType
-	if len(payload) > 2 {
-		payloadType = recordFieldType(resources, operation.Module, resultType, payload[2:])
-	}
-	if payloadType == nil || !sameTypeExpression(payloadType, event.Spec["payload"]) {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2706", "event emission payload type does not match the event contract", emission))
-	}
-	for _, field := range []string{"ordering_key", "deduplication_key"} {
-		if _, _, err := eventEmissionKeyExpression(resources, operation, when[1], emission.Spec[field]); err != nil {
-			diagnostics = append(diagnostics, resourceDiagnostic("SCN2706", "event emission "+field+" "+err.Error(), emission))
-		}
-	}
-	if retry, ok := emission.Spec["broker_retry"].(map[string]any); ok {
-		attempts, attemptsOK := integerValue(retry["attempts"])
-		if !attemptsOK || attempts <= 0 || !eventStringIn([]string{"none", "fixed", "exponential"}, stringValue(retry["backoff"])) {
-			diagnostics = append(diagnostics, resourceDiagnostic("SCN2706", "event emission broker_retry policy is invalid", emission))
-		}
-	}
-	return diagnostics
 }
 
 func recordFieldType(resources map[string]Resource, module string, value any, path []string) any {
@@ -265,14 +136,6 @@ func recordResourceForType(resources map[string]Resource, module string, value a
 	}
 	record, ok := resources[resourceAddress(module, "record", parts[1])]
 	return record, ok
-}
-
-func sameTypeExpression(left, right any) bool {
-	return strings.TrimSpace(typeExpression(left)) == strings.TrimSpace(typeExpression(right))
-}
-
-func validEventGuarantee(value string) bool {
-	return eventStringIn([]string{"at_most_once", "at_least_once", "exactly_once"}, value)
 }
 
 func eventStringIn(values []string, want string) bool {

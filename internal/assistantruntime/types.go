@@ -119,25 +119,12 @@ type Client interface {
 	Close() error
 }
 
-// Launcher starts a provider-neutral helper and returns the process handle
-// separately so supervision can observe and stop it without knowing the
-// implementation.
-type Launcher interface {
-	Start(context.Context, LaunchSpec) (Client, Process, error)
-}
-
 // Process is the minimal child-process lifecycle observation surface needed by
 // supervision. Implementations must not expose provider-specific state here.
 type Process interface {
 	PID() int
 	Wait() error
 	Stop(context.Context) error
-}
-
-type LaunchSpec struct {
-	AssistantAddress   string
-	RuntimeRevision    string
-	CapabilityRevision string
 }
 
 // RuntimeState is intentionally small and stable. A crashed or unavailable
@@ -166,30 +153,6 @@ var (
 	ErrCancelled        = errors.New("assistant run cancelled")
 	ErrTerminalRun      = errors.New("assistant run is terminal")
 )
-
-// Error carries a stable machine code while retaining errors.Is compatibility
-// with the sentinel above.
-type Error struct {
-	Code string
-	Err  error
-}
-
-func (e *Error) Error() string {
-	if e == nil {
-		return ""
-	}
-	if e.Err == nil {
-		return e.Code
-	}
-	return e.Code + ": " + e.Err.Error()
-}
-
-func (e *Error) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
 
 // Event types accepted by the deterministic fake. The private event catalog
 // is deliberately distinct from the public assistantapi event catalog.

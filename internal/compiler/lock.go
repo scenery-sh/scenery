@@ -278,7 +278,7 @@ func enrichProviderInstances(resources []Resource) ([]Resource, []Diagnostic) {
 	for index := range resolved {
 		instance := &resolved[index]
 		kindName := strings.ReplaceAll(strings.TrimPrefix(instance.Kind, "scenery."), "-", "_")
-		if kindName != "data_source" && kindName != "execution_engine" && kindName != "event_bus" && kindName != "secret_store" {
+		if kindName != "data_source" && kindName != "execution_engine" && kindName != "secret_store" {
 			continue
 		}
 		providerAddress := resolveResourceRef(*instance, refString(instance.Spec["provider"]), "provider")
@@ -453,14 +453,6 @@ func providerDescriptorDigest(descriptor ProviderDescriptor) string {
 	return revisionHash("scenery.provider-descriptor\x00", descriptor)
 }
 
-func BuiltinProviderLock(source string) (integrity string, ok bool) {
-	descriptor, ok := builtinProviderDescriptors()[source]
-	if !ok {
-		return "", false
-	}
-	return providerDescriptorDigest(descriptor), true
-}
-
 // BuiltinProviderLockEntry is the offline lock projection of a shipped provider.
 func BuiltinProviderLockEntry(name, source string) (LockEntry, bool) {
 	descriptor, ok := builtinProviderDescriptors()[source]
@@ -499,11 +491,6 @@ func builtinProviderDescriptors() map[string]ProviderDescriptor {
 			ArtifactIdentity: machine.NewArtifactIdentity(providerDescriptorKind, providerSchemaDescriptor), Source: "registry.scenery.dev/core/durable", ConfigSchema: map[string]any{},
 			InstanceKinds: map[string]ProviderInstanceDescriptor{"execution_engine": {Capabilities: []string{"execution.durable/v1"}, Lifecycles: lifecycles}},
 			RuntimeABI:    "scenery.execution-runtime/v1", DeploymentABI: deploymentProviderABI,
-		},
-		"registry.scenery.dev/core/kafka": {
-			ArtifactIdentity: machine.NewArtifactIdentity(providerDescriptorKind, providerSchemaDescriptor), Source: "registry.scenery.dev/core/kafka", ConfigSchema: map[string]any{"brokers": field("list(string)", true, true)},
-			InstanceKinds: map[string]ProviderInstanceDescriptor{"event_bus": {Capabilities: []string{"events.consume/v1", "events.publish/v1"}, Lifecycles: lifecycles}},
-			RuntimeABI:    "scenery.events-runtime/v1", DeploymentABI: deploymentProviderABI,
 		},
 		"registry.scenery.dev/core/vault": {
 			ArtifactIdentity: machine.NewArtifactIdentity(providerDescriptorKind, providerSchemaDescriptor), Source: "registry.scenery.dev/core/vault", ConfigSchema: map[string]any{"address": field("url", true, true)},

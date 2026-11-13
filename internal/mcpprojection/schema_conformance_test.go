@@ -81,27 +81,6 @@ func TestTaggedUnionSchemaAcceptsTheFlattenedWireForm(t *testing.T) {
 	}
 }
 
-func TestDurableCapabilityAdvertisesTheAcceptanceResult(t *testing.T) {
-	fixture, workspaceRevision := readNativeGraphFixture(t)
-	manifest := cloneManifest(fixture)
-	resourceByAddress(manifest, "house/execution/process_scene_direct").Spec["mode"] = "durable"
-	projected, err := ProjectManifest(manifest, workspaceRevision, "support")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(projected.Capabilities[0].OutputSchema, &schema); err != nil {
-		t.Fatal(err)
-	}
-	accepted := `{"outcome":"accepted","receipt":{"durable_identity":"house/execution/process_scene_direct","execution_id":"job-1","accepted_revision":"sha256:abc"}}`
-	if err := validateInstance(t, schema, accepted); err != nil {
-		t.Fatalf("durable schema rejected the runtime acceptance result: %v", err)
-	}
-	if err := validateInstance(t, schema, `{"outcome":"processed","value":{}}`); err == nil {
-		t.Fatal("durable schema accepted a synchronous outcome")
-	}
-}
-
 func TestFieldDescriptionsAndExamplesReachTheToolSchema(t *testing.T) {
 	resources := taggedUnionResources(false)
 	resources["app/record/order"] = graph.Resource{Address: "app/record/order", Kind: recordKind, Module: "app", Spec: map[string]any{

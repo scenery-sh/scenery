@@ -7,21 +7,7 @@ import (
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/app"
 )
-
-func TestDevRoutingModeRejectsDomainWithHostMode(t *testing.T) {
-	t.Parallel()
-
-	env := app.ResolvedEnv{Name: "local", Mode: "host", Domain: "local.clean.tech"}
-	if _, err := devRoutingMode(env); err == nil || !strings.Contains(err.Error(), "envs.local.domain") {
-		t.Fatalf("devRoutingMode error = %v", err)
-	}
-	env.Mode = "path"
-	if _, err := devRoutingMode(env); err != nil {
-		t.Fatalf("path mode with domain: %v", err)
-	}
-}
 
 func TestValidateDevDomainURLWarnsWithoutEdge(t *testing.T) {
 	_ = isolateCommandAgentHome(t)
@@ -55,54 +41,6 @@ func TestValidateDevDomainURLReportsConflict(t *testing.T) {
 	}
 	if !strings.Contains(warning, "/tmp/other-worktree") || !strings.Contains(warning, "pricing-local.clean.tech") {
 		t.Fatalf("warning = %q", warning)
-	}
-}
-
-func TestDevExposeRouteNames(t *testing.T) {
-	t.Parallel()
-
-	cfg := app.Config{
-		Frontends: map[string]app.FrontendConfig{"next": {Root: "apps/next"}},
-	}
-	env := app.ResolvedEnv{Name: "local", Domain: "local.clean.tech", Expose: []string{"api", "root", "runtime", "api"}}
-	names, err := devExposeRouteNames(cfg, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"api", "root", "runtime"}
-	if len(names) != len(want) {
-		t.Fatalf("names = %v, want %v", names, want)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Fatalf("names = %v, want %v", names, want)
-		}
-	}
-
-	env.Expose = []string{"console"}
-	if _, err := devExposeRouteNames(cfg, env); err == nil || !strings.Contains(err.Error(), `"console"`) {
-		t.Fatalf("removed console expose error = %v", err)
-	}
-
-	env.Expose = []string{"next"}
-	if _, err := devExposeRouteNames(cfg, env); err == nil || !strings.Contains(err.Error(), `use "root"`) {
-		t.Fatalf("root frontend expose error = %v", err)
-	}
-
-	env.Expose = []string{"pulse"}
-	if _, err := devExposeRouteNames(cfg, env); err == nil || !strings.Contains(err.Error(), `"pulse"`) {
-		t.Fatalf("unknown frontend error = %v", err)
-	}
-
-	env.Expose = []string{"api"}
-	env.Domain = ""
-	if _, err := devExposeRouteNames(cfg, env); err == nil || !strings.Contains(err.Error(), "envs.local.domain") {
-		t.Fatalf("missing domain error = %v", err)
-	}
-
-	env.Expose = nil
-	if names, err := devExposeRouteNames(cfg, env); err != nil || names != nil {
-		t.Fatalf("empty expose = (%v, %v)", names, err)
 	}
 }
 

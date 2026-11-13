@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -390,104 +389,6 @@ func TestBuildOTLPTraceProtoOKSpanOmitsStatus(t *testing.T) {
 	span := mustOTLPSpanBytes(t, payload)
 	if _, ok := protoLengthDelimited(span, 15); ok {
 		t.Fatal("ok span unexpectedly includes Span.status (field 15)")
-	}
-}
-
-func TestBuildOTLPTracePayload(t *testing.T) {
-	t.Parallel()
-
-	endpoint := "Hello"
-	payload := buildOTLPTracePayload(&devdash.TraceSummary{
-		AppID:         "app",
-		SessionID:     "session-a",
-		AppRootHash:   "root123",
-		Branch:        "feature/a",
-		Worktree:      "onlv-a",
-		TraceID:       "00000000000000010000000000000002",
-		SpanID:        "0000000000000003",
-		Type:          "REQUEST",
-		IsRoot:        true,
-		StartedAt:     time.Unix(1, 2).UTC(),
-		DurationNanos: uint64(10 * time.Millisecond),
-		ServiceName:   "svc",
-		EndpointName:  &endpoint,
-	}, []*devdash.TraceEvent{
-		{
-			TraceID:     "00000000000000010000000000000002",
-			SpanID:      "0000000000000003",
-			SessionID:   "session-a",
-			AppRootHash: "root123",
-			Branch:      "feature/a",
-			Worktree:    "onlv-a",
-			EventID:     4,
-			EventTime:   time.Unix(1, 3).UTC(),
-			Event: map[string]any{
-				"span_event": map[string]any{"db": "query"},
-			},
-		},
-	})
-
-	resourceSpans := payload["resourceSpans"].([]any)
-	scopeSpans := resourceSpans[0].(map[string]any)["scopeSpans"].([]any)
-	spans := scopeSpans[0].(map[string]any)["spans"].([]any)
-	span := spans[0].(map[string]any)
-	if span["traceId"] != "00000000000000010000000000000002" {
-		t.Fatalf("traceId = %v", span["traceId"])
-	}
-	if span["spanId"] != "0000000000000003" {
-		t.Fatalf("spanId = %v", span["spanId"])
-	}
-	if span["name"] != "svc.Hello" {
-		t.Fatalf("name = %v", span["name"])
-	}
-	if len(span["events"].([]any)) != 1 {
-		t.Fatalf("events = %v", span["events"])
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"scenery.session_id", "session-a", "scenery.app_root_hash", "root123", "scenery.branch", "feature/a", "scenery.worktree", "onlv-a"} {
-		if !strings.Contains(string(data), want) {
-			t.Fatalf("payload missing %q: %s", want, data)
-		}
-	}
-}
-
-func TestBuildOTLPLogPayloadIncludesTraceContext(t *testing.T) {
-	t.Parallel()
-
-	payload := buildOTLPLogPayload(&devdash.LogEvent{
-		AppID:       "app",
-		SessionID:   "session-a",
-		AppRootHash: "root123",
-		Branch:      "feature/a",
-		Worktree:    "onlv-a",
-		TraceID:     "00000000000000010000000000000002",
-		SpanID:      "0000000000000003",
-		Level:       "info",
-		Message:     "hello",
-		Timestamp:   time.Unix(1, 2).UTC(),
-	})
-
-	resourceLogs := payload["resourceLogs"].([]any)
-	scopeLogs := resourceLogs[0].(map[string]any)["scopeLogs"].([]any)
-	records := scopeLogs[0].(map[string]any)["logRecords"].([]any)
-	record := records[0].(map[string]any)
-	if record["traceId"] != "00000000000000010000000000000002" {
-		t.Fatalf("traceId = %v", record["traceId"])
-	}
-	if record["severityText"] != "INFO" {
-		t.Fatalf("severityText = %v", record["severityText"])
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"scenery.session_id", "session-a", "scenery.app_root_hash", "root123", "scenery.branch", "feature/a", "scenery.worktree", "onlv-a"} {
-		if !strings.Contains(string(data), want) {
-			t.Fatalf("payload missing %q: %s", want, data)
-		}
 	}
 }
 

@@ -16,13 +16,13 @@
       "const": "scenery.logs.query"
     },
     "schema_revision": {
-      "const": "sha256:d863e3f48e9645e48e8fd1188f50e11a180da452e771868b378d6e5a170cf69b"
+      "const": "sha256:56c91a3d7193c11445dfd09cfc6e98ed3fa4a9c1ac1f4f5042b3ee73d811c9b1"
     },
     "scope": {
-      "$ref": "scenery.inspect.observability.schema.json#/$defs/scope"
+      "$ref": "#/$defs/scope"
     },
     "backend": {
-      "$ref": "scenery.inspect.observability.schema.json#/$defs/backend"
+      "$ref": "#/$defs/backend"
     },
     "query": {
       "$ref": "#/$defs/query"
@@ -42,6 +42,66 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "scope": {
+      "type": "object",
+      "required": [
+        "app_id",
+        "session_id",
+        "app_root",
+        "app_root_hash",
+        "enforced"
+      ],
+      "properties": {
+        "app_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "app_root": {
+          "type": "string"
+        },
+        "app_root_hash": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "enforced": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "backend": {
+      "type": "object",
+      "required": [
+        "kind",
+        "dialect",
+        "ready"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "dialect": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "query_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "query": {
       "type": "object",
       "required": [

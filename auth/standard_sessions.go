@@ -19,15 +19,6 @@ type EmailVerificationConfirmParams struct {
 	Token string `json:"token"`
 }
 
-type EmailVerificationResendParams struct {
-	Email string `json:"email"`
-}
-
-type EmailVerificationResendResponse struct {
-	OK                   bool   `json:"ok"`
-	DevVerificationToken string `json:"dev_verification_token,omitempty"`
-}
-
 type LogoutResponse struct {
 	OK        bool   `json:"ok"`
 	SetCookie string `json:"-" header:"Set-Cookie"`
@@ -115,7 +106,6 @@ func (s *Service) SignupEmail(ctx context.Context, params *EmailSignupParams) (*
 		return nil, err
 	}
 
-	_ = sendVerificationEmail(ctx, displayEmail(params.Email), rawToken, safeRedirectPath(params.RedirectPath))
 	response := &EmailSignupResponse{
 		RequiresEmailVerification: true,
 		Email:                     displayEmail(params.Email),
@@ -169,52 +159,6 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, params *EmailVer
 	s.recordEvent(ctx, q, "email_verified", user.ID, authdb.UUID{}, tenantID, authdb.UUID{}, nil)
 	if err := tx.Commit(); err != nil {
 		return nil, err
-	}
-	return response, nil
-}
-
-// ResendEmailVerification creates a new email verification token for an unverified user.
-func (s *Service) ResendEmailVerification(ctx context.Context, params *EmailVerificationResendParams) (*EmailVerificationResendResponse, error) {
-	if params == nil {
-		return nil, invalidArgument("request body is required")
-	}
-	normalizedEmail, err := normalizeEmail(params.Email)
-	if err != nil {
-		return nil, invalidArgument(err.Error())
-	}
-
-	tx, q, err := s.beginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	if err := s.checkRateLimit(ctx, q, "email_verification_resend", normalizedEmail); err != nil {
-		return nil, err
-	}
-
-	user, err := q.GetUserByNormalizedEmail(ctx, normalizedEmail)
-	if err != nil {
-		if isNoRows(err) {
-			return &EmailVerificationResendResponse{OK: true}, tx.Commit()
-		}
-		return nil, err
-	}
-	if user.EmailVerifiedAt.Valid {
-		return &EmailVerificationResendResponse{OK: true}, tx.Commit()
-	}
-	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposeEmailVerification, user.ID, authdb.UUID{}, displayEmail(params.Email), normalizedEmail, nil, defaultEmailVerificationTTL)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	_ = sendVerificationEmail(ctx, displayEmail(params.Email), rawToken, "")
-	response := &EmailVerificationResendResponse{OK: true}
-	if isLocalRuntime() {
-		response.DevVerificationToken = rawToken
 	}
 	return response, nil
 }
@@ -393,112 +337,6 @@ func (s *Service) Me(ctx context.Context) (*AuthBootstrapResponse, error) {
 	session.ActorUserID, _ = nullableUUID(string(authData.ActorUserID))
 	session.ImpersonationID, _ = nullableUUID(authData.ImpersonationID)
 	return s.buildBootstrap(ctx, s.query, user, tenantID, session)
-}
-
-// RequestPasswordReset creates a one-time password reset token when the email exists.
-func (s *Service) RequestPasswordReset(ctx context.Context, params *PasswordResetRequestParams) (*PasswordResetRequestResponse, error) {
-	if params == nil {
-		return nil, invalidArgument("request body is required")
-	}
-	normalizedEmail, err := normalizeEmail(params.Email)
-	if err != nil {
-		return nil, invalidArgument(err.Error())
-	}
-	tx, q, err := s.beginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	if err := s.checkRateLimit(ctx, q, "password_reset_request", normalizedEmail); err != nil {
-		return nil, err
-	}
-	user, err := q.GetUserByNormalizedEmail(ctx, normalizedEmail)
-	if err != nil {
-		if isNoRows(err) {
-			return &PasswordResetRequestResponse{OK: true}, tx.Commit()
-		}
-		return nil, err
-	}
-	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposePasswordReset, user.ID, authdb.UUID{}, displayEmail(params.Email), normalizedEmail, nil, defaultPasswordResetTTL)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	_ = sendPasswordResetEmail(ctx, displayEmail(params.Email), rawToken)
-	response := &PasswordResetRequestResponse{OK: true}
-	if isLocalRuntime() {
-		response.DevResetToken = rawToken
-	}
-	return response, nil
-}
-
-// ConfirmPasswordReset consumes a password reset token, updates the password, revokes old sessions, and starts a fresh session.
-func (s *Service) ConfirmPasswordReset(ctx context.Context, params *PasswordResetConfirmParams) (*AuthSessionResponse, error) {
-	if params == nil || strings.TrimSpace(params.Token) == "" {
-		return nil, invalidArgument("token is required")
-	}
-	passwordHash, err := hashPassword(params.NewPassword)
-	if err != nil {
-		return nil, invalidArgument(err.Error())
-	}
-
-	tx, q, err := s.beginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	oneTime, err := q.ConsumeOneTimeToken(ctx, authdb.ConsumeOneTimeTokenParams{
-		TokenHash: tokenHash(params.Token),
-		Purpose:   tokenPurposePasswordReset,
-	})
-	if err != nil {
-		if isNoRows(err) {
-			return nil, invalidArgument("password reset token is invalid or expired")
-		}
-		return nil, err
-	}
-	if !oneTime.UserID.Valid {
-		return nil, invalidArgument("password reset token is invalid")
-	}
-	identity, err := q.GetEmailIdentityForLogin(ctx, oneTime.NormalizedEmail)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := q.UpdateIdentityPasswordHash(ctx, authdb.UpdateIdentityPasswordHashParams{
-		ID:           identity.ID,
-		PasswordHash: passwordHash,
-	}); err != nil {
-		return nil, err
-	}
-	user, err := q.MarkUserEmailVerified(ctx, oneTime.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if err := q.RevokeUserRefreshSessions(ctx, authdb.RevokeUserRefreshSessionsParams{
-		UserID:        user.ID,
-		RevokedReason: "password_reset",
-	}); err != nil {
-		return nil, err
-	}
-	tenantID, err := s.ensureActiveTenant(ctx, q, user, authdb.UUID{})
-	if err != nil {
-		return nil, err
-	}
-	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, authdb.UUID{}, authdb.UUID{}, "")
-	if err != nil {
-		return nil, err
-	}
-	s.recordEvent(ctx, q, "password_reset", user.ID, authdb.UUID{}, tenantID, authdb.UUID{}, nil)
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return response, nil
 }
 
 func (s *Service) createOneTimeToken(ctx context.Context, q authdb.Querier, purpose string, userID authdb.UUID, tenantID authdb.UUID, email string, normalizedEmail string, metadata any, ttl time.Duration) (string, error) {

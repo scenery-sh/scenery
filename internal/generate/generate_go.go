@@ -651,10 +651,6 @@ func serviceConfigShape(service Resource) any {
 	return keys
 }
 
-func renderContractTypes(resources []Resource) string {
-	return renderContractTypesResolved(resources, nil)
-}
-
 func renderContractTypesResolved(resources []Resource, resolver *goContractTypeResolver) string {
 	var body strings.Builder
 	typeName := goType
@@ -857,21 +853,6 @@ func renderRecordMethods(b *strings.Builder, resource Resource, name string) {
 		fieldName := stringValue(field["name"])
 		goField := goName(fieldName)
 		fmt.Fprintf(b, "\tif err := scenery.ValidateContractValue(value.%s, %q, %s); err != nil { return fmt.Errorf(\"validate field %s: %%w\", err) }\n", goField, goWireTypeExpression(field["type"]), renderGoContractConstraints(field), wireName(field, fieldName))
-	}
-	validations := namedChildren(resource.Spec, "validation")
-	if len(validations) > 0 {
-		b.WriteString("\tfields := map[string]any{")
-		for _, field := range namedChildren(resource.Spec, "field") {
-			fmt.Fprintf(b, "%q: value.%s,", stringValue(field["name"]), goName(stringValue(field["name"])))
-		}
-		b.WriteString("}\n\tfieldTypes := map[string]string{")
-		for _, field := range namedChildren(resource.Spec, "field") {
-			fmt.Fprintf(b, "%q: %q,", stringValue(field["name"]), goWireTypeExpression(field["type"]))
-		}
-		b.WriteString("}\n")
-		for _, validation := range validations {
-			fmt.Fprintf(b, "\tif err := scenery.ValidateContractRecord(fields, fieldTypes, %q, %q, %q, %q); err != nil { return err }\n", validationProgramJSON(expressionText(validation["when"])), stringValue(validation["code"]), stringValue(validation["message"]), refString(validation["path"]))
-		}
 	}
 	b.WriteString("\treturn nil\n}\n\n")
 }

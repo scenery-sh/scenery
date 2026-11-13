@@ -124,7 +124,7 @@ func (s *worktreeLegacySandbox) cliInHome(old bool, home, root string, args ...s
 	if old {
 		binary = "/baseline-scenery"
 	}
-	env := []string{"env", "SCENERY_AGENT_HOME=" + home, "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0", "SCENERY_AGENT_TRUST=0", "GOWORK=off", binary}
+	env := []string{"env", "SCENERY_AGENT_HOME=" + home, "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0", "GOWORK=off", binary}
 	env = append(env, args...)
 	env = append(env, "--app-root", root, "-o", "json")
 	return s.run(env...)

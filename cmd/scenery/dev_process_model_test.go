@@ -278,7 +278,7 @@ func devProcessControlServer(t *testing.T, statuses ...int) (string, *atomic.Int
 		index := int(requests.Add(1)) - 1
 		status := statuses[min(index, len(statuses)-1)]
 		if status == http.StatusServiceUnavailable {
-			http.Error(w, "capability_unavailable: event bus app/event_bus/orders for orders/consumer/placed is not registered", status)
+			http.Error(w, "capability_unavailable: background capability is not provided", status)
 			return
 		}
 		w.WriteHeader(status)
@@ -325,8 +325,7 @@ func TestUnconfirmedActivationIsDegradedUntilReconciled(t *testing.T) {
 	}
 }
 
-// A build whose background work lacks a capability, such as an event bus no
-// provider registered, refuses activation. The instance keeps serving, reports
+// A build whose background work lacks a capability refuses activation. The instance keeps serving, reports
 // that background work is unavailable and why, and the refusal is not repeated
 // by the reconciler, whether it answers the first activation or a repetition.
 func TestRefusedActivationReportsUnavailableBackgroundWork(t *testing.T) {
@@ -344,7 +343,7 @@ func TestRefusedActivationReportsUnavailableBackgroundWork(t *testing.T) {
 			model.mu.Lock()
 			supervisor.activateDevProcessInstances(ctx, model, []*devProcessInstance{instance})
 			model.unlock()
-			want := "background work unavailable: capability_unavailable: event bus app/event_bus/orders for orders/consumer/placed is not registered"
+			want := "background work unavailable: capability_unavailable: background capability is not provided"
 			deadline := time.Now().Add(2 * time.Second)
 			for {
 				statuses := supervisor.serviceProcessStatuses()

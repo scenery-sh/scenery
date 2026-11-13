@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"strings"
 	"time"
@@ -15,9 +14,6 @@ import (
 )
 
 func runHarnessDevFollowProbeCheck(parent context.Context, repoRoot string) (summary map[string]any, diagnostics []checkDiagnostic, resultErr error) {
-	if runtime.GOOS == "windows" {
-		return map[string]any{"proof": "not_applicable_on_windows", "reason": "local agent control uses a Unix socket"}, nil, nil
-	}
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	root, err := os.MkdirTemp("", "scenery-dev-follow-probe-*")

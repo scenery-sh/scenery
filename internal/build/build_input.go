@@ -73,10 +73,7 @@ type BuildInputManifest struct {
 	Target  string       `json:"target"`
 	Entries []BuildInput `json:"entries"`
 	Digest  string       `json:"digest"`
-	// Nonempty only for a freshly discovered, workspace-owned input domain.
-	// It is not serialized: an old manifest cannot grant cache admission.
-	sharedWorkspace string
-	// Best-effort live mutation detection only, never shared-cache admission.
+	// Best-effort live mutation detection only.
 	observed map[string]buildInputFileStamp
 	// processes projects development process manifests from the same discovery.
 	processes *buildInputProcessGraph
@@ -345,24 +342,12 @@ func retainBuildInputDirectory(target map[string]buildInputFileStamp, path strin
 	return nil
 }
 
-func resetRetainedBuildInputGraphsForTesting() {
-	retainedBuildInputGraphs.Range(func(key, _ any) bool {
-		retainedBuildInputGraphs.Delete(key)
-		return true
-	})
-}
-
-func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
-	return buildInputManifestFromGoListObserved(context.Background(), result, output, nil)
-}
-
 func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, output []byte, stats *buildInputDigestStats) (*BuildInputManifest, error) {
 	if result == nil || result.Target == nil {
 		return nil, fmt.Errorf("build target is unavailable")
 	}
 	target := result.Target
 	entries := map[string]string{}
-	workspaceOnly, entrypoint := filepath.IsAbs(result.Dir), false
 	observed := map[string]buildInputFileStamp{}
 	// The Go command reports package directories through the working directory
 	// it resolves itself, which on some systems is the canonical form of a
@@ -380,17 +365,8 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 		}
 		return false
 	}
-	applicationEntrypoint := func(dir string) bool {
-		for _, workspace := range workspaces {
-			if filepath.Clean(dir) == filepath.Join(workspace, "scenery_internal_main") {
-				return true
-			}
-		}
-		return false
-	}
 	processes := &buildInputProcessGraph{packages: map[string]map[string]string{}, imports: map[string][]string{}, mains: map[string]string{}}
 	addFileTo := func(destination map[string]string, identity, path string) error {
-		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, path)
 		return observeBuildInputFile(observed, destination, identity, path, stats)
 	}
 	addFile := func(identity, path string) error { return addFileTo(entries, identity, path) }
@@ -421,7 +397,6 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 			stats.hits += read[index].stats.hits
 			stats.misses += read[index].stats.misses
 		}
-		workspaceOnly = workspaceOnly && read[index].workspaceOnly
 		for path, stamp := range read[index].observed {
 			if before, ok := observed[path]; ok && before != stamp {
 				return nil, fmt.Errorf("go build input changed during discovery: %s", path)
@@ -431,7 +406,6 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 		if err := observeBuildInputPath(observed, pkg.Dir); err != nil {
 			return nil, err
 		}
-		entrypoint = entrypoint || (applicationEntrypoint(pkg.Dir) && len(pkg.GoFiles) > 0)
 		// Process entrypoints are separate executables: they identify their
 		// own process manifests and never the application executable.
 		packageEntries := read[index].entries
@@ -450,11 +424,6 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 			maps.Copy(entries, packageEntries)
 		}
 		if pkg.Module != nil {
-			// Only the private main module is in the supported reuse domain.
-			// Module-cache paths and even in-workspace replacements are excluded;
-			// their resolver inputs need a separate ownership proof.
-			workspaceOnly = workspaceOnly && pkg.Module.Replace == nil && pkg.Module.Version == "" &&
-				pkg.Module.Dir == result.Dir && pkg.Module.GoMod == filepath.Join(result.Dir, "go.mod")
 			module := pkg.Module
 			if module.Replace != nil {
 				module = module.Replace
@@ -479,8 +448,6 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 			identity := pkg.Module.Path + "@" + pkg.Module.Version + "\x00" + pkg.Module.Sum + "\x00" + pkg.Module.GoModSum
 			sum := sha256.Sum256([]byte(identity))
 			entries["module/"+pkg.Module.Path] = "sha256:" + hex.EncodeToString(sum[:])
-		} else {
-			workspaceOnly = false
 		}
 	}
 	if frameworkRoot != "" {
@@ -505,7 +472,6 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 		result.FrameworkSourceRoot, result.FrameworkSourceDigest = source.Root, source.Digest
 	}
 	for _, relative := range append(stringValuesForBuild(target.Effective["native_inputs"]), stringValuesForBuild(target.Effective["native_input"])...) {
-		workspaceOnly = false
 		path := filepath.Join(result.AppRoot, filepath.FromSlash(relative))
 		if err := filepath.WalkDir(path, func(filePath string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -532,9 +498,6 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 	manifest := newBuildInputManifest(target.Name, entries)
 	manifest.observed = observed
 	manifest.processes = processes
-	if workspaceOnly && entrypoint && sharedBinaryStandaloneModule(result.Dir) {
-		manifest.sharedWorkspace = result.Dir
-	}
 	return manifest, nil
 }
 
@@ -542,10 +505,9 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 // observed while reading them, and whether they all stayed inside the
 // workspace's shared reuse domain.
 type buildInputPackageRead struct {
-	entries       map[string]string
-	observed      map[string]buildInputFileStamp
-	stats         buildInputDigestStats
-	workspaceOnly bool
+	entries  map[string]string
+	observed map[string]buildInputFileStamp
+	stats    buildInputDigestStats
 }
 
 // readBuildInputPackages stamps every listed package's consumed files. Reads
@@ -570,10 +532,6 @@ func readBuildInputPackages(workspace string, listed []goListPackage) ([]buildIn
 
 func readBuildInputPackage(workspace string, pkg goListPackage) (buildInputPackageRead, error) {
 	read := buildInputPackageRead{entries: map[string]string{}, observed: map[string]buildInputFileStamp{}}
-	// Native/assembly tools can read includes and link inputs outside Go's
-	// file projection. No shared executable until those reads are owned.
-	read.workspaceOnly = sharedBinaryWorkspacePath(workspace, pkg.Dir) &&
-		len(pkg.CgoFiles)+len(pkg.CFiles)+len(pkg.CXXFiles)+len(pkg.MFiles)+len(pkg.HFiles)+len(pkg.FFiles)+len(pkg.SFiles)+len(pkg.SwigFiles)+len(pkg.SwigCXXFiles)+len(pkg.SysoFiles) == 0
 	files := append([]string{}, pkg.GoFiles...)
 	for _, group := range [][]string{pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.MFiles, pkg.HFiles, pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles, pkg.SysoFiles, pkg.EmbedFiles} {
 		files = append(files, group...)
@@ -584,7 +542,6 @@ func readBuildInputPackage(workspace string, pkg goListPackage) (buildInputPacka
 		if err := observeBuildInputDirectories(read.observed, filepath.Dir(path), pkg.Dir); err != nil {
 			return read, err
 		}
-		read.workspaceOnly = read.workspaceOnly && sharedBinaryWorkspacePath(workspace, path)
 		if err := observeBuildInputFile(read.observed, read.entries, identity, path, &read.stats); err != nil {
 			return read, err
 		}
@@ -739,19 +696,6 @@ func buildInputStamp(info os.FileInfo) buildInputFileStamp {
 	}
 }
 
-func buildInputFileIdentity(info os.FileInfo) (uint64, uint64) {
-	identity, _ := filemeta.Read(info)
-	return identity.Device, identity.Inode
-}
-
-func buildInputFileChangeTime(info os.FileInfo) int64 {
-	identity, known := filemeta.Read(info)
-	if !known {
-		return 0
-	}
-	return identity.ChangeTimeNano
-}
-
 func stringValuesForBuild(value any) []string {
 	items, _ := value.([]any)
 	values := make([]string, 0, len(items))
@@ -831,32 +775,4 @@ func (graph *buildInputProcessGraph) entriesDigest(entries map[string]string) st
 		_, _ = hash.Write([]byte(identity + "\x00" + entries[identity] + "\x00"))
 	}
 	return hex.EncodeToString(hash.Sum(nil))
-}
-
-// developmentProcessInputs projects the complete input set of one process
-// entrypoint. Identification uses developmentProcessDigest; this projection
-// serves diagnostics and tests that assert membership.
-func (manifest *BuildInputManifest) developmentProcessInputs(name string) (*BuildInputManifest, string, error) {
-	graph := manifest.processes
-	if graph == nil {
-		return nil, "", fmt.Errorf("build inputs do not include development process entrypoints")
-	}
-	main := graph.mains[name]
-	if main == "" {
-		return nil, "", fmt.Errorf("build inputs do not include development process %s", name)
-	}
-	entries := maps.Clone(graph.global)
-	seen := map[string]bool{}
-	pending := []string{main}
-	for len(pending) > 0 {
-		current := pending[len(pending)-1]
-		pending = pending[:len(pending)-1]
-		if seen[current] {
-			continue
-		}
-		seen[current] = true
-		maps.Copy(entries, graph.packages[current])
-		pending = append(pending, graph.imports[current]...)
-	}
-	return newBuildInputManifest(manifest.Target, entries), main, nil
 }

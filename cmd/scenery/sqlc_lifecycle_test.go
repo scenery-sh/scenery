@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,7 +27,7 @@ func TestSQLCConcurrentSourceEditPublishesNothing(t *testing.T) {
 			writeTestAppFile(t, root, "auth/db/queries.sql", "-- name: Ping :one\nselect 2;\n")
 		}
 		return nil
-	}, nil)
+	})
 	err = runSQLCGeneratorWithHooks(context.Background(), io.Discard, root, plan, true, hooks)
 	if err == nil || !strings.Contains(err.Error(), "revision_conflict") {
 		t.Fatalf("concurrent SQL edit accepted: %v", err)
@@ -173,56 +172,6 @@ sql:
 	}
 }
 
-func TestSQLCAtlasSchemaHasOneProducer(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeSQLCFixture(t, root)
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","id":"sqlc-atlas","generators":{"sqlc":{"provider":"sqlc","dev_url":"postgres://scratch","schemas":[{"sqlc_schema":"auth/db/gen/schema.sql","atlas_source":"auth/db/schema.hcl"}]}}}`)
-	if err := os.Remove(filepath.Join(root, "auth/db/gen/schema.sql")); err != nil {
-		t.Fatal(err)
-	}
-	for _, inspect := range []bool{false, true} {
-		var output strings.Builder
-		var err error
-		if inspect {
-			err = runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &output)
-		} else {
-			err = runGenerate(t.Context(), &output, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"})
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		var graph generatorGraphResponse
-		if err := decodeCLIJSON([]byte(output.String()), &graph); err != nil {
-			t.Fatal(err)
-		}
-		var roots []string
-		var schemaOwners, schemaInputs int
-		for _, node := range graph.Nodes {
-			for _, output := range node.Outputs {
-				if output.Path == "auth/db/gen/schema.sql" && output.Kind == "sql_schema" {
-					schemaOwners++
-				}
-			}
-			if node.ID == "sqlc" {
-				for _, output := range node.Outputs {
-					if output.Kind == "output_root" {
-						roots = append(roots, output.Path)
-					}
-				}
-				for _, input := range node.Inputs {
-					if input.Kind == "sql_schema" && input.Path == "auth/db/gen/schema.sql" && input.Producer == "sqlc.schema.render.0" {
-						schemaInputs++
-					}
-				}
-			}
-		}
-		if !reflect.DeepEqual(roots, []string{"auth/db/gen"}) || schemaOwners != 1 || schemaInputs != 1 {
-			t.Fatalf("roots = %v, schema owners = %d, schema inputs = %d", roots, schemaOwners, schemaInputs)
-		}
-	}
-}
-
 func TestSQLCRunsFromSelectedConfigDirectory(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"sqlc.yaml", "queries.yaml"} {
@@ -248,7 +197,7 @@ func TestSQLCRunsFromSelectedConfigDirectory(t *testing.T) {
 					t.Fatalf("SQLC directory = %q, args = %v", req.Dir, req.Args)
 				}
 				return nil
-			}, nil)
+			})
 			op, err = newSQLCOperation(root, plan, hooks, io.Discard, true)
 			if err != nil {
 				t.Fatal(err)
@@ -269,27 +218,6 @@ func TestSQLCRunsFromSelectedConfigDirectory(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSQLCFailureDoesNotPublishRenderedSchema(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeSQLCFixture(t, root)
-	if err := os.Remove(filepath.Join(root, "auth/db/gen/schema.sql")); err != nil {
-		t.Fatal(err)
-	}
-	plan := &sqlcGeneratorPlan{ConfigPath: "sqlc.yaml", Schemas: []sqlcSchemaPlan{{SQLCSchema: "auth/db/gen/schema.sql", AtlasSource: "auth/db/schema.hcl", AtlasDevURL: "postgres://scratch"}}}
-	want := errors.New("SQLC failed")
-	hooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error { return want }, func(context.Context, lifecycleExecRequest) ([]byte, error) {
-		return []byte("create schema scenery_auth;\n"), nil
-	})
-	if err := runSQLCGeneratorWithHooks(context.Background(), io.Discard, root, plan, true, hooks); !errors.Is(err, want) {
-		t.Fatalf("failure = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "auth/db/gen/schema.sql")); !os.IsNotExist(err) {
-		t.Fatalf("partial schema published: %v", err)
-	}
-	assertSQLCStageClean(t, root)
 }
 
 func TestSQLCPlanningRejectsUnsupportedVersion(t *testing.T) {
@@ -430,7 +358,7 @@ func TestSQLCPublicationBindsVerifiedOutputAndKeepsRevokedRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := stubLifecycleExec(t, nil, nil)
+	hooks := stubLifecycleExec(t, nil)
 	op, err := newSQLCOperation(root, plan, hooks, io.Discard, true)
 	if err != nil {
 		t.Fatal(err)

@@ -52,9 +52,6 @@ func tsNamedDescriptor(resource Resource) any {
 			descriptors = append(descriptors, descriptor)
 		}
 		record := map[string]any{"kind": "record", "fields": descriptors, "preserveUnknown": resource.Spec["unknown_fields"] == "preserve"}
-		if validations := tsValidationDescriptors(resource); len(validations) > 0 {
-			record["validations"] = validations
-		}
 		return record
 	case "scenery.enum":
 		var values []string

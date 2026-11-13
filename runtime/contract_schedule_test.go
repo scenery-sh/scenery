@@ -13,7 +13,7 @@ func TestContractScheduleRegistersTypedCronInvocation(t *testing.T) {
 	defer restore()
 	called := false
 	if err := RegisterContractSchedule(ContractScheduleRegistration{
-		Address: "house/schedule/nightly", Name: "nightly", TriggerKind: "cron", TriggerValue: "0 2 * * *", Timezone: "Europe/Prague",
+		Address: "house/schedule/nightly", Name: "nightly", TriggerKind: "every", TriggerValue: "24h",
 		Overlap: "queue", CatchupMaximumAge: 10 * time.Minute, Identity: testWorkloadIdentity(),
 		AuthorizationAddress: "std.authorization.scheduled", PipelineAddress: "std.pipeline.empty",
 		Invoke: func(ctx context.Context) error {
@@ -30,41 +30,14 @@ func TestContractScheduleRegistersTypedCronInvocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	jobs := listCronJobs()
-	if len(jobs) != 1 || jobs[0].Timezone != "Europe/Prague" || jobs[0].OverlapPolicy != "buffer_all" || jobs[0].CatchupWindow != 10*time.Minute {
+	if len(jobs) != 1 || jobs[0].Every != 24*time.Hour || jobs[0].OverlapPolicy != "buffer_all" || jobs[0].CatchupWindow != 10*time.Minute {
 		t.Fatalf("jobs = %#v", jobs)
 	}
-	if err := InvokeCronJob(context.Background(), jobs[0], time.Now(), "schedule-test"); err != nil {
+	if err := safeInvokeCronJob(withCronInvocation(context.Background(), time.Now().UTC(), "schedule-test"), jobs[0]); err != nil {
 		t.Fatal(err)
 	}
 	if !called {
 		t.Fatal("schedule did not invoke operation")
-	}
-}
-
-func TestContractScheduleSupportsOneShotAndCalendar(t *testing.T) {
-	restore := replaceGlobalRegistryForTest()
-	defer restore()
-	base := ContractScheduleRegistration{
-		Address: "house/schedule/once", Name: "once", TriggerKind: "at", TriggerValue: "2030-01-02T03:04:05Z",
-		Overlap: "skip", Identity: testWorkloadIdentity(), AuthorizationAddress: "std.authorization.scheduled", PipelineAddress: "std.pipeline.empty", Invoke: func(context.Context) error { return nil },
-	}
-	if err := RegisterContractSchedule(base); err != nil {
-		t.Fatal(err)
-	}
-	if len(listCronJobs()) != 1 || listCronJobs()[0].At.IsZero() {
-		t.Fatalf("jobs = %#v", listCronJobs())
-	}
-	base.Address, base.Name, base.TriggerKind, base.TriggerValue = "house/schedule/calendar", "calendar", "calendar", "FREQ=WEEKLY;BYDAY=MO,FR;BYHOUR=2"
-	if err := RegisterContractSchedule(base); err != nil {
-		t.Fatal(err)
-	}
-	jobs := listCronJobs()
-	foundCalendar := false
-	for _, job := range jobs {
-		foundCalendar = foundCalendar || job.Calendar != "" && job.plan != nil
-	}
-	if len(jobs) != 2 || !foundCalendar {
-		t.Fatalf("jobs = %#v", jobs)
 	}
 }
 

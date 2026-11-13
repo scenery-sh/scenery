@@ -13,7 +13,6 @@ import (
 // no endpoint, credential, allocation authority or mutable application graph.
 type SQLBinding struct {
 	Name, Schema string
-	DurableOnly  bool
 }
 
 // ConfigureSQLBindings runs before generated constructors. It supplies the
@@ -48,12 +47,8 @@ func resolveRuntimeSQLBindings(bindings []SQLBinding, lookup func(string) string
 	if supplied.URL == baseURL && supplied.Source == postgresdb.SourceManaged {
 		database.Source = postgresdb.SourceManaged
 	}
-	remoteDurable := strings.TrimSpace(lookup(envDurableEndpoint)) != ""
 	seen := map[string]bool{}
 	for _, binding := range bindings {
-		if remoteDurable && binding.DurableOnly {
-			continue
-		}
 		if binding.Name == "" || binding.Schema == "" || seen[binding.Name] {
 			return postgresdb.Database{}, fmt.Errorf("runtime: SQL bindings require distinct non-empty names and schemas")
 		}

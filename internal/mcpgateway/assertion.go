@@ -126,21 +126,3 @@ func (v HMACAssertionVerifier) Verify(ctx context.Context, req *http.Request) (m
 		IdempotencyKey:     claims.IdempotencyKey,
 	}, nil
 }
-
-// StaticAssertionVerifier is a deterministic verifier useful for in-process
-// gateway tests and local fake helpers.  Unknown tokens fail closed.
-type StaticAssertionVerifier map[string]mcpcontract.ToolCallContext
-
-func (v StaticAssertionVerifier) Verify(_ context.Context, req *http.Request) (mcpcontract.ToolCallContext, error) {
-	if req == nil {
-		return mcpcontract.ToolCallContext{}, ErrUnauthorized
-	}
-	value, ok := v[strings.TrimSpace(req.Header.Get(AssertionHeader))]
-	if !ok {
-		return mcpcontract.ToolCallContext{}, ErrUnauthorized
-	}
-	if value.AssistantAddress == "" || value.Principal == "" || value.ConversationDigest == "" || value.CapabilityRevision == "" {
-		return mcpcontract.ToolCallContext{}, ErrUnauthorized
-	}
-	return value, nil
-}

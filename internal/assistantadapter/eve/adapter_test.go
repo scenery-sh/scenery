@@ -1,10 +1,8 @@
 package eve
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,35 +10,6 @@ import (
 
 	"scenery.sh/internal/mcpcontract"
 )
-
-func TestScaffoldPackageFilesAreAuthoritativeAndDefensive(t *testing.T) {
-	files, err := ScaffoldPackageFiles()
-	if err != nil {
-		t.Fatal(err)
-	}
-	lock := files["package-lock.json"]
-	sum := sha256.Sum256(lock)
-	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:345473603287eaa1316b77599284e37cb7beb5bae4002bbbc0e3010f57df9031"; got != want {
-		t.Fatalf("scaffold lock digest=%s want=%s", got, want)
-	}
-	var manifest struct {
-		Dependencies map[string]string `json:"dependencies"`
-	}
-	if err := json.Unmarshal(files["package.json"], &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.Dependencies["eve"] != EveVersion {
-		t.Fatalf("scaffold package eve=%q want=%q", manifest.Dependencies["eve"], EveVersion)
-	}
-	files["package-lock.json"][0] ^= 1
-	again, err := ScaffoldPackageFiles()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(files["package-lock.json"], again["package-lock.json"]) {
-		t.Fatal("scaffold package lock returned shared mutable bytes")
-	}
-}
 
 func fixtureRoot(t *testing.T) string {
 	t.Helper()
@@ -218,15 +187,6 @@ func TestMaterializeOverlayRejectsReservedSourceClaimsAndUnsafeDestination(t *te
 	}
 	if _, err := MaterializeOverlay(testOverlayRequest(t, fixtureRoot(t), string(filepath.Separator))); err == nil {
 		t.Fatal("filesystem root accepted as overlay")
-	}
-}
-
-func TestReservedPathListIsDefensive(t *testing.T) {
-	paths := ReservedPathList()
-	paths[0] = "changed"
-	again := ReservedPathList()
-	if again[0] == "changed" {
-		t.Fatal("reserved path list is mutable")
 	}
 }
 

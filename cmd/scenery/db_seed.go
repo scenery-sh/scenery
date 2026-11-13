@@ -408,13 +408,6 @@ func discoverDBSeedPlansForContract(appRoot string, cfg appcfg.Config, environme
 			SHA256:  hex.EncodeToString(sum[:]),
 		})
 	}
-	fixturePlans, fixtureErr := compiler.BuildFixtureSeedPlans(compiled, environment)
-	if fixtureErr != nil {
-		return nil, fixtureErr
-	}
-	for _, fixture := range fixturePlans {
-		plans = append(plans, dbSeedPlan{Kind: dbSeedPlanKindSQL, Service: fixture.Database, Path: fixture.Path, SQL: fixture.SQL, SHA256: fixture.SHA256})
-	}
 	commandPlans, commandErr := discoverDBSeedCommandPlans(appRoot, cfg, compiled.SQLRequirements)
 	if commandErr != nil {
 		return nil, commandErr

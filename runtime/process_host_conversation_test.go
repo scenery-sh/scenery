@@ -60,18 +60,18 @@ func (helper *assistantRunTestHelper) StreamEvents(ctx context.Context, request 
 // incarnations that share a session's host state, with an MCP tool whose
 // answer names the echo instance of the generation it executed.
 type assistantRunFixture struct {
-	t        *testing.T
-	server   assistantTestServer
-	helper   *assistantRunTestHelper
-	echo     []*processHostTestBackend
-	owner    processGenerationInstance
-	state    string
-	host     *processHost
-	serving  atomic.Pointer[processHost]
-	created  assistantapi.CreateConversationResponse
-	cookie   *http.Cookie
-	mu       sync.Mutex
-	channels map[string]string
+	t         *testing.T
+	server    assistantTestServer
+	helper    *assistantRunTestHelper
+	echo      []*processHostTestBackend
+	owner     processGenerationInstance
+	state     string
+	host      *processHost
+	serving   atomic.Pointer[processHost]
+	created   assistantapi.CreateConversationResponse
+	principal string
+	mu        sync.Mutex
+	channels  map[string]string
 }
 
 func newAssistantRunFixture(t *testing.T) *assistantRunFixture {
@@ -156,8 +156,8 @@ func (fixture *assistantRunFixture) base() string {
 
 func (fixture *assistantRunFixture) create() string {
 	fixture.t.Helper()
-	recorder := assistantRequest(fixture.t, fixture.ingress(), http.MethodPost, fixture.server.basePath, map[string]any{"message": map[string]string{"role": "user", "content": "hello"}}, nil)
-	fixture.created, fixture.cookie = decodeCreateResponse(fixture.t, recorder), cookieFrom(fixture.t, recorder)
+	recorder := assistantRequest(fixture.t, fixture.ingress(), http.MethodPost, fixture.server.basePath, map[string]any{"message": map[string]string{"role": "user", "content": "hello"}}, "user-run")
+	fixture.created, fixture.principal = decodeCreateResponse(fixture.t, recorder), "user-run"
 	fixture.remember(fixture.created.RunID)
 	return fixture.created.RunID
 }
@@ -165,7 +165,7 @@ func (fixture *assistantRunFixture) create() string {
 // turn sends a turn and returns its answer.
 func (fixture *assistantRunFixture) turn(message string) *httptest.ResponseRecorder {
 	fixture.t.Helper()
-	return assistantRequest(fixture.t, fixture.ingress(), http.MethodPost, fixture.base()+"/turns", map[string]any{"message": map[string]string{"role": "user", "content": message}}, fixture.cookie)
+	return assistantRequest(fixture.t, fixture.ingress(), http.MethodPost, fixture.base()+"/turns", map[string]any{"message": map[string]string{"role": "user", "content": message}}, fixture.principal)
 }
 
 // heldTurn sends a turn the helper holds open until the test answers it, and
@@ -179,7 +179,7 @@ func (fixture *assistantRunFixture) heldTurn(message string) (string, chan error
 	answered := make(chan *httptest.ResponseRecorder, 1)
 	server := fixture.ingress()
 	go func() {
-		answered <- assistantRequest(fixture.t, server, http.MethodPost, fixture.base()+"/turns", map[string]any{"message": map[string]string{"role": "user", "content": message}}, fixture.cookie)
+		answered <- assistantRequest(fixture.t, server, http.MethodPost, fixture.base()+"/turns", map[string]any{"message": map[string]string{"role": "user", "content": message}}, fixture.principal)
 	}()
 	runID := <-fixture.helper.entered
 	fixture.remember(runID)
@@ -213,7 +213,7 @@ func (fixture *assistantRunFixture) describe(runID string) string {
 		conversation = fixture.channels[fixture.created.RunID]
 	}
 	parts := strings.SplitN(conversation, "\x00", 3)
-	dispatch, _ := assistantMCPDispatchers()
+	dispatch := assistantMCPDispatcher()
 	outcome, err := dispatch.CallTool(context.Background(), MCPToolCallContext{AssistantAddress: parts[0], Principal: parts[1], ConversationDigest: parts[2], RunID: runID}, "house__describe", json.RawMessage(`{}`))
 	if err != nil {
 		return err.Error()
@@ -223,7 +223,7 @@ func (fixture *assistantRunFixture) describe(runID string) string {
 
 func (fixture *assistantRunFixture) events() *httptest.ResponseRecorder {
 	fixture.t.Helper()
-	return assistantEventsRequest(fixture.t, fixture.ingress(), fixture.created.EventsURL, fixture.cookie)
+	return assistantEventsRequest(fixture.t, fixture.ingress(), fixture.created.EventsURL, fixture.principal)
 }
 
 // waitEnded waits until the host no longer runs runID.
@@ -292,7 +292,7 @@ func TestAssistantToolCallsExecuteTheGenerationOfTheirOwnRun(t *testing.T) {
 	}
 
 	// No client stream is open: the host observes the cancelled run's end.
-	if recorder := assistantRequest(t, fixture.ingress(), http.MethodPost, fixture.base()+"/runs/"+first+"/cancel", nil, fixture.cookie); recorder.Code != http.StatusOK {
+	if recorder := assistantRequest(t, fixture.ingress(), http.MethodPost, fixture.base()+"/runs/"+first+"/cancel", nil, fixture.principal); recorder.Code != http.StatusOK {
 		t.Fatalf("cancel = %d %s", recorder.Code, recorder.Body.String())
 	}
 	fixture.waitEnded(first)

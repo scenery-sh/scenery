@@ -23,8 +23,6 @@ func TestContractCommandsRejectUnsupportedOutputBeforeWork(t *testing.T) {
 		run  func(io.Writer, []string) error
 		args []string
 	}{
-		{name: "changes", run: runContractChanges, args: []string{"rename", "house/record/scene", "renamed", "-o", "yaml"}},
-		{name: "graph", run: runContractGraph, args: []string{"house/record/scene", "-o", "yaml"}},
 		{name: "generate", run: runContractGenerate, args: []string{"-o", "yaml"}},
 	}
 	for _, test := range tests {

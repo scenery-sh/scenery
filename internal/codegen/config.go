@@ -37,7 +37,7 @@ func generateServiceMain(appName string, cfg appcfg.Config, service generateapi.
 // implementation edits never rebuild it; the route and MCP tool tables and the
 // contract revision are literal data, and the first service process serves
 // framework and unmatched routes. A host that serves requests itself, because
-// it has application-level registrations (assistants and MCP federation) or no
+// it has application-level registrations (assistants) or no
 // service process serves the framework, renders the entrypoint's SQL and
 // authentication wiring.
 func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.RuntimeIntegrationPlan, sql compiler.SQLRequirements) ([]byte, error) {
@@ -103,14 +103,8 @@ func renderSQLBindings(buf *strings.Builder, sql compiler.SQLRequirements) {
 		return
 	}
 	buf.WriteString("\tif err := sceneryruntime.ConfigureSQLBindings([]sceneryruntime.SQLBinding{\n")
-	for _, binding := range sql.Bindings(false) {
-		durableOnly := true
-		for _, requirement := range sql {
-			if requirement.Name == binding.Name && requirement.Kind != compiler.SQLDurable {
-				durableOnly = false
-			}
-		}
-		fmt.Fprintf(buf, "\t\t{Name: %q, Schema: %q, DurableOnly: %t},\n", binding.Name, binding.Schema, durableOnly)
+	for _, binding := range sql.Bindings() {
+		fmt.Fprintf(buf, "\t\t{Name: %q, Schema: %q},\n", binding.Name, binding.Schema)
 	}
 	buf.WriteString("\t}); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 }
@@ -213,9 +207,6 @@ func authDevBootstrapConfigLiteral(cfg appcfg.AuthDevBootstrap) string {
 	}
 	if cfg.DefaultUserEmail != "" {
 		fields = append(fields, fmt.Sprintf("DefaultUserEmail: %q", cfg.DefaultUserEmail))
-	}
-	if cfg.DefaultUserID != "" {
-		fields = append(fields, fmt.Sprintf("DefaultUserID: %q", cfg.DefaultUserID))
 	}
 	if cfg.DefaultTenantID != "" {
 		fields = append(fields, fmt.Sprintf("DefaultTenantID: %q", cfg.DefaultTenantID))

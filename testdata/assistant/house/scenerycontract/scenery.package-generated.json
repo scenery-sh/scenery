@@ -1,12 +1,10 @@
 {
   "artifact_kind": "go_package_contract",
   "capability_interface_abi_ranges": {},
-  "content_digest": "sha256:d31eba84912c9ca4032e6dcf4ff8a6bcd34f53923a7469ba4d48c04f40eb9a44",
+  "content_digest": "sha256:4d86b27abc49b242c82198a8b8d2a0e01b11a16a38c7ad49fab8ee210e4ecaac",
   "covered": [
-    "binding.process_scene_durable_mcp",
     "binding.process_scene_mcp",
     "execution.process_scene_direct",
-    "execution.process_scene_durable",
     "operation.process_scene",
     "record.process_scene_input",
     "record.process_scene_result",
@@ -31,5 +29,5 @@
   },
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:fa325f0aa48e8489c7ae85ab996efe2bd50962483ba9a3fcfc0e162384ffdca0",
-  "spec_revision": "sha256:fb93dea5fd3fc1808888fc6a36840c96da352b94635ef0f2d8bc451e1360953f"
+  "spec_revision": "sha256:979a443943ba610f5beddbd9d6e89cfbcb12b75a598fb3636fe65306f4b1d34b"
 }

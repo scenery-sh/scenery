@@ -812,31 +812,6 @@ var activeAssistantBootstrap struct {
 	value *AssistantBootstrap
 }
 
-// AssistantRuntimeStatuses returns the active bootstrap snapshot for
-// provider-neutral inspection. If startup has not run yet, declared assistants
-// are reported as unconfigured without exposing any private descriptor data.
-func AssistantRuntimeStatuses() []AssistantBootstrapStatus {
-	activeAssistantBootstrap.Lock()
-	bootstrap := activeAssistantBootstrap.value
-	activeAssistantBootstrap.Unlock()
-	if bootstrap != nil {
-		return bootstrap.Statuses()
-	}
-	registered := listAssistants()
-	statuses := make([]AssistantBootstrapStatus, 0, len(registered))
-	for _, registration := range registered {
-		statuses = append(statuses, AssistantBootstrapStatus{
-			AssistantAddress:   registration.Address,
-			State:              string(assistantruntime.StateUnavailable),
-			Required:           registration.Required,
-			RuntimeRevision:    registration.RuntimeRevision,
-			CapabilityRevision: registration.CapabilityRevision,
-			ErrorCode:          "unconfigured",
-		})
-	}
-	return statuses
-}
-
 // bootstrapAssistantRuntimeService is installed with the generated assistant
 // registration. It intentionally absorbs config/probe errors so a required
 // helper outage cannot terminate the public Go app.

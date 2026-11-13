@@ -23,13 +23,6 @@ type taskOptions struct {
 	Args    []string
 }
 
-type taskGraphResponse struct {
-	cliPayloadIdentity
-	App   inspectdata.AppRef `json:"app"`
-	Nodes []taskGraphNode    `json:"nodes"`
-	Edges []taskGraphEdge    `json:"edges"`
-}
-
 type taskListResponse struct {
 	cliPayloadIdentity
 	App   inspectdata.AppRef `json:"app"`
@@ -55,20 +48,6 @@ type taskInspectResponse struct {
 	App      inspectdata.AppRef `json:"app"`
 	Task     taskListRecord     `json:"task"`
 	Searched []string           `json:"searched,omitempty"`
-}
-
-type taskGraphNode struct {
-	Target       string `json:"target"`
-	Kind         string `json:"kind"`
-	Source       string `json:"source,omitempty"`
-	Language     string `json:"language,omitempty"`
-	ArgsAccepted bool   `json:"args_accepted,omitempty"`
-}
-
-type taskGraphEdge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	Kind string `json:"kind"`
 }
 
 const (
@@ -121,15 +100,6 @@ func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error 
 			_, _ = fmt.Fprintf(stdout, "  steps: %s\n", strings.Join(task.Steps, ", "))
 		}
 		return nil
-	case "graph":
-		if !opts.JSON {
-			return usageErrorf("scenery task graph requires -o json")
-		}
-		graph, err := buildTaskGraph(appRoot, cfg)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, graph)
 	case "run":
 		return runTaskTarget(ctx, appRoot, opts)
 	default:
@@ -139,7 +109,7 @@ func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error 
 
 func parseTaskArgs(args []string) (taskOptions, error) {
 	if len(args) == 0 {
-		return taskOptions{}, usageErrorf("usage: scenery task list|inspect|run|graph [--app-root <path>] [-o json]")
+		return taskOptions{}, usageErrorf("usage: scenery task list|inspect|run [--app-root <path>] [-o json]")
 	}
 	opts := taskOptions{Action: args[0]}
 	before, passthrough, hasPassthrough := splitCLIPassthrough(args[1:])
@@ -234,37 +204,6 @@ func buildTaskInspect(appRoot string, cfg appcfg.Config, opts taskOptions) (task
 		for _, item := range searched {
 			resp.Searched = append(resp.Searched, item.Path)
 		}
-	}
-	return resp, nil
-}
-
-func buildTaskGraph(appRoot string, cfg appcfg.Config) (taskGraphResponse, error) {
-	resp := taskGraphResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.task.graph"),
-		App:                taskAppRef(appRoot, cfg),
-		Nodes:              []taskGraphNode{},
-		Edges:              []taskGraphEdge{},
-	}
-	seenNodes := map[string]bool{}
-	addNode := func(node taskGraphNode) {
-		if node.Target == "" || seenNodes[node.Kind+"\x00"+node.Target] {
-			return
-		}
-		seenNodes[node.Kind+"\x00"+node.Target] = true
-		resp.Nodes = append(resp.Nodes, node)
-	}
-	codeTasks, err := listScriptCandidates(appRoot)
-	if err != nil {
-		return taskGraphResponse{}, err
-	}
-	for _, task := range codeTasks {
-		addNode(taskGraphNode{
-			Target:       scriptTargetString(task.Target),
-			Kind:         taskKindCode,
-			Source:       task.Path,
-			Language:     task.Lang,
-			ArgsAccepted: true,
-		})
 	}
 	return resp, nil
 }

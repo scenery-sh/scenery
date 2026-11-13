@@ -22,7 +22,6 @@ func TestHelpRequestTopicsResolveTheCommandPath(t *testing.T) {
 		{args: []string{"up", "--help"}, topics: []string{"up"}, help: true},
 		{args: []string{"db", "migrate", "--app-root", ".", "-h"}, topics: []string{"db", "migrate"}, help: true},
 		{args: []string{"config", "set", "KEY", "--help", "-o", "json"}, topics: []string{"config", "set", "KEY", "-o", "json"}, help: true},
-		{args: []string{"deploy", "host.example", "--help"}, topics: []string{"deploy"}, help: true},
 		{args: []string{"task", "run", "web:build", "--", "-h"}},
 		{args: []string{"orders", "create", "--help"}},
 		{args: []string{"up"}},
@@ -94,7 +93,7 @@ func TestUnknownSubcommandNeedsACompleteList(t *testing.T) {
 			t.Errorf("%s subcommands are not complete: %q", command, entry.Subcommands)
 		}
 	}
-	for _, args := range [][]string{{"deploy", "host.example"}, {"generate", "--target", "x"}, {"db"}, {"logs", "--follow"}} {
+	for _, args := range [][]string{{"generate", "--target", "x"}, {"db"}, {"logs", "--follow"}} {
 		if err := unknownSubcommandError(args); err != nil {
 			t.Errorf("unknownSubcommandError(%q) = %v", args, err)
 		}

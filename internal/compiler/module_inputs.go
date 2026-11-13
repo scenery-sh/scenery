@@ -26,17 +26,6 @@ type packageInputDeclaration struct {
 	Constraints      map[string]any
 }
 
-func resolveModuleInstanceInputs(rootResources, packageResources []Resource, packageSources []*Source, module *Block) ([]Resource, []Diagnostic) {
-	return resolveModuleInstanceInputsInScope(rootResources, packageResources, packageSources, module, "app")
-}
-
-func resolveModuleInstanceInputsInScope(rootResources, packageResources []Resource, packageSources []*Source, module *Block, callerModule string) ([]Resource, []Diagnostic) {
-	values, provenance, diagnostics := resolveModuleInputValuesWithProvenance(rootResources, packageResources, packageSources, module, callerModule)
-	resolved, substitutionDiagnostics := substituteResolvedModuleInputsWithProvenance(packageResources, values, provenance, deferredConfigurationInputs(packageSources, values))
-	diagnostics = append(diagnostics, substitutionDiagnostics...)
-	return resolved, diagnostics
-}
-
 // substituteResolvedModuleInputsWithProvenance replaces var references with
 // resolved input values. A deferred input is an environment-configurable
 // deployment input without a declared value: a Go service config field that
@@ -68,10 +57,6 @@ func substituteResolvedModuleInputsWithProvenance(packageResources []Resource, v
 		}
 	}
 	return resolved, diagnostics
-}
-
-func resolveModuleInputValuesWithProvenance(rootResources, packageResources []Resource, packageSources []*Source, module *Block, callerModule string) (map[string]any, map[string]FieldProvenance, []Diagnostic) {
-	return resolveModuleInputValuesWithSourceProvenance(rootResources, packageResources, packageSources, module, module, callerModule)
 }
 
 func resolveModuleInputValuesWithSourceProvenance(rootResources, packageResources []Resource, packageSources []*Source, module, sourceModule *Block, callerModule string) (map[string]any, map[string]FieldProvenance, []Diagnostic) {
@@ -367,8 +352,6 @@ func cloneSemanticValue(value any) any {
 		return typed
 	}
 }
-
-func CloneSemanticValue(value any) any { return cloneSemanticValue(value) }
 
 func cloneStringAnyMap(value map[string]any) map[string]any {
 	result := make(map[string]any, len(value))

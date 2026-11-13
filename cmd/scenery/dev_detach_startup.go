@@ -69,7 +69,7 @@ func (r *detachedDevStartupReporter) Report(err error) error {
 	}
 	err = preserveCLIDiagnostic(err)
 	result := detachedDevStartupFailure{ExitCode: cliExitCode(err), Diagnostic: cliErrorDiagnostic(err)}
-	// A parent using --wait registered may have already closed its reader.
+	// The parent may have already closed its reader.
 	// Reporting must not change the supervisor's original failure.
 	_ = newCLIEventWriter(r.writer).write("summary", true, result)
 	_ = r.Close()

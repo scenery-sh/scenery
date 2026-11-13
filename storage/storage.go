@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"io"
-	"os"
 	"scenery.sh/internal/storagefs"
 	"strings"
 )
@@ -54,16 +53,4 @@ func Named(ctx context.Context, name string) (Store, error) {
 		return nil, &NotConfiguredError{Store: name}
 	}
 	return newRuntimeStore(name, store, cfg.Namespace)
-}
-
-func PutFile(ctx context.Context, store Store, key, localPath string, opts PutOptions) (*Object, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	file, err := os.Open(localPath)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = file.Close() }()
-	return store.Put(ctx, key, file, opts)
 }

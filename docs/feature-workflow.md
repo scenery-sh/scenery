@@ -138,9 +138,7 @@ retry the same candidate/review revision after resolving the failure. If the
 remote accepted the push before the CLI stopped, retry verifies that publication
 and completes its receipt without publishing another feature. Locks use kernel
 ownership; stale lock files confer no ownership. A surviving expensive-check
-child retains admission after the CLI dies, until that child exits. Child-owned
-expensive admission is supported on Unix; Windows refuses expensive checks
-rather than allowing uncounted surviving children.
+child retains admission after the CLI dies, until that child exits.
 
 Landing one checkpoint leaves subsequent committed, staged, unstaged and
 untracked work visible as `partially_landed`. Full landing requires the exact

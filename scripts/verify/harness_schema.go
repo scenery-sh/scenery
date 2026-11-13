@@ -10,9 +10,7 @@ import (
 	"strings"
 	"time"
 
-	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
 	"scenery.sh/internal/feature"
 	"scenery.sh/internal/machine"
@@ -175,25 +173,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		}{newCLIPayloadIdentity("scenery.feature"), true, "list", feature.Overview{RepoRoot: repoRoot, Main: "main", Features: []feature.Row{}, Candidates: []feature.Candidate{}}})},
 		{name: "feature.policy", schemaRel: "docs/schemas/scenery.feature.policy.schema.json", payload: featurePolicy},
 		{name: "docs.index", schemaRel: "docs/schemas/scenery.docs.index.schema.json", payload: docsKnowledgePayload},
-		{name: "approval.trust", schemaRel: "docs/schemas/scenery.approval-trust.schema.json", payload: artifact("scenery.approval-trust", map[string]any{
-			"keys": map[string]any{"maintainer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
-		})},
-		{name: "approval.token", schemaRel: "docs/schemas/scenery.approval-token.schema.json", payload: artifact("scenery.approval-token", map[string]any{
-			"plan_id": "sha256:" + strings.Repeat("0", 64), "caller": "local", "risk_scopes": []any{"deployment.destructive:app/data_source/database"},
-			"expires_at": "2026-07-10T12:00:00Z", "signature": "ed25519:maintainer:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		})},
-		{name: "change.plan", schemaRel: "docs/schemas/scenery.change-plan.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-plan.schema.json", artifact("scenery.change-plan", map[string]any{
-			"plan_id": digest, "application": "schema-fixture", "base_workspace_revision": digest,
-			"base_contract_revision": digest, "predicted_workspace_revision": digest, "predicted_contract_revision": digest,
-			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "caller": "harness", "capabilities": []any{},
-			"operations_digest": digest, "operations": []any{}, "rename_receipts": []any{}, "semantic_diff": map[string]any{}, "affected_resources": []any{}, "diagnostics": []any{},
-			"source_edits": []any{}, "formatting_effects": []any{}, "required_approvals": []any{}, "required_capabilities": []any{}, "risk_records": []any{},
-			"expires_at": "2026-07-10T12:00:00Z",
-		}))},
-		{name: "change.receipt", schemaRel: "docs/schemas/scenery.change-receipt.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-receipt.schema.json", artifact("scenery.change-receipt", map[string]any{
-			"plan_id": digest, "workspace_revision": digest, "contract_revision": digest,
-			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "applied": []any{}, "rename_receipts": []any{},
-		}))},
 		{name: "cli", schemaRel: "docs/schemas/scenery.cli.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.schema.json", map[string]any{
 			"kind": machine.EnvelopeKind, "schema_revision": machine.EnvelopeSchemaRevision, "spec_revision": currentMachineSpecRevision(), "producer": cliProducer(), "ok": true,
 			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": nil, "deployment_revision": nil,
@@ -204,18 +183,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			"workspace_revision": nil, "contract_revision": nil, "implementation_revision": nil, "deployment_revision": nil,
 			"data": map[string]any{"event_count": 0}, "diagnostics": []any{},
 		})},
-		{name: "deployment.plan", schemaRel: "docs/schemas/scenery.deployment-plan.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-plan.schema.json", artifact("scenery.deployment-plan", map[string]any{
-			"plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
-			"deployment_name": "local", "environment": "development", "base_workspace_revision": digest, "contract_revision": digest,
-			"implementation_revision": map[string]any{"development": digest}, "deployment_revision": digest,
-			"projection":     artifact("scenery.deployment-projection", map[string]any{"deployment": "app/deployment/local", "environment": "development", "contract_revision": digest, "resources": map[string]any{}}),
-			"provider_plans": []any{}, "caller": "harness", "capabilities": []any{}, "required_approvals": []any{}, "risk_records": []any{}, "expires_at": "2026-07-10T12:00:00Z",
-		}))},
-		{name: "deployment.receipt", schemaRel: "docs/schemas/scenery.deployment-receipt.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-receipt.schema.json", artifact("scenery.deployment-receipt", map[string]any{
-			"plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
-			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": map[string]any{"development": digest},
-			"deployment_revision": digest, "provider_plan_digests": []any{}, "applied_at": "2026-07-10T12:00:00Z",
-		}))},
 		{name: "generated.application", schemaRel: "docs/schemas/scenery.generated.schema.json", payload: fixturePayload(
 			"docs/schemas/scenery.generated.schema.json", "internal/compiler/testdata/native/internal/scenerygen/scenery.generated.json",
 		)},
@@ -252,23 +219,7 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 				"artifacts": []string{"/tmp/app/src-tauri/target/release/bundle/dmg/app.dmg"},
 			}},
 		})},
-		{name: "assistant.init", schemaRel: "docs/schemas/scenery.assistant.init.schema.json", payload: withCLIPayloadIdentity("scenery.assistant.init", map[string]any{
-			"assistant": "support", "address": "app/assistant/support", "mcp_server": "support", "client": "public_api",
-			"source": "./assistants/support", "package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json",
-			"eval_directory": "./assistants/support/eval", "dry_run": false, "applied": true, "idempotent": false,
-			"created": []string{"./assistants/support/agent/agent.ts"}, "preserved": []string{}, "plan_id": digest,
-			"base_workspace_revision": digest, "predicted_workspace_revision": digest, "contract_revision": digest,
-			"files": []map[string]any{{"path": "./assistants/support/agent/agent.ts", "action": "create"}},
-		})},
-		{name: "assistant.sync", schemaRel: "docs/schemas/scenery.assistant.sync.schema.json", payload: withCLIPayloadIdentity("scenery.assistant.sync", map[string]any{
-			"assistant": "support", "address": "app/assistant/support", "source": "./assistants/support",
-			"package": "./assistants/support/package.json", "package_lock": "./assistants/support/package-lock.json",
-			"lock_digest": digest, "package_digest": digest, "cache_path": "/tmp/scenery/assistant-cache/0000000000000000000000000000000000000000000000000000000000000000",
-			"status": "synced", "reused": false, "node_path": "/tmp/scenery/node/bin/node", "npm_path": "/tmp/scenery/node/bin/npm",
-		})},
 		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
-		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
-		{name: "deploy.status", schemaRel: "docs/schemas/scenery.deploy.status.schema.json", payload: buildHarnessDeployStatusSchemaPayload()},
 		{name: "snapshot.save", schemaRel: "docs/schemas/scenery.snapshot.save.schema.json", payload: snapshotSaveResult{
 			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.save"), Archive: "/tmp/app.zip",
 			App: snapshotAppResult{Name: "app", ID: "app", Root: "/tmp/app"},
@@ -447,109 +398,6 @@ func buildHarnessDoctorSchemaPayload(versionPayload versionResponse) doctorRespo
 	}
 	resp.Summary = doctor.Summarize(resp.Checks)
 	return resp
-}
-
-func buildHarnessDeployRegistrySchemaPayload() map[string]any {
-	registry := localagent.EmptyDeployRegistry()
-	encoded, _ := json.Marshal(registry.ArtifactIdentity)
-	var payload map[string]any
-	_ = json.Unmarshal(encoded, &payload)
-	payload["acme_email"] = "ops@example.com"
-	payload["acme_ca"] = "staging"
-	payload["targets"] = []map[string]any{{
-		"domain":       "example.com",
-		"app_root":     "/tmp/scenery-deploy-fixture",
-		"root_service": "web",
-		"enabled":      true,
-		"created_at":   "2026-07-07T00:00:00Z",
-		"updated_at":   "2026-07-07T00:00:00Z",
-	}}
-	return payload
-}
-
-func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
-	return deployStatusResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.status"),
-		Ready:              true,
-		RegistryPath:       "/tmp/scenery/agent/deploy.json",
-		PrivilegedListener: edgeStatusPrivilegedListener{
-			Strategy:                 "helper",
-			Installed:                true,
-			State:                    "running",
-			PID:                      101,
-			Listen:                   []string{"0.0.0.0:80", "[::]:80", "0.0.0.0:443", "[::]:443"},
-			Target:                   "127.0.0.1:19443",
-			TargetPath:               "/tmp/scenery/run/edge-target.json",
-			TargetPID:                202,
-			OwnerUID:                 501,
-			OwnerGID:                 20,
-			Version:                  "v1.2.3",
-			ContractRevision:         localagent.EdgeHelperContractRevision,
-			RequiredForPortlessHTTPS: true,
-			InstallCommand:           "scenery deploy setup",
-		},
-		HelperPublic: true,
-		Edge: edgeStatusCaddy{
-			Kind:        "caddy",
-			State:       "running",
-			PID:         303,
-			UID:         501,
-			HTTPSListen: "127.0.0.1:19443",
-			Upstream:    "127.0.0.1:9440",
-			AgentRouter: "127.0.0.1:9440",
-			Admin:       "unix//tmp/scenery/caddy-admin.sock",
-			ConfigPath:  "/tmp/scenery/edge/Caddyfile",
-			LogPath:     "/tmp/scenery/edge/caddy.log",
-		},
-		Agent: deployAgentStatus{
-			State:      "running",
-			PID:        404,
-			StatePath:  "/tmp/scenery/agent/state.json",
-			SocketPath: "/tmp/scenery/agent/agent.sock",
-			RouterAddr: "127.0.0.1:9440",
-		},
-		AgentSupervisor: deployAgentSupervisorStatus{
-			Installed: true,
-			Loaded:    true,
-			Running:   true,
-			PID:       404,
-			Label:     localagent.AgentLaunchdLabel,
-			Path:      "/Users/example/Library/LaunchAgents/dev.scenery.agent.plist",
-		},
-		LaunchAgent: deployLaunchAgentStatus{
-			Installed: true,
-			Loaded:    true,
-			Path:      "/Users/example/Library/LaunchAgents/dev.scenery.deploy-resume.plist",
-		},
-		ACME: deployACMEStatus{
-			Email: "ops@example.com",
-			CA:    "staging",
-		},
-		Targets: []deployTargetStatus{{
-			Domain:       "example.com",
-			AppRoot:      "/tmp/scenery-deploy-fixture",
-			RootService:  "web",
-			Enabled:      true,
-			LiveSession:  true,
-			SessionID:    "example",
-			CertPresent:  true,
-			CertNotAfter: "2026-10-07T00:00:00Z",
-		}},
-		DiagnosticsDetail: &deploydiag.Report{
-			LANIP:    "192.168.1.20",
-			PublicIP: "203.0.113.10",
-			Checks: []deploydiag.Check{{
-				ID:      "deploy.dns.example.com",
-				Status:  "ok",
-				Message: "DNS for example.com resolves to this public IP",
-				Observed: map[string]any{
-					"domain":    "example.com",
-					"public_ip": "203.0.113.10",
-					"ips":       []string{"203.0.113.10"},
-				},
-			}},
-		},
-	}
 }
 
 func harnessNilPayload(value any) bool {

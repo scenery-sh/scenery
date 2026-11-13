@@ -13,7 +13,7 @@ func TestCommandAgentPathsUsesExplicitOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Home != paths.Home || got.DeployPath != localagent.PathsForHome(home).DeployPath {
+	if got.Home != paths.Home || got.StatePath != localagent.PathsForHome(home).StatePath {
 		t.Fatalf("commandAgentPaths = %+v, want home %q", got, home)
 	}
 }

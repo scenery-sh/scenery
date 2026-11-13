@@ -4,21 +4,19 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/spec"
 )
 
 func TestAuthoredFieldOverridesKeepCombinedMetadataTogether(t *testing.T) {
 	t.Parallel()
 	strategy := authoredAttributeDefinition("scenery.source.authorization", "strategy")
-	if strategy.Default != "deny_unless_allowed" || strategy.DefaultSource != "spec" || !slices.Equal(strategy.Constraints["enum"].([]string), []string{"all_must_allow", "allow_if_all", "allow_if_any", "any_allow", "deny_unless_allowed", "first_applicable"}) {
+	if strategy.Default != "deny_unless_allowed" || strategy.DefaultSource != "spec" || !slices.Equal(strategy.Constraints["enum"].([]string), []string{"all_must_allow", "deny_unless_allowed", "first_applicable"}) {
 		t.Fatalf("authorization strategy metadata = %#v", strategy)
 	}
 	config := authoredAttributeDefinition("scenery.source.provider", "config")
 	if config.RevisionDomain != "implementation" || config.SensitivitySource != "provider_schema" {
 		t.Fatalf("provider config metadata = %#v", config)
-	}
-	secret := authoredAttributeDefinition("scenery.deployment.secret", "value")
-	if !secret.Sensitive {
-		t.Fatalf("deployment secret metadata = %#v", secret)
 	}
 	if domain := authoredRevisionDomain("scenery.source.service", "implementation"); domain != "implementation" {
 		t.Fatalf("service implementation revision domain = %q", domain)
@@ -76,7 +74,7 @@ func TestResourceSchemaDefinitionsDriveAuthoredAndCanonicalFields(t *testing.T) 
 			continue
 		}
 		allowed := resourceSchemaAllowedFields(kind)
-		core, ok := CoreSchema(kind)
+		core, ok := spec.CoreSchema(kind)
 		if !ok {
 			t.Errorf("%s has no public schema", kind)
 			continue

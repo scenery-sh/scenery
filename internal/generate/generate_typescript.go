@@ -25,19 +25,6 @@ func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResul
 	return GenerateTypeScriptClientsFromResult(compiled, selector, check)
 }
 
-func selectedTypeScriptRenderer(selector string) artifactRenderer {
-	return func(result *compiler.Result) ([]generatedFile, error) {
-		files, err := renderTypeScriptClientFiles(result, selector)
-		if err != nil {
-			return nil, err
-		}
-		if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, selector), files); err != nil {
-			return nil, err
-		}
-		return files, nil
-	}
-}
-
 // GenerateTypeScriptClientsFromResult renders one immutable compiler snapshot.
 func GenerateTypeScriptClientsFromResult(result *compiler.Result, selector string, check bool) (GenerateResult, error) {
 	if selector != "" && !strings.HasPrefix(selector, "typescript_client.") {
@@ -51,13 +38,9 @@ func GenerateTypeScriptClientsFromResult(result *compiler.Result, selector strin
 	return op.run(context.Background(), op.plan)
 }
 
-// SyncCachedTypeScriptClients refreshes only cache-materialized clients. It is
-// safe for ordinary build/test/up orchestration because every write remains
-// beneath app-local .scenery state.
-func SyncCachedTypeScriptClients(result *compiler.Result) (GenerateResult, error) {
-	return SyncCachedTypeScriptClientsContext(context.Background(), result)
-}
-
+// SyncCachedTypeScriptClientsContext refreshes only cache-materialized
+// clients. It is safe for ordinary build/test/up orchestration because every
+// write remains beneath app-local .scenery state.
 func SyncCachedTypeScriptClientsContext(ctx context.Context, result *compiler.Result) (GenerateResult, error) {
 	if result == nil || !result.Valid() || result.Manifest == nil {
 		return GenerateResult{}, nil
@@ -473,11 +456,8 @@ func declaredReactPageBindings(resources []Resource, target Resource) map[string
 		if table.Kind != "scenery.table-page" || table.Origin.Kind == "expanded" {
 			continue
 		}
-		source := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
-		switch source.Kind {
-		case "scenery.crud":
-			result[resourceAddress(source.Module, "binding", source.Name+"_list_http")] = true
-		case "scenery.binding":
+		source := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "binding")]
+		if source.Kind == "scenery.binding" {
 			result[source.Address] = true
 		}
 		for _, stats := range orderedChildren(table.Spec, "stats") {

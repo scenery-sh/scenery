@@ -2,11 +2,11 @@
 
 ## Purpose
 
-`internal/edge` owns the managed Caddy process lifecycle used by `scenery system edge` (start, stop, reload, local-CA trust, and persistence of the matching edge state) plus the pure edge config and parsing surfaces: Caddyfile generation (`caddyconfig.go`), dnsmasq/resolver config generation and edge DNS state persistence (`dns.go`), launchd plist parsing helpers (`launchd.go`), the production-frontend deploy artifact publisher (`publish.go`), and the Linux systemd edge unit lifecycle (`systemd.go`).
+`internal/edge` owns the managed Caddy process lifecycle used by `scenery system edge` (start, stop, reload, local-CA trust, and persistence of the matching edge state) plus the pure edge config and parsing surfaces: Caddyfile generation (`caddyconfig.go`) and launchd plist parsing helpers (`launchd.go`).
 
 ## Ownership
 
-- Keep CLI parsing, output rendering, managed-tool resolution, dnsmasq/helper process orchestration, and privileged-listener setup in `cmd/scenery`.
+- Keep CLI parsing, output rendering, managed-tool resolution, helper process orchestration, and privileged-listener setup in `cmd/scenery`.
 - `ListenTCP` owns only the existing dual-stack socket binding primitive;
   the CLI still selects privileged addresses, ports, and forwarding policy.
 - Keep edge state schemas and path derivation in `internal/agent`.
@@ -20,10 +20,6 @@
 - `Reload` must address the configured Unix admin socket.
 - `TrustLocalCA` must use a temporary admin-only Caddyfile and leave no listener or temporary directory behind.
 - Preserve the platform-specific detached-child behavior in `process_*.go`.
-- `PublishFrontendArtifact` writes immutable releases beneath the validated deploy-artifact root and switches one relative `current` symlink atomically; it rejects symlinks/special files, excludes dotfiles and dot-directories except non-dotfile entries beneath a top-level `.well-known` directory, requires a regular `index.html`, retains a fixed release window, and never deletes outside the frontend directory. Caddy static routes reference the `current` symlink so publication switches without a reload, and return HTTP 404 for dot-segment paths outside `/.well-known/*`.
-- Public domain sites render static frontends only when the `current` artifact resolves to a complete release (`renderableStaticFrontends`); anything else falls back to the agent proxy. Blocked Scenery paths and the `/api/*` agent proxy always precede static handlers.
-- Public domain TLS tries ACME first and Caddy's internal CA second. The fallback is the origin-certificate path for TLS-terminating proxies such as Cloudflare in Full mode; direct public domains still receive publicly trusted ACME certificates when issuance is available.
-- `systemd.go` owns the `scenery-edge.service` unit: managed Caddy binary, Scenery-rendered Caddyfile, admin-socket reload. Keep systemctl access behind the package hook so tests never touch real systemd, and validate candidate configs with `ValidateCaddyConfig` before install/reload.
 
 ## Work Guidance
 
@@ -36,16 +32,6 @@ go test ./internal/edge
 go test -race ./internal/edge
 go test ./cmd/scenery
 ```
-
-Release proof for static frontend HTTP behavior lives in
-`scripts/verify/harness_self_edge_static.go`, called by the release edge-process
-step. Preserve its cache, SPA, method, byte-range, proxy, blocked-path, and
-traversal checks when changing the renderer or publisher. A missing managed
-Caddy fails that proof explicitly; it must not turn into a passing skip.
-
-That release step also proves durable DNS-state migration with exact backup
-bytes and preserved resolver ownership in a temporary fixture. Ordinary DNS
-tests cover the pure conversion and current-state read without durable writes.
 
 ## Child Agent Index
 

@@ -86,33 +86,8 @@ func (s *devSupervisor) sessionIdentityEnv() []string {
 		"SCENERY_APP_ROOT_HASH=" + appRootHash(session.AppRoot),
 		"SCENERY_BRANCH=" + strings.TrimSpace(session.Branch),
 		"SCENERY_WORKTREE=" + appWorktreeName(session.AppRoot),
-		"SCENERY_ROUTE_MODE=" + string(firstRouteMode(session)),
-		"SCENERY_BASE_URL=" + strings.TrimSpace(session.RouteManifest.BaseURL),
-		"SCENERY_API_URL=" + strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteAPI].URL),
-		"SCENERY_API_BASE_PATH=" + routeBasePath(session, localagent.RouteAPI),
 		"SCENERY_PUBLIC_APP_URL=" + publicAppURLForSession(session),
 	}
-}
-
-func firstRouteMode(session *localagent.Session) localagent.RouteMode {
-	if session == nil {
-		return localagent.RouteModeHost
-	}
-	if session.RouteManifest.Mode != "" {
-		return session.RouteManifest.Mode
-	}
-	return localagent.RouteModeHost
-}
-
-func routeBasePath(session *localagent.Session, name string) string {
-	if session == nil || session.RouteManifest.Routes == nil {
-		return ""
-	}
-	record, ok := session.RouteManifest.Routes[name]
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(record.Path)
 }
 
 func publicAppURLForSession(session *localagent.Session) string {

@@ -518,3 +518,19 @@ func harnessAssertWatchBuildCount(ctx context.Context, log string, offset int64,
 	}
 	return nil
 }
+
+// Nearest-rank quantiles match the existing edit benchmark. Small series are
+// labelled as early evidence, never as a 30-edit acceptance distribution.
+func nativeReloadStats(values []float64) map[string]any {
+	if len(values) == 0 {
+		return map[string]any{"count": 0}
+	}
+	ordered := slices.Clone(values)
+	slices.Sort(ordered)
+	var sum float64
+	for _, value := range ordered {
+		sum += value
+	}
+	return map[string]any{"count": len(ordered), "p50_ms": ordered[(len(ordered)-1)/2],
+		"p95_ms": ordered[(95*len(ordered)+99)/100-1], "worst_ms": ordered[len(ordered)-1], "mean_ms": sum / float64(len(ordered))}
+}

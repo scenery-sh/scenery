@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,9 +20,8 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devcache"
-	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/victoria"
+	"scenery.sh/internal/repoinfo"
 )
 
 // canonicalTestDir returns a test directory spelled as app-root discovery
@@ -350,22 +349,6 @@ func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...strin
 	return root
 }
 
-func chdirForTest(t *testing.T, dir string) func() {
-	t.Helper()
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir(%q): %v", dir, err)
-	}
-	return func() {
-		if err := os.Chdir(prev); err != nil {
-			t.Fatalf("restore Chdir(%q): %v", prev, err)
-		}
-	}
-}
-
 func waitForAgentCommandPing(ctx context.Context, client *localagent.Client) error {
 	deadline := time.Now().Add(2 * time.Second)
 	var lastErr error
@@ -435,37 +418,6 @@ func stringSliceContains(values []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victoria.Stack {
-	t.Helper()
-	for i := range events {
-		if events[i].ID == 0 {
-			events[i].ID = int64(i + 1)
-		}
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/select/logsql/query" {
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		for _, event := range events {
-			data, err := json.Marshal(victoria.DevEventRecord(event))
-			if err != nil {
-				t.Fatalf("marshal event: %v", err)
-			}
-			_, _ = w.Write(append(data, '\n'))
-		}
-	}))
-	t.Cleanup(server.Close)
-	stack := victoria.NewStack(victoria.ExternalComponent{Name: "logs", BaseURL: server.URL})
-	prev := resolveLogsVictoriaStackFunc
-	resolveLogsVictoriaStackFunc = func(ctx context.Context, appRoot string) *victoria.Stack {
-		return stack
-	}
-	t.Cleanup(func() {
-		resolveLogsVictoriaStackFunc = prev
-	})
-	return stack
 }
 
 func stopAgentServerForTest(t *testing.T, cancel context.CancelFunc, done <-chan error) {
@@ -558,10 +510,74 @@ func repoRootForTest(t *testing.T) string {
 	return filepath.Clean(root)
 }
 
-func diagnosticMessages(diagnostics []checkDiagnostic) string {
-	messages := make([]string, 0, len(diagnostics))
-	for _, diag := range diagnostics {
-		messages = append(messages, diag.Message)
+type docsKnowledgeDocument = repoinfo.KnowledgeDocument
+
+var isIgnoredHarnessLocalArtifact = repoinfo.IsLocalArtifact
+
+const docsIndexKind = repoinfo.IndexKind
+
+var docsIndexSchemaRevision = repoinfo.IndexSchemaRevision
+
+const harnessValidationDocumentation = repoinfo.ValidationDocumentation
+const harnessValidationGoPackage = repoinfo.ValidationGoPackage
+const harnessValidationCLIJSONContract = repoinfo.ValidationCLIJSONContract
+const harnessValidationCompilerGenerator = repoinfo.ValidationCompilerGenerator
+const harnessValidationUICatalog = repoinfo.ValidationUICatalog
+const harnessValidationReleaseRuntime = repoinfo.ValidationReleaseRuntime
+const harnessValidationRepositoryFallback = repoinfo.ValidationRepositoryFallback
+
+var harnessFixtureRegenerationCommands = repoinfo.FixtureRegenerationCommands
+
+func readSQLCConfig(path string) (sqlcConfigFile, error) {
+	cfg, _, err := readSQLCConfigBytes(path)
+	return cfg, err
+}
+
+func verifySnapshot(path string) (snapshotVerifyResult, error) {
+	return verifySnapshotPinned(context.Background(), path, "")
+}
+
+func runStorageCommand(args []string, stdout io.Writer) error {
+	return runStorageCommandContext(context.Background(), args, os.Stdin, stdout)
+}
+
+func freeLoopbackPort() (int, error) {
+	ln, err := netListen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
 	}
-	return strings.Join(messages, "\n")
+	defer func() { _ = ln.Close() }()
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("unexpected listener address %s", ln.Addr())
+	}
+	return addr.Port, nil
+}
+
+func runWorktreeRemoveWithList(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
+	return runWorktreeRemoveWithGit(ctx, stdout, opts, listWorktrees, runGitCommand)
+}
+
+func liveDetachedDuplicateDevSessionWithLister(ctx context.Context, list detachedDevSessionLister, root string) (*localagent.Session, int, error) {
+	sessions, err := list(ctx, root)
+	if err != nil {
+		return nil, 0, err
+	}
+	session, pid := findLiveDuplicateDevSession(root, sessions)
+	return session, pid, nil
+}
+
+func rejectLiveDuplicateDevSession(root string, existing []localagent.Session) error {
+	if session, pid := findLiveDuplicateDevSession(root, existing); session != nil {
+		return &devSessionAlreadyRunningError{root: root, ownerPID: pid, session: *session}
+	}
+	return nil
+}
+
+func run(args []string) error {
+	return runWithCLITelemetry(args, nil)
+}
+
+func upCommand(args []string) error {
+	return upCommandWithTelemetry(args, nil)
 }

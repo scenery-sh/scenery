@@ -21,7 +21,7 @@ catalog violations are tracked in [plan 0221](../plans/0221-public-http-neutrali
 
 The generator depends on:
 
-- the exact current specification and evolution-rule revisions;
+- the exact current specification revision;
 - each binding codec represented by a client;
 - canonical expanded graph and artifact-projection revisions.
 
@@ -42,7 +42,7 @@ It does not generate:
 - server-side internal binding clients;
 - raw or transport-coupled handlers;
 - implementation-declared or opaque wire facets as verified APIs;
-- WebSocket, streaming, event-consumer, or arbitrary CLI clients, except the
+- WebSocket, streaming, or arbitrary CLI clients, except the
   fixed development runtime client of [section 5.1](#dev-runtime-client);
 - a client for an unexported binding.
 
@@ -471,14 +471,12 @@ metadata value retains its full recursively frozen contents.
 
 ## 16. Compatibility
 
-Compatibility uses the current evolution rules from the previous published client projection to the target projection.
-
 - A generated API or wire breaking/unknown change requires coordinated consumer migration.
 - Compatible operation, optional-input, or preserving-output additions do not require coordinated consumer migration.
 - Implementation-only, documentation-only, or unrelated graph changes do not change the client revision.
 - Generator byte changes with identical promised TypeScript API/wire semantics create a new artifact digest but may retain semantic compatibility.
 
-The descriptor records the exact client projection revision and compatibility catalog identity. It never chooses a release number or generates legacy forwarding methods. A method rename changes the generated API and is classified by the evolution rules.
+The descriptor records the exact client projection revision and compatibility catalog identity. It never chooses a release number or generates legacy forwarding methods. A method rename changes the generated API.
 
 ## 17. Generation workflow
 
@@ -517,7 +515,6 @@ A conforming generator/runtime passes fixtures for:
 - retry disabled by default and idempotency-gated retry when selected;
 - immutable metadata and redaction;
 - artifact projection and descriptor revisions;
-- compatibility classifications from the current evolution rules;
 - public-only and framework-enforced filtering;
 - assistant client method names, handle validation, NDJSON event decoding,
   exclusive-cursor reconnects, approval/cancel decisions, redaction, and

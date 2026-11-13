@@ -4,11 +4,13 @@ import (
 	json "encoding/json"
 	os "os"
 	filepath "path/filepath"
-	envpolicy "scenery.sh/internal/envpolicy"
-	scn "scenery.sh/internal/scn"
 	sort "sort"
 	strings "strings"
 	testing "testing"
+
+	envpolicy "scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/repoinfo"
+	scn "scenery.sh/internal/scn"
 )
 
 func writeTestAppFile(t *testing.T, root, rel, contents string) {
@@ -192,3 +194,7 @@ func diagnosticMessages(diagnostics []checkDiagnostic) string {
 }
 
 const testAppFilename = scn.AppFilename
+
+const docsIndexKind = repoinfo.IndexKind
+
+var docsIndexSchemaRevision = repoinfo.IndexSchemaRevision

@@ -121,12 +121,12 @@ resolves inputs and exports against the modules before it.
 - Created: 2026-11-12
 - Review after: 2026-12-12
 
-`go run ./scripts/verify --probe assistant-journey --summary --write` fails on
-`main` at `3b4d3175` and later with "a receipt of the uncertain epoch stayed
-usable": after the probe makes the host state unrecordable and replaces the
-host, status and cancellation of the guarded durable receipt are not both
-refused as `not_found`. The other assistant probes pass. Until it is repaired
-the probe cannot gate a landing.
+`go run ./scripts/verify --probe assistant-journey --summary --write` failed on
+`main` at `3b4d3175` and later in its durable-receipt scenario. Plan 0225
+removed durable MCP tools and that scenario with them, and moved the fixture to
+an authenticated assistant surface. The remaining probe (a parked approval with
+a queued run, and overlapping streams) has not been run since that change.
+Until it has passed once the probe cannot gate a landing.
 
 ### Source-Selected Worktrees Share No Executables
 

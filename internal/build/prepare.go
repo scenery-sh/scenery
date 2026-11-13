@@ -15,54 +15,6 @@ import (
 	"scenery.sh/internal/gotarget"
 )
 
-func Prepare(appRoot string, cfg app.Config) (*Result, error) {
-	ctx := context.Background()
-	result, err := PrepareForCompileWithSnapshotContext(ctx, appRoot, cfg, nil)
-	if err != nil {
-		return nil, err
-	}
-	unlock, err := lockWorkspace(result.Dir)
-	if err != nil {
-		return nil, err
-	}
-	defer unlock()
-	if err := verifyPreparedWorkspace(result); err != nil {
-		return nil, err
-	}
-	if result.NeedsTidy {
-		if err := tidyWorkspace(ctx, result); err != nil {
-			return nil, err
-		}
-	}
-	if err := completePreparedVerification(ctx, result); err != nil {
-		return nil, err
-	}
-	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
-		return nil, err
-	}
-	if err := verifyPreparedWorkspace(result); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// PrepareForCompileWithSnapshotContext owns all source and generated workspace
-// bytes. CompileContext performs its pending full verification and joins it
-// before publishing any successful build evidence.
-func PrepareForCompileWithSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
-	if err := requireGenerateHooks(); err != nil {
-		return nil, err
-	}
-	contract, err := observeBuild(ctx, "contract.check", func() (*compiler.Result, error) { return compileWorkspaceContract(appRoot, snapshot) })
-	if err != nil {
-		return nil, err
-	}
-	if err := preparedContractError(contract); err != nil {
-		return nil, err
-	}
-	return PrepareForCompileWithContractSnapshotContext(ctx, appRoot, cfg, snapshot, contract)
-}
-
 // PrepareForCompileWithContractSnapshotContext continues preparation from the
 // exact graph already computed by the development engine. It prevents a cache
 // miss from recompiling the same graph while retaining the ordinary public

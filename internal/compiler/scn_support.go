@@ -11,10 +11,6 @@ import (
 type Source = scn.Source
 type Block = scn.Block
 type Expression = scn.Expression
-type ConcreteSyntaxTree = scn.ConcreteSyntaxTree
-type ConcreteToken = scn.ConcreteToken
-type ConcreteComment = scn.ConcreteComment
-type FormatResult = scn.FormatResult
 type sourcePositionIndex = scn.PositionIndex
 
 const (
@@ -29,7 +25,6 @@ var (
 
 	exactNumericScalar = scn.ExactNumericScalar
 	Format             = scn.Format
-	FormatPaths        = scn.FormatPaths
 
 	pathWithin         = scn.PathWithin
 	rejectPathSymlinks = scn.RejectPathSymlinks
@@ -42,16 +37,6 @@ var (
 
 func diagnosticsFromHCL(sourceID string, positions *sourcePositionIndex, diagnostics hcl.Diagnostics) []Diagnostic {
 	return compilerSyntaxDiagnostics(scn.DiagnosticsFromHCL(sourceID, positions, diagnostics))
-}
-
-func parseSource(root, path string) (*Source, []Diagnostic) {
-	source, diagnostics := scn.Parse(root, path)
-	return source, compilerSyntaxDiagnostics(diagnostics)
-}
-
-func parseSourceLogical(path, relative string) (*Source, []Diagnostic) {
-	source, diagnostics := scn.ParseLogical(path, relative)
-	return source, compilerSyntaxDiagnostics(diagnostics)
 }
 
 func compilerSyntaxDiagnostics(diagnostics []scn.Diagnostic) []Diagnostic {

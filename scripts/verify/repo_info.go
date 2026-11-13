@@ -17,10 +17,7 @@ var sortedStringSet = repoinfo.SortedStringSet
 var appendUniqueSorted = repoinfo.AppendUniqueSorted
 var discoverSceneryRepoRoot = repoinfo.DiscoverRoot
 
-const docsIndexKind = repoinfo.IndexKind
 const inspectDocsKind = repoinfo.InspectKind
-
-var docsIndexSchemaRevision = repoinfo.IndexSchemaRevision
 
 const harnessValidationCLIJSONContract = repoinfo.ValidationCLIJSONContract
 const harnessValidationUICatalog = repoinfo.ValidationUICatalog

@@ -20,7 +20,6 @@ type Result struct {
 	ImplementationStatus    string                     `json:"implementation_status"`
 	WorkspaceRevision       string                     `json:"workspace_revision"`
 	ImplementationRevisions map[string]string          `json:"implementation_revision,omitempty"`
-	DeploymentRevisions     map[string]string          `json:"deployment_revision,omitempty"`
 	HTTPSurfaceRevisions    map[string]string          `json:"http_surface_revision,omitempty"`
 	OpenAPIRevisions        map[string]string          `json:"openapi_revision,omitempty"`
 	Diagnostics             []graph.Diagnostic         `json:"diagnostics"`

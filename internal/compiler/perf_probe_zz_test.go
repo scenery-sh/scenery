@@ -24,17 +24,8 @@ func TestPerfProbeContextAt(t *testing.T) {
 	}
 	t.Logf("resources: %d", len(manifest.Resources))
 
-	start := time.Now()
-	edges := graphmodel.ResourceEdges(manifest.Resources)
-	t.Logf("ResourceEdges once: %v (edges: %d)", time.Since(start), len(edges))
-
-	// warm run again to reduce first-run noise
-	start = time.Now()
-	graphmodel.ResourceEdges(manifest.Resources)
-	t.Logf("ResourceEdges warm: %v", time.Since(start))
-
 	focus := manifest.Resources[0].Address
-	start = time.Now()
+	start := time.Now()
 	_, err = graphmodel.Graph(manifest, focus, graphmodel.GraphOptions{Direction: "both", Depth: 3, MaxResources: 1000})
 	if err != nil {
 		t.Fatalf("graph: %v", err)

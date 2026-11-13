@@ -62,18 +62,6 @@ func managedFrontendCommand(root, port, allowedHost, basePath string) (string, [
 			args = append(args, "--base", baseArg)
 		}
 		return "bun", args, nil
-	case "pnpm":
-		args := []string{"run", "dev", "--", "--host", "127.0.0.1", "--port", port}
-		if strings.Contains(script, "vite") && baseArg != "" {
-			args = append(args, "--base", baseArg)
-		}
-		return "pnpm", args, nil
-	case "yarn":
-		args := []string{"dev", "--host", "127.0.0.1", "--port", port}
-		if strings.Contains(script, "vite") && baseArg != "" {
-			args = append(args, "--base", baseArg)
-		}
-		return "yarn", args, nil
 	default:
 		args := []string{"run", "dev", "--", "--host", "127.0.0.1", "--port", port}
 		if strings.Contains(script, "vite") && baseArg != "" {
@@ -177,14 +165,6 @@ func managedFrontendBuildCommand(root, basePath string) (string, []string, error
 	switch managedFrontendPackageManager(root) {
 	case "bun":
 		return "bun", append([]string{"run", "build"}, viteBaseArgs()...), nil
-	case "pnpm":
-		args := []string{"run", "build"}
-		if extra := viteBaseArgs(); len(extra) > 0 {
-			args = append(append(args, "--"), extra...)
-		}
-		return "pnpm", args, nil
-	case "yarn":
-		return "yarn", append([]string{"build"}, viteBaseArgs()...), nil
 	default:
 		args := []string{"run", "build"}
 		if extra := viteBaseArgs(); len(extra) > 0 {
@@ -217,10 +197,6 @@ func managedFrontendPackageManager(root string) string {
 				switch {
 				case strings.HasPrefix(pkg.PackageManager, "bun@"):
 					return "bun"
-				case strings.HasPrefix(pkg.PackageManager, "pnpm@"):
-					return "pnpm"
-				case strings.HasPrefix(pkg.PackageManager, "yarn@"):
-					return "yarn"
 				case strings.HasPrefix(pkg.PackageManager, "npm@"):
 					return "npm"
 				}
@@ -229,10 +205,6 @@ func managedFrontendPackageManager(root string) string {
 		switch {
 		case fileExists(filepath.Join(dir, "bun.lock")):
 			return "bun"
-		case fileExists(filepath.Join(dir, "pnpm-lock.yaml")):
-			return "pnpm"
-		case fileExists(filepath.Join(dir, "yarn.lock")):
-			return "yarn"
 		case fileExists(filepath.Join(dir, "package-lock.json")):
 			return "npm"
 		}
@@ -256,28 +228,13 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 		"SCENERY_RUNTIME_ENV="+session.Environment,
 	)
 	if apiURL := strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteAPI].URL); apiURL != "" {
-		env = append(env,
-			"API_BASE_URL="+apiURL,
-			"SCENERY_API_BASE_URL="+apiURL,
-			"SCENERY_API_URL="+apiURL,
-			"VITE_API_BASE_URL="+apiURL,
-		)
+		env = append(env, "VITE_API_BASE_URL="+apiURL)
 	}
 	if session.RouteManifest.Mode != "" {
 		frontendPath := managedFrontendBasePath(session, frontendName)
-		record, _ := managedFrontendRouteRecord(session, frontendName)
-		frontendURL := strings.TrimSpace(record.URL)
 		env = append(env,
-			"SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
-			"SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
-			"SCENERY_API_BASE_PATH="+routeBasePath(&session, localagent.RouteAPI),
 			"SCENERY_FRONTEND_BASE_PATH="+frontendPath,
-			"SCENERY_FRONTEND_PUBLIC_URL="+frontendURL,
 			"VITE_SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
-			"VITE_SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
-			"VITE_SCENERY_API_BASE_PATH="+routeBasePath(&session, localagent.RouteAPI),
-			"VITE_SCENERY_FRONTEND_BASE_PATH="+frontendPath,
-			"VITE_SCENERY_FRONTEND_PUBLIC_URL="+frontendURL,
 		)
 	}
 	if allowedHost := managedFrontendAllowedHost(session, frontendName); allowedHost != "" {
@@ -302,9 +259,6 @@ func managedFrontendAllowedHost(session localagent.Session, frontendName string)
 	if sessionID == "" {
 		return ""
 	}
-	if host := routeHostName(session.RouteNamespace.Hosts[frontendName]); host != "" {
-		return insertSessionIntoRouteHost(host, sessionID)
-	}
 	baseDomain := routeHostName(session.RouteNamespace.BaseDomain)
 	if baseDomain == "" {
 		baseDomain = localagent.DefaultRouteBaseDomain
@@ -324,20 +278,6 @@ func routeHostName(value string) string {
 		value = host
 	}
 	return strings.Trim(strings.TrimSuffix(value, "/"), "[]")
-}
-
-func insertSessionIntoRouteHost(host, sessionID string) string {
-	host = routeHostName(host)
-	sessionID = localagentLabel(sessionID)
-	if host == "" || sessionID == "" {
-		return host
-	}
-	labels := strings.Split(host, ".")
-	if len(labels) < 2 {
-		return host
-	}
-	labels = append(labels[:1], append([]string{sessionID}, labels[1:]...)...)
-	return strings.Join(labels, ".")
 }
 
 func portFromAddr(addr string) string {

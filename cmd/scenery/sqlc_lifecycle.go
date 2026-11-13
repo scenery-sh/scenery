@@ -156,13 +156,6 @@ func newSQLCOperation(root string, spec *sqlcGeneratorPlan, hooks lifecycleHooks
 		return nil, err
 	}
 	op.previous = previous
-	for _, schema := range spec.Schemas {
-		if schema.AtlasSource != "" {
-			if strings.TrimSpace(schema.AtlasDevURL) == "" {
-				return nil, fmt.Errorf("failed_precondition: generators.sqlc schema %s has no scratch dev_url", schema.SQLCSchema)
-			}
-		}
-	}
 	return op, nil
 }
 
@@ -206,12 +199,6 @@ func (op *sqlcOperation) capture(ctx context.Context) error {
 		return fmt.Errorf("revision_conflict: SQLC configuration changed while capturing inputs")
 	}
 	programs := []string{"sqlc"}
-	for _, schema := range op.spec.Schemas {
-		if schema.AtlasSource != "" {
-			programs = append(programs, "atlas")
-			break
-		}
-	}
 	for _, plugin := range selectedSQLCPlugins(op.config) {
 		if plugin.Process.Cmd != "" && plugin.Process.LocalPath == "" {
 			programs = append(programs, plugin.Process.Cmd)
@@ -264,29 +251,6 @@ func (op *sqlcOperation) writeStage(relative string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
-}
-
-func (op *sqlcOperation) renderSchema(ctx context.Context, schema sqlcSchemaPlan) error {
-	if !safeSQLCRelative(schema.SQLCSchema) || !safeSQLCRelative(schema.AtlasSource) {
-		return fmt.Errorf("invalid_request: SQLC schema paths must stay in the workspace")
-	}
-	if _, owned := op.previous.Files[schema.SQLCSchema]; !owned {
-		if _, err := os.Lstat(filepath.Join(op.root, filepath.FromSlash(schema.SQLCSchema))); err == nil {
-			return fmt.Errorf("failed_precondition: SQLC schema %s has no proven generated ownership", schema.SQLCSchema)
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-	}
-	out, err := op.hooks.outputExec(ctx, lifecycleExecRequest{Dir: op.stage, Env: envpolicy.Environ(), Program: "atlas", Args: []string{"schema", "inspect", "--url", "file://" + filepath.ToSlash(filepath.Join(op.stage, filepath.FromSlash(schema.AtlasSource))), "--dev-url", schema.AtlasDevURL, "--format", "{{ sql . }}"}})
-	if err != nil {
-		return err
-	}
-	data := append([]byte("-- GENERATED: do not edit. Run `scenery generate sqlc` to refresh.\n\n"), out...)
-	if data[len(data)-1] != '\n' {
-		data = append(data, '\n')
-	}
-	op.files[schema.SQLCSchema] = data
-	return op.writeStage(schema.SQLCSchema, data)
 }
 
 func (op *sqlcOperation) renderSQLC(ctx context.Context) error {
@@ -397,13 +361,7 @@ func (op *sqlcOperation) publicationFiles() ([]workspacetx.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	roots := sqlcOutputRoots(op.config)
-	for _, schema := range op.spec.Schemas {
-		if schema.AtlasSource != "" {
-			roots = append(roots, filepath.ToSlash(filepath.Dir(schema.SQLCSchema)))
-		}
-	}
-	roots = uniqueSorted(roots)
+	roots := uniqueSorted(sqlcOutputRoots(op.config))
 	if err := op.verify(true); err != nil {
 		return nil, err
 	}
@@ -539,21 +497,6 @@ func sqlcLifecycleNodes(spec *sqlcGeneratorPlan, op *sqlcOperation) []lifecycle.
 	for index, output := range sqlcOutputRoots(spec.Config) {
 		outputs = append(outputs, lifecycle.Reference{Name: fmt.Sprintf("sqlc.files.root.%d", index), Kind: "output_root", Path: output, Ownership: lifecycle.Managed, Owner: "sqlc.artifacts.commit"})
 	}
-	for index, schema := range spec.Schemas {
-		if schema.AtlasSource == "" {
-			continue
-		}
-		id := lifecycle.ID(fmt.Sprintf("sqlc.schema.render.%d", index))
-		output := lifecycle.Reference{Name: string(id), Kind: "sql_schema", Path: filepath.ToSlash(filepath.Clean(schema.SQLCSchema)), Ownership: lifecycle.Managed, Owner: "sqlc.artifacts.commit"}
-		node := lifecycle.Node{ID: id, Kind: "schema_render", Cache: lifecycle.ExternalEffect, Dependencies: []lifecycle.ID{"sqlc.source.capture"}, Inputs: []lifecycle.Reference{{Name: "sqlc.inputs", Kind: "input_set", Producer: "sqlc.source.capture"}}, Outputs: []lifecycle.Reference{output}, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}, Identity: map[string]string{"tool": "atlas"}}
-		if op != nil {
-			node.Action = func(ctx context.Context) error { return op.renderSchema(ctx, schema) }
-		}
-		nodes = append(nodes, node)
-		dependencies = append(dependencies, id)
-		output.Producer = id
-		refs = append(refs, output)
-	}
 	nodes = append(nodes, lifecycle.Node{ID: "sqlc", Kind: "sqlc", Cache: lifecycle.ExternalEffect, Dependencies: dependencies, Inputs: refs, Outputs: outputs, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.UseScratch}, Identity: map[string]string{"tool": "sqlc"}})
 	nodes = append(nodes, lifecycle.Node{ID: "sqlc.source.validate", Kind: "source_validation", Cache: lifecycle.CurrentValidation, Dependencies: []lifecycle.ID{"sqlc"}, Inputs: []lifecycle.Reference{{Name: "sqlc.files", Kind: "artifact_set", Producer: "sqlc"}}, Effects: []lifecycle.Capability{lifecycle.ReadSource}})
 	nodes = append(nodes, lifecycle.Node{ID: "sqlc.artifacts.commit", Kind: "artifact_publication", Cache: lifecycle.ExternalEffect, Dependencies: []lifecycle.ID{"sqlc.source.validate"}, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.WriteCache, lifecycle.PublishArtifacts}})
@@ -597,13 +540,7 @@ func validateSQLCOutputRoots(contract *compiler.Result, config sqlcConfigFile, s
 	if err != nil {
 		return err
 	}
-	roots := sqlcOutputRoots(config)
-	for _, schema := range spec.Schemas {
-		if schema.AtlasSource != "" {
-			roots = append(roots, filepath.ToSlash(filepath.Dir(schema.SQLCSchema)))
-		}
-	}
-	for _, root := range uniqueSorted(roots) {
+	for _, root := range uniqueSorted(sqlcOutputRoots(config)) {
 		if !safeSQLCRelative(root) || !sqlcPathInRoots(root, managed) {
 			return fmt.Errorf("failed_precondition: SQLC output %s is outside declared managed_generated_roots", root)
 		}

@@ -260,7 +260,7 @@ func TestContractTransportErrorsUseProfileStatuses(t *testing.T) {
 		},
 		Invoke: func(_ context.Context, _ []any, payload any) (any, error) { return payload, nil },
 		EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
-			return EncodeContractJSONForRequest(request, http.StatusOK, outcome, []string{"application/json"}, 0)
+			return EncodeContractRepresentationForRequest(request, http.StatusOK, outcome, "json", []string{"application/json"}, 0)
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -316,7 +316,7 @@ func TestMalformedJSONBodiesAreInvalidRequests(t *testing.T) {
 			return payload, nil
 		},
 		EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
-			return EncodeContractJSONForRequest(request, http.StatusOK, outcome, []string{"application/json"}, 0)
+			return EncodeContractRepresentationForRequest(request, http.StatusOK, outcome, "json", []string{"application/json"}, 0)
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -430,7 +430,7 @@ func TestContractTransportResponseAndTraceStatusesMatch(t *testing.T) {
 			return payload, nil
 		},
 		EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
-			return EncodeContractJSONForRequest(request, http.StatusOK, outcome, []string{"application/json"}, 0)
+			return EncodeContractRepresentationForRequest(request, http.StatusOK, outcome, "json", []string{"application/json"}, 0)
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -488,7 +488,7 @@ func TestTypedEndpointExposesSceneryTraceID(t *testing.T) {
 			return map[string]any{"ok": true}, nil
 		},
 		EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
-			return EncodeContractJSONForRequest(request, http.StatusOK, outcome, []string{"application/json"}, 0)
+			return EncodeContractRepresentationForRequest(request, http.StatusOK, outcome, "json", []string{"application/json"}, 0)
 		},
 	}); err != nil {
 		t.Fatal(err)

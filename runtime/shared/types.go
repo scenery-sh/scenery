@@ -47,7 +47,6 @@ const (
 	APICall      RequestType = "api-call"
 	InternalCall RequestType = "internal-call"
 	RawAPICall   RequestType = "raw-api-call"
-	EventCall    RequestType = "event-call"
 	DurableCall  RequestType = "durable-call"
 )
 

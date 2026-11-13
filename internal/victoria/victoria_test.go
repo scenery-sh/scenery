@@ -36,31 +36,6 @@ func TestVictoriaEnabledCanBeDisabled(t *testing.T) {
 	}
 }
 
-func TestVictoriaArchiveName(t *testing.T) {
-	t.Parallel()
-
-	name, err := archiveName(ComponentSpec{
-		ArchiveSlug: "victoria-traces",
-		Version:     "v0.8.1",
-	})
-	if err != nil {
-		t.Fatalf("archiveName: %v", err)
-	}
-	if !strings.HasPrefix(name, "victoria-traces-") || !strings.HasSuffix(name, "-v0.8.1.tar.gz") {
-		t.Fatalf("archive name = %q", name)
-	}
-}
-
-func TestChecksumForArchive(t *testing.T) {
-	t.Parallel()
-
-	body := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  victoria-traces-linux-amd64-v0.8.1.tar.gz\n"
-	got := checksumForArchive(body, "victoria-traces-linux-amd64-v0.8.1.tar.gz")
-	if got != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
-		t.Fatalf("checksum = %q", got)
-	}
-}
-
 func TestResolveVictoriaBinaryPrefersExplicitEnv(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "victoria-traces-prod")
@@ -206,7 +181,8 @@ func TestStartVictoriaComponentReusesOccupiedPort(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 
 	port := ln.Addr().(*net.TCPAddr).Port
-	component, err := startComponent(context.Background(), t.TempDir(), filepath.Join(t.TempDir(), "bin"), ComponentSpec{
+	root := t.TempDir()
+	plan, err := prepareComponentStartWithBinaryPath(context.Background(), root, filepath.Join(t.TempDir(), "bin"), ComponentSpec{
 		Name:               "traces",
 		DisplayName:        "VictoriaTraces",
 		DefaultPort:        port,
@@ -215,9 +191,13 @@ func TestStartVictoriaComponentReusesOccupiedPort(t *testing.T) {
 		OTELVar:            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
 		SceneryURLVar:      "SCENERY_VICTORIA_TRACES_URL",
 		SceneryEndpointVar: "SCENERY_VICTORIA_TRACES_ENDPOINT",
-	}, false, nil)
+	}, "", false, nil)
 	if err != nil {
-		t.Fatalf("startComponent: %v", err)
+		t.Fatalf("prepareComponentStartWithBinaryPath: %v", err)
+	}
+	component, err := startComponentFromPlan(context.Background(), root, plan, nil)
+	if err != nil {
+		t.Fatalf("startComponentFromPlan: %v", err)
 	}
 	if !component.external {
 		t.Fatal("component.external = false, want true")
@@ -376,16 +356,5 @@ func TestVictoriaQueryTraceSummariesClampsJaegerLimit(t *testing.T) {
 	}
 	if gotLimit != "1000" {
 		t.Fatalf("limit = %q, want 1000", gotLimit)
-	}
-}
-
-func TestVictoriaMarkClearedFiltersOlderTraces(t *testing.T) {
-	t.Parallel()
-
-	stack := &Stack{}
-	clearedAt := time.Unix(20, 0).UTC()
-	stack.MarkCleared("app", clearedAt)
-	if got := stack.ClearedAt("app"); !got.Equal(clearedAt) {
-		t.Fatalf("ClearedAt = %s, want %s", got, clearedAt)
 	}
 }

@@ -15,56 +15,20 @@ import (
 	"scenery.sh/internal/postgresdb"
 )
 
-func TestWorkerDurableTokenCreate(t *testing.T) {
+func TestWorkerDurableJobs(t *testing.T) {
 	dsn := liveWorkerDatabaseURL(t)
 	t.Setenv("DATABASE_URL", dsn)
-	root := persistentTestAppRoot(t, "worker-durable-token")
+	root := persistentTestAppRoot(t, "worker-durable-jobs")
 	preparePersistentTestApp(t, root, map[string]string{
 		".scenery.json": `{"name":"durabletoken","id":"durable-token-id"}`,
 		"go.mod":        "module example.com/durabletoken\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + repoRootForTest(t) + "\n",
 	})
-
-	var out bytes.Buffer
-	err := durableWorkerCommand([]string{"token", "create", "--app-root", root, "--service", "maps", "--name", "maps remote", "--id", "tok-test", "-o", "json"}, &out)
-	if err != nil {
-		t.Fatalf("durableWorkerCommand token create: %v", err)
-	}
-	var payload struct {
-		Kind    string `json:"kind"`
-		Service string `json:"service"`
-		DBPath  string `json:"db_path"`
-		Token   struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			Secret    string `json:"secret"`
-			TokenHash string `json:"token_hash"`
-		} `json:"token"`
-	}
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("decode token response: %v\n%s", err, out.String())
-	}
-	if payload.Kind != "scenery.durable.worker_token.create" || payload.Service != "maps" || payload.Token.ID != "tok-test" || payload.Token.Name != "maps remote" {
-		t.Fatalf("payload = %+v", payload)
-	}
-	if payload.Token.Secret == "" || payload.Token.TokenHash == "" || payload.Token.Secret == payload.Token.TokenHash {
-		t.Fatalf("token fields = %+v", payload.Token)
-	}
-	if payload.DBPath == "" || !strings.Contains(payload.DBPath, "xxxxx") {
-		t.Fatalf("db_path should carry redacted database URL, got %q", payload.DBPath)
-	}
 
 	db, err := durablestore.Open(context.Background(), "maps", dsn, durablestore.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	token, ok, err := db.AuthenticateWorkerToken(context.Background(), payload.Token.Secret)
-	if err != nil || !ok {
-		t.Fatalf("AuthenticateWorkerToken ok=%v err=%v", ok, err)
-	}
-	if token.ID != "tok-test" || token.TokenHash != payload.Token.TokenHash {
-		t.Fatalf("stored token = %+v, payload hash %s", token, payload.Token.TokenHash)
-	}
 	if err := db.ReconcileTasks(context.Background(), []durablestore.TaskDeclaration{{Name: "maps.admin.v1", HandlerRef: "maps.admin.v1"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,21 +64,6 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	}
 	if err := durableWorkerCommand([]string{"jobs", "retry", "job-admin", "--app-root", root, "--service", "maps", "-o", "json"}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("jobs retry: %v", err)
-	}
-}
-
-func TestParseWorkerDurableArgs(t *testing.T) {
-	t.Parallel()
-
-	opts, err := parseWorkerDurableArgs([]string{"--endpoint", "https://api.example.test/", "--token", "secret", "--service", "maps", "--service", "jobs", "--log-format", "json"})
-	if err != nil {
-		t.Fatalf("parseWorkerDurableArgs: %v", err)
-	}
-	if opts.Endpoint != "https://api.example.test" || opts.Token != "secret" || opts.LogFormat != "json" || len(opts.Services) != 2 {
-		t.Fatalf("opts = %+v", opts)
-	}
-	if _, err := parseWorkerDurableArgs([]string{"--endpoint", "https://api.example.test"}); err == nil {
-		t.Fatal("expected missing token error")
 	}
 }
 

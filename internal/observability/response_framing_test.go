@@ -42,28 +42,13 @@ func responseFixtureClient(body io.ReadCloser) *http.Client {
 	})}
 }
 func finiteFixtureDocument(mode string) string {
-	switch mode {
-	case "vector":
+	if mode == "vector" {
 		return `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1.000000001,"2"]}]}}`
-	case "matrix":
-		return `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1.000000001,"NaN"],[2,"+Inf"],[3,"-Inf"]]}]}}`
-	case "labels":
-		return `{"status":"success","data":["job"]}`
-	default:
-		return `{"status":"success","data":[{}]}`
 	}
+	return `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1.000000001,"NaN"],[2,"+Inf"],[3,"-Inf"]]}]}}`
 }
 func callFiniteFixture(mode string, client *http.Client) (string, error) {
-	if mode == "vector" || mode == "matrix" {
-		r, err := QueryMetrics(context.Background(), MetricsQuery{BaseURL: "http://metrics.test", Scope: testScope(), Bounds: testBounds(), Instant: mode == "vector", client: client})
-		return r.Kind, err
-	}
-	q := MetricsCatalogQuery{BaseURL: "http://metrics.test", Scope: testScope(), Bounds: testBounds(), client: client}
-	if mode == "labels" {
-		r, err := MetricsLabels(context.Background(), q)
-		return r.Kind, err
-	}
-	r, err := MetricsSeries(context.Background(), q)
+	r, err := QueryMetrics(context.Background(), MetricsQuery{BaseURL: "http://metrics.test", Scope: testScope(), Bounds: testBounds(), Instant: mode == "vector", client: client})
 	return r.Kind, err
 }
 
@@ -77,7 +62,7 @@ func TestMetricResponseFraming(t *testing.T) {
 		{"second object", ` {"private-response-token":1}`, false}, {"null", "null", false}, {"array", "[]", false}, {"garbage", "private-response-token", false},
 		{"vertical tab", "\v", false}, {"form feed", "\f", false}, {"NBSP", "\u00a0", false}, {"em space", "\u2003", false},
 	}
-	for _, mode := range []string{"vector", "matrix", "labels", "series"} {
+	for _, mode := range []string{"vector", "matrix"} {
 		for _, item := range cases {
 			for _, later := range []bool{false, true} {
 				t.Run(mode+"/"+item.name+map[bool]string{false: "/buffered", true: "/later"}[later], func(t *testing.T) {
@@ -103,7 +88,7 @@ func TestMetricResponseFraming(t *testing.T) {
 func TestMetricResponseReadErrors(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("scripted response read failure")
-	for _, mode := range []string{"vector", "matrix", "labels", "series"} {
+	for _, mode := range []string{"vector", "matrix"} {
 		doc := finiteFixtureDocument(mode)
 		cases := []struct {
 			name  string
@@ -152,27 +137,13 @@ func TestLogResponseFraming(t *testing.T) {
 	for _, item := range cases {
 		t.Run(item.name, func(t *testing.T) {
 			input := row + "\n" + item.bad + "\n" + row + "\n"
-			for _, tail := range []bool{false, true} {
-				body := &responseTestBody{steps: []responseReadStep{{input, io.EOF}}}
-				client := responseFixtureClient(body)
-				q := LogsQuery{BaseURL: "http://logs.test", Scope: testScope(), Bounds: testBounds()}
-				var err error
-				if tail {
-					count := 0
-					err = tailLogsWithClient(context.Background(), client, q, func(e LogsTailEntry) error { count++; assertLogNumber(t, e.Log); return nil })
-					if count != 1 {
-						t.Fatalf("tail emitted %d rows instead of valid prefix", count)
-					}
-				} else {
-					result, callErr := queryLogsWithClient(context.Background(), client, q)
-					err = callErr
-					if result.Kind != "" || len(result.Logs) != 0 {
-						t.Fatalf("malformed input became successful envelope: %+v", result)
-					}
-				}
-				if err == nil || strings.Contains(err.Error(), "private-response-token") || body.closes != 1 {
-					t.Fatalf("err=%v closes=%d", err, body.closes)
-				}
+			body := &responseTestBody{steps: []responseReadStep{{input, io.EOF}}}
+			result, err := queryLogsWithClient(context.Background(), responseFixtureClient(body), LogsQuery{BaseURL: "http://logs.test", Scope: testScope(), Bounds: testBounds()})
+			if result.Kind != "" || len(result.Logs) != 0 {
+				t.Fatalf("malformed input became successful envelope: %+v", result)
+			}
+			if err == nil || strings.Contains(err.Error(), "private-response-token") || body.closes != 1 {
+				t.Fatalf("err=%v closes=%d", err, body.closes)
 			}
 		})
 	}
@@ -206,60 +177,27 @@ func TestLogResponseLifecycle(t *testing.T) {
 		for _, prefix := range []string{"", row} {
 			for _, fragment := range []string{strings.TrimSuffix(row, "\n"), row} {
 				for _, later := range []bool{false, true} {
-					for _, tail := range []bool{false, true} {
-						t.Run(fmt.Sprintf("%s/prefix%t/LF%t/later%t/tail%t", end.name, prefix != "", fragment == row, later, tail), func(t *testing.T) {
-							steps := []responseReadStep{{prefix + fragment, end.err}}
-							if later {
-								steps = []responseReadStep{{prefix + fragment, nil}, {"", end.err}}
-							}
-							body := &responseTestBody{steps: steps}
-							client := responseFixtureClient(body)
-							q := LogsQuery{BaseURL: "http://logs.test"}
-							want := end.err
-							if end.err == io.EOF { //nolint:errorlint // Only the exact reader sentinel completes a final fragment.
-								want = nil
-							}
-							var err error
-							if tail {
-								count, wantRows := 0, 0
-								if prefix != "" {
-									wantRows++
-								}
-								if fragment == row || want == nil {
-									wantRows++
-								}
-								err = tailLogsWithClient(context.Background(), client, q, func(e LogsTailEntry) error { count++; assertLogNumber(t, e.Log); return nil })
-								if count != wantRows {
-									t.Fatalf("emitted=%d want completed=%d", count, wantRows)
-								}
-							} else {
-								result, callErr := queryLogsWithClient(context.Background(), client, q)
-								err = callErr
-								if (result.Kind != "") != (want == nil) || want != nil && len(result.Logs) != 0 {
-									t.Fatalf("read failure became success: %+v", result)
-								}
-							}
-							if !errors.Is(err, want) || body.closes != 1 {
-								t.Fatalf("err=%v want=%v closes=%d", err, want, body.closes)
-							}
-						})
-					}
+					t.Run(fmt.Sprintf("%s/prefix%t/LF%t/later%t", end.name, prefix != "", fragment == row, later), func(t *testing.T) {
+						steps := []responseReadStep{{prefix + fragment, end.err}}
+						if later {
+							steps = []responseReadStep{{prefix + fragment, nil}, {"", end.err}}
+						}
+						body := &responseTestBody{steps: steps}
+						want := end.err
+						if end.err == io.EOF { //nolint:errorlint // Only the exact reader sentinel completes a final fragment.
+							want = nil
+						}
+						result, err := queryLogsWithClient(context.Background(), responseFixtureClient(body), LogsQuery{BaseURL: "http://logs.test"})
+						if (result.Kind != "") != (want == nil) || want != nil && len(result.Logs) != 0 {
+							t.Fatalf("read failure became success: %+v", result)
+						}
+						if !errors.Is(err, want) || body.closes != 1 {
+							t.Fatalf("err=%v want=%v closes=%d", err, want, body.closes)
+						}
+					})
 				}
 			}
 		}
-	}
-	body := &responseTestBody{steps: []responseReadStep{{row + row, io.EOF}}}
-	count := 0
-	err := tailLogsWithClient(context.Background(), responseFixtureClient(body), LogsQuery{BaseURL: "http://logs.test"}, func(LogsTailEntry) error { count++; return sentinel })
-	if !errors.Is(err, sentinel) || count != 1 || body.closes != 1 {
-		t.Fatalf("callback err=%v count=%d closes=%d", err, count, body.closes)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	client := &http.Client{Transport: metricsQueryTransport(func(r *http.Request) (*http.Response, error) { return nil, r.Context().Err() })}
-	err = tailLogsWithClient(ctx, client, LogsQuery{BaseURL: "http://logs.test"}, func(LogsTailEntry) error { t.Fatal("callback after canceled request"); return nil })
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancel err=%v", err)
 	}
 }
 
@@ -277,47 +215,39 @@ func TestLogStructuredFieldsPreserveNumbers(t *testing.T) {
 	}
 	for _, rawFields := range []string{string(encoded), "", "{}", "null", "[]", `"text"`, `{"n":1} null`, `{"n":1}garbage`, "\u00a0{}"} {
 		for _, selected := range []bool{false, true} {
-			for _, tail := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%q/selected%t/tail%t", rawFields, selected, tail), func(t *testing.T) {
-					row, marshalErr := json.Marshal(map[string]any{"_msg": "structured", "fields_json": rawFields})
-					if marshalErr != nil {
-						t.Fatal(marshalErr)
+			t.Run(fmt.Sprintf("%q/selected%t", rawFields, selected), func(t *testing.T) {
+				row, marshalErr := json.Marshal(map[string]any{"_msg": "structured", "fields_json": rawFields})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				body := &responseTestBody{steps: []responseReadStep{{string(row), io.EOF}}}
+				client := responseFixtureClient(body)
+				q := LogsQuery{BaseURL: "http://logs.test"}
+				if selected {
+					q.Fields = []string{"_msg"}
+				}
+				result, queryErr := queryLogsWithClient(context.Background(), client, q)
+				entries := result.Logs
+				if queryErr != nil || len(entries) != 1 || body.closes != 1 {
+					t.Fatalf("entries=%v err=%v closes=%d", entries, queryErr, body.closes)
+				}
+				var want map[string]any
+				if rawFields == string(encoded) {
+					want = exact
+				}
+				if !reflect.DeepEqual(entries[0].Fields, want) {
+					t.Fatalf("structured fields changed: %#v want %#v", entries[0].Fields, want)
+				}
+				if want != nil {
+					actual, err := json.Marshal(entries[0].Fields)
+					if err != nil || string(actual) != string(encoded) {
+						t.Fatalf("numeric serialization changed: %s err=%v", actual, err)
 					}
-					body := &responseTestBody{steps: []responseReadStep{{string(row), io.EOF}}}
-					client := responseFixtureClient(body)
-					q := LogsQuery{BaseURL: "http://logs.test"}
-					if selected {
-						q.Fields = []string{"_msg"}
-					}
-					var entries []LogEntry
-					var queryErr error
-					if tail {
-						queryErr = tailLogsWithClient(context.Background(), client, q, func(e LogsTailEntry) error { entries = append(entries, e.Log); return nil })
-					} else {
-						result, err := queryLogsWithClient(context.Background(), client, q)
-						entries, queryErr = result.Logs, err
-					}
-					if queryErr != nil || len(entries) != 1 || body.closes != 1 {
-						t.Fatalf("entries=%v err=%v closes=%d", entries, queryErr, body.closes)
-					}
-					var want map[string]any
-					if rawFields == string(encoded) {
-						want = exact
-					}
-					if !reflect.DeepEqual(entries[0].Fields, want) {
-						t.Fatalf("structured fields changed: %#v want %#v", entries[0].Fields, want)
-					}
-					if want != nil {
-						actual, err := json.Marshal(entries[0].Fields)
-						if err != nil || string(actual) != string(encoded) {
-							t.Fatalf("numeric serialization changed: %s err=%v", actual, err)
-						}
-					}
-					if selected && (len(entries[0].Raw) != 1 || entries[0].Raw["_msg"] != "structured") {
-						t.Fatalf("raw selection changed: %#v", entries[0].Raw)
-					}
-				})
-			}
+				}
+				if selected && (len(entries[0].Raw) != 1 || entries[0].Raw["_msg"] != "structured") {
+					t.Fatalf("raw selection changed: %#v", entries[0].Raw)
+				}
+			})
 		}
 	}
 }

@@ -55,18 +55,12 @@ type Input struct {
 	// Default is the declared default as contract wire JSON; nil means none.
 	Default     json.RawMessage `json:"default,omitempty"`
 	Constraints map[string]any  `json:"constraints,omitempty"`
-	// RequiredWhenDeployable marks framework inputs that local development
-	// may leave unset but a deployable environment must configure.
-	RequiredWhenDeployable bool       `json:"required_when_deployable,omitempty"`
-	Consumers              []Consumer `json:"consumers"`
+	Consumers   []Consumer      `json:"consumers"`
 }
 
-// Required reports whether a candidate for the environment must configure the
-// input because it has neither a default nor optional absence.
-func (input Input) Required(deployable bool) bool {
-	if input.RequiredWhenDeployable {
-		return deployable
-	}
+// Required reports whether an environment must configure the input because it
+// has neither a default nor optional absence.
+func (input Input) Required() bool {
 	return !input.Optional && input.Default == nil
 }
 
@@ -239,8 +233,7 @@ func inputConstraints(declaration map[string]any) map[string]any {
 }
 
 // frameworkInputs are the framework-owned configuration inputs. Standard
-// authentication keeps local development usable without them; deployable
-// environments must configure the secrets it needs.
+// authentication keeps local development usable without them.
 func frameworkInputs(options FrameworkOptions) []Input {
 	var inputs []Input
 	if options.SQL {
@@ -253,25 +246,24 @@ func frameworkInputs(options FrameworkOptions) []Input {
 	consumer := []Consumer{{Service: FrameworkConsumer + "/auth"}}
 	owner := FrameworkConsumer + "/auth"
 	inputs = append(inputs, []Input{
-		{Key: "auth.jwt_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
+		{Key: "auth.jwt_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, Consumers: consumer},
 		{Key: "auth.cookie_domain", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
-		{Key: "auth.email_from", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
 	}...)
 	if options.GoogleOAuth {
 		inputs = append(inputs,
-			Input{Key: "auth.google_client_id", Owner: owner, Type: "string", Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
-			Input{Key: "auth.google_client_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
+			Input{Key: "auth.google_client_id", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
+			Input{Key: "auth.google_client_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, Consumers: consumer},
 		)
 	}
 	if len(options.Connections) > 0 {
-		inputs = append(inputs, Input{Key: "auth.token_cipher_key", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: true, Consumers: consumer})
+		inputs = append(inputs, Input{Key: "auth.token_cipher_key", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, Consumers: consumer})
 	}
 	for _, provider := range options.Connections {
 		prefix := "auth.connections." + provider.ID + "."
 		inputs = append(inputs,
-			Input{Key: prefix + "client_id", Owner: owner, Type: "string", Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
-			Input{Key: prefix + "client_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, RequiredWhenDeployable: provider.ClientAuth != "none", Consumers: consumer},
-			Input{Key: prefix + "callback_uri", Owner: owner, Type: "string", Optional: true, RequiredWhenDeployable: true, Consumers: consumer},
+			Input{Key: prefix + "client_id", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
+			Input{Key: prefix + "client_secret", Owner: owner, Type: SecretType, Sensitive: true, Optional: true, Consumers: consumer},
+			Input{Key: prefix + "callback_uri", Owner: owner, Type: "string", Optional: true, Consumers: consumer},
 		)
 	}
 	return inputs

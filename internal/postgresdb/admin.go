@@ -81,27 +81,6 @@ func ResetSchema(ctx context.Context, db *sql.DB, schema string) error {
 	return err
 }
 
-func ListSceneryDatabases(ctx context.Context, db *sql.DB) ([]DatabaseInfo, error) {
-	rows, err := db.QueryContext(ctx, `
-SELECT datname, pg_database_size(datname)
-FROM pg_database
-WHERE datistemplate = false AND datname <> 'postgres'
-ORDER BY datname`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []DatabaseInfo
-	for rows.Next() {
-		var info DatabaseInfo
-		if err := rows.Scan(&info.Name, &info.SizeBytes); err != nil {
-			return nil, err
-		}
-		out = append(out, info)
-	}
-	return out, rows.Err()
-}
-
 func terminateBackends(ctx context.Context, db *sql.DB, name string) error {
 	_, err := db.ExecContext(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
 	return err

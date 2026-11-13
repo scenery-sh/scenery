@@ -193,14 +193,6 @@ type JobEvent struct {
 	CreatedAt    string
 }
 
-type StepResult struct {
-	State       string
-	ResultCodec string
-	ResultBlob  []byte
-	ErrorCodec  string
-	ErrorBlob   []byte
-}
-
 type LeasedJob struct {
 	ID         string
 	TaskName   string
@@ -467,89 +459,6 @@ VALUES ($1, $2, $3, 'job.retry_requested', 'json', '{}'::bytea)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("durable store: commit retry job: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) GetStep(ctx context.Context, jobID, key string) (StepResult, bool, error) {
-	jobID = strings.TrimSpace(jobID)
-	key = strings.TrimSpace(key)
-	if jobID == "" || key == "" {
-		return StepResult{}, false, fmt.Errorf("durable store: job id and step key are required")
-	}
-	var step StepResult
-	err := s.db.QueryRowContext(ctx, `
-SELECT state, COALESCE(result_codec, ''), result_blob, COALESCE(error_codec, ''), error_blob
-FROM scenery.durable_job_steps
-WHERE service = $1 AND job_id = $2 AND step_key = $3
-`, s.Service, jobID, key).Scan(&step.State, &step.ResultCodec, &step.ResultBlob, &step.ErrorCodec, &step.ErrorBlob)
-	if errors.Is(err, sql.ErrNoRows) {
-		return StepResult{}, false, nil
-	}
-	if err != nil {
-		return StepResult{}, false, fmt.Errorf("durable store: get step %q for job %q: %w", key, jobID, err)
-	}
-	return step, true, nil
-}
-
-func (s *Store) SaveStep(ctx context.Context, jobID, key, state, resultCodec string, resultBlob, errorBlob []byte) error {
-	jobID = strings.TrimSpace(jobID)
-	key = strings.TrimSpace(key)
-	state = strings.TrimSpace(state)
-	if jobID == "" || key == "" || state == "" {
-		return fmt.Errorf("durable store: job id, step key, and state are required")
-	}
-	if resultCodec == "" {
-		resultCodec = "json"
-	}
-	if _, err := s.db.ExecContext(ctx, `
-INSERT INTO scenery.durable_job_steps (service, job_id, step_key, state, idempotency_key, result_codec, result_blob, error_codec, error_blob, updated_at)
-VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, CASE WHEN $8::bytea IS NULL THEN NULL ELSE 'text' END, $8, now())
-ON CONFLICT(service, job_id, step_key) DO UPDATE SET
-  state = excluded.state,
-  result_codec = excluded.result_codec,
-  result_blob = excluded.result_blob,
-  error_codec = excluded.error_codec,
-  error_blob = excluded.error_blob,
-  updated_at = now()
-`, s.Service, jobID, key, state, jobID+":"+key, resultCodec, resultBlob, errorBlob); err != nil {
-		return fmt.Errorf("durable store: save step %q for job %q: %w", key, jobID, err)
-	}
-	return nil
-}
-
-func (s *Store) SignalJob(ctx context.Context, jobID, name, dedupeKey string, payload []byte) error {
-	jobID = strings.TrimSpace(jobID)
-	name = strings.TrimSpace(name)
-	dedupeKey = strings.TrimSpace(dedupeKey)
-	if dedupeKey == "" {
-		dedupeKey = name
-	}
-	if jobID == "" || name == "" {
-		return fmt.Errorf("durable store: job id and signal name are required")
-	}
-	if len(payload) == 0 {
-		payload = []byte(`{}`)
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("durable store: begin signal job: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO scenery.durable_job_signals (service, job_id, name, dedupe_key, payload_codec, payload_blob)
-VALUES ($1, $2, $3, $4, 'json', $5)
-ON CONFLICT(service, job_id, name, dedupe_key) DO NOTHING
-`, s.Service, jobID, name, dedupeKey, payload); err != nil {
-		return rollback(tx, fmt.Errorf("durable store: signal job %q: %w", jobID, err))
-	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO scenery.durable_job_events (service, job_id, event_type, payload_codec, payload_blob)
-VALUES ($1, $2, 'job.signaled', 'json', $3)
-`, s.Service, jobID, payload); err != nil {
-		return rollback(tx, fmt.Errorf("durable store: append job.signaled event: %w", err))
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("durable store: commit signal job: %w", err)
 	}
 	return nil
 }

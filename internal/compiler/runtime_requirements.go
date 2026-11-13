@@ -7,7 +7,7 @@ import "sort"
 func RuntimeServices(resources []Resource) []Resource {
 	var services []Resource
 	for _, resource := range resources {
-		if resource.Kind != "scenery.service" || resource.Origin.Kind != "authored" && !IsProviderCRUDService(resource) {
+		if resource.Kind != "scenery.service" || resource.Origin.Kind != "authored" {
 			continue
 		}
 		implementation, _ := resource.Spec["implementation"].(map[string]any)
@@ -23,14 +23,6 @@ func RuntimeServices(resources []Resource) []Resource {
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].Address < services[j].Address })
 	return services
-}
-
-func IsProviderCRUDService(service Resource) bool {
-	if service.Kind != "scenery.service" || stringValue(service.Spec["runtime"]) != "provider" {
-		return false
-	}
-	implementation, _ := service.Spec["implementation"].(map[string]any)
-	return stringValue(implementation["adapter"]) == "provider_crud_v1"
 }
 
 func ServiceOperations(resources []Resource, service Resource) []Resource {

@@ -200,10 +200,10 @@ func TestRuntimeRPCDocumentedLimitsAndCallClasses(t *testing.T) {
 		t.Fatalf("limits = %+v; change docs/local-contract.md with them", defaultRuntimeRPCLimits)
 	}
 	for method, class := range map[string]runtimeCallClass{
-		"status": runtimeControlCall, "traces/clear": runtimeControlCall, "list-apps": runtimeControlCall,
+		"status": runtimeControlCall, "list-apps": runtimeControlCall,
 		"postgres/tables": runtimeWorkCall, "postgres/schema": runtimeWorkCall, "postgres/rows": runtimeWorkCall,
 		"db/query": runtimeWorkCall, "storage/inspect": runtimeWorkCall, "storage/delete-selection": runtimeWorkCall,
-		"wait": runtimeWaitCall, "cli/invoke": runtimeWorkCall,
+		"wait": runtimeWaitCall,
 	} {
 		if got := runtimeCallClassOf(method); got != class {
 			t.Errorf("%s class = %s, want %s", method, got, class)
@@ -216,7 +216,7 @@ func TestRuntimeRPCDocumentedLimitsAndCallClasses(t *testing.T) {
 
 func newRuntimeRPCTestServer(database *runtimeTestDatabase) *dashboardServer {
 	controller := runtimeRPCTestController{status: devdash.AppStatus{Running: true, AppID: "session-a", AppRoot: "/tmp/demo"}}
-	return newDashboardServerWithControllerHooks(controller, "", "127.0.0.1:0", nil, dashboardServerHooks{
+	return newDashboardServerWithControllerHooks(controller, "127.0.0.1:0", dashboardServerHooks{
 		openDatabase: func(context.Context, string) (*sql.DB, error) {
 			return sql.OpenDB(runtimeTestConnector{database: database}), nil
 		},

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,7 +23,7 @@ type sqlSupplyTestApp struct {
 func newSQLSupplyTestApp(t *testing.T) *sqlSupplyTestApp {
 	t.Helper()
 	home, root := t.TempDir(), t.TempDir()
-	writeTestAppFile(t, root, app.PrimaryConfigFilename, `{"name":"shop","id":"shop","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["prod"]}}}}`)
+	writeTestAppFile(t, root, app.PrimaryConfigFilename, `{"name":"shop","id":"shop","envs":{"local":{"default":true},"production":{}}}`)
 	paths := localagent.PathsForHome(home)
 	secrets := &memorySecrets{values: map[string][]byte{}}
 	commandAgentPathsOverride = &paths
@@ -91,27 +90,6 @@ func TestConfiguredSQLSupplyReplacesAmbientDatabaseURL(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "shop_local") {
 		t.Fatal("the error revealed the configured URL")
-	}
-}
-
-func TestConfiguredSQLSupplyFollowsTheDeploymentRoot(t *testing.T) {
-	test := newSQLSupplyTestApp(t)
-	test.configure("production", "not a url")
-	test.configure("local", "postgres://shop@db.example/shop_local")
-
-	stable := filepath.Join(test.home, "deployments", "shop", "production", "source")
-	writeTestAppFile(t, stable, app.PrimaryConfigFilename, `{"name":"shop","id":"shop","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["prod"]}}}}`)
-	if got := sqlSupplyEnvironment(stable, app.Config{ID: "shop"}, ""); got != "production" {
-		t.Fatalf("stable root environment = %q", got)
-	}
-	if got := sqlSupplyEnvironment(test.root, app.Config{ID: "shop"}, ""); got != "" {
-		t.Fatalf("worktree environment = %q", got)
-	}
-	// Without an installed release the desired production revision applies;
-	// its invalid URL is reported without its value.
-	err := applyConfiguredSQLSupply(context.Background(), []string{"db", "list", "--app-root", stable})
-	if err == nil || !strings.Contains(err.Error(), "sql.database_url of environment production") || strings.Contains(err.Error(), "not a url") {
-		t.Fatalf("invalid production URL = %v", err)
 	}
 }
 

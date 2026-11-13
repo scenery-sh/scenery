@@ -23,9 +23,6 @@ import (
 const (
 	// CanonicalRoot is the root every reusable build records.
 	CanonicalRoot = "/scenery-assistant"
-	// ServerModulePath is the build's generated server module, relative to its
-	// root.
-	ServerModulePath = ".output/server/index.mjs"
 	// ManifestModulePath is the Nitro node-server chunk containing Eve's
 	// compiled artifact bootstrap and its single embedded agent manifest.
 	ManifestModulePath = ".output/server/_chunks/node-server.mjs"

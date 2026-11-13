@@ -81,9 +81,6 @@ func TestValidateEdgeTargetForPortToleratesNewerMetadataRevisions(t *testing.T) 
 	if !bytes.Equal(before, after) {
 		t.Fatalf("helper validation rewrote target metadata:\n%s", after)
 	}
-	if _, err := os.Stat(path + ".legacy.migrated"); err == nil {
-		t.Fatalf("helper validation left a migration marker")
-	}
 }
 
 func TestValidateEdgeTargetForPortKeepsSecurityChecks(t *testing.T) {

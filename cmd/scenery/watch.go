@@ -299,7 +299,6 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		runErr = startup.Report(runErr)
 		_ = startup.Close()
 	}()
-	applyWatchTimingOverridesFromEnv()
 	readyReported := false
 	reportReady := func() {
 		if readyReported {

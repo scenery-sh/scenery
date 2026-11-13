@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -28,23 +26,6 @@ type workerOptions struct {
 	LogFormat string
 }
 
-type workerDurableTokenCreateOptions struct {
-	AppRoot string
-	Service string
-	Name    string
-	ID      string
-	JSON    bool
-}
-
-type workerDurableOptions struct {
-	AppRoot   string
-	Env       string
-	LogFormat string
-	Endpoint  string
-	Token     string
-	Services  []string
-}
-
 type workerDurableJobsOptions struct {
 	AppRoot string
 	Service string
@@ -52,22 +33,6 @@ type workerDurableJobsOptions struct {
 	Limit   int
 	Action  string
 	JSON    bool
-}
-
-type workerDurableTokenCreateResponse struct {
-	cliPayloadIdentity
-	App struct {
-		Name string `json:"name"`
-		Root string `json:"root"`
-	} `json:"app"`
-	Service string `json:"service"`
-	DBPath  string `json:"db_path"`
-	Token   struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		Secret    string `json:"secret"`
-		TokenHash string `json:"token_hash"`
-	} `json:"token"`
 }
 
 type workerDurableJobsResponse struct {
@@ -118,17 +83,9 @@ func workerCommand(args []string) error {
 }
 
 var runWorkerFunc = runWorker
-var runWorkerDurableTokenCreateFunc = runWorkerDurableTokenCreate
 var runWorkerDurableJobsFunc = runWorkerDurableJobs
 
 func durableWorkerCommand(args []string, stdout io.Writer) error {
-	if len(args) >= 2 && args[0] == "token" && args[1] == "create" {
-		opts, err := parseWorkerDurableTokenCreateArgs(args[2:])
-		if err != nil {
-			return err
-		}
-		return runWorkerDurableTokenCreateFunc(opts, stdout)
-	}
 	if len(args) >= 1 && args[0] == "jobs" {
 		opts, err := parseWorkerDurableJobsArgs(args[1:])
 		if err != nil {
@@ -136,14 +93,7 @@ func durableWorkerCommand(args []string, stdout io.Writer) error {
 		}
 		return runWorkerDurableJobsFunc(opts, stdout)
 	}
-	if len(args) == 0 {
-		return usageErrorf("scenery worker durable requires --endpoint and --token")
-	}
-	opts, err := parseWorkerDurableArgs(args)
-	if err != nil {
-		return err
-	}
-	return runWorkerDurable(opts)
+	return usageErrorf("scenery worker durable requires jobs")
 }
 
 func parseWorkerArgs(args []string) (workerOptions, error) {
@@ -165,70 +115,6 @@ func parseWorkerArgs(args []string) (workerOptions, error) {
 	}
 	if opts.LogFormat != "text" && opts.LogFormat != "json" {
 		return workerOptions{}, usageErrorf("invalid --log-format %q", opts.LogFormat)
-	}
-	return opts, nil
-}
-
-func parseWorkerDurableTokenCreateArgs(args []string) (workerDurableTokenCreateOptions, error) {
-	var opts workerDurableTokenCreateOptions
-	flags := newCLIFlagSet("worker durable token create")
-	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.StringVar(&opts.Service, "service", "", "")
-	flags.StringVar(&opts.Name, "name", "", "")
-	flags.StringVar(&opts.ID, "id", "", "")
-	registerJSONOutput(flags, &opts.JSON)
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return workerDurableTokenCreateOptions{}, err
-	}
-	if err := rejectCLIPositionals(positionals); err != nil {
-		return workerDurableTokenCreateOptions{}, err
-	}
-	opts.Service, opts.Name, opts.ID = strings.TrimSpace(opts.Service), strings.TrimSpace(opts.Name), strings.TrimSpace(opts.ID)
-	if opts.Service == "" {
-		return workerDurableTokenCreateOptions{}, usageErrorf("--service is required")
-	}
-	if opts.Name == "" {
-		opts.Name = opts.Service + " durable worker"
-	}
-	return opts, nil
-}
-
-func parseWorkerDurableArgs(args []string) (workerDurableOptions, error) {
-	opts := workerDurableOptions{LogFormat: "text"}
-	flags := newCLIFlagSet("worker durable")
-	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.StringVar(&opts.Env, "env", "", "")
-	flags.StringVar(&opts.LogFormat, "log-format", opts.LogFormat, "")
-	flags.StringVar(&opts.Endpoint, "endpoint", "", "")
-	flags.StringVar(&opts.Token, "token", "", "")
-	flags.Func("service", "", func(value string) error { opts.Services = append(opts.Services, strings.TrimSpace(value)); return nil })
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return workerDurableOptions{}, err
-	}
-	if err := rejectCLIPositionals(positionals); err != nil {
-		return workerDurableOptions{}, err
-	}
-	opts.Env = strings.TrimSpace(opts.Env)
-	opts.Endpoint = strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
-	opts.Token = strings.TrimSpace(opts.Token)
-	if cliFlagSet(flags, "env") && opts.Env == "" {
-		return workerDurableOptions{}, usageErrorf("--env must not be empty")
-	}
-	if opts.LogFormat != "text" && opts.LogFormat != "json" {
-		return workerDurableOptions{}, usageErrorf("invalid --log-format %q", opts.LogFormat)
-	}
-	for _, service := range opts.Services {
-		if service == "" {
-			return workerDurableOptions{}, usageErrorf("--service must not be empty")
-		}
-	}
-	if opts.Endpoint == "" {
-		return workerDurableOptions{}, usageErrorf("--endpoint is required")
-	}
-	if opts.Token == "" {
-		return workerDurableOptions{}, usageErrorf("--token is required")
 	}
 	return opts, nil
 }
@@ -291,22 +177,6 @@ func runWorker(opts workerOptions) error {
 	return startWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Contract.Manifest, result.Binary, opts)
 }
 
-func runWorkerDurable(opts workerDurableOptions) error {
-	start, err := resolveAppRoot(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	root, cfg, err := app.DiscoverRoot(start)
-	if err != nil {
-		return err
-	}
-	result, err := build.AppForTarget(root, cfg, "")
-	if err != nil {
-		return err
-	}
-	return startDurableWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Contract.Manifest, result.Binary, opts)
-}
-
 func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, manifest *compiler.Manifest, binary string, opts workerOptions) (returnErr error) {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -349,119 +219,6 @@ func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequir
 	if err != nil {
 		return fmt.Errorf("scenery worker exited: %w", err)
 	}
-	return nil
-}
-
-func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, manifest *compiler.Manifest, binary string, opts workerDurableOptions) (returnErr error) {
-	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
-
-	cmd := commandTreeContext(ctx, binary)
-	cmd.Dir = root
-	extra := []string{
-		"SCENERY_ROLE=worker",
-		"SCENERY_DURABLE_ENDPOINT=" + opts.Endpoint,
-		"SCENERY_DURABLE_TOKEN=" + opts.Token,
-	}
-	if len(opts.Services) > 0 {
-		extra = append(extra, "SCENERY_DURABLE_SERVICES="+strings.Join(opts.Services, ","))
-	}
-	env, err := appProcessEnv(root, cfg, requirements, opts.LogFormat, opts.Env, extra...)
-	if err != nil {
-		return err
-	}
-	lease, err := storageTaskLease(ctx, env)
-	if err != nil {
-		return err
-	}
-	if lease != nil {
-		defer func() { returnErr = errors.Join(returnErr, lease.Close()) }()
-	}
-	cmd.Env = env
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = nil
-	configuration, err := applicationConfigInput(ctx, root, cfg, opts.Env, manifest)
-	if err != nil {
-		return err
-	}
-	started, abandon, err := devprocess.AttachPrivateInput(cmd, configuration)
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		abandon()
-		return err
-	}
-	started()
-	err = cmd.Wait()
-	if ctx.Err() != nil {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("scenery durable worker exited: %w", err)
-	}
-	return nil
-}
-
-func runWorkerDurableTokenCreate(opts workerDurableTokenCreateOptions, stdout io.Writer) error {
-	start, err := resolveAppRoot(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	root, cfg, err := app.DiscoverRoot(start)
-	if err != nil {
-		return err
-	}
-	service, err := durablestore.NormalizeServiceName(opts.Service)
-	if err != nil {
-		return err
-	}
-	databaseURL, err := durableDatabaseURLForCLI(root, cfg, service)
-	if err != nil {
-		return err
-	}
-	db, err := durablestore.Open(context.Background(), service, databaseURL, durablestore.Options{})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-
-	secret, err := randomDurableTokenSecret()
-	if err != nil {
-		return err
-	}
-	id := strings.TrimSpace(opts.ID)
-	if id == "" {
-		id, err = randomDurableTokenID()
-		if err != nil {
-			return err
-		}
-	}
-	token, err := db.CreateWorkerToken(context.Background(), durablestore.WorkerTokenRequest{
-		ID:     id,
-		Name:   opts.Name,
-		Secret: secret,
-	})
-	if err != nil {
-		return err
-	}
-	resp := workerDurableTokenCreateResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.durable.worker_token.create"),
-		Service:            service,
-		DBPath:             postgresdb.RedactURL(databaseURL),
-	}
-	resp.App.Name = cfg.Name
-	resp.App.Root = root
-	resp.Token.ID = token.ID
-	resp.Token.Name = token.Name
-	resp.Token.Secret = secret
-	resp.Token.TokenHash = token.TokenHash
-	if opts.JSON {
-		return writeCLIJSON(stdout, resp)
-	}
-	_, _ = fmt.Fprintf(stdout, "created durable worker token %s for service %s\n", token.ID, service)
-	_, _ = fmt.Fprintf(stdout, "secret: %s\n", secret)
 	return nil
 }
 
@@ -605,24 +362,4 @@ func durableJobEventFromStore(event durablestore.JobEvent) durableJobEvent {
 		PayloadCodec: event.PayloadCodec,
 		CreatedAt:    event.CreatedAt,
 	}
-}
-
-func randomDurableTokenSecret() (string, error) {
-	return randomDurableTokenString(32)
-}
-
-func randomDurableTokenID() (string, error) {
-	value, err := randomDurableTokenString(12)
-	if err != nil {
-		return "", err
-	}
-	return "tok_" + value, nil
-}
-
-func randomDurableTokenString(n int) (string, error) {
-	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

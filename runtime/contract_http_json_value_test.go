@@ -40,7 +40,7 @@ func TestContractJSONValuesPreserveEmptyCollectionsThroughHandler(t *testing.T) 
 		},
 		EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
 			input := outcome.(exactJSONDocumentInput)
-			response, err := EncodeContractJSONForRequest(request, http.StatusOK, outcome, []string{"application/json"}, 0)
+			response, err := EncodeContractRepresentationForRequest(request, http.StatusOK, outcome, "json", []string{"application/json"}, 0)
 			if err != nil || len(input.Filter) == 0 {
 				return response, err
 			}
@@ -125,7 +125,7 @@ func TestContractTypedNullableListKeepsEmptyDistinctFromNull(t *testing.T) {
 		t.Helper()
 		request := httptest.NewRequest(http.MethodPost, "/tags", strings.NewReader(body))
 		request.Header.Set("Content-Type", "application/json")
-		input, err := DecodeContractJSON[tagsInput](request)
+		input, err := DecodeContractInput[tagsInput](request, nil, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json"}})
 		if err != nil {
 			t.Fatal(err)
 		}

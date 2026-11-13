@@ -21,9 +21,6 @@ const maxConfigInputBytes = appconfig.MaxSecretBytes
 // configSecretBackendOverride is the in-process secret backend seam for tests.
 var configSecretBackendOverride func(*appconfig.Store) (appconfig.SecretBackend, error)
 
-// configRemoteTransportOverride is the in-process SSH transport seam for tests.
-var configRemoteTransportOverride configRemoteTransport
-
 // configCatalogOverride is the in-process catalog seam for tests; production
 // compiles the checkout.
 var configCatalogOverride func(root string, cfg app.Config) (appconfig.Catalog, error)
@@ -40,17 +37,23 @@ type configOptions struct {
 	ExpectRevision string
 }
 
-// configSession is one command's application, environment and authority.
+// configSession is one command's application, environment and store.
 type configSession struct {
-	root       string
-	cfg        app.Config
-	env        app.ResolvedEnv
-	catalog    appconfig.Catalog
-	deployable bool
-	// store and target: a local environment uses store; a deployable one
-	// resolves on its single SSH target.
-	store  *appconfig.Store
-	target string
+	root    string
+	cfg     app.Config
+	env     app.ResolvedEnv
+	catalog appconfig.Catalog
+	store   *appconfig.Store
+}
+
+// configMutationRequest is one requested change to an environment's desired
+// configuration.
+type configMutationRequest struct {
+	Operation      string
+	Key            string
+	Value          json.RawMessage
+	Secret         []byte
+	ExpectRevision string
 }
 
 func configCommand(args []string) error {
@@ -69,8 +72,6 @@ func configCommand(args []string) error {
 		return configUnsetCommand(os.Stdout, args[1:])
 	case "migrate-connections":
 		return configMigrateConnectionsCommand(os.Stdout, args[1:])
-	case "receive":
-		return configReceiveCommand(os.Stdout, args[1:])
 	default:
 		return usageErrorf("unknown config command %q; use show, set or unset", args[0])
 	}
@@ -110,7 +111,7 @@ func parseConfigOptions(name string, args []string, mutation bool) (configOption
 }
 
 // openConfigSession discovers the application, compiles its catalog without
-// starting anything, and selects the environment's authority.
+// starting anything, and opens the environment's store.
 func openConfigSession(opts configOptions) (*configSession, error) {
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
@@ -138,14 +139,7 @@ func openConfigSession(opts configOptions) (*configSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	session := &configSession{root: root, cfg: cfg, env: env, catalog: catalog, deployable: env.Deployable()}
-	if session.deployable {
-		if len(env.Deploy.SSH) != 1 {
-			return nil, preconditionErrorf("envs.%s.deploy.ssh must name exactly one target; configuration never chooses between targets", env.Name)
-		}
-		session.target = env.Deploy.SSH[0]
-		return session, nil
-	}
+	session := &configSession{root: root, cfg: cfg, env: env, catalog: catalog}
 	paths, err := commandAgentPaths()
 	if err != nil {
 		return nil, err
@@ -190,20 +184,13 @@ func (s *configSession) secretBackend() (appconfig.SecretBackend, error) {
 	return appconfig.DefaultSecretBackend(s.store)
 }
 
-// readDocument reads the environment's desired document from its authority.
-func (s *configSession) readDocument(ctx context.Context) (appconfig.Document, *configTargetActive, error) {
-	if s.deployable {
-		response, err := s.exchange(ctx, configRemoteRequest{Operation: "read"})
-		if err != nil {
-			return appconfig.Document{}, nil, err
-		}
-		return response.document(s.cfg.ID, s.env.Name), response.Active, nil
-	}
+// readDocument reads the environment's desired document.
+func (s *configSession) readDocument() (appconfig.Document, error) {
 	document, _, err := s.store.Read(s.env.Name)
 	if err != nil {
-		return appconfig.Document{}, nil, preconditionErrorf("read %s configuration: %v", s.env.Name, err)
+		return appconfig.Document{}, preconditionErrorf("read %s configuration: %v", s.env.Name, err)
 	}
-	return document, nil, nil
+	return document, nil
 }
 
 type configShowInput struct {
@@ -224,8 +211,6 @@ type configShowResult struct {
 	machine.PayloadIdentity
 	AppID           string            `json:"app_id"`
 	Environment     string            `json:"environment"`
-	Authority       string            `json:"authority"`
-	Target          string            `json:"target,omitempty"`
 	DesiredRevision string            `json:"desired_revision"`
 	CatalogRevision string            `json:"catalog_revision"`
 	Valid           bool              `json:"valid"`
@@ -265,14 +250,14 @@ func configShowCommand(stdout io.Writer, args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	document, active, err := session.readDocument(ctx)
+	document, err := session.readDocument()
 	if err != nil {
 		return err
 	}
-	resolution := appconfig.Resolve(session.catalog, document, session.deployable)
+	resolution := appconfig.Resolve(session.catalog, document)
 	result := configShowResult{
 		PayloadIdentity: machine.NewPayloadIdentity("scenery.config.show"),
-		AppID:           session.cfg.ID, Environment: session.env.Name, Authority: "local",
+		AppID:           session.cfg.ID, Environment: session.env.Name,
 		DesiredRevision: document.Revision, CatalogRevision: session.catalog.Revision,
 		Valid: resolution.Valid(), Missing: resolution.Missing(), Unused: resolution.Unused,
 		Inputs: []configShowInput{},
@@ -280,15 +265,7 @@ func configShowCommand(stdout io.Writer, args []string) error {
 	if result.Missing == nil {
 		result.Missing = []string{}
 	}
-	if session.deployable {
-		result.Authority, result.Target = "target", session.target
-		result.Applied = configApplied{State: "not_deployed"}
-		if active != nil {
-			result.Applied = configApplied{State: "active", Revision: active.Revision, CatalogRevision: active.CatalogRevision}
-		}
-	} else {
-		result.Applied = observeLocalConfigApplication(ctx, session.store, session.root, session.env.Name, document.Revision)
-	}
+	result.Applied = observeLocalConfigApplication(ctx, session.store, session.root, session.env.Name, document.Revision)
 	for _, entry := range resolution.Entries {
 		if len(positionals) == 1 && entry.Key != positionals[0] {
 			continue
@@ -296,7 +273,7 @@ func configShowCommand(stdout io.Writer, args []string) error {
 		input, _ := session.catalog.Lookup(entry.Key)
 		shown := configShowInput{
 			Key: entry.Key, Type: entry.Type, Sensitive: entry.Sensitive, Source: entry.Source, State: entry.State,
-			Value: entry.Value, Default: input.Default, Required: input.Required(session.deployable), Problem: entry.Problem, Consumers: []string{},
+			Value: entry.Value, Default: input.Default, Required: input.Required(), Problem: entry.Problem, Consumers: []string{},
 		}
 		for _, consumer := range input.Consumers {
 			shown.Consumers = append(shown.Consumers, consumer.Service)
@@ -323,8 +300,6 @@ type configChangeResult struct {
 	machine.PayloadIdentity
 	AppID            string   `json:"app_id"`
 	Environment      string   `json:"environment"`
-	Authority        string   `json:"authority"`
-	Target           string   `json:"target,omitempty"`
 	Key              string   `json:"key"`
 	Operation        string   `json:"operation"`
 	Changed          bool     `json:"changed"`
@@ -360,13 +335,13 @@ func configSetCommand(stdout io.Writer, args []string) error {
 	if !ok {
 		return usageErrorf("%s is not a configuration input of this application", key)
 	}
-	mutation := configRemoteRequest{Operation: "set", Key: key, ExpectRevision: opts.ExpectRevision}
+	mutation := configMutationRequest{Operation: "set", Key: key, ExpectRevision: opts.ExpectRevision}
 	switch {
 	case input.Sensitive:
 		if len(positionals) == 2 || opts.Null {
 			return usageErrorf("%s is a secret: never pass it as an argument; use the hidden prompt or --stdin", key)
 		}
-		// Read before any lock or remote call.
+		// Read before any lock.
 		secret, err := readConfigSecret(opts.Stdin, key)
 		if err != nil {
 			return err
@@ -416,42 +391,28 @@ func configUnsetCommand(stdout io.Writer, args []string) error {
 	if _, ok := session.catalog.Lookup(key); !ok {
 		return usageErrorf("%s is not a configuration input of this application", key)
 	}
-	return session.applyMutation(stdout, opts, configRemoteRequest{Operation: "unset", Key: key, ExpectRevision: opts.ExpectRevision})
+	return session.applyMutation(stdout, opts, configMutationRequest{Operation: "unset", Key: key, ExpectRevision: opts.ExpectRevision})
 }
 
-func (s *configSession) applyMutation(stdout io.Writer, opts configOptions, request configRemoteRequest) error {
+func (s *configSession) applyMutation(stdout io.Writer, opts configOptions, request configMutationRequest) error {
 	ctx := context.Background()
-	var mutation appconfig.MutationResult
-	if s.deployable {
-		response, err := s.exchange(ctx, request)
-		if err != nil {
-			return err
-		}
-		mutation = *response.Result
-	} else {
-		var err error
-		mutation, err = applyLocalConfigMutation(ctx, s.store, s.env.Name, request, func() (appconfig.SecretBackend, error) { return s.secretBackend() })
-		if err != nil {
-			return err
-		}
+	mutation, err := applyLocalConfigMutation(ctx, s.store, s.env.Name, request, func() (appconfig.SecretBackend, error) { return s.secretBackend() })
+	if err != nil {
+		return err
 	}
-	document, _, err := s.readDocument(ctx)
+	document, err := s.readDocument()
 	if err != nil {
 		return err
 	}
 	result := configChangeResult{
 		PayloadIdentity: machine.NewPayloadIdentity("scenery.config.change"),
-		AppID:           s.cfg.ID, Environment: s.env.Name, Authority: "local", Key: request.Key, Operation: request.Operation,
+		AppID:           s.cfg.ID, Environment: s.env.Name, Key: request.Key, Operation: request.Operation,
 		Changed: mutation.Changed, PreviousRevision: mutation.PreviousRevision, Revision: mutation.Revision,
-		Missing:     appconfig.Resolve(s.catalog, document, s.deployable).Missing(),
+		Missing:     appconfig.Resolve(s.catalog, document).Missing(),
 		Application: "running local runtimes of this application apply it automatically",
 	}
 	if result.Missing == nil {
 		result.Missing = []string{}
-	}
-	if s.deployable {
-		result.Authority, result.Target = "target", s.target
-		result.Application = "applied by the next scenery deploy --env " + s.env.Name
 	}
 	if opts.Output == "json" {
 		return writeCLIJSON(stdout, result)
@@ -463,7 +424,7 @@ func (s *configSession) applyMutation(stdout io.Writer, opts configOptions, requ
 // applyLocalConfigMutation performs one mutation against a local store. A
 // secret is created as a new immutable version before the document
 // references it; a failed publication leaves only an orphan version.
-func applyLocalConfigMutation(ctx context.Context, store *appconfig.Store, environment string, request configRemoteRequest, backend func() (appconfig.SecretBackend, error)) (appconfig.MutationResult, error) {
+func applyLocalConfigMutation(ctx context.Context, store *appconfig.Store, environment string, request configMutationRequest, backend func() (appconfig.SecretBackend, error)) (appconfig.MutationResult, error) {
 	if request.Operation == "migrate_connections" {
 		secrets, err := backend()
 		if err != nil {

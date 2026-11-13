@@ -9,24 +9,6 @@ import (
 	"testing"
 )
 
-func TestDiscoverRootRejectsDuplicateDatabaseRequirements(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".scenery.json", `{
-		"name": "dbapp",
-		"dev": {
-			"services": {
-				"auth": {},
-				"billing-data": {}
-			}
-		}
-	}`)
-
-	_, _, err := DiscoverRoot(root)
-	if err == nil || !strings.Contains(err.Error(), "dev.services") || !strings.Contains(err.Error(), "data_source") {
-		t.Fatalf("DiscoverRoot must identify the current SQL requirement owner: %v", err)
-	}
-}
-
 func TestDiscoverRootAcceptsBuildGoFlags(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
@@ -45,7 +27,7 @@ func TestDiscoverRootAcceptsBuildGoFlags(t *testing.T) {
 	}
 }
 
-func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
+func TestDiscoverRootAcceptsEnvironmentDomain(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
 		"name": "deployapp",
@@ -59,8 +41,7 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 			"local": {"default": true, "frontends": {"web": {"serve": "development"}}},
 			"production": {
 				"domain": "onlv.dev",
-				"frontends": {"web": {"serve": "production"}},
-				"deploy": {"ssh": ["some-id"]}
+				"frontends": {"web": {"serve": "production"}}
 			}
 		}
 	}`)
@@ -69,8 +50,8 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
-	env, err := cfg.EnvForSSHTarget("some-id")
-	if err != nil || env.Domain != "onlv.dev" || cfg.RootFrontend() != "web" || strings.Join(env.Deploy.SSH, ",") != "some-id" {
+	env, err := cfg.ResolveEnv("production")
+	if err != nil || env.Domain != "onlv.dev" || cfg.RootFrontend() != "web" {
 		t.Fatalf("production env = %+v, err = %v", env, err)
 	}
 }
@@ -102,14 +83,14 @@ func TestResolveEnvAppliesFrontendModes(t *testing.T) {
 		Frontends: map[string]FrontendConfig{"web": {Root: "web"}},
 		Envs: map[string]EnvConfig{
 			"local":      {Default: true, Frontends: map[string]EnvFrontendConfig{"web": {Serve: "development"}}},
-			"production": {Frontends: map[string]EnvFrontendConfig{"web": {Serve: "production"}}, Deploy: &EnvDeployConfig{SSH: []string{"prod"}}},
+			"production": {Frontends: map[string]EnvFrontendConfig{"web": {Serve: "production"}}},
 		},
 	}
 	local, err := cfg.ResolveEnv("")
 	if err != nil || local.Name != "local" || local.Frontends["web"].Serve != "development" {
 		t.Fatalf("local = %+v, err = %v", local, err)
 	}
-	production, err := cfg.EnvForSSHTarget("prod")
+	production, err := cfg.ResolveEnv("production")
 	if err != nil || production.Name != "production" || production.Frontends["web"].Serve != "production" {
 		t.Fatalf("production = %+v, err = %v", production, err)
 	}
@@ -180,8 +161,8 @@ func TestDiscoverRootRejectsInvalidEnvironmentOwnership(t *testing.T) {
 	tests := []struct{ name, config, want string }{
 		{"missing envs", `{"name":"demo"}`, "envs must declare environments"},
 		{"two defaults", `{"name":"demo","envs":{"local":{"default":true},"other":{"default":true}}}`, "exactly one default"},
-		{"duplicate target", `{"name":"demo","envs":{"local":{"default":true},"staging":{"deploy":{"ssh":["host"]}},"production":{"deploy":{"ssh":["host"]}}}}`, "duplicates target"},
-		{"old deploy", `{"name":"demo","envs":{"local":{"default":true}},"deploy":{}}`, `unknown .scenery.json field "deploy"`},
+		{"top-level deploy", `{"name":"demo","envs":{"local":{"default":true}},"deploy":{}}`, `unknown .scenery.json field "deploy"`},
+		{"environment deploy", `{"name":"demo","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["host"]}}}}`, `unknown .scenery.json field "envs.production.deploy"`},
 		{"old routing", `{"name":"demo","envs":{"local":{"default":true}},"dev":{"routing":{}}}`, `unknown .scenery.json field "dev"`},
 		{"old serve", `{"name":"demo","frontends":{"web":{"root":"web","serve":"production"}},"envs":{"local":{"default":true}}}`, `unknown .scenery.json field "frontends.web.serve"`},
 	}
@@ -377,7 +358,7 @@ func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 	}
 }
 
-func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
+func TestDiscoverRootRejectsInvalidEnvironmentDomain(t *testing.T) {
 	tests := []struct {
 		name   string
 		config string
@@ -385,63 +366,28 @@ func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
 	}{
 		{
 			name:   "uppercase domain",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"Onlv.dev","deploy":{}}}}`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"Onlv.dev"}}}`,
 			want:   "envs.production.domain must be lowercase",
 		},
 		{
 			name:   "localhost",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"localhost","deploy":{}}}}`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"localhost"}}}`,
 			want:   "envs.production.domain: must not be localhost",
 		},
 		{
 			name:   "ip",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"192.168.1.10","deploy":{}}}}`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"192.168.1.10"}}}`,
 			want:   "envs.production.domain: must not be an IP address",
 		},
 		{
 			name:   "bad fqdn",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"notadomain","deploy":{}}}}`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"notadomain"}}}`,
 			want:   `envs.production.domain: "notadomain" must be a valid lowercase FQDN`,
 		},
 		{
 			name:   "unknown root",
-			config: `{"name":"deployapp","root":"web","frontends":{"admin":{"root":"admin"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{}}}}`,
+			config: `{"name":"deployapp","root":"web","frontends":{"admin":{"root":"admin"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev"}}}`,
 			want:   `root "web" must name a configured frontend (one of: admin)`,
-		},
-		{
-			name:   "legacy deploy root",
-			config: `{"name":"deployapp","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"web"}}}}`,
-			want:   `unknown .scenery.json field "envs.production.deploy.root"; move the frontend name to top-level "root"`,
-		},
-		{
-			name:   "removed api deploy root",
-			config: `{"name":"deployapp","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"api"}}}}`,
-			want:   `unknown .scenery.json field "envs.production.deploy.root"; remove it because public / now uses the root frontend (or the default agent page when no root frontend is configured), while /api/ remains routed automatically`,
-		},
-		{
-			name:   "unsafe ssh target",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["-oProxyCommand=bad"]}}}}`,
-			want:   `envs.production.deploy.ssh[0] "-oProxyCommand=bad" must be a safe OpenSSH host alias`,
-		},
-		{
-			name:   "reserved ssh target",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["status"]}}}}`,
-			want:   `envs.production.deploy.ssh[0] "status" must be a safe OpenSSH host alias`,
-		},
-		{
-			name:   "duplicate ssh target",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id","some-id"]}}}}`,
-			want:   `envs.production.deploy.ssh[1] duplicates target "some-id"`,
-		},
-		{
-			name:   "unsafe app id",
-			config: `{"name":"My App","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`,
-			want:   `app id "My App" must start with a lowercase letter or number`,
-		},
-		{
-			name:   "traversing app id",
-			config: `{"name":"..","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`,
-			want:   `app id ".." must start with a lowercase letter or number`,
 		},
 	}
 	for _, tt := range tests {
@@ -552,7 +498,7 @@ func TestDiscoverRootAcceptsEmptyStorageKindAsLocal(t *testing.T) {
 
 func TestEnvUICatalogOnlyOnLocal(t *testing.T) {
 	root := t.TempDir()
-	config := `{"name":"demo","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"ui_catalog":"../ui","domain":"demo.example.com","frontends":{"web":{"serve":"production"}},"deploy":{"ssh":["host"]}}}}`
+	config := `{"name":"demo","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"ui_catalog":"../ui","domain":"demo.example.com","frontends":{"web":{"serve":"production"}}}}}`
 	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}

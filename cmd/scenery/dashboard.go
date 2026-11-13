@@ -11,14 +11,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
-	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/devreport"
@@ -48,10 +46,8 @@ func dashboardCheckOrigin(req *http.Request) bool {
 
 type dashboardServer struct {
 	controller dashboardController
-	supervisor *devSupervisor
 	http       *http.Server
 	addr       string
-	state      dashboardRunState
 	// logExporter, when set, receives log events in place of the
 	// observability backend.
 	logExporter  func(*devdash.LogEvent)
@@ -73,7 +69,6 @@ type dashboardVictoria interface {
 	GetTraceDetail(context.Context, devdash.TraceQuery) (*devdash.TraceDetail, error)
 	QueryTraceSummaries(context.Context, devdash.TraceQuery) ([]*devdash.TraceSummary, error)
 	ListDevEvents(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error)
-	MarkCleared(string, time.Time)
 	URLs() map[string]string
 	Endpoint(string) string
 }
@@ -134,27 +129,17 @@ func (s *dashboardServer) dashboardVictoria() dashboardVictoria {
 	return s.controller.dashboardVictoria()
 }
 
-func dashboardStoreAppID(status devdash.AppStatus) string {
-	return firstNonEmpty(status.BaseAppID, status.AppID)
-}
-
-func newDashboardServer(supervisor *devSupervisor) *dashboardServer {
-	return newDashboardServerWithController(supervisor, supervisor.root, devdash.ListenAddr(), supervisor)
-}
-
-func newDashboardServerWithController(controller dashboardController, root, addr string, supervisor *devSupervisor) *dashboardServer {
-	return newDashboardServerWithControllerHooks(controller, root, addr, supervisor, dashboardServerHooks{})
+func newDashboardServerWithController(controller dashboardController, addr string) *dashboardServer {
+	return newDashboardServerWithControllerHooks(controller, addr, dashboardServerHooks{})
 }
 
 // The dashboard listener is the worktree's runtime control backend: the
 // development runtime RPC, storage transfers, report intake and the
 // supervisor control plane. It serves no browser UI.
-func newDashboardServerWithControllerHooks(controller dashboardController, root, addr string, supervisor *devSupervisor, hooks dashboardServerHooks) *dashboardServer {
+func newDashboardServerWithControllerHooks(controller dashboardController, addr string, hooks dashboardServerHooks) *dashboardServer {
 	s := &dashboardServer{
 		controller:   controller,
-		supervisor:   supervisor,
 		addr:         addr,
-		state:        newDashboardRunState(root, addr),
 		traces:       newDashboardTraceEventBuffer(),
 		openDatabase: hooks.openDatabase,
 		rpc:          newRuntimeRPC(defaultRuntimeRPCLimits),
@@ -180,9 +165,6 @@ func newDashboardServerWithControllerHooks(controller dashboardController, root,
 
 func (s *dashboardServer) Start(ctx context.Context) error {
 	addr := s.addr
-	if err := ensureDashboardPortAvailable(addr, s.state); err != nil {
-		return fmt.Errorf("scenery dashboard failed to listen on %s: %w", addr, err)
-	}
 	ln, err := netListen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("scenery dashboard failed to listen on %s: %w", addr, err)
@@ -193,11 +175,6 @@ func (s *dashboardServer) Start(ctx context.Context) error {
 // startListener consumes a listener already held by the worktree supervisor.
 func (s *dashboardServer) startListener(ctx context.Context, ln net.Listener) error {
 	s.addr = ln.Addr().String()
-	s.state.DashboardAddr = s.addr
-	if err := s.state.write(); err != nil {
-		_ = ln.Close()
-		return fmt.Errorf("scenery dashboard failed to persist run state: %w", err)
-	}
 	go func() {
 		<-ctx.Done()
 		_ = s.http.Shutdown(context.Background())
@@ -217,32 +194,6 @@ type procInfo struct {
 	cmd  string
 }
 
-// stopRecordedOwner interrupts a recorded process and escalates only while
-// the same recorded identity still verifies.
-func stopRecordedOwner(owner localagent.Owner, grace time.Duration) error {
-	proc, err := os.FindProcess(owner.PID)
-	if err != nil {
-		return err
-	}
-	if err := proc.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	deadline := time.Now().Add(grace)
-	for time.Now().Before(deadline) {
-		if localagent.VerifyOwner(owner) != nil {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if localagent.VerifyOwner(owner) != nil {
-		return nil
-	}
-	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	return nil
-}
-
 func (s *dashboardServer) Close() error {
 	if s == nil || s.http == nil {
 		return nil
@@ -253,9 +204,6 @@ func (s *dashboardServer) Close() error {
 	s.connections.closeAll()
 	s.connections.wait()
 	s.telemetry.close()
-	if stateErr := s.state.remove(); stateErr != nil {
-		return errors.Join(err, stateErr)
-	}
 	return err
 }
 

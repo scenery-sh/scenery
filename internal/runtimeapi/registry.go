@@ -49,10 +49,6 @@ type InvocationMetadata struct {
 // pass but cannot forge one.
 type Invocation struct{ state *invocationState }
 
-func NewInvocation(id, principal, tenantID, traceID string, deadline time.Time) Invocation {
-	return NewInvocationWithMetadata(InvocationMetadata{ID: id, Principal: principal, TenantID: tenantID, TraceID: traceID, Deadline: deadline})
-}
-
 func NewInvocationWithMetadata(metadata InvocationMetadata) Invocation {
 	return Invocation{state: &invocationState{
 		id: metadata.ID, principal: metadata.Principal, tenantID: metadata.TenantID,

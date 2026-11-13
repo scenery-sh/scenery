@@ -256,24 +256,11 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 	}
 }
 
-func TestGenerateApplicationAdapterRegistersSchedulesConsumersAndEmissions(t *testing.T) {
+func TestGenerateApplicationAdapterRegistersSchedules(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	result.Manifest.Resources = append(result.Manifest.Resources,
-		Resource{Address: "app/event_bus/events", Module: "app", Kind: "scenery.event-bus", Name: "events", Origin: Origin{Kind: "authored"}, Spec: map[string]any{"provider": map[string]any{"$ref": "provider.events"}}},
-		Resource{Address: "house/event/scene_processed", Module: "house", Kind: "scenery.event", Name: "scene_processed", Origin: Origin{Kind: "authored"}, Spec: map[string]any{"payload": map[string]any{"$ref": "record.process_scene_result"}, "version": "1"}},
-		Resource{Address: "house/binding/process_scene_event", Module: "house", Kind: "scenery.binding", Name: "process_scene_event", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
-			"operation": map[string]any{"$ref": "operation.process_scene"}, "execution": map[string]any{"$ref": "execution.process_scene_direct"}, "protocol": "event", "delivery": "call",
-			"authentication": map[string]any{"$ref": "std.authentication.service_identity"}, "authorization": map[string]any{"$ref": "std.authorization.application"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"},
-			"event": map[string]any{"direction": "consume", "bus": map[string]any{"$ref": "app/event_bus/events"}, "channel": "house.process", "contract": map[string]any{"$ref": "event.scene_processed"}, "guarantee": "at_least_once", "broker_retry": map[string]any{"attempts": "5", "backoff": "exponential"}, "dead_letter_channel": "house.process.dead", "map": map[string]any{"from": map[string]any{"$ref": "message.payload"}, "to": map[string]any{"$ref": "operation.process_scene.input"}}},
-		}},
-		Resource{Address: "house/event_emission/scene_processed", Module: "house", Kind: "scenery.event-emission", Name: "scene_processed", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
-			"bus": map[string]any{"$ref": "app/event_bus/events"}, "channel": "house.processed", "contract": map[string]any{"$ref": "event.scene_processed"}, "guarantee": "at_least_once",
-			"ordering_key": map[string]any{"$ref": "result.processed.status"}, "deduplication_key": map[string]any{"$ref": "result.processed.status"},
-			"broker_retry": map[string]any{"attempts": "3", "backoff": "fixed"}, "dead_letter_channel": "house.processed.dead",
-			"from": map[string]any{"operation": map[string]any{"$ref": "operation.process_scene"}, "when": map[string]any{"$ref": "result.processed"}, "payload": map[string]any{"$ref": "result.processed"}},
-		}},
 		Resource{Address: "house/schedule/nightly", Module: "house", Kind: "scenery.schedule", Name: "nightly", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
-			"trigger": map[string]any{"cron": "0 2 * * *", "timezone": "Europe/Prague"}, "overlap": "skip", "catchup": map[string]any{"maximum_age": "10m"},
+			"trigger": map[string]any{"every": "1d"}, "overlap": "skip", "catchup": map[string]any{"maximum_age": "10m"},
 			"invoke": map[string]any{"operation": map[string]any{"$ref": "operation.process_scene"}, "execution": map[string]any{"$ref": "execution.process_scene_direct"}, "identity": map[string]any{"$ref": "std.workload_identity.scheduler"}, "authorization": map[string]any{"$ref": "std.authorization.scheduled"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}, "input": map[string]any{"scene_id": "nightly"}},
 		}},
 	)
@@ -284,22 +271,14 @@ func TestGenerateApplicationAdapterRegistersSchedulesConsumersAndEmissions(t *te
 	adapter := generatedSourceWithSuffix(files, "/house_house_adapter/adapter.gen.go")
 	for _, fragment := range []string{
 		`RegisterContractSchedule(sceneryruntime.ContractScheduleRegistration{`,
-		`TriggerKind: "cron", TriggerValue: "0 2 * * *", Timezone: "Europe/Prague"`,
-		`RegisterContractEventConsumer(sceneryruntime.ContractEventConsumerRegistration{`,
-		`Channel: "house.process", ContractAddress: "house/event/scene_processed", ContractVersion: 1`,
-		`RegisterContractEventEmission(sceneryruntime.ContractEventEmissionRegistration{`,
-		`Attempts: 3, Backoff: "fixed", DeadLetterChannel: "house.processed.dead"`,
-		`OrderingKey: func(outcome any) (string, error)`,
-		`DeduplicationKey: func(outcome any) (string, error)`,
-		`PublishContractOperationOutcome(callCtx, "house/operation/process_scene", cloned)`,
+		`TriggerKind: "every", TriggerValue: "24h0m0s"`,
 	} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("adapter missing %q:\n%s", fragment, adapter)
 		}
 	}
 	// In the process model the service's own process registers this adapter,
-	// so it requires, and at activation starts, the service's event consumers,
-	// emissions and schedules.
+	// so it requires, and at activation starts, the service's schedules.
 	plan, err := BuildRuntimeIntegrationPlan(result)
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +287,7 @@ func TestGenerateApplicationAdapterRegistersSchedulesConsumersAndEmissions(t *te
 	if house < 0 {
 		t.Fatalf("plan has no house service process: %#v", plan.Services)
 	}
-	for _, address := range []string{"house/binding/process_scene_event", "house/event_emission/scene_processed", "house/schedule/nightly"} {
+	for _, address := range []string{"house/schedule/nightly"} {
 		if !slices.Contains(plan.Services[house].RequiredAddresses, address) {
 			t.Fatalf("house service process does not require %s: %v", address, plan.Services[house].RequiredAddresses)
 		}

@@ -98,9 +98,9 @@ func TestRuntimeIntegrationPlanListsEveryRenderedServiceAdapter(t *testing.T) {
 		t.Fatalf("plan contract revision = %q", plan.ContractRevision)
 	}
 	host := string(plan.HostApplication)
-	if !strings.Contains(host, "package main") || !strings.Contains(host, "sceneryruntime.RegisterMCPFederationChecked(") || !strings.Contains(host, "func registerApplication(registry scenery.Registry) error") ||
+	if !strings.Contains(host, "package main") || strings.Contains(host, "RegisterMCPFederationChecked(") || !strings.Contains(host, "func registerApplication(registry scenery.Registry) error") ||
 		strings.Contains(host, "_adapter") || strings.Contains(host, "RegisterMCPTool(") {
-		t.Fatalf("host application registrations link service code or omit federation:\n%s", host)
+		t.Fatalf("host application registrations link service code or register a federation:\n%s", host)
 	}
 	var tools []string
 	for _, service := range plan.Services {
@@ -113,18 +113,5 @@ func TestRuntimeIntegrationPlanListsEveryRenderedServiceAdapter(t *testing.T) {
 	}
 	if len(tools) == 0 {
 		t.Fatal("native fixture plan lists no MCP tools")
-	}
-	// Live CLI invocations reach the process that registers the binding.
-	var cli []string
-	for _, service := range plan.Services {
-		for _, binding := range service.CLIBindings {
-			cli = append(cli, binding)
-			if !strings.Contains(string(adapters[slices.IndexFunc(adapters, func(adapter applicationAdapter) bool { return adapter.Address == service.Address })].Source), fmt.Sprintf("RegisterContractCLIBinding(sceneryruntime.ContractCLIBindingRegistration{Address: %q", binding)) {
-				t.Fatalf("service process %s plans CLI binding %s its adapter does not register", service.Name, binding)
-			}
-		}
-	}
-	if len(cli) == 0 {
-		t.Fatal("native fixture plan lists no CLI bindings")
 	}
 }

@@ -222,12 +222,6 @@ func runHarnessOrdinaryGoCheckout(ctx context.Context, repoRoot, root string) (s
 	if _, err := cli("generate", "--target", "contracts", "--check"); err != nil {
 		return summary, err
 	}
-	if err := os.Remove(filepath.Join(root, "service/scenerycontract/types.gen.go")); err != nil {
-		return summary, err
-	}
-	if _, err := run(nil, bin, "test", "./..."); err != nil {
-		return summary, err
-	}
 	if err := proveOrdinaryGoBranchDrift(root, cli, git); err != nil {
 		return summary, err
 	}

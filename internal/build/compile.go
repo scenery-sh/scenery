@@ -18,42 +18,6 @@ func Compile(result *Result) error {
 	return CompileContext(context.Background(), result)
 }
 
-func PrimeWorkspaceContext(ctx context.Context, result *Result) error {
-	if result == nil {
-		return fmt.Errorf("nil build result")
-	}
-	unlock, err := lockWorkspace(result.Dir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	if result.NeedsTidy {
-		if err := tidyWorkspace(ctx, result); err != nil {
-			return err
-		}
-	}
-	if err := completePreparedVerification(ctx, result); err != nil {
-		return err
-	}
-	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
-		return err
-	}
-	return savePrimedWorkspace(result)
-}
-
-// WithWorkspaceLock runs fn while holding the exclusive private workspace lock.
-// Commands outside this package that mutate a prepared workspace — such as the
-// tidy retry `scenery test` performs after Go reports stale module files — must
-// serialize against the preparation and compilation of other processes.
-func WithWorkspaceLock(dir string, fn func() error) error {
-	unlock, err := lockWorkspace(dir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return fn()
-}
-
 func tidyWorkspace(ctx context.Context, result *Result) error {
 	if err := runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, "mod", "tidy"); err != nil {
 		return err

@@ -62,56 +62,6 @@ func (m *workspaceMutation) reused() {
 	}
 }
 
-func copyTree(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() && shouldSkipFile(rel) {
-			return nil
-		}
-		if shouldSkipSymlink(path, d) {
-			return nil
-		}
-		if !d.IsDir() && shouldSkipNonRegularFile(path, d) {
-			return nil
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		return copyFile(path, target)
-	})
-}
-
-// syncSourceFiles mirrors the app's source files into the workspace and
-// returns the synced file list plus the stamp observed for every file. A file
-// is skipped only when its current stat still matches the stamp recorded by a
-// previous sync and the workspace copy exists; anything else is re-read and
-// rewritten. The sync never trusts external change notifications, so changes
-// missed by a file watcher (git pulls, edits while stopped) are still picked
-// up here. Stamps are captured before reading the content: if a file changes
-// mid-read, the recorded stamp is older than its stat and the next sync
-// rewrites it. Files in skip are tracked and stamped but never written; their
-// workspace content is owned by generated-file sync.
-func syncSourceFiles(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}) ([]string, map[string]SourceStamp, error) {
-	return syncSourceFilesWithSnapshot(root, appRoot, prevStamps, skip, nil)
-}
-
-func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}, snapshot *SourceSnapshot) ([]string, map[string]SourceStamp, error) {
-	return syncSourceFilesWithSnapshotObserved(root, appRoot, prevStamps, skip, snapshot, nil)
-}
-
 func syncSourceFilesWithSnapshotObserved(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}, snapshot *SourceSnapshot, mutation *workspaceMutation) ([]string, map[string]SourceStamp, error) {
 	if snapshot == nil {
 		return syncSourceFilesFromDiskObserved(root, appRoot, prevStamps, skip, mutation)
@@ -522,17 +472,6 @@ func shouldSkipSymlink(path string, d os.DirEntry) bool {
 	return err == nil && info.IsDir()
 }
 
-func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0o644)
-}
-
 func sourceFileData(path, rel string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -629,10 +568,6 @@ func seedWorkspaceSceneryGoSumObserved(workspaceDir string, mutation *workspaceM
 	return seedSceneryGoSumObserved(workspaceDir, root, mutation)
 }
 
-func seedSceneryGoSum(workspaceDir, repoRoot string) error {
-	return seedSceneryGoSumObserved(workspaceDir, repoRoot, nil)
-}
-
 func seedSceneryGoSumObserved(workspaceDir, repoRoot string, mutation *workspaceMutation) error {
 	repoSum, err := os.ReadFile(filepath.Join(repoRoot, "go.sum"))
 	if errors.Is(err, os.ErrNotExist) {
@@ -666,10 +601,6 @@ func seedSceneryGoSumObserved(workspaceDir, repoRoot string, mutation *workspace
 	sort.Strings(merged)
 	_, err = writeFileIfChangedObserved(workspaceDir, "go.sum", []byte(strings.Join(merged, "\n")+"\n"), mutation)
 	return err
-}
-
-func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []string) error {
-	return removeUnexpectedFilesFromListsObserved(root, sourceFiles, generatedFiles, nil)
 }
 
 func removeUnexpectedFilesFromListsObserved(root string, sourceFiles, generatedFiles []string, mutation *workspaceMutation) error {

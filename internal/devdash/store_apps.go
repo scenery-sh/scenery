@@ -27,7 +27,6 @@ type StoredApp struct {
 	Root                string            `json:"root,omitempty"`
 	ListenAddr          string            `json:"listen_addr,omitempty"`
 	Routes              map[string]string `json:"routes,omitempty"`
-	Aliases             map[string]string `json:"aliases,omitempty"`
 	Offline             bool              `json:"offline,omitempty"`
 	Running             bool              `json:"running,omitempty"`
 	SessionStatus       string            `json:"session_status,omitempty"`
@@ -54,7 +53,6 @@ type StoredAppSession struct {
 	Root                string            `json:"root,omitempty"`
 	ListenAddr          string            `json:"listen_addr,omitempty"`
 	Routes              map[string]string `json:"routes,omitempty"`
-	Aliases             map[string]string `json:"aliases,omitempty"`
 	Offline             bool              `json:"offline,omitempty"`
 	Running             bool              `json:"running,omitempty"`
 	SessionStatus       string            `json:"session_status,omitempty"`
@@ -141,7 +139,6 @@ func storedAppFromAppRecord(app AppRecord) StoredApp {
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
 		Routes:              maps.Clone(app.Routes),
-		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
 		Running:             app.Running,
 		SessionStatus:       app.SessionStatus,
@@ -165,7 +162,6 @@ func storedAppSessionFromAppRecord(app AppRecord) StoredAppSession {
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
 		Routes:              maps.Clone(app.Routes),
-		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
 		Running:             app.Running,
 		SessionStatus:       app.SessionStatus,
@@ -189,7 +185,6 @@ func (app StoredApp) toAppRecord() AppRecord {
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
 		Routes:              maps.Clone(app.Routes),
-		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
 		Running:             app.Running,
 		SessionStatus:       app.SessionStatus,
@@ -213,7 +208,6 @@ func (session StoredAppSession) toAppRecord() AppRecord {
 		Root:                session.Root,
 		ListenAddr:          session.ListenAddr,
 		Routes:              maps.Clone(session.Routes),
-		Aliases:             maps.Clone(session.Aliases),
 		Offline:             session.Offline,
 		Running:             session.Running,
 		SessionStatus:       session.SessionStatus,

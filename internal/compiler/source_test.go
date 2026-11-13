@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/scn"
 )
 
 func BenchmarkParseManyTokenSource(b *testing.B) {
@@ -124,8 +126,8 @@ func TestStaticCompositeValuesKeepBooleanLiteralsAsValues(t *testing.T) {
 func TestPrimitiveConstructorsNormalizeBeforeIR(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, appFilename)
-	if err := os.WriteFile(path, []byte(`deployment "test" {
-  environment = "test"
+	if err := os.WriteFile(path, []byte(`provider "test" {
+  source = "test"
   timeout = duration("1h30m")
 }`), 0o644); err != nil {
 		t.Fatal(err)
@@ -252,29 +254,6 @@ func TestExactNumbersNormalizeToTaggedSemanticScalars(t *testing.T) {
 	}
 }
 
-func TestDeclaredWorkspaceEntriesIncludeViewImplementationFiles(t *testing.T) {
-	root := t.TempDir()
-	moduleRoot := filepath.Join(root, "house")
-	if err := os.MkdirAll(filepath.Join(moduleRoot, "queries"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	queryPath := filepath.Join(moduleRoot, "queries", "scene.sql")
-	if err := os.WriteFile(queryPath, []byte("select 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	source := &Source{
-		Path: filepath.Join(moduleRoot, packageFilename), Relative: "house/" + packageFilename,
-		Blocks: []*Block{{Type: "view", Labels: []string{"scenes"}, Blocks: []*Block{{Type: "implementation", Attributes: map[string]Expression{"file": {Kind: "literal", Value: "queries/scene.sql"}}}}}},
-	}
-	entries, err := declaredWorkspaceEntries(root, []*Source{source})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(entries["house/queries/scene.sql"]) != "select 1\n" {
-		t.Fatalf("entries = %#v", entries)
-	}
-}
-
 func TestWorkspaceRevisionIncludesLockfileAndExplicitRevisionInputs(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, appLockFilename), []byte("lock-v1\n"), 0o644); err != nil {
@@ -362,4 +341,22 @@ func TestWorkspaceGlobDialectRejectsHostExtensionsAndEmbeddedDoubleStar(t *testi
 	if !matchesAnyGlob([]string{"src/**/test?.go"}, "src/a/b/test1.go") || matchesAnyGlob([]string{"src/**/test?.go"}, "src/a/test12.go") {
 		t.Fatal("** complete-segment matching is incorrect")
 	}
+}
+
+func matchesAnyGlob(patterns []string, value string) bool {
+	return newGlobMatcher(patterns).matches(value)
+}
+
+func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte, error) {
+	return declaredWorkspaceEntriesWalked(root, sources, nil)
+}
+
+func parseSource(root, path string) (*Source, []Diagnostic) {
+	source, diagnostics := scn.Parse(root, path)
+	return source, compilerSyntaxDiagnostics(diagnostics)
+}
+
+func parseSourceLogical(path, relative string) (*Source, []Diagnostic) {
+	source, diagnostics := scn.ParseLogical(path, relative)
+	return source, compilerSyntaxDiagnostics(diagnostics)
 }

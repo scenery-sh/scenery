@@ -73,7 +73,7 @@ func runHarnessAssistantProductionProbeCheck(parent context.Context, _ string) (
 	const assistantAddress = "app/assistant/release_probe"
 	const serverAddress = "app/mcp_server/release_probe"
 	if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{
-		Address: assistantAddress, Name: "release_probe", Path: "/assistants/release-probe", Access: sceneryruntime.Public,
+		Address: assistantAddress, Name: "release_probe", Path: "/assistants/release-probe", Access: sceneryruntime.Auth,
 		AssistantAddress: assistantAddress, RuntimeRevision: "runtime-test", CapabilityRevision: "capability-test", Required: true,
 	}); err != nil {
 		return nil, nil, err
@@ -85,12 +85,12 @@ func runHarnessAssistantProductionProbeCheck(parent context.Context, _ string) (
 	}
 	manifestJSON, err := mcpcontract.MarshalCanonical(mcpcontract.Manifest{
 		Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision, ProtocolVersion: mcpcontract.ProtocolVersion,
-		ContractRevision: "capability-test", Capabilities: []mcpcontract.Capability{}, Connections: []mcpcontract.Connection{},
+		ContractRevision: "capability-test", Capabilities: []mcpcontract.Capability{},
 	})
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := sceneryruntime.RegisterAssistantMCPManifestChecked(assistantAddress, serverAddress, manifestJSON); err != nil {
+	if err := sceneryruntime.RegisterAssistantMCPManifestChecked(assistantAddress, manifestJSON); err != nil {
 		return nil, nil, err
 	}
 	if err := sceneryruntime.RegisterEmbeddedAssistantAssets(sceneryruntime.AssistantProductionOptions{

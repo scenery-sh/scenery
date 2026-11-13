@@ -946,3 +946,19 @@ func TestTypeScriptClientSelectsImportedInputFieldsInTheirModule(t *testing.T) {
 		}
 	}
 }
+
+func renderContractTypes(resources []Resource) string {
+	return renderContractTypesResolved(resources, nil)
+}
+
+func allTSRuntimeCapabilities() tsRuntimeCapabilities {
+	return tsRuntimeCapabilities{
+		query:          true,
+		requestHeader:  true,
+		requestCookie:  true,
+		responseHeader: true,
+		responseCookie: true,
+		multipart:      true,
+		retry:          true,
+	}
+}

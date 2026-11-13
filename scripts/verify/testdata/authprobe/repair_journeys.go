@@ -69,13 +69,6 @@ func connectionAuthorityJourney(p *probe) {
 		p.check(result.Issued == scenario.issued && (scenario.issued && result.Code == errs.OK || !scenario.issued && result.Code == errs.PermissionDenied), "helper goroutine enforces "+scenario.access+"/"+scenario.mode+" invocation authority")
 	}
 	p.check(take(auth.ConnectionTokenForUser(p.ctx, session.User.ID, "independent", "files.read")) == "independent-access", "real queued worker admission allows explicit owner selection")
-	must(p.workloads.bus.Publish(p.ctx, runtime.ContractEventMessage{ID: "connection-event", BusAddress: "probe/event_bus/connections", Channel: "connections", ContractAddress: "probe/event/connection", ContractVersion: 1, Payload: []byte(session.User.ID)}))
-	select {
-	case result := <-p.workloads.events:
-		p.check(result.Issued && result.Code == errs.OK, "admitted event workload identity selects the authorized standard-auth owner")
-	case <-p.ctx.Done():
-		must(p.ctx.Err())
-	}
 	p.workloads.owners <- session.User.ID
 	select {
 	case result := <-p.workloads.schedules:

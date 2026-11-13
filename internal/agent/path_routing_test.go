@@ -108,28 +108,6 @@ func TestProtectedRootFrontendLegacyPrefixUsesSegmentBoundary(t *testing.T) {
 	}
 }
 
-func TestPublicPathExposureUsesBestUnfilteredRoute(t *testing.T) {
-	t.Parallel()
-
-	manifest := RouteManifest{
-		PublicRoutes: []string{"root"},
-		Routes: map[string]RouteRecord{
-			"root":  {Name: "root", Kind: "frontend", Path: "/", Backend: "web"},
-			"admin": {Name: "admin", Kind: "frontend", Path: "/admin/", Backend: "admin"},
-		},
-	}
-	for path, want := range map[string]bool{
-		"/":               true,
-		"/projects/42":    true,
-		"/admin/":         false,
-		"/admin/settings": false,
-	} {
-		if got := publicPathExposed(manifest, path); got != want {
-			t.Errorf("%s exposed = %v, want %v", path, got, want)
-		}
-	}
-}
-
 func TestPathProxyOptionsPreserveFrontendPrefix(t *testing.T) {
 	t.Parallel()
 

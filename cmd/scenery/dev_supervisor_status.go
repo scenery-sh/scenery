@@ -25,19 +25,6 @@ func (s *devSupervisor) persistStatus(ctx context.Context) error {
 	return s.storeWriter.UpsertApp(ctx, status)
 }
 
-func (s *devSupervisor) writeProcessEvent(ctx context.Context, kind string, payload any) {
-	if s == nil {
-		return
-	}
-	if s.storeWriter == nil && s.store != nil {
-		s.storeWriter = localDashboardControlPlaneWriter{store: s.store}
-	}
-	if s.storeWriter == nil {
-		return
-	}
-	_ = s.storeWriter.WriteProcessEvent(ctx, s.activeAppID(), s.currentSessionID(), kind, payload)
-}
-
 func (s *devSupervisor) setCompiling(compiling bool, compileErr string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -282,7 +269,6 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 		s.setMetadata(metadata, apiEncoding)
 	}
 	_ = s.persistStatus(ctx)
-	s.writeProcessEvent(ctx, "compile-error", map[string]any{"error": err.Error()})
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "error", Reason: err.Error()}, "error", "build failed", map[string]any{
 		"error": err.Error(),
 	})
@@ -322,16 +308,6 @@ func (s *devSupervisor) rebuildRequestChan() <-chan struct{} {
 	return s.rebuildRequests
 }
 
-// compactAppStatus is appStatus without the Meta and APIEncoding blobs, which
-// can run to megabytes per app. Persisted process events must use this form;
-// stored events are breadcrumbs and the full model is always available live.
-func (s *devSupervisor) compactAppStatus() devdash.AppStatus {
-	status := s.appStatus()
-	status.Meta = nil
-	status.APIEncoding = nil
-	return status
-}
-
 func (s *devSupervisor) appStatus() devdash.AppStatus {
 	s.mu.RLock()
 	var session *localagent.Session
@@ -353,7 +329,6 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 		APIEncoding:   s.status.APIEncoding,
 		Observability: observabilityStateFromVictoria(victoria, s.status.ID, s.status.SessionID, s.status.Root, session),
 		Routes:        s.statusDashboardRoutesLocked(s.status.SessionID),
-		Aliases:       s.statusDashboardAliasesLocked(s.status.SessionID),
 		Compiling:     s.status.Compiling,
 		CompileError:  s.status.CompileError,
 		BuildBlock:    s.status.BuildBlock,
@@ -386,7 +361,6 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 	routeID := firstNonEmpty(app.RouteID, app.ID)
 	s.mu.RLock()
 	routes := s.statusDashboardRoutesLocked(app.SessionID)
-	aliases := s.statusDashboardAliasesLocked(app.SessionID)
 	var session *localagent.Session
 	var victoria dashboardVictoria
 	if s.agentSession != nil {
@@ -408,7 +382,6 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 		APIEncoding:   app.APIEncoding,
 		Observability: observabilityStateFromVictoria(victoria, routeID, app.SessionID, app.Root, session),
 		Routes:        routes,
-		Aliases:       aliases,
 		Compiling:     app.Compiling,
 		CompileError:  app.CompileError,
 		BuildBlock:    app.BuildBlock,
@@ -481,16 +454,4 @@ func (s *devSupervisor) statusDashboardRoutesLocked(sessionID string) map[string
 		}
 	}
 	return nil
-}
-
-// statusDashboardAliasesLocked requires s.mu to be held.
-func (s *devSupervisor) statusDashboardAliasesLocked(sessionID string) map[string]string {
-	if s == nil || s.agentSession == nil {
-		return nil
-	}
-	currentSessionID := strings.TrimSpace(s.agentSession.SessionID)
-	if sessionID != "" && sessionID != currentSessionID {
-		return nil
-	}
-	return visibleDashboardRoutesFromAgent(s.agentSession.Aliases)
 }
