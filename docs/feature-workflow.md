@@ -152,7 +152,16 @@ current main. Do not substitute ancestry for proof of reviewed conflict handling
 
 Close requires an exact published receipt and clean authored checkpoint. It
 records closure without removing the checkout, branch, retained data, candidates
-or evidence. Reopen with `--stage working` if later work appears. Cleanup must
+or evidence. Reopen with `--stage working` if later work appears.
+
+A fully landed worktree is removed completely once it is closed: `git worktree
+remove` its checkout and its published candidate checkout under
+`scenery-features/worktrees/`, then `git branch -d` its local branch. Receipts
+and landing records stay, and `feature list` and `feature inspect` keep
+working without the checkouts. A checkout with uncommitted or unlanded work, a
+running process, or a candidate that is not `published` stays. Retained
+runtime state of the removed checkout is reclaimed only through `scenery prune
+--orphaned`. Cleanup must
 consult these records, preserve partial/unrecorded work and follow separately
 authorized Git/runtime/data ownership rules. Branch deletion or worktree removal
 does not authorize database/storage deletion.
