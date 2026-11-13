@@ -17,10 +17,17 @@ const (
 	maxMetadataBytes = 64 << 10
 	maxBackupBytes   = 256 << 20
 	// MaxSelectionBytes bounds the before and after metadata of one
-	// transaction. Base64 leaves the encoded backup about a quarter of
-	// maxBackupBytes for paths, kinds and framing.
+	// transaction, so a reader can stop before it holds more than a backup
+	// could carry. The encoded backup has its own exact bound.
 	MaxSelectionBytes = maxBackupBytes / 2
+	// backupEnvelopeBytes reserves room for the backup's identity, root and
+	// revision around its changes.
+	backupEnvelopeBytes = 64 << 10
 )
+
+// backupLimit is the largest encoded backup a transaction may write, which is
+// also the most an interrupted transaction reads back.
+var backupLimit = int64(maxBackupBytes)
 
 type Store struct {
 	path    string
@@ -159,7 +166,7 @@ func (s *Store) ensureBackup(name string, data []byte) error {
 			return err
 		}
 	}
-	old, err := s.read(name, maxBackupBytes)
+	old, err := s.read(name, backupLimit)
 	if err == nil {
 		var saved backup
 		if err := machine.DecodeArtifact(old, &saved, &saved.ArtifactIdentity, backupKind, backupShape, "resume with the matching upgrade CLI"); err != nil {

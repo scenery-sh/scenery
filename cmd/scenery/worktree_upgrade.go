@@ -10,6 +10,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/spec"
 	"scenery.sh/internal/stateupgrade"
 	"scenery.sh/internal/storagefs"
@@ -54,7 +55,7 @@ func runWorktreeUpgrade(ctx context.Context, stdout io.Writer, opts worktreeOpti
 	}
 	result, err := upgradeRetainedWorktree(ctx, paths, cfg.AppID(), opts)
 	if err != nil {
-		return worktreePostgresPrecondition("retained-state upgrade: " + err.Error())
+		return runWorktreeUpgradeError(err)
 	}
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
@@ -65,6 +66,13 @@ func runWorktreeUpgrade(ctx context.Context, stdout io.Writer, opts worktreeOpti
 	}
 	_, err = fmt.Fprintf(stdout, "%s: %d of %d metadata files require an identity upgrade\nrevision: %s\n", action, result.ChangedFiles, result.MetadataFiles, result.Revision)
 	return err
+}
+
+// runWorktreeUpgradeError keeps the cause inspectable, but a storage cause
+// must not replace the upgrade's own diagnostic with a storage one.
+func runWorktreeUpgradeError(err error) error {
+	wrapped := fmt.Errorf("managed worktree retained-state upgrade: %w", err)
+	return &cliDiagnosticError{err: wrapped, code: 3, diagnostic: compiler.TransportDiagnostic("failed_precondition", wrapped.Error())}
 }
 
 func upgradeRetainedWorktree(ctx context.Context, paths localagent.WorktreePaths, appID string, opts worktreeOptions) (worktreeUpgradeResult, error) {

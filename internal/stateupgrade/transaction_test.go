@@ -242,3 +242,42 @@ func TestCompletionFailureResumesWithoutRewritingMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBackupBoundCountsTheEncodedChanges(t *testing.T) {
+	store, changes := fixtureStore(t)
+	long := fixtureChange(t, filepath.Join("storage", strings.Repeat("p", 200), "<&>.json"))
+	all := append(append([]Change{}, changes...), long)
+	var counted int64
+	for _, change := range all {
+		counted += encodedChangeBytes(change)
+	}
+	encoded, err := json.Marshal(all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The array adds two brackets and drops the last separator.
+	if counted+1 != int64(len(encoded)) {
+		t.Fatalf("counted %d bytes for %d encoded", counted, len(encoded))
+	}
+
+	// Two changes whose metadata is far below the selection bound still
+	// exceed a backup that has room for one of them.
+	previous := backupLimit
+	backupLimit = backupEnvelopeBytes + encodedChangeBytes(changes[0]) + encodedChangeBytes(changes[1]) - 1
+	t.Cleanup(func() { backupLimit = previous })
+	if _, err := store.Resolve(changes); !errors.Is(err, ErrPrecondition) || !strings.Contains(err.Error(), "bounded transaction size") {
+		t.Fatalf("oversized backup accepted: %v", err)
+	}
+	backupLimit++
+	plan, err := store.Resolve(changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := json.Marshal(backup{ArtifactIdentity: machine.NewArtifactIdentity(backupKind, backupShape), Root: store.path, Revision: plan.Revision, Changes: plan.Changes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(saved)) > backupLimit {
+		t.Fatalf("a plan within the bound encodes to %d bytes, over %d", len(saved), backupLimit)
+	}
+}
