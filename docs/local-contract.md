@@ -1442,8 +1442,11 @@ and neither becomes a false default-path match. Git-only selection and removal
 allocate no worktree state.
 
 `scenery worktree upgrade -o json` previews an explicit same-schema upgrade of
-the selected stopped root's worktree record, stopped session registry and all
-retained managed-storage owner/generation/reference metadata. Preview and apply
+the selected stopped root's worktree record, stopped session registry and the
+retained managed-storage owner and generation records. Object reference records
+are not selected: a reference is bound to its own schema revision and is read
+under whichever specification revision wrote it, so the upgrade's cost does not
+grow with the number of stored objects. Preview and apply
 use the retained-root selection above, then require valid `.scenery.json` at
 that exact root with an AppID matching retained ownership. Missing selected
 configuration refuses with `SCN8001`/exit 2; malformed configuration remains
@@ -1455,8 +1458,8 @@ artifact kind/schema and valid current payload/ownership are mandatory. Engine
 or data-format changes, live recorded processes, incomplete allocations and
 pending restore/purge operations are rejected. External storage roots are not
 selected. SQL data, credentials, storage incarnations/generations, ETags and
-immutable payload files are unchanged. Object payload existence, ownership and
-length are checked; preview does not rehash all content.
+immutable payload files and their references are unchanged, and neither is
+read by the upgrade; ordinary storage reads validate each reference they use.
 
 The `scenery.worktree.upgrade` data contains `app_root`, `worktree_key`,
 `target_spec_revision`, `revision`, `metadata_files`, `changed_files`,

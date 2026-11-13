@@ -154,7 +154,7 @@ func readReferenceFrom(root *os.Root, record, generation, address string) (refer
 		return reference{}, err
 	}
 	var ref reference
-	if err := machine.DecodeArtifact(data, &ref, &ref.ArtifactIdentity, referenceKind, referenceDescriptor, "inspect storage with the matching Scenery binary"); err != nil {
+	if err := machine.DecodeSchemaBoundArtifact(data, &ref, &ref.ArtifactIdentity, referenceKind, referenceDescriptor, "inspect storage with the matching Scenery binary"); err != nil {
 		return reference{}, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
 	if err := validateReferenceAt(ref, generation, address); err != nil {

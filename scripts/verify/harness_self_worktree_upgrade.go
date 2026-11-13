@@ -22,6 +22,9 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 	original, historical := map[string][]byte{}, map[string][]byte{}
 	payloads := map[string][32]byte{}
 	names := []string{paths.Record, paths.ControlPaths().RegistryPath}
+	// Object references are bound to their schema alone: the upgrade must
+	// leave their bytes as written and ordinary reads must still accept them.
+	references := map[string]bool{}
 	storageRoot := filepath.Join(paths.Directory, "storage")
 	if _, err := os.Stat(storageRoot); err == nil {
 		if err := filepath.WalkDir(storageRoot, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -30,6 +33,7 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 			}
 			if strings.HasSuffix(path, ".json") && !strings.HasPrefix(entry.Name(), ".") {
 				names = append(names, path)
+				references[path] = entry.Name() != "owner.json" && entry.Name() != "generation.json"
 			}
 			if strings.HasSuffix(path, ".data") {
 				data, err := os.ReadFile(path)
@@ -45,7 +49,7 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return evidence, err
 	}
-	committing := false
+	committing, selected := false, 0
 	defer func() {
 		// A rejected fixture setup can restore its known-current bytes so the
 		// existing verified cleanup can run. Never overwrite an applied or
@@ -74,6 +78,9 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 		if err != nil {
 			return evidence, err
 		}
+		if !references[path] {
+			selected++
+		}
 		if err := os.WriteFile(path, historical[path], 0o600); err != nil {
 			return evidence, err
 		}
@@ -101,7 +108,7 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 		Pending  bool   `json:"pending"`
 		Backup   string `json:"backup"`
 	}
-	if err := decodeCLIJSON(preview, &result); err != nil || result.Revision == "" || result.Changed != len(historical) || result.Applied || result.Pending {
+	if err := decodeCLIJSON(preview, &result); err != nil || result.Revision == "" || result.Changed != selected || result.Applied || result.Pending {
 		return evidence, fmt.Errorf("invalid upgrade preview: %v", err)
 	}
 	if err := checkHistorical(); err != nil {
@@ -141,7 +148,7 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 			Before []byte `json:"before"`
 		} `json:"changes"`
 	}
-	if err := json.Unmarshal(data, &backup); err != nil || len(backup.Changes) != len(historical) {
+	if err := json.Unmarshal(data, &backup); err != nil || len(backup.Changes) != selected {
 		return evidence, fmt.Errorf("upgrade backup selection differs: %v", err)
 	}
 	for _, change := range backup.Changes {
@@ -152,6 +159,14 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 		actual, err := os.ReadFile(path)
 		if err != nil || !machine.ArtifactPayloadEqual(original[path], actual) {
 			return evidence, fmt.Errorf("upgrade changed retained authority or object metadata: %v", err)
+		}
+	}
+	for path, expected := range historical {
+		if !references[path] {
+			continue
+		}
+		if actual, err := os.ReadFile(path); err != nil || !bytes.Equal(actual, expected) {
+			return evidence, fmt.Errorf("upgrade rewrote an object reference: %v", err)
 		}
 	}
 	for path, expected := range payloads {
@@ -167,7 +182,8 @@ func probeRetainedSpecUpgrade(paths localagent.WorktreePaths, run func(...string
 	if err := decodeCLIJSON(current, &result); err != nil || result.Changed != 0 || result.Pending {
 		return evidence, fmt.Errorf("current upgrade preview is not a no-op: %v", err)
 	}
-	evidence["metadata_files"] = len(historical)
+	evidence["metadata_files"] = selected
+	evidence["references_left_at_their_specification"] = len(historical) - selected
 	evidence["unchanged_object_payloads"] = len(payloads)
 	evidence["preview_read_only"] = true
 	evidence["stale_approval_rejected"] = true

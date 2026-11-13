@@ -23,6 +23,28 @@ func DecodeArtifact(encoded []byte, target any, identity *ArtifactIdentity, kind
 	return ValidateArtifactIdentity(*identity, kind, schemaDescriptor, action)
 }
 
+// DecodeSchemaBoundArtifact accepts one artifact JSON value of the current kind
+// and schema that any specification revision wrote. It is for retained records
+// that exist once per stored item, where restamping every record on each
+// specification change would cost more than the binding is worth: their
+// container's own record stays bound to the current specification, and a
+// semantic change to the record must change its schema descriptor.
+func DecodeSchemaBoundArtifact(encoded []byte, target any, identity *ArtifactIdentity, kind string, schemaDescriptor any, action string) error {
+	if err := decodeExact(encoded, target); err != nil {
+		return err
+	}
+	if identity == nil {
+		return fmt.Errorf("missing %s artifact identity", kind)
+	}
+	if err := validateArtifactSchema(*identity, kind, schemaDescriptor, action); err != nil {
+		return err
+	}
+	if !isCanonicalDigest(identity.SpecRevision) {
+		return fmt.Errorf("invalid %s spec revision %q; %s with the current Scenery CLI", kind, identity.SpecRevision, action)
+	}
+	return validateArtifactProducer(*identity, kind, action)
+}
+
 // ArtifactIdentity is the common header for disposable cross-process artifacts.
 // SchemaRevision identifies the exact JSON shape; SpecRevision binds the
 // artifact to the compiler contract that produced it.
@@ -60,6 +82,16 @@ func ArtifactSchemaRevision(schemaDescriptor any) string {
 }
 
 func ValidateArtifactIdentity(identity ArtifactIdentity, kind string, schemaDescriptor any, action string) error {
+	if err := validateArtifactSchema(identity, kind, schemaDescriptor, action); err != nil {
+		return err
+	}
+	if identity.SpecRevision != string(spec.CurrentRevision()) {
+		return fmt.Errorf("unexpected %s spec revision %q; %s with the current Scenery CLI", kind, identity.SpecRevision, action)
+	}
+	return validateArtifactProducer(identity, kind, action)
+}
+
+func validateArtifactSchema(identity ArtifactIdentity, kind string, schemaDescriptor any, action string) error {
 	if identity.Kind != kind {
 		return fmt.Errorf("unexpected artifact kind %q; %s with the current Scenery CLI", identity.Kind, action)
 	}
@@ -70,10 +102,10 @@ func ValidateArtifactIdentity(identity ArtifactIdentity, kind string, schemaDesc
 	if identity.SchemaRevision != wantSchema {
 		return fmt.Errorf("unexpected %s schema revision %q; %s with the current Scenery CLI", kind, identity.SchemaRevision, action)
 	}
-	wantSpec := string(spec.CurrentRevision())
-	if identity.SpecRevision != wantSpec {
-		return fmt.Errorf("unexpected %s spec revision %q; %s with the current Scenery CLI", kind, identity.SpecRevision, action)
-	}
+	return nil
+}
+
+func validateArtifactProducer(identity ArtifactIdentity, kind, action string) error {
 	if strings.TrimSpace(identity.Producer.Version) == "" || strings.TrimSpace(identity.Producer.Toolchain.GoVersion) == "" {
 		return fmt.Errorf("invalid %s producer identity; %s with the current Scenery CLI", kind, action)
 	}

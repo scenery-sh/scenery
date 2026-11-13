@@ -40,9 +40,10 @@ scenery worktree upgrade -o json
 ```
 
 This read-only command validates the worktree record, optional stopped-session
-registry and all retained managed-storage generation/reference metadata,
-including inactive generations. It checks selected payload files' ownership
-and lengths, without rewriting or rehashing their contents. The result gives
+registry and the retained managed-storage owner and generation records,
+including inactive generations. Object references and payloads are neither
+read nor rewritten: a reference is bound to its schema revision and stays
+readable under the specification revision that wrote it. The result gives
 the root, target specification, metadata/change counts and exact revision.
 Missing records/locks, different schemas, invalid ownership, live processes,
 non-ready allocations and pending restore/purge operations fail closed.

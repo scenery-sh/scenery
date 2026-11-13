@@ -19,7 +19,7 @@ func readReference(r *os.Root, generation string, scope Scope, key string) (refe
 	if err != nil {
 		return ref, fmt.Errorf("%w: read reference: %w", ErrCorrupt, err)
 	}
-	if err := machine.DecodeArtifact(data, &ref, &ref.ArtifactIdentity, referenceKind, referenceDescriptor, "inspect storage using the matching Scenery binary"); err != nil {
+	if err := machine.DecodeSchemaBoundArtifact(data, &ref, &ref.ArtifactIdentity, referenceKind, referenceDescriptor, "inspect storage using the matching Scenery binary"); err != nil {
 		return reference{}, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
 	if err := ref.validate(scope, key); err != nil {

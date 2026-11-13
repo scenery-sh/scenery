@@ -67,3 +67,30 @@ func TestArtifactSpecUpgradeRejectsUnsupportedState(t *testing.T) {
 		t.Fatal("payload comparison ignored credentials")
 	}
 }
+
+func TestSchemaBoundArtifactAcceptsAnotherSpecificationOnly(t *testing.T) {
+	fixture := upgradeFixture{ArtifactIdentity: NewArtifactIdentity(upgradeFixtureKind, upgradeFixtureDescriptor), Credential: "fixture-secret"}
+	fixture.SpecRevision = "sha256:" + strings.Repeat("b", 64)
+	data, _ := json.Marshal(fixture)
+	var decoded upgradeFixture
+	if err := DecodeSchemaBoundArtifact(data, &decoded, &decoded.ArtifactIdentity, upgradeFixtureKind, upgradeFixtureDescriptor, "inspect"); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Credential != fixture.Credential || decoded.SpecRevision != fixture.SpecRevision {
+		t.Fatal("decoding changed the stored record")
+	}
+	for name, encoded := range map[string][]byte{
+		"kind":     []byte(strings.Replace(string(data), upgradeFixtureKind, "scenery.test.other", 1)),
+		"schema":   []byte(strings.Replace(string(data), fixture.SchemaRevision, "sha256:"+strings.Repeat("c", 64), 1)),
+		"spec":     []byte(strings.Replace(string(data), fixture.SpecRevision, "not-a-revision", 1)),
+		"producer": []byte(strings.Replace(string(data), `"version":"`+fixture.Producer.Version+`"`, `"version":""`, 1)),
+		"unknown":  append(bytes.Clone(data[:len(data)-1]), []byte(`,"extra":true}`)...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var target upgradeFixture
+			if err := DecodeSchemaBoundArtifact(encoded, &target, &target.ArtifactIdentity, upgradeFixtureKind, upgradeFixtureDescriptor, "inspect"); err == nil {
+				t.Fatal("invalid record accepted")
+			}
+		})
+	}
+}
