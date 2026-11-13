@@ -75,8 +75,9 @@ api_pid=""
 start_api
 [[ "$(sql 'SELECT state FROM scenery.durable_jobs')" == queued ]]
 [[ "$(sql 'SELECT count(*) FROM inbox.processed_events')" == 0 ]]
-# The CLI worker path builds the development target and runs SCENERY_ROLE=worker.
-"$scenery_cli" worker > "$proof_root/worker.log" 2>&1 &
+# The same binary in the worker role. `scenery worker` takes its database from
+# the environment's configured sql.database_url, which this proof never writes.
+SCENERY_ROLE=worker "$proof_root/webhook" > "$proof_root/worker.log" 2>&1 &
 worker_pid=$!
 for ((attempt=0; attempt<600; attempt++)); do
   kill -0 "$worker_pid"

@@ -22,12 +22,12 @@
       "path": "docs/plans/0225-prune-unused-and-dead-surface.md",
       "title": "Prune Unused And Dead Surface",
       "owner": "scenery maintainers",
-      "status": "active",
+      "status": "completed",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-11-13",
       "review_after": "2026-12-13",
-      "summary": "Sequential removal of features no application uses and of literal dead code, including tests, schemas, diagnostics, CLI grammar and living docs; records the owner keep decisions, the green baseline and the per-step validation commands.",
+      "summary": "Removed features no application uses and literal dead code, including tests, schemas, diagnostics, CLI grammar and living docs, then the MCP federation layer and the whole deploy family; records the owner decisions, per-step validation and the probe proof completed after landing.",
       "tags": [
         "plans",
         "execplans",
@@ -3812,7 +3812,7 @@
       "freshness": "current",
       "last_reviewed": "2026-11-13",
       "review_after": "2026-12-13",
-      "summary": "Known cleanup and follow-up work. Deeper architecture checks, long build tests, development edit latency, the failing assistant journey probe and unreclaimable retained worktree state are open; earlier dashboard, single-process, edge and fixture items are resolved.",
+      "summary": "Known cleanup and follow-up work. Deeper architecture checks, long build tests, development edit latency, unreclaimable retained worktree state and the unused surface awaiting owner decisions are open; earlier dashboard, single-process, edge and fixture items are resolved.",
       "tags": [
         "debt",
         "risk",

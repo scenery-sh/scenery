@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [0225 Prune Unused And Dead Surface](0225-prune-unused-and-dead-surface.md) — 2026-11-13: removed the features no application uses and literal dead code with their tests, schemas, diagnostics, CLI grammar and living docs, then the MCP federation layer and the whole deploy family by owner decision (935 files, 81,633 lines deleted); added `scenery system agent install|uninstall` and `system edge privileged install --public`. ONLV runs on the result. Go suite, lint, default verifier and every affected probe pass; the remaining unused-surface decisions are in the debt tracker.
+
 - [0224 Measured Startup, Shutdown And Check Latency](0224-measured-startup-and-check-latency.md) — 2026-11-12: an unchanged ONLV worktree starts in 4.5 to 4.9 s instead of 7.5 to 10.3 s, stops in 1.6 s instead of 2.2 s and repeats `scenery check` in 2.3 s instead of 4.1 s; retained session executables are clones (745 MB less per worktree); `ps --wait` right after `up` no longer times out; `scenery doctor` reports the first-execution penalty.
 
 - [0220 Agent Contract Fidelity And Verified Change Loop](0220-agent-contract-fidelity.md) — 2026-11-12: closed after PR #247 merged; all eight review points implemented with live acceptance, nothing open.

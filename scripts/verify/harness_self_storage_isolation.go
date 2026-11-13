@@ -12,7 +12,8 @@ import (
 	localagent "scenery.sh/internal/agent"
 )
 
-// CLI telemetry may record read-only commands without allocating runtime or storage state.
+// CLI telemetry may record read-only commands, under its own process lock,
+// without allocating runtime or storage state.
 func verifyHarnessStorageProbeNoState(home string) error {
 	entries, err := os.ReadDir(home)
 	if errors.Is(err, os.ErrNotExist) {
@@ -22,7 +23,8 @@ func verifyHarnessStorageProbeNoState(home string) error {
 		return fmt.Errorf("inspect unallocated agent home: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.Name() != "telemetry.jsonl" || !entry.Type().IsRegular() {
+		telemetry := entry.Name() == "telemetry.jsonl" || entry.Name() == "telemetry.jsonl.lock"
+		if !telemetry || !entry.Type().IsRegular() {
 			return fmt.Errorf("unexpected state in unallocated agent home: %s", entry.Name())
 		}
 	}

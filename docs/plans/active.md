@@ -7,12 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0225 Prune Unused And Dead Surface](0225-prune-unused-and-dead-surface.md)
-  - Status: active
-  - Owner: scenery maintainers
-  - Created: 2026-11-13
-  - Focus: remove features no application uses and literal dead code, with their tests, schemas, diagnostics, CLI grammar and living docs, in sequential green steps; the declarative UI, telemetry, SSH/systemd deploy, worktree upgrade and the other owner-kept items stay.
-
 - [0221 Neutral End-User HTTP Surfaces](0221-public-http-neutrality.md)
   - Status: active
   - Owner: scenery runtime / auth / generation

@@ -689,27 +689,29 @@ deploy resume`; and remove the `deploy` block from each application's
 install|uninstall` installs and removes the `dev.scenery.agent` supervisor,
 which `deploy setup` and `deploy teardown` used to do.
 
-Before landing, on a host with no other `scenery-pg-*` probe running, run
-`go run ./scripts/verify --probe <id> --summary --write` for `auth` (the
-changed-area oracle requires it), `postgres`, `worktree`, `observability`,
-`parallel-runtime` and `assistant-journey`; the auth, worktree,
-observability and assistant-journey probes were edited by this plan and have
-never run. Run `edge` after `scenery system toolchain sync --tool caddy`.
-Two probe failures predate this plan and need their own fixes: `storage`
-(telemetry lock file in an unallocated agent home), `capability-authority`
-(the webhook-inbox proof passes `DATABASE_URL` through the environment, which
-`scenery worker` does not inherit) and the missing managed Caddy for `edge`.
-Open owner decisions: the `union` kind, `service.client`, `enqueue`/`wait`
-delivery and the custom `middleware` kind; `secret_store` and `secret` (now
-only typed package inputs and constructor configuration); the `sql.fixture/v1`
-provider capability (changes every pinned provider lock); cursor pagination in
-the UI catalog; the diagnostic category name `binding_and_cli`; the custom
-`workload_identity` kind and the `capability_unavailable` activation refusal;
-`POST /auth/organizations/switch` and the generic connection provider surface;
-whether SCN6209 is attached to its two emit sites or dropped; `ISSUES.md` and
-the three agent evaluation reports with their runner script; the
-root-frontend `/<name>/<protected>` containment; the unused
-`@astryxdesign/theme-neutral` dependency of `tools/typescript`. Removal
+Closed on 2026-11-13. The work landed on `main` as `afc840df` and ONLV runs
+on it at pin `v0.3.7-0.20261113131320-afc840df3949`. After landing, every
+probe that had not run was run on the landed tree and passes: `auth`, `edge`,
+`postgres`, `worktree`, `observability`, `parallel-runtime`,
+`assistant-journey`, `desktop`, `configuration` and `configuration-secrets`
+(its Linux `systemd-creds` segment is unexecuted on darwin). `worktree`
+failed once in scenario A6 (no rebuild observed within 90 s after a client
+regeneration) while nine other probes ran in the same invocation and passed
+on the rerun with two others; no cause was found in the source. The `edge`
+probe has no managed Caddy in its private toolchain and skips configuration
+validation; the trimmed configuration was instead validated with the managed
+Caddy 2.11.4 of the developer machine, whose running edge serves it.
+
+Two older probe failures were fixed with the close: `storage` now accepts the
+process lock that CLI telemetry writes beside `telemetry.jsonl` in an
+otherwise unallocated agent home, and the webhook-inbox proof behind
+`capability-authority` starts its worker from the built binary in the worker
+role, because `scenery worker` takes its database only from the environment's
+configured `sql.database_url`. No probe now proves `scenery worker` against a
+configured external database.
+
+The open owner decisions moved to `docs/tech-debt.md` (Unused Surface Awaiting
+Owner Decisions). Removal
 authorizes no application deployment, no data migration and no edit to another
 repository.
 
@@ -829,6 +831,12 @@ surface after all removal steps were green, and only running them showed it.
 A removal step that deletes a command, a public package or a language
 construct should search `scripts/verify` and the Bun tests under
 `internal/generate/testdata` for it, not only Go tests.
+
+2026-11-13, closed. With the MCP federation layer and the deploy family
+removed afterwards, `main` at `afc840df` differs from `0aa6be30` by 935
+files, 4,503 insertions and 81,633 deletions. The landing merge did not go
+through `scenery feature land`; its probe proof was completed after the
+landing and is recorded under Resume here.
 
 ## Plan of Work
 

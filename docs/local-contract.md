@@ -621,10 +621,7 @@ Rules:
   while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with
   `scenery generate --target typescript_client.<name>`; repeated generation
   and `generate --check` read a cache target's ownership descriptor at its
-  own output root, as `up`, `build` and `test` do. `up` writes a cache
-  client that was never written before it starts a frontend dev server, since
-  a server keeps a failed import of a client that appears later; a source
-  that does not compile is left to the build. Standard Google OAuth
+  own output root, as `up`, `build` and `test` do. Standard Google OAuth
   contributes framework-owned connection start, connection status, and
   disconnect resources to inspection and client generation when it is enabled;
   these describe the existing runtime handlers without adding a second runtime
