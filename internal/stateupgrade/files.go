@@ -16,6 +16,10 @@ import (
 const (
 	maxMetadataBytes = 64 << 10
 	maxBackupBytes   = 256 << 20
+	// MaxSelectionBytes bounds the before and after metadata of one
+	// transaction. Base64 leaves the encoded backup about a quarter of
+	// maxBackupBytes for paths, kinds and framing.
+	MaxSelectionBytes = maxBackupBytes / 2
 )
 
 type Store struct {

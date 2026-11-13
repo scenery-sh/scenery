@@ -111,7 +111,7 @@ func newPlan(root string, changes []Change) (Plan, error) {
 			return Plan{}, err
 		}
 		size += int64(len(change.Before)) + int64(len(change.After))
-		if size > maxBackupBytes/2 {
+		if size > MaxSelectionBytes {
 			return Plan{}, fmt.Errorf("%w: metadata backup exceeds its bounded transaction size", ErrPrecondition)
 		}
 	}
