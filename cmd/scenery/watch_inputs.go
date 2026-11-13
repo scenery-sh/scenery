@@ -241,6 +241,22 @@ func acceptGeneratedSnapshot(root string, snapshot *fileSnapshot) error {
 	return nil
 }
 
+// changedConsumedGenerated is the changed generated content that the build
+// reads from the checkout. Unlike a projection, which the build renders again,
+// a regeneration of it is a build input change even after a healthy build.
+func changedConsumedGenerated(before, after fileSnapshot) []string {
+	if len(before.consumedGenerated) == 0 && len(after.consumedGenerated) == 0 {
+		return nil
+	}
+	var paths []string
+	for _, path := range changedGeneratedContent(before, after) {
+		if before.consumedGenerated[path] || after.consumedGenerated[path] {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
 // Failed builds can depend on refreshed generated clients. Healthy builds ignore
 // their content so the compiler's own writes cannot create a rebuild loop.
 func changedGeneratedContent(before, after fileSnapshot) []string {

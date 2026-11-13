@@ -784,6 +784,11 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
   Publication carries the verified original digest or absence into transaction
   staging for each output, retirement and receipt, including unchanged output;
   an intervening edit refuses the entire set and preserves the editor's bytes.
+  Owned SQLC output stays outside authored source membership and the workspace
+  revision, and no build step renders it: application builds copy the Go files
+  the receipt claims from the checkout into the build workspace as generated
+  files, and a cached workspace is reused only while those bytes are unchanged.
+  A running `scenery up` treats a regeneration of them as a build input change.
 - Database seed discovery reads seed artifacts, fixtures and command definitions
   without planning SQLC or capturing its generation inputs. It still requires a
   valid current compiler contract; compiler source/classification errors are not bypassed.

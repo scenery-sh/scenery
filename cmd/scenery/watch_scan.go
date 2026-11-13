@@ -129,6 +129,12 @@ func scanWatchedFilesWith(root string, previous fileSnapshot, fresh bool) (fileS
 	snapshot.generated = make(map[string]bool, len(generated))
 	snapshot.generatedContent = make(map[string]fileStamp, len(generated))
 	snapshot.retryGenerated = previous.retryGenerated
+	if receipt, err := compiler.ReadSQLCArtifactReceipt(root); err == nil && len(receipt.Files) > 0 {
+		snapshot.consumedGenerated = make(map[string]bool, len(receipt.Files))
+		for rel := range receipt.Files {
+			snapshot.consumedGenerated[rel] = true
+		}
+	}
 	for rel := range generated {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
 		snapshot.generated[rel] = err == nil && info.Mode().IsRegular()

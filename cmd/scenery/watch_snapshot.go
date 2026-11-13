@@ -51,6 +51,9 @@ func snapshotsEqual(a, b fileSnapshot) bool {
 	if a.retryGenerated && len(changedGeneratedContent(a, b)) > 0 {
 		return false
 	}
+	if len(changedConsumedGenerated(a, b)) > 0 {
+		return false
+	}
 	if len(a.generated) != len(b.generated) {
 		return false
 	}
@@ -67,6 +70,9 @@ func snapshotsEqual(a, b fileSnapshot) bool {
 // a candidate prepared from the captured authored bytes.
 func buildInputSnapshotsEqual(a, b fileSnapshot) bool {
 	if a.retryGenerated && len(changedGeneratedContent(a, b)) > 0 {
+		return false
+	}
+	if len(changedConsumedGenerated(a, b)) > 0 {
 		return false
 	}
 	return a.compilerValid == b.compilerValid && stampMapsEqual(a.files, b.files) && runtimeCompilerFilesEqual(a, b)
@@ -204,6 +210,12 @@ func changedPaths(before, after fileSnapshot) []string {
 	for path := range after.generated {
 		if _, existed := before.generated[path]; !existed && !seen[path] {
 			paths = append(paths, path)
+		}
+	}
+	for _, path := range changedConsumedGenerated(before, after) {
+		if !seen[path] {
+			paths = append(paths, path)
+			seen[path] = true
 		}
 	}
 	if before.retryGenerated {

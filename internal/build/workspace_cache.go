@@ -593,6 +593,22 @@ func refreshCachedGoProjectionContext(ctx context.Context, appRoot string, resul
 			return false, nil
 		}
 	}
+	ownedSQLC, err := ownedSQLCSources(appRoot)
+	if err != nil {
+		return false, err
+	}
+	for rel, expected := range ownedSQLC {
+		actual, err := os.ReadFile(filepath.Join(result.Dir, filepath.FromSlash(rel)))
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !bytes.Equal(actual, expected) {
+			return false, nil
+		}
+	}
 	// Runtime setup needs current compiled requirements even when the executable
 	// is reusable. Retain this verified snapshot, not persisted cache metadata.
 	result.Contract = contract

@@ -22,6 +22,8 @@ current application graph.
   input capture reuses compiler membership, path safety and exact-byte hashing.
   Only exact SQLC output paths covered by a fully validated ownership receipt
   are excluded under managed roots; classification and publication share its decoder.
+  Nothing renders those paths again, so `internal/build` reads their published
+  bytes from the checkout and the development watcher rebuilds when they change.
 - Local directory groups prefix HTTP binding paths once
   before expansion. Source paths stay authored; effective paths and provenance
   own routing for every consumer. Registry cache paths never supply URL groups.
