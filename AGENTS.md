@@ -75,6 +75,7 @@ already granted.
 - Do not spawn subagents unless the human explicitly asks; skills cannot grant permission.
 - Validate with `.scenery/harness/bin/scenery`. Do not run `go install ./cmd/scenery` unless the human explicitly requests installation; worktrees share that installed path.
 - Preserve unrelated dirty work and verified runtime/data ownership. Branch switches and worktree removal do not authorize data deletion. Never adopt/reset mismatched resources; follow the owning recovery/migration runbook.
+- Land on `main` only through `scenery feature land`. Once a worktree's work is fully on `main`, remove it completely in the same task: close its feature record, then remove the checkout, its local branch and its published candidate checkout. Keep a worktree with uncommitted or unlanded work, a running process or an unpublished candidate, and report it. Retained runtime state is reclaimed only by `scenery prune --orphaned`.
 - Add no environment-variable knobs unless requested or an active plan explains why flags/config are insufficient.
 - Browse interactively only through native ChatGPT/Codex Chrome controls, using the running profile in the background. Use `chrome:control-chrome` when installed; never standalone browser MCPs or separate profiles.
 
