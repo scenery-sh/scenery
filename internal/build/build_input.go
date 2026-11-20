@@ -116,6 +116,7 @@ type goListPackage struct {
 
 type goListModule struct {
 	Path     string
+	Main     bool
 	Dir      string
 	Version  string
 	Sum      string
@@ -371,6 +372,11 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 	}
 	addFile := func(identity, path string) error { return addFileTo(entries, identity, path) }
 	frameworkRoot := ""
+	// moduleFiles names the go.mod file of each main module, whose
+	// replacements alone are in effect, so one that selects the framework
+	// source can be identified without its worktree-specific replacement
+	// directory once that source is known.
+	moduleFiles := map[string]string{}
 	// Stamping a package's consumed files is stat-bound, so packages are read
 	// concurrently into their own entry and observation sets and merged in
 	// listing order, which keeps discovery deterministic.
@@ -441,8 +447,12 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 				frameworkRoot = root
 			}
 			if module.GoMod != "" {
-				if err := addFile("module/"+pkg.Module.Path+"/go.mod", module.GoMod); err != nil {
+				identity := "module/" + pkg.Module.Path + "/go.mod"
+				if err := addFile(identity, module.GoMod); err != nil {
 					return nil, err
+				}
+				if pkg.Module.Main {
+					moduleFiles[identity] = filepath.Clean(module.GoMod)
 				}
 			}
 			identity := pkg.Module.Path + "@" + pkg.Module.Version + "\x00" + pkg.Module.Sum + "\x00" + pkg.Module.GoModSum
@@ -470,6 +480,13 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 		entries["framework/scenery.sh/source"] = source.Digest
 		entries["producer/scenery-cli/executable"] = producer
 		result.FrameworkSourceRoot, result.FrameworkSourceDigest = source.Root, source.Digest
+		for identity, path := range moduleFiles {
+			digest, err := frameworkNeutralGoModDigest(path, observed[path], entries[identity], []string{frameworkRoot, source.Root}, source.Digest)
+			if err != nil {
+				return nil, err
+			}
+			entries[identity] = digest
+		}
 	}
 	for _, relative := range append(stringValuesForBuild(target.Effective["native_inputs"]), stringValuesForBuild(target.Effective["native_input"])...) {
 		path := filepath.Join(result.AppRoot, filepath.FromSlash(relative))

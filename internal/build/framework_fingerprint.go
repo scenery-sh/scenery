@@ -2,7 +2,11 @@ package build
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,6 +65,65 @@ func localSceneryReplaceRoot(goModPath string) (string, bool, error) {
 		return filepath.Clean(path), true, nil
 	}
 	return "", false, nil
+}
+
+// frameworkNeutralGoModDigest identifies the main module file at path, whose
+// content digest discovery recorded under stamp, by its bytes with every local
+// scenery.sh replacement that selects one of frameworkRoots spelled as the
+// framework source digest instead of as a directory. Discovery binds that
+// directory's content separately ("framework/scenery.sh/source"), so a
+// worktree-specific snapshot path is not a build input: worktrees of one
+// commit that select identical framework source get one identity and share
+// their linked executables. Every other byte of the file stays an input, and a
+// file without such a replacement keeps its content digest.
+func frameworkNeutralGoModDigest(path string, stamp buildInputFileStamp, digest string, frameworkRoots []string, sourceDigest string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := buildInputLstat(path)
+	if err != nil {
+		return "", err
+	}
+	if sum := sha256.Sum256(data); "sha256:"+hex.EncodeToString(sum[:]) != digest || buildInputStamp(info) != stamp {
+		return "", fmt.Errorf("go build input changed during discovery: %s", path)
+	}
+	file, err := modfile.Parse(path, data, nil)
+	if err != nil {
+		// The Go command accepted this file; without a parsed replacement it
+		// keeps its content digest.
+		return digest, nil
+	}
+	type span struct{ start, end int }
+	var selected []span
+	for _, replacement := range file.Replace {
+		if replacement.Old.Path != "scenery.sh" || replacement.New.Version != "" || replacement.Syntax == nil {
+			continue
+		}
+		root := replacement.New.Path
+		if !filepath.IsAbs(root) {
+			root = filepath.Join(filepath.Dir(path), root)
+		}
+		if slices.Contains(frameworkRoots, filepath.Clean(root)) {
+			selected = append(selected, span{replacement.Syntax.Start.Byte, replacement.Syntax.End.Byte})
+		}
+	}
+	if len(selected) == 0 {
+		return digest, nil
+	}
+	hash := sha256.New()
+	_, _ = io.WriteString(hash, "scenery.go-mod-framework-neutral\x00"+sourceDigest+"\x00")
+	offset := 0
+	for _, replacement := range selected {
+		if replacement.start < offset || replacement.end > len(data) || replacement.start > replacement.end {
+			return "", fmt.Errorf("go module file replacement is out of order: %s", path)
+		}
+		_, _ = hash.Write(data[offset:replacement.start])
+		_, _ = io.WriteString(hash, "\x00scenery.sh framework source\x00")
+		offset = replacement.end
+	}
+	_, _ = hash.Write(data[offset:])
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // frameworkSourceFiles is frameworkFingerprintFiles with the metadata the walk

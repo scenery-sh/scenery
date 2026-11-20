@@ -1325,7 +1325,8 @@ Both commands emit the bounded `scenery.framework` result with source/executable
 digests and paths, a preparation receipt at `.scenery/build/framework.json`,
 whether the module changed, and the exact next startup command. `inspect` checks
 the receipt, current module and actual source/executable bytes without running
-them. A partial or changed selection fails closed. Generated workspaces preserve
+them; it reads the prepared source, the executable and the source the module
+selects concurrently. A partial or changed selection fails closed. Generated workspaces preserve
 the authored framework version and replacement; they only make local replacement
 paths absolute relative to the authored module. Build input manifests include
 `framework/scenery.sh/source` and `producer/scenery-cli/executable`, so the linked
@@ -1643,7 +1644,11 @@ Command split:
 - Each worktree owner starts its own runtime control backend (the internal `dashboard` backend) and serves the [development runtime RPC](#development-runtime-rpc) through `/runtime` on its localhost base URL. Scenery serves no dashboard UI. The private Unix control API remains protected by filesystem permissions. Explicit machine edge control backends do not become owners of worktree runtime state.
 - A process-model development session can fail selected work on purpose through the host's private control listener: `PUT /__scenery/process/v1/faults` replaces the session's rules and `GET` lists them. A rule selects work by service process, internal binding address or request path prefix, applies at most `count` times (one by default), and either refuses the work (`unavailable` with `delivery: not_sent`), delays it by `delay_ms` (its caller's deadline decides the outcome), or loses its answer (`delivery: unknown`). A rule whose path is a prefix of `/__scenery/process/v1/generations` applies only to the supervisor's generation control, never to work: `abort` then applies the publication, status read or retirement and loses its answer. Rules live only in that session's host process and never exist in a production build.
 - In a process-model development session the host adds `X-Scenery-Process-Generation` to every answer it serves, naming the published application generation that answered, beside the serving process's own identity headers. Its private generation status lists, for each retained generation, every instance's process name, PID and linked identity, so a check can bind its evidence to the exact implementation set it exercised.
-- In a process-model development session every service entrypoint whose linked identity changed is linked by stock `go build`, all such entrypoints of one build together under the host-wide fair link slot, and an entrypoint whose linked identity is unchanged reuses its retained executable; each linked entrypoint records a `build.artifact` build step with `linked_development_process_<entrypoint>`, and the build records `process.reuse` with the number of reused entrypoints as `actions` and the linked ones as `cache_misses`.
+- In a process-model development session every service entrypoint whose linked identity changed is linked by stock `go build`, all such entrypoints of one build together under the host-wide fair link slot, and an entrypoint whose linked identity is unchanged reuses its retained executable; each linked entrypoint records a `build.artifact` build step with `linked_development_process_<entrypoint>`, and the build records `process.reuse` with the number of reused entrypoints as `actions` and the linked ones as `cache_misses`. One such build runs at most as many Go
+  actions at once as fit their links in a quarter of physical memory, budgeting
+  512 MiB per link, and only when that is fewer than the CPUs and the pending
+  entrypoints; otherwise, and when `build.go_flags` sets `-p`, the Go command's
+  default applies.
 - `scenery up` runs the process model: a process host plus one process per native service, each linked and replaced independently. Production builds link the same application into one executable. Each service process registers and, once its generation activates it, starts the schedules of its own operations. Every background attempt of a service process (a scheduled run or a durable task attempt) is admitted, when it starts, to the newest published generation that includes that process, and its internal calls and their descendants stay in that generation as a forwarded request's do; the admission holds the generation until the attempt ends, so its retirement waits for the attempt unless the supervisor forces it. An attempt no published generation admits does not run and fails as `unavailable` (a durable attempt under its task's retry policy). An attempt whose admission ends first, because its host stopped (including a host replacement that keeps the attempt's process) or its generation's retirement was forced, is interrupted: its context is cancelled and it fails as `unavailable` with `delivery: unknown` under its work's retry policy, even when it returns success after noticing late; it never continues in a newer generation. Interruption is cooperative: cancellation asks the attempt to stop and does not prove that effects it already started did not happen. An application without a native service runs a host alone, which serves framework routes and unmatched requests itself as generation-bound answers with the application's SQL bindings, standard authentication and observability configuration.
 - A process-model rebuild replaces only the service processes whose linked identity changed, unless the environment the processes start with changed (for example a restarted worktree PostgreSQL container on a new port): then the host and every service process start again as a complete generation.
 - A service process's linked identity is its service contract revision, its
@@ -2432,7 +2437,15 @@ Rules:
   producer of one framework source is the same bytes in every application
   root and worktree, and so is every build identity that names the producer.
   A worktree whose pinned framework and source equal another's therefore has
-  the same linked identity for every development process.
+  the same linked identity for every development process. So does a
+  source-selected worktree (`framework use --source`) whose snapshot content
+  and source equal another's: the main module's `go.mod` build input spells a
+  local `scenery.sh` replacement that selects the build's framework source
+  directory as that source's digest, not as the worktree-specific snapshot
+  path, because `framework/scenery.sh/source` binds the directory's content.
+  Every other byte of the file stays an input. An executable adopted from
+  another worktree may name that worktree's snapshot path in its embedded Go
+  module information; nothing reads it.
 - Linked development process executables are also kept in the machine's
   store at `<agent home>/shared/process-executables/<process>-<identity>` with
   their digest records. A build that needs an identity this workspace has not

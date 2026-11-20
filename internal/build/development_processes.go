@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -364,7 +365,9 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 	if err != nil {
 		return err
 	}
-	err = runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, developmentProcessBuildArgs(result.GoBuildFlags, generation, pending)...)
+	args := withDevelopmentLinkParallelism(developmentProcessBuildArgs(result.GoBuildFlags, generation, pending), result.GoBuildFlags,
+		developmentLinkParallelism(len(pending), runtime.GOMAXPROCS(0), physicalMemory()))
+	err = runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, args...)
 	release()
 	if err != nil {
 		return err
