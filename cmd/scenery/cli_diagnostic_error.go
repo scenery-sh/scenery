@@ -48,6 +48,13 @@ func cliErrorDiagnostic(err error) graph.Diagnostic {
 	if reported, ok := errors.AsType[*build.GoCommandError](err); ok {
 		return graph.Diagnostic{Code: "SCN6202", Severity: "error", Message: reported.Error(), Suggestions: []string{"Fix the application Go source or module dependencies, then rerun the build. Inspect the Go tool output above for the failing package."}}
 	}
+	if _, ok := errors.AsType[*compiler.MissingAppError](err); ok {
+		return graph.Diagnostic{Code: "SCN8001", Severity: "error", Message: strings.TrimPrefix(err.Error(), "invalid_request: "),
+			Suggestions: []string{"Pass --app-root <dir> naming the directory that contains app.scn, or run the command inside the app root."}}
+	}
+	if exited, ok := errors.AsType[*frontendExitError](err); ok {
+		return graph.Diagnostic{Code: "SCN8003", Severity: "error", Message: exited.Error(), Suggestions: []string{exited.suggestion()}}
+	}
 	if failure, ok := storagefs.DescribeError(err); ok {
 		diagnostic := graph.Diagnostic{Code: failure.Diagnostic, Severity: "error", Message: failure.Message, ReportToken: failure.ReportToken}
 		if failure.Details != nil {

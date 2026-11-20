@@ -95,6 +95,8 @@ type FrameworkMismatchError struct {
 	Producer string
 }
 
+func (*FrameworkMismatchError) ExitCode() int { return 3 }
+
 func (e *FrameworkMismatchError) Error() string {
 	return fmt.Sprintf("application framework %s does not match this Scenery CLI's source %s; keep the current runtime, run scenery framework use, then restart with its reported executable", e.Selected, e.Producer)
 }

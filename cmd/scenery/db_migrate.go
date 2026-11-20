@@ -155,14 +155,14 @@ func writeDBLifecycleJSON(stdout io.Writer, result any, resultErr error) error {
 // within this invocation and contiguous by revision, not filesystem order.
 func discoverDBMigrationPlans(root string, cfg appcfg.Config, requirements compiler.SQLRequirements) ([]dbMigrationPlan, error) {
 	if len(cfg.Database.Migrations) > 256 {
-		return nil, fmt.Errorf("database.migrations exceeds 256 service bindings")
+		return nil, preconditionErrorf("database.migrations exceeds 256 service bindings")
 	}
 	plans := make([]dbMigrationPlan, 0, len(cfg.Database.Migrations))
 	seen := map[string]bool{}
 	for _, configured := range cfg.Database.Migrations {
 		binding, ok := requirements.Binding(configured.Service)
 		if !ok || binding.Schema == "scenery" || seen[binding.Schema] {
-			return nil, fmt.Errorf("migration service %q must select one distinct application SQL binding", configured.Service)
+			return nil, preconditionErrorf("migration service %q must select one distinct application SQL binding", configured.Service)
 		}
 		seen[binding.Schema] = true
 		directory, absolute, err := normalizeDBSeedWorkspacePath(root, configured.Directory, true)
@@ -181,14 +181,14 @@ func discoverDBMigrationPlans(root string, cfg appcfg.Config, requirements compi
 			}
 			info, err := os.Stat(absolute)
 			if err != nil || info.Size() > 4<<20 {
-				return nil, fmt.Errorf("initial verification %s is unavailable or exceeds 4 MiB", path)
+				return nil, preconditionErrorf("initial verification %s is unavailable or exceeds 4 MiB", path)
 			}
 			data, err := os.ReadFile(absolute)
 			if err != nil {
 				return nil, err
 			}
 			if err := postgresdb.ValidateInitialVerificationSQL(string(data)); err != nil {
-				return nil, fmt.Errorf("initial verification %s: %w", path, err)
+				return nil, preconditionErrorf("initial verification %s: %w", path, err)
 			}
 			sum := sha256.Sum256(data)
 			plan.InitialVerification = &postgresdb.SchemaVerification{Path: path, Checksum: "sha256:" + hex.EncodeToString(sum[:]), SQL: string(data)}
@@ -200,11 +200,11 @@ func discoverDBMigrationPlans(root string, cfg appcfg.Config, requirements compi
 			}
 			matched := migrationFilename.FindStringSubmatch(entry.Name())
 			if matched == nil {
-				return nil, fmt.Errorf("migration filename %s must use 0001_description.sql", entry.Name())
+				return nil, preconditionErrorf("migration filename %s must use 0001_description.sql", entry.Name())
 			}
 			revision, _ := strconv.Atoi(matched[1])
 			if revision != len(plan.Migrations)+1 || revision > 256 {
-				return nil, fmt.Errorf("migration files in %s must be contiguous from 0001, with at most 256 revisions", directory)
+				return nil, preconditionErrorf("migration files in %s must be contiguous from 0001, with at most 256 revisions", directory)
 			}
 			path, sourcePath, err := normalizeDBSeedWorkspacePath(root, filepath.Join(directory, entry.Name()), false)
 			if err != nil {
@@ -212,7 +212,7 @@ func discoverDBMigrationPlans(root string, cfg appcfg.Config, requirements compi
 			}
 			info, err := os.Stat(sourcePath)
 			if err != nil || info.Size() > 4<<20 || int64(total)+info.Size() > 16<<20 {
-				return nil, fmt.Errorf("migration %s exceeds the 4 MiB file or 16 MiB service bound", path)
+				return nil, preconditionErrorf("migration %s exceeds the 4 MiB file or 16 MiB service bound", path)
 			}
 			data, err := os.ReadFile(sourcePath)
 			if err != nil {
@@ -220,13 +220,13 @@ func discoverDBMigrationPlans(root string, cfg appcfg.Config, requirements compi
 			}
 			total += len(data)
 			if err := postgresdb.ValidateMigrationSQL(string(data)); err != nil {
-				return nil, fmt.Errorf("migration %s: %w", path, err)
+				return nil, preconditionErrorf("migration %s: %w", path, err)
 			}
 			sum := sha256.Sum256(data)
 			plan.Migrations = append(plan.Migrations, postgresdb.SchemaMigration{Revision: revision, Path: path, Checksum: "sha256:" + hex.EncodeToString(sum[:]), SQL: string(data)})
 		}
 		if len(plan.Migrations) == 0 {
-			return nil, fmt.Errorf("migration service %s has no SQL files in %s", configured.Service, directory)
+			return nil, preconditionErrorf("migration service %s has no SQL files in %s", configured.Service, directory)
 		}
 		plans = append(plans, plan)
 	}

@@ -461,7 +461,7 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 			}
 		}
 		if linkedFrameworkDigest != "" && source.Digest != linkedFrameworkDigest {
-			return nil, fmt.Errorf("actual Go build framework does not match the selected Scenery producer; prepare a coherent framework selection")
+			return nil, &PreconditionError{Message: "actual Go build framework does not match the selected Scenery producer; run scenery framework use to prepare a coherent framework selection"}
 		}
 		producer, err := executableDigest()
 		if err != nil {

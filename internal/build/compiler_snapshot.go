@@ -61,7 +61,7 @@ func compileWorkspaceContract(root string, snapshot *SourceSnapshot) (*compiler.
 // it can become a watcher baseline or appear in diagnostics.
 func compileCapturedWorkspaceContract(root string, snapshot *SourceSnapshot) (*compiler.Result, error) {
 	if snapshot == nil || !snapshot.CompilerCaptureValid {
-		return nil, fmt.Errorf("captured compiler input set is unavailable")
+		return nil, &PreconditionError{Message: "captured compiler input set is unavailable: a compiler input changed, vanished or was not a regular file while it was captured; save the source again to rebuild"}
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {

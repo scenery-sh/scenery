@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -327,14 +329,14 @@ func waitForManagedFrontend(ctx context.Context, process *managedFrontendProcess
 			return fmt.Errorf("frontend %s is not accepting TCP connections on %s", process.Name, process.Addr)
 		},
 	}); err != nil {
-		return err
+		return frontendStartupFailure(process, err)
 	}
 	// Capture the child after its launcher has exec'd the serving process.
 	// Keep this fingerprint immutable for later status and shutdown checks.
 	owner := localagent.CaptureOwner(process.Process.PID, "scenery up frontend-"+localagentLabel(process.Name))
 	select {
 	case <-process.Process.Done:
-		return process.Process.ReadinessExitError()
+		return frontendStartupFailure(process, process.Process.ReadinessExitError())
 	default:
 	}
 	process.ownerMu.Lock()
@@ -343,6 +345,42 @@ func waitForManagedFrontend(ctx context.Context, process *managedFrontendProcess
 	}
 	process.ownerMu.Unlock()
 	return nil
+}
+
+// frontendExitError reports an app-owned frontend whose own command exited
+// before it became ready, such as a dev server that is not installed. The
+// app's frontend must change; nothing inside Scenery failed.
+type frontendExitError struct {
+	err error
+	// commandNotFound is set when the shell could not find the command.
+	commandNotFound bool
+}
+
+func (e *frontendExitError) Error() string { return e.err.Error() }
+func (e *frontendExitError) Unwrap() error { return e.err }
+func (*frontendExitError) ExitCode() int   { return 3 }
+
+func (e *frontendExitError) suggestion() string {
+	if e.commandNotFound {
+		return "The frontend's dev command was not found. Install the frontend's package dependencies in its directory, then restart scenery up."
+	}
+	return "Fix the frontend's dev command using its output above, then restart scenery up."
+}
+
+// frontendStartupFailure classifies a failed readiness wait: a frontend
+// process that exited is the app's precondition failure; any other cause is
+// returned unchanged.
+func frontendStartupFailure(process *managedFrontendProcess, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	select {
+	case <-process.Process.Done:
+	default:
+		return err
+	}
+	exit, _ := errors.AsType[*exec.ExitError](process.Process.WaitError())
+	return &frontendExitError{err: err, commandNotFound: exit != nil && exit.ExitCode() == 127}
 }
 
 func stopManagedFrontendProcesses(processes []*managedFrontendProcess) {

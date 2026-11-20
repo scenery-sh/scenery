@@ -17,6 +17,15 @@ func usageErrorf(format string, args ...any) error {
 	return &codedCLIError{err: fmt.Errorf(format, args...), code: 2}
 }
 
+// unknownFlagError refuses a flag the command does not register. A version
+// flag names the command agents meant, which no command takes as a flag.
+func unknownFlagError(arg string) error {
+	if name, _, _ := strings.Cut(strings.TrimLeft(arg, "-"), "="); name == "version" || arg == "-v" {
+		return usageErrorf("unknown flag %q; did you mean `scenery version`?", arg)
+	}
+	return usageErrorf("unknown flag %q", arg)
+}
+
 // preconditionErrorf reports a correct request that the current state refuses,
 // such as a runtime that must stop first. It exits 3.
 func preconditionErrorf(format string, args ...any) error {
@@ -77,7 +86,7 @@ func parseCLIFlags(flags *flag.FlagSet, args []string) (positionals []string, er
 		name, _, hasValue := strings.Cut(nameValue, "=")
 		registered := flags.Lookup(name)
 		if registered == nil {
-			return nil, usageErrorf("unknown flag %q", arg)
+			return nil, unknownFlagError(arg)
 		}
 		flagArgs = append(flagArgs, arg)
 		if hasValue || isBoolCLIFlag(registered) {
@@ -176,7 +185,7 @@ func parseLeadingCLIFlags(flags *flag.FlagSet, args []string) ([]string, error) 
 		name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
 		registered := flags.Lookup(name)
 		if registered == nil {
-			return nil, usageErrorf("unknown flag %q", arg)
+			return nil, unknownFlagError(arg)
 		}
 		end++
 		if !hasValue && !isBoolCLIFlag(registered) {

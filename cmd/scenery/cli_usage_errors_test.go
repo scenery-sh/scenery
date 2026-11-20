@@ -58,6 +58,14 @@ func TestMalformedInvocationsAreInvalidRequestsThatNameTheMistake(t *testing.T) 
 		{"system nope", `unknown system command "nope"`},
 		{"system toolchain path", "scenery system toolchain path requires --tool <name>"},
 		{"harness ui -o json", `unexpected argument "ui"`},
+		{"prune --db --older-than 1h", "database prune requires one explicit absolute --app-root"},
+		{"--version", "unknown command \"--version\"; did you mean `scenery version`?"},
+		{"-v", "unknown command \"-v\"; did you mean `scenery version`?"},
+		{"ps --version", "unknown flag \"--version\"; did you mean `scenery version`?"},
+		{"status", "unknown command \"status\"; run `scenery ps -o json`"},
+		{"deploy", "unknown command \"deploy\"; Scenery has no deploy command; run `scenery build`"},
+		{"frontends", "unknown command \"frontends\"; frontends run inside `scenery up`"},
+		{"changes", "unknown command \"changes\"; did you mean `scenery validate changed`?"},
 	} {
 		err := run(strings.Fields(invocation.args))
 		if err == nil {
