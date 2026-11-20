@@ -3,20 +3,24 @@ package validation
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	inspectdata "scenery.sh/internal/inspect"
 )
 
 // StepRunner executes one resolved plan step, writing captured output to
-// stdout and stderr.
+// stdout and stderr. ExecutePlan may call it concurrently for distinct steps.
 type StepRunner func(ctx context.Context, step PlanStep, stdout, stderr io.Writer) error
 
 // ArtifactSink persists one step's captured output and returns the artifacts
-// written plus any write diagnostics. A nil sink writes nothing.
-type ArtifactSink func(stepName string, stdout, stderr []byte) ([]OutputArtifact, []Diagnostic)
+// written plus any write diagnostics. A nil sink writes nothing. ExecutePlan
+// may call it concurrently, so artifact paths must be unique per step ID.
+type ArtifactSink func(step PlanStep, stdout, stderr []byte) ([]OutputArtifact, []Diagnostic)
 
 // OutputArtifact is one captured-output artifact written by an ArtifactSink.
 type OutputArtifact struct {
@@ -72,9 +76,29 @@ type StepResult struct {
 	Artifacts []OutputArtifact
 }
 
-// ExecutePlan runs every plan step in order until one fails, refusing to run
-// anything when the plan carries diagnostics.
-func ExecutePlan(ctx context.Context, plan ResolvedPlan, run StepRunner, writeArtifacts ArtifactSink) Result {
+// DefaultParallelism bounds how many independent validation steps run at once.
+func DefaultParallelism() int {
+	return min(4, runtime.GOMAXPROCS(0))
+}
+
+// stepCanceledError marks a step stopped because another step failed first.
+// It matches context.Canceled and keeps the runner error for exit evidence.
+type stepCanceledError struct {
+	failed string
+	err    error
+}
+
+func (e *stepCanceledError) Error() string { return "canceled after " + e.failed + " failed" }
+
+func (e *stepCanceledError) Unwrap() []error { return []error{context.Canceled, e.err} }
+
+// ExecutePlan runs a plan, refusing to run anything when the plan carries
+// diagnostics. Builtin steps (scenery check) run first, serially, as a fast
+// gate; the remaining steps then run concurrently on up to parallelism
+// workers, so run and writeArtifacts must be safe for concurrent use. The
+// first failure cancels in-flight steps and stops scheduling new ones.
+// Result steps, artifacts and next actions follow plan order.
+func ExecutePlan(ctx context.Context, plan ResolvedPlan, parallelism int, run StepRunner, writeArtifacts ArtifactSink) Result {
 	result := Result{
 		OK:          len(plan.Diagnostics) == 0,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano),
@@ -89,9 +113,12 @@ func ExecutePlan(ctx context.Context, plan ResolvedPlan, run StepRunner, writeAr
 		finishCoverage(&result)
 		return result
 	}
-	for _, step := range plan.Steps {
-		res := runStep(ctx, plan, step, run, writeArtifacts)
-		result.Steps = append(result.Steps, res)
+	results := executeSteps(ctx, plan, max(parallelism, 1), run, writeArtifacts)
+	for _, res := range results {
+		if res == nil {
+			continue
+		}
+		result.Steps = append(result.Steps, *res)
 		for _, artifact := range res.Artifacts {
 			kind := "artifact"
 			if strings.Contains(artifact.Name, "stdout") {
@@ -101,14 +128,73 @@ func ExecutePlan(ctx context.Context, plan ResolvedPlan, run StepRunner, writeAr
 			}
 			result.Artifacts = append(result.Artifacts, Artifact{Path: artifact.Path, Kind: kind})
 		}
-		if !res.OK {
-			result.OK = false
-			result.NextActions = []string{"Fix " + res.Name + ", then rerun: scenery validate " + plan.Profile + " -o json --write"}
-			break
+		if res.OK {
+			continue
+		}
+		result.OK = false
+		var canceled *stepCanceledError
+		if !errors.As(res.Err, &canceled) {
+			result.NextActions = append(result.NextActions, "Fix "+res.Name+", then rerun: scenery validate "+plan.Profile+" -o json --write")
 		}
 	}
 	finishCoverage(&result)
 	return result
+}
+
+// executeSteps returns one result per plan step, indexed by plan position;
+// steps never started stay nil.
+func executeSteps(ctx context.Context, plan ResolvedPlan, parallelism int, run StepRunner, writeArtifacts ArtifactSink) []*StepResult {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make([]*StepResult, len(plan.Steps))
+	var mu sync.Mutex
+	failed := ""
+	execute := func(i int) bool {
+		if runCtx.Err() != nil {
+			return false
+		}
+		res := runStep(runCtx, plan, plan.Steps[i], run, writeArtifacts)
+		if !res.OK {
+			mu.Lock()
+			switch {
+			case failed == "":
+				failed = res.Name
+				cancel()
+			case res.Err != nil && ctx.Err() == nil:
+				res.Err = &stepCanceledError{failed: failed, err: res.Err}
+				res.Error = res.Err.Error()
+			}
+			mu.Unlock()
+		}
+		results[i] = &res
+		return res.OK
+	}
+	var independent []int
+	for i, step := range plan.Steps {
+		if step.Kind != "builtin" {
+			independent = append(independent, i)
+		} else if !execute(i) {
+			return results
+		}
+	}
+	queue := make(chan int)
+	var wg sync.WaitGroup
+	for range min(parallelism, len(independent)) {
+		wg.Go(func() {
+			for i := range queue {
+				execute(i)
+			}
+		})
+	}
+	for _, i := range independent {
+		if runCtx.Err() != nil {
+			break
+		}
+		queue <- i
+	}
+	close(queue)
+	wg.Wait()
+	return results
 }
 
 func runStep(ctx context.Context, plan ResolvedPlan, step PlanStep, run StepRunner, writeArtifacts ArtifactSink) StepResult {
@@ -120,7 +206,7 @@ func runStep(ctx context.Context, plan ResolvedPlan, step PlanStep, run StepRunn
 	var artifacts []OutputArtifact
 	var diagnostics []Diagnostic
 	if writeArtifacts != nil {
-		artifacts, diagnostics = writeArtifacts(step.Name, stdout.Bytes(), stderr.Bytes())
+		artifacts, diagnostics = writeArtifacts(step, stdout.Bytes(), stderr.Bytes())
 	}
 	res := StepResult{
 		ID:                step.ID,

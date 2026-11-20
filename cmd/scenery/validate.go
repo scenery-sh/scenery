@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	appcfg "scenery.sh/internal/app"
@@ -283,14 +285,28 @@ func validationDiagnostic(stage, severity, message string) validation.Diagnostic
 
 func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, plan validation.ResolvedPlan, opts validateOptions, runCommand scriptCommandRunner) validationResultResponse {
 	artifactCtx := newValidationArtifactContext(appRoot, opts.Write)
+	// Steps run concurrently, so human mode echoes each step's complete
+	// output after it finishes instead of interleaving live streams.
+	var echoMu sync.Mutex
 	run := func(ctx context.Context, step validation.PlanStep, stdout, stderr io.Writer) error {
-		return runValidationStepCommand(ctx, appRoot, cfg, step, stdout, stderr, opts.JSON, runCommand)
+		if opts.JSON {
+			return runValidationStepCommand(ctx, appRoot, cfg, step, stdout, stderr, runCommand)
+		}
+		var out, errOut bytes.Buffer
+		err := runValidationStepCommand(ctx, appRoot, cfg, step, &out, &errOut, runCommand)
+		_, _ = stdout.Write(out.Bytes())
+		_, _ = stderr.Write(errOut.Bytes())
+		echoMu.Lock()
+		defer echoMu.Unlock()
+		_, _ = os.Stdout.Write(out.Bytes())
+		_, _ = os.Stderr.Write(errOut.Bytes())
+		return err
 	}
-	writeArtifacts := func(stepName string, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
-		return writeValidationOutputArtifacts(artifactCtx, stepName, stdout, stderr)
+	writeArtifacts := func(step validation.PlanStep, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
+		return writeValidationOutputArtifacts(artifactCtx, step, stdout, stderr)
 	}
 	observation := newValidationObservation(appRoot, cfg, plan, opts, artifactCtx)
-	result := validationResultResponseFrom(validation.ExecutePlan(ctx, plan, run, writeArtifacts))
+	result := validationResultResponseFrom(validation.ExecutePlan(ctx, plan, validation.DefaultParallelism(), run, writeArtifacts))
 	result.Provenance = observation.Provenance
 	result.Run, result.Plan, result.DryRun = observation.Run, observation.Plan, observation.DryRun
 	result.SelectedSteps, result.OmittedSteps, result.UnknownStages = observation.SelectedSteps, observation.OmittedSteps, observation.UnknownStages
@@ -336,12 +352,8 @@ func validationResultStepFrom(step validation.StepResult) validationResultStep {
 	}
 }
 
-func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Config, step validation.PlanStep, stdout, stderr io.Writer, capture bool, runCommand scriptCommandRunner) error {
+func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Config, step validation.PlanStep, stdout, stderr io.Writer, runCommand scriptCommandRunner) error {
 	ref := validation.ParseStepRef(step.Name)
-	if !capture {
-		stdout = os.Stdout
-		stderr = os.Stderr
-	}
 	if step.Kind == "command" {
 		if len(step.Command) == 0 {
 			return fmt.Errorf("validation command has no executable")
@@ -392,17 +404,20 @@ func newValidationArtifactContext(root string, enabled bool) validationArtifactC
 	}
 }
 
-func writeValidationOutputArtifacts(ctx validationArtifactContext, stepName string, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
+// writeValidationOutputArtifacts names files by step ID, which is unique within
+// a plan, so concurrently finishing steps never share an artifact path.
+func writeValidationOutputArtifacts(ctx validationArtifactContext, step validation.PlanStep, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
 	if !ctx.Enabled {
 		return nil, nil
 	}
+	stepName := step.Name
 	var artifacts []validation.OutputArtifact
 	var diags []validation.Diagnostic
 	write := func(kind string, data []byte) {
 		if len(data) == 0 {
 			return
 		}
-		name := sanitizeHarnessArtifactName(stepName + " " + kind)
+		name := sanitizeHarnessArtifactName(firstNonEmpty(step.ID, stepName) + " " + kind)
 		filename := sanitizeHarnessArtifactFilename(name + "." + kind + ".txt")
 		rel := filepath.ToSlash(filepath.Join(".scenery", "harness", "validation", "artifacts", ctx.RunID, filename))
 		abs := filepath.Join(ctx.Root, filepath.FromSlash(rel))
@@ -425,7 +440,9 @@ func writeValidationText(stdout io.Writer, result validationResultResponse) erro
 	_, _ = fmt.Fprintf(stdout, "profile %s\n", result.Profile)
 	for _, step := range result.Steps {
 		status := "ok"
-		if !step.OK {
+		if step.Outcome == "canceled" {
+			status = "stop"
+		} else if !step.OK {
 			status = "fail"
 		}
 		_, _ = fmt.Fprintf(stdout, "  %-4s %-28s %.1fs\n", status, step.Name, float64(step.DurationMS)/1000)
@@ -435,8 +452,10 @@ func writeValidationText(stdout io.Writer, result validationResultResponse) erro
 		_, _ = fmt.Fprintln(stdout, "\nvalidation ok")
 		return nil
 	}
-	if len(result.Steps) > 0 && !result.Steps[len(result.Steps)-1].OK {
-		failed := result.Steps[len(result.Steps)-1]
+	for _, failed := range result.Steps {
+		if failed.OK || failed.Outcome == "canceled" {
+			continue
+		}
 		_, _ = fmt.Fprintf(stdout, "\nfailed: %s\n", failed.Name)
 		if failed.Evidence != nil && failed.Evidence.ReproCommand != "" {
 			_, _ = fmt.Fprintf(stdout, "repro: %s\n", failed.Evidence.ReproCommand)
