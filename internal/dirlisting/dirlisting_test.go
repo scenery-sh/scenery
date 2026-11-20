@@ -141,8 +141,11 @@ func TestRecentlyModifiedDirectoriesAreReadAgain(t *testing.T) {
 func TestListingsAreBoundedAndEvictedAfterCompleteWalks(t *testing.T) {
 	settledClock(t)
 	root := t.TempDir()
+	// The count is arbitrary: the default bound is far larger, and the limited
+	// tree below proves the bound.
+	const subdirectories = 8
 	var dirs []string
-	for index := range 120 {
+	for index := range subdirectories {
 		dir := filepath.Join(root, fmt.Sprintf("d%03d", index))
 		write(t, filepath.Join(dir, "a.go"), "package a\n")
 		dirs = append(dirs, dir)
@@ -154,8 +157,8 @@ func TestListingsAreBoundedAndEvictedAfterCompleteWalks(t *testing.T) {
 		read(t, walk, dir)
 	}
 	walk.Finish()
-	if tree.Len() != 121 {
-		t.Fatalf("complete walk retained %d listings, want 121", tree.Len())
+	if tree.Len() != subdirectories+1 {
+		t.Fatalf("complete walk retained %d listings, want %d", tree.Len(), subdirectories+1)
 	}
 	for _, dir := range dirs {
 		if err := os.RemoveAll(dir); err != nil {

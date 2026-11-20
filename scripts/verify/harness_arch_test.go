@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -109,13 +108,7 @@ func TestCheckUICatalogAstryxComposition(t *testing.T) {
 
 	t.Run("rejects raw controls", func(t *testing.T) {
 		t.Parallel()
-		root := t.TempDir()
-		path := filepath.Join(root, "Bad.tsx")
-		writeTestAppFile(t, root, "Bad.tsx", "export const Bad = () => <input />;\n")
-		diagnostics, err := checkUICatalogAstryxComposition(path, "ui/components/Bad.tsx")
-		if err != nil {
-			t.Fatal(err)
-		}
+		diagnostics := checkUICatalogAstryxComposition("ui/components/Bad.tsx", []byte("export const Bad = () => <input />;\n"))
 		if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].SuggestedAction, "Astryx primitive") {
 			t.Fatalf("diagnostics = %+v, want one Astryx policy failure", diagnostics)
 		}
@@ -123,13 +116,7 @@ func TestCheckUICatalogAstryxComposition(t *testing.T) {
 
 	t.Run("allows the documented filter pills exception", func(t *testing.T) {
 		t.Parallel()
-		root := t.TempDir()
-		path := filepath.Join(root, "FilterPills.tsx")
-		writeTestAppFile(t, root, "FilterPills.tsx", "export const FilterPills = () => <button>All</button>;\n")
-		diagnostics, err := checkUICatalogAstryxComposition(path, "ui/components/FilterPills.tsx")
-		if err != nil {
-			t.Fatal(err)
-		}
+		diagnostics := checkUICatalogAstryxComposition("ui/components/FilterPills.tsx", []byte("export const FilterPills = () => <button>All</button>;\n"))
 		if len(diagnostics) != 0 {
 			t.Fatalf("diagnostics = %+v, want documented exception", diagnostics)
 		}
@@ -151,6 +138,7 @@ func TestCheckCurrentSurfaceResidue(t *testing.T) {
 		{name: "active next name in path", rel: "internal/" + "v" + "next/compiler.go", content: "package compiler\n", want: "active next-generation name"},
 		{name: "historical knowledge path", rel: "docs/knowledge.json", content: `"path": "docs/plans/0103-` + "v" + `next-language-and-onlv-house-migration.md",` + "\n"},
 		{name: "active knowledge name", rel: "docs/knowledge.json", content: `"title": "New ` + "v" + `Next feature",` + "\n", want: "active next-generation name"},
+		{name: "uppercase next prefix", rel: "internal/flags.go", content: "const flag = \"" + "V" + "NEXT_MODE\"\n", want: "active next-generation name"},
 		{name: "human target document", rel: humanTarget, content: "# Target\n"},
 		{name: "target governance", rel: "AGENTS.md", content: "Only humans may modify `" + humanTarget + "`.\n"},
 		{name: "target governance view", rel: "CLAUDE.md", content: "Only humans may modify `" + humanTarget + "`.\n"},
@@ -171,13 +159,7 @@ func TestCheckCurrentSurfaceResidue(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			root := t.TempDir()
-			path := filepath.Join(root, filepath.FromSlash(test.rel))
-			writeTestAppFile(t, root, test.rel, test.content)
-			diagnostics, err := checkCurrentSurfaceResidue(path, test.rel)
-			if err != nil {
-				t.Fatal(err)
-			}
+			diagnostics := checkCurrentSurfaceResidue(test.rel, []byte(test.content))
 			joined := diagnosticMessages(diagnostics)
 			if test.want == "" {
 				if len(diagnostics) != 0 {
@@ -198,6 +180,10 @@ func TestRemovedAgentTransportTermUsesTokenBoundaries(t *testing.T) {
 	}
 	if !containsRemovedAgentTransportTerm("the retired r"+"m"+"cp transport", "r"+"m"+"cp") {
 		t.Fatal("retired transport token was not detected")
+	}
+	diagnostics := checkRemovedAgentTransportTerms("docs/current.md", []byte("current\nthe retired "+"R"+"MCP transport\n"))
+	if len(diagnostics) != 1 || diagnostics[0].Line != 2 {
+		t.Fatalf("diagnostics = %+v, want one case-insensitive match on line 2", diagnostics)
 	}
 }
 

@@ -42,13 +42,23 @@ func runProduct(ctx context.Context, repoRoot string, stdout io.Writer, args ...
 }
 
 func readProductJSON(repoRoot string, target any, args ...string) error {
+	output, err := runProductJSON(repoRoot, args...)
+	if err != nil {
+		return err
+	}
+	return decodeCLIJSON(output, target)
+}
+
+// runProductJSON returns the product's JSON output, or its failure with any
+// machine diagnostics the output carried.
+func runProductJSON(repoRoot string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var output bytes.Buffer
 	if err := runProduct(ctx, repoRoot, &output, args...); err != nil {
-		return productFailure(err, output.Bytes())
+		return nil, productFailure(err, output.Bytes())
 	}
-	return decodeCLIJSON(output.Bytes(), target)
+	return output.Bytes(), nil
 }
 
 func productFailure(err error, output []byte) error {

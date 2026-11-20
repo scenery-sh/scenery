@@ -64,32 +64,58 @@ var rawUICatalogInteractiveAllowlist = map[string]string{
 }
 
 type currentSurfaceResidueRule struct {
-	Name            string
-	Pattern         *regexp.Regexp
+	Name    string
+	Pattern *regexp.Regexp
+	// Literals holds substrings of which every Pattern match contains at least
+	// one (after lowercasing when FoldCase is set). Text without any of them
+	// cannot match, so it skips the comparatively slow regular expression.
+	Literals        []string
+	FoldCase        bool
 	SuggestedAction string
 	CheckPath       bool
+}
+
+// mayMatch reports whether text contains one of the rule's literals, a
+// necessary condition for any Pattern match inside it.
+func (rule currentSurfaceResidueRule) mayMatch(text string) bool {
+	if rule.FoldCase {
+		text = strings.ToLower(text)
+	}
+	for _, literal := range rule.Literals {
+		if strings.Contains(text, literal) {
+			return true
+		}
+	}
+	return false
 }
 
 var currentSurfaceResidueRules = []currentSurfaceResidueRule{
 	{
 		Name:            "authored language selector",
 		Pattern:         regexp.MustCompile(`\blanguage\s*\{|\bedition\s*=\s*"2027"|\b` + "require_" + `profiles\b|\b` + "scenery_" + `version\b`),
+		Literals:        []string{"language", "edition", "require_" + "profiles", "scenery_" + "version"},
 		SuggestedAction: "Delete the selector and express the application with the singular current source contract.",
 	},
 	{
 		Name:            "retired auth cookie name",
 		Pattern:         regexp.MustCompile(`\b` + "onlv_" + `refresh\b`),
+		Literals:        []string{"onlv_" + "refresh"},
 		SuggestedAction: "Use only the current Scenery refresh cookie name.",
 	},
 	{
-		Name:            "active next-generation name",
-		Pattern:         regexp.MustCompile(`(?i)(^|[^a-z0-9])(?:` + "v" + `next|console` + "next" + `)(?:[^a-z0-9]|$)|(?i)` + "v" + `next_`),
+		Name:    "active next-generation name",
+		Pattern: regexp.MustCompile(`(?i)(^|[^a-z0-9])(?:` + "v" + `next|console` + "next" + `)(?:[^a-z0-9]|$)|(?i)` + "v" + `next_`),
+		// The case folds of n, e, x and t are ASCII only, so lowercasing finds
+		// every case-insensitive match of either name.
+		Literals:        []string{"next"},
+		FoldCase:        true,
 		SuggestedAction: "Use the stable responsibility or product name on current surfaces.",
 		CheckPath:       true,
 	},
 	{
 		Name:            "versioned first-party identity",
 		Pattern:         regexp.MustCompile(`\bscenery\.[a-z0-9_.-]+(?:/v[0-9]+|\.v[0-9]+)\b`),
+		Literals:        []string{"scenery."},
 		SuggestedAction: "Use an unversioned logical identity plus exact schema, specification, artifact, or producer revisions.",
 	},
 }
@@ -447,29 +473,28 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 		if rel != "go.mod" && filepath.Base(rel) == "go.mod" {
 			summary.NestedGoModules = append(summary.NestedGoModules, rel)
 		}
-		if strings.HasPrefix(rel, "ui/components/") && filepath.Ext(rel) == ".tsx" {
-			catalogDiagnostics, err := checkUICatalogAstryxComposition(path, rel)
-			if err != nil {
-				return err
-			}
-			diagnostics = append(diagnostics, catalogDiagnostics...)
-		}
-		if currentSurfaceResidueCandidate(rel) {
-			residueDiagnostics, err := checkCurrentSurfaceResidue(path, rel)
-			if err != nil {
-				return err
-			}
-			diagnostics = append(diagnostics, residueDiagnostics...)
-		}
 		ext := filepath.Ext(rel)
-		if !slices.Contains([]string{".go", ".ts", ".tsx", ".md", ".json"}, ext) {
+		checked := slices.Contains([]string{".go", ".ts", ".tsx", ".md", ".json"}, ext)
+		residue := currentSurfaceResidueCandidate(rel)
+		catalog := strings.HasPrefix(rel, "ui/components/") && ext == ".tsx"
+		if !checked && !residue && !catalog {
 			return nil
 		}
-		summary.CheckedFiles++
+		// Each check scans the same bytes; read the file once.
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
+		if catalog {
+			diagnostics = append(diagnostics, checkUICatalogAstryxComposition(rel, data)...)
+		}
+		if residue {
+			diagnostics = append(diagnostics, checkCurrentSurfaceResidue(rel, data)...)
+		}
+		if !checked {
+			return nil
+		}
+		summary.CheckedFiles++
 		lineCount := countFileLines(data)
 		checkSize := !architectureAllowsLongFile(rel) && !architectureGeneratedSource(ext, data)
 		if lineCount >= architectureErrorLines && checkSize {
@@ -493,26 +518,22 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 		}
 		if ext == ".go" {
 			summary.SourceFiles++
-			importDiagnostics, err := checkArchitectureGoImports(path, rel)
+			importDiagnostics, err := checkArchitectureGoImports(path, rel, data)
 			if err != nil {
 				return err
 			}
 			diagnostics = append(diagnostics, importDiagnostics...)
 		}
-		diagnostics = append(diagnostics, checkRemovedAgentTransportTerms(path, rel)...)
+		diagnostics = append(diagnostics, checkRemovedAgentTransportTerms(rel, data)...)
 		return nil
 	})
 	return diagnostics, err
 }
 
-func checkUICatalogAstryxComposition(path, rel string) ([]checkDiagnostic, error) {
+func checkUICatalogAstryxComposition(rel string, data []byte) []checkDiagnostic {
 	rel = filepath.ToSlash(rel)
 	if _, allowed := rawUICatalogInteractiveAllowlist[rel]; allowed {
-		return nil, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+		return nil
 	}
 	var diagnostics []checkDiagnostic
 	for index, line := range strings.Split(string(data), "\n") {
@@ -527,30 +548,37 @@ func checkUICatalogAstryxComposition(path, rel string) ([]checkDiagnostic, error
 			})
 		}
 	}
-	return diagnostics, nil
+	return diagnostics
 }
 
-func checkCurrentSurfaceResidue(path, rel string) ([]checkDiagnostic, error) {
+func checkCurrentSurfaceResidue(rel string, data []byte) []checkDiagnostic {
 	rel = filepath.ToSlash(rel)
 	if currentSurfaceResidueHistorical(rel) {
-		return nil, nil
+		return nil
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
+	text := string(data)
 	var diagnostics []checkDiagnostic
+	var candidates []currentSurfaceResidueRule
 	for _, rule := range currentSurfaceResidueRules {
 		if rule.CheckPath {
 			diagnostics = append(diagnostics, currentSurfaceResidueDiagnostics(rule, rel, 0, rel)...)
 		}
-	}
-	for index, line := range strings.Split(string(data), "\n") {
-		for _, rule := range currentSurfaceResidueRules {
-			diagnostics = append(diagnostics, currentSurfaceResidueDiagnostics(rule, rel, index+1, line)...)
+		// A line match implies a match of the rule's literals in the whole text.
+		if rule.mayMatch(text) {
+			candidates = append(candidates, rule)
 		}
 	}
-	return diagnostics, nil
+	if len(candidates) == 0 {
+		return diagnostics
+	}
+	for index, line := range strings.Split(text, "\n") {
+		for _, rule := range candidates {
+			if rule.mayMatch(line) {
+				diagnostics = append(diagnostics, currentSurfaceResidueDiagnostics(rule, rel, index+1, line)...)
+			}
+		}
+	}
+	return diagnostics
 }
 
 func currentSurfaceResidueDiagnostics(rule currentSurfaceResidueRule, rel string, line int, text string) []checkDiagnostic {
@@ -632,17 +660,18 @@ func currentSurfaceResidueHistorical(rel string) bool {
 	return false
 }
 
-func checkRemovedAgentTransportTerms(path, rel string) []checkDiagnostic {
+func checkRemovedAgentTransportTerms(rel string, data []byte) []checkDiagnostic {
 	if strings.HasPrefix(filepath.ToSlash(rel), "docs/spec/") {
 		return nil
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
+	// Lowercasing maps runes independently, so every lowercased line is a
+	// substring of the lowercased text: a file without any term has no match.
+	lowerText := strings.ToLower(string(data))
+	if !slices.ContainsFunc(removedAgentTransportTerms, func(term string) bool { return strings.Contains(lowerText, term) }) {
 		return nil
 	}
-	lines := strings.Split(string(data), "\n")
 	var diagnostics []checkDiagnostic
-	for index, line := range lines {
+	for index, line := range strings.Split(string(data), "\n") {
 		lower := strings.ToLower(line)
 		for _, term := range removedAgentTransportTerms {
 			if containsRemovedAgentTransportTerm(lower, term) {
@@ -698,8 +727,8 @@ func architectureAllowsLongFile(rel string) bool {
 	}
 }
 
-func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+func checkArchitectureGoImports(path, rel string, data []byte) ([]checkDiagnostic, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), path, data, parser.ImportsOnly)
 	if err != nil {
 		return nil, err
 	}

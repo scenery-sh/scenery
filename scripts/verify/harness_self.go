@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/appwalk"
@@ -82,25 +83,44 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	}
 
 	localSceneryPath := harnessLocalSceneryBinaryPath(repoRoot)
+	var (
+		sourceChecks                                     sync.WaitGroup
+		knowledgeStep, changedAreaStep, architectureStep harnessStep
+		changedArea                                      *harnessChangedAreaReport
+		drift                                            *harnessDriftReport
+		driftSourceDuration                              time.Duration
+	)
+	// Read-only source checks need neither the product binary nor each other,
+	// so they run while it builds. Steps keep their fixed report order.
+	sourceChecks.Go(func() { knowledgeStep = runHarnessKnowledgeStep(repoRoot) })
+	sourceChecks.Go(func() { changedAreaStep, changedArea = runHarnessChangedAreaStep(ctx, repoRoot, opts.Base) })
+	sourceChecks.Go(func() { architectureStep = runHarnessArchitectureStep(repoRoot) })
+	sourceChecks.Go(func() { drift, driftSourceDuration = runHarnessDriftSourceChecks(ctx, repoRoot) })
 	resp.Steps = append(resp.Steps,
 		runHarnessLocalSceneryBuildStep(ctx, repoRoot, localSceneryPath, artifactCtx),
 		runHarnessSceneryBinaryStep(repoRoot, localSceneryPath),
 	)
 
-	toolchainStep, toolchain := runHarnessToolchainPreflightStep(ctx, repoRoot)
+	// Checks of the built binary are independent of each other.
+	var (
+		binaryChecks                   sync.WaitGroup
+		toolchainStep, inspectDocsStep harnessStep
+		toolchain                      *harnessToolchainReport
+	)
+	binaryChecks.Go(func() { toolchainStep, toolchain = runHarnessToolchainPreflightStep(ctx, repoRoot) })
+	binaryChecks.Go(func() { inspectDocsStep = runHarnessInspectDocsStep(repoRoot) })
+	sourceChecks.Wait()
+	driftStep, drift := finishHarnessDriftStep(repoRoot, drift, driftSourceDuration)
+	binaryChecks.Wait()
 	resp.Toolchain = toolchain
-	changedAreaStep, changedArea := runHarnessChangedAreaStep(ctx, repoRoot, opts.Base)
 	resp.ChangedArea = changedArea
-	driftStep, drift := runHarnessDriftStep(ctx, repoRoot)
 	resp.Drift = drift
 	resp.Steps = append(resp.Steps,
 		toolchainStep,
-		runHarnessKnowledgeStep(repoRoot),
-	)
-	resp.Steps = append(resp.Steps,
+		knowledgeStep,
 		changedAreaStep,
-		runHarnessInspectDocsStep(repoRoot),
-		runHarnessArchitectureStep(repoRoot),
+		inspectDocsStep,
+		architectureStep,
 		driftStep,
 	)
 
