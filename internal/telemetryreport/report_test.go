@@ -106,6 +106,7 @@ func newReportFixture(t *testing.T, base time.Time) Options {
 		// A pipe reports the last command's status: Scenery's is unknown.
 		use("a", "Bash", bash("./scripts/scenery logs --help 2>&1 | head"), base),
 		result("a", true, "Exit code 2\nscenery: unknown flag \"--help\"", base.Add(time.Second)),
+		// A leading directory change keeps up's outcome and duration its own.
 		use("b", "Bash", bash("cd /Users/dev/scenery && scenery up --detach"), base.Add(2*time.Second)),
 		result("b", false, "started", base.Add(5*time.Second)),
 		use("c", "Edit", map[string]any{"file_path": "/x"}, base.Add(6*time.Second)),
@@ -116,7 +117,7 @@ func newReportFixture(t *testing.T, base time.Time) Options {
 		result("d", true, "Exit code 1\nboom", base.Add(9*time.Second)),
 		use("e", "Bash", bash("GOWORK=off ./scripts/scenery status 2>&1; echo \"try scenery up\""), base.Add(10*time.Second)),
 		result("e", true, "Exit code 2\nscenery: unknown command \"status\"; use `scenery help`", base.Add(11*time.Second)),
-		// The only simple command: its outcome and duration are up's own.
+		// The only command: its outcome and duration are up's own.
 		use("f", "Bash", bash("scenery up --detach"), base.Add(12*time.Second)),
 		result("f", false, "started", base.Add(15*time.Second)),
 		// A background command has no outcome yet.
@@ -219,15 +220,15 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	if agents == nil || agents.ClaudeSessions != 1 || agents.CodexSessions != 1 {
 		t.Fatalf("agents = %+v; the session that never ran Scenery is excluded", agents)
 	}
-	if agents.ToolCalls != 14 || agents.ToolErrors != 8 || agents.SceneryCommands != 13 || agents.SceneryInvocations != 14 || agents.SceneryFailed != 7 || agents.SceneryOutcomeUnknown != 2 || agents.SceneryAttributable != 6 || agents.SceneryAttributableFailed != 3 {
+	if agents.ToolCalls != 14 || agents.ToolErrors != 8 || agents.SceneryCommands != 13 || agents.SceneryInvocations != 14 || agents.SceneryFailed != 7 || agents.SceneryOutcomeUnknown != 2 || agents.SceneryAttributable != 7 || agents.SceneryAttributableFailed != 3 {
 		t.Fatalf("agent counts = %+v", agents)
 	}
 	commands := map[string]AgentCommand{}
 	for _, command := range agents.Commands {
 		commands[command.Command] = command
 	}
-	if up := commands["up"]; up.Count != 4 || up.Attributable != 1 || up.FailureCount != 0 || ms(up.P50MS) != 3000 {
-		t.Fatalf("up = %+v; only the simple command with an outcome is attributed", up)
+	if up := commands["up"]; up.Count != 4 || up.Attributable != 2 || up.FailureCount != 0 || up.WallTimeMS != 6000 || ms(up.P50MS) != 3000 {
+		t.Fatalf("up = %+v; only the commands that run up alone with an outcome are attributed", up)
 	}
 	if check := commands["check"]; check.Count != 4 || check.Attributable != 2 || check.FailureCount != 1 || check.P50MS != nil || check.WallTimeMS != 0 {
 		t.Fatalf("check = %+v; Codex commands keep their own exit codes but record no duration", check)
@@ -275,13 +276,29 @@ func TestReportReconstructsRunsFromEverySource(t *testing.T) {
 	for _, finding := range report.Findings {
 		codes = append(codes, finding.Severity+" "+finding.Code)
 	}
-	for _, want := range []string{"critical cli.failure_burst", "warning builds.failure_streak", "warning agents.invalid_invocations", "info agents.unattributable", "info sources.skipped_records", "info cli.unattributed"} {
+	for _, want := range []string{"critical cli.failure_burst", "warning builds.failure_streak", "warning agents.invalid_invocations", "info sources.skipped_records", "info cli.unattributed"} {
 		if !slices.Contains(codes, want) {
 			t.Fatalf("findings %v lack %q", codes, want)
 		}
 	}
+	// 7 of 13 commands, including cd-prefixed ones, record their own outcome.
+	if slices.Contains(codes, "info agents.unattributable") {
+		t.Fatalf("findings %v report most commands as unattributable", codes)
+	}
 	if report.Findings[0].Severity != severityCritical {
 		t.Fatalf("findings are not ordered by severity: %v", codes)
+	}
+}
+
+func TestFindingsReportMostlyUnattributableAgentCommands(t *testing.T) {
+	t.Parallel()
+
+	for attributable, want := range map[int]bool{4: true, 5: false} {
+		report := Report{Agents: &Agents{SceneryCommands: 10, SceneryAttributable: attributable}}
+		found := slices.ContainsFunc(findings(report), func(finding Finding) bool { return finding.Code == "agents.unattributable" })
+		if found != want {
+			t.Errorf("%d of 10 attributable: agents.unattributable = %v, want %v", attributable, found, want)
+		}
 	}
 }
 
@@ -329,6 +346,23 @@ func TestSceneryAttemptsFindCommandsAtCommandPosition(t *testing.T) {
 		"scenery up &":                                   {[]string{"up"}, false},
 		"if scenery check; then echo ok; fi":             {[]string{"check"}, false},
 		"x=$(scenery ps)":                                {[]string{"ps"}, false},
+		// Agents change directory first; Scenery's outcome is still the string's.
+		"cd /path && scenery up":                            {[]string{"up"}, true},
+		"cd /path; scenery check -o json":                   {[]string{"check"}, true},
+		"cd /path\nscenery ps;":                             {[]string{"ps"}, true},
+		"cd /a && cd 'b c'; GOWORK=off scenery check":       {[]string{"check"}, true},
+		"cd /path && ./scripts/scenery check 2>&1":          {[]string{"check"}, true},
+		"cd /path && scenery ps | head":                     {[]string{"ps"}, false},
+		"cd /path && scenery check && echo ok":              {[]string{"check"}, false},
+		"cd /path && scenery check; echo ok":                {[]string{"check"}, false},
+		"cd /path || scenery ps":                            {[]string{"ps"}, false},
+		"cd /path & scenery ps":                             {[]string{"ps"}, false},
+		"(cd /path && scenery ps)":                          {[]string{"ps"}, false},
+		"cd $(git rev-parse --show-toplevel) && scenery ps": {[]string{"ps"}, false},
+		"cd /path && make && scenery check":                 {[]string{"check"}, false},
+		"pwd && cd /path && scenery check":                  {[]string{"check"}, false},
+		"cd /path && sudo scenery up":                       {[]string{"up"}, false},
+		"cd /path && scenery up && scenery ps":              {[]string{"up", "ps"}, false},
 		// Short-circuits: the shell's outcome is not Scenery's.
 		"false && scenery check": {[]string{"check"}, false},
 		"scenery check && false": {[]string{"check"}, false},

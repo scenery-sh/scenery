@@ -8,12 +8,15 @@ import (
 // shellScan is what a report may conclude about one shell command string
 // without running it. It is deliberately not a shell interpreter: it finds
 // the words at command position, skipping quoted text, comments and here-doc
-// bodies, and it recognizes a single simple command. Anything else, such as
-// &&, ||, pipes, background jobs, subshells, substitutions or compound
-// commands, only makes the string compound: which of its commands ran, and
-// whose exit status and time the shell reported, is then unknown.
+// bodies, and it recognizes simple commands joined by ;, newlines or &&.
+// Anything else, such as ||, pipes, background jobs, subshells, substitutions
+// or compound commands, only makes the string compound: which of its commands
+// ran, and whose exit status and time the shell reported, is then unknown.
 type shellScan struct {
 	commands [][]string
+	// joins[i] is the operator that ended commands[i]: ";" (or a newline),
+	// "&&", or "" for the end of the string or any other operator.
+	joins    []string
 	compound bool
 }
 
@@ -57,16 +60,18 @@ func scanShell(source string) shellScan {
 		}
 		command = append(command, text)
 	}
-	endCommand := func() {
+	endCommandWith := func(join string) {
 		flushWord()
 		if len(command) > 0 {
 			scan.commands = append(scan.commands, command)
+			scan.joins = append(scan.joins, join)
 			if shellReservedWords[command[0]] {
 				scan.compound = true
 			}
 		}
 		command = nil
 	}
+	endCommand := func() { endCommandWith("") }
 	control := func() {
 		endCommand()
 		scan.compound = true
@@ -82,7 +87,7 @@ func scanShell(source string) shellScan {
 		case char == ' ' || char == '\t':
 			flushWord()
 		case char == '\n':
-			endCommand()
+			endCommandWith(";")
 			// Here-doc bodies are data, not commands.
 			for _, delimiter := range heredocs {
 				for index+1 < len(runes) {
@@ -144,7 +149,7 @@ func scanShell(source string) shellScan {
 				index++
 			}
 		case char == ';':
-			endCommand()
+			endCommandWith(";")
 		case char == '&' && next == '>':
 			flushWord()
 			index++
@@ -152,12 +157,14 @@ func scanShell(source string) shellScan {
 				index++
 			}
 			redirectTarget = true
+		case char == '&' && next == '&':
+			// Only a leading directory change may precede Scenery with &&;
+			// see attributableSequence.
+			endCommandWith("&&")
+			index++
 		case char == '&':
-			// && and a background job both leave the exit status unknown.
+			// A background job leaves the exit status unknown.
 			control()
-			if next == '&' {
-				index++
-			}
 		case char == '<' || char == '>':
 			// A file descriptor number belongs to the redirection.
 			if inWord && strings.Trim(word.String(), "0123456789") == "" {
@@ -259,7 +266,8 @@ func (scan shellScan) sceneryInvocations() []shellInvocation {
 // a known command with its subcommand for a family that has one, a root flag
 // such as "--help", or "unknown <word>" for a word Scenery has no command
 // for, and whether the shell command's outcome is the one Scenery command's
-// own: it is one simple command that runs Scenery directly.
+// own: it runs Scenery directly as its only command, optionally after
+// directory changes.
 func sceneryAttempts(shell string, families map[string][]string) ([]string, bool) {
 	scan := scanShell(shell)
 	invocations := scan.sceneryInvocations()
@@ -288,6 +296,24 @@ func sceneryAttempts(shell string, families map[string][]string) ([]string, bool
 			result = append(result, "unknown "+word)
 		}
 	}
-	attributable := !scan.compound && len(scan.commands) == 1 && len(invocations) == 1 && invocations[0].direct && len(result) == 1
+	attributable := scan.attributableSequence() && len(invocations) == 1 && invocations[0].direct && len(result) == 1
 	return result, attributable
+}
+
+// attributableSequence reports whether the string's outcome can be its last
+// command's own: it is simple, and every command before the last is a
+// directory change joined by ; or &&, as agents run `cd <dir> && scenery ...`.
+// A failed cd under && ends the string with cd's status; that rare case is
+// accepted so that the common form stays attributable.
+func (scan shellScan) attributableSequence() bool {
+	last := len(scan.commands) - 1
+	if scan.compound || last < 0 || scan.joins[last] == "&&" {
+		return false
+	}
+	for index, words := range scan.commands[:last] {
+		if words[0] != "cd" || scan.joins[index] == "" {
+			return false
+		}
+	}
+	return true
 }
