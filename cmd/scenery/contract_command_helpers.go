@@ -86,7 +86,7 @@ func writeContractResult(stdout io.Writer, output string, quiet bool, result *co
 			return err
 		}
 		if !env.OK {
-			return &silentCLIError{err: fmt.Errorf("contract compilation failed"), code: contractInvalidExitCode(result)}
+			return &silentCLIError{err: contractInvalidError(result), code: contractInvalidExitCode(result)}
 		}
 		return nil
 	}
@@ -100,7 +100,7 @@ func writeContractResult(stdout io.Writer, output string, quiet bool, result *co
 				_, _ = fmt.Fprintf(stdout, "%s: %s\n", diag.Code, diag.Message)
 			}
 		}
-		return &codedCLIError{err: fmt.Errorf("contract compilation failed"), code: contractInvalidExitCode(result)}
+		return &codedCLIError{err: contractInvalidError(result), code: contractInvalidExitCode(result)}
 	}
 	if quiet {
 		return nil
@@ -138,6 +138,21 @@ func contractDiagnosticLocation(result *compiler.Result, diag graph.Diagnostic) 
 		return ""
 	}
 	return fmt.Sprintf("%s:%d:%d", uri, diag.Range.Start.Line+1, diag.Range.Start.Column+1)
+}
+
+// contractInvalidError is the failure of an invalid contract result. It
+// carries the first error diagnostic the command rendered, so telemetry
+// records that code rather than the exit code's transport class.
+func contractInvalidError(result *compiler.Result) error {
+	err := fmt.Errorf("contract compilation failed")
+	if result != nil {
+		for _, diagnostic := range result.Diagnostics {
+			if diagnostic.Severity == "error" {
+				return &cliDiagnosticError{err: err, code: contractInvalidExitCode(result), diagnostic: diagnostic}
+			}
+		}
+	}
+	return err
 }
 
 func contractInvalidExitCode(result *compiler.Result) int {

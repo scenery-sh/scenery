@@ -18,7 +18,9 @@ import (
 	"scenery.sh/runtime"
 )
 
-var errBuildSuperseded = errors.New("source changed during candidate preparation; discard the superseded generation and retry")
+// errBuildSuperseded is a revision conflict: newer source replaced the inputs
+// of the candidate being prepared, and the next build uses them.
+var errBuildSuperseded = errors.New("revision_conflict: source changed during candidate preparation; discard the superseded generation and retry")
 
 type devBuildObservationKey struct{}
 

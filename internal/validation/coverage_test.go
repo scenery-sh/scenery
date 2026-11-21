@@ -65,7 +65,7 @@ func TestChangedCoverageAccountsForEveryPathAndConsumer(t *testing.T) {
 			if tc.name == "native" && (slices.Contains(plan.Profiles, "native") || !slices.Equal(coverage.ManualProfiles, []string{"native"})) {
 				t.Fatal("manual native lane was executed or hidden")
 			}
-			result := ExecutePlan(context.Background(), plan, func(context.Context, PlanStep, io.Writer, io.Writer) error { return nil }, nil)
+			result := ExecutePlan(context.Background(), plan, 1, func(context.Context, PlanStep, io.Writer, io.Writer) error { return nil }, nil)
 			wantOK := tc.status != "unverified"
 			if result.OK != wantOK || result.Selection.CoverageComplete != wantOK {
 				t.Fatalf("result=%+v", result)
@@ -88,7 +88,7 @@ func TestChangedCoverageFailureAndMixedChangesCannotHideUnexecutedChecks(t *test
 		t.Fatal(err)
 	}
 	for _, fail := range []bool{false, true} {
-		result := ExecutePlan(context.Background(), plan, func(_ context.Context, step PlanStep, _, _ io.Writer) error {
+		result := ExecutePlan(context.Background(), plan, 1, func(_ context.Context, step PlanStep, _, _ io.Writer) error {
 			if fail && step.Profile == "go" {
 				return errors.New("test failure")
 			}
@@ -114,7 +114,7 @@ func TestManualValidationRequiresExplicitSelectionAndReasonedExemptions(t *testi
 	if err != nil || len(plan.Diagnostics) != 0 || len(plan.Steps) != 1 {
 		t.Fatalf("plan=%+v err=%v", plan, err)
 	}
-	result := ExecutePlan(context.Background(), plan, func(context.Context, PlanStep, io.Writer, io.Writer) error { return nil }, nil)
+	result := ExecutePlan(context.Background(), plan, 1, func(context.Context, PlanStep, io.Writer, io.Writer) error { return nil }, nil)
 	if !result.OK {
 		t.Fatalf("explicit owner lane failed: %+v", result)
 	}

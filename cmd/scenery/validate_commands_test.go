@@ -18,7 +18,7 @@ func TestValidationCommandUsesLiteralArgvAndProfileEnvironment(t *testing.T) {
 	want := []string{"go", "test", "a b", "", "$(literal)"}
 	step := validation.PlanStep{Kind: "command", Name: "command-1", Command: want, CWD: t.TempDir(), Env: map[string]string{"VALIDATION_TEST": "value"}}
 	calls := 0
-	err := runValidationStepCommand(context.Background(), step.CWD, appcfg.Config{}, step, io.Discard, io.Discard, true, func(cmd *exec.Cmd) error {
+	err := runValidationStepCommand(context.Background(), step.CWD, appcfg.Config{}, step, io.Discard, io.Discard, func(cmd *exec.Cmd) error {
 		calls++
 		if !reflect.DeepEqual(cmd.Args, want) || cmd.Dir != step.CWD || !slices.Contains(cmd.Env, "VALIDATION_TEST=value") || cmd.Stdin != nil {
 			t.Fatalf("command=%+v", cmd)
@@ -43,5 +43,21 @@ func TestValidationCommandDryRun(t *testing.T) {
 	}
 	if len(plan.Steps) != 1 || !reflect.DeepEqual(plan.Steps[0].Command, []string{"never-execute-this", "a b", ""}) {
 		t.Fatalf("plan=%+v", plan)
+	}
+}
+
+func TestValidationOutputArtifactsAreUniquePerStepID(t *testing.T) {
+	t.Parallel()
+	ctx := validationArtifactContext{Root: t.TempDir(), Enabled: true, RunID: "run"}
+	var paths []string
+	for _, id := range []string{"quick/command-1", "quick/child/command-1"} {
+		artifacts, diags := writeValidationOutputArtifacts(ctx, validation.PlanStep{ID: id, Name: "command-1"}, []byte(id), nil)
+		if len(diags) != 0 || len(artifacts) != 1 {
+			t.Fatalf("artifacts=%+v diags=%+v", artifacts, diags)
+		}
+		paths = append(paths, artifacts[0].Path)
+	}
+	if paths[0] == paths[1] {
+		t.Fatalf("steps sharing a name share artifact path %s", paths[0])
 	}
 }

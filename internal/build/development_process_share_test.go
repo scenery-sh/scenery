@@ -84,13 +84,19 @@ func TestWorkspaceAdoptsAProcessExecutableAnotherWorkspaceLinked(t *testing.T) {
 	if contents, err := os.ReadFile(stored); err != nil || string(contents) != "tampered executable" {
 		t.Fatalf("sharing replaced an existing entry: %q, %v", contents, err)
 	}
+	// The store holds the tampered entry and these, so the four oldest exceed
+	// the limit. Pruning ignores records when choosing, so only the boundary
+	// entries carry one.
+	oldest := developmentProcessShareLimit - 1
 	for index := range developmentProcessShareLimit + 3 {
 		name := filepath.Join(shared, "old-"+strconv.Itoa(index))
 		if err := os.WriteFile(name, []byte("x"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(name+developmentProcessDigestSuffix, []byte("sha256:x\n"), 0o600); err != nil {
-			t.Fatal(err)
+		if index >= oldest-1 {
+			if err := os.WriteFile(name+developmentProcessDigestSuffix, []byte("sha256:x\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 		}
 		stamp := time.Now().Add(-time.Duration(index+1) * time.Hour)
 		if err := os.Chtimes(name, stamp, stamp); err != nil {
@@ -110,6 +116,14 @@ func TestWorkspaceAdoptsAProcessExecutableAnotherWorkspaceLinked(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(shared, "old-"+strconv.Itoa(developmentProcessShareLimit+2))); executables != developmentProcessShareLimit || err == nil {
 		t.Fatalf("the store keeps %d executables, limit %d; the oldest removed: %t", executables, developmentProcessShareLimit, err != nil)
+	}
+	for index := oldest - 1; index < developmentProcessShareLimit+3; index++ {
+		name := filepath.Join(shared, "old-"+strconv.Itoa(index))
+		_, executableErr := os.Lstat(name)
+		_, recordErr := os.Lstat(name + developmentProcessDigestSuffix)
+		if kept := index < oldest; kept != (executableErr == nil) || kept != (recordErr == nil) {
+			t.Fatalf("old-%d kept %t: executable %v, record %v", index, kept, executableErr, recordErr)
+		}
 	}
 	// Without a store nothing is adopted or shared.
 	SetSharedDevelopmentProcessStore("")

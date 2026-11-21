@@ -15,6 +15,14 @@ when recorded; those historical `harness self` invocations are not live commands
 
 ## Resolved
 
+- 2026-11-20: Source-Selected Worktrees Share No Executables — the main
+  module's `go.mod` build input now spells a local `scenery.sh` replacement
+  that selects the build's framework source as that source's digest
+  (`frameworkNeutralGoModDigest` in `internal/build/framework_fingerprint.go`),
+  so worktrees of one commit under `framework use --source` share linked
+  process executables like pinned worktrees. Covered by
+  `TestProcessIdentityIgnoresTheFrameworkSnapshotPathButNotItsContent`.
+
 - 2026-11-13: Assistant Journey Probe — `go run ./scripts/verify --probe
   assistant-journey --summary --write` passes on `main` at `afc840df` (a
   parked approval with a queued run, and overlapping streams). Its failing
@@ -102,11 +110,20 @@ external-boundary tests in the ordinary lane.
 Completed plan [0200](plans/0200-process-per-service-development-runtime.md)
 closed with its 300 ms p50 / 500 ms p95 warm body-edit target unmet; the last
 recorded ONLV measurement is 1,186 ms p50 (n=8, 2026-09-19), which the developer
-accepted. No single step dominates the remaining path. Two follow-ups of the
-`9a0b54d0` review stay open: bound link parallelism inside one process build
-(measure the peak memory of a complete ONLV build first), and replace the
-separate preflight execution with a single-start attestation. Start new work
-from a fresh measurement, not from the plan's historical figures.
+accepted. No single step dominates the remaining path. Of the two follow-ups
+of the `9a0b54d0` review, link parallelism inside one process build is bounded
+since 2026-11-20: a `-p` bound fits the concurrent links in a quarter of
+physical memory at 512 MiB per link (a 32 MB `-w` link peaked at 438 MB), which
+never binds on a 64 GB host with 24 CPUs. Replacing the separate preflight
+execution with a single-start attestation stays declined: the preflight already
+runs beside candidate verification, it would save only the second execution
+(about 55 ms), and the preflight's contract is that a rejected identity runs no
+SQL/auth initialization, composition registration or workers
+(`runtime/contract_preflight.go`), which the `dev-process` probe relies on to
+keep the published generation. A single start would run them first unless the
+runtime gained a gate between attestation and initialization, a generated-code
+and runtime protocol change. Start new work from a fresh measurement, not from
+the plan's historical figures.
 
 Plan [0224](plans/0224-measured-startup-and-check-latency.md) measured the
 edit path again on 2026-11-12: about 1.3 s inside the supervisor, of which the
@@ -117,18 +134,6 @@ about 0.88 s per command; since 2026-11-13 the root modules' packages load
 together and the implementation roots are listed while they compile, which
 leaves about 0.72 s. Module instantiation stays ordered, because a module
 resolves inputs and exports against the modules before it.
-
-### Source-Selected Worktrees Share No Executables
-
-- Area: worktree build identity
-- Severity: low
-- Owner: scenery runtime
-- Created: 2026-11-13
-- Review after: 2026-12-13
-
-Under a source-selected framework (`framework use --source`) the
-`module/<app>/go.mod` build input differs between worktrees of one commit, so
-such worktrees never share linked process executables; pinned worktrees do.
 
 ### Unused Surface Awaiting Owner Decisions
 

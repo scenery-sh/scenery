@@ -318,6 +318,17 @@ func telemetryMode(args []string) string {
 		}
 	case "up", "worker":
 		return "long_running"
+	case "system":
+		// The agent daemon and the privileged edge helper serve until stopped;
+		// agent restart/install/uninstall and other system commands return.
+		if len(args) > 1 && args[1] == "agent" {
+			if _, err := parseAgentArgs(args[2:]); err == nil {
+				return "long_running"
+			}
+		}
+		if len(args) > 3 && args[1] == "edge" && args[2] == "privileged-helper" && args[3] == "run" {
+			return "long_running"
+		}
 	case "logs":
 		for _, arg := range args[1:] {
 			if arg == "--follow" {

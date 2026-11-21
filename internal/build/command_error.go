@@ -27,3 +27,11 @@ func goCommandFailure(ctx context.Context, args []string, output []byte, err err
 	}
 	return reported
 }
+
+// PreconditionError is a build its inputs refuse: the app's sources or its
+// framework selection must change before building again can succeed. Nothing
+// inside Scenery failed, so it never mints an internal failure report.
+type PreconditionError struct{ Message string }
+
+func (e *PreconditionError) Error() string { return e.Message }
+func (*PreconditionError) ExitCode() int   { return 3 }

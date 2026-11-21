@@ -95,22 +95,36 @@ type FrameworkMismatchError struct {
 	Producer string
 }
 
+func (*FrameworkMismatchError) ExitCode() int { return 3 }
+
 func (e *FrameworkMismatchError) Error() string {
 	return fmt.Sprintf("application framework %s does not match this Scenery CLI's source %s; keep the current runtime, run scenery framework use, then restart with its reported executable", e.Selected, e.Producer)
 }
 
 // VerifyFrameworkSelection proves cached preparation against current bytes
 // and the authored module, without starting either the CLI or application.
+// The prepared bytes and the authored module's source are independent reads,
+// so they run concurrently; a failure of the prepared bytes is reported first.
 func VerifyFrameworkSelection(ctx context.Context, selection FrameworkSelection) error {
-	if err := VerifyPreparedFramework(selection); err != nil {
-		return err
+	module := make(chan error, 1)
+	go func() { module <- verifyFrameworkSelectionModule(ctx, selection) }()
+	prepared := VerifyPreparedFramework(selection)
+	moduleErr := <-module
+	if prepared != nil {
+		return prepared
 	}
+	return moduleErr
+}
+
+// verifyFrameworkSelectionModule proves that the authored module selects the
+// prepared source content.
+func verifyFrameworkSelectionModule(ctx context.Context, selection FrameworkSelection) error {
 	moduleRoot, _, err := ResolveFrameworkModule(ctx, selection.AppRoot, false)
 	if err != nil {
 		return err
 	}
-	// The prepared source was just read completely; a module that selects
-	// that same directory needs no second read of it.
+	// VerifyPreparedFramework reads the prepared source completely; a module
+	// that selects that same directory needs no second read of it.
 	if canonical, err := filepath.EvalSymlinks(moduleRoot); err == nil && canonical == selection.Source.Root {
 		return nil
 	}
@@ -148,13 +162,24 @@ func VerifyPreparedFramework(selection FrameworkSelection) error {
 	if err := machine.ValidateArtifactIdentity(selection.Source.Inputs.ArtifactIdentity, buildInputKind, buildInputSchemaDescriptor, "prepare the selected framework again"); err != nil {
 		return err
 	}
+	// The source tree and the executable are independent reads of current
+	// bytes; reading them concurrently changes nothing they prove.
+	type executableRead struct {
+		digest string
+		err    error
+	}
+	executable := make(chan executableRead, 1)
+	go func() {
+		digest, err := digestExecutable(selection.Executable)
+		executable <- executableRead{digest, err}
+	}()
 	source, err := FrameworkSourceManifest(selection.Source.Root)
+	read := <-executable
 	if err != nil || source.Digest != selection.Source.Digest {
 		return fmt.Errorf("prepared framework source content changed: %v", err)
 	}
-	digest, err := digestExecutable(selection.Executable)
-	if err != nil || digest != selection.ExecutableDigest {
-		return fmt.Errorf("prepared framework executable content changed: %v", err)
+	if read.err != nil || read.digest != selection.ExecutableDigest {
+		return fmt.Errorf("prepared framework executable content changed: %v", read.err)
 	}
 	return nil
 }

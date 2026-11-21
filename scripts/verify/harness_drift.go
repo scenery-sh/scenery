@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -140,14 +139,23 @@ func applyHarnessToolOutput(tool harnessToolchainTool, name string, args []strin
 	return tool
 }
 
-func runHarnessDriftStep(ctx context.Context, repoRoot string) (harnessStep, *harnessDriftReport) {
+// runHarnessDriftSourceChecks performs the drift checks that read only
+// repository sources, so they can run before the product binary exists.
+// finishHarnessDriftStep completes the step with the CLI contract.
+func runHarnessDriftSourceChecks(ctx context.Context, repoRoot string) (*harnessDriftReport, time.Duration) {
 	started := time.Now()
-	report := buildHarnessDriftReport(ctx, repoRoot)
+	report := buildHarnessDriftSourceReport(ctx, repoRoot, buildHarnessArtifactHygieneReport)
+	return report, time.Since(started)
+}
+
+func finishHarnessDriftStep(repoRoot string, report *harnessDriftReport, sourceDuration time.Duration) (harnessStep, *harnessDriftReport) {
+	started := time.Now()
+	addHarnessDriftCLIContract(repoRoot, report, buildHarnessCLIContractReport)
 	step := harnessStep{
 		Name:       "contract drift checks",
 		Command:    []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
 		OK:         !hasErrorDiagnostics(report.Diagnostics),
-		DurationMS: time.Since(started).Milliseconds(),
+		DurationMS: (sourceDuration + time.Since(started)).Milliseconds(),
 		Summary: map[string]any{
 			"cli_commands":      len(report.CLI.Commands),
 			"env_vars":          len(report.Env.Variables),
@@ -163,22 +171,33 @@ func runHarnessDriftStep(ctx context.Context, repoRoot string) (harnessStep, *ha
 	return step, report
 }
 
-func buildHarnessDriftReport(ctx context.Context, repoRoot string) *harnessDriftReport {
-	return buildHarnessDriftReportWithReaders(ctx, repoRoot, buildHarnessCLIContractReport, buildHarnessArtifactHygieneReport)
-}
-
 func buildHarnessDriftReportWithReaders(ctx context.Context, repoRoot string,
 	cli func(string, []checkDiagnostic) (harnessCLIContractReport, []checkDiagnostic),
 	artifacts func(context.Context, string, []checkDiagnostic) (harnessArtifactHygieneReport, []checkDiagnostic),
 ) *harnessDriftReport {
+	report := buildHarnessDriftSourceReport(ctx, repoRoot, artifacts)
+	addHarnessDriftCLIContract(repoRoot, report, cli)
+	return report
+}
+
+func buildHarnessDriftSourceReport(ctx context.Context, repoRoot string,
+	artifacts func(context.Context, string, []checkDiagnostic) (harnessArtifactHygieneReport, []checkDiagnostic),
+) *harnessDriftReport {
 	report := &harnessDriftReport{PayloadIdentity: newCLIPayloadIdentity(harnessDriftKind)}
-	report.CLI, report.Diagnostics = cli(repoRoot, report.Diagnostics)
 	report.Env, report.Diagnostics = buildHarnessEnvVarReport(repoRoot, report.Diagnostics)
 	report.Diagnostics = appendDirectOSEnvDiagnostics(repoRoot, report.Diagnostics)
 	report.Diagnostics = appendDotenvReintroductionDiagnostics(repoRoot, report.Diagnostics)
 	report.Artifacts, report.Diagnostics = artifacts(ctx, repoRoot, report.Diagnostics)
 	report.Embeds, report.Diagnostics = buildHarnessEmbedReport(repoRoot, report.Diagnostics)
 	return report
+}
+
+// addHarnessDriftCLIContract records the CLI contract; its diagnostics lead
+// the report's diagnostics.
+func addHarnessDriftCLIContract(repoRoot string, report *harnessDriftReport, cli func(string, []checkDiagnostic) (harnessCLIContractReport, []checkDiagnostic)) {
+	var diagnostics []checkDiagnostic
+	report.CLI, diagnostics = cli(repoRoot, nil)
+	report.Diagnostics = append(diagnostics, report.Diagnostics...)
 }
 
 func buildHarnessEnvVarReport(repoRoot string, diagnostics []checkDiagnostic) (harnessEnvVarReport, []checkDiagnostic) {
@@ -340,52 +359,6 @@ func appendDirectOSEnvDiagnostics(repoRoot string, diagnostics []checkDiagnostic
 			SuggestedAction: "Route environment access through internal/envpolicy, or move configuration to `.scenery.json`, a CLI flag, or a checked-in manifest.",
 		})
 	}
-	return diagnostics
-}
-
-// dotenvAllowedFiles only exclude dotenv files from builds, watches and
-// deployed sources; none reads one.
-var dotenvAllowedFiles = map[string]bool{
-	"internal/build/source.go":       true,
-	"internal/watchignore/inputs.go": true,
-}
-
-var dotenvSourcePattern = regexp.MustCompile(`"\.env(\.[A-Za-z0-9_.-]*)?"|godotenv|joho/|internal/envfile|LoadDotEnv|DotEnvFiles`)
-
-// appendDotenvReintroductionDiagnostics keeps application configuration out
-// of dotenv files: product Go code may not name, parse or load them.
-func appendDotenvReintroductionDiagnostics(repoRoot string, diagnostics []checkDiagnostic) []checkDiagnostic {
-	_ = filepath.WalkDir(repoRoot, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		rel, relErr := filepath.Rel(repoRoot, path)
-		if relErr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if entry.IsDir() {
-			if rel != "." && (architectureSkipDir(rel) || rel == "scripts" || rel == "testdata" || rel == "benchmarks") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(rel) != ".go" || strings.HasSuffix(rel, "_test.go") || dotenvAllowedFiles[rel] || isIgnoredHarnessLocalArtifact(rel) {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil || !dotenvSourcePattern.Match(data) {
-			return nil
-		}
-		diagnostics = append(diagnostics, checkDiagnostic{
-			Stage:           "contract drift checks",
-			Severity:        "error",
-			File:            filepath.ToSlash(path),
-			Message:         "production code names or loads a dotenv file: " + rel,
-			SuggestedAction: "Application configuration comes from `scenery config` and the runtime snapshot; declare a deployment-phase package input instead of reading a dotenv file.",
-		})
-		return nil
-	})
 	return diagnostics
 }
 

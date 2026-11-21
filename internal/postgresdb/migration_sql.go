@@ -27,7 +27,7 @@ func ValidateMigrationSQL(script string) error {
 		switch strings.ToUpper(words[0]) {
 		case "CREATE", "ALTER", "DROP", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "COMMENT", "GRANT", "REVOKE", "DO", "WITH", "SELECT":
 		default:
-			return fmt.Errorf("unsupported migration statement %q; Scenery owns transaction and session control", words[0])
+			return fmt.Errorf("unsupported migration statement %q; Scenery owns transaction and session control, so remove it from the file", words[0])
 		}
 	}
 	if count == 0 {

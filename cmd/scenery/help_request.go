@@ -118,11 +118,23 @@ func helpSubcommandsComplete(entry helpCommandEntry) bool {
 	return true
 }
 
+// commandMistakeHints answers the top-level words agents most often try that
+// Scenery does not have with the command they meant. Edit distance cannot
+// find these: the intended command is spelled differently.
+var commandMistakeHints = map[string]string{
+	"--version": "did you mean `scenery version`? Run `scenery help` for all commands.",
+	"-v":        "did you mean `scenery version`? Run `scenery help` for all commands.",
+	"status":    "run `scenery ps -o json` to inspect worktree/runtime status, or `scenery help ps` for its current grammar",
+	"deploy":    "Scenery has no deploy command; run `scenery build` to build the application, or `scenery help` for all commands",
+	"frontends": "frontends run inside `scenery up`; run `scenery ps -o json` for the running runtime and its URLs, or `scenery help up`",
+	"changes":   "did you mean `scenery validate changed`? Run `scenery help validate` for its grammar.",
+}
+
 // unknownWordHint tells what to do about an unknown word: the closest
 // candidates when some are close, and the help command that lists them all.
 func unknownWordHint(word string, candidates []string, help string) string {
-	if word == "status" && help == "scenery help" {
-		return "run `scenery ps -o json` to inspect worktree/runtime status, or `scenery help ps` for its current grammar"
+	if hint, ok := commandMistakeHints[word]; ok && help == "scenery help" {
+		return hint
 	}
 	if suggestion := didYouMean(word, candidates); suggestion != "" {
 		return suggestion + " Run `" + help + "` for all of them."

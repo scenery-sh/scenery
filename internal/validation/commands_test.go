@@ -25,7 +25,7 @@ func TestTypedCommandsPreserveOrderArgumentsAndFailFastEvidence(t *testing.T) {
 		t.Fatalf("steps=%+v", plan.Steps)
 	}
 	calls := 0
-	result := ExecutePlan(context.Background(), plan, func(_ context.Context, step PlanStep, stdout, _ io.Writer) error {
+	result := ExecutePlan(context.Background(), plan, 1, func(_ context.Context, step PlanStep, stdout, _ io.Writer) error {
 		calls++
 		if step.Command[0] == "go" {
 			_, _ = io.WriteString(stdout, "failed check")

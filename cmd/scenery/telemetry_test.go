@@ -11,6 +11,8 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/graph"
 	"scenery.sh/internal/rotatinglog"
 )
 
@@ -42,6 +44,15 @@ func TestTelemetryClassification(t *testing.T) {
 		{[]string{"up", "--detach"}, "up", "long_running"},
 		{[]string{"worker"}, "worker", "long_running"},
 		{[]string{"logs", "--follow", "--app-root", "/private/path"}, "logs", "long_running"},
+		{[]string{"system", "agent"}, "system agent", "long_running"},
+		{[]string{"system", "agent", "--supervised", "--router-http"}, "system agent", "long_running"},
+		{[]string{"system", "agent", "restart"}, "system agent", "oneshot"},
+		{[]string{"system", "agent", "install", "-o", "json"}, "system agent", "oneshot"},
+		{[]string{"system", "agent", "uninstall"}, "system agent", "oneshot"},
+		{[]string{"system", "agent", "--unknown-flag"}, "system agent", "oneshot"},
+		{[]string{"system", "edge", "privileged-helper", "run"}, "system edge", "long_running"},
+		{[]string{"system", "edge", "status"}, "system edge", "oneshot"},
+		{[]string{"system", "toolchain"}, "system toolchain", "oneshot"},
 	}
 	for _, test := range tests {
 		if got := telemetryCommand(test.args); got != test.wantCommand {
@@ -50,6 +61,46 @@ func TestTelemetryClassification(t *testing.T) {
 		if got := telemetryMode(test.args); got != test.wantMode {
 			t.Errorf("telemetryMode(%q) = %q, want %q", test.args, got, test.wantMode)
 		}
+	}
+}
+
+func TestTelemetryRecordsInvalidContractDiagnostic(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	warning := graph.Diagnostic{Code: "SCN1001", Severity: "warning", Message: "unused"}
+	parse := graph.Diagnostic{Code: "SCN2101", Severity: "error", Message: "unknown field"}
+	capability := graph.Diagnostic{Code: "SCN7001", Severity: "error", Message: "provider unavailable"}
+	tests := []struct {
+		name        string
+		args        []string
+		diagnostics []graph.Diagnostic
+		wantExit    int
+		wantCode    string
+		wantStdout  string
+		wantStderr  string
+	}{
+		{"human", []string{"check"}, []graph.Diagnostic{warning, parse}, 2, "SCN2101", "SCN2101: unknown field\n", "contract compilation failed\n"},
+		{"json", []string{"check", "-o", "json"}, []graph.Diagnostic{warning, parse}, 2, "SCN2101", `"code":"SCN2101"`, ""},
+		{"capability exit keeps first error", []string{"check", "-o", "json"}, []graph.Diagnostic{parse, capability}, 4, "SCN2101", `"code":"SCN7001"`, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := &compiler.Result{ContractStatus: "invalid", Diagnostics: test.diagnostics}
+			output := "human"
+			if len(test.args) > 1 {
+				output = "json"
+			}
+			var record cliTelemetryRecord
+			var stdout, stderr strings.Builder
+			exit := executeCLIWith(test.args, &stdout, &stderr, time.Now(), func([]string, *cliTelemetryInvocation) error {
+				return writeContractResult(&stdout, output, false, result, map[string]any{})
+			}, func(got cliTelemetryRecord) { record = got })
+			if exit != test.wantExit || record.ExitCode != test.wantExit || record.DiagnosticCode != test.wantCode {
+				t.Fatalf("exit %d, telemetry exit %d and diagnostic %q; want %d and %q", exit, record.ExitCode, record.DiagnosticCode, test.wantExit, test.wantCode)
+			}
+			if !strings.Contains(stdout.String(), test.wantStdout) || strings.Count(stdout.String(), "\n") != 1 || stderr.String() != test.wantStderr {
+				t.Fatalf("stdout = %q, stderr = %q; want %q once and %q", stdout.String(), stderr.String(), test.wantStdout, test.wantStderr)
+			}
+		})
 	}
 }
 

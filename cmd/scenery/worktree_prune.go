@@ -32,7 +32,7 @@ func runWorktreePrune(ctx context.Context, stdout io.Writer, args []string) erro
 		opts.DB, opts.State = true, true
 	}
 	if opts.DB && (opts.AppRoot == "" || !filepath.IsAbs(opts.AppRoot)) {
-		return fmt.Errorf("database prune requires one explicit absolute --app-root; its scope is the entire retained worktree cluster, container and volume")
+		return usageErrorf("database prune requires one explicit absolute --app-root; its scope is the entire retained worktree cluster, container and volume")
 	}
 	if opts.DB {
 		if err := requireManagedDatabaseSelection(opts.AppRoot); err != nil {
