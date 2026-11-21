@@ -94,10 +94,12 @@ func (e *stepCanceledError) Unwrap() []error { return []error{context.Canceled, 
 
 // ExecutePlan runs a plan, refusing to run anything when the plan carries
 // diagnostics. Builtin steps (scenery check) run first, serially, as a fast
-// gate; the remaining steps then run concurrently on up to parallelism
-// workers, so run and writeArtifacts must be safe for concurrent use. The
-// first failure cancels in-flight steps and stops scheduling new ones.
-// Result steps, artifacts and next actions follow plan order.
+// gate; the remaining steps are grouped by profile so steps within one profile
+// keep their declared order and fail fast, while distinct profiles run
+// concurrently on up to parallelism workers, so run and writeArtifacts must be
+// safe for concurrent use. The first failure cancels in-flight steps and stops
+// scheduling new ones. Result steps, artifacts and next actions follow plan
+// order.
 func ExecutePlan(ctx context.Context, plan ResolvedPlan, parallelism int, run StepRunner, writeArtifacts ArtifactSink) Result {
 	result := Result{
 		OK:          len(plan.Diagnostics) == 0,
@@ -169,28 +171,41 @@ func executeSteps(ctx context.Context, plan ResolvedPlan, parallelism int, run S
 		results[i] = &res
 		return res.OK
 	}
-	var independent []int
+	var groups [][]int
+	groupByProfile := map[string]int{}
 	for i, step := range plan.Steps {
-		if step.Kind != "builtin" {
-			independent = append(independent, i)
-		} else if !execute(i) {
-			return results
+		if step.Kind == "builtin" {
+			if !execute(i) {
+				return results
+			}
+			continue
 		}
+		idx, ok := groupByProfile[step.Profile]
+		if !ok {
+			idx = len(groups)
+			groupByProfile[step.Profile] = idx
+			groups = append(groups, nil)
+		}
+		groups[idx] = append(groups[idx], i)
 	}
-	queue := make(chan int)
+	queue := make(chan []int)
 	var wg sync.WaitGroup
-	for range min(parallelism, len(independent)) {
+	for range min(parallelism, len(groups)) {
 		wg.Go(func() {
-			for i := range queue {
-				execute(i)
+			for group := range queue {
+				for _, i := range group {
+					if !execute(i) {
+						break
+					}
+				}
 			}
 		})
 	}
-	for _, i := range independent {
+	for _, group := range groups {
 		if runCtx.Err() != nil {
 			break
 		}
-		queue <- i
+		queue <- group
 	}
 	close(queue)
 	wg.Wait()

@@ -15,8 +15,8 @@ func executeTestPlan(steps ...PlanStep) ResolvedPlan {
 	return ResolvedPlan{Profile: "quick", Steps: steps}
 }
 
-func commandStep(name string) PlanStep {
-	return PlanStep{ID: "quick/" + name, Name: name, Kind: "command", Profile: "quick"}
+func commandStep(profile, name string) PlanStep {
+	return PlanStep{ID: profile + "/" + name, Name: name, Kind: "command", Profile: profile}
 }
 
 // waitOrFail bounds synchronization waits so a serial regression fails
@@ -30,10 +30,10 @@ func waitOrFail(ch <-chan struct{}) error {
 	}
 }
 
-func TestExecutePlanGatesBuiltinThenRunsIndependentStepsConcurrentlyInPlanOrder(t *testing.T) {
+func TestExecutePlanGatesBuiltinThenRunsIndependentProfilesConcurrentlyInPlanOrder(t *testing.T) {
 	t.Parallel()
 	names := []string{"a", "b", "c"}
-	plan := executeTestPlan(commandStep("a"), PlanStep{ID: "quick/check", Name: "check", Kind: "builtin"}, commandStep("b"), commandStep("c"))
+	plan := executeTestPlan(commandStep("a", "a"), PlanStep{ID: "quick/check", Name: "check", Kind: "builtin"}, commandStep("b", "b"), commandStep("c", "c"))
 	finished := map[string]chan struct{}{}
 	for _, name := range names {
 		finished[name] = make(chan struct{})
@@ -90,7 +90,7 @@ func TestExecutePlanGatesBuiltinThenRunsIndependentStepsConcurrentlyInPlanOrder(
 
 func TestExecutePlanBuiltinGateFailureSkipsIndependentSteps(t *testing.T) {
 	t.Parallel()
-	plan := executeTestPlan(commandStep("a"), PlanStep{ID: "quick/check", Name: "check", Kind: "builtin"})
+	plan := executeTestPlan(commandStep("a", "a"), PlanStep{ID: "quick/check", Name: "check", Kind: "builtin"})
 	var ran []string
 	result := ExecutePlan(context.Background(), plan, 4, func(_ context.Context, step PlanStep, _, _ io.Writer) error {
 		ran = append(ran, step.Name)
@@ -104,9 +104,25 @@ func TestExecutePlanBuiltinGateFailureSkipsIndependentSteps(t *testing.T) {
 	}
 }
 
+func TestExecutePlanRunsStepsWithinOneProfileSequentiallyAndFailsFast(t *testing.T) {
+	t.Parallel()
+	plan := executeTestPlan(commandStep("failure", "first"), commandStep("failure", "second"))
+	var ran []string
+	result := ExecutePlan(context.Background(), plan, 4, func(_ context.Context, step PlanStep, _, _ io.Writer) error {
+		ran = append(ran, step.Name)
+		if step.Name == "first" {
+			return errors.New("expected failure")
+		}
+		return nil
+	}, nil)
+	if result.OK || !slices.Equal(ran, []string{"first"}) || len(result.Steps) != 1 {
+		t.Fatalf("ran=%v result=%+v", ran, result)
+	}
+}
+
 func TestExecutePlanFailureCancelsInFlightStepsAndStopsScheduling(t *testing.T) {
 	t.Parallel()
-	plan := executeTestPlan(commandStep("a"), commandStep("b"), commandStep("c"), commandStep("d"))
+	plan := executeTestPlan(commandStep("a", "a"), commandStep("b", "b"), commandStep("c", "c"), commandStep("d", "d"))
 	bStarted := make(chan struct{})
 	var mu sync.Mutex
 	var ran []string
