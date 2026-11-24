@@ -5,63 +5,35 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
-	"net/http"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"scenery.sh/internal/devtelemetry"
 )
 
 type workerWatcher struct {
-	directory, capabilities, token string
-	dev                            *workerDevelopment
-	devControl                     *workerDevControl
-	app                            *devtelemetry.App
-	faults                         map[*workerProcess]struct{}
-	exits                          chan struct{}
-	client                         *http.Client
-	bundle                         workerBundle
-	active                         map[string]*workerProcess
-	all                            []*workerProcess
-	generation, sequence           uint64
-	retirements                    sync.WaitGroup
-	generations                    workerGenerations
+	dev        *workerDevelopment
+	devControl *workerDevControl
+	app        *devtelemetry.App
+	supervisor *workerSupervisor
+	bundle     workerBundle
+	status     workerSupervisorStatus
+	lastFault  uint64
 }
 
-func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) error {
-	defer func() {
-		watch.retirements.Wait()
-		stopWorkers(watch.all)
-	}()
-	watch.generations.add(watch.generation, watch.active)
-	watch.exits = make(chan struct{}, 1)
-	watch.faults = make(map[*workerProcess]struct{})
-	for _, process := range watch.active {
-		watch.observeExit(ctx, process)
-	}
-	var events <-chan fsnotify.Event
-	var watchErrors <-chan error
-	var reconciliation <-chan time.Time
-	var seen workerInputs
-	if watch.dev != nil {
-		events, watchErrors = watch.dev.watch.fs.Events, watch.dev.watch.fs.Errors
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		reconciliation, seen = ticker.C, watch.dev.applied
-	}
+func (watch *workerWatcher) run(ctx context.Context, hostDone, supervisorDone <-chan error) error {
+	events, watchErrors := watch.dev.watch.fs.Events, watch.dev.watch.fs.Errors
+	reconciliation := time.NewTicker(5 * time.Second)
+	defer reconciliation.Stop()
+	monitor := time.NewTicker(500 * time.Millisecond)
+	defer monitor.Stop()
+	seen := watch.dev.applied
 	debounce := time.NewTimer(time.Hour)
 	defer debounce.Stop()
 	debounce.Stop()
-	retry := time.NewTimer(time.Hour)
-	defer retry.Stop()
-	retry.Stop()
 	pending := make(map[string]struct{})
 	var detected time.Time
 	var reconcile, retryCandidate bool
@@ -75,6 +47,8 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 		select {
 		case err := <-hostDone:
 			return err
+		case err := <-supervisorDone:
+			return fmt.Errorf("worker supervisor stopped: %w", err)
 		case <-ctx.Done():
 			return <-hostDone
 		case event, ok := <-events:
@@ -92,7 +66,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 			}
 			reconcile = true
 			schedule()
-		case <-reconciliation:
+		case <-reconciliation.C:
 			reconcile = true
 			schedule()
 		case <-debounce.C:
@@ -117,53 +91,42 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 					schedule()
 				}
 			}
-		case <-watch.exits:
-			watch.restartStopped(ctx, retry)
-		case <-retry.C:
-			watch.restartStopped(ctx, retry)
+		case <-monitor.C:
+			watch.observeSupervisor(ctx)
 		}
 	}
 }
 
-func (watch *workerWatcher) observeExit(ctx context.Context, process *workerProcess) {
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-process.done:
-			select {
-			case watch.exits <- struct{}{}:
-			default:
-			}
-		}
-	}()
+func (watch *workerWatcher) observeSupervisor(ctx context.Context) {
+	probe, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	status, err := watch.supervisor.status(probe)
+	if err != nil {
+		return
+	}
+	watch.recordFaults(status)
+	if !status.matches(watch.bundle) {
+		return
+	}
+	if status.Current != watch.status.Current {
+		watch.devControl.publish(watch.dev.applied, watch.bundle, status.Current, nil)
+	}
+	watch.status = status
 }
 
-func (watch *workerWatcher) restartStopped(ctx context.Context, retry *time.Timer) {
-	if watch.noteStoppedWorkers() {
-		if err := watch.replace(ctx, watch.bundle, nil); err != nil {
-			fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
-			retry.Reset(time.Second)
-		} else if watch.devControl != nil {
-			watch.devControl.publish(watch.dev.applied, watch.bundle, watch.generation, nil)
+func (watch *workerWatcher) recordFaults(status workerSupervisorStatus) {
+	for _, fault := range status.Faults {
+		if fault.Sequence <= watch.lastFault {
+			continue
 		}
-	}
-}
-
-func (watch *workerWatcher) noteStoppedWorkers() bool {
-	stopped := false
-	for _, process := range watch.active {
-		select {
-		case <-process.done:
-			stopped = true
-			if _, reported := watch.faults[process]; watch.app != nil && !reported {
-				watch.faults[process] = struct{}{}
-				module, _, _ := strings.Cut(process.program.Service, "/service/")
-				recordDevWorkerFault(watch.app, watch.generation, module, process.program.Runtime, process.cmd.ProcessState)
-			}
-		default:
+		watch.lastFault = fault.Sequence
+		module, _, _ := strings.Cut(fault.Service, "/service/")
+		exitCode := -1
+		if fault.ExitCode != nil {
+			exitCode = *fault.ExitCode
 		}
+		recordDevWorkerExit(watch.app, fault.Generation, module, fault.Runtime, exitCode, fault.Signal)
 	}
-	return stopped
 }
 
 var errWorkerInputsChanged = errors.New("application changed while workers were compiling")
@@ -222,14 +185,14 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 			return
 		}
 		timing.TotalMS = workerMilliseconds(time.Since(detected))
-		timing.Generation = watch.generation
+		timing.Generation = watch.status.Current
 		if returnErr != nil {
 			g := agentGraph{Result: watch.dev.compiled}
 			modules, _ := g.modules()
 			failure := describeDevBuildFailure(returnErr, watch.dev.watch.root, modules, paths)
 			watch.devControl.failure(current, failure, &timing)
 		} else {
-			watch.devControl.publish(current, watch.bundle, watch.generation, &timing)
+			watch.devControl.publish(current, watch.bundle, watch.status.Current, &timing)
 		}
 		trigger := "body_only"
 		if edit.declarations || edit.cargoGraph {
@@ -257,9 +220,15 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	if err != nil {
 		return err
 	}
+	readyStarted := time.Now()
+	status, err := watch.supervisor.replace(ctx, bundle, func() error { return candidate.verify(current) })
+	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
+	if err != nil {
+		return err
+	}
 	for _, program := range bundle.Programs {
 		module, _, _ := strings.Cut(program.Service, "/service/")
-		if workerStillMatches(watch.active[program.Process], program) {
+		if previous, next := watch.status.Processes[program.Process], status.Processes[program.Process]; previous.PID == next.PID && previous.Digest == next.Digest {
 			timing.Skipped++
 			timing.SkippedModules = append(timing.SkippedModules, module)
 		} else {
@@ -270,181 +239,9 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	slices.Sort(timing.Rebuilt)
 	slices.Sort(timing.RebuiltModules)
 	slices.Sort(timing.SkippedModules)
-	readyStarted := time.Now()
-	err = watch.replace(ctx, bundle, func() error { return candidate.verify(current) })
-	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
-	if err != nil {
-		return err
-	}
+	watch.recordFaults(status)
+	watch.bundle, watch.status = bundle, status
 	candidate.applied = current
 	*watch.dev = candidate
 	return nil
-}
-
-func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, verify func() error) error {
-	if ctx.Err() == nil {
-		watch.noteStoppedWorkers()
-	}
-	next := make(map[string]*workerProcess, len(bundle.Programs))
-	watch.sequence++
-	started := make([]*workerProcess, len(bundle.Programs))
-	errs := make([]error, len(bundle.Programs))
-	var group sync.WaitGroup
-	for index, program := range bundle.Programs {
-		previous := watch.active[program.Process]
-		if workerStillMatches(previous, program) {
-			next[program.Process] = previous
-			continue
-		}
-		id := fmt.Sprintf("%x-%x", watch.sequence, index)
-		group.Go(func() {
-			started[index], errs[index] = startBundleWorker(ctx, watch.directory, watch.capabilities, id, program)
-		})
-	}
-	group.Wait()
-	started = slices.DeleteFunc(started, func(process *workerProcess) bool { return process == nil })
-	if err := errors.Join(errs...); err != nil {
-		stopWorkers(started)
-		return err
-	}
-	if verify != nil {
-		if err := verify(); err != nil {
-			stopWorkers(started)
-			return err
-		}
-	}
-	if len(started) == 0 && len(next) == len(watch.active) {
-		watch.bundle = bundle
-		return nil
-	}
-	for _, process := range started {
-		next[process.program.Process] = process
-	}
-	watch.all = append(watch.all, started...)
-	if err := publishWorkerGeneration(ctx, watch.client, watch.token, bundle, next, watch.sequence); err != nil {
-		current, statusErr := watch.currentGeneration(ctx)
-		if statusErr != nil || current != watch.sequence {
-			if statusErr == nil && current < watch.sequence {
-				stopWorkers(started)
-			}
-			return errors.Join(err, statusErr)
-		}
-	}
-	for name, process := range watch.active {
-		if next[name] != process {
-			delete(watch.faults, process)
-		}
-	}
-	watch.generations.add(watch.sequence, next)
-	previous := watch.generation
-	watch.generation, watch.active, watch.bundle = watch.sequence, next, bundle
-	for _, process := range started {
-		watch.observeExit(ctx, process)
-	}
-	watch.retirements.Add(1)
-	go func() {
-		defer watch.retirements.Done()
-		watch.retire(ctx, previous)
-	}()
-	fmt.Fprintf(os.Stderr, "application generation %d ready (%d worker replacements)\n", watch.generation, len(started))
-	return nil
-}
-
-func workerStillMatches(process *workerProcess, program workerProgram) bool {
-	if process == nil || process.program.Digest != program.Digest || process.program.Identity != program.Identity || process.program.Runtime != program.Runtime {
-		return false
-	}
-	select {
-	case <-process.done:
-		return false
-	default:
-		return true
-	}
-}
-
-func (watch *workerWatcher) currentGeneration(ctx context.Context) (uint64, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://host/__scenery/process/v1/generations", nil)
-	if err != nil {
-		return 0, err
-	}
-	request.Header.Set("Authorization", "Bearer "+watch.token)
-	response, err := watch.client.Do(request)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = response.Body.Close() }()
-	var status struct{ Current uint64 }
-	if response.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("host did not confirm the generation")
-	}
-	err = json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&status)
-	return status.Current, err
-}
-
-func (watch *workerWatcher) retire(ctx context.Context, generation uint64) {
-	path := "/__scenery/process/v1/generations/" + strconv.FormatUint(generation, 10)
-	drain, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if err := workerControlRequest(drain, watch.client, watch.token, http.MethodDelete, path, nil, http.StatusNoContent); err == nil {
-			stopWorkers(watch.generations.remove(generation))
-			return
-		}
-		select {
-		case <-drain.Done():
-			force, cancelForce := context.WithTimeout(ctx, time.Second)
-			defer cancelForce()
-			if err := workerControlRequest(force, watch.client, watch.token, http.MethodDelete, path+"?force=true", nil, http.StatusNoContent); err == nil {
-				stopWorkers(watch.generations.remove(generation))
-			}
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-// workerGenerations owns the references to processes in published generations,
-// including generations still draining on the Host.
-type workerGenerations struct {
-	mu        sync.Mutex
-	instances map[uint64]map[string]*workerProcess
-	refs      map[*workerProcess]int
-}
-
-func (g *workerGenerations) add(number uint64, processes map[string]*workerProcess) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.instances == nil {
-		g.instances = make(map[uint64]map[string]*workerProcess)
-		g.refs = make(map[*workerProcess]int)
-	}
-	g.instances[number] = processes
-	for _, process := range processes {
-		g.refs[process]++
-	}
-}
-
-func (g *workerGenerations) remove(number uint64) []*workerProcess {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	var stopped []*workerProcess
-	for _, process := range g.instances[number] {
-		g.refs[process]--
-		if g.refs[process] == 0 {
-			delete(g.refs, process)
-			stopped = append(stopped, process)
-		}
-	}
-	delete(g.instances, number)
-	return stopped
-}
-
-func stopWorkers(processes []*workerProcess) {
-	for _, process := range processes {
-		process.stop()
-	}
 }

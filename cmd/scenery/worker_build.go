@@ -293,7 +293,7 @@ func projectWorkerField(resource graph.Resource, field map[string]any) contract.
 	}
 }
 
-func writeWorkerBundle(bundle workerBundle, destination string) error {
+func writeWorkerBundle(ctx context.Context, bundle workerBundle, destination string) error {
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
@@ -329,7 +329,14 @@ func writeWorkerBundle(bundle workerBundle, destination string) error {
 	if err != nil {
 		return err
 	}
-	if err := copyWorkerExecutable(executable, filepath.Join(staging, "scenery-host")); err != nil {
+	if err := copyWorkerExecutable(executable, filepath.Join(staging, "worker-gateway")); err != nil {
+		return err
+	}
+	host, err := rustbuild.Host(ctx)
+	if err != nil {
+		return err
+	}
+	if err := copyWorkerExecutable(host, filepath.Join(staging, "scenery-host")); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(bundle, "", "  ")

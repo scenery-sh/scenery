@@ -13,13 +13,20 @@ independent runtime config in `.scenery.json`.
   → single local server + CLI/inspect/harness/worktree tooling
 ```
 
-For worker bundles, the Host projects bindings from the compiled manifest.
+For worker bundles, the Rust `scenery-host` supervisor owns worker process
+groups, readiness, generation replacement, crash recovery, and shutdown.
+The Go gateway projects bindings from the compiled manifest and serves
+ingress, capabilities, and durable execution. In development the CLI watches
+inputs and submits verified candidates to the supervisor. A production bundle
+contains both executables and starts through `scenery-host`.
+
 Go, Rust, and JavaScript/TypeScript workers exchange scoped requests over
-[Worker ABI v1](docs/spec/WORKER-ABI.md). Generated Go adapters connect the
-envelope to typed operation handlers and use native PostgreSQL connections.
-The JS/TS adapter bundles each service with its Bun runtime and reuses the
-TypeScript client wire codec. Vite can run behind the development Host or supply static assets to the
-production bundle.
+[Worker ABI v1](docs/spec/WORKER-ABI.md). The Rust supervisor and SDK share
+the `scenery-wire` crate. Generated Go adapters connect the envelope to
+typed operation handlers and use native PostgreSQL connections. The JS/TS
+adapter bundles each service with its Bun runtime and reuses the TypeScript
+client wire codec. Vite can run behind the development gateway or supply
+static assets to the production bundle.
 
 ## Hard Invariants
 

@@ -30,7 +30,7 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
-	if filepath.Base(os.Args[0]) == "scenery-host" {
+	if filepath.Base(os.Args[0]) == "worker-gateway" {
 		if err := runWorkerBundleExecutable(os.Args[1:]); err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -439,7 +439,7 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if telemetry != nil {
 				onReady = telemetry.startupReady
 			}
-			return runWorkerBundle(bundle, workerListen(opts), frontend, onReady, workerDev)
+			return runWorkerBundle(bundle, workerListen(opts), frontend, onReady, workerDev, "")
 		}
 	}
 	warnDevEscapeHatches(opts)

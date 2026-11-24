@@ -52,12 +52,23 @@ func recordDevRebuild(app *devtelemetry.App, timing workerRebuildTiming, trigger
 }
 
 func recordDevWorkerFault(app *devtelemetry.App, generation uint64, module, runtime string, status *os.ProcessState) {
-	if app == nil || status == nil || generation == 0 || module == "" {
+	if status == nil {
 		return
 	}
-	fault := &devtelemetry.WorkerFault{Module: module, Runtime: runtime, ExitCode: status.ExitCode()}
+	var signal int
 	if value, ok := status.Sys().(syscall.WaitStatus); ok && value.Signaled() {
-		fault.Signal = value.Signal().String()
+		signal = int(value.Signal())
+	}
+	recordDevWorkerExit(app, generation, module, runtime, status.ExitCode(), signal)
+}
+
+func recordDevWorkerExit(app *devtelemetry.App, generation uint64, module, runtime string, exitCode, signal int) {
+	if app == nil || generation == 0 || module == "" {
+		return
+	}
+	fault := &devtelemetry.WorkerFault{Module: module, Runtime: runtime, ExitCode: exitCode}
+	if signal != 0 {
+		fault.Signal = syscall.Signal(signal).String()
 	}
 	appendTelemetryRecord(devtelemetry.Event{At: time.Now().UTC(), Kind: "worker_fault", App: app, Generation: generation, WorkerFault: fault})
 }

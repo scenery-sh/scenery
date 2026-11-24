@@ -95,7 +95,7 @@ wire_float!(Float64, f64, 17);
 /// shortest digits that parse back to `value` (of the two candidates at that
 /// length the nearer one, ties to even), in exponent form when the decimal
 /// exponent is below -4 or at least 6. NaN, infinities and -0 have no form.
-fn canonical_float<F>(value: F, max_digits: usize) -> Option<String>
+pub fn canonical_float<F>(value: F, max_digits: usize) -> Option<String>
 where
     F: Copy + PartialEq + LowerExp + FromStr + Into<f64>,
 {

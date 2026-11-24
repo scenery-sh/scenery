@@ -100,7 +100,7 @@ func buildCommand(out io.Writer, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := writeWorkerBundle(bundle, outputPath); err != nil {
+		if err := writeWorkerBundle(context.Background(), bundle, outputPath); err != nil {
 			return err
 		}
 		if jsonOutput {

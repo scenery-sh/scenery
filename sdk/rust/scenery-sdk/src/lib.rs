@@ -1,6 +1,5 @@
 //! The service-side transport of Worker ABI v1.
 
-use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::future::{Future, poll_fn};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -16,7 +15,12 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use serde::{Deserialize, Serialize};
+use scenery_wire::{
+    BindingCallRef, BindingReply, CAPABILITY_PREFIX, CONTRACT_HEADER, ConnectionTokenReply,
+    ConnectionTokenRequest, IMPLEMENTATION_HEADER, INVOKE_PATH, InvocationOutcome, MAX_METADATA,
+    READY_PATH, SCOPE_HEADER, STREAM_MEDIA_TYPE, STREAM_SIZE_HEADER,
+};
+use serde::Serialize;
 use serde_json::value::RawValue;
 use tokio::io::AsyncRead;
 use tokio::net::{UnixListener, UnixStream};
@@ -25,81 +29,19 @@ use tokio::sync::{Mutex, watch};
 use tokio::task::JoinSet;
 use tokio_util::io::ReaderStream;
 
-mod scalars;
 mod storage;
-pub use scalars::*;
 pub use storage::{StorageRead, StorageWriteOptions};
 
-pub use serde;
-pub use serde_json;
+pub use scenery_wire::{
+    BindingFailure, ConfigSnapshot, ContractBytes, Decimal, DispatchReceipt, Duration, Error,
+    Float32, Float64, Identity, Int64, Invocation, InvocationContext, Launch, Result,
+    TelemetryRecord, Timestamp, UInt64, Unit, decode_outcome, encode_outcome, present, put_field,
+    record_object, serde, serde_json, take_field, take_optional_field, unknown_fields,
+};
 pub use tokio::time::sleep;
 
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
-pub type Result<T> = std::result::Result<T, Error>;
 pub type HandlerFuture = Pin<Box<dyn Future<Output = Result<Output>> + Send>>;
 type Body = UnsyncBoxBody<Bytes, Error>;
-const MAX_METADATA: usize = 32 << 20;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Identity {
-    pub abi: u32,
-    pub service: String,
-    pub contract_revision: String,
-    pub implementation_revision: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Launch {
-    pub worker_socket: PathBuf,
-    pub host_socket: PathBuf,
-    pub token: String,
-    pub identity: Identity,
-}
-
-impl Launch {
-    pub fn from_args() -> Result<Self> {
-        let mut args = std::env::args_os().skip(1);
-        let arg = args.next().ok_or("expected a launch file")?;
-        if args.next().is_some() {
-            return Err("expected one launch file".into());
-        }
-        let launch: Self = serde_json::from_slice(&std::fs::read(arg)?)?;
-        if launch.identity.abi != 1 || launch.token.len() < 32 {
-            return Err("invalid worker identity or token".into());
-        }
-        Ok(launch)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InvocationContext {
-    pub invocation_id: String,
-    pub scope: String,
-    pub generation: u64,
-    pub contract_revision: String,
-    pub principal: Option<String>,
-    pub tenant_id: Option<String>,
-    pub traceparent: Option<String>,
-    pub deadline: Option<String>,
-    pub locale: Option<String>,
-    pub execution_id: Option<String>,
-    pub metadata: Option<Box<RawValue>>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Invocation {
-    pub service: String,
-    pub operation: String,
-    pub binding: Option<String>,
-    pub mode: String,
-    pub context: InvocationContext,
-    pub input: Box<RawValue>,
-}
-
 pub struct Stream {
     pub reader: Pin<Box<dyn AsyncRead + Send>>,
     pub size: u64,
@@ -126,44 +68,6 @@ pub struct Context {
     canceled: watch::Receiver<()>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct BindingFailure {
-    pub code: Option<String>,
-    pub message: String,
-    pub meta: Option<serde_json::Value>,
-}
-
-impl std::fmt::Display for BindingFailure {
-    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        output.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for BindingFailure {}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct DispatchReceipt {
-    pub durable_identity: String,
-    pub execution_id: String,
-    pub accepted_revision: String,
-}
-
-#[derive(Deserialize)]
-pub struct ConfigSnapshot {
-    pub revision: String,
-    pub values: BTreeMap<String, Box<RawValue>>,
-    pub secrets: BTreeMap<String, String>,
-}
-
-#[derive(Serialize)]
-pub struct TelemetryRecord<'a> {
-    pub kind: &'a str,
-    pub name: &'a str,
-    pub message: &'a str,
-    pub elapsed_ns: u64,
-    pub attributes: BTreeMap<String, serde_json::Value>,
-}
-
 impl Context {
     pub async fn canceled(&mut self) {
         let _ = self.canceled.changed().await;
@@ -176,14 +80,11 @@ impl Context {
     }
 
     pub async fn connection_token(&self, provider: &str, scopes: &[&str]) -> Result<String> {
-        #[derive(Deserialize)]
-        struct Reply {
-            token: String,
-        }
-
-        let input =
-            serde_json::to_vec(&serde_json::json!({ "provider": provider, "scopes": scopes }))?;
-        let reply: Reply =
+        let input = serde_json::to_vec(&ConnectionTokenRequest {
+            provider,
+            scopes: scopes.to_vec(),
+        })?;
+        let reply: ConnectionTokenReply =
             serde_json::from_slice(&self.capability("connections/token", input).await?)?;
         Ok(reply.token)
     }
@@ -217,20 +118,10 @@ impl Context {
         client: &str,
         input: &T,
     ) -> Result<Box<RawValue>> {
-        #[derive(Serialize)]
-        struct Call<'a, T: ?Sized> {
-            client: &'a str,
-            input: &'a T,
-        }
-        #[derive(Deserialize)]
-        struct Reply {
-            output: Option<Box<RawValue>>,
-            error: Option<BindingFailure>,
-        }
         let raw = self
-            .capability(path, serde_json::to_vec(&Call { client, input })?)
+            .capability(path, serde_json::to_vec(&BindingCallRef { client, input })?)
             .await?;
-        let reply: Reply = serde_json::from_slice(&raw)?;
+        let reply: BindingReply = serde_json::from_slice(&raw)?;
         match (reply.output, reply.error) {
             (Some(output), None) => Ok(output),
             (None, Some(error)) => Err(error.into()),
@@ -249,9 +140,9 @@ impl Context {
     fn worker_request(&self, method: Method, path: &str, body: Body) -> Result<Request<Body>> {
         Ok(Request::builder()
             .method(method)
-            .uri(format!("http://host/host/v1/{path}"))
+            .uri(format!("http://host{CAPABILITY_PREFIX}{path}"))
             .header(AUTHORIZATION, format!("Bearer {}", self.host.token))
-            .header("X-Worker-Scope", &self.invocation.scope)
+            .header(SCOPE_HEADER, &self.invocation.scope)
             .body(body)?)
     }
 
@@ -402,24 +293,22 @@ async fn handle(
         return Ok(fault(StatusCode::UNAUTHORIZED));
     }
     let mut response = match (request.method(), request.uri().path()) {
-        (&Method::GET, "/worker/v1/ready") => match serde_json::to_vec(&*identity) {
+        (&Method::GET, READY_PATH) => match serde_json::to_vec(&*identity) {
             Ok(body) => json(body),
             Err(_) => fault(StatusCode::INTERNAL_SERVER_ERROR),
         },
-        (&Method::POST, "/worker/v1/invoke") => {
-            match invoke(request, &identity, host, handler).await {
-                Ok(response) => response,
-                Err(status) => fault(status),
-            }
-        }
+        (&Method::POST, INVOKE_PATH) => match invoke(request, &identity, host, handler).await {
+            Ok(response) => response,
+            Err(status) => fault(status),
+        },
         _ => fault(StatusCode::NOT_FOUND),
     };
     let headers = response.headers_mut();
     if let Ok(value) = identity.contract_revision.parse() {
-        headers.insert("X-Worker-Contract", value);
+        headers.insert(CONTRACT_HEADER, value);
     }
     if let Ok(value) = identity.implementation_revision.parse() {
-        headers.insert("X-Worker-Implementation", value);
+        headers.insert(IMPLEMENTATION_HEADER, value);
     }
     Ok(response)
 }
@@ -461,11 +350,7 @@ async fn invoke(
         },
     )
     .await?;
-    #[derive(Serialize)]
-    struct ResponseMetadata {
-        outcome: Box<RawValue>,
-    }
-    let metadata = serde_json::to_vec(&ResponseMetadata {
+    let metadata = serde_json::to_vec(&InvocationOutcome {
         outcome: output.outcome,
     })
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -487,12 +372,10 @@ async fn invoke(
         let mut response = Response::new(body);
         response.headers_mut().insert(
             CONTENT_TYPE,
-            "application/vnd.worker.stream"
-                .parse()
-                .expect("static media type"),
+            STREAM_MEDIA_TYPE.parse().expect("static media type"),
         );
         response.headers_mut().insert(
-            "X-Worker-Stream-Size",
+            STREAM_SIZE_HEADER,
             size.to_string().parse().expect("decimal size"),
         );
         Ok(response)
@@ -544,55 +427,10 @@ impl futures_core::Stream for FramedStream {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Unit {}
-
-pub fn encode_outcome(value: &impl Serialize, kind: &str, name: &str) -> Result<Box<RawValue>> {
-    #[derive(Serialize)]
-    struct Envelope<'a, T> {
-        kind: &'a str,
-        name: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        value: Option<&'a T>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        problem: Option<&'a T>,
-    }
-    let (value, problem) = match kind {
-        "result" => (Some(value), None),
-        "error" => (None, Some(value)),
-        _ => return Err("invalid outcome kind".into()),
-    };
-    Ok(serde_json::value::to_raw_value(&Envelope {
-        kind,
-        name,
-        value,
-        problem,
-    })?)
-}
-
-pub fn decode_outcome(raw: &RawValue) -> Result<(String, String, Box<RawValue>)> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Envelope {
-        kind: String,
-        name: String,
-        #[serde(default, deserialize_with = "present")]
-        value: Option<Box<RawValue>>,
-        #[serde(default, deserialize_with = "present")]
-        problem: Option<Box<RawValue>>,
-    }
-    let envelope: Envelope = serde_json::from_str(raw.get())?;
-    let payload = match (envelope.kind.as_str(), envelope.value, envelope.problem) {
-        ("result", Some(value), None) | ("error", None, Some(value)) => value,
-        _ => return Err("invalid outcome envelope".into()),
-    };
-    Ok((envelope.kind, envelope.name, payload))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::time::Duration;
     use tokio::sync::{Notify, mpsc};
 

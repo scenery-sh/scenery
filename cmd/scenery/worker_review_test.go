@@ -1,28 +1,11 @@
 package main
 
 import (
-	"slices"
 	"testing"
 
 	"scenery.sh/internal/graph"
 	workerruntime "scenery.sh/runtime"
 )
-
-func TestWorkerGenerationsRetainSharedDrainingWorker(t *testing.T) {
-	a1, a2 := new(workerProcess), new(workerProcess)
-	b1, b2 := new(workerProcess), new(workerProcess)
-
-	var generations workerGenerations
-	generations.add(1, map[string]*workerProcess{"a": a1, "b": b1})
-	generations.add(2, map[string]*workerProcess{"a": a2, "b": b1})
-	generations.add(3, map[string]*workerProcess{"a": a2, "b": b2})
-	if stopped := generations.remove(2); len(stopped) != 0 {
-		t.Fatalf("retiring generation 2 would stop shared workers: %v", stopped)
-	}
-	if stopped := generations.remove(1); len(stopped) != 2 || !slices.Contains(stopped, a1) || !slices.Contains(stopped, b1) {
-		t.Fatalf("retiring generation 1 should stop A1 and B1: %v", stopped)
-	}
-}
 
 func TestWorkerFieldDefaultsUseDeclaredWireTypes(t *testing.T) {
 	integer := map[string]any{"$scalar": "int", "value": "1"}

@@ -8,6 +8,14 @@ request carries the token in `Authorization`. The Host authenticates instance
 identity before consulting any application data. Worker protocol paths and
 headers stay on these listeners.
 
+The Rust supervisor starts workers in separate process groups. It verifies
+readiness for an entire candidate before asking the gateway to publish it
+as the next generation. In development the CLI supplies a launch plan and
+validates the source snapshot between preparation and publication. A rejected
+candidate leaves the serving generation active. The gateway retains admitted
+work through retirement, while the supervisor owns worker lifetimes and
+restarts exited workers with fresh sockets and tokens.
+
 ## Host to worker
 
 - `GET /worker/v1/ready` returns a JSON object with `abi: 1`, `service`,
@@ -104,7 +112,9 @@ after receipt. Canonical wire bytes preserve exact numeric values, tagged
 outcomes and the distinction between missing and null fields. The shared
 wire conformance corpus covers integer bounds, exact scalars, canonical
 floats, presence, closed and unknown-preserving records, enums, and outcomes
-in Go, Rust, and JavaScript/TypeScript.
+in Go, the Rust wire crate and SDK, and JavaScript/TypeScript. The generator
+embeds the wire crate inside the generated Rust SDK so the Rust paths are
+local to the application workspace.
 
 ## Delivery and cancellation
 

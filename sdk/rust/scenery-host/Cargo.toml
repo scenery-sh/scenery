@@ -1,0 +1,21 @@
+[package]
+name = "scenery-host"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+getrandom = "0.4"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "server", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+libc = "0.2"
+scenery-wire = { path = "../scenery-sdk/scenery-wire" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.11"
+subtle = "2"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "net", "rt", "signal", "sync", "time"] }

@@ -1,0 +1,70 @@
+use std::path::PathBuf;
+
+use anyhow::Result;
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full, Limited};
+use hyper::body::Incoming;
+use hyper::client::conn::http2::{SendRequest, handshake};
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
+use hyper::{Method, Request, Response, StatusCode};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use tokio::net::UnixStream;
+use tokio::sync::Mutex;
+
+pub(crate) type Body = Full<Bytes>;
+
+pub(crate) struct Client {
+    socket: PathBuf,
+    authorization: String,
+    sender: Mutex<Option<SendRequest<Body>>>,
+}
+
+impl Client {
+    pub(crate) fn new(socket: PathBuf, token: &str) -> Self {
+        Self {
+            socket,
+            authorization: format!("Bearer {token}"),
+            sender: Mutex::new(None),
+        }
+    }
+
+    pub(crate) async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        data: Vec<u8>,
+    ) -> Result<Response<Incoming>> {
+        let request = Request::builder()
+            .method(method)
+            .uri(format!("http://host{path}"))
+            .header(AUTHORIZATION, &self.authorization)
+            .header(CONTENT_TYPE, "application/json")
+            .body(Full::new(data.into()))?;
+        let mut pool = self.sender.lock().await;
+        if pool.as_ref().is_none_or(SendRequest::is_closed) {
+            let stream = UnixStream::connect(&self.socket).await?;
+            let (sender, connection) =
+                handshake(TokioExecutor::new(), TokioIo::new(stream)).await?;
+            tokio::spawn(connection);
+            *pool = Some(sender);
+        }
+        let mut sender = pool.as_ref().expect("connection initialized").clone();
+        drop(pool);
+        sender.ready().await?;
+        Ok(sender.send_request(request).await?)
+    }
+}
+
+pub(crate) async fn read(body: Incoming, limit: usize) -> Result<Bytes> {
+    Limited::new(body, limit)
+        .collect()
+        .await
+        .map(|body| body.to_bytes())
+        .map_err(|error| anyhow::anyhow!("{error}"))
+}
+
+pub(crate) fn response(status: StatusCode, bytes: impl Into<Bytes>) -> Response<Body> {
+    let mut response = Response::new(Full::new(bytes.into()));
+    *response.status_mut() = status;
+    response
+}

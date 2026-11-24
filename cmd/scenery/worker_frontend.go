@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/app"
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/staticfrontend"
 )
@@ -137,18 +138,14 @@ func startWorkerVite(ctx context.Context, frontend workerFrontend) (http.Handler
 	if err != nil {
 		return nil, clean, err
 	}
-	command := exec.Command(program, append(args, "--strictPort")...)
-	command.Dir = frontend.Root
-	command.Stdout, command.Stderr = os.Stderr, os.Stderr
-	if err := command.Start(); err != nil {
+	process, err := devprocess.Start(ctx, devprocess.StartRequest{
+		Name: frontend.Name, Dir: frontend.Root, Command: program, Args: append(args, "--strictPort"),
+		Stdout: os.Stderr, Stderr: os.Stderr,
+	})
+	if err != nil {
 		return nil, clean, err
 	}
-	done := make(chan struct{})
-	go func() { _ = command.Wait(); close(done) }()
-	clean = func() {
-		process := &workerProcess{cmd: command, done: done}
-		process.stop()
-	}
+	clean = func() { _ = process.Stop(devprocess.DefaultStopTimeout) }
 	if err := waitWorkerReady(ctx, func(ctx context.Context) error {
 		connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 		if err != nil {
