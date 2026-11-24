@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"scenery.sh/errs"
@@ -26,16 +27,17 @@ type workerHost struct {
 	scopes   workerabi.Scopes
 	codec    WorkerValueCodec
 	config   map[string]*ConfigSnapshot
+	storage  WorkerStorageHandler
 }
 
-func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec WorkerValueCodec, snapshots map[string]*ConfigSnapshot) error {
+func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec WorkerValueCodec, snapshots map[string]*ConfigSnapshot, storage WorkerStorageHandler) error {
 	if len(plans) == 0 {
 		return nil
 	}
 	if codec == nil {
 		return fmt.Errorf("worker host requires the manifest value codec")
 	}
-	workers := &workerHost{host: h, services: make(map[string]WorkerServicePlan, len(plans)), codec: codec, config: snapshots}
+	workers := &workerHost{host: h, services: make(map[string]WorkerServicePlan, len(plans)), codec: codec, config: snapshots, storage: storage}
 	for _, plan := range plans {
 		if plan.Address == "" || plan.Process == "" || plan.Module == "" || plan.Name == "" {
 			return fmt.Errorf("worker host contains an incomplete service plan")
@@ -246,7 +248,7 @@ func (workers *workerHost) serveCapability(service string, w http.ResponseWriter
 	case workerabi.CapabilityPrefix + "durable/enqueue":
 		workers.serveBindingCapability(plan, w, request, true)
 	case workerabi.CapabilityPrefix + "config/snapshot":
-		if request.Method != http.MethodPost {
+		if request.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -257,9 +259,50 @@ func (workers *workerHost) serveCapability(service string, w http.ResponseWriter
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		writeProcessHostJSON(w, http.StatusOK, snapshot)
+	case workerabi.CapabilityPrefix + "storage/read", workerabi.CapabilityPrefix + "storage/write",
+		workerabi.CapabilityPrefix + "storage/delete", workerabi.CapabilityPrefix + "storage/list":
+		name := request.URL.Query()["store"]
+		if workers.storage == nil || len(name) != 1 || plan.Stores[name[0]] == "" {
+			http.Error(w, "storage handle is unavailable", http.StatusForbidden)
+			return
+		}
+		workers.storage(plan.Stores[name[0]], w, request)
+	case workerabi.CapabilityPrefix + "connections/token":
+		workers.serveConnectionToken(w, request)
+	case workerabi.CapabilityPrefix + "telemetry":
+		serveWorkerTelemetry(plan, w, request)
 	default:
 		http.NotFound(w, request)
 	}
+}
+
+func (workers *workerHost) serveConnectionToken(w http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	input := struct {
+		Provider string   `json:"provider"`
+		Scopes   []string `json:"scopes"`
+	}{}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, request.Body, 8<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil || strings.TrimSpace(input.Provider) == "" || decoder.Decode(new(json.RawMessage)) != io.EOF {
+		http.Error(w, "invalid connection request", http.StatusBadRequest)
+		return
+	}
+	invocation, _ := runtimeapi.InvocationFromContext(request.Context())
+	if invocation.Principal() == "" {
+		http.Error(w, "connection requires an authenticated invocation", http.StatusForbidden)
+		return
+	}
+	token, err := (sdkHost{}).ConnectionToken(request.Context(), invocation.Principal(), input.Provider, input.Scopes)
+	if err != nil {
+		errs.HTTPError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeProcessHostJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
 func (workers *workerHost) serveBindingCapability(plan WorkerServicePlan, w http.ResponseWriter, request *http.Request, enqueue bool) {

@@ -13,6 +13,10 @@ import (
 // beginOperationTrace gives a framework-owned execution its own identity while
 // preserving the invocation token, authentication and generation admission.
 func beginOperationTrace(ctx context.Context, kind, service, operation string, attributes map[string]any) (context.Context, func(error)) {
+	return beginOperationTraceAt(ctx, kind, service, operation, attributes, time.Now().UTC())
+}
+
+func beginOperationTraceAt(ctx context.Context, kind, service, operation string, attributes map[string]any, started time.Time) (context.Context, func(error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -27,7 +31,6 @@ func beginOperationTrace(ctx context.Context, kind, service, operation string, a
 		service = state.request.Service
 	}
 	clone := *state
-	started := time.Now().UTC()
 	span := &traceSpan{traceID: newTraceID(), spanID: newSpanID(), spanType: kind, service: service, endpoint: operation, started: started, isRoot: true, requestType: state.request.Type, generation: state.processGeneration}
 	if traceID, _, ok := parseTraceParent("00-" + state.request.TraceID + "-1111111111111111-01"); ok {
 		span.traceID = traceID

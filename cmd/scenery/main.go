@@ -393,6 +393,9 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if err := bundle.resolveDevelopmentConfig(context.Background(), compiled, cfg, opts.Env); err != nil {
 				return err
 			}
+			if err := configureWorkerDevelopmentStorage(context.Background(), root, cfg); err != nil {
+				return err
+			}
 			frontend, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
 			if err != nil {
 				return err

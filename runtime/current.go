@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"scenery.sh/internal/appsdk"
+	"scenery.sh/internal/authbridge"
 	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
 )
@@ -105,7 +106,7 @@ func withNewRuntimeInvocation(ctx context.Context, state *requestState) context.
 		id = uuid.NewString()
 		state.request.InvocationID = id
 	}
-	tenantID := ""
+	tenantID, _ := authbridge.TenantID(state.auth.Data)
 	if claims, ok := state.auth.Data.(map[string]any); ok {
 		tenantID, _ = claims["tenant_id"].(string)
 	}

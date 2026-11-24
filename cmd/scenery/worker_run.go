@@ -27,6 +27,7 @@ import (
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/staticfrontend"
+	"scenery.sh/internal/storageconfig"
 	"scenery.sh/internal/workerabi"
 	workerruntime "scenery.sh/runtime"
 )
@@ -63,6 +64,7 @@ type workerProcessIdentity struct {
 type workerProcessInstance struct {
 	Network  string                `json:"network"`
 	Address  string                `json:"address"`
+	Protocol string                `json:"protocol"`
 	PID      int                   `json:"pid"`
 	Identity workerProcessIdentity `json:"identity"`
 	Service  string                `json:"worker_service,omitempty"`
@@ -145,6 +147,18 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	if err := bundle.configureRuntime(watchRoot != ""); err != nil {
 		return err
 	}
+	var err error
+	bundle.Host.WorkerStorage, err = prepareWorkerStorage(bundle.Host.Workers)
+	if err != nil {
+		return err
+	}
+	lease, err := storageTaskLease(ctx, envpolicy.Environ())
+	if err != nil {
+		return err
+	}
+	if lease != nil {
+		defer func() { _ = lease.Close() }()
+	}
 	directory, err := os.MkdirTemp("/tmp", "app-workers-")
 	if err != nil {
 		return err
@@ -159,7 +173,7 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	token := workerRandomToken()
 	linkPath := filepath.Join(directory, "link.json")
 	if err := writePrivateWorkerJSON(linkPath, workerLink{
-		Token: token, Dispatch: map[string]string{"network": "unix", "address": control}, Capabilities: capabilities, HostState: state,
+		Token: token, Dispatch: map[string]string{"network": "unix", "address": control, "protocol": "h2c"}, Capabilities: capabilities, HostState: state,
 	}); err != nil {
 		return err
 	}
@@ -231,7 +245,7 @@ func startForeignWorker(ctx context.Context, state, capabilities, link, number s
 	env := envWithoutKeys(minimalAppProcessEnv(envpolicy.Environ()), "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR", "SCENERY_PROCESS_LINK", workerruntime.ConfigSnapshotFDEnv)
 	var argv []string
 	if program.Runtime == "rust" {
-		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv)
+		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv, storageconfig.RuntimeConfigEnv)
 		config := filepath.Join(state, "w"+number+".json")
 		launch := workerLaunch{WorkerSocket: process.socket, HostSocket: capabilities, Token: process.token, Identity: process.workerIdentity()}
 		if err := writePrivateWorkerJSON(config, launch); err != nil {
@@ -310,7 +324,7 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 		process := processes[program.Process]
 		_, _ = io.WriteString(aggregate, program.Digest)
 		instance := workerProcessInstance{
-			Network: "unix", Address: process.socket, PID: process.cmd.Process.Pid,
+			Network: "unix", Address: process.socket, Protocol: "h2c", PID: process.cmd.Process.Pid,
 			Identity: workerProcessIdentity{ContractRevision: program.ContractRevision, ImplementationRevision: program.Digest, BuildInputDigest: program.Digest, Target: program.Runtime},
 		}
 		if program.Runtime == "rust" {
@@ -332,7 +346,7 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 }
 
 func workerControlClient(socket string) *http.Client {
-	return &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+	return &http.Client{Transport: &http.Transport{Protocols: workerabi.Protocols(), DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}}
 }

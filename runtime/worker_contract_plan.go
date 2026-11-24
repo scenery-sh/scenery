@@ -21,7 +21,12 @@ type WorkerServicePlan struct {
 	Clients    map[string]WorkerClientPlan
 	Bindings   []WorkerBindingPlan
 	Durable    map[string]WorkerDurablePlan
+	Stores     map[string]string
 }
+
+// WorkerStorageHandler serves an invocation-scoped operation on the resolved
+// store. The Host has already checked the worker's declared dependency.
+type WorkerStorageHandler func(store string, response http.ResponseWriter, request *http.Request)
 
 type WorkerClientPlan struct {
 	Binding string

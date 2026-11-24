@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/workerabi"
 )
 
 func ListenAddrFromEnv() string {
@@ -107,6 +108,12 @@ func Main(cfg AppConfig) error {
 	if err != nil {
 		cancelRun()
 		return shutdownRuntime(nil, background)
+	}
+	if processLinked && listenNetwork == "unix" {
+		link, _ := currentProcessLink()
+		if link.Dispatch.Protocol == "h2c" {
+			server.Protocols = workerabi.Protocols()
+		}
 	}
 	ln, err := listenRuntime(listenNetwork, cfg.ListenAddr)
 	if err != nil {

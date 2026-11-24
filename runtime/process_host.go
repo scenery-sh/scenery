@@ -75,6 +75,7 @@ type ProcessHostConfig struct {
 	Observability ObservabilityConfig
 	Workers       []WorkerServicePlan
 	WorkerConfig  map[string]*ConfigSnapshot `json:"-"`
+	WorkerStorage WorkerStorageHandler       `json:"-"`
 }
 
 type processGenerationManifest struct {
@@ -91,6 +92,7 @@ type processGenerationManifest struct {
 type processGenerationInstance struct {
 	Network       string                  `json:"network"`
 	Address       string                  `json:"address"`
+	Protocol      string                  `json:"protocol,omitempty"`
 	PID           int                     `json:"pid"`
 	Identity      processInstanceIdentity `json:"identity"`
 	WorkerService string                  `json:"worker_service,omitempty"`
@@ -207,7 +209,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if err != nil {
 		return err
 	}
-	if err := host.registerWorkerServices(cfg.Workers, codec, cfg.WorkerConfig); err != nil {
+	if err := host.registerWorkerServices(cfg.Workers, codec, cfg.WorkerConfig, cfg.WorkerStorage); err != nil {
 		return err
 	}
 	host.frontend = frontend
@@ -281,6 +283,9 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	servers := []*http.Server{
 		{Handler: http.HandlerFunc(host.serveControl), MaxHeaderBytes: processHostMaxHeaderBytes},
 		{Handler: ingress, MaxHeaderBytes: processHostMaxHeaderBytes},
+	}
+	if link.Dispatch.Protocol == "h2c" {
+		servers[0].Protocols = workerabi.Protocols()
 	}
 	listeners := []net.Listener{control, public}
 	if host.workers != nil {
@@ -570,7 +575,7 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 		identity := spec.Identity
 		// A service instance records its service contract revision, which a
 		// contract change elsewhere in the application leaves unchanged.
-		if !validProcessLinkTarget(processLinkTarget{Network: spec.Network, Address: spec.Address}) || spec.PID <= 0 || identity.ContractRevision == "" ||
+		if !validProcessLinkTarget(processLinkTarget{Network: spec.Network, Address: spec.Address, Protocol: spec.Protocol}) || spec.PID <= 0 || identity.ContractRevision == "" ||
 			identity.ImplementationRevision == "" || identity.BuildInputDigest == "" || identity.GoTarget == "" {
 			return fmt.Errorf("generation %d instance of %s is invalid", manifest.Generation, name)
 		}
@@ -671,6 +676,9 @@ func newProcessHostInstance(name string, spec processGenerationInstance) *proces
 		DisableCompression:  true,
 		MaxIdleConnsPerHost: 64,
 		IdleConnTimeout:     90 * time.Second,
+	}
+	if spec.Protocol == "h2c" {
+		transport.Protocols = workerabi.Protocols()
 	}
 	verify := func(response *http.Response) error {
 		if !processIdentityMatches(response.Header, spec) {

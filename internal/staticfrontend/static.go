@@ -104,7 +104,8 @@ func NotFound(w http.ResponseWriter) {
 
 func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	name := strings.TrimPrefix(request.URL.Path, "/")
-	if Reserved(request.URL.Path, handler.blocked) || name != "" && !validPath(name) {
+	validated := strings.TrimSuffix(name, "/")
+	if Reserved(request.URL.Path, handler.blocked) || name != "" && !validPath(validated) {
 		NotFound(w)
 		return
 	}
@@ -120,7 +121,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, request *http.Request) 
 	}
 	info, exists := handler.assets[name]
 	accept := request.Header.Get("Accept")
-	if !exists && (name == "" || path.Ext(name) == "" && (accept == "" || strings.Contains(accept, "text/html") || strings.Contains(accept, "*/*"))) {
+	if !exists && (name == "" || path.Ext(validated) == "" && (accept == "" || strings.Contains(accept, "text/html") || strings.Contains(accept, "*/*"))) {
 		name = "index.html"
 		info, exists = handler.assets[name]
 	}

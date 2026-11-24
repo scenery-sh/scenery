@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	cp "scenery.sh/internal/clientprojection"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/graph"
 	workerruntime "scenery.sh/runtime"
@@ -32,7 +33,16 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		service := workerruntime.WorkerServicePlan{
 			Address: resource.Address, Name: resource.Name, Module: resource.Module, Process: fmt.Sprintf("worker-%x", digest[:8]),
 			Operations: make(map[string]workerruntime.WorkerOperationPlan), Clients: make(map[string]workerruntime.WorkerClientPlan),
-			Durable: make(map[string]workerruntime.WorkerDurablePlan),
+			Durable: make(map[string]workerruntime.WorkerDurablePlan), Stores: make(map[string]string),
+		}
+		dependencies, err := compiler.ServiceGoDependencies(projection.resources, resource)
+		if err != nil {
+			return nil, err
+		}
+		for _, dependency := range dependencies {
+			if dependency.Resolver == "object" {
+				service.Stores[dependency.Name] = dependency.RuntimeName
+			}
 		}
 		for _, client := range cp.NamedChildren(resource.Spec, "client") {
 			binding := workerReference(resource, client["binding"], "binding")

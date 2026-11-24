@@ -12,7 +12,7 @@ use std::task::Poll;
 use bytes::{BufMut, Bytes, BytesMut};
 use http_body_util::{BodyExt, Full, Limited, StreamBody, combinators::UnsyncBoxBody};
 use hyper::body::{Frame, Incoming};
-use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -24,7 +24,9 @@ use tokio::sync::{Mutex, watch};
 use tokio_util::io::ReaderStream;
 
 mod scalars;
+mod storage;
 pub use scalars::*;
+pub use storage::{StorageRead, StorageWriteOptions};
 
 pub use serde;
 pub use serde_json;
@@ -144,11 +146,20 @@ pub struct DispatchReceipt {
     pub accepted_revision: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct ConfigSnapshot {
     pub revision: String,
     pub values: BTreeMap<String, Box<RawValue>>,
     pub secrets: BTreeMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct TelemetryRecord<'a> {
+    pub kind: &'a str,
+    pub name: &'a str,
+    pub message: &'a str,
+    pub elapsed_ns: u64,
+    pub attributes: BTreeMap<String, serde_json::Value>,
 }
 
 impl Context {
@@ -157,8 +168,28 @@ impl Context {
     }
 
     pub async fn config_snapshot(&self) -> Result<ConfigSnapshot> {
-        let raw = self.capability("config/snapshot", Vec::new()).await?;
+        let response = self.worker_request(Method::GET, "config/snapshot", full(Bytes::new()))?;
+        let raw = self.read_capability(response).await?;
         Ok(serde_json::from_slice(&raw)?)
+    }
+
+    pub async fn connection_token(&self, provider: &str, scopes: &[&str]) -> Result<String> {
+        #[derive(Deserialize)]
+        struct Reply {
+            token: String,
+        }
+
+        let input =
+            serde_json::to_vec(&serde_json::json!({ "provider": provider, "scopes": scopes }))?;
+        let reply: Reply =
+            serde_json::from_slice(&self.capability("connections/token", input).await?)?;
+        Ok(reply.token)
+    }
+
+    pub async fn telemetry(&self, records: &[TelemetryRecord<'_>]) -> Result<()> {
+        self.capability("telemetry", serde_json::to_vec(records)?)
+            .await?;
+        Ok(())
     }
 
     pub async fn invoke<T: Serialize + ?Sized>(
@@ -206,11 +237,23 @@ impl Context {
     }
 
     pub async fn capability(&self, path: &str, input: Vec<u8>) -> Result<Bytes> {
-        let request = Request::post(format!("http://host/host/v1/{path}"))
+        let mut request = self.worker_request(Method::POST, path, full(input))?;
+        request
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        self.read_capability(request).await
+    }
+
+    fn worker_request(&self, method: Method, path: &str, body: Body) -> Result<Request<Body>> {
+        Ok(Request::builder()
+            .method(method)
+            .uri(format!("http://host/host/v1/{path}"))
             .header(AUTHORIZATION, format!("Bearer {}", self.host.token))
             .header("X-Worker-Scope", &self.invocation.scope)
-            .header(CONTENT_TYPE, "application/json")
-            .body(Full::new(input.into()))?;
+            .body(body)?)
+    }
+
+    async fn read_capability(&self, request: Request<Body>) -> Result<Bytes> {
         let response = self.host.send(request).await?;
         if response.status() != StatusCode::OK {
             return Err(format!("capability returned HTTP {}", response.status().as_u16()).into());
@@ -222,7 +265,7 @@ impl Context {
     }
 }
 
-type Sender = hyper::client::conn::http2::SendRequest<Full<Bytes>>;
+type Sender = hyper::client::conn::http2::SendRequest<Body>;
 
 #[derive(Clone)]
 struct Host {
@@ -232,7 +275,7 @@ struct Host {
 }
 
 impl Host {
-    async fn send(&self, request: Request<Full<Bytes>>) -> Result<Response<Incoming>> {
+    async fn send(&self, request: Request<Body>) -> Result<Response<Incoming>> {
         let mut guard = self.sender.lock().await;
         if guard.as_ref().is_none_or(Sender::is_closed) {
             let socket = UnixStream::connect(&*self.socket).await?;
@@ -385,7 +428,7 @@ async fn invoke(
         let stream = FramedStream {
             prefix: Some(prefix.freeze()),
             stream,
-            _cancel_on_drop: cancel_on_drop,
+            _cancel_on_drop: Some(cancel_on_drop),
         };
         let body = StreamBody::new(stream).map_err(Error::from).boxed_unsync();
         let mut response = Response::new(body);
@@ -429,7 +472,7 @@ fn fault(status: StatusCode) -> Response<Body> {
 struct FramedStream {
     prefix: Option<Bytes>,
     stream: ReaderStream<Pin<Box<dyn AsyncRead + Send>>>,
-    _cancel_on_drop: watch::Sender<()>,
+    _cancel_on_drop: Option<watch::Sender<()>>,
 }
 
 impl futures_core::Stream for FramedStream {
