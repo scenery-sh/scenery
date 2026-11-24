@@ -36,10 +36,13 @@ language rules.
 - **Declare in `.scn`, implement in Go.** Go comments and `init()` register
   nothing. Edit authored files; treat generated contracts, TypeScript clients,
   and `.scenery/gen/` as disposable outputs beneath declared managed roots.
-- **Framework selection.** Pin `scenery.sh` in the app's `go.mod` and run
-  `scenery framework use -o json`. For co-development, `scenery framework use
-  --source <checkout>` snapshots local source—do not commit the temporary
-  replace directive.
+- **Framework selection.** Set `framework_version` in `.scenery.json` to the
+  exact version of a prebuilt CLI, then run that executable's
+  `scenery framework use -o json` to check the selection. Go applications
+  can select their CLI through the `scenery.sh` requirement in `go.mod` when
+  they omit the explicit executable pin. For Go co-development,
+  `scenery framework use --source <checkout>` snapshots local source. Keep
+  the app-local replacement out of commits.
 - **Prefer JSON output (`-o json` / `-o jsonl`).** Branch on stable `SCNxxxx`
   diagnostic codes. `SCN9xxx` internal failures withhold cause details; inspect
   them via `scenery inspect report <report-token> -o json`.

@@ -62,6 +62,9 @@ func buildCommand(out io.Writer, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed_precondition: discover app root: %w", err)
 	}
+	if err := build.VerifyFrameworkVersion(cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
+		return &codedCLIError{err: err, code: 3}
+	}
 	if err := validateRuntimePlan(appRoot); err != nil {
 		return fmt.Errorf("failed_precondition: validate runtime plan: %w", err)
 	}

@@ -1,10 +1,28 @@
 package build
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestPrebuiltFrameworkPinWithoutGoModule(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const pinned = "v0.3.7"
+	writeBuildTestFile(t, root, ".scenery.json", `{"framework_version":"v0.3.7","future_setting":true}`)
+	desired, err := ReadDesiredFramework(root)
+	if err != nil || desired != (DesiredFramework{Version: pinned, Prebuilt: true}) {
+		t.Fatalf("prebuilt selection = %+v, %v", desired, err)
+	}
+	if err := VerifyFrameworkSession(context.Background(), root, pinned); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyFrameworkSession(context.Background(), root, "v0.3.8"); err == nil || !strings.Contains(err.Error(), pinned) {
+		t.Fatalf("wrong producer accepted: %v", err)
+	}
+}
 
 func TestDesiredFrameworkReadsOnlyTheAuthoredSelection(t *testing.T) {
 	t.Parallel()

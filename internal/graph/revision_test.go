@@ -21,6 +21,30 @@ func TestContractRevisionIsOrderIndependentAndSpecBound(t *testing.T) {
 	}
 }
 
+func TestServiceRuntimeDoesNotChangeContractIdentity(t *testing.T) {
+	service := Resource{
+		Address: "house/service/house",
+		Kind:    "scenery.service",
+		Name:    "house",
+		Module:  "house",
+		Spec:    map[string]any{"runtime": "go"},
+	}
+	manifest := &Manifest{Application: ApplicationIdentity{Name: "estate"}, Resources: []Resource{service}}
+	appRevision, err := ContractRevision(manifest.Resources, manifest.Application.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceRevision := ServiceContractRevision(manifest, service, nil)
+	service.Spec["runtime"] = "rust"
+	rustAppRevision, err := ContractRevision(manifest.Resources, manifest.Application.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rustAppRevision != appRevision || ServiceContractRevision(manifest, service, nil) != serviceRevision {
+		t.Fatal("changing a service runtime changed contract identity")
+	}
+}
+
 // A service's contract revision follows the contract of its module instance and
 // of the resources its adapter covers, and no other contract change.
 func TestServiceContractRevisionFollowsOnlyTheServiceContract(t *testing.T) {

@@ -113,7 +113,7 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 		}
 		startupContract = contract
 	}()
-	frameworkErr := build.VerifyFrameworkSession(ctx, root)
+	frameworkErr := build.VerifyFrameworkSession(ctx, root, runningFrameworkVersion())
 	<-preflight
 	if frameworkErr != nil {
 		return nil, &codedCLIError{code: 3, err: frameworkErr}

@@ -72,11 +72,11 @@ go_target "development" {
 		t.Fatal(err)
 	}
 	digest := func(value string) string { return "sha256:" + strings.Repeat(value, 64) }
-	withServices := func(houseHandler string) *Result {
+	withServices := func(houseHandler, houseRuntime string) *Result {
 		result := *compiled
 		manifest := *compiled.Manifest
 		manifest.Resources = append(slices.Clone(compiled.Manifest.Resources),
-			Resource{Address: "house/service/house", Kind: "scenery.service", Name: "house", Module: "house", Spec: map[string]any{"implementation": "House"}},
+			Resource{Address: "house/service/house", Kind: "scenery.service", Name: "house", Module: "house", Spec: map[string]any{"implementation": "House", "runtime": houseRuntime}},
 			Resource{Address: "house/operation/get", Kind: "scenery.operation", Name: "get", Module: "house", Spec: map[string]any{"handler": houseHandler}},
 			Resource{Address: "garden/service/garden", Kind: "scenery.service", Name: "garden", Module: "garden", Spec: map[string]any{"implementation": "Garden"}},
 		)
@@ -97,21 +97,23 @@ go_target "development" {
 		}
 		return values
 	}
-	base := revisions(withServices("Get"), digest("1"), digest("2"))
-	target, _ := ComputeImplementationRevisions(withServices("Get"), map[string]string{"development": digest("2")})
+	goServices := withServices("Get", "go")
+	base := revisions(goServices, digest("1"), digest("2"))
+	target, _ := ComputeImplementationRevisions(goServices, map[string]string{"development": digest("2")})
 	if base["house/service/house"] == base["garden/service/garden"] || base["house/service/house"] == target["development"] {
 		t.Fatalf("service process revisions are not distinct: %#v, target %s", base, target["development"])
 	}
 	for name, changed := range map[string]map[string]string{
-		"contract": revisions(withServices("Get"), digest("3"), digest("2")),
-		"inputs":   revisions(withServices("Get"), digest("1"), digest("4")),
-		"handler":  revisions(withServices("Fetch"), digest("1"), digest("2")),
+		"contract": revisions(goServices, digest("3"), digest("2")),
+		"inputs":   revisions(goServices, digest("1"), digest("4")),
+		"handler":  revisions(withServices("Fetch", "go"), digest("1"), digest("2")),
+		"runtime":  revisions(withServices("Get", "rust"), digest("1"), digest("2")),
 	} {
 		if changed["house/service/house"] == base["house/service/house"] || changed["garden/service/garden"] != base["garden/service/garden"] {
 			t.Errorf("a house %s change: house %t, garden %t changed; want only house", name, changed["house/service/house"] != base["house/service/house"], changed["garden/service/garden"] != base["garden/service/garden"])
 		}
 	}
-	if _, diagnostics := ServiceProcessImplementationRevisions(withServices("Get"), "development", processes(withServices("Get"), "sha256:short", digest("2"))); !hasErrors(diagnostics) {
+	if _, diagnostics := ServiceProcessImplementationRevisions(goServices, "development", processes(goServices, "sha256:short", digest("2"))); !hasErrors(diagnostics) {
 		t.Fatal("accepted a non-canonical service contract revision")
 	}
 }

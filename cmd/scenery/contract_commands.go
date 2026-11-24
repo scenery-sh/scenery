@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"scenery.sh/internal/app"
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/contractagent"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
@@ -186,6 +188,13 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	root, err := findContractRoot(opts.AppRoot)
 	if err != nil {
 		return err
+	}
+	pinned, err := app.ReadFrameworkVersion(root)
+	if err != nil {
+		return &codedCLIError{err: err, code: 3}
+	}
+	if err := build.VerifyFrameworkVersion(pinned, runningFrameworkVersion()); err != nil {
+		return &codedCLIError{err: err, code: 3}
 	}
 	result, err := checkCompiledContract(root)
 	if err != nil {

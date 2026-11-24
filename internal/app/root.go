@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"reflect"
 	goruntime "runtime"
-	"scenery.sh/internal/connectionapi"
 	"sort"
 	"strings"
+
+	"golang.org/x/mod/semver"
+	"scenery.sh/internal/connectionapi"
 )
 
 const (
@@ -28,42 +30,45 @@ func (e *ConfigError) Error() string { return e.err.Error() }
 func (e *ConfigError) Unwrap() error { return e.err }
 
 type Config struct {
-	ConfigPath    string                    `json:"-"`
-	Name          string                    `json:"name"`
-	ID            string                    `json:"id"`
-	Root          string                    `json:"root,omitempty"`
-	Build         BuildConfig               `json:"build"`
-	Frontends     map[string]FrontendConfig `json:"frontends"`
-	Envs          map[string]EnvConfig      `json:"envs"`
-	Watch         WatchConfig               `json:"watch"`
-	Storage       StorageConfig             `json:"storage"`
-	Generators    GeneratorsConfig          `json:"generators"`
-	Database      DatabaseConfig            `json:"database"`
-	Validation    ValidationConfig          `json:"validation"`
-	Auth          AuthConfig                `json:"auth"`
-	Observability ObservabilityConfig       `json:"observability"`
+	ConfigPath       string                    `json:"-"`
+	FrameworkVersion string                    `json:"framework_version,omitempty"`
+	Name             string                    `json:"name"`
+	ID               string                    `json:"id"`
+	Root             string                    `json:"root,omitempty"`
+	Build            BuildConfig               `json:"build"`
+	Frontends        map[string]FrontendConfig `json:"frontends"`
+	Envs             map[string]EnvConfig      `json:"envs"`
+	Watch            WatchConfig               `json:"watch"`
+	Storage          StorageConfig             `json:"storage"`
+	Generators       GeneratorsConfig          `json:"generators"`
+	Database         DatabaseConfig            `json:"database"`
+	Validation       ValidationConfig          `json:"validation"`
+	Auth             AuthConfig                `json:"auth"`
+	Observability    ObservabilityConfig       `json:"observability"`
 }
 
 // MarshalJSON omits optional object sections when they are not configured.
 // A zero struct cannot be omitted by encoding/json's omitempty handling.
 func (c Config) MarshalJSON() ([]byte, error) {
 	type configJSON struct {
-		Name          string                    `json:"name"`
-		ID            string                    `json:"id"`
-		Root          string                    `json:"root,omitempty"`
-		Build         BuildConfig               `json:"build"`
-		Frontends     map[string]FrontendConfig `json:"frontends"`
-		Envs          map[string]EnvConfig      `json:"envs"`
-		Watch         WatchConfig               `json:"watch"`
-		Storage       *StorageConfig            `json:"storage,omitempty"`
-		Generators    GeneratorsConfig          `json:"generators"`
-		Database      DatabaseConfig            `json:"database"`
-		Validation    ValidationConfig          `json:"validation"`
-		Auth          AuthConfig                `json:"auth"`
-		Observability ObservabilityConfig       `json:"observability"`
+		FrameworkVersion string                    `json:"framework_version,omitempty"`
+		Name             string                    `json:"name"`
+		ID               string                    `json:"id"`
+		Root             string                    `json:"root,omitempty"`
+		Build            BuildConfig               `json:"build"`
+		Frontends        map[string]FrontendConfig `json:"frontends"`
+		Envs             map[string]EnvConfig      `json:"envs"`
+		Watch            WatchConfig               `json:"watch"`
+		Storage          *StorageConfig            `json:"storage,omitempty"`
+		Generators       GeneratorsConfig          `json:"generators"`
+		Database         DatabaseConfig            `json:"database"`
+		Validation       ValidationConfig          `json:"validation"`
+		Auth             AuthConfig                `json:"auth"`
+		Observability    ObservabilityConfig       `json:"observability"`
 	}
 	out := configJSON{
-		Name: c.Name, ID: c.ID, Root: c.Root, Build: c.Build, Frontends: c.Frontends, Envs: c.Envs,
+		FrameworkVersion: c.FrameworkVersion,
+		Name:             c.Name, ID: c.ID, Root: c.Root, Build: c.Build, Frontends: c.Frontends, Envs: c.Envs,
 		Watch: c.Watch, Generators: c.Generators,
 		Database: c.Database, Validation: c.Validation, Auth: c.Auth,
 		Observability: c.Observability,
@@ -441,6 +446,9 @@ func readConfigCandidate(dir string) (string, []byte, error) {
 }
 
 func (c Config) Validate() error {
+	if err := validateFrameworkVersion(c.FrameworkVersion); err != nil {
+		return err
+	}
 	if err := connectionapi.ValidateProviders(c.Auth.Connections); err != nil {
 		return err
 	}
@@ -457,6 +465,29 @@ func (c Config) Validate() error {
 		return err
 	}
 	return c.validateStorage()
+}
+
+func validateFrameworkVersion(version string) error {
+	if version != "" && semver.Canonical(version) != version {
+		return fmt.Errorf("framework_version must be an exact version such as v0.3.7")
+	}
+	return nil
+}
+
+// ReadFrameworkVersion reads only the bootstrap pin, without interpreting
+// application settings that may belong to another framework version.
+func ReadFrameworkVersion(appRoot string) (string, error) {
+	path, data, err := readConfigCandidate(appRoot)
+	if err != nil || path == "" {
+		return "", err
+	}
+	var partial struct {
+		Version string `json:"framework_version"`
+	}
+	if err := json.Unmarshal(data, &partial); err != nil {
+		return "", fmt.Errorf("%s: decode framework_version: %w", path, err)
+	}
+	return partial.Version, validateFrameworkVersion(partial.Version)
 }
 
 func (c Config) validateWatch() error {

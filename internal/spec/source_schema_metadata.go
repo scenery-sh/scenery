@@ -127,6 +127,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.table-page.export", Name: "label"}:                            {Default: "Export", DefaultSource: "spec"},
 	{Revision: "scenery.table-page.export", Name: "icon"}:                             {Constraints: semanticIconConstraint()},
 
+	{Revision: "scenery.source.service", Name: "runtime"}:                {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.service", Name: "implementation"}:         {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.service", Name: "lifecycle"}:              {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.service", Name: "config"}:                 {RevisionDomain: "implementation"},

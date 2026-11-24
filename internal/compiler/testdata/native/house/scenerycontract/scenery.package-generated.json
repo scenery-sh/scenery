@@ -1,9 +1,8 @@
 {
   "artifact_kind": "go_package_contract",
   "capability_interface_abi_ranges": {},
-  "content_digest": "sha256:ad930248ff8e433a59caa91fb34a224afbeac88df9734c2b9ea833bd2a8442c1",
+  "content_digest": "sha256:085721a06642a33cf3ab50355eedd6fc0ba496309def754372c1ef845df22fbf",
   "covered": [
-    "binding.process_scene_cli",
     "binding.process_scene_http",
     "binding.process_scene_internal",
     "binding.process_scene_mcp",
@@ -31,10 +30,10 @@
   "producer": {
     "version": "dev",
     "toolchain": {
-      "go_version": "go1.26.5"
+      "go_version": "go1.27.0"
     }
   },
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:fa325f0aa48e8489c7ae85ab996efe2bd50962483ba9a3fcfc0e162384ffdca0",
-  "spec_revision": "sha256:33bd6d2f6368d221a9359b0e97072fd51ec36c268d7f5d13dbe9425fcb112340"
+  "spec_revision": "sha256:18065faa94a3ad8687df13ac21ab728ffc9803b744bcd442f7f3e2e4a8b4c9d0"
 }

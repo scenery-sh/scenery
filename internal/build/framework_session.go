@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 
 	"golang.org/x/mod/modfile"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
 )
@@ -18,8 +20,8 @@ import (
 // VerifyFrameworkSession checks both selection mechanisms before compilation
 // can replace a healthy backend. Local replacement paths may differ only when
 // they contain the exact source compiled into the selected CLI.
-func VerifyFrameworkSession(ctx context.Context, appRoot string) error {
-	_, err := verifyFrameworkSession(ctx, appRoot)
+func VerifyFrameworkSession(ctx context.Context, appRoot, producerVersion string) error {
+	_, err := verifyFrameworkSession(ctx, appRoot, producerVersion)
 	return err
 }
 
@@ -27,9 +29,9 @@ func VerifyFrameworkSession(ctx context.Context, appRoot string) error {
 // VerifyFrameworkSession and returns a context for one build that carries the
 // application framework source it read, so the build's input manifest binds
 // that verified source instead of reading the same tree again.
-func VerifyFrameworkSessionForBuild(ctx context.Context, appRoot string) (context.Context, error) {
-	selected, err := verifyFrameworkSession(ctx, appRoot)
-	if err != nil {
+func VerifyFrameworkSessionForBuild(ctx context.Context, appRoot, producerVersion string) (context.Context, error) {
+	selected, err := verifyFrameworkSession(ctx, appRoot, producerVersion)
+	if err != nil || selected.Root == "" {
 		return ctx, err
 	}
 	return context.WithValue(ctx, verifiedFrameworkSourceKey{}, selected), nil
@@ -54,7 +56,23 @@ func verifiedFrameworkSource(ctx context.Context, root string) (FrameworkSource,
 	return source, err == nil && canonical == source.Root
 }
 
-func verifyFrameworkSession(ctx context.Context, appRoot string) (FrameworkSource, error) {
+func verifyFrameworkSession(ctx context.Context, appRoot, producerVersion string) (FrameworkSource, error) {
+	pinned, err := app.ReadFrameworkVersion(appRoot)
+	if err != nil {
+		return FrameworkSource{}, err
+	}
+	if err := VerifyFrameworkVersion(pinned, producerVersion); err != nil {
+		return FrameworkSource{}, err
+	}
+	if pinned != "" {
+		_, err := os.Lstat(filepath.Join(appRoot, "go.mod"))
+		if errors.Is(err, os.ErrNotExist) {
+			return FrameworkSource{}, nil
+		}
+		if err != nil {
+			return FrameworkSource{}, err
+		}
+	}
 	producer, err := VerifyFrameworkProducer()
 	if err != nil {
 		return FrameworkSource{}, err
@@ -184,17 +202,37 @@ func VerifyPreparedFramework(selection FrameworkSelection) error {
 	return nil
 }
 
-// DesiredFramework is the framework selection authored in an application's
-// go.mod: the pinned scenery.sh requirement, and the local replacement
-// directory when one applies to it. Root is empty for a pinned module.
+// DesiredFramework identifies the selected CLI producer. A source selection
+// identifies a local Go module replacement by path.
 type DesiredFramework struct {
-	Version string
-	Root    string
+	Version  string
+	Root     string
+	Prebuilt bool
 }
 
 // ReadDesiredFramework parses the authored selection only. It neither
 // resolves nor downloads the module and reads no framework source.
 func ReadDesiredFramework(appRoot string) (DesiredFramework, error) {
+	version, err := app.ReadFrameworkVersion(appRoot)
+	if err != nil {
+		return DesiredFramework{}, err
+	}
+	if version != "" {
+		return DesiredFramework{Version: version, Prebuilt: true}, nil
+	}
+	return readGoFrameworkModule(appRoot)
+}
+
+// VerifyFrameworkVersion checks an explicit application pin against the
+// running executable without calling an application toolchain.
+func VerifyFrameworkVersion(pinned, running string) error {
+	if pinned != "" && pinned != running {
+		return fmt.Errorf("application selects Scenery %s; run its prebuilt executable (this executable is %s)", pinned, running)
+	}
+	return nil
+}
+
+func readGoFrameworkModule(appRoot string) (DesiredFramework, error) {
 	data, err := os.ReadFile(filepath.Join(appRoot, "go.mod"))
 	if err != nil {
 		return DesiredFramework{}, err
@@ -285,7 +323,7 @@ func canonicalPath(path string) string {
 // explicit preparation only; a build never changes it. A running `scenery up`
 // downloads only while preparing a framework handoff.
 func ResolveFrameworkModule(ctx context.Context, appRoot string, download bool) (string, string, error) {
-	desired, err := ReadDesiredFramework(appRoot)
+	desired, err := readGoFrameworkModule(appRoot)
 	if err != nil {
 		return "", "", err
 	}

@@ -1,11 +1,9 @@
 {
   "artifact_kind": "go_application_adapters",
-  "content_digest": "sha256:4f66095f018c6b2b3ce2b7f03ba3b9f9812708398b0fa58f3b24efa2c584c293",
-  "contract_revision": "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db",
+  "content_digest": "sha256:fd391ff522f674b0fb769339a2507ae2bc9ca17baa9c5c02ae605ff92f4b9e09",
+  "contract_revision": "sha256:f786d0584492599988d02e592c7785d4bf58f87df8deede5b968d52bc14d5af9",
   "covered": [
     "app/assistant/support",
-    "app/mcp_connection/docs",
-    "app/mcp_server/support",
     "house/binding/process_scene_http",
     "house/binding/process_scene_internal",
     "house/binding/process_scene_mcp",
@@ -20,12 +18,12 @@
   ],
   "generator": "scenery.generate.go-application",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:1fa1da9cd82d0cddeac3e8350cddb9e6ecd5b1d9bc9a53c5d46d7bc749a3ceb2"
+    "app/http_gateway/public_api": "sha256:9baafc006d26f7956e2485ea0aaa603090f825f529e6d5119438a3f58124c2ca"
   },
   "implementation_revision": null,
   "kind": "scenery.generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:d6cfd377752fbe3fdad018310fc901fdddb12cfd8819cb4295ff18d35c96ac91"
+    "app/http_gateway/public_api": "sha256:d92695e857263ceea7b68997cc101d16ea2066be29ee37343f50f7b8702d2e49"
   },
   "package_contract_abi_revisions": {
     "example.test/nativeapp/house/scenerycontract": "sha256:76f2aa33a3093803149d651d1ef3c49b46eb9abbba6adf798b4d4b13815f5b10"
@@ -33,12 +31,12 @@
   "producer": {
     "version": "dev",
     "toolchain": {
-      "go_version": "go1.26.5"
+      "go_version": "go1.27.0"
     }
   },
   "provider_capability_abis": {},
   "runtime_abi": "scenery.go-runtime/v1",
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:e5ec71660dc6740e8fa94a5e0c924f604c696225e4b1799d2908a9b3a5419f3d",
-  "spec_revision": "sha256:33bd6d2f6368d221a9359b0e97072fd51ec36c268d7f5d13dbe9425fcb112340"
+  "spec_revision": "sha256:18065faa94a3ad8687df13ac21ab728ffc9803b744bcd442f7f3e2e4a8b4c9d0"
 }

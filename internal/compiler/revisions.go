@@ -375,7 +375,7 @@ func implementationBindings(resources []Resource) []map[string]any {
 		case "scenery.module":
 			spec = map[string]any{"locked_integrity": resource.Spec["locked_integrity"], "package_contract_abi_revision": resource.Spec["package_contract_abi_revision"]}
 		case "scenery.service":
-			spec = map[string]any{"implementation": resource.Spec["implementation"], "dependency": resource.Spec["dependency"], "config": resource.Spec["config"], "client": resource.Spec["client"], "lifecycle": resource.Spec["lifecycle"]}
+			spec = map[string]any{"runtime": resource.Spec["runtime"], "implementation": resource.Spec["implementation"], "dependency": resource.Spec["dependency"], "config": resource.Spec["config"], "client": resource.Spec["client"], "lifecycle": resource.Spec["lifecycle"]}
 		case "scenery.operation":
 			spec = map[string]any{"handler": resource.Spec["handler"]}
 		case "scenery.provider":

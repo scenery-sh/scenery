@@ -72,7 +72,7 @@ func changedAppFramework(root string) (build.DesiredFramework, bool) {
 		// The build's framework verification reports the authored error.
 		return build.DesiredFramework{}, false
 	}
-	return desired, frameworkSelectionDiffers(root, desired, sceneryVersion, build.LinkedFrameworkDigest())
+	return desired, !desired.Prebuilt && frameworkSelectionDiffers(root, desired, sceneryVersion, build.LinkedFrameworkDigest())
 }
 
 // frameworkSelectionDiffers compares the authored selection with a producer
