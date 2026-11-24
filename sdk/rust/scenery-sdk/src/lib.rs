@@ -1,10 +1,13 @@
 //! The service-side transport of Worker ABI v1.
 
+use std::collections::BTreeMap;
 use std::convert::Infallible;
-use std::future::Future;
+use std::future::{Future, poll_fn};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Poll;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use http_body_util::{BodyExt, Full, Limited, StreamBody, combinators::UnsyncBoxBody};
@@ -141,9 +144,21 @@ pub struct DispatchReceipt {
     pub accepted_revision: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ConfigSnapshot {
+    pub revision: String,
+    pub values: BTreeMap<String, Box<RawValue>>,
+    pub secrets: BTreeMap<String, String>,
+}
+
 impl Context {
     pub async fn canceled(&mut self) {
         let _ = self.canceled.changed().await;
+    }
+
+    pub async fn config_snapshot(&self) -> Result<ConfigSnapshot> {
+        let raw = self.capability("config/snapshot", Vec::new()).await?;
+        Ok(serde_json::from_slice(&raw)?)
     }
 
     pub async fn invoke<T: Serialize + ?Sized>(
@@ -340,9 +355,16 @@ async fn invoke(
         host,
         canceled,
     };
-    let output = handler(invocation, context)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let fail = StatusCode::INTERNAL_SERVER_ERROR;
+    let mut future =
+        catch_unwind(AssertUnwindSafe(|| handler(invocation, context))).map_err(|_| fail)?;
+    let output = poll_fn(
+        |cx| match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx))) {
+            Ok(result) => result.map(|value| value.map_err(|_| fail)),
+            Err(_) => Poll::Ready(Err(fail)),
+        },
+    )
+    .await?;
     #[derive(Serialize)]
     struct ResponseMetadata {
         outcome: Box<RawValue>,

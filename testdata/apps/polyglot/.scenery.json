@@ -1,5 +1,10 @@
 {
   "name": "polyglot",
+  "auth": {
+    "enabled": true,
+    "auto_bootstrap_database": true,
+    "dev_bootstrap": {"enabled": true, "default_user_email": "fixture@example.test"}
+  },
   "frontends": {
     "web": {"root": "web", "adapter": "vite", "mode": "static"}
   },

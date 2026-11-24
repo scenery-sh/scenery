@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"scenery.sh/auth"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	cp "scenery.sh/internal/clientprojection"
@@ -28,6 +29,9 @@ type workerBundle struct {
 	Programs         []workerProgram                 `json:"programs"`
 	Bindings         map[string]string               `json:"bindings"`
 	Frontend         *workerFrontend                 `json:"frontend,omitempty"`
+	Auth             *auth.StandardConfig            `json:"auth,omitempty"`
+	HostConfigKeys   []string                        `json:"host_config_keys,omitempty"`
+	config           *workerruntime.ConfigSnapshot
 }
 
 type workerProgram struct {
@@ -38,6 +42,8 @@ type workerProgram struct {
 	ContractRevision string                `json:"contract_revision"`
 	Runtime          string                `json:"runtime"`
 	Identity         workerProcessIdentity `json:"identity"`
+	ConfigKeys       []string              `json:"config_keys,omitempty"`
+	config           *workerruntime.ConfigSnapshot
 }
 
 func hasRustWorkers(result *compiler.Result) bool {
@@ -135,6 +141,9 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role string
 	}
 	if !check {
 		if err := bundle.addGoWorkers(ctx, result); err != nil {
+			return workerBundle{}, err
+		}
+		if err := bundle.projectConfig(result); err != nil {
 			return workerBundle{}, err
 		}
 	}

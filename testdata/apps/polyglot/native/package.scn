@@ -13,6 +13,10 @@ service "native" {
 
 record "label_result" {
   field "vendor" { type = string }
+  field "principal" { type = optional(string) }
+  field "tenant" { type = optional(string) }
+  field "trace_id" { type = optional(string) }
+  field "deadline" { type = optional(string) }
 }
 
 operation "label" {

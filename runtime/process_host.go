@@ -74,6 +74,7 @@ type ProcessHostConfig struct {
 	// itself, as the application entrypoint's configuration does.
 	Observability ObservabilityConfig
 	Workers       []WorkerServicePlan
+	WorkerConfig  map[string]*ConfigSnapshot `json:"-"`
 }
 
 type processGenerationManifest struct {
@@ -206,7 +207,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if err != nil {
 		return err
 	}
-	if err := host.registerWorkerServices(cfg.Workers, codec); err != nil {
+	if err := host.registerWorkerServices(cfg.Workers, codec, cfg.WorkerConfig); err != nil {
 		return err
 	}
 	host.frontend = frontend
@@ -706,17 +707,21 @@ func newProcessHostInstance(name string, spec processGenerationInstance) *proces
 		ingress: &httputil.ReverseProxy{Rewrite: rewrite, Transport: transport, FlushInterval: -1, ModifyResponse: verify,
 			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 				logTrace(req.Context(), fmt.Sprintf("service process %s did not answer: %v", name, err))
-				errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msgf(processHostUnavailableReason, name).Err(), http.StatusServiceUnavailable)
+				failure := &errs.Error{Code: errs.Unavailable, Message: fmt.Sprintf(processHostUnavailableReason, name), Meta: errs.Metadata{"delivery": processLinkDelivery(err)}}
+				errs.HTTPErrorWithCode(w, failure, http.StatusServiceUnavailable)
 			}},
 		dispatch: &httputil.ReverseProxy{Rewrite: rewrite, Transport: transport, FlushInterval: -1, ModifyResponse: verify,
 			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-				delivery := "unknown"
-				if _, notSent := errors.AsType[*processLinkDialError](err); notSent {
-					delivery = "not_sent"
-				}
-				writeProcessLinkUnavailable(w, fmt.Sprintf(processHostUnavailableReason, name), delivery)
+				writeProcessLinkUnavailable(w, fmt.Sprintf(processHostUnavailableReason, name), processLinkDelivery(err))
 			}},
 	}
+}
+
+func processLinkDelivery(err error) string {
+	if _, notSent := errors.AsType[*processLinkDialError](err); notSent {
+		return workerabi.NotSent
+	}
+	return workerabi.Unknown
 }
 
 func processIdentityMatches(headers http.Header, spec processGenerationInstance) bool {

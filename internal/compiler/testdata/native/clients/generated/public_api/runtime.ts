@@ -989,10 +989,13 @@ function encodePrimitive(value: unknown, name: string, path: string): string {
       if (typeof value !== "boolean") invalid(path, "expected bool");
       return value ? "true" : "false";
     case "int":
-    case "int64":
       if (typeof value !== "bigint") invalid(path, `expected ${name}`);
       return JSON.stringify(value.toString(10));
+    case "int64":
     case "uint64":
+      if (typeof value !== "bigint") invalid(path, `expected ${name}`);
+      checkBigInt64(value, path, name === "uint64");
+      return JSON.stringify(value.toString(10));
     case "size":
       if (typeof value !== "bigint" || value < 0n) invalid(path, `expected ${name}`);
       return JSON.stringify(value.toString(10));
@@ -1056,11 +1059,15 @@ function decodePrimitive(value: unknown, name: string, path: string): unknown {
       if (typeof value !== "boolean") invalid(path, "expected bool");
       return value;
     case "int":
-    case "int64":
       return decodeBigInt(value, path, false);
-    case "uint64":
     case "size":
       return decodeBigInt(value, path, true);
+    case "int64":
+    case "uint64": {
+      const decoded = decodeBigInt(value, path, name === "uint64");
+      checkBigInt64(decoded, path, name === "uint64");
+      return decoded;
+    }
     case "int32":
       return decodeBoundedInteger(value, path, -2147483648, 2147483647);
     case "uint32":
@@ -1125,10 +1132,16 @@ function decodeBoundedInteger(value: unknown, path: string, minimum: number, max
 }
 
 function decodeBigInt(value: unknown, path: string, unsigned: boolean): bigint {
-  if (typeof value !== "string" || !/^-?(?:0|[1-9][0-9]*)$/.test(value)) invalid(path, "expected canonical integer string");
+  if (typeof value !== "string" || !/^-?(?:0|[1-9][0-9]*)$/.test(value) || value === "-0") invalid(path, "expected canonical integer string");
   const decoded = BigInt(value);
   if (unsigned && decoded < 0n) invalid(path, "unsigned integer is negative");
   return decoded;
+}
+
+function checkBigInt64(value: bigint, path: string, unsigned: boolean): void {
+  const minimum = unsigned ? 0n : -9223372036854775808n;
+  const maximum = unsigned ? 18446744073709551615n : 9223372036854775807n;
+  if (value < minimum || value > maximum) invalid(path, "integer is out of range");
 }
 
 function encodeExactJSON(value: JsonValue, path: string): string {

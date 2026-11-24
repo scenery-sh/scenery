@@ -25,16 +25,17 @@ type workerHost struct {
 	services map[string]WorkerServicePlan
 	scopes   workerabi.Scopes
 	codec    WorkerValueCodec
+	config   map[string]*ConfigSnapshot
 }
 
-func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec WorkerValueCodec) error {
+func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec WorkerValueCodec, snapshots map[string]*ConfigSnapshot) error {
 	if len(plans) == 0 {
 		return nil
 	}
 	if codec == nil {
 		return fmt.Errorf("worker host requires the manifest value codec")
 	}
-	workers := &workerHost{host: h, services: make(map[string]WorkerServicePlan, len(plans)), codec: codec}
+	workers := &workerHost{host: h, services: make(map[string]WorkerServicePlan, len(plans)), codec: codec, config: snapshots}
 	for _, plan := range plans {
 		if plan.Address == "" || plan.Process == "" || plan.Module == "" || plan.Name == "" {
 			return fmt.Errorf("worker host contains an incomplete service plan")
@@ -186,6 +187,9 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 		if delivery, ok := errors.AsType[*workerabi.DeliveryError](err); ok {
 			return workerabi.Result{}, workerUnavailable(delivery.Delivery, err)
 		}
+		if errors.Is(err, workerabi.ErrImplementation) {
+			return workerabi.Result{}, ContractSystemError(err)
+		}
 		return workerabi.Result{}, err
 	}
 	if err := workers.validateOutcome(operation, &result); err != nil {
@@ -241,6 +245,18 @@ func (workers *workerHost) serveCapability(service string, w http.ResponseWriter
 		workers.serveBindingCapability(plan, w, request, false)
 	case workerabi.CapabilityPrefix + "durable/enqueue":
 		workers.serveBindingCapability(plan, w, request, true)
+	case workerabi.CapabilityPrefix + "config/snapshot":
+		if request.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		snapshot := workers.config[service]
+		if snapshot == nil {
+			http.NotFound(w, request)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeProcessHostJSON(w, http.StatusOK, snapshot)
 	default:
 		http.NotFound(w, request)
 	}

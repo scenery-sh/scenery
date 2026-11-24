@@ -96,6 +96,8 @@ func (watch *workerWatcher) refresh(ctx context.Context, expected string) error 
 	if err != nil {
 		return err
 	}
+	bundle.config = watch.bundle.config
+	bundle.setWorkerConfig()
 	current, err := workerSourceFingerprint(watch.root)
 	if err != nil || current != expected {
 		return errors.Join(fmt.Errorf("application changed while workers were compiling"), err)

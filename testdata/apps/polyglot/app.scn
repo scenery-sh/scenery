@@ -48,9 +48,14 @@ execution_engine "jobs" {
   require_capabilities = ["execution.durable/v1"]
 }
 
+authentication "session" {
+  provider = std.provider.standard_auth
+  scheme   = "session"
+}
+
 module "pricing" {
   source = "./pricing"
-  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal, jobs = execution_engine.jobs }
+  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal, jobs = execution_engine.jobs, session = authentication.session }
 }
 
 
@@ -80,6 +85,7 @@ module "consumer" {
   inputs = {
     gateway = http_gateway.public_api
     quote = module.pricing.quote_internal
+    session = authentication.session
   }
 }
 

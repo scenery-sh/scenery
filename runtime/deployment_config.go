@@ -54,6 +54,20 @@ var configSnapshotState struct {
 	err      error
 }
 
+// InstallWorkerHostConfig supplies a validated snapshot directly to an embedded
+// Host. A standalone Host uses the inherited private descriptor instead.
+func InstallWorkerHostConfig(snapshot *ConfigSnapshot) error {
+	installed := false
+	configSnapshotState.once.Do(func() {
+		configSnapshotState.snapshot = snapshot
+		installed = true
+	})
+	if !installed {
+		return errors.New("runtime: configuration was already initialized")
+	}
+	return nil
+}
+
 // LoadConfigSnapshot decodes this process's snapshot once and closes its
 // descriptor, so no descendant inherits it. A process started without one has
 // an empty configuration: required inputs then fail when resolved.

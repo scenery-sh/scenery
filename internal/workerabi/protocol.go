@@ -2,6 +2,7 @@ package workerabi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -53,6 +54,9 @@ const (
 	NotSent = "not_sent"
 	Unknown = "unknown"
 )
+
+// ErrImplementation means an attested worker reported a failed handler.
+var ErrImplementation = errors.New("worker implementation failed")
 
 // DeliveryError reports an invocation for which no attested outcome arrived.
 type DeliveryError struct {

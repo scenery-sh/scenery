@@ -4,6 +4,7 @@ package "consumer" {
 
 input "gateway" { type = resource_ref("http_gateway") }
 input "quote" { type = resource_ref("binding") }
+input "session" { type = resource_ref("authentication") }
 
 service "consumer" {
   runtime = "go"
@@ -18,6 +19,11 @@ record "delegate_input" {
 record "delegate_result" {
   field "amount" { type = int64 }
   field "vendor" { type = string }
+  field "principal" { type = optional(string) }
+  field "tenant" { type = optional(string) }
+  field "trace_id" { type = optional(string) }
+  field "deadline" { type = optional(string) }
+  field "currency" { type = optional(string) }
 }
 
 operation "delegate" {
@@ -25,6 +31,7 @@ operation "delegate" {
   input   = record.delegate_input
   handler { method = "Delegate" }
   result "ok" { type = record.delegate_result }
+  error "negative_amount" { type = std.type.problem }
 }
 
 execution "delegate_direct" {
@@ -56,6 +63,50 @@ binding "delegate_http" {
       body {
         codec = "json"
         from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+binding "delegate_session_http" {
+  gateway        = var.gateway
+  operation      = operation.delegate
+  execution      = execution.delegate_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/delegate/session"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.delegate.input
+    }
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
       }
     }
   }

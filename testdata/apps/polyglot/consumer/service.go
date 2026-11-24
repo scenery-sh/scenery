@@ -25,9 +25,15 @@ func (s *Service) Delegate(ctx context.Context, input contract.DelegateInput) (c
 	if err != nil {
 		return nil, err
 	}
-	quote, ok := reply.(contract.QuoteClientOk)
-	if !ok {
+	switch quote := reply.(type) {
+	case contract.QuoteClientOk:
+		return contract.DelegateOk{Value: contract.DelegateResult{
+			Amount: quote.Value.Amount, Vendor: quote.Value.Vendor, Principal: quote.Value.Principal,
+			Tenant: quote.Value.Tenant, TraceId: quote.Value.TraceId, Deadline: quote.Value.Deadline, Currency: quote.Value.Currency,
+		}}, nil
+	case contract.QuoteClientNegativeAmount:
+		return contract.DelegateNegativeAmount{Problem: quote.Problem}, nil
+	default:
 		return nil, fmt.Errorf("quote returned %T", reply)
 	}
-	return contract.DelegateOk{Value: contract.DelegateResult{Amount: quote.Value.Amount, Vendor: quote.Value.Vendor}}, nil
 }

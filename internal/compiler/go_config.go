@@ -12,7 +12,8 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 	var diagnostics []Diagnostic
 	for index := range result {
 		service := &result[index]
-		if service.Kind != "scenery.service" || stringValue(service.Spec["runtime"]) != "go" {
+		runtime := stringValue(service.Spec["runtime"])
+		if service.Kind != "scenery.service" || (runtime != "go" && runtime != "rust") {
 			continue
 		}
 		config, _ := service.Spec["config"].(map[string]any)

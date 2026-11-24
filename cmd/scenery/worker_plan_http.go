@@ -64,7 +64,9 @@ func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, pol
 	policy.MaxResponseBytes = workerInt(responseLimits["body_bytes"])
 	policy.CompressionAlgorithms = workerStrings(responseLimits["compression_algorithms"])
 	policy.CompressionThreshold = workerInt(responseLimits["compression_threshold_bytes"])
-	policy.TotalInvocationTimeoutNanos = workerDuration(timeouts["total_invocation"])
+	if timeout := workerDuration(timeouts["total_invocation"]); timeout > 0 && (policy.TotalInvocationTimeoutNanos == 0 || timeout < policy.TotalInvocationTimeoutNanos) {
+		policy.TotalInvocationTimeoutNanos = timeout
+	}
 	policy.ReadTimeoutNanos = workerDuration(timeouts["read"])
 	policy.WriteTimeoutNanos = workerDuration(timeouts["write"])
 	policy.IdleTimeoutNanos = workerDuration(timeouts["idle"])

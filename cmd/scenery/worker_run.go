@@ -23,7 +23,9 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/staticfrontend"
 	"scenery.sh/internal/workerabi"
 	workerruntime "scenery.sh/runtime"
@@ -139,6 +141,10 @@ func configureWorkerDevelopmentDatabase(root string, cfg app.Config, requirement
 func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, onReady func(), watchRoot, initialFingerprint string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	workerruntime.SetAppConfig(workerruntime.AppConfig{Name: bundle.Host.Name, ListenAddr: listen})
+	if err := bundle.configureRuntime(watchRoot != ""); err != nil {
+		return err
+	}
 	directory, err := os.MkdirTemp("/tmp", "app-workers-")
 	if err != nil {
 		return err
@@ -222,9 +228,10 @@ func startForeignWorker(ctx context.Context, state, capabilities, link, number s
 		return nil, fmt.Errorf("worker %s executable digest changed", program.Service)
 	}
 	process := &workerProcess{program: program, socket: filepath.Join(state, "w"+number+".sock"), token: workerRandomToken(), done: make(chan struct{})}
-	env := envWithoutKeys(envpolicy.Environ(), "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR", "SCENERY_PROCESS_LINK")
+	env := envWithoutKeys(minimalAppProcessEnv(envpolicy.Environ()), "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR", "SCENERY_PROCESS_LINK", workerruntime.ConfigSnapshotFDEnv)
 	var argv []string
 	if program.Runtime == "rust" {
+		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv)
 		config := filepath.Join(state, "w"+number+".json")
 		launch := workerLaunch{WorkerSocket: process.socket, HostSocket: capabilities, Token: process.token, Identity: process.workerIdentity()}
 		if err := writePrivateWorkerJSON(config, launch); err != nil {
@@ -237,9 +244,23 @@ func startForeignWorker(ctx context.Context, state, capabilities, link, number s
 	process.cmd = exec.Command(program.Binary, argv...)
 	process.cmd.Env = env
 	process.cmd.Stdout, process.cmd.Stderr = os.Stderr, os.Stderr
-	if err := process.cmd.Start(); err != nil {
+	var privateInput *devprocess.PrivateInput
+	if program.Runtime == "go" && program.config != nil {
+		data, err := json.Marshal(program.config)
+		if err != nil {
+			return nil, err
+		}
+		privateInput = &devprocess.PrivateInput{Env: workerruntime.ConfigSnapshotFDEnv, Data: data}
+	}
+	started, abandon, err := devprocess.AttachPrivateInput(process.cmd, privateInput)
+	if err != nil {
 		return nil, err
 	}
+	if err := process.cmd.Start(); err != nil {
+		abandon()
+		return nil, err
+	}
+	started()
 	go func() { _ = process.cmd.Wait(); close(process.done) }()
 	client := workerabi.NewClient(process.socket, process.token, process.workerIdentity())
 	defer client.Close()

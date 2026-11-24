@@ -108,6 +108,10 @@ func (c *Client) Invoke(ctx context.Context, invocation Invocation) (Result, err
 		}
 		return Result{}, &DeliveryError{Delivery: delivery, Cause: err}
 	}
+	if response.StatusCode == http.StatusInternalServerError && c.verifyIdentity(response) == nil {
+		_ = response.Body.Close()
+		return Result{}, ErrImplementation
+	}
 	result, err := c.readInvocationResult(response)
 	if result.Stream == nil {
 		_ = response.Body.Close()
@@ -141,12 +145,19 @@ func (c *Client) request(ctx context.Context, method, path string, body []byte) 
 }
 
 func (c *Client) verifyResponse(response *http.Response) error {
-	if response.Header.Get(ContractHeader) != c.identity.ContractRevision ||
-		response.Header.Get(ImplementationHeader) != c.identity.ImplementationRevision {
-		return fmt.Errorf("worker response identity mismatch")
+	if err := c.verifyIdentity(response); err != nil {
+		return err
 	}
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("worker returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) verifyIdentity(response *http.Response) error {
+	if response.Header.Get(ContractHeader) != c.identity.ContractRevision ||
+		response.Header.Get(ImplementationHeader) != c.identity.ImplementationRevision {
+		return fmt.Errorf("worker response identity mismatch")
 	}
 	return nil
 }

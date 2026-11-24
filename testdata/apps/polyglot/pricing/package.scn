@@ -9,6 +9,12 @@ input "gateway" {
 }
 
 input "native" { type = resource_ref("binding") }
+input "session" { type = resource_ref("authentication") }
+input "currency" {
+  type    = string
+  phase   = "deployment"
+  default = "EUR"
+}
 input "jobs" {
   type     = resource_ref("execution_engine")
   phase    = "deployment"
@@ -21,6 +27,7 @@ service "pricing" {
     constructor = "NewService"
   }
   client "native" { binding = var.native }
+  config { currency = var.currency }
 }
 
 record "quote_input" {
@@ -33,6 +40,11 @@ record "quote_result" {
   field "vendor" { type = string }
   field "amount" { type = int64 }
   field "note" { type = optional(nullable(string)) }
+  field "principal" { type = optional(string) }
+  field "tenant" { type = optional(string) }
+  field "trace_id" { type = optional(string) }
+  field "deadline" { type = optional(string) }
+  field "currency" { type = optional(string) }
 }
 
 operation "quote" {
@@ -40,6 +52,7 @@ operation "quote" {
   input   = record.quote_input
   handler { method = "Quote" }
   result "ok" { type = record.quote_result }
+  error "negative_amount" { type = std.type.problem }
 }
 
 execution "quote_direct" {
@@ -76,9 +89,55 @@ binding "quote_http" {
         from  = result.ok
       }
     }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
   }
 }
 
+binding "quote_session_http" {
+  gateway        = var.gateway
+  operation      = operation.quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/quote/session"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.quote.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
 
 binding "quote_internal" {
   operation      = operation.quote
