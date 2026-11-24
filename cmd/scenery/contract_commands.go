@@ -21,7 +21,6 @@ type contractOptions struct {
 	AppRoot        string
 	Output         string
 	View           string
-	Module         string
 	Check          bool
 	NonInteractive bool
 	Quiet          bool
@@ -133,7 +132,6 @@ func parseContractOptions(name string, args []string) (contractOptions, []string
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Output, "o", opts.Output, "")
 	flags.StringVar(&opts.View, "view", opts.View, "")
-	flags.StringVar(&opts.Module, "module", "", "")
 	flags.BoolVar(&opts.Check, "check", false, "")
 	flags.BoolVar(&opts.NonInteractive, "non-interactive", false, "")
 	flags.BoolVar(&opts.Quiet, "quiet", false, "")
@@ -210,8 +208,7 @@ func runContractCheck(stdout io.Writer, args []string) error {
 		}
 	}
 	// check is a validation gate: it reports statuses, revisions, and a
-	// compact manifest summary. The full graph stays on `scenery compile`
-	// and `list`.
+	// compact manifest summary. The full graph stays on `scenery compile`.
 	data := map[string]any{"contract_status": result.ContractStatus, "implementation_status": result.ImplementationStatus, "manifest_summary": contractManifestSummary(result.Manifest), "http_surface_revision": result.HTTPSurfaceRevisions, "openapi_revision": result.OpenAPIRevisions}
 	if result.PartialGraph != nil {
 		data["partial_graph"] = result.PartialGraph
@@ -258,33 +255,6 @@ func runContractCompile(stdout io.Writer, args []string) error {
 		data["partial_graph"] = result.PartialGraph
 	}
 	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, data)
-}
-
-func runContractList(stdout io.Writer, args []string) error {
-	opts, positionals, err := parseContractOptions("list", args)
-	if err != nil {
-		return err
-	}
-	if len(positionals) != 1 {
-		return usageErrorf("usage: scenery list <kind>")
-	}
-	result, err := compileContractRoot(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	manifest, err := result.ManifestForView(opts.View)
-	if err != nil {
-		return err
-	}
-	var resources []graph.Resource
-	if manifest != nil {
-		for _, resource := range manifest.Resources {
-			if resourceKindMatches(resource, positionals[0]) && (opts.Module == "" || resource.Module == opts.Module) {
-				resources = append(resources, resource)
-			}
-		}
-	}
-	return writeSourceResult(stdout, opts.Output, opts.Quiet, result, map[string]any{"view": opts.View, "resources": resources})
 }
 
 func runContractSchema(stdout io.Writer, args []string) error {

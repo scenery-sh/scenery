@@ -22,7 +22,7 @@
       "const": "scenery.config.change"
     },
     "schema_revision": {
-      "const": "sha256:d30fbfac6fdf016564149921b12c01773f0792df5ca4061597ba0a0d8264d774"
+      "const": "sha256:02c8d5305d3a5c7fed8657e41e0722f5245b0dbab69666e371e6badc58d9a71c"
     },
     "app_id": {
       "type": "string",
@@ -39,8 +39,7 @@
     "operation": {
       "enum": [
         "set",
-        "unset",
-        "migrate_connections"
+        "unset"
       ]
     },
     "changed": {

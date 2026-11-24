@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devtelemetry"
 	"scenery.sh/internal/doctor"
 	"scenery.sh/internal/feature"
 	"scenery.sh/internal/machine"
@@ -235,7 +236,7 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "telemetry", schemaRel: "docs/schemas/scenery.telemetry.schema.json", payload: telemetryResponse{
 			cliPayloadIdentity: newCLIPayloadIdentity(cliTelemetryPayloadKind),
 			Query:              telemetryQuery{Apps: []string{}, Commands: []string{}, Measurements: []string{}, Limit: defaultTelemetryLimit},
-			Apps:               []telemetryAppStats{}, Commands: []telemetryCommandStats{}, Measurements: []telemetryMeasurementStats{}, Records: []cliTelemetryRecord{}, Warnings: []string{},
+			Apps:               []telemetryAppStats{}, Commands: []telemetryCommandStats{}, Measurements: []telemetryMeasurementStats{}, Records: []cliTelemetryRecord{}, Events: []devtelemetry.Event{}, Warnings: []string{},
 		}},
 		{name: "harness.artifact", schemaRel: "docs/schemas/scenery.harness.artifact.schema.json", payload: artifactEvidencePayload},
 		{name: "harness.self", schemaRel: "docs/schemas/scenery.harness.self.schema.json", payload: resp},

@@ -15,6 +15,7 @@ func (workers *workerHost) registerDurable(service WorkerServicePlan, execution 
 		return fmt.Errorf("worker durable execution has no declared operation")
 	}
 	registration := execution.Registration
+	registration.workerRuntime, registration.workerModule = service.Runtime, service.Module
 	registration.Handler = func(ctx context.Context, raw []byte) ([]byte, error) {
 		input, err := workers.codec(operation.Input, raw)
 		if err != nil {

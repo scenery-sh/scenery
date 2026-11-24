@@ -20,14 +20,16 @@ import (
 type requestStateKey struct{}
 
 type requestState struct {
-	started      time.Time
-	request      shared.Request
-	auth         AuthInfo
-	invocation   runtimeapi.Invocation
-	trace        *traceSpan
-	startLogged  bool
-	logsEnabled  bool
-	traceEnabled bool
+	workerRuntime string
+	workerModule  string
+	started       time.Time
+	request       shared.Request
+	auth          AuthInfo
+	invocation    runtimeapi.Invocation
+	trace         *traceSpan
+	startLogged   bool
+	logsEnabled   bool
+	traceEnabled  bool
 	// processGeneration pins internal calls of a request forwarded by a
 	// process host to the application generation it entered; zero is unpinned.
 	processGeneration uint64
@@ -191,6 +193,7 @@ func newExternalState(ep *Endpoint, req *http.Request, path shared.PathParams, p
 	}
 	generation, _ := req.Context().Value(processGenerationKey{}).(uint64)
 	return &requestState{
+		workerRuntime: ep.workerRuntime, workerModule: ep.workerModule,
 		started:           started,
 		request:           request,
 		auth:              auth,

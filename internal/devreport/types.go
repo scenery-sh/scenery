@@ -21,7 +21,16 @@ type ReportBatch struct {
 	Dropped uint64           `json:"dropped,omitempty"`
 }
 
+type InvocationCorrelation struct {
+	InvocationID string `json:"invocation_id,omitempty"`
+	ExecutionID  string `json:"execution_id,omitempty"`
+	Module       string `json:"module,omitempty"`
+	Runtime      string `json:"runtime,omitempty"`
+}
+
 type TraceSummary struct {
+	InvocationCorrelation
+	ErrorCode      string    `json:"error_code,omitempty"`
 	TraceID        string    `json:"trace_id"`
 	SpanID         string    `json:"span_id"`
 	SessionID      string    `json:"session_id,omitempty"`
@@ -65,17 +74,22 @@ type TraceEvent struct {
 }
 
 type LogEvent struct {
-	AppID       string         `json:"app_id"`
-	SessionID   string         `json:"session_id,omitempty"`
-	AppRootHash string         `json:"app_root_hash,omitempty"`
-	Branch      string         `json:"branch,omitempty"`
-	Worktree    string         `json:"worktree,omitempty"`
-	TraceID     string         `json:"trace_id,omitempty"`
-	SpanID      string         `json:"span_id,omitempty"`
-	Level       string         `json:"level"`
-	Message     string         `json:"message"`
-	Attrs       map[string]any `json:"attrs,omitempty"`
-	Timestamp   time.Time      `json:"timestamp"`
+	InvocationCorrelation
+	Generation   uint64         `json:"generation,omitempty"`
+	ParentSpanID string         `json:"parent_span_id,omitempty"`
+	Service      string         `json:"service,omitempty"`
+	Operation    string         `json:"operation,omitempty"`
+	AppID        string         `json:"app_id"`
+	SessionID    string         `json:"session_id,omitempty"`
+	AppRootHash  string         `json:"app_root_hash,omitempty"`
+	Branch       string         `json:"branch,omitempty"`
+	Worktree     string         `json:"worktree,omitempty"`
+	TraceID      string         `json:"trace_id,omitempty"`
+	SpanID       string         `json:"span_id,omitempty"`
+	Level        string         `json:"level"`
+	Message      string         `json:"message"`
+	Attrs        map[string]any `json:"attrs,omitempty"`
+	Timestamp    time.Time      `json:"timestamp"`
 }
 
 // InternalFailure is the cause behind a report token an application process

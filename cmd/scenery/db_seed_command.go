@@ -57,7 +57,7 @@ func discoverDBSeedCommandPlans(appRoot string, cfg appcfg.Config, requirements 
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// Git never carries an ignored input into a linked checkout.
-			err = fmt.Errorf("%w; a linked Git worktree receives declared Git-ignored inputs from the main checkout with `scenery worktree prepare`", err)
+			err = fmt.Errorf("%w; restore the declared seed inputs in this checkout", err)
 		}
 		return nil, &codedCLIError{err: err, code: 3}
 	}

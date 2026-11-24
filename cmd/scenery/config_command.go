@@ -58,7 +58,7 @@ type configMutationRequest struct {
 
 func configCommand(args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("usage: scenery config show|set|unset|migrate-connections")
+		return usageErrorf("usage: scenery config show|set|unset")
 	}
 	if err := flagBeforeWord(args, "a config subcommand"); err != nil {
 		return err
@@ -70,8 +70,6 @@ func configCommand(args []string) error {
 		return configSetCommand(os.Stdout, args[1:])
 	case "unset":
 		return configUnsetCommand(os.Stdout, args[1:])
-	case "migrate-connections":
-		return configMigrateConnectionsCommand(os.Stdout, args[1:])
 	default:
 		return usageErrorf("unknown config command %q; use show, set or unset", args[0])
 	}
@@ -425,26 +423,6 @@ func (s *configSession) applyMutation(stdout io.Writer, opts configOptions, requ
 // secret is created as a new immutable version before the document
 // references it; a failed publication leaves only an orphan version.
 func applyLocalConfigMutation(ctx context.Context, store *appconfig.Store, environment string, request configMutationRequest, backend func() (appconfig.SecretBackend, error)) (appconfig.MutationResult, error) {
-	if request.Operation == "migrate_connections" {
-		secrets, err := backend()
-		if err != nil {
-			return appconfig.MutationResult{}, unavailableErrorf("%v", err)
-		}
-		result, err := store.MigrateGoogleConnectionCredentials(ctx, environment, request.ExpectRevision, secrets)
-		if errors.Is(err, appconfig.ErrRevisionConflict) {
-			return result, &codedCLIError{err: fmt.Errorf("revision_conflict: %w", err), code: 3}
-		}
-		if errors.Is(err, appconfig.ErrSecretBackendUnavailable) {
-			return result, unavailableErrorf("%v", err)
-		}
-		if err != nil {
-			return result, preconditionErrorf("migrate %s connection configuration: %v", environment, err)
-		}
-		if result.Changed {
-			pruneConfigHistory(ctx, store, environment, backend)
-		}
-		return result, nil
-	}
 	mutation := appconfig.Mutation{Key: request.Key, ExpectRevision: request.ExpectRevision}
 	switch {
 	case request.Operation == "unset":

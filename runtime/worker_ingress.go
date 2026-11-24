@@ -23,6 +23,9 @@ func (w *workerIngressWriter) Unwrap() http.ResponseWriter { return w.ResponseWr
 
 func (w *workerIngressWriter) WriteHeader(status int) {
 	w.neutralize()
+	if status < 200 && status != http.StatusSwitchingProtocols {
+		w.started = false
+	}
 	w.ResponseWriter.WriteHeader(status)
 }
 

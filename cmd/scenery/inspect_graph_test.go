@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	inspectdata "scenery.sh/internal/inspect"
@@ -32,29 +31,6 @@ func TestContractCommandsRejectUnsupportedOutputBeforeWork(t *testing.T) {
 				t.Fatalf("error = %v, want unsupported output", err)
 			}
 		})
-	}
-}
-
-func TestContractInspectDurableProjectsMergedExecution(t *testing.T) {
-	t.Parallel()
-
-	result := &compiler.Result{Root: t.TempDir(), Manifest: &graph.Manifest{Resources: []graph.Resource{
-		{Address: "house/service/house", Module: "house", Kind: "scenery.service", Name: "house", Spec: map[string]any{}},
-		{Address: "house/operation/process", Module: "house", Kind: "scenery.operation", Name: "process", Spec: map[string]any{
-			"service": map[string]any{"$ref": "house/service/house"}, "input": map[string]any{"$ref": "record.input"},
-			"result": map[string]any{"name": "done", "type": map[string]any{"$ref": "record.output"}},
-		}},
-		{Address: "house/execution/process", Module: "house", Kind: "scenery.execution", Name: "process", Spec: map[string]any{
-			"operation": map[string]any{"$ref": "house/operation/process"}, "mode": "durable", "external_name": "ProcessScene",
-		}},
-	}}}
-	response := buildInspectDurableResponse(result.Root, appcfg.Config{Name: "test"}, result)
-	if response.Durable.TaskCount != 1 || len(response.Declarations) != 1 {
-		t.Fatalf("durable response = %#v", response)
-	}
-	declaration := response.Declarations[0]
-	if declaration.Name != "ProcessScene" || declaration.Service != "house" || declaration.Input != "record.input" || declaration.Output != "record.output" {
-		t.Fatalf("durable declaration = %#v", declaration)
 	}
 }
 
@@ -166,9 +142,9 @@ func TestInspectInvalidGraphSurfacesCompilerDiagnostics(t *testing.T) {
 	}
 
 	var output strings.Builder
-	runErr := runSceneryInspect([]string{"endpoints", "--app-root", root, "-o", "json"}, &output)
+	runErr := runSceneryInspect([]string{"routes", "--app-root", root, "-o", "json"}, &output)
 	if runErr == nil {
-		t.Fatal("inspect endpoints succeeded on an invalid graph")
+		t.Fatal("inspect routes succeeded on an invalid graph")
 	}
 	if _, silent := errors.AsType[*silentCLIError](runErr); !silent {
 		t.Fatalf("error = %T (%v), want *silentCLIError so the CLI does not re-render it as SCN9000", runErr, runErr)

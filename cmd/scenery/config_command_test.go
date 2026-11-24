@@ -122,8 +122,6 @@ func (e *configTestEnv) run(t *testing.T, stdin string, args ...string) (string,
 		err = configSetCommand(&stdout, args[1:])
 	case "unset":
 		err = configUnsetCommand(&stdout, args[1:])
-	case "migrate-connections":
-		err = configMigrateConnectionsCommand(&stdout, args[1:])
 	}
 	return stdout.String(), err
 }

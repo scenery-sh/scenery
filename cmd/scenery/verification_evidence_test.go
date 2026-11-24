@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"io"
@@ -79,57 +78,6 @@ func TestValidationArchiveKeepsPlanAndHistoryBeforeLatest(t *testing.T) {
 	}
 	if err := writeValidationResult(root, &result); err == nil {
 		t.Fatal("run overwrite accepted")
-	}
-}
-
-func TestTelemetryBundleRetainsTransitiveEvidenceAndMissingReasons(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	write := func(path, body string) {
-		t.Helper()
-		path = filepath.Join(root, path)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(".scenery/harness/runs/one/self.json", `{"evidence":{"artifacts":[{"path":".scenery/harness/artifacts/one/cases.json"}]},"artifacts":[{"path":".scenery/harness/self-latest.json"}]}`)
-	write(".scenery/harness/artifacts/one/cases.json", `{"artifacts":[{"path":".scenery/harness/artifacts/one/raw.tap"}]}`)
-	write(".scenery/harness/artifacts/one/raw.tap", "TAP version 13\n1..1\nok 1 - works\n")
-	opts := telemetryBundleOptions{Root: root, Output: filepath.Join(root, "complete.zip"), Limit: 10}
-	result, err := writeTelemetryBundle(opts)
-	if err != nil || !result.OK || len(result.Files) != 3 {
-		t.Fatalf("bundle=%+v err=%v", result, err)
-	}
-	archive, err := zip.OpenReader(opts.Output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = archive.Close() }()
-	if len(archive.File) != 4 {
-		t.Fatalf("archive files=%d", len(archive.File))
-	}
-	write(".scenery/harness/browser/runs/one/result.json", `{"artifacts":[{"path":".scenery/harness/browser/runs/one/raw.log"}]}`)
-	write(".scenery/harness/browser/runs/one/raw.log", "matching browser generation\n")
-	opts.Output = filepath.Join(root, "selected.zip")
-	opts.Include = []string{".scenery/harness/browser/runs/one/result.json"}
-	result, err = writeTelemetryBundle(opts)
-	if err != nil || !result.OK || len(result.Files) != 5 {
-		t.Fatalf("explicit JSON selection lost its raw reference: %+v %v", result, err)
-	}
-	if err := os.Remove(filepath.Join(root, ".scenery/harness/artifacts/one/raw.tap")); err != nil {
-		t.Fatal(err)
-	}
-	opts.Output = filepath.Join(root, "partial.zip")
-	opts.Include = nil
-	result, err = writeTelemetryBundle(opts)
-	if err != nil || result.OK || result.Files[len(result.Files)-1].MissingReason == "" {
-		t.Fatalf("missing evidence was hidden: %+v %v", result, err)
-	}
-	if staging, err := filepath.Glob(filepath.Join(root, ".telemetry-export-*.zip")); err != nil || len(staging) != 0 {
-		t.Fatalf("completed exports left staging files: %v %v", staging, err)
 	}
 }
 

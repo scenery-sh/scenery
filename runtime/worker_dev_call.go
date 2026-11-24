@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/contract"
 	"scenery.sh/internal/workerabi"
 )
 
@@ -70,7 +72,7 @@ func (h *processHost) serveWorkerDevBinding(w http.ResponseWriter, req *http.Req
 	}
 	ctx := context.WithValue(req.Context(), processHostGenerationKey{}, generation)
 	ctx = context.WithValue(ctx, processGenerationKey{}, generation.number)
-	endpoint := &Endpoint{Service: module, Name: address, Access: Private, ContractPolicy: registration.Policy}
+	endpoint := &Endpoint{Service: module, Name: address, Access: Private, ContractPolicy: registration.Policy, workerRuntime: registration.workerRuntime, workerModule: registration.Package}
 	if req.Header.Get("Authorization") != "" {
 		endpoint.Access = Auth
 	}
@@ -104,12 +106,16 @@ func (h *processHost) serveWorkerDevBinding(w http.ResponseWriter, req *http.Req
 		return
 	}
 	if !json.Valid(input) {
+		err = errors.New("invalid binding input")
 		status = http.StatusBadRequest
 		http.Error(w, "invalid binding input", status)
 		return
 	}
 	encoded, err := InvokeContractBindingJSON(ctx, address, module, input)
 	if err == nil {
+		if kind, name, _, decodeErr := contract.DecodeContractOutcomeEnvelope(encoded); decodeErr == nil && kind == "error" {
+			err = traceCodedError(name)
+		}
 		if pid := h.devBindingWorkerPID(generation, address, module); pid != 0 {
 			w.Header().Set("X-App-Worker-Pid", strconv.Itoa(pid))
 		}

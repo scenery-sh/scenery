@@ -16,12 +16,15 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"scenery.sh/internal/devtelemetry"
 )
 
 type workerWatcher struct {
 	directory, capabilities, token string
 	dev                            *workerDevelopment
 	devControl                     *workerDevControl
+	app                            *devtelemetry.App
+	faults                         map[*workerProcess]struct{}
 	exits                          chan struct{}
 	client                         *http.Client
 	bundle                         workerBundle
@@ -37,6 +40,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 		stopWorkers(watch.all)
 	}()
 	watch.exits = make(chan struct{}, 1)
+	watch.faults = make(map[*workerProcess]struct{})
 	for _, process := range watch.active {
 		watch.observeExit(ctx, process)
 	}
@@ -133,7 +137,7 @@ func (watch *workerWatcher) observeExit(ctx context.Context, process *workerProc
 }
 
 func (watch *workerWatcher) restartStopped(ctx context.Context, retry *time.Timer) {
-	if watch.hasStoppedWorker() {
+	if watch.noteStoppedWorkers() {
 		if err := watch.replace(ctx, watch.bundle, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
 			retry.Reset(time.Second)
@@ -143,15 +147,21 @@ func (watch *workerWatcher) restartStopped(ctx context.Context, retry *time.Time
 	}
 }
 
-func (watch *workerWatcher) hasStoppedWorker() bool {
+func (watch *workerWatcher) noteStoppedWorkers() bool {
+	stopped := false
 	for _, process := range watch.active {
 		select {
 		case <-process.done:
-			return true
+			stopped = true
+			if _, reported := watch.faults[process]; watch.app != nil && !reported {
+				watch.faults[process] = struct{}{}
+				module, _, _ := strings.Cut(process.program.Service, "/service/")
+				recordDevWorkerFault(watch.app, watch.generation, module, process.program.Runtime, process.cmd.ProcessState)
+			}
 		default:
 		}
 	}
-	return false
+	return stopped
 }
 
 var errWorkerInputsChanged = errors.New("application changed while workers were compiling")
@@ -183,6 +193,7 @@ type workerRebuildTiming struct {
 	GoMS           float64  `json:"go_ms"`
 	JSMS           float64  `json:"js_ms"`
 	CargoMS        float64  `json:"cargo_ms"`
+	LinkMS         float64  `json:"-"`
 	CompileMS      float64  `json:"compile_ms"`
 	ReadyMS        float64  `json:"ready_ms"`
 	TotalMS        float64  `json:"total_ms"`
@@ -198,8 +209,10 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 		return nil
 	}
 	started := time.Now()
+	edit := watch.dev.classify(paths)
 	timing := workerRebuildTiming{
-		DetectMS: workerMilliseconds(started.Sub(detected)), Rebuilt: []string{},
+		Declarations: edit.declarations,
+		DetectMS:     workerMilliseconds(started.Sub(detected)), Rebuilt: []string{},
 		RebuiltModules: []string{}, SkippedModules: []string{},
 	}
 	defer func() {
@@ -216,6 +229,21 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 		} else {
 			watch.devControl.publish(current, watch.bundle, watch.generation, &timing)
 		}
+		trigger := "body_only"
+		if edit.declarations || edit.cargoGraph {
+			trigger = "contract_or_config"
+		}
+		var code string
+		if returnErr != nil {
+			if diagnostic, ok := errors.AsType[*cliDiagnosticError](returnErr); ok {
+				code = diagnostic.diagnostic.Code
+			} else if timing.ReadyMS == 0 {
+				code = workerCheckDiagnostic(watch.dev.compiled, returnErr).Code
+			} else {
+				code = cliErrorDiagnostic(returnErr).Code
+			}
+		}
+		recordDevRebuild(watch.app, timing, trigger, code)
 		if data, err := json.Marshal(timing); err == nil {
 			fmt.Fprintf(os.Stderr, "worker rebuild %s\n", data)
 		}
@@ -252,6 +280,9 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 }
 
 func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, verify func() error) error {
+	if ctx.Err() == nil {
+		watch.noteStoppedWorkers()
+	}
 	next := make(map[string]*workerProcess, len(bundle.Programs))
 	watch.sequence++
 	started := make([]*workerProcess, len(bundle.Programs))
@@ -301,6 +332,7 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 	for name, process := range watch.active {
 		if next[name] != process {
 			retired = append(retired, process)
+			delete(watch.faults, process)
 		}
 	}
 	previous := watch.generation

@@ -38,7 +38,7 @@ func TestSQLCConcurrentSourceEditPublishesNothing(t *testing.T) {
 	assertSQLCStageClean(t, root)
 }
 
-func TestGeneratorInspectionRejectsConfigEditAfterPlanning(t *testing.T) {
+func TestGeneratorPlanRejectsConfigEditAfterPlanning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
@@ -46,7 +46,8 @@ func TestGeneratorInspectionRejectsConfigEditAfterPlanning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph, err := buildInspectGeneratorsResponseWithContract(root, appcfg.Config{Name: "demo"}, compiled)
+	plan, err := buildGenerateExecutionPlan(root, appcfg.Config{Name: "demo"}, true, generateOptions{Subject: "sqlc"})
+	graph := plan.Graph
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestGeneratorInspectionRejectsConfigEditAfterPlanning(t *testing.T) {
 	}
 }
 
-func TestGeneratorInspectionRejectsConfigRemovalAfterPlanning(t *testing.T) {
+func TestGeneratorPlanRejectsConfigRemovalAfterPlanning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
@@ -71,7 +72,8 @@ func TestGeneratorInspectionRejectsConfigRemovalAfterPlanning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph, err := buildInspectGeneratorsResponseWithContract(root, appcfg.Config{Name: "demo"}, compiled)
+	plan, err := buildGenerateExecutionPlan(root, appcfg.Config{Name: "demo"}, true, generateOptions{Subject: "sqlc"})
+	graph := plan.Graph
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,7 @@ func TestSQLCPluginSelectionFollowsCodegenReferences(t *testing.T) {
 	}
 }
 
-func TestSQLCInspectionReportsEveryOutputRoot(t *testing.T) {
+func TestSQLCDryRunReportsEveryOutputRoot(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
@@ -132,43 +134,36 @@ sql:
 `)
 	want := []string{"auth/db/gen/go", "auth/db/gen/json", "auth/db/gen/process", "auth/db/gen/wasm"}
 	writeTestAppFile(t, root, "plugin.wasm", "inspection fixture")
-	for _, inspect := range []bool{false, true} {
-		var output strings.Builder
-		var err error
-		if inspect {
-			err = runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &output)
-		} else {
-			err = runGenerate(t.Context(), &output, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"})
+	var output strings.Builder
+	err := runGenerate(t.Context(), &output, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var graph generatorGraphResponse
+	if err := decodeCLIJSON([]byte(output.String()), &graph); err != nil {
+		t.Fatal(err)
+	}
+	var outputs []string
+	for _, generator := range graph.Generators {
+		if generator.ID == "sqlc" {
+			outputs = generator.Outputs
 		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		var graph generatorGraphResponse
-		if err := decodeCLIJSON([]byte(output.String()), &graph); err != nil {
-			t.Fatal(err)
-		}
-		var outputs []string
-		for _, generator := range graph.Generators {
-			if generator.ID == "sqlc" {
-				outputs = generator.Outputs
-			}
-		}
-		if !reflect.DeepEqual(outputs, want) {
-			t.Fatalf("reported roots = %+v", graph.Generators)
-		}
-		var roots []string
-		for _, node := range graph.Nodes {
-			if node.ID == "sqlc" {
-				for _, output := range node.Outputs {
-					if output.Kind == "output_root" {
-						roots = append(roots, output.Path)
-					}
+	}
+	if !reflect.DeepEqual(outputs, want) {
+		t.Fatalf("reported roots = %+v", graph.Generators)
+	}
+	var roots []string
+	for _, node := range graph.Nodes {
+		if node.ID == "sqlc" {
+			for _, output := range node.Outputs {
+				if output.Kind == "output_root" {
+					roots = append(roots, output.Path)
 				}
 			}
 		}
-		if !reflect.DeepEqual(roots, want) {
-			t.Fatalf("file producer roots = %v", roots)
-		}
+	}
+	if !reflect.DeepEqual(roots, want) {
+		t.Fatalf("file producer roots = %v", roots)
 	}
 }
 
@@ -235,7 +230,7 @@ func TestSQLCPlanningRejectsUnsupportedVersion(t *testing.T) {
 	}
 }
 
-func TestSQLCInspectionBindsAndRevalidatesToolInputs(t *testing.T) {
+func TestSQLCPlanBindsAndRevalidatesToolInputs(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
@@ -258,7 +253,8 @@ func TestSQLCInspectionBindsAndRevalidatesToolInputs(t *testing.T) {
 	}
 	build := func() generatorGraphResponse {
 		t.Helper()
-		graph, err := buildInspectGeneratorsResponseWithContract(root, appcfg.Config{Name: "demo"}, compiled)
+		plan, err := buildGenerateExecutionPlan(root, appcfg.Config{Name: "demo"}, true, generateOptions{Subject: "sqlc"})
+		graph := plan.Graph
 		if err != nil {
 			t.Fatal(err)
 		}

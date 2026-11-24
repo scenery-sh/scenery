@@ -14,11 +14,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"scenery.sh/internal/victoria"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/victoria"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devdash"
@@ -210,7 +211,13 @@ func printAgentCall(out io.Writer, jsonOutput bool, result agentCallResult) erro
 		}
 	}
 	if !result.OK {
-		return &silentCLIError{err: fmt.Errorf("call failed"), code: 3}
+		err := &silentCLIError{err: fmt.Errorf("call failed"), code: 3}
+		if result.FailureReport != nil {
+			err.err = &cliDiagnosticError{err: err.err, code: 3, diagnostic: graph.Diagnostic{
+				Code: result.FailureReport.Code, Severity: "error", Message: "call failed", ReportToken: result.FailureReport.ReportToken,
+			}}
+		}
+		return err
 	}
 	return nil
 }

@@ -20,10 +20,10 @@ func TestRepositoryCLIContractPublicBoundaryReportsFailure(t *testing.T) {
 		}
 		return json.Unmarshal([]byte(`{}`), target)
 	})
-	if len(commands) != 12 || commands[0] != "help -o json" || commands[2] != "check --app-root /fixture -o json" {
+	if len(commands) != 13 || commands[0] != "help -o json" || commands[2] != "check --app-root /fixture -o json" {
 		t.Fatalf("public calls = %v", commands)
 	}
-	if len(report.Commands) != 12 || !report.Commands[0].Usage || !report.Commands[0].Smoke {
+	if len(report.Commands) != 13 || !report.Commands[0].Usage || !report.Commands[0].Smoke {
 		t.Fatalf("version evidence = %+v", report)
 	}
 	check := report.Commands[1]

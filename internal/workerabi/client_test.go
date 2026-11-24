@@ -49,6 +49,10 @@ func TestClientClassifiesDeliveryAndAttestsIdentity(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			if call.Context.ContractRevision == "conflict" {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
 			if call.Context.ContractRevision == "cancel" {
 				entered <- struct{}{}
 				<-r.Context().Done()
@@ -75,6 +79,17 @@ func TestClientClassifiesDeliveryAndAttestsIdentity(t *testing.T) {
 		t.Fatal("accepted an invocation without an attested reply")
 	} else if failure, ok := errors.AsType[*DeliveryError](err); !ok || failure.Delivery != Unknown {
 		t.Fatalf("stream aborted after decode = %v, want unknown", err)
+	}
+	invocation.Context.ContractRevision = "conflict"
+	if _, err := client.Invoke(ctx, invocation); err == nil {
+		t.Fatal("accepted the refused invocation")
+	} else if failure, ok := errors.AsType[*DeliveryError](err); !ok || failure.Delivery != NotSent {
+		t.Fatalf("attested conflict = %v, want not_sent", err)
+	}
+	if _, err := wrongClient.Invoke(ctx, invocation); err == nil {
+		t.Fatal("accepted the unattested conflict")
+	} else if failure, ok := errors.AsType[*DeliveryError](err); !ok || failure.Delivery != Unknown {
+		t.Fatalf("unattested conflict = %v, want unknown", err)
 	}
 
 	callContext, cancelCall := context.WithCancel(ctx)

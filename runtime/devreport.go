@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -196,7 +197,11 @@ func (r *devReporter) loop() {
 		} else {
 			select {
 			case <-r.stop:
-				return
+				select {
+				case first = <-r.queue:
+				default:
+					return
+				}
 			case first = <-r.queue:
 			}
 		}
@@ -225,6 +230,11 @@ func (r *devReporter) loop() {
 		if err != nil {
 			r.dropped.Add(dropped + uint64(len(batch)))
 			failures := r.failures.Add(1)
+			select {
+			case <-r.stop:
+				return
+			default:
+			}
 			if shouldDisableDevReporting(err) {
 				r.disabled.Store(true)
 				return
@@ -411,8 +421,6 @@ func (r *devReporter) enqueue(env devreport.ReportEnvelope) {
 		}
 	}
 	select {
-	case <-r.stop:
-		r.queuedBytes.Add(-int64(len(body)))
 	case r.queue <- body:
 	default:
 		r.queuedBytes.Add(-int64(len(body)))
@@ -432,6 +440,8 @@ func (r *devReporter) stopLoop() {
 	if r == nil {
 		return
 	}
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
 	select {
 	case <-r.stop:
 	default:
@@ -513,6 +523,9 @@ func finishRequestTrace(state *requestState, httpStatus int, err error) {
 	}
 	span := state.trace
 	duration := time.Since(span.started)
+	if err == nil && httpStatus >= 400 {
+		err = traceCodedError("http_" + strconv.Itoa(httpStatus))
+	}
 	if span.isRoot && err != nil {
 		logRequestFailure(state, err)
 	}
@@ -549,17 +562,19 @@ func finishRequestTrace(state *requestState, httpStatus int, err error) {
 		},
 	})
 	summary := &devreport.TraceSummary{
-		AppID:         reporter.appID,
-		TraceID:       span.traceID,
-		SpanID:        span.spanID,
-		Type:          span.spanType,
-		IsRoot:        span.isRoot,
-		IsError:       err != nil,
-		StartedAt:     span.started,
-		DurationNanos: uint64(duration),
-		ServiceName:   span.service,
-		EndpointName:  endpointName,
-		Generation:    span.generation,
+		AppID:                 reporter.appID,
+		TraceID:               span.traceID,
+		SpanID:                span.spanID,
+		Type:                  span.spanType,
+		InvocationCorrelation: invocationCorrelation(state),
+		ErrorCode:             traceErrorCode(err),
+		IsRoot:                span.isRoot,
+		IsError:               err != nil,
+		StartedAt:             span.started,
+		DurationNanos:         uint64(duration),
+		ServiceName:           span.service,
+		EndpointName:          endpointName,
+		Generation:            span.generation,
 	}
 	if span.parentSpanID != "" {
 		summary.ParentSpanID = &span.parentSpanID
@@ -735,10 +750,16 @@ func traceError(err error) any {
 	if err == nil {
 		return nil
 	}
-	err = contractDiagnosticError(err)
-	return map[string]any{
-		"msg": redact.String(err.Error()),
+	result := map[string]any{
+		"msg":  redact.String(contractDiagnosticError(err).Error()),
+		"code": traceErrorCode(err),
 	}
+	if wrapped, ok := errs.As(err); ok {
+		if delivery, ok := wrapped.Meta["delivery"].(string); ok {
+			result["delivery"] = delivery
+		}
+	}
+	return result
 }
 
 func tracePathParams(params shared.PathParams) []string {
@@ -793,19 +814,18 @@ func (h *reportingHandler) Handle(ctx context.Context, record slog.Record) error
 		}
 		return true
 	})
-	traceID, spanID := "", ""
-	if state != nil && state.trace != nil {
-		traceID, spanID = state.trace.traceID, state.trace.spanID
+	event := &devreport.LogEvent{
+		AppID: h.reporter.appID, Level: record.Level.String(), Message: record.Message,
+		Attrs: attrs, Timestamp: record.Time,
 	}
-	h.reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "log",
-		AppID: h.reporter.appID,
-		LogEvent: &devreport.LogEvent{
-			AppID: h.reporter.appID, TraceID: traceID, SpanID: spanID,
-			Level: record.Level.String(), Message: record.Message,
-			Attrs: attrs, Timestamp: record.Time,
-		},
-	})
+	if state != nil {
+		event.InvocationCorrelation = invocationCorrelation(state)
+		event.Generation, event.Service, event.Operation = state.processGeneration, state.request.Service, state.request.Endpoint
+		if state.trace != nil {
+			event.TraceID, event.SpanID, event.ParentSpanID = state.trace.traceID, state.trace.spanID, state.trace.parentSpanID
+		}
+	}
+	h.reporter.enqueue(devreport.ReportEnvelope{Type: "log", AppID: h.reporter.appID, LogEvent: event})
 	return nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/devtelemetry"
 )
 
 const (
@@ -40,6 +41,7 @@ type telemetryQuery struct {
 }
 
 type telemetryTimingStats struct {
+	UptimeCount           int     `json:"uptime_count"`
 	Count                 int     `json:"count"`
 	SuccessCount          int     `json:"success_count"`
 	FailureCount          int     `json:"failure_count"`
@@ -82,13 +84,11 @@ type telemetryResponse struct {
 	Commands     []telemetryCommandStats     `json:"commands"`
 	Measurements []telemetryMeasurementStats `json:"measurements"`
 	Records      []cliTelemetryRecord        `json:"records"`
+	Events       []devtelemetry.Event        `json:"events"`
 	Warnings     []string                    `json:"warnings"`
 }
 
 func runTelemetryCommand(stdout io.Writer, args []string) error {
-	if len(args) > 0 && args[0] == "export" {
-		return runTelemetryBundleCommand(stdout, args[1:])
-	}
 	if len(args) > 0 && args[0] == "report" {
 		return runTelemetryReportCommand(stdout, args[1:])
 	}
@@ -177,7 +177,7 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 		Query: telemetryQuery{
 			Apps: append([]string{}, opts.Apps...), Commands: append([]string{}, opts.Commands...), Measurements: append([]string{}, opts.Measurements...), Limit: opts.Limit,
 		},
-		Apps: []telemetryAppStats{}, Commands: []telemetryCommandStats{}, Measurements: []telemetryMeasurementStats{}, Records: []cliTelemetryRecord{}, Warnings: []string{},
+		Apps: []telemetryAppStats{}, Commands: []telemetryCommandStats{}, Measurements: []telemetryMeasurementStats{}, Records: []cliTelemetryRecord{}, Warnings: []string{}, Events: []devtelemetry.Event{},
 	}
 	if !opts.Since.IsZero() {
 		response.Query.Since = opts.Since.Format(time.RFC3339Nano)
@@ -190,7 +190,10 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 	paths := append(archives, path)
 
 	appFilter := stringSet(opts.Apps)
-	commandFilter := stringSet(opts.Commands)
+	commandFilter := map[string]struct{}{}
+	for _, command := range opts.Commands {
+		commandFilter[devtelemetry.CommandKey(command)] = struct{}{}
+	}
 	measurementFilter := stringSet(opts.Measurements)
 	appGroups := map[string]*telemetryAppStats{}
 	commandGroups := map[string]*telemetryCommandStats{}
@@ -219,9 +222,18 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 			}
 			var record cliTelemetryRecord
 			if err := json.Unmarshal([]byte(line), &record); err != nil || !validCLITelemetryRecord(record) {
+				var event devtelemetry.Event
+				if json.Unmarshal([]byte(line), &event) == nil && event.Valid() {
+					if len(commandFilter) == 0 && len(measurementFilter) == 0 && !event.At.Before(opts.Since) &&
+						(len(appFilter) == 0 || event.App != nil && (telemetrySetContains(appFilter, event.App.ID) || telemetrySetContains(appFilter, event.App.Name))) {
+						response.Events = devtelemetry.AppendRecentEvent(response.Events, event, opts.Limit)
+					}
+					continue
+				}
 				response.Summary.InvalidCount++
 				continue
 			}
+			record.Command = devtelemetry.CommandKey(record.Command)
 			measurement := telemetryRecordMeasurement(record)
 			if record.InvocationID != "" {
 				key := record.InvocationID + "\x00" + measurement
@@ -274,8 +286,8 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 			}
 			addTelemetryTiming(&measurementGroup.telemetryTimingStats, record)
 
-			if record.ExitCode != 0 {
-				// Failures count as attempts but never as successful latency samples.
+			if record.ExitCode != 0 || devtelemetry.Uptime(record.Command, record.Mode, measurement, record.LongRunning) {
+				// Keep outcomes in the counts and exclude failures and uptime from percentiles.
 			} else if len(percentileSamples) < maximumTelemetryLimit {
 				percentileSamples = append(percentileSamples, record)
 			} else {
@@ -350,23 +362,27 @@ func validCLITelemetryRecord(record cliTelemetryRecord) bool {
 
 func addTelemetryTiming(stats *telemetryTimingStats, record cliTelemetryRecord) {
 	stats.Count++
-	stats.TotalDurationMS += record.DurationMS
 	if record.ExitCode == 0 {
 		stats.SuccessCount++
 	} else {
 		stats.FailureCount++
 	}
-	if stats.Count == 1 || record.DurationMS < stats.MinDurationMS {
+	if devtelemetry.Uptime(record.Command, record.Mode, telemetryRecordMeasurement(record), record.LongRunning) {
+		stats.UptimeCount++
+		return
+	}
+	stats.TotalDurationMS += record.DurationMS
+	if stats.Count-stats.UptimeCount == 1 || record.DurationMS < stats.MinDurationMS {
 		stats.MinDurationMS = record.DurationMS
 	}
-	if stats.Count == 1 || record.DurationMS > stats.MaxDurationMS {
+	if stats.Count-stats.UptimeCount == 1 || record.DurationMS > stats.MaxDurationMS {
 		stats.MaxDurationMS = record.DurationMS
 	}
 }
 
 func finalizeTelemetryTiming(stats *telemetryTimingStats) {
-	if stats.Count > 0 {
-		stats.AverageMS = float64(stats.TotalDurationMS) / float64(stats.Count)
+	if count := stats.Count - stats.UptimeCount; count > 0 {
+		stats.AverageMS = float64(stats.TotalDurationMS) / float64(count)
 	}
 }
 
@@ -430,7 +446,10 @@ func nearestRankPercentile(ordered []int64, percentile int) int64 {
 }
 
 func writeTelemetryHuman(w io.Writer, response telemetryResponse) error {
-	if _, err := fmt.Fprintf(w, "Scenery CLI telemetry: %d matching, %d shown, avg %.1fms, p50 %dms, p95 %dms, max %dms, failures %d\n", response.Summary.Count, response.Summary.ReturnedCount, response.Summary.AverageMS, response.Summary.P50DurationMS, response.Summary.P95DurationMS, response.Summary.MaxDurationMS, response.Summary.FailureCount); err != nil {
+	if err := writeDevTelemetryEvents(w, response.Events); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Scenery CLI telemetry: %d matching, %d shown, avg %.1fms, p50 %dms, p95 %dms, max %dms, failures %d, uptime %d\n", response.Summary.Count, response.Summary.ReturnedCount, response.Summary.AverageMS, response.Summary.P50DurationMS, response.Summary.P95DurationMS, response.Summary.MaxDurationMS, response.Summary.FailureCount, response.Summary.UptimeCount); err != nil {
 		return err
 	}
 	if response.Summary.UnattributedCount > 0 {

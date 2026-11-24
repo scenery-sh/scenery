@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"scenery.sh/internal/devtelemetry"
 	"scenery.sh/internal/machine"
 )
 
@@ -25,14 +26,17 @@ const burstHourlyFailures = 60
 // Failures, Unattributed, Unversioned and Apps count every record; Commands
 // count command completions and Startup the scenery up startup measurements.
 type CLIReport struct {
-	Purposes              []Count     `json:"purposes"`
-	Cohorts               []CLICohort `json:"cohorts"`
-	Producers             []Count     `json:"producers"`
-	Diagnostics           []Count     `json:"diagnostics"`
-	IdentifiedInvocations int         `json:"identified_invocations"`
-	Records               int         `json:"records"`
-	Failures              int         `json:"failures"`
-	Unattributed          int         `json:"unattributed"`
+	Events                []devtelemetry.Event `json:"events"`
+	UptimeRecords         int                  `json:"uptime_records"`
+	ErrorCategories       []Count              `json:"error_categories"`
+	Purposes              []Count              `json:"purposes"`
+	Cohorts               []CLICohort          `json:"cohorts"`
+	Producers             []Count              `json:"producers"`
+	Diagnostics           []Count              `json:"diagnostics"`
+	IdentifiedInvocations int                  `json:"identified_invocations"`
+	Records               int                  `json:"records"`
+	Failures              int                  `json:"failures"`
+	Unattributed          int                  `json:"unattributed"`
 	// Unversioned counts records whose producer reported no release version
 	// ("dev") and no producer commit.
 	Unversioned int             `json:"unversioned"`
@@ -95,6 +99,9 @@ type FailureBurst struct {
 }
 
 type cliRecord struct {
+	LongRunning    *bool             `json:"long_running"`
+	Mode           string            `json:"mode"`
+	ErrorCategory  string            `json:"error_category"`
 	InvocationID   string            `json:"invocation_id"`
 	Producer       *machine.Producer `json:"producer"`
 	DiagnosticCode string            `json:"diagnostic_code"`
@@ -113,7 +120,7 @@ type cliRecord struct {
 }
 
 func readCLI(opts Options) (CLIReport, error) {
-	report := CLIReport{Purposes: []Count{}, Cohorts: []CLICohort{}, Producers: []Count{}, Diagnostics: []Count{}, Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}, files: []CLIFileCoverage{}}
+	report := CLIReport{Events: []devtelemetry.Event{}, ErrorCategories: []Count{}, Purposes: []Count{}, Cohorts: []CLICohort{}, Producers: []Count{}, Diagnostics: []Count{}, Commands: []CommandTiming{}, Apps: []AppTiming{}, Bursts: []FailureBurst{}, files: []CLIFileCoverage{}}
 	if opts.CLITelemetryPath == "" {
 		return report, nil
 	}
@@ -127,7 +134,7 @@ func readCLI(opts Options) (CLIReport, error) {
 	identified := map[string]bool{}
 	cohorts := map[CLICohort]*timingAccumulator{}
 	purposes := map[string]int{}
-	producers, diagnostics := map[string]int{}, map[string]int{}
+	producers, diagnostics, categories := map[string]int{}, map[string]int{}, map[string]int{}
 	commands := map[string]*timingAccumulator{}
 	apps := map[string]*timingAccumulator{}
 	appNames := map[string]string{}
@@ -170,6 +177,13 @@ func readCLI(opts Options) (CLIReport, error) {
 			}
 			var record cliRecord
 			if json.Unmarshal(line, &record) != nil || record.Command == "" || record.At.IsZero() || record.DurationMS < 0 {
+				var event devtelemetry.Event
+				if json.Unmarshal(line, &event) == nil && event.Valid() {
+					if opts.inWindow(event.At) {
+						report.Events = devtelemetry.AppendRecentEvent(report.Events, event, 100)
+					}
+					return
+				}
 				coverage.Invalid++
 				return
 			}
@@ -197,7 +211,19 @@ func readCLI(opts Options) (CLIReport, error) {
 				identified[key] = true
 			}
 			report.Records++
+			record.Command = devtelemetry.CommandKey(record.Command)
 			ok := record.ExitCode == 0
+			uptime := devtelemetry.Uptime(record.Command, record.Mode, measurement, record.LongRunning)
+			if uptime {
+				report.UptimeRecords++
+			}
+			sample := func(acc *timingAccumulator) {
+				if uptime {
+					acc.addUntimed(ok)
+				} else {
+					acc.add(record.DurationMS, ok)
+				}
+			}
 			if !ok {
 				report.Failures++
 				key := hourKey{command: record.Command, hour: record.At.UTC().Format("2006-01-02T15"), exit: record.ExitCode}
@@ -241,9 +267,12 @@ func readCLI(opts Options) (CLIReport, error) {
 			if cohorts[cohort] == nil {
 				cohorts[cohort] = &timingAccumulator{}
 			}
-			cohorts[cohort].add(record.DurationMS, ok)
+			sample(cohorts[cohort])
 			if record.InvocationID != "" {
 				report.IdentifiedInvocations++
+			}
+			if record.ErrorCategory != "" {
+				categories[record.ErrorCategory]++
 			}
 			if record.DiagnosticCode != "" {
 				diagnostics[record.DiagnosticCode]++
@@ -253,14 +282,14 @@ func readCLI(opts Options) (CLIReport, error) {
 			if record.App == nil || record.App.ID == "" {
 				report.Unattributed++
 			} else {
-				accumulate(apps, record.App.ID, record.DurationMS, ok)
+				sample(cliTimingGroup(apps, record.App.ID))
 				appNames[record.App.ID] = record.App.Name
 			}
 			if record.Measurement == "startup" {
-				startup.add(record.DurationMS, ok)
+				sample(startup)
 				return
 			}
-			accumulate(commands, record.Command, record.DurationMS, ok)
+			sample(cliTimingGroup(commands, record.Command))
 		})
 		_ = file.Close()
 		coverage.ReadBytes = snapshot.readBytes
@@ -274,6 +303,7 @@ func readCLI(opts Options) (CLIReport, error) {
 		}
 		report.files = append(report.files, coverage)
 	}
+	report.ErrorCategories = sortedCounts(categories, 0)
 	report.Purposes = sortedCounts(purposes, 0)
 	for cohort, acc := range cohorts {
 		cohort.Timing = acc.timing()
@@ -347,11 +377,11 @@ func readCLI(opts Options) (CLIReport, error) {
 	return report, nil
 }
 
-func accumulate(groups map[string]*timingAccumulator, key string, durationMS int64, ok bool) {
+func cliTimingGroup(groups map[string]*timingAccumulator, key string) *timingAccumulator {
 	acc := groups[key]
 	if acc == nil {
 		acc = &timingAccumulator{}
 		groups[key] = acc
 	}
-	acc.add(durationMS, ok)
+	return acc
 }

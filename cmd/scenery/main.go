@@ -54,6 +54,9 @@ func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, 
 	if reported, ok := errors.AsType[*cliDiagnosticError](err); ok {
 		telemetry.diagnosticCode = reported.diagnostic.Code
 	}
+	if err != nil {
+		telemetry.errorCategory = cliTelemetryErrorCategory(err)
+	}
 	err = renderMachineError(stdout, args, err)
 	exitCode := cliExitCode(err)
 	telemetry.finish(exitCode)
@@ -233,8 +236,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return runContractCompile(os.Stdout, args[1:])
 	case "schema":
 		return runContractSchema(os.Stdout, args[1:])
-	case "list":
-		return runContractList(os.Stdout, args[1:])
 	case "harness":
 		return harnessCommand(args[1:])
 	case "inspect":

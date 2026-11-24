@@ -1,9 +1,11 @@
 package main
 
 import (
-	doctor "scenery.sh/internal/doctor"
-	"scenery.sh/internal/snapshotarchive"
 	time "time"
+
+	"scenery.sh/internal/devtelemetry"
+	"scenery.sh/internal/doctor"
+	"scenery.sh/internal/snapshotarchive"
 )
 
 type doctorResponse struct {
@@ -65,6 +67,7 @@ type telemetryResponse struct {
 	Apps         []telemetryAppStats         `json:"apps"`
 	Commands     []telemetryCommandStats     `json:"commands"`
 	Measurements []telemetryMeasurementStats `json:"measurements"`
+	Events       []devtelemetry.Event        `json:"events"`
 	Records      []cliTelemetryRecord        `json:"records"`
 	Warnings     []string                    `json:"warnings"`
 }
@@ -160,6 +163,7 @@ type snapshotManifestSchema struct {
 }
 
 type telemetryTimingStats struct {
+	UptimeCount           int     `json:"uptime_count"`
 	Count                 int     `json:"count"`
 	SuccessCount          int     `json:"success_count"`
 	FailureCount          int     `json:"failure_count"`

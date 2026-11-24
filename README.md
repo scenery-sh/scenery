@@ -119,7 +119,7 @@ Every command supports `-o json` (or `-o jsonl` for streams) with exact schema
 revisions, producer identity, and stable `SCNxxxx` diagnostics:
 
 ```sh
-scenery inspect app -o json
+scenery context --for <module> -o json
 scenery inspect routes -o json
 scenery check -o json
 scenery logs -o jsonl --limit 200

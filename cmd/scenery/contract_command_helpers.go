@@ -166,8 +166,4 @@ func contractInvalidExitCode(result *compiler.Result) int {
 	return 2
 }
 
-func resourceKindMatches(resource graph.Resource, value string) bool {
-	return resource.Kind == value || strings.TrimPrefix(resource.Kind, "scenery.") == strings.ReplaceAll(value, "_", "-")
-}
-
 func pathExistsLocal(path string) bool { _, err := os.Stat(path); return err == nil }

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/internal/workerabi"
@@ -80,6 +81,7 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 	}
 	if httpPlan := binding.HTTP; httpPlan != nil {
 		return RegisterEndpointChecked(&Endpoint{
+			workerRuntime: plan.Runtime, workerModule: plan.Module,
 			Service: plan.Name, Name: binding.Address, Access: httpPlan.Access, Path: httpPlan.Path, Methods: []string{httpPlan.Method},
 			ContractPolicy: &binding.Policy, ContractPathTail: httpPlan.PathTail,
 			DecodeContractRequest: func(request *http.Request, values map[string]string) (ContractDecodedRequest, error) {
@@ -104,7 +106,7 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 		})
 	}
 	return RegisterContractInternalBindingWithPolicy(ContractInternalBindingRegistration{
-		Address: binding.Address, Visibility: binding.Visibility, Package: plan.Module, Policy: &binding.Policy,
+		workerRuntime: plan.Runtime, Address: binding.Address, Visibility: binding.Visibility, Package: plan.Module, Policy: &binding.Policy,
 		DecodeInput: func(data []byte) (any, error) {
 			canonical, err := normalize(data)
 			return json.RawMessage(canonical), err
@@ -132,16 +134,41 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 	})
 }
 
-func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, operation WorkerOperationPlan, address, binding, mode string, input json.RawMessage) (workerabi.Result, error) {
+func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, operation WorkerOperationPlan, address, binding, mode string, input json.RawMessage) (output workerabi.Result, returnErr error) {
 	generation, _ := ctx.Value(processHostGenerationKey{}).(*processHostGeneration)
 	releaseGeneration := func() {}
 	if generation == nil {
 		generation = workers.host.acquire(0)
-		if generation == nil {
-			return workerabi.Result{}, workerUnavailable(workerabi.NotSent, fmt.Errorf("worker generation is not published"))
+		if generation != nil {
+			releaseGeneration = func() { generation.inFlight.Add(-1) }
+			ctx = context.WithValue(ctx, processHostGenerationKey{}, generation)
 		}
-		releaseGeneration = func() { generation.inFlight.Add(-1) }
-		ctx = context.WithValue(ctx, processHostGenerationKey{}, generation)
+	}
+	if state := stateFromContext(ctx); state != nil {
+		cloned := *state
+		cloned.workerRuntime, cloned.workerModule = plan.Runtime, plan.Module
+		if generation != nil {
+			cloned.processGeneration = generation.number
+		}
+		ctx = withState(ctx, &cloned)
+	}
+	ctx, end := beginOperationTrace(ctx, "WORKER", plan.Name, address, map[string]any{"binding_address": binding, "mode": mode})
+	var outcomeErr error
+	defer func() {
+		if value := recover(); value != nil {
+			end(errors.New("worker dispatch panicked"))
+			panic(value)
+		}
+		if output.Stream == nil {
+			traceErr := returnErr
+			if traceErr == nil {
+				traceErr = outcomeErr
+			}
+			end(traceErr)
+		}
+	}()
+	if generation == nil {
+		return workerabi.Result{}, workerUnavailable(workerabi.NotSent, fmt.Errorf("worker generation is not published"))
 	}
 	ctx, cancelInvocation := context.WithCancel(ctx)
 	stopRetirement := context.AfterFunc(generation.lifetime, cancelInvocation)
@@ -176,11 +203,10 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 		}
 		extra.AuthDataKind, extra.AuthData = auth.DataKind, auth.Data
 		extra.Started, extra.Type = state.started, state.request.Type
-		cloned := *state
-		cloned.processGeneration = generation.number
-		ctx = withState(ctx, &cloned)
+		extra.LogsEnabled, extra.Module, extra.ServiceName = state.logsEnabled, plan.Module, plan.Name
 		if trace := state.trace; trace != nil {
-			metadata.Traceparent = fmt.Sprintf("00-%s-%s-01", trace.traceID, trace.spanID)
+			metadata.Traceparent = traceParentForContext(ctx)
+			extra.ParentSpanID = trace.parentSpanID
 		}
 	}
 	if metadata.Traceparent == "" {
@@ -211,35 +237,42 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 		}
 		return workerabi.Result{}, err
 	}
-	if err := workers.validateOutcome(operation, &result); err != nil {
+	kind, name, err := workers.validateOutcome(operation, &result)
+	if err != nil {
 		release()
 		return workerabi.Result{}, ContractSystemError(closeWorkerResult(result, err))
+	}
+	if kind == "error" {
+		outcomeErr = traceCodedError(name)
 	}
 	if result.Stream == nil {
 		release()
 	} else {
-		result.Stream = &workerStream{ReadCloser: result.Stream, release: release}
+		body := appsdk.ObserveReadCloser(ctx, result.Stream, func(_ int64, err error) {
+			end(errors.Join(outcomeErr, err))
+		})
+		result.Stream = &workerStream{ReadCloser: body, release: release}
 	}
 	result.ProcessID = instance.spec.PID
 	result.ImplementationRevision = instance.spec.Identity.ImplementationRevision
 	return result, nil
 }
 
-func (workers *workerHost) validateOutcome(operation WorkerOperationPlan, result *workerabi.Result) error {
+func (workers *workerHost) validateOutcome(operation WorkerOperationPlan, result *workerabi.Result) (string, string, error) {
 	kind, name, raw, err := contract.DecodeContractOutcomeEnvelope(result.Outcome)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	expression, ok := operation.Outcomes[kind+"."+name]
 	if !ok {
-		return fmt.Errorf("worker returned an undeclared outcome")
+		return "", "", fmt.Errorf("worker returned an undeclared outcome")
 	}
 	payload, err := workers.codec(expression, raw)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	result.Outcome, err = contract.EncodeManifestOutcome(kind, name, payload)
-	return err
+	return kind, name, err
 }
 
 func workerUnavailable(delivery string, cause error) error {

@@ -87,6 +87,10 @@ func MainGoWorker(cfg AppConfig, service string) (err error) {
 // workerInvocationMetadata carries request information shared by workers in
 // the ABI's optional metadata field. Authentication credentials stay at ingress.
 type workerInvocationMetadata struct {
+	LogsEnabled  bool               `json:"logs_enabled,omitempty"`
+	ParentSpanID string             `json:"parent_span_id,omitempty"`
+	Module       string             `json:"module,omitempty"`
+	ServiceName  string             `json:"service_name,omitempty"`
 	AuthDataKind string             `json:"auth_data_kind,omitempty"`
 	AuthData     json.RawMessage    `json:"auth_data,omitempty"`
 	Caller       string             `json:"caller_binding,omitempty"`
@@ -142,14 +146,18 @@ func goWorkerContext(ctx context.Context, invocation workerabi.Invocation) (cont
 		ID: wire.InvocationID, Principal: wire.Principal, TenantID: wire.TenantID, TraceID: traceID, Deadline: deadline,
 		CallerBinding: metadata.Caller, ExecutionID: wire.ExecutionID, Locale: wire.Locale, Deployment: metadata.Deployment,
 	})
-	state := &requestState{started: metadata.Started, auth: auth, invocation: token, processGeneration: wire.Generation, traceEnabled: hasTrace}
+	state := &requestState{started: metadata.Started, auth: auth, invocation: token, processGeneration: wire.Generation, traceEnabled: hasTrace, logsEnabled: metadata.LogsEnabled,
+		workerRuntime: "go", workerModule: metadata.Module}
 	state.request = shared.Request{
 		Type: metadata.Type, Started: metadata.Started, InvocationID: wire.InvocationID, TraceID: traceID, Headers: make(http.Header),
 		CallerBinding: metadata.Caller, ExecutionID: wire.ExecutionID, Locale: wire.Locale, Deployment: metadata.Deployment,
-		Deadline: deadline, Service: invocation.Service, Endpoint: invocation.Operation,
+		Deadline: deadline, Service: metadata.ServiceName, Endpoint: invocation.Operation,
+	}
+	if state.request.Service == "" {
+		state.request.Service = invocation.Service
 	}
 	if hasTrace {
-		state.trace = &traceSpan{traceID: traceID, spanID: spanID, service: invocation.Service, endpoint: invocation.Operation,
+		state.trace = &traceSpan{traceID: traceID, spanID: spanID, parentSpanID: metadata.ParentSpanID, service: state.request.Service, endpoint: invocation.Operation,
 			started: metadata.Started, requestType: metadata.Type, generation: wire.Generation}
 	}
 	return withState(runtimeapi.WithInvocation(ctx, token), state), state, nil

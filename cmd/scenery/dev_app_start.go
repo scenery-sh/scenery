@@ -42,6 +42,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		timing.DetectMS = workerMilliseconds(max(0, started.Sub(captured.scanStartedAt)))
 	}
 	var readyStarted time.Time
+	editClass, _ := ctx.Value(devEditClassKey{}).(string)
 	// Registered first so it runs last: a failure names the build operation
 	// whose build.step records it belongs to, and starts, keeps or ends a
 	// build block, which the persisted status then reports.
@@ -64,6 +65,18 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 				level = "error"
 			}
 			s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build"}, level, "build timing", map[string]any{"rebuild_timing": timing})
+			if !initial {
+				trigger := "contract_or_config"
+				switch editClass {
+				case "go_source", "frontend_component", "frontend_module", "styles":
+					trigger = "body_only"
+				}
+				var code string
+				if returnErr != nil {
+					code = cliErrorDiagnostic(returnErr).Code
+				}
+				recordDevRebuild(&cliTelemetryApp{ID: s.cfg.AppID(), Name: s.cfg.Name}, *timing, trigger, code)
+			}
 		}
 		if s.recordBuildOutcome(captured, returnErr) {
 			_ = s.persistStatus(context.WithoutCancel(ctx))
@@ -72,14 +85,18 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			returnErr = devBuildOperationError{operationID: operationID, err: returnErr}
 		}
 	}()
-	editClass, _ := ctx.Value(devEditClassKey{}).(string)
 	if editClass == "" {
 		editClass = "unknown"
 		if initial {
 			editClass = "initial"
 		}
 	}
-	ctx = build.WithTraceOperation(ctx, operationID, func(step build.Step) { s.emitBuildStepWithEditClass(step, editClass) })
+	ctx = build.WithTraceOperation(ctx, operationID, func(step build.Step) {
+		if step.Name == "process.link" {
+			timing.LinkMS += workerMilliseconds(step.Duration)
+		}
+		s.emitBuildStepWithEditClass(step, editClass)
+	})
 	ctx = context.WithValue(ctx, devBuildObservationKey{}, devtelemetry.Observation{OperationID: operationID, ObservedAt: captured.capturedAt, Initial: initial})
 	requestStarted := time.Now()
 	recordDevScheduling(ctx, clearInheritedBackgroundPolicy)

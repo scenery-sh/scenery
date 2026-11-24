@@ -119,9 +119,14 @@ func (c *Client) Invoke(ctx context.Context, invocation Invocation) (Result, err
 		}
 		return Result{}, &DeliveryError{Delivery: delivery, Cause: err}
 	}
-	if response.StatusCode == http.StatusInternalServerError && c.verifyIdentity(response) == nil {
-		_ = response.Body.Close()
-		return Result{}, ErrImplementation
+	if response.StatusCode == http.StatusConflict || response.StatusCode == http.StatusInternalServerError {
+		if c.verifyIdentity(response) == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusConflict {
+				return Result{}, &DeliveryError{Delivery: NotSent, Cause: fmt.Errorf("worker rejected invocation identity (HTTP 409)")}
+			}
+			return Result{}, ErrImplementation
+		}
 	}
 	result, err := c.readInvocationResult(response)
 	if result.Stream == nil {

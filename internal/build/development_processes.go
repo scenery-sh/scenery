@@ -399,8 +399,10 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 	}
 	args := withDevelopmentLinkParallelism(developmentProcessBuildArgs(result.GoBuildFlags, generation, pending), result.GoBuildFlags,
 		developmentLinkParallelism(len(pending), runtime.GOMAXPROCS(0), physicalMemory()))
+	linkStarted := time.Now()
 	err = runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, args...)
 	release()
+	RecordStep(ctx, Step{Name: "process.link", StartedAt: linkStarted, Duration: time.Since(linkStarted), Cache: "go_managed", Reason: "link_development_processes", OK: err == nil})
 	if err != nil {
 		return err
 	}

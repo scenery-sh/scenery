@@ -19,50 +19,10 @@ func TestSQLCRejectsOverlappingCodegenRootsWhilePlanning(t *testing.T) {
 			writeSQLCFixture(t, root)
 			writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","id":"sqlc-overlap"}`)
 			writeTestAppFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n - engine: sqlite\n   schema: auth/db/gen/schema.sql\n   queries: auth/db/queries.sql\n   gen:\n     go:\n       out: auth/db/gen\n     json:\n       out: "+out+"\n")
-			for _, inspect := range []bool{false, true} {
-				var output strings.Builder
-				var err error
-				if inspect {
-					err = runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &output)
-				} else {
-					err = runGenerate(t.Context(), &output, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"})
-				}
-				if err == nil || cliErrorDiagnostic(err).Code != "SCN8001" || !strings.Contains(err.Error(), "overlapping SQLC output roots") {
-					t.Fatalf("overlapping roots accepted: %v", err)
-				}
-			}
-		})
-	}
-}
-
-func TestGeneratorInspectionRejectsSQLCTypeScriptScopeCollision(t *testing.T) {
-	t.Parallel()
-	for _, suffix := range []string{"", "/client"} {
-		t.Run(suffix, func(t *testing.T) {
-			root := t.TempDir()
-			writeSQLCFixture(t, root)
-			writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","id":"generator-overlap"}`)
-			writeTestAppFile(t, root, "app.scn", `application "demo" {}
-workspace { managed_generated_roots = ["auth/db/gen"] }
-http_gateway "api" {
- exposure = "internet"
- base_path = "/"
- cors = std.cors.none
- trusted_proxies = std.trusted_proxies.none
- forwarded = std.forwarded_headers.reject
-}
-typescript_client "public_api" {
- gateways = [http_gateway.api]
- package = "@example/public"
- module = "esm"
- runtime = "fetch"
- output_root = "auth/db/gen`+suffix+`"
-}
-`)
 			var output strings.Builder
-			err := runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &output)
-			if err == nil || cliErrorDiagnostic(err).Code != "SCN8001" || !strings.Contains(err.Error(), "overlapping lifecycle output owners") {
-				t.Fatalf("different generator owners admitted: %v", err)
+			err := runGenerate(t.Context(), &output, []string{"sqlc", "--dry-run", "--app-root", root, "-o", "json"})
+			if err == nil || cliErrorDiagnostic(err).Code != "SCN8001" || !strings.Contains(err.Error(), "overlapping SQLC output roots") {
+				t.Fatalf("overlapping roots accepted: %v", err)
 			}
 		})
 	}

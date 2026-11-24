@@ -235,7 +235,7 @@ func verifyHarnessProductWithoutRepositoryTools(ctx context.Context, source, roo
 	if err := copyHarnessBasicFixture(source, appRoot); err != nil {
 		return err
 	}
-	for _, args := range [][]string{{"generate", "-o", "json"}, {"check", "-o", "json"}, {"harness", "-o", "json", "--write"}, {"inspect", "app", "-o", "json"}, {"inspect", "harness", "-o", "json"}} {
+	for _, args := range [][]string{{"generate", "-o", "json"}, {"check", "-o", "json"}, {"harness", "-o", "json", "--write"}, {"compile", "-o", "json"}, {"inspect", "harness", "-o", "json"}} {
 		output, err := runHarnessAppCLI(ctx, source, appRoot, home, args...)
 		if err != nil {
 			return err

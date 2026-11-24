@@ -12,7 +12,7 @@
       "const": "scenery.feature"
     },
     "schema_revision": {
-      "const": "sha256:ce3bd4b39bb123f8ba9f52cf3af768ffba194adf5dfcddb4221550aff2539330"
+      "const": "sha256:1986097fb2b2a03fb11d3fa83bba5bf3485664b58ec20439ce3f7ffc572069dd"
     },
     "ok": {
       "const": true
@@ -21,10 +21,7 @@
       "enum": [
         "create",
         "register",
-        "set",
         "list",
-        "prepare",
-        "inspect",
         "check",
         "land",
         "close"

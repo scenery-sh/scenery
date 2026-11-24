@@ -14,7 +14,6 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/lifecycle"
 )
@@ -225,66 +224,9 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 	return plan, nil
 }
 
-func buildInspectGeneratorsResponseWithContract(appRoot string, cfg appcfg.Config, contract *compiler.Result) (generatorGraphResponse, error) {
-	graph, err := buildInspectGeneratorsResponseCore(appRoot, cfg, contract)
-	if err != nil {
-		return graph, err
-	}
-	nodes, err := generate.GenerationNodes(contract, "", false)
-	if err != nil {
-		return graph, err
-	}
-	graph.Nodes = append(nodes, graph.Nodes...)
-	plan, err := lifecycle.New(graph.Nodes)
-	if err != nil {
-		return graph, err
-	}
-	graph.Nodes = plan.Nodes()
-	for _, node := range nodes {
-		if node.ID == "go.render" || node.ID == "typescript.render" {
-			record := generatorRecord{ID: string(node.ID), Kind: string(node.Kind)}
-			for _, input := range node.Inputs {
-				if input.Path != "" {
-					record.Inputs = append(record.Inputs, input.Path)
-				}
-			}
-			for _, output := range node.Outputs {
-				if output.Path != "" {
-					record.Outputs = append(record.Outputs, output.Path)
-				}
-			}
-			graph.Generators = append(graph.Generators, record)
-		}
-	}
-	sort.Slice(graph.Generators, func(i, j int) bool { return graph.Generators[i].ID < graph.Generators[j].ID })
-	return graph, nil
-}
-
-func buildInspectGeneratorsResponseCore(appRoot string, cfg appcfg.Config, contract *compiler.Result) (generatorGraphResponse, error) {
-	graph := baseGeneratorGraph(appRoot, cfg, true)
-	sqlcPlan, ok, err := buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, contract.SQLRequirements)
-	if err != nil {
-		return generatorGraphResponse{}, err
-	}
-	if ok {
-		if err := sqlcPlan.captureInputs(appRoot, contract); err != nil {
-			return graph, err
-		}
-		graph.sqlcPlan = sqlcPlan
-		graph.Generators = append(graph.Generators, sqlcPlan.Record)
-		plan, err := lifecycle.New(sqlcLifecycleNodes(sqlcPlan, nil))
-		if err != nil {
-			return graph, err
-		}
-		graph.Nodes = plan.Nodes()
-	}
-	graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, sqlcPlan)
-	return graph, nil
-}
-
 func baseGeneratorGraph(appRoot string, cfg appcfg.Config, hasApp bool) generatorGraphResponse {
 	graph := generatorGraphResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.generators"),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.generate.plan"),
 		App: inspectdata.AppRef{
 			Name:       cfg.Name,
 			ID:         cfg.ID,

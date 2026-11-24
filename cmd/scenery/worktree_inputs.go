@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -14,69 +13,11 @@ import (
 	"scenery.sh/internal/filemeta"
 )
 
-const worktreePrepareKind = "scenery.worktree.prepare"
-
 // worktreePreparedInput is one declared input a linked checkout received from
 // the checkout it was created from.
 type worktreePreparedInput struct {
 	Path   string `json:"path"`
 	Method string `json:"method"`
-}
-
-type worktreePrepareResult struct {
-	cliPayloadIdentity
-	OK      bool                    `json:"ok"`
-	Path    string                  `json:"path"`
-	Source  string                  `json:"source,omitempty"`
-	Inputs  []worktreePreparedInput `json:"inputs"`
-	Message string                  `json:"message,omitempty"`
-}
-
-func runWorktreePrepare(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	source, err := mainWorktreeAppRoot(ctx, appRoot)
-	if err != nil {
-		return err
-	}
-	result := worktreePrepareResult{cliPayloadIdentity: newCLIPayloadIdentity(worktreePrepareKind), OK: true, Path: appRoot, Source: source, Inputs: []worktreePreparedInput{}}
-	if source == "" {
-		result.Message = "This is the main checkout; it has nothing to receive."
-	} else {
-		result.Inputs, err = prepareWorktreeInputs(ctx, appRoot, source, cfg, gitIgnores)
-		if err != nil {
-			return err
-		}
-		result.Message = fmt.Sprintf("Received %d declared Git-ignored input(s) from the main checkout.", len(result.Inputs))
-	}
-	if opts.JSON {
-		return writeInspectJSON(stdout, result)
-	}
-	for _, input := range result.Inputs {
-		_, _ = fmt.Fprintf(stdout, "%s\t%s\n", input.Method, input.Path)
-	}
-	_, _ = fmt.Fprintln(stdout, result.Message)
-	return nil
-}
-
-// mainWorktreeAppRoot returns the application root inside the repository's
-// main checkout that corresponds to appRoot, or "" when appRoot is in the
-// main checkout itself.
-func mainWorktreeAppRoot(ctx context.Context, appRoot string) (string, error) {
-	top, err := gitCommandOutput(ctx, appRoot, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", err
-	}
-	worktrees, err := listGitWorktrees(ctx, appRoot)
-	if err != nil {
-		return "", err
-	}
-	if len(worktrees) == 0 || worktrees[0].Bare {
-		return "", nil
-	}
-	return correspondingAppRoot(strings.TrimRight(top, "\r\n"), worktrees[0].Path, appRoot)
 }
 
 // gitTopLevel returns the root of the checkout holding appRoot, or appRoot

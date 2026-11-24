@@ -5,7 +5,7 @@ use std::convert::Infallible;
 use std::future::{Future, poll_fn};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -22,6 +22,7 @@ use tokio::io::AsyncRead;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{Mutex, watch};
+use tokio::task::JoinSet;
 use tokio_util::io::ReaderStream;
 
 mod scalars;
@@ -308,6 +309,22 @@ pub async fn serve(
     handler: impl Fn(Invocation, Context) -> HandlerFuture + Send + Sync + 'static,
 ) -> Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
+    let mut interrupt = signal(SignalKind::interrupt())?;
+    let stop = poll_fn(|cx| {
+        if terminate.poll_recv(cx).is_ready() || interrupt.poll_recv(cx).is_ready() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    });
+    serve_until(launch, handler, stop).await
+}
+
+async fn serve_until(
+    launch: Launch,
+    handler: impl Fn(Invocation, Context) -> HandlerFuture + Send + Sync + 'static,
+    stop: impl Future<Output = ()>,
+) -> Result<()> {
     let listener = UnixListener::bind(&launch.worker_socket)?;
     let identity = Arc::new(launch.identity);
     let handler = Arc::new(handler);
@@ -316,21 +333,26 @@ pub async fn serve(
         token: Arc::from(launch.token),
         sender: Arc::new(Mutex::new(None)),
     };
+    let (shutdown, stopped) = watch::channel(());
+    let mut connections = JoinSet::new();
+    let mut stop = pin!(stop);
     loop {
         let accepted = poll_fn(|cx| {
-            if terminate.poll_recv(cx).is_ready() {
+            if stop.as_mut().poll(cx).is_ready() {
                 return Poll::Ready(Ok(None));
             }
+            while matches!(connections.poll_join_next(cx), Poll::Ready(Some(_))) {}
             listener.poll_accept(cx).map(|result| result.map(Some))
         })
         .await?;
         let Some((socket, _)) = accepted else {
-            return Ok(());
+            break;
         };
         let identity = Arc::clone(&identity);
         let handler = Arc::clone(&handler);
         let host = host.clone();
-        tokio::spawn(async move {
+        let mut stopped = stopped.clone();
+        connections.spawn(async move {
             let service = service_fn(move |request| {
                 handle(
                     request,
@@ -339,11 +361,31 @@ pub async fn serve(
                     Arc::clone(&handler),
                 )
             });
-            let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
-                .serve_connection(TokioIo::new(socket), service)
-                .await;
+            let builder = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
+            let mut connection = pin!(builder.serve_connection(TokioIo::new(socket), service));
+            let mut stop = pin!(stopped.changed());
+            let finished = poll_fn(|cx| {
+                if stop.as_mut().poll(cx).is_ready() {
+                    Poll::Ready(false)
+                } else {
+                    connection.as_mut().poll(cx).map(|_| true)
+                }
+            })
+            .await;
+            if !finished {
+                connection.as_mut().graceful_shutdown();
+                let _ = connection.await;
+            }
         });
     }
+    drop(listener);
+    drop(shutdown);
+    // The supervisor grants five seconds before forcing termination.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        while connections.join_next().await.is_some() {}
+    })
+    .await;
+    Ok(())
 }
 
 async fn handle(
@@ -546,4 +588,123 @@ pub fn decode_outcome(raw: &RawValue) -> Result<(String, String, Box<RawValue>)>
         _ => return Err("invalid outcome envelope".into()),
     };
     Ok((envelope.kind, envelope.name, payload))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::sync::{Notify, mpsc};
+
+    #[test]
+    fn shutdown_drains_an_admitted_invocation_and_its_telemetry() {
+        run(async { tokio::time::timeout(Duration::from_secs(3), prove_shutdown_drain()).await? })
+            .unwrap();
+    }
+
+    async fn prove_shutdown_drain() -> Result<()> {
+        let directory = std::env::temp_dir().join(format!("sw-{}", std::process::id()));
+        std::fs::create_dir(&directory)?;
+        struct RemoveTestDirectory(PathBuf);
+        impl Drop for RemoveTestDirectory {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = RemoveTestDirectory(directory.clone());
+        let worker_socket = directory.join("worker");
+        let host_socket = directory.join("host");
+        let collector = UnixListener::bind(&host_socket)?;
+        let (received, mut batch) = mpsc::unbounded_channel();
+        let receiver = tokio::spawn(async move {
+            let (socket, _) = collector.accept().await.unwrap();
+            let handler = service_fn(move |request: Request<Incoming>| {
+                let received = received.clone();
+                async move {
+                    assert_eq!(request.uri().path(), "/host/v1/telemetry");
+                    assert_eq!(request.headers()["x-worker-scope"], "test-scope");
+                    let body = request.into_body().collect().await?.to_bytes();
+                    received.send(body).unwrap();
+                    Ok::<_, hyper::Error>(json(br#"{"accepted":1}"#.to_vec()))
+                }
+            });
+            let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
+                .serve_connection(TokioIo::new(socket), handler)
+                .await;
+        });
+        let stop = Arc::new(Notify::new());
+        let stopping = Arc::clone(&stop);
+        let entered = Arc::new(Notify::new());
+        let worker_entered = Arc::clone(&entered);
+        let release = Arc::new(Notify::new());
+        let worker_release = Arc::clone(&release);
+        let launch = Launch {
+            worker_socket: worker_socket.clone(),
+            host_socket,
+            token: "test-token".into(),
+            identity: Identity {
+                abi: 1,
+                service: "example/service/worker".into(),
+                contract_revision: "contract".into(),
+                implementation_revision: "implementation".into(),
+            },
+        };
+        let worker = tokio::spawn(async move {
+            serve_until(
+                launch,
+                move |_, context| {
+                    let entered = Arc::clone(&worker_entered);
+                    let release = Arc::clone(&worker_release);
+                    Box::pin(async move {
+                        entered.notify_one();
+                        release.notified().await;
+                        context
+                            .telemetry(&[TelemetryRecord {
+                                kind: "log",
+                                name: "drain",
+                                message: "handler completed",
+                                elapsed_ns: 0,
+                                attributes: BTreeMap::new(),
+                            }])
+                            .await?;
+                        Ok(Output::json(RawValue::from_string("{}".into())?))
+                    })
+                },
+                stopping.notified(),
+            )
+            .await
+        });
+        let socket = loop {
+            if let Ok(socket) = UnixStream::connect(&worker_socket).await {
+                break socket;
+            }
+            sleep(Duration::from_millis(1)).await;
+        };
+        let (mut client, connection) =
+            hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(socket))
+                .await?;
+        let connection = tokio::spawn(connection);
+        let request = Request::post("/worker/v1/invoke")
+            .header(AUTHORIZATION, "Bearer test-token")
+            .body(full(Bytes::from_static(
+                br#"{"service":"example/service/worker","operation":"example/operation/test","mode":"direct","context":{"invocation_id":"test","scope":"test-scope","generation":1,"contract_revision":"contract"},"input":{}}"#,
+            )))?;
+        let response = tokio::spawn(async move { client.send_request(request).await });
+        entered.notified().await;
+        stop.notify_one();
+        while UnixStream::connect(&worker_socket).await.is_ok() {
+            sleep(Duration::from_millis(1)).await;
+        }
+        release.notify_one();
+        let response = response.await??;
+        assert_eq!(response.status(), StatusCode::OK);
+        response.into_body().collect().await?;
+        let batch: serde_json::Value =
+            serde_json::from_slice(&batch.recv().await.ok_or("telemetry batch missing")?)?;
+        assert_eq!(batch[0]["message"], "handler completed");
+        worker.await??;
+        receiver.abort();
+        connection.abort();
+        Ok(())
+    }
 }

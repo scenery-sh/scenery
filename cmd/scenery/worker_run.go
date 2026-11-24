@@ -231,7 +231,12 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 		onReady()
 	}
 	fmt.Fprintf(os.Stderr, "application ready on %s\n", listen)
+	var app *cliTelemetryApp
+	if dev != nil {
+		app = telemetryInvocationAppFrom(nil, dev.watch.root)
+	}
 	watcher := &workerWatcher{
+		app: app,
 		dev: dev, devControl: devControl, directory: directory, capabilities: capabilities, token: token,
 		client: httpClient, bundle: bundle, active: processes, generation: 1, sequence: 1,
 	}

@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"scenery.sh/internal/appsdk"
@@ -43,7 +44,7 @@ func (t *tracedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	}
 	var statusErr error
 	if response.StatusCode >= 400 {
-		statusErr = errors.New(http.StatusText(response.StatusCode))
+		statusErr = traceCodedError("http_" + strconv.Itoa(response.StatusCode))
 	}
 	child := stateFromContext(ctx).trace
 	reporter := activeReporter()

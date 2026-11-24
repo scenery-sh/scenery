@@ -10,45 +10,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	inspectdata "scenery.sh/internal/inspect"
-	"scenery.sh/internal/postgresdb"
 )
-
-func buildInspectAppResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) inspectdata.AppResponse {
-	services := inspectServices(result)
-	endpoints, _ := inspectEndpoints(result)
-	runtimeDeclarations := 0
-	for _, resource := range result.Manifest.Resources {
-		switch resource.Kind {
-		case "scenery.execution":
-			if inspectString(resource.Spec["mode"]) == "durable" {
-				runtimeDeclarations++
-			}
-		case "scenery.schedule":
-			runtimeDeclarations++
-		}
-	}
-	names := make([]string, 0, len(services))
-	for _, service := range services {
-		names = append(names, service.Name)
-	}
-	response := inspectdata.AppResponse{
-		PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.app"), App: inspectAppRef(appRoot, cfg, result), Config: cfg,
-		Counts: inspectdata.AppCounts{Packages: len(services), Services: len(services), Endpoints: len(endpoints), RuntimeDeclarations: runtimeDeclarations}, Services: names,
-		SQLRequirements: append(compiler.SQLRequirements{}, result.SQLRequirements...),
-	}
-	for _, service := range services {
-		if service.Name == "auth" {
-			response.Counts.AuthHandler = 1
-			response.AuthHandler = &inspectdata.AuthBriefInfo{Service: "auth", Name: "AuthHandler"}
-			break
-		}
-	}
-	return response
-}
-
-func buildInspectServicesResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) inspectdata.ServicesResponse {
-	return inspectdata.ServicesResponse{PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.services"), App: inspectAppRef(appRoot, cfg, result), Services: inspectServices(result)}
-}
 
 func buildInspectRoutesResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) (inspectdata.RoutesResponse, error) {
 	endpoints, err := inspectEndpoints(result)
@@ -68,75 +30,6 @@ func buildInspectRoutesResponse(appRoot string, cfg appcfg.Config, result *compi
 	return inspectdata.RoutesResponse{PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.routes"), App: inspectAppRef(appRoot, cfg, result), Routes: routes}, nil
 }
 
-func buildInspectEndpointsResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) (inspectdata.EndpointsResponse, error) {
-	endpoints, err := inspectEndpoints(result)
-	if err != nil {
-		return inspectdata.EndpointsResponse{}, err
-	}
-	return inspectdata.EndpointsResponse{PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.endpoints"), App: inspectAppRef(appRoot, cfg, result), Endpoints: endpoints}, nil
-}
-
-func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) inspectDurableResponse {
-	resources := map[string]graph.Resource{}
-	for _, resource := range result.Manifest.Resources {
-		resources[resource.Address] = resource
-	}
-	sourcePaths := map[string]string{}
-	for _, source := range result.Sources {
-		sourcePaths[source.ID] = source.Relative
-	}
-	declarations := []durableDeclaration{}
-	for _, execution := range result.Manifest.Resources {
-		if execution.Kind != "scenery.execution" || inspectString(execution.Spec["mode"]) != "durable" {
-			continue
-		}
-		operation := resources[inspectResolveReference(execution, inspectReference(execution.Spec["operation"]), "operation")]
-		service := resources[inspectResolveReference(operation, inspectReference(operation.Spec["service"]), "service")]
-		serviceName := service.Name
-		if serviceName == "" {
-			serviceName = execution.Module
-		}
-		name := inspectString(execution.Spec["external_name"])
-		if name == "" {
-			name = execution.Name
-		}
-		schema := ""
-		for _, requirement := range result.SQLRequirements {
-			if requirement.Kind != compiler.SQLDurable {
-				continue
-			}
-			for _, consumer := range requirement.Consumers {
-				if consumer == execution.Address {
-					schema = requirement.Schema
-				}
-			}
-		}
-		file := sourcePaths[execution.Origin.SourceID]
-		line := 0
-		input, output := inspectTypeExpression(operation.Spec["input"]), inspectOperationOutputType(operation)
-		if execution.Origin.DeclarationRange != nil {
-			line = execution.Origin.DeclarationRange.Start.Line
-		}
-		declarations = append(declarations, durableDeclaration{
-			Kind: "durable_task", Name: name, Service: serviceName, Schema: schema, File: file, Line: line,
-			Input: input, Output: output,
-		})
-	}
-	sort.Slice(declarations, func(i, j int) bool {
-		if declarations[i].Service != declarations[j].Service {
-			return declarations[i].Service < declarations[j].Service
-		}
-		return declarations[i].Name < declarations[j].Name
-	})
-	services := durableServices(declarations)
-	databaseURL := durableDatabaseURLForInspect(appRoot)
-	return inspectDurableResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.durable"), App: inspectAppRef(appRoot, cfg, result),
-		Durable:      inspectDurableRecord{Database: inspectDurableDatabase{Name: postgresdb.DatabaseNameFromURL(databaseURL), URL: postgresdb.RedactURL(databaseURL)}, Schema: "scenery", TaskCount: len(declarations), ServiceCount: len(services)},
-		Declarations: declarations, Services: services,
-	}
-}
-
 func inspectTypeExpression(value any) string {
 	if reference := inspectReference(value); reference != "" {
 		return reference
@@ -145,31 +38,6 @@ func inspectTypeExpression(value any) string {
 		return inspectString(expression["$expression"])
 	}
 	return inspectString(value)
-}
-
-func inspectOperationOutputType(operation graph.Resource) string {
-	results := inspectNamedChildren(operation.Spec["result"])
-	if len(results) == 0 {
-		return ""
-	}
-	return inspectTypeExpression(results[0]["type"])
-}
-
-func inspectNamedChildren(value any) []map[string]any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return []map[string]any{typed}
-	case []any:
-		result := make([]map[string]any, 0, len(typed))
-		for _, item := range typed {
-			if child, ok := item.(map[string]any); ok {
-				result = append(result, child)
-			}
-		}
-		return result
-	default:
-		return nil
-	}
 }
 
 func inspectServices(result *compiler.Result) []inspectdata.ServiceDetails {

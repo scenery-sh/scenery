@@ -2,10 +2,11 @@ package main
 
 import (
 	json "encoding/json"
+	time "time"
+
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/machine"
 	postgresdb "scenery.sh/internal/postgresdb"
-	time "time"
 )
 
 type detachedDevResult struct {
@@ -48,15 +49,6 @@ type worktreeCreateResult struct {
 type worktreePreparedInput struct {
 	Path   string `json:"path"`
 	Method string `json:"method"`
-}
-
-type worktreePrepareResult struct {
-	cliPayloadIdentity
-	OK      bool                    `json:"ok"`
-	Path    string                  `json:"path"`
-	Source  string                  `json:"source,omitempty"`
-	Inputs  []worktreePreparedInput `json:"inputs"`
-	Message string                  `json:"message,omitempty"`
 }
 
 type worktreeListResult struct {

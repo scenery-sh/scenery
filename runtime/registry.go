@@ -32,6 +32,8 @@ type AuthInfo struct {
 }
 
 type Endpoint struct {
+	workerRuntime         string
+	workerModule          string
 	Service               string
 	Name                  string
 	Access                Access
@@ -134,6 +136,8 @@ type CronJob struct {
 }
 
 type DurableTask struct {
+	workerRuntime          string
+	workerModule           string
 	Name                   string
 	Service                string
 	Version                int

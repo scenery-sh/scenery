@@ -119,7 +119,12 @@ func runDurableCommand(ctx context.Context, out io.Writer, args []string) error 
 		}
 	}
 	if !result.OK {
-		return &silentCLIError{err: fmt.Errorf("%s", result.Error.Message), code: 3}
+		if result.Error == nil {
+			return &silentCLIError{err: fmt.Errorf("durable execution failed"), code: 3}
+		}
+		return &silentCLIError{err: &cliDiagnosticError{code: 3, diagnostic: graph.Diagnostic{
+			Code: result.Error.Code, Severity: "error", Message: result.Error.Message, ReportToken: result.Error.ReportToken,
+		}}, code: 3}
 	}
 	return nil
 }

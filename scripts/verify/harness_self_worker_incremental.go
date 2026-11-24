@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/devtelemetry"
 )
 
 func runHarnessWorkerIncrementalStep(ctx context.Context, repo string) harnessStep {
@@ -349,6 +351,13 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 			}
 		}
 		summary[trial.name] = map[string]any{"builds": timing, "before": before, "after": after}
+		if trial.name == "TypeScript" {
+			event, err := verifyWorkerRebuildTelemetry(ctx, repo, app, filepath.Join(root, "agent"), after[trial.route].Generation)
+			if err != nil {
+				return nil, err
+			}
+			summary["rebuild_telemetry"] = event
+		}
 		before = after
 	}
 	if err := harnessReplaceInFile(filepath.Join(app, "echo", "package.scn"), `path          = "/echo"`, `path          = "/renamed"`); err != nil {
@@ -371,4 +380,30 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	}
 	summary["contract_change_requires_restart"] = true
 	return summary, nil
+}
+
+func verifyWorkerRebuildTelemetry(ctx context.Context, repo, app, home, generation string) (devtelemetry.Event, error) {
+	command := commandTreeContext(ctx, harnessLocalSceneryBinaryPath(repo), "telemetry", "-o", "json")
+	command.Dir, command.Env = app, harnessAppEnv(home)
+	output, err := command.Output()
+	if err != nil {
+		return devtelemetry.Event{}, fmt.Errorf("read worker rebuild telemetry: %w", err)
+	}
+	var query struct {
+		Events []devtelemetry.Event `json:"events"`
+	}
+	if err := decodeCLIJSON(output, &query); err != nil {
+		return devtelemetry.Event{}, err
+	}
+	for _, event := range query.Events {
+		if event.Rebuild == nil || fmt.Sprint(event.Generation) != generation {
+			continue
+		}
+		build := event.Rebuild
+		if build.OK && build.TriggerKind == "body_only" && slices.Equal(build.RebuiltModules, []string{"echo_ts"}) &&
+			len(build.SkippedModules) == 5 && build.EditToReadyMS != nil && *build.EditToReadyMS >= build.ReadyMS {
+			return event, nil
+		}
+	}
+	return devtelemetry.Event{}, fmt.Errorf("missing a successful TypeScript-only rebuild event for generation %s", generation)
 }

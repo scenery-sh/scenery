@@ -88,8 +88,8 @@ func TestInspectUIRejectsInvalidFrontendFlag(t *testing.T) {
 	if err := runSceneryInspect([]string{"ui", "--app-root", root, "--frontend", "missing"}, &output); err == nil {
 		t.Fatal("unknown frontend succeeded")
 	}
-	if err := runSceneryInspect([]string{"app", "--app-root", root, "--frontend", "web", "-o", "json"}, &output); err == nil {
-		t.Fatal("--frontend on inspect app succeeded")
+	if err := runSceneryInspect([]string{"routes", "--app-root", root, "--frontend", "web", "-o", "json"}, &output); err == nil {
+		t.Fatal("--frontend on inspect routes succeeded")
 	}
 }
 

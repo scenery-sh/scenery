@@ -38,6 +38,7 @@ func serveWorkerTelemetry(plan WorkerServicePlan, w http.ResponseWriter, request
 			return
 		}
 	}
+	at := time.Now().UTC()
 	ctx := request.Context()
 	invocation, _ := runtimeapi.InvocationFromContext(ctx)
 	state := stateFromContext(ctx)
@@ -49,12 +50,12 @@ func serveWorkerTelemetry(plan WorkerServicePlan, w http.ResponseWriter, request
 			}
 			continue
 		}
-		started := time.Now().UTC().Add(-time.Duration(record.ElapsedNS))
+		started := at.Add(-time.Duration(record.ElapsedNS))
 		if state != nil && !state.started.IsZero() && started.Before(state.started) {
 			started = state.started
 		}
 		_, end := beginOperationTraceAt(ctx, "WORKER", plan.Name, record.Name, record.Attributes, started)
-		end(nil)
+		end(at, nil)
 	}
 	writeProcessHostJSON(w, http.StatusOK, struct {
 		Accepted int `json:"accepted"`

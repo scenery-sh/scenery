@@ -40,6 +40,8 @@ func ContractDurableFailureOutcome(err error) string {
 // ContractDurableRegistration is the exact runtime projection of one
 // scenery.execution durable execution.
 type ContractDurableRegistration struct {
+	workerRuntime          string
+	workerModule           string
 	Address                string
 	ExternalName           string
 	EngineAddress          string
@@ -112,6 +114,7 @@ func RegisterContractDurableExecution(registration ContractDurableRegistration) 
 		return fmt.Errorf("runtime: duplicate durable task registration for %s", key)
 	}
 	global.durableTasks[key] = &DurableTask{
+		workerRuntime: registration.workerRuntime, workerModule: registration.workerModule,
 		Name: registration.ExternalName, Service: registration.Service, Version: int(registration.Revision),
 		HandlerRef: registration.Address, Handler: registration.Handler,
 		DefaultTimeout: registration.DefaultTimeout, DefaultLease: registration.DefaultLease,

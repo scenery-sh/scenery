@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scenery.sh/schemas/scenery.inspect.generators.schema.json",
-  "title": "scenery.inspect.generators",
+  "$id": "https://scenery.sh/schemas/scenery.generate.plan.schema.json",
+  "title": "scenery.generate.plan",
   "type": "object",
   "required": [
     "kind",
@@ -13,10 +13,10 @@
   ],
   "properties": {
     "kind": {
-      "const": "scenery.inspect.generators"
+      "const": "scenery.generate.plan"
     },
     "schema_revision": {
-      "const": "sha256:ed1b86180449ebfd88a763ed642b7988d284b8f02f00b649bda1bffc9c1183bc"
+      "const": "sha256:1d372fa16e37696f5e0dacc1f9af3a51c09956902cfc4ff07ce3d409ac53bea6"
     },
     "app": {
       "$ref": "#/$defs/appRef"

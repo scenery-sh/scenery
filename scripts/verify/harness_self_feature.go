@@ -283,13 +283,13 @@ echo executed >> .scenery/probe-count
 			return err
 		}
 	}
-	if _, err := p.cli("set", "alpha", "--stage", "ready"); err != nil {
+	if err := p.setStage("alpha", "ready"); err != nil {
 		return err
 	}
-	if _, err := p.cli("set", "gamma", "--stage", "ready"); err != nil {
+	if err := p.setStage("gamma", "ready"); err != nil {
 		return err
 	}
-	if _, err := p.cli("set", "epsilon", "--stage", "parked"); err != nil {
+	if err := p.setStage("epsilon", "parked"); err != nil {
 		return err
 	}
 	alphaRow, err := p.row("alpha")
@@ -426,4 +426,13 @@ func containsPaths(paths []string, expected ...string) bool {
 		}
 	}
 	return true
+}
+
+func (p *featureProbe) setStage(name, stage string) error {
+	manager, err := feature.Open(p.ctx, p.primary)
+	if err != nil {
+		return err
+	}
+	_, err = manager.Update(p.ctx, name, feature.Update{Stage: stage})
+	return err
 }

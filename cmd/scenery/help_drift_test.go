@@ -123,8 +123,8 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		registered := parserFlagNames(t, parsers...)
 		for _, name := range registered {
 			// Every parser accepts -o; commands without output modes ignore it.
-			// inspect keeps the traces/metrics list filters only to reject them
-			// with guidance toward those commands, and the traces/metrics lists
+			// inspect keeps the observability filters only to reject them
+			// with guidance toward those commands, and the observability commands
 			// share its parser and reject its inspect-only flags.
 			if name == "o" ||
 				command == "inspect" && slices.Contains([]string{"limit", "since", "service", "endpoint", "trace-id", "status", "min-duration-ms", "slowest"}, name) ||

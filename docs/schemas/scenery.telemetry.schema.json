@@ -12,6 +12,7 @@
     "commands",
     "measurements",
     "records",
+    "events",
     "warnings"
   ],
   "additionalProperties": false,
@@ -20,7 +21,7 @@
       "const": "scenery.telemetry"
     },
     "schema_revision": {
-      "const": "sha256:1ddc5f4ae40a0f7e185b15992922f86fe7b01c1c7da2be658f9815985f89e0b5"
+      "const": "sha256:0eb4f93d93cc4c104cc525d2192be376eddbd336160b93a6532daa15c28988f0"
     },
     "query": {
       "type": "object",
@@ -103,6 +104,7 @@
         "unevaluatedProperties": false
       }
     },
+    "events": {"type": "array", "maxItems": 10000, "items": {"$ref": "scenery.telemetry.event.schema.json"}},
     "records": {
       "type": "array",
       "maxItems": 10000,
@@ -128,6 +130,7 @@
       "required": [
         "count",
         "success_count",
+        "uptime_count",
         "failure_count",
         "total_duration_ms",
         "avg_duration_ms",
@@ -139,6 +142,7 @@
       ],
       "properties": {
         "count": {"type": "integer", "minimum": 0},
+        "uptime_count": {"type": "integer", "minimum": 0},
         "success_count": {"type": "integer", "minimum": 0},
         "failure_count": {"type": "integer", "minimum": 0},
         "total_duration_ms": {"type": "integer", "minimum": 0},
@@ -192,6 +196,7 @@
             }
           }
         },
+        "error_category": {"type": "string", "minLength": 1},
         "diagnostic_code": {
           "type": "string",
           "pattern": "^SCN[0-9]{4}$"
@@ -203,6 +208,7 @@
         "duration_ms": {"type": "integer", "minimum": 0},
         "exit_code": {"type": "integer"},
         "version": {"type": "string"},
+        "long_running": {"type": "boolean"},
         "mode": {"enum": ["oneshot", "long_running"]},
         "measurement": {"const": "startup"},
         "app": {"$ref": "#/$defs/app"}

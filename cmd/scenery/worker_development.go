@@ -176,6 +176,9 @@ func (dev *workerDevelopment) rebuild(ctx context.Context, active workerBundle, 
 		}
 		timing.Go = true
 		goContext := build.WithTrace(ctx, func(step build.Step) {
+			if step.Name == "process.link" {
+				timing.LinkMS += workerMilliseconds(step.Duration)
+			}
 			if step.Name == "process.linked" {
 				timing.GoLinks = step.PackagesRebuilt
 			}

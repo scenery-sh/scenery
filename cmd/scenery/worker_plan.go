@@ -60,6 +60,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 				Binding: binding, Enqueue: cp.StringValue(projection.resources[binding].Spec["delivery"]) == "enqueue",
 			}
 		}
+		service.Runtime = firstNonEmpty(cp.StringValue(resource.Spec["runtime"]), "go")
 		projection.services[resource.Address] = service
 	}
 	for _, operation := range manifest.Resources {

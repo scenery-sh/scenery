@@ -26,7 +26,7 @@ func TestInspectUsesCurrentSourceAfterSuccessfulProjection(t *testing.T) {
 	inspect := func() (machine.Envelope[graph.Diagnostic], error) {
 		t.Helper()
 		var output strings.Builder
-		err := runSceneryInspect([]string{"endpoints", "--app-root", root, "-o", "json"}, &output)
+		err := runSceneryInspect([]string{"routes", "--app-root", root, "-o", "json"}, &output)
 		envelope, decodeErr := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
 		if decodeErr != nil {
 			t.Fatal(decodeErr)

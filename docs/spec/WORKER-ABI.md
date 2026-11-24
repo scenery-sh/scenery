@@ -89,6 +89,12 @@ deadline.
 `events/emit` is reserved. The current `.scn` graph has no event declaration
 for the Host to authorize.
 
+Telemetry batches are sent explicitly. Await the acknowledgement before
+returning the outcome or closing the stream so that the invocation scope
+is still active. The Host records worker dispatch failures independently of
+worker-supplied telemetry. An abrupt process exit can lose telemetry that
+the Host has not acknowledged.
+
 The Host and SDK validate the applicable contract type before dispatch and
 after receipt. Canonical wire bytes preserve exact numeric values, tagged
 outcomes and the distinction between missing and null fields. The shared
@@ -98,7 +104,7 @@ closed records, enums, and outcomes in Go, Rust, and JavaScript/TypeScript.
 ## Delivery and cancellation
 
 The Host reports `not_sent` only when it can prove non-delivery, such as a
-failed dial before a stream is opened or a refused pre-invocation admission.
+failed dial before a stream is opened or an attested HTTP 409 identity refusal before dispatch.
 An incomplete or unattested reply after send is `unknown`. The transport must
 not replay an ambiguous invocation. Declared idempotency and durable execution
 policy control application-level retries.

@@ -81,7 +81,6 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 	}
 	for _, command := range []string{
 		"scenery inspect build -o json",
-		"scenery inspect paths -o json",
 		"scenery check -o json",
 		"scenery generate --check -o json",
 	} {

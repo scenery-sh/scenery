@@ -11,13 +11,14 @@ import (
 type ContractInternalInvoke func(context.Context, any, any) (any, error)
 
 type ContractInternalBindingRegistration struct {
-	Address      string
-	Visibility   string
-	Package      string
-	Policy       *ContractHTTPPolicy
-	DecodeInput  func([]byte) (any, error)
-	EncodeOutput func(any) ([]byte, error)
-	Invoke       ContractInternalInvoke
+	workerRuntime string
+	Address       string
+	Visibility    string
+	Package       string
+	Policy        *ContractHTTPPolicy
+	DecodeInput   func([]byte) (any, error)
+	EncodeOutput  func(any) ([]byte, error)
+	Invoke        ContractInternalInvoke
 }
 
 // InvokeContractBindingWire invokes a binding with the caller's projection of
@@ -127,6 +128,11 @@ func InvokeContractBindingFrom(ctx context.Context, address, callerPackage strin
 		return nil, fmt.Errorf("permission_denied: internal binding %s is visible only to package %s", address, registration.Package)
 	}
 	service, attributes := operationTraceIdentity(registration.Policy, registration.Package, nil)
+	if state := stateFromContext(ctx); state != nil && registration.workerRuntime != "" {
+		clone := *state
+		clone.workerRuntime, clone.workerModule = registration.workerRuntime, registration.Package
+		ctx = withState(ctx, &clone)
+	}
 	ctx, end := beginOperationTrace(ctx, "INTERNAL", service, address, attributes)
 	defer finishOperation(end, &resultErr)
 	restore := enterState(stateFromContext(ctx))

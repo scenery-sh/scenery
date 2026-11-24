@@ -107,6 +107,7 @@ func (s *devSupervisor) watchDevServiceInstance(model *devProcessModel, instance
 	<-instance.app.process.Done
 	model.mu.Lock()
 	current := model.services[instance.process.Name] == instance && !instance.stopped
+	generation := model.generation
 	instance.stopped = true
 	model.unlock()
 	if !current {
@@ -114,6 +115,13 @@ func (s *devSupervisor) watchDevServiceInstance(model *devProcessModel, instance
 	}
 	if s.console != nil {
 		s.console.Event("process.stop", map[string]any{"pid": instance.app.pid, "service_process": instance.process.Name, "output": strings.TrimSpace(instance.app.output.String())})
+	}
+	if command := instance.app.process.Cmd; command != nil && s.ctx.Err() == nil {
+		module, _, _ := strings.Cut(instance.process.Service, "/service/")
+		s.mu.RLock()
+		app := &cliTelemetryApp{ID: s.status.ID, Name: s.status.Name}
+		s.mu.RUnlock()
+		recordDevWorkerFault(app, generation, module, "go", command.ProcessState)
 	}
 	s.recoverDevServiceInstance(model, instance)
 }

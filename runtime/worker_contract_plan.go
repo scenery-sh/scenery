@@ -16,6 +16,7 @@ import (
 type WorkerServicePlan struct {
 	Address    string
 	Module     string
+	Runtime    string
 	Name       string
 	Process    string
 	Operations map[string]WorkerOperationPlan

@@ -64,7 +64,7 @@ func verifyHarnessAuthOnlyCapability(ctx context.Context, repoRoot, root string,
 	cli := func(appRoot string, args ...string) ([]byte, error) {
 		return runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, args...)
 	}
-	requirements, err := readHarnessSQLRequirements(cli, root)
+	requirements, err := readHarnessSQLRequirements(root)
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func verifyHarnessCapabilityRecovery(ctx context.Context, repoRoot, appRoot, roo
 	if err := os.WriteFile(sourcePath, []byte("invalid source {\n"), 0o600); err != nil {
 		return err
 	}
-	if output, err := cli("inspect", "app", "-o", "json"); err == nil {
+	if output, err := cli("compile", "-o", "json"); err == nil {
 		return fmt.Errorf("invalid source was reported as a current successful compile: %s", output)
 	}
 	if _, err := cli("down", "-o", "json"); err != nil {
@@ -329,7 +329,7 @@ module "second" {
 	if err := os.WriteFile(appPath, appSource, 0o600); err != nil {
 		return err
 	}
-	requirements, err := readHarnessSQLRequirements(cli, root)
+	requirements, err := readHarnessSQLRequirements(root)
 	if err != nil {
 		return err
 	}

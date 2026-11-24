@@ -90,7 +90,7 @@ func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) err
 		resp.OK = false
 	}
 
-	for _, subject := range []string{"app", "routes", "services", "endpoints", "build", "paths"} {
+	for _, subject := range []string{"routes", "build"} {
 		step := runHarnessInspect(subject, appRoot, artifactCtx)
 		resp.Steps = append(resp.Steps, step)
 		if !step.OK {
@@ -262,7 +262,11 @@ func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArt
 	started := time.Now()
 	var out bytes.Buffer
 	var err error
-	command := []string{"scenery", subject, "list", "--app-root", appRoot, "-o", "json"}
+	command := []string{"scenery", subject}
+	if subject == "traces" {
+		command = append(command, "list")
+	}
+	command = append(command, "--app-root", appRoot, "-o", "json")
 	evidence := newHarnessEvidence(command, appRoot, started)
 	switch subject {
 	case "traces":
@@ -273,7 +277,7 @@ func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArt
 		err = usageErrorf("unknown observability subject %q", subject)
 	}
 	step := harnessStep{
-		Name:       subject + " list",
+		Name:       strings.Join(command[1:len(command)-4], " "),
 		Command:    command,
 		OK:         err == nil,
 		DurationMS: time.Since(started).Milliseconds(),
@@ -307,36 +311,14 @@ func summarizeHarnessInspect(subject string, payload map[string]any) map[string]
 		summary["schema_revision"] = revision
 	}
 	switch subject {
-	case "app":
-		if counts, ok := payload["counts"].(map[string]any); ok {
-			for key, value := range counts {
-				summary[key] = value
-			}
-		}
 	case "routes":
 		if items, ok := payload["routes"].([]any); ok {
 			summary["routes"] = len(items)
-		}
-	case "services":
-		if items, ok := payload["services"].([]any); ok {
-			summary["services"] = len(items)
-		}
-	case "endpoints":
-		if items, ok := payload["endpoints"].([]any); ok {
-			summary["endpoints"] = len(items)
 		}
 	case "build":
 		if buildInfo, ok := payload["build"].(map[string]any); ok {
 			for _, key := range []string{"workspace_dir", "binary_path", "latest_manifest_path", "compiled"} {
 				if value, ok := buildInfo[key]; ok {
-					summary[key] = value
-				}
-			}
-		}
-	case "paths":
-		if paths, ok := payload["paths"].(map[string]any); ok {
-			for _, key := range []string{"app_root", "cache_root", "workspace_dir", "build_state_path"} {
-				if value, ok := paths[key]; ok {
 					summary[key] = value
 				}
 			}
@@ -369,10 +351,7 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/scenery.harness.artifact.schema.json",
 		"docs/schemas/scenery.harness.result.schema.json",
 		"docs/schemas/scenery.inspect.harness.schema.json",
-		"docs/schemas/scenery.inspect.app.schema.json",
 		"docs/schemas/scenery.inspect.routes.schema.json",
-		"docs/schemas/scenery.inspect.services.schema.json",
-		"docs/schemas/scenery.inspect.endpoints.schema.json",
 		"docs/schemas/scenery.inspect.traces.schema.json",
 		"docs/schemas/scenery.inspect.metrics.schema.json",
 		"docs/schemas/scenery.inspect.ui.schema.json",
@@ -380,7 +359,6 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/scenery.metrics.query.schema.json",
 		"docs/schemas/scenery.telemetry.schema.json",
 		"docs/schemas/scenery.inspect.build.schema.json",
-		"docs/schemas/scenery.inspect.paths.schema.json",
 	}
 	return harnessKnowledge{
 		Entrypoints: harnessKnowledgeFiles(appRoot, entrypoints),

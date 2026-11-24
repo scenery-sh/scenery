@@ -23,20 +23,10 @@ func tracesCommand(args []string) error {
 }
 
 func metricsCommand(args []string) error {
-	if len(args) == 0 {
-		return usageErrorf("usage: scenery metrics list|query [-o json] [--app-root <path>]")
-	}
-	if err := flagBeforeWord(args, "the metrics subcommand"); err != nil {
-		return err
-	}
-	switch args[0] {
-	case "list":
-		return runObservabilityList(context.Background(), os.Stdout, "metrics", args[1:])
-	case "query":
+	if len(args) > 0 && args[0] == "query" {
 		return runMetricsQueryCommand(context.Background(), os.Stdout, args[1:])
-	default:
-		return usageErrorf("unknown metrics command %q", args[0])
 	}
+	return runObservabilityList(context.Background(), os.Stdout, "metrics", args)
 }
 
 func runObservabilityList(ctx context.Context, stdout io.Writer, subject string, args []string) error {
