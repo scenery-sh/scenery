@@ -70,12 +70,31 @@ type WorkerHTTPPlan struct {
 }
 
 type WorkerResponsePlan struct {
-	Status   int
-	Codec    string
-	Media    []string
-	BodyPath []string
-	Options  ContractResponseOptions
-	Stream   bool
+	Status  int
+	Codec   string
+	Media   []string
+	Body    WorkerResponseValue
+	Options ContractResponseOptions
+	Stream  bool
+	Headers []WorkerResponseHeader
+	Cookies []WorkerResponseCookie
+}
+
+type WorkerResponseValue struct {
+	Path         []string
+	Optional     bool
+	DefaultEmpty bool
+}
+
+type WorkerResponseHeader struct {
+	Name     string
+	Encoding string
+	Value    WorkerResponseValue
+}
+
+type WorkerResponseCookie struct {
+	Cookie ContractResponseCookie
+	Value  WorkerResponseValue
 }
 
 func decodeWorkerRequest(request *http.Request, path map[string]string, plan ContractRequestSchema, normalize func([]byte) ([]byte, error)) (ContractDecodedRequest, error) {
@@ -102,6 +121,18 @@ func encodeWorkerResponse(request *http.Request, result workerabi.Result, respon
 	if !ok || response.Stream != (result.Stream != nil) {
 		return ContractHTTPResponse{}, ContractSystemError(closeWorkerResult(result, fmt.Errorf("worker returned an unmapped outcome or streaming mode")))
 	}
+	encoded, err := encodeWorkerResponseBody(request, result, response, raw)
+	if err != nil {
+		return ContractHTTPResponse{}, err
+	}
+	if err := encodeWorkerResponseMetadata(&encoded, response, raw); err != nil {
+		_ = encoded.Close()
+		return ContractHTTPResponse{}, ContractSystemError(err)
+	}
+	return encoded, nil
+}
+
+func encodeWorkerResponseBody(request *http.Request, result workerabi.Result, response WorkerResponsePlan, raw json.RawMessage) (ContractHTTPResponse, error) {
 	if result.Stream != nil {
 		stream := shared.NewByteStream(result.Stream, result.StreamSize)
 		return EncodeContractByteStreamWithOptions(request, response.Status, stream, response.Media, response.Options)
@@ -109,15 +140,9 @@ func encodeWorkerResponse(request *http.Request, result workerabi.Result, respon
 	if response.Codec == "" {
 		return ContractHTTPResponse{Status: response.Status}, nil
 	}
-	for _, field := range response.BodyPath {
-		object, err := contract.DecodeJSONObject(raw)
-		if err != nil {
-			return ContractHTTPResponse{}, ContractSystemError(err)
-		}
-		raw = object[field]
-		if len(raw) == 0 {
-			return ContractHTTPResponse{}, ContractSystemError(fmt.Errorf("worker outcome has no mapped field %s", field))
-		}
+	raw, err := selectWorkerResponseValue(raw, response.Body)
+	if err != nil {
+		return ContractHTTPResponse{}, ContractSystemError(err)
 	}
 	if response.Codec == "json" || response.Codec == "problem_json" {
 		accept, acceptEncoding := contractNegotiationHeaders(request)
@@ -143,6 +168,57 @@ func encodeWorkerResponse(request *http.Request, result workerabi.Result, respon
 	default:
 		return ContractHTTPResponse{}, ContractSystemError(fmt.Errorf("unknown worker response codec %s", response.Codec))
 	}
+}
+
+func encodeWorkerResponseMetadata(response *ContractHTTPResponse, plan WorkerResponsePlan, raw json.RawMessage) error {
+	for _, header := range plan.Headers {
+		value, err := selectWorkerResponseValue(raw, header.Value)
+		if err != nil {
+			return err
+		}
+		if len(value) != 0 {
+			options := ContractResponseValueOptions{Encoding: header.Encoding, EncodeValue: func(any) ([]byte, error) { return value, nil }}
+			if err := AddContractResponseHeader(response, header.Name, value, options); err != nil {
+				return err
+			}
+		}
+	}
+	for _, cookie := range plan.Cookies {
+		value, err := selectWorkerResponseValue(raw, cookie.Value)
+		if err != nil {
+			return err
+		}
+		if len(value) != 0 {
+			options := ContractResponseValueOptions{EncodeValue: func(any) ([]byte, error) { return value, nil }}
+			if err := AddContractResponseCookie(response, cookie.Cookie, value, options); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func selectWorkerResponseValue(raw json.RawMessage, selection WorkerResponseValue) (json.RawMessage, error) {
+	for index, field := range selection.Path {
+		object, err := contract.DecodeJSONObject(raw)
+		if err != nil {
+			return nil, err
+		}
+		raw = object[field]
+		if len(raw) != 0 {
+			continue
+		}
+		if index == len(selection.Path)-1 {
+			if selection.DefaultEmpty {
+				return json.RawMessage(`""`), nil
+			}
+			if selection.Optional {
+				return nil, nil
+			}
+		}
+		return nil, fmt.Errorf("worker outcome has no mapped field %s", field)
+	}
+	return raw, nil
 }
 
 func closeWorkerResult(result workerabi.Result, err error) error {

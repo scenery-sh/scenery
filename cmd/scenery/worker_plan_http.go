@@ -85,7 +85,7 @@ func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, pol
 			policy.TransportStatuses[outcome] = status
 			continue
 		}
-		mapped, err := p.httpResponse(spec, response, outcome, operation, policy, cp.StringValue(binding.Spec["delivery"]) == "stream")
+		mapped, err := p.httpResponse(response, outcome, operation, policy, cp.StringValue(binding.Spec["delivery"]) == "stream")
 		if err != nil {
 			return plan, err
 		}
@@ -234,7 +234,7 @@ func workerStrings(value any) []string {
 	return result
 }
 
-func (p workerPlanProjection) httpResponse(_ map[string]any, spec map[string]any, outcome string, operation graph.Resource, policy *workerruntime.ContractHTTPPolicy, stream bool) (workerruntime.WorkerResponsePlan, error) {
+func (p workerPlanProjection) httpResponse(spec map[string]any, outcome string, operation graph.Resource, policy *workerruntime.ContractHTTPPolicy, stream bool) (workerruntime.WorkerResponsePlan, error) {
 	result := workerruntime.WorkerResponsePlan{
 		Status: int(workerInt(spec["status"])),
 		Options: workerruntime.ContractResponseOptions{
@@ -244,8 +244,21 @@ func (p workerPlanProjection) httpResponse(_ map[string]any, spec map[string]any
 	if result.Status < http.StatusContinue || result.Status > 599 {
 		return result, fmt.Errorf("outcome %s has no valid HTTP status", outcome)
 	}
-	if len(cp.NamedChildren(spec, "header")) > 0 || len(cp.NamedChildren(spec, "cookie")) > 0 {
-		return result, fmt.Errorf("outcome %s has response metadata without a Host projection", outcome)
+	for _, header := range cp.NamedChildren(spec, "header") {
+		value, err := p.httpResponseValue(operation, outcome, workerRefText(header["from"]))
+		if err != nil {
+			return result, err
+		}
+		result.Headers = append(result.Headers, workerruntime.WorkerResponseHeader{
+			Name: cp.StringValue(header["name"]), Encoding: cp.StringValue(header["encoding"]), Value: value,
+		})
+	}
+	for _, cookie := range cp.NamedChildren(spec, "cookie") {
+		value, err := p.httpResponseValue(operation, outcome, workerRefText(cookie["from"]))
+		if err != nil {
+			return result, err
+		}
+		result.Cookies = append(result.Cookies, workerruntime.WorkerResponseCookie{Cookie: workerResponseCookie(cookie), Value: value})
 	}
 	body, _ := spec["body"].(map[string]any)
 	if body == nil {
@@ -258,13 +271,51 @@ func (p workerPlanProjection) httpResponse(_ map[string]any, spec map[string]any
 		defaults := map[string]string{"problem_json": "application/problem+json", "text": "text/plain", "bytes": "application/octet-stream", "json": "application/json"}
 		result.Media = []string{defaults[result.Codec]}
 	}
-	target := workerRefText(body["from"])
-	if target == outcome || outcome == "dispatch.enqueued" && target == "dispatch.receipt" {
-		return result, nil
+	var err error
+	result.Body, err = p.httpResponseValue(operation, outcome, workerRefText(body["from"]))
+	result.Body.Optional = false
+	return result, err
+}
+
+func workerResponseCookie(spec map[string]any) workerruntime.ContractResponseCookie {
+	secure, secureSet := spec["secure"].(bool)
+	httpOnly, httpOnlySet := spec["http_only"].(bool)
+	sameSite := http.SameSiteLaxMode
+	switch cp.StringValue(spec["same_site"]) {
+	case "strict":
+		sameSite = http.SameSiteStrictMode
+	case "none":
+		sameSite = http.SameSiteNoneMode
 	}
-	path, valid := strings.CutPrefix(target, outcome+".")
-	if !valid {
-		return result, fmt.Errorf("response body does not select its outcome")
+	return workerruntime.ContractResponseCookie{
+		Name: cp.StringValue(spec["name"]), Path: cp.StringValue(spec["path"]), Domain: cp.StringValue(spec["domain"]),
+		MaxAge: int(workerInt(spec["max_age"])), Expires: cp.StringValue(spec["expires"]),
+		Secure: secure || !secureSet, HTTPOnly: httpOnly || !httpOnlySet, SameSite: sameSite,
+	}
+}
+
+func (p workerPlanProjection) httpResponseValue(operation graph.Resource, outcome, target string) (workerruntime.WorkerResponseValue, error) {
+	var result workerruntime.WorkerResponseValue
+	root := outcome
+	if outcome == "dispatch.enqueued" {
+		root = "dispatch.receipt"
+	}
+	var path string
+	if target != root {
+		var valid bool
+		path, valid = strings.CutPrefix(target, root+".")
+		if !valid {
+			return result, fmt.Errorf("response value %s does not select outcome %s", target, outcome)
+		}
+	}
+	if outcome == "dispatch.enqueued" {
+		switch path {
+		case "":
+			return result, nil
+		case "durable_identity", "execution_id", "accepted_revision", "status_url":
+			return workerruntime.WorkerResponseValue{Path: []string{path}, DefaultEmpty: path == "status_url"}, nil
+		}
+		return result, fmt.Errorf("response value %s has no receipt wire mapping", target)
 	}
 	kind, name, _ := strings.Cut(outcome, ".")
 	var typeExpression string
@@ -274,20 +325,31 @@ func (p workerPlanProjection) httpResponse(_ map[string]any, spec map[string]any
 			break
 		}
 	}
+	if path == "" {
+		result.Optional = strings.HasPrefix(strings.TrimSpace(typeExpression), "optional(")
+		return result, nil
+	}
+	if typeExpression == "std.type.problem" {
+		switch path {
+		case "code", "message", "path":
+			return workerruntime.WorkerResponseValue{Path: []string{path}, DefaultEmpty: path == "path"}, nil
+		}
+	}
 	for field := range strings.SplitSeq(path, ".") {
 		record := p.resources[typeExpression]
 		found := false
 		for _, declaration := range cp.NamedChildren(record.Spec, "field") {
 			if cp.StringValue(declaration["name"]) == field {
-				result.BodyPath = append(result.BodyPath, cp.WireName(declaration, field))
+				result.Path = append(result.Path, cp.WireName(declaration, field))
 				typeExpression = workerTypeExpression(record.Module, declaration["type"])
 				found = true
 				break
 			}
 		}
 		if !found {
-			return result, fmt.Errorf("response body field %s has no wire mapping", field)
+			return result, fmt.Errorf("response field %s has no wire mapping", field)
 		}
 	}
+	result.Optional = strings.HasPrefix(strings.TrimSpace(typeExpression), "optional(")
 	return result, nil
 }

@@ -139,6 +139,50 @@ binding "quote_session_http" {
   }
 }
 
+binding "quote_metadata_http" {
+  gateway        = var.gateway
+  operation      = operation.quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/quote/metadata"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.quote.input
+    }
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok.amount
+      }
+      header "x-quote-note" {
+        from     = result.ok.note
+        encoding = "json"
+      }
+      cookie "quote_vendor" {
+        from = result.ok.vendor
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
 binding "quote_internal" {
   operation      = operation.quote
   execution      = execution.quote_direct
