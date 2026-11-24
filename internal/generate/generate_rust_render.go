@@ -115,12 +115,8 @@ func (p rustContractProjection) renderService(source *strings.Builder, service R
 	}
 	for _, operation := range operations {
 		name := goName(operation.Name)
-		method := rustMethodName(stringValue(specChild(operation, "handler")["method"]))
-		output := name + "Outcome"
-		if operationUsesHTTPStream(operation, resources) {
-			output = "(" + output + ", Option<sdk::Stream>)"
-		}
-		fmt.Fprintf(source, "    fn %s(&self, ctx: sdk::Context, input: %sInput) -> impl std::future::Future<Output = sdk::Result<%s>> + Send;\n", method, name, output)
+		method := stringValue(specChild(operation, "handler")["method"])
+		fmt.Fprintf(source, "    %s;\n", rustOperationSignature(method, name, operationUsesHTTPStream(operation, resources)))
 	}
 	source.WriteString("}\n\n")
 	for _, operation := range operations {

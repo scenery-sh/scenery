@@ -250,6 +250,42 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "agent_context", schemaRel: "docs/schemas/scenery.agent_context.schema.json", payload: buildHarnessAgentContext(repoRoot, resp)},
 		{name: "agent_context.summary", schemaRel: "docs/schemas/scenery.agent_context.summary.schema.json", payload: buildHarnessAgentContextSummary(resp, buildHarnessAgentContext(repoRoot, resp))},
 	}
+	// Exercise the source-wait failure branch nested in the call result as
+	// well as the native test and module briefing payload shapes.
+	dxFailure := map[string]any{"module": "quote", "file": "quote/service.ts", "line": 12, "column": 3, "stderr": "invalid implementation"}
+	dxTiming := map[string]any{"generation": 1, "rebuilt_modules": []string{}, "skipped_modules": []string{"quote"}, "detect_ms": 10, "compile_ms": 30, "ready_ms": 0, "total_ms": 40}
+	dxWait := withCLIPayloadIdentity("scenery.dev-runtime.wait", map[string]any{
+		"ok": false, "outcome": "failed", "source_freshness": "stale", "target_source_snapshot_digest": strings.Repeat("a", 64),
+		"compile_error": "invalid implementation", "build_failure": dxFailure, "rebuild_timing": dxTiming, "waited_ms": 1,
+	})
+	for _, fixture := range []struct {
+		kind string
+		data any
+	}{
+		{"scenery.dev-runtime.wait", dxWait},
+		{"scenery.call.result", withCLIPayloadIdentity("scenery.call.result", map[string]any{
+			"target": "POST /api/quote", "ok": false, "http_status": 0, "headers": map[string]any{}, "duration_ms": 0,
+			"generation": 0, "worker_pid": 0, "host_pid": 0, "trace_id": "", "logs": []any{}, "spans": []any{}, "source_wait": dxWait,
+		})},
+		{"scenery.context", withCLIPayloadIdentity("scenery.context", map[string]any{
+			"module": "quote", "directory": "/tmp/app/quote", "runtime": "ts", "sources": []string{"quote/service.ts"},
+			"generated_contract_root": "/tmp/app/quote/scenerycontract", "services": []any{}, "operations": []any{}, "types": []any{},
+			"routes": []any{}, "internal_bindings": []any{}, "durable_executions": []any{}, "schedules": []any{},
+			"dependencies": map[string]any{"clients": []any{}, "sql": []any{}, "auth_policies": []any{}, "config_inputs": []string{}},
+			"commands":     []string{"scenery test quote -o json"},
+		})},
+		{"scenery.test.result", withCLIPayloadIdentity("scenery.test.result", map[string]any{
+			"ok": true, "app_root": "/tmp/app", "duration_ms": 30, "modules": []any{map[string]any{
+				"module": "quote", "directory": "quote", "runtime": "ts", "command": []string{"bun", "test"}, "ok": true, "duration_ms": 20,
+			}},
+		})},
+	} {
+		rel := "docs/schemas/" + fixture.kind + ".schema.json"
+		items = append(items, struct {
+			name, schemaRel string
+			payload         any
+		}{fixture.kind, rel, whenSchemaExists(rel, fixture.data)})
+	}
 	// Reporter artifacts can be nested inside a prepared-application probe's
 	// summary. Validate their actual bytes, rather than only artifact headers.
 	for _, reference := range harnessStructuredArtifacts(resp.Steps) {

@@ -98,6 +98,7 @@ type devSupervisor struct {
 	// Serving inputs are captured only after successful publication, under mu.
 	servingSnapshot *fileSnapshot
 	servingIdentity *runtimeServingIdentity
+	rebuildTiming   *workerRebuildTiming
 	// lastBuild is the outcome of the most recent build request, by the
 	// source snapshot it captured; guarded by mu.
 	lastBuild *devBuildAttempt

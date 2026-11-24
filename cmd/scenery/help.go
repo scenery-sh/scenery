@@ -71,6 +71,7 @@ var rootHelpGroups = []helpRootGroup{
 	{Name: "Local dev", Entries: []helpRootEntry{
 		{Command: "up", Summary: "Start a local dev runtime"},
 		{Command: "ps", Summary: "Show local dev app roots"},
+		{Command: "call", Summary: "Invoke the local dev runtime"},
 		{Command: "logs", Summary: "Read, follow, or query dev logs"},
 		{Command: "down", Summary: "Stop a local dev runtime"},
 		{Command: "prune", Summary: "Remove old stopped dev state"},
@@ -79,9 +80,11 @@ var rootHelpGroups = []helpRootGroup{
 		{Command: "worker", Summary: "Run app workers"},
 		{Command: "build", Summary: "Build the deployable binary"},
 		{Command: "check", Summary: "Check the app model"},
+		{Command: "test", Summary: "Run native module tests"},
 	}},
 	{Name: "App resources", Entries: []helpRootEntry{
 		{Command: "inspect", Summary: "Inspect app model and diagnostics as JSON"},
+		{Command: "context", Summary: "Describe a module and its contracts"},
 		{Command: "assistant", Summary: "Inspect and query application assistants"},
 		{Command: "compile", Summary: "Compile the canonical app manifest"},
 		{Command: "list", Summary: "List app resources"},
@@ -117,12 +120,15 @@ var rootHelpGroups = []helpRootGroup{
 var helpReferenceGroups = []helpReferenceGroup{
 	{Name: "App contract", Commands: []string{
 		"scenery fmt",
+		"scenery context",
+		"scenery test",
 		"scenery compile",
 		"scenery schema",
 		"scenery list",
 	}},
 	{Name: "Local dev", Commands: []string{
 		"scenery up",
+		"scenery call",
 		"scenery ps",
 		"scenery logs",
 		"scenery logs query",
@@ -479,6 +485,29 @@ var helpCommands = []helpCommandEntry{
 		},
 		JSON:      true,
 		Stability: "stable",
+	},
+	{
+		Command: "call", Group: "Local dev", Summary: "Call a binding in the local development runtime and include its trace.",
+		Usage:                []string{"scenery call <target> [--input <json>|--input-file <path>] [--as <principal>] [--tenant <id>] [--wait] [--app-root <path>] [-o human|json]"},
+		Flags:                []string{"--input <json>", "--input-file <path>", "--as <principal>", "--tenant <id>", "--wait", "--app-root <path>", "-o human|json"},
+		Notes:                []string{"Compilation failures for the current source are returned before dispatch.", "Use a quoted method and concrete path for an HTTP route with parameters.", "--as and --tenant use the app's local development authentication bootstrap."},
+		RequiredCombinations: []helpRequiredCombination{{When: "--input", ConflictsWith: []string{"--input-file"}}},
+		AppRootRequirement:   "required", SideEffectClass: "local_runtime",
+		OutputSchemas: []helpOutputSchema{{Mode: "invoke", Kind: "scenery.call.result"}}, JSON: true, Stability: "beta",
+	},
+	{
+		Command: "context", Group: "App resources", Summary: "Read the module behind a module, service, route, or source file.",
+		Usage:              []string{"scenery context --for <module|service|route|file> [--app-root <path>] [-o human|json]"},
+		Flags:              []string{"--for <module|service|route|file>", "--app-root <path>", "-o human|json"},
+		AppRootRequirement: "required", SideEffectClass: "read_only",
+		OutputSchemas: []helpOutputSchema{{Mode: "inspect", Kind: "scenery.context"}}, JSON: true, Stability: "beta",
+	},
+	{
+		Command: "test", Group: "Build and checks", Summary: "Refresh application contracts and run native module tests.",
+		Usage:              []string{"scenery test [<module>...] [--app-root <path>] [-o human|json]"},
+		Flags:              []string{"--app-root <path>", "-o human|json"},
+		AppRootRequirement: "required", SideEffectClass: "local_artifacts",
+		OutputSchemas: []helpOutputSchema{{Mode: "tests", Kind: "scenery.test.result"}}, JSON: true, Stability: "beta",
 	},
 	{
 		Command:   "check",

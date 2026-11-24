@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 type workerWatcher struct {
 	directory, capabilities, token string
 	dev                            *workerDevelopment
+	devControl                     *workerDevControl
 	exits                          chan struct{}
 	client                         *http.Client
 	bundle                         workerBundle
@@ -135,6 +137,8 @@ func (watch *workerWatcher) restartStopped(ctx context.Context, retry *time.Time
 		if err := watch.replace(ctx, watch.bundle, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
 			retry.Reset(time.Second)
+		} else if watch.devControl != nil {
+			watch.devControl.publish(watch.dev.applied, watch.bundle, watch.generation, nil)
 		}
 	}
 }
@@ -164,65 +168,86 @@ func (dev *workerDevelopment) verify(expected workerInputs) error {
 }
 
 type workerRebuildTiming struct {
-	Generation   uint64   `json:"generation"`
-	Declarations bool     `json:"declarations"`
-	Go           bool     `json:"go"`
-	GoLinks      []string `json:"go_links,omitempty"`
-	JS           []string `json:"js,omitempty"`
-	Cargo        []string `json:"cargo,omitempty"`
-	Rebuilt      []string `json:"rebuilt"`
-	Skipped      int      `json:"skipped"`
-	DetectMS     float64  `json:"detect_ms"`
-	ContractMS   float64  `json:"contract_ms"`
-	GoMS         float64  `json:"go_ms"`
-	JSMS         float64  `json:"js_ms"`
-	CargoMS      float64  `json:"cargo_ms"`
-	CompileMS    float64  `json:"compile_ms"`
-	ReadyMS      float64  `json:"ready_ms"`
-	TotalMS      float64  `json:"total_ms"`
+	Generation     uint64   `json:"generation"`
+	Declarations   bool     `json:"declarations"`
+	Go             bool     `json:"go"`
+	GoLinks        []string `json:"go_links,omitempty"`
+	JS             []string `json:"js,omitempty"`
+	Cargo          []string `json:"cargo,omitempty"`
+	Rebuilt        []string `json:"rebuilt"`
+	RebuiltModules []string `json:"rebuilt_modules"`
+	SkippedModules []string `json:"skipped_modules"`
+	Skipped        int      `json:"skipped"`
+	DetectMS       float64  `json:"detect_ms"`
+	ContractMS     float64  `json:"contract_ms"`
+	GoMS           float64  `json:"go_ms"`
+	JSMS           float64  `json:"js_ms"`
+	CargoMS        float64  `json:"cargo_ms"`
+	CompileMS      float64  `json:"compile_ms"`
+	ReadyMS        float64  `json:"ready_ms"`
+	TotalMS        float64  `json:"total_ms"`
 }
 
 func workerMilliseconds(duration time.Duration) float64 {
 	return float64(duration.Microseconds()) / 1000
 }
 
-func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, detected time.Time) error {
+func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, detected time.Time) (returnErr error) {
 	paths := changedWorkerInputs(watch.dev.applied, current)
 	if len(paths) == 0 {
 		return nil
 	}
 	started := time.Now()
-	timing := workerRebuildTiming{DetectMS: workerMilliseconds(started.Sub(detected)), Rebuilt: []string{}}
+	timing := workerRebuildTiming{
+		DetectMS: workerMilliseconds(started.Sub(detected)), Rebuilt: []string{},
+		RebuiltModules: []string{}, SkippedModules: []string{},
+	}
+	defer func() {
+		if errors.Is(returnErr, errWorkerInputsChanged) {
+			return
+		}
+		timing.TotalMS = workerMilliseconds(time.Since(detected))
+		timing.Generation = watch.generation
+		if returnErr != nil {
+			g := agentGraph{Result: watch.dev.compiled}
+			modules, _ := g.modules()
+			failure := describeDevBuildFailure(returnErr, watch.dev.watch.root, modules, paths)
+			watch.devControl.failure(current, failure, &timing)
+		} else {
+			watch.devControl.publish(current, watch.bundle, watch.generation, &timing)
+		}
+		if data, err := json.Marshal(timing); err == nil {
+			fmt.Fprintf(os.Stderr, "worker rebuild %s\n", data)
+		}
+	}()
 	candidate := *watch.dev
 	candidate.rust.artifacts = maps.Clone(candidate.rust.artifacts)
 	bundle, err := candidate.rebuild(ctx, watch.bundle, current, paths, &timing)
+	timing.CompileMS = workerMilliseconds(time.Since(started))
 	if err != nil {
 		return err
 	}
-	timing.CompileMS = workerMilliseconds(time.Since(started))
 	for _, program := range bundle.Programs {
+		module, _, _ := strings.Cut(program.Service, "/service/")
 		if workerStillMatches(watch.active[program.Process], program) {
 			timing.Skipped++
+			timing.SkippedModules = append(timing.SkippedModules, module)
 		} else {
 			timing.Rebuilt = append(timing.Rebuilt, program.Service)
+			timing.RebuiltModules = append(timing.RebuiltModules, module)
 		}
 	}
+	slices.Sort(timing.Rebuilt)
+	slices.Sort(timing.RebuiltModules)
+	slices.Sort(timing.SkippedModules)
 	readyStarted := time.Now()
-	if err := watch.replace(ctx, bundle, func() error { return candidate.verify(current) }); err != nil {
+	err = watch.replace(ctx, bundle, func() error { return candidate.verify(current) })
+	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
+	if err != nil {
 		return err
 	}
 	candidate.applied = current
 	*watch.dev = candidate
-	if !timing.Go && len(timing.Cargo) == 0 && len(timing.JS) == 0 && !timing.Declarations {
-		return nil
-	}
-	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
-	timing.TotalMS = workerMilliseconds(time.Since(detected))
-	timing.Generation = watch.generation
-	slices.Sort(timing.Rebuilt)
-	if data, err := json.Marshal(timing); err == nil {
-		fmt.Fprintf(os.Stderr, "worker rebuild %s\n", data)
-	}
 	return nil
 }
 

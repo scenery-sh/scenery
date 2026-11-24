@@ -209,6 +209,12 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return doctorCommand(args[1:])
 	case "build":
 		return buildCommand(os.Stdout, args[1:])
+	case "call":
+		return runAgentCall(context.Background(), os.Stdout, args[1:])
+	case "context":
+		return runAgentContext(context.Background(), os.Stdout, args[1:])
+	case "test":
+		return runAgentTests(context.Background(), os.Stdout, args[1:])
 	case "check":
 		return checkCommand(args[1:])
 	case "fmt":

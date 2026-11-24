@@ -31,6 +31,16 @@ type Service struct {
 	Toolchain       string
 }
 
+// CommandError identifies the exact service whose generated worker Cargo
+// could not build and retains Cargo's rendered diagnostics.
+type CommandError struct {
+	Service Service
+	Err     error
+}
+
+func (e *CommandError) Error() string { return e.Err.Error() }
+func (e *CommandError) Unwrap() error { return e.Err }
+
 type Artifact struct {
 	Path   string
 	Digest string
@@ -262,7 +272,7 @@ func buildService(ctx context.Context, snapshot, target, privateRoot string, ser
 				diagnostics.WriteString(message.Message.Rendered)
 			}
 		}
-		return Artifact{}, fmt.Errorf("cargo %s %s: %w\n%s", action, service.Crate, err, diagnostics.String())
+		return Artifact{}, &CommandError{Service: service, Err: fmt.Errorf("cargo %s %s: %w\n%s", action, service.Crate, err, diagnostics.String())}
 	}
 	if check {
 		return Artifact{}, nil

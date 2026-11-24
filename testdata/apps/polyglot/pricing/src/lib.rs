@@ -135,3 +135,13 @@ impl Drop for DelayedCall {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructs_service_with_generated_clients() {
+        assert!(new_service(PricingConstructorInput::default()).is_ok());
+    }
+}

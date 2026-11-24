@@ -28,6 +28,8 @@ func javascriptTestOwners() []javascriptTestOwner {
 		{"internal/build/runtime_identity.test.ts", "ui", "identity", "Bun"},
 		{"internal/assistantadapter/eve/testdata/helper-protocol.test.mjs", "assistant-helper", "helper", "generated Eve overlay and Bun"},
 		{"internal/compiler/testdata/native/typescript_reference_server.test.ts", "native-contract", "reference-server", "prepared live native application"},
+		{"testdata/apps/polyglot/mirror/service.test.ts", "polyglot-tests", "native-tests", "generated polyglot contracts and Bun"},
+		{"testdata/apps/polyglot/typescript/service.test.ts", "polyglot-tests", "native-tests", "generated polyglot contracts and Bun"},
 	}
 }
 

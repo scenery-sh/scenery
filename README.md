@@ -24,7 +24,7 @@
   <img alt="Status: active development" src="https://img.shields.io/badge/status-active_development-F59E0B?style=flat-square">
 </p>
 
-**Scenery is a runtime, toolchain, and agent harness for Go backends.**
+**Scenery is a runtime, toolchain, and agent harness for Go, Rust, and JavaScript/TypeScript backends.**
 Describe *what your app is* (APIs, durable jobs, data, auth, schedules) in small
 `.scn` files and write *what it does* in plain Go. Scenery generates the typed
 contracts and TypeScript clients, runs the whole app and its frontends with one
@@ -90,6 +90,9 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 |---|---|
 | `scenery up` | Build, start, and watch the app, database, and frontends |
 | `scenery ps` | List running apps and URLs |
+| `scenery context --for <target> -o json` | Read a module briefing by module, service, route, or source file |
+| `scenery test [<module>...] -o json` | Refresh contracts and run native module tests |
+| `scenery call <target> -o json` | Invoke the current local runtime and retrieve its logs and spans |
 | `scenery logs --follow` | Stream application logs |
 | `scenery check` | Validate `.scn` declarations and Go contracts |
 | `scenery generate` | Regenerate Go contracts, TypeScript clients, and SQLC outputs |
@@ -97,6 +100,8 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 | `scenery doctor` | Verify host and app prerequisites |
 
 Discover exact command grammar with `scenery help <command> -o json`.
+`scenery ps --wait -o json` waits for the captured source revision and reports
+compiler failures as soon as the supervisor records them.
 
 ## Built for AI agents
 

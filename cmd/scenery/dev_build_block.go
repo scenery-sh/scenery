@@ -131,7 +131,13 @@ func buildBlockKey(reason string, snapshot fileSnapshot) string {
 func (s *devSupervisor) recordBuildOutcome(captured fileSnapshot, err error) bool {
 	attempt := &devBuildAttempt{SourceSnapshotDigest: snapshotFingerprint(captured)}
 	if err != nil && !errors.Is(err, errBuildSuperseded) && !workspacetx.IsActive(err) {
-		attempt.Error = err.Error()
+		var modules []agentModule
+		if captured.contract != nil && captured.contract.Valid() {
+			g := agentGraph{Result: captured.contract}
+			modules, _ = g.modules()
+		}
+		attempt.Failure = describeDevBuildFailure(err, s.root, modules, nil)
+		attempt.Error = attempt.Failure.Stderr
 	}
 	s.mu.Lock()
 	s.lastBuild = attempt

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"scenery.sh/internal/machine"
 )
 
 func negotiateContractEncoding(header string, supported []string) (string, error) {
@@ -231,6 +234,11 @@ func writeContractTransportError(writer http.ResponseWriter, err error) bool {
 	status := transport.Status
 	if status == 0 {
 		status = http.StatusBadRequest
+	}
+	if transport.Outcome == "system.internal" && transport.Cause != nil && activeReporter() != nil {
+		token := "rpt_" + strings.ToLower(rand.Text())
+		machine.ReportInternalFailure(token, "SCN9000", transport.Cause.Error())
+		writer.Header().Set("X-Report-Token", token)
 	}
 	payload := struct {
 		Code    string `json:"code"`

@@ -88,3 +88,18 @@ func (s *devSupervisor) currentServingState(ctx context.Context) (*runtimeServin
 	}
 	return identity, "current"
 }
+
+func (s *devSupervisor) devCallLinkPath() string {
+	s.mu.RLock()
+	model := s.processes
+	s.mu.RUnlock()
+	if model == nil {
+		return ""
+	}
+	model.mu.Lock()
+	defer model.mu.Unlock()
+	if model.link == nil {
+		return ""
+	}
+	return model.link.path
+}

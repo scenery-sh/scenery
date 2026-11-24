@@ -134,8 +134,20 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 		"import { %s as construct } from %q;\n\n",
 		stringValue(specChild(service, "implementation")["constructor"]), "../"+filepath.ToSlash(target.Entry))
 	entry.WriteString("const launch = SDK.readLaunch();\n" +
-		"if (launch.identity.service !== Contract.serviceAddress) throw new Error(\"worker service mismatch\");\n" +
-		"const service: Contract.Service = await construct({ clients: Contract.clients, ...SDK.startupInputs(parseExactJSON) });\n")
+		"if (launch.identity.service !== Contract.serviceAddress) throw new Error(\"worker service mismatch\");\n")
+	if runtime := stringValue(service.Spec["runtime"]); runtime == "js" {
+		entry.WriteString(`// JavaScript object literals infer string discriminants without annotations.
+type JSOutput<T> = T extends Promise<infer R> ? Promise<JSOutput<R>>
+  : T extends SDK.Stream<infer R> ? SDK.Stream<JSOutput<R>>
+  : T extends { kind: string; name: string } ? Omit<T, "kind" | "name"> & { kind: string; name: string }
+  : T;
+type JSService = { [K in keyof Contract.Service]: (...args: Parameters<Contract.Service[K]>) => JSOutput<ReturnType<Contract.Service[K]>> };
+const create: (input: Contract.ConstructorInput) => JSService | Promise<JSService> = construct;
+const service = await create({ clients: Contract.clients, ...SDK.startupInputs(parseExactJSON) }) as Contract.Service;
+`)
+	} else {
+		entry.WriteString("const service: Contract.Service = await construct({ clients: Contract.clients, ...SDK.startupInputs(parseExactJSON) });\n")
+	}
 	fmt.Fprintf(&api, "export const serviceAddress = %q;\n", service.Address)
 	projection.renderClients(&types, &api, clients)
 	api.WriteString("export interface ConstructorInput {\n" +
@@ -160,13 +172,9 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 			return "", "", "", fmt.Errorf("JavaScript operation %s requires a handler method", operation.Address)
 		}
 		projection.renderOperation(&types, operation, name)
-		output := "Types." + name + "Outcome"
 		codecName := name + "Codec"
 		canStream := operationUsesHTTPStream(operation, resources)
-		if canStream {
-			output += " | SDK.Stream<" + output + ">"
-		}
-		fmt.Fprintf(&api, "  %q(context: SDK.Context, input: Types.%sInput): %s | Promise<%s>;\n", method, name, output, output)
+		fmt.Fprintf(&api, "  %s;\n", jsOperationSignature(method, name, canStream))
 		fmt.Fprintf(&entry, "if (typeof service[%q] !== \"function\") throw new Error(\"missing worker handler\");\n", method)
 		fmt.Fprintf(&handlers, "const %s = SDK.outcomeCodec(Runtime, typeRegistry, %s as const);\n", codecName, jsOutcomeDescriptors(operation))
 		fmt.Fprintf(&handlers, "async function dispatch%s(service: Service, input: unknown, ctx: SDK.Context) {\n"+

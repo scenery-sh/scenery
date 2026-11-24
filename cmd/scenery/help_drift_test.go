@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"io"
 	"slices"
@@ -78,6 +79,9 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		"db": {ignoreParse(parseDBServerArgs), ignoreParse(parseDBTargetArgs),
 			ignoreParse(parseDBSeedArgs), ignoreParse(parseDBMigrationArgs), ignoreParse(parseDBSetupArgs)},
 		"snapshot":  {ignoreParse(parseSnapshotSaveArgs), ignoreParse(parseSnapshotLoadArgs), ignoreParse(parseSnapshotVerifyArgs)},
+		"call":      {func(args []string) error { return runAgentCall(context.Background(), io.Discard, args) }},
+		"context":   {func(args []string) error { return runAgentContext(context.Background(), io.Discard, args) }},
+		"test":      {func(args []string) error { return runAgentTests(context.Background(), io.Discard, args) }},
 		"traces":    {observabilityList("traces")},
 		"metrics":   {ignoreParse(parseMetricsQueryArgs), observabilityList("metrics")},
 		"system":    {ignoreParse(parseEdgeArgs), ignoreParse(parseEdgePrivilegedInstallArgs), ignoreParse(parseToolchainArgs), ignoreParse(parseAgentArgs)},
@@ -95,8 +99,11 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		"storage":   {ignoreParse(parseStorageArgs)},
 		"task":      {ignoreParse(parseTaskArgs)},
 		"worker":    {ignoreParse(parseWorkerArgs)},
-		"inspect":   {func(args []string) error { _, err := parseInspectArgs(append([]string{"harness"}, args...)); return err }},
-		"harness":   {ignoreParse(parseHarnessArgs)},
+		"inspect": {func(args []string) error {
+			_, err := parseInspectArgs(append([]string{"harness"}, args...))
+			return err
+		}},
+		"harness": {ignoreParse(parseHarnessArgs)},
 	}
 	entries := map[string]helpCommandEntry{}
 	for _, entry := range helpCommandDescriptors(helpCommands) {

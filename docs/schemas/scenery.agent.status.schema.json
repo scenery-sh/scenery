@@ -12,7 +12,7 @@
       "const": "scenery.agent.status"
     },
     "schema_revision": {
-      "const": "sha256:6d95cc2c2b98f1e7654164d6d82563866dc89f9f225be9eec51fe8928c70ea14"
+      "const": "sha256:71360b94216a58c152fd8c4dfc94d3a31c31ebeaec6761ece15486808a947910"
     },
     "worktrees": {
       "type": "array",
@@ -198,6 +198,12 @@
                 }
               }
             }
+          },
+          "build_failure": {
+            "$ref": "scenery.dev-runtime.wait.schema.json#/$defs/buildFailure"
+          },
+          "rebuild_timing": {
+            "$ref": "scenery.dev-runtime.wait.schema.json#/$defs/rebuildTiming"
           }
         },
         "additionalProperties": false

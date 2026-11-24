@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -205,11 +204,7 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if usesWorkerBundle(result) && result.Valid() {
 		if _, err := buildWorkerBundle(context.Background(), result, "development", true); err != nil {
 			result.ImplementationStatus = "invalid"
-			code := "SCN6163"
-			if _, ok := errors.AsType[*workerJSBuildError](err); ok {
-				code = "SCN6167"
-			}
-			result.Diagnostics = append(result.Diagnostics, graph.Diagnostic{Code: code, Severity: "error", Message: err.Error()})
+			result.Diagnostics = append(result.Diagnostics, workerCheckDiagnostic(result, err))
 		} else {
 			result.ImplementationStatus = "valid"
 		}

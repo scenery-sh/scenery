@@ -71,7 +71,7 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 	defer func() { _ = os.RemoveAll(staging) }()
 	directory := filepath.Join(root, service.Directory)
 	entry := filepath.Join(directory, "scenerycontract", "main.ts")
-	if check && service.Runtime == "ts" {
+	if check {
 		if err := checkTypeScript(ctx, root, directory, staging, entry); err != nil {
 			return Artifact{}, err
 		}
@@ -139,7 +139,7 @@ func checkTypeScript(ctx context.Context, root, module, staging, entry string) e
 		"files":   []string{entry},
 		"include": []string{},
 		"compilerOptions": map[string]any{
-			"noEmit": true, "allowImportingTsExtensions": true, "composite": false, "incremental": false,
+			"noEmit": true, "allowJs": true, "allowImportingTsExtensions": true, "composite": false, "incremental": false,
 			"target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
 			"lib":    []string{"ES2022", "DOM", "DOM.Iterable"},
 			"strict": true, "exactOptionalPropertyTypes": true,

@@ -165,6 +165,16 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 		return err
 	}
 	token := workerRandomToken()
+	var devControl *workerDevControl
+	if dev != nil {
+		var closeControl func()
+		devControl, closeControl, err = startWorkerDevControl(dev, directory, control, token)
+		if err != nil {
+			return err
+		}
+		defer closeControl()
+		bundle.Host.DevelopmentCall = true
+	}
 	linkPath := filepath.Join(directory, "link.json")
 	if err := writePrivateWorkerJSON(linkPath, workerLink{
 		Token: token, Dispatch: map[string]string{"network": "unix", "address": control, "protocol": "h2c"}, Capabilities: capabilities, HostState: state,
@@ -214,12 +224,15 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	if err := publishWorkerGeneration(ctx, httpClient, token, bundle, processes, 1); err != nil {
 		return err
 	}
+	if devControl != nil {
+		devControl.publish(dev.applied, bundle, 1, nil)
+	}
 	if onReady != nil {
 		onReady()
 	}
 	fmt.Fprintf(os.Stderr, "application ready on %s\n", listen)
 	watcher := &workerWatcher{
-		dev: dev, directory: directory, capabilities: capabilities, token: token,
+		dev: dev, devControl: devControl, directory: directory, capabilities: capabilities, token: token,
 		client: httpClient, bundle: bundle, active: processes, generation: 1, sequence: 1,
 	}
 	return watcher.run(ctx, hostDone)
@@ -305,17 +318,15 @@ func (process *workerProcess) stop() {
 
 func publishWorkerGeneration(ctx context.Context, client *http.Client, token string, bundle workerBundle, processes map[string]*workerProcess, number uint64) error {
 	instances := make(map[string]workerProcessInstance, len(processes))
-	aggregate := sha256.New()
 	for _, program := range bundle.Programs {
 		process := processes[program.Process]
-		_, _ = io.WriteString(aggregate, program.Digest)
 		instance := workerProcessInstance{
 			Network: "unix", Address: process.socket, Protocol: "h2c", PID: process.cmd.Process.Pid,
 			Identity: program.Identity, Service: program.Service, Token: process.token,
 		}
 		instances[program.Process] = instance
 	}
-	digest := fmt.Sprintf("sha256:%x", aggregate.Sum(nil))
+	digest := workerBundleDigest(bundle)
 	body, err := json.Marshal(map[string]any{
 		"generation": number, "contract_revision": bundle.ContractRevision, "processes": instances,
 		"identity": workerProcessIdentity{ContractRevision: bundle.ContractRevision, ImplementationRevision: digest, BuildInputDigest: digest, Target: "worker"},
@@ -324,6 +335,14 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 		return err
 	}
 	return workerControlRequest(ctx, client, token, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent)
+}
+
+func workerBundleDigest(bundle workerBundle) string {
+	aggregate := sha256.New()
+	for _, program := range bundle.Programs {
+		_, _ = io.WriteString(aggregate, program.Digest)
+	}
+	return fmt.Sprintf("sha256:%x", aggregate.Sum(nil))
 }
 
 func workerControlClient(socket string) *http.Client {

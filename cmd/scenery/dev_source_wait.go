@@ -20,6 +20,7 @@ const (
 type devBuildAttempt struct {
 	SourceSnapshotDigest string
 	Error                string
+	Failure              *devBuildFailure
 }
 
 // runtimeSourceWait is the `wait` result; ok is true exactly when the
@@ -36,6 +37,8 @@ type runtimeSourceWait struct {
 	SourceFreshness             string                  `json:"source_freshness"`
 	CompileError                string                  `json:"compile_error,omitempty"`
 	BuildBlock                  *runtimeBuildBlock      `json:"build_block,omitempty"`
+	BuildFailure                *devBuildFailure        `json:"build_failure,omitempty"`
+	RebuildTiming               *workerRebuildTiming    `json:"rebuild_timing,omitempty"`
 	WaitedMS                    int64                   `json:"waited_ms"`
 }
 
@@ -55,14 +58,10 @@ func (s *devSupervisor) waitForSourceSnapshot(ctx context.Context, timeout time.
 		poll = sourceWaitPollInterval
 	}
 	result := runtimeSourceWait{cliPayloadIdentity: newCLIPayloadIdentity(devRuntimeWaitKind), SourceFreshness: "unknown"}
-	finish := func(outcome string) (runtimeSourceWait, error) {
-		result.Outcome, result.OK = outcome, outcome == "served"
-		result.WaitedMS = time.Since(started).Milliseconds()
-		return result, nil
-	}
+
 	if _, source := worktreeSourceStatus(s.root); source == "missing" {
 		result.SourceFreshness = "source_missing"
-		return finish("source_missing")
+		return result.finish(started, "source_missing")
 	}
 	// A target is captured against the compiler membership of the generation
 	// that serves. Readiness is announced shortly before the first generation
@@ -74,21 +73,22 @@ func (s *devSupervisor) waitForSourceSnapshot(ctx context.Context, timeout time.
 		s.mu.RLock()
 		base = s.servingSnapshot
 		attempt, block := s.lastBuild, s.buildBlock
+		result.RebuildTiming = s.rebuildTiming
 		s.mu.RUnlock()
 		if base != nil {
 			break
 		}
 		if attempt != nil && attempt.Error != "" {
-			result.CompileError = attempt.Error
-			return finish("failed")
+			result.CompileError, result.BuildFailure = attempt.Error, attempt.Failure
+			return result.finish(started, "failed")
 		}
 		if block != nil {
 			result.BuildBlock = &runtimeBuildBlock{Reason: block.Reason, Cause: block.Cause, Since: block.Since.Format(time.RFC3339Nano), PreventedBuilds: block.Prevented}
-			return finish("blocked")
+			return result.finish(started, "blocked")
 		}
 		select {
 		case <-ctx.Done():
-			return finish("timeout")
+			return result.finish(started, "timeout")
 		case <-time.After(poll):
 		}
 	}
@@ -107,37 +107,48 @@ func (s *devSupervisor) waitForSourceSnapshot(ctx context.Context, timeout time.
 		select {
 		case <-ctx.Done():
 			result.SourceFreshness = "transaction_pending"
-			return finish("timeout")
+			return result.finish(started, "timeout")
 		case <-time.After(poll):
 		}
 	}
+	return s.waitForCapturedSource(ctx, started, poll, target, result)
+}
+
+func (result runtimeSourceWait) finish(started time.Time, outcome string) (runtimeSourceWait, error) {
+	result.Outcome, result.OK = outcome, outcome == "served"
+	result.WaitedMS = time.Since(started).Milliseconds()
+	return result, nil
+}
+
+func (s *devSupervisor) waitForCapturedSource(ctx context.Context, started time.Time, poll time.Duration, target fileSnapshot, result runtimeSourceWait) (runtimeSourceWait, error) {
 	result.TargetSourceSnapshotDigest = snapshotFingerprint(target)
 	for {
 		identity, freshness := s.currentServingState(ctx)
 		result.Serving, result.SourceFreshness = identity, freshness
-		if identity != nil && identity.SourceSnapshotDigest == result.TargetSourceSnapshotDigest {
-			result.SourceFreshness = "current"
-			return finish("served")
-		}
 		s.mu.RLock()
 		attempt, block := s.lastBuild, s.buildBlock
+		result.RebuildTiming = s.rebuildTiming
 		s.mu.RUnlock()
+		if identity != nil && identity.SourceSnapshotDigest == result.TargetSourceSnapshotDigest {
+			result.SourceFreshness = "current"
+			return result.finish(started, "served")
+		}
 		if attempt != nil && attempt.SourceSnapshotDigest == result.TargetSourceSnapshotDigest && attempt.Error != "" {
-			result.CompileError = attempt.Error
-			return finish("failed")
+			result.CompileError, result.BuildFailure = attempt.Error, attempt.Failure
+			return result.finish(started, "failed")
 		}
 		if block != nil {
 			result.BuildBlock = &runtimeBuildBlock{Reason: block.Reason, Cause: block.Cause, Since: block.Since.Format(time.RFC3339Nano), PreventedBuilds: block.Prevented}
-			return finish("blocked")
+			return result.finish(started, "blocked")
 		}
 		if freshness == "source_missing" {
-			return finish("source_missing")
+			return result.finish(started, "source_missing")
 		}
 		current, err := scanWatchedFilesReusing(s.root, target)
 		if err == nil {
 			if digest := snapshotFingerprint(current); digest != result.TargetSourceSnapshotDigest {
 				result.CurrentSourceSnapshotDigest = digest
-				return finish("superseded")
+				return result.finish(started, "superseded")
 			}
 			target = current
 		} else if !workspacetx.IsActive(err) {
@@ -145,7 +156,7 @@ func (s *devSupervisor) waitForSourceSnapshot(ctx context.Context, timeout time.
 		}
 		select {
 		case <-ctx.Done():
-			return finish("timeout")
+			return result.finish(started, "timeout")
 		case <-time.After(poll):
 		}
 	}

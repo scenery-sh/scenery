@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.context.schema.json",
+  "title": "scenery.context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "module",
+    "directory",
+    "runtime",
+    "sources",
+    "generated_contract_root",
+    "services",
+    "operations",
+    "types",
+    "routes",
+    "internal_bindings",
+    "durable_executions",
+    "schedules",
+    "dependencies",
+    "commands"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.context"
+    },
+    "schema_revision": {
+      "const": "sha256:8741784f13af8c758e8afe7ccd427d1e88a59fc71ccae265a7ab85618f711bd4"
+    },
+    "module": {
+      "type": "string"
+    },
+    "directory": {
+      "type": "string"
+    },
+    "runtime": {
+      "enum": [
+        "go",
+        "rust",
+        "ts",
+        "js"
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generated_contract_root": {
+      "type": "string"
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "binding",
+          "operation",
+          "method",
+          "path",
+          "authentication",
+          "authorization"
+        ],
+        "properties": {
+          "binding": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "authentication": {
+            "type": "string"
+          },
+          "authorization": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "internal_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "durable_executions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "schedules": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clients",
+        "sql",
+        "config_inputs",
+        "auth_policies"
+      ],
+      "properties": {
+        "clients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "service",
+              "name",
+              "binding",
+              "callee",
+              "runtime"
+            ],
+            "properties": {
+              "service": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "binding": {
+                "type": "string"
+              },
+              "callee": {
+                "type": "string"
+              },
+              "runtime": {
+                "enum": [
+                  "go",
+                  "rust",
+                  "ts",
+                  "js"
+                ]
+              }
+            }
+          }
+        },
+        "sql": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "config_inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auth_policies": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

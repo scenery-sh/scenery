@@ -72,10 +72,11 @@ type ProcessHostConfig struct {
 	Fallback   string
 	// Observability filters the logs and traces of requests the host serves
 	// itself, as the application entrypoint's configuration does.
-	Observability ObservabilityConfig
-	Workers       []WorkerServicePlan
-	WorkerConfig  map[string]*ConfigSnapshot `json:"-"`
-	WorkerStorage WorkerStorageHandler       `json:"-"`
+	Observability   ObservabilityConfig
+	Workers         []WorkerServicePlan
+	WorkerConfig    map[string]*ConfigSnapshot `json:"-"`
+	WorkerStorage   WorkerStorageHandler       `json:"-"`
+	DevelopmentCall bool                       `json:"-"`
 }
 
 type processGenerationManifest struct {
@@ -121,14 +122,15 @@ type processGenerationStatusEntry struct {
 }
 
 type processHost struct {
-	telemetry io.Writer
-	name      string
-	token     string
-	contract  string
-	routes    *routeTable
-	fallback  string
-	required  []string
-	mcpTools  map[string]string
+	telemetry       io.Writer
+	name            string
+	token           string
+	contract        string
+	developmentCall bool
+	routes          *routeTable
+	fallback        string
+	required        []string
+	mcpTools        map[string]string
 
 	// local serves the host's own application-level endpoints (assistant
 	// gateways) that localRoutes matches.
@@ -213,6 +215,9 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 		return err
 	}
 	host.frontend = frontend
+	if codec == nil && devEndpointsEnabled() {
+		host.developmentCall = true
+	}
 	if link.HostState != "" {
 		if err := host.openState(link.HostState); err != nil {
 			return err
@@ -331,7 +336,7 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 	if cfg.Fallback == "" && (len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
 		return nil, fmt.Errorf("runtime: process host with service routes requires a fallback process")
 	}
-	host := &processHost{telemetry: os.Stderr, name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}, closing: make(chan struct{})}
+	host := &processHost{telemetry: os.Stderr, name: cfg.Name, token: token, contract: contract, developmentCall: cfg.DevelopmentCall, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}, closing: make(chan struct{})}
 	required := map[string]bool{}
 	if cfg.Fallback != "" {
 		required[cfg.Fallback] = true
@@ -378,18 +383,19 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 			// its whole lifetime and its answer attests that generation, unless
 			// an assistant event stream attests the generation its
 			// conversation's run executes in (see attachAssistantStream).
-			current := h.acquire(0)
+			current := h.acquireIngress(req)
 			writer := &processHostAttestingWriter{ResponseWriter: &processHostResponseWriter{ResponseWriter: w, generation: current}, generation: current}
 			if current != nil {
 				defer current.inFlight.Add(-1)
 				ctx := context.WithValue(req.Context(), processHostGenerationKey{}, current)
+				ctx = context.WithValue(ctx, processGenerationKey{}, current.number)
 				req = req.WithContext(context.WithValue(ctx, processHostAttestationKey{}, writer))
 			}
 			h.local.ServeHTTP(writer, req)
 			return
 		}
 	}
-	generation := h.acquire(0)
+	generation := h.acquireIngress(req)
 	if generation == nil {
 		errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msg("application generation is not published").Err(), http.StatusServiceUnavailable)
 		return
@@ -422,6 +428,16 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 	h.forward(w, req, h.fallback)
 }
 
+// Private development calls can hold a generation across dispatch. Public
+// ingress supplies no generation in its request context.
+func (h *processHost) acquireIngress(req *http.Request) *processHostGeneration {
+	if pinned, ok := req.Context().Value(processHostGenerationKey{}).(*processHostGeneration); ok {
+		pinned.inFlight.Add(1)
+		return pinned
+	}
+	return h.acquire(0)
+}
+
 func (h *processHost) forward(w http.ResponseWriter, req *http.Request, process string) {
 	generation, _ := req.Context().Value(processHostGenerationKey{}).(*processHostGeneration)
 	instance := generation.instances[process]
@@ -445,6 +461,8 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	switch {
+	case h.developmentCall && req.URL.Path == "/__scenery/process/v1/dev-call" && req.Method == http.MethodPost:
+		h.serveWorkerDevCall(w, req)
 	case h.workers == nil && req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
 		h.dispatch(w, req)
 	case req.URL.Path == processAdmissionsPath && req.Method == http.MethodPost:

@@ -66,7 +66,12 @@ func (dev *workerDevelopment) prepare(ctx context.Context) (workerBundle, error)
 		return workerBundle{}, err
 	}
 	if !result.Valid() {
-		return workerBundle{}, fmt.Errorf("invalid application: %s", firstCompilerDiagnostic(result.Diagnostics))
+		for _, diagnostic := range result.Diagnostics {
+			if diagnostic.Severity == "error" {
+				return workerBundle{}, &cliDiagnosticError{code: contractInvalidExitCode(result), diagnostic: diagnostic}
+			}
+		}
+		return workerBundle{}, fmt.Errorf("invalid application graph")
 	}
 	if dev.compiled != nil && result.Manifest.ContractRevision != dev.compiled.Manifest.ContractRevision {
 		return workerBundle{}, fmt.Errorf("application contract changed; restart the application to load its new manifest")
