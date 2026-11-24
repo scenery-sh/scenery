@@ -1,6 +1,6 @@
 # Worker ABI v1
 
-The Host and each worker serve HTTP/2 with prior knowledge over private Unix
+The Host and ABI v1 workers use HTTP/2 with prior knowledge over private Unix
 domain sockets. They use distinct listeners and pool connections across
 invocations. The supervisor provides the two socket paths and a bearer token
 unique to the worker instance through its private launch configuration. Each
@@ -47,8 +47,9 @@ verifies the addressed service and contract revision before dispatch.
 A successful JSON response contains `outcome`, the contract outcome envelope
 with `kind`, `name` and `value` for a declared result or `problem` for a
 declared error. An unexpected handler error or panic uses a neutral fault
-response with an opaque report token. The Host validates worker outcomes
-using the manifest before applying public response mappings.
+response. The Host validates worker outcomes using the manifest before
+applying public response mappings. An attested implementation failure is
+distinct from an interrupted call whose delivery remains unknown.
 
 A streaming result uses `Content-Type: application/vnd.worker.stream`.
 The response body starts with an unsigned 32-bit big-endian length followed
@@ -75,18 +76,21 @@ deadline.
 
 | Capability | Request |
 | --- | --- |
-| `binding/invoke` | POST `{"client":"<local client name>","input":<canonical JSON>}`. An answer contains either `output` with the typed outcome or receipt, or a runtime `error`. |
-| `durable/enqueue` | POST a declared enqueue client name, input and supported dispatch options. |
-| `events/emit` | POST a declared event identity and conforming payload. |
-| `storage/read`, `storage/write`, `storage/delete`, `storage/list` | Use declared storage handle and object key. Read and write carry bytes as HTTP bodies. Conditional writes carry their preconditions as headers. |
-| `connections/token` | POST the declared connection identity. The Host resolves the owner from invocation scope. |
+| `binding/invoke` | POST `{"client":"<local client name>","input":<canonical JSON>}`. An answer contains `output` with the typed outcome or an `error`. |
+| `durable/enqueue` | POST the same envelope with a declared enqueue client. The Host derives dispatch keys and returns the durable receipt. |
+| `storage/read`, `storage/write`, `storage/delete`, `storage/list` | Use `store` for the declared dependency name and `key` for object operations. GET reads and lists, PUT writes, and DELETE removes one object. Reads and writes stream bytes. Preconditions are carried by `If-Match` or `If-None-Match`. |
+| `connections/token` | POST `{"provider":"<configured provider>","scopes":["..."]}`. The Host resolves the owner from invocation scope. |
 | `config/snapshot` | GET the revision-bound service configuration visible to this worker. |
-| `telemetry` | POST a bounded batch of span and log records for correlation by the Host. |
+| `telemetry` | POST a batch of up to 64 span and log records. The Host supplies the correlation identities from the invocation. |
+
+`events/emit` is reserved. The current `.scn` graph has no event declaration
+for the Host to authorize.
 
 The Host and SDK validate the applicable contract type before dispatch and
 after receipt. Canonical wire bytes preserve exact numeric values, tagged
 outcomes and the distinction between missing and null fields. The shared
-wire conformance corpus defines their exhaustively checked representations.
+wire conformance corpus covers integer bounds, exact scalars, presence, and
+closed records and enums in Go, Rust, and the generated TypeScript runtime.
 
 ## Delivery and cancellation
 

@@ -24,6 +24,29 @@ const types: Record<string, TypeDescriptor> = {
     }],
   },
   "probe/enum/status": { kind: "enum", values: ["in_review"], open: false },
+  "probe/outcome/quote": {
+    kind: "union",
+    discriminator: "kind",
+    open: false,
+    variants: {
+      result: {
+        kind: "record",
+        preserveUnknown: false,
+        fields: [
+          { property: "name", wire: "name", optional: false, value: { kind: "enum", values: ["ok"], open: false } },
+          { property: "value", wire: "value", optional: false, value: { kind: "named", name: "probe/record/patch" } },
+        ],
+      },
+      error: {
+        kind: "record",
+        preserveUnknown: false,
+        fields: [
+          { property: "name", wire: "name", optional: false, value: { kind: "enum", values: ["negative_amount"], open: false } },
+          { property: "problem", wire: "problem", optional: false, value: { kind: "primitive", name: "problem" } },
+        ],
+      },
+    },
+  },
 };
 
 for (const example of examples) {

@@ -1,7 +1,7 @@
 {
   "artifact_kind": "go_package_contract",
   "capability_interface_abi_ranges": {},
-  "content_digest": "sha256:085721a06642a33cf3ab50355eedd6fc0ba496309def754372c1ef845df22fbf",
+  "content_digest": "sha256:c431cdd70071c791858c70d093d0f63a5a2e71a9ffa8dd84fd84333c4d1ac83d",
   "covered": [
     "binding.process_scene_http",
     "binding.process_scene_internal",
@@ -25,7 +25,7 @@
   "import_path": "example.test/nativeapp/house/scenerycontract",
   "kind": "scenery.package-generated",
   "package": "house",
-  "package_contract_abi_revision": "sha256:76f2aa33a3093803149d651d1ef3c49b46eb9abbba6adf798b4d4b13815f5b10",
+  "package_contract_abi_revision": "sha256:30b6dca1ccaf32fe8e655caeb1210a425722cfa2503d2737add4144199186d4b",
   "package_identity": "house",
   "producer": {
     "version": "dev",
@@ -35,5 +35,5 @@
   },
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:fa325f0aa48e8489c7ae85ab996efe2bd50962483ba9a3fcfc0e162384ffdca0",
-  "spec_revision": "sha256:18065faa94a3ad8687df13ac21ab728ffc9803b744bcd442f7f3e2e4a8b4c9d0"
+  "spec_revision": "sha256:fe1c5b930fed06494c21f4a386fbc470d4192dfd6c49571d466820473ffa6ed0"
 }

@@ -28,10 +28,17 @@ enum Status {
     InReview,
 }
 
-fn round_trip<T: Serialize + serde::de::DeserializeOwned>(
-    wire: &str,
-) -> serde_json::Result<String> {
-    serde_json::from_str::<T>(wire).and_then(|value| serde_json::to_string(&value))
+fn round_trip<T: Serialize + serde::de::DeserializeOwned>(wire: &str) -> sdk::Result<String> {
+    let value: T = serde_json::from_str(wire)?;
+    Ok(serde_json::to_string(&value)?)
+}
+
+fn outcome(wire: &str) -> sdk::Result<String> {
+    let raw = serde_json::value::RawValue::from_string(wire.to_owned())?;
+    let (kind, name, payload) = sdk::decode_outcome(&raw)?;
+    Ok(sdk::encode_outcome(&payload, &kind, &name)?
+        .get()
+        .to_owned())
 }
 
 #[test]
@@ -51,6 +58,7 @@ fn worker_wire_v1_corpus() {
             "bytes" => round_trip::<sdk::ContractBytes>(wire),
             "probe/record/patch" => round_trip::<Patch>(wire),
             "probe/enum/status" => round_trip::<Status>(wire),
+            "probe/outcome/quote" => outcome(wire),
             other => panic!("unexpected corpus type {other}"),
         };
         if entry.reject {

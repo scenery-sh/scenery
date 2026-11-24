@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tokio::io::AsyncRead;
 use tokio::net::{UnixListener, UnixStream};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{Mutex, watch};
 use tokio_util::io::ReaderStream;
 
@@ -306,6 +307,7 @@ pub async fn serve(
     launch: Launch,
     handler: impl Fn(Invocation, Context) -> HandlerFuture + Send + Sync + 'static,
 ) -> Result<()> {
+    let mut terminate = signal(SignalKind::terminate())?;
     let listener = UnixListener::bind(&launch.worker_socket)?;
     let identity = Arc::new(launch.identity);
     let handler = Arc::new(handler);
@@ -315,7 +317,16 @@ pub async fn serve(
         sender: Arc::new(Mutex::new(None)),
     };
     loop {
-        let (socket, _) = listener.accept().await?;
+        let accepted = poll_fn(|cx| {
+            if terminate.poll_recv(cx).is_ready() {
+                return Poll::Ready(Ok(None));
+            }
+            listener.poll_accept(cx).map(|result| result.map(Some))
+        })
+        .await?;
+        let Some((socket, _)) = accepted else {
+            return Ok(());
+        };
         let identity = Arc::clone(&identity);
         let handler = Arc::clone(&handler);
         let host = host.clone();

@@ -18,5 +18,8 @@
   {"name":"optional field with value","type":"probe/record/patch","wire":"{\"note\":\"done\"}"},
   {"name":"unknown field","type":"probe/record/patch","wire":"{\"different\":null}","reject":true},
   {"name":"declared enum value","type":"probe/enum/status","wire":"\"in_review\""},
-  {"name":"unknown enum value","type":"probe/enum/status","wire":"\"unknown\"","reject":true}
+  {"name":"unknown enum value","type":"probe/enum/status","wire":"\"unknown\"","reject":true},
+  {"name":"tagged result","type":"probe/outcome/quote","wire":"{\"kind\":\"result\",\"name\":\"ok\",\"value\":{\"note\":null}}"},
+  {"name":"tagged domain error","type":"probe/outcome/quote","wire":"{\"kind\":\"error\",\"name\":\"negative_amount\",\"problem\":{\"code\":\"negative_amount\",\"message\":\"Amount must be non-negative\"}}"},
+  {"name":"result with error payload","type":"probe/outcome/quote","wire":"{\"kind\":\"result\",\"name\":\"ok\",\"problem\":{}}","reject":true}
 ]

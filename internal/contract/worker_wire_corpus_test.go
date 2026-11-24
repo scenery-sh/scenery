@@ -25,7 +25,17 @@ func TestWorkerWireV1Corpus(t *testing.T) {
 	}
 	for _, entry := range cases {
 		t.Run(entry.Name, func(t *testing.T) {
-			got, err := types.Normalize(entry.Type, []byte(entry.Wire))
+			var got []byte
+			var err error
+			if entry.Type == "probe/outcome/quote" {
+				kind, name, payload, decodeErr := DecodeContractOutcomeEnvelope([]byte(entry.Wire))
+				err = decodeErr
+				if err == nil {
+					got, err = EncodeManifestOutcome(kind, name, payload)
+				}
+			} else {
+				got, err = types.Normalize(entry.Type, []byte(entry.Wire))
+			}
 			if entry.Reject {
 				if err == nil {
 					t.Fatalf("accepted %s", entry.Wire)

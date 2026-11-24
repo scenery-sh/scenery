@@ -11,9 +11,9 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:e5ee582e5fbca2def812b206d4c5dd83c9a30e9f3d9047fd3344f09ca861e1f1"
+const ContractRevision = "sha256:945f67ee58841b772ed0d7ec63822b13f16b40260d01384e23f40a3309620f32"
 const PackageIdentity = "house"
-const PackageContractABIRevision = "sha256:76f2aa33a3093803149d651d1ef3c49b46eb9abbba6adf798b4d4b13815f5b10"
+const PackageContractABIRevision = "sha256:30b6dca1ccaf32fe8e655caeb1210a425722cfa2503d2737add4144199186d4b"
 
 // ContractRevisions names the contract revision of each registration.
 var ContractRevisions = map[string]string{"house/service/house/adapter": ContractRevision}
