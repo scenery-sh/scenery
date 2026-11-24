@@ -93,39 +93,57 @@ func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServi
 
 func buildWorkerBundle(ctx context.Context, result *compiler.Result, role string, check bool) (workerBundle, error) {
 	var bundle workerBundle
-	plan, err := projectWorkerServices(result.Manifest)
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role)
 	if err != nil {
 		return bundle, err
+	}
+	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
+	if err != nil || check {
+		return bundle, err
+	}
+	bundle.addRustWorkers(result, selection, artifacts)
+	if _, err := bundle.addGoWorkers(ctx, result, nil, nil); err != nil {
+		return workerBundle{}, err
+	}
+	if err := bundle.projectConfig(result); err != nil {
+		return workerBundle{}, err
+	}
+	return bundle, nil
+}
+
+func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
+	plan, err := projectWorkerServices(result.Manifest)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
 	}
 	selection, err := projectRustBuilds(result, plan, role)
 	if err != nil {
-		return bundle, err
+		return workerBundle{}, nil, nil, err
 	}
 	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
-		return bundle, err
+		return workerBundle{}, nil, nil, err
 	}
-	services := make([]rustbuild.Service, 0, len(selection))
+	var services []rustbuild.Service
 	for _, service := range plan {
-		if build, exists := selection[service.Address]; exists {
-			services = append(services, build)
+		if selected, exists := selection[service.Address]; exists {
+			services = append(services, selected)
 		}
 	}
-	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
-	if err != nil {
-		return bundle, err
-	}
-	bundle = workerBundle{
+	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
 		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan},
 		Types: projectWorkerTypes(result.Manifest),
 	}
+	return bundle, selection, services, nil
+}
+
+func (bundle *workerBundle) addRustWorkers(result *compiler.Result, selection map[string]rustbuild.Service, artifacts map[rustbuild.Service]rustbuild.Artifact) {
 	resources := cp.ResourcesByAddress(result.Manifest)
-	for _, service := range plan {
-		build, exists := selection[service.Address]
+	for _, service := range bundle.Host.Workers {
+		artifact, exists := artifacts[selection[service.Address]]
 		if !exists {
 			continue
 		}
-		artifact := artifacts[build]
 		bundle.Programs = append(bundle.Programs, workerProgram{
 			Service: service.Address, Process: service.Process, Binary: artifact.Path, Digest: artifact.Digest, Runtime: "rust",
 			Identity: workerProcessIdentity{
@@ -134,18 +152,9 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role string
 			},
 		})
 	}
-	if !check {
-		if err := bundle.addGoWorkers(ctx, result); err != nil {
-			return workerBundle{}, err
-		}
-		if err := bundle.projectConfig(result); err != nil {
-			return workerBundle{}, err
-		}
-	}
-	return bundle, nil
 }
 
-func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler.Result) error {
+func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler.Result, preparation *build.Result, retained []string) (*build.Result, error) {
 	goProcesses := make(map[string]string)
 	resources := cp.ResourcesByAddress(compiled.Manifest)
 	for _, service := range bundle.Host.Workers {
@@ -154,22 +163,35 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 		}
 	}
 	if len(goProcesses) == 0 {
-		return nil
+		return nil, nil
 	}
 	root, cfg, err := app.DiscoverRoot(compiled.Root)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	preparation, err := build.PrepareForCompileWithContractSnapshotContext(ctx, root, cfg, nil, compiled)
-	if err != nil {
-		return err
+	reused := false
+	if preparation != nil {
+		copy := *preparation
+		copy.Contract = compiled
+		preparation = &copy
+		reused, err = build.PrepareCachedWorkspaceHeldContext(ctx, root, cfg, preparation, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
-	processes, join, err := build.BuildDevelopmentProcessesContext(ctx, preparation)
+	if !reused {
+		preparation, err = build.PrepareForCompileWithContractSnapshotContext(ctx, root, cfg, nil, compiled)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer preparation.ReleaseWorkspace()
+	processes, join, err := build.BuildDevelopmentWorkersContext(ctx, preparation, retained)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := join(); err != nil {
-		return err
+		return nil, err
 	}
 	for _, process := range processes.Services {
 		identity := process.Identity
@@ -181,7 +203,7 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 			},
 		})
 	}
-	return nil
+	return preparation, nil
 }
 
 func projectWorkerTypes(manifest *graph.Manifest) contract.ManifestTypes {

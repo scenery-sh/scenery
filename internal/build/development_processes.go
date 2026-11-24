@@ -87,6 +87,16 @@ func (set *DevelopmentProcessSet) Process(name string) (DevelopmentProcess, bool
 // build; the caller must call it before using the checked contract, and may
 // prepare the linked executables meanwhile.
 func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*DevelopmentProcessSet, func() error, error) {
+	return buildDevelopmentProcessesContext(ctx, result, true, nil)
+}
+
+// BuildDevelopmentWorkersContext links only service entrypoints for a caller
+// that supplies its own host executable.
+func BuildDevelopmentWorkersContext(ctx context.Context, result *Result, retained []string) (*DevelopmentProcessSet, func() error, error) {
+	return buildDevelopmentProcessesContext(ctx, result, false, retained)
+}
+
+func buildDevelopmentProcessesContext(ctx context.Context, result *Result, linkHost bool, retained []string) (*DevelopmentProcessSet, func() error, error) {
 	if result == nil || result.Contract == nil || result.Contract.Manifest == nil || result.Target == nil {
 		return nil, nil, fmt.Errorf("development processes require a prepared contract and target")
 	}
@@ -141,7 +151,7 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	var set *DevelopmentProcessSet
 	check, err := compileBesidePreparedVerification(ctx, result, func(ctx context.Context) error {
 		var buildErr error
-		set, buildErr = buildDevelopmentProcesses(ctx, result, func() ([]generateapi.ServiceProcessPlan, error) {
+		set, buildErr = buildDevelopmentProcesses(ctx, result, linkHost, retained, func() ([]generateapi.ServiceProcessPlan, error) {
 			<-planned
 			return plan.Services, planErr
 		})
@@ -191,7 +201,7 @@ func completeDevelopmentProcessBuild(ctx context.Context, result *Result, verify
 	return WriteLatestBuildManifest(result, "compiled")
 }
 
-func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func() ([]generateapi.ServiceProcessPlan, error)) (*DevelopmentProcessSet, error) {
+func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost bool, retained []string, planned func() ([]generateapi.ServiceProcessPlan, error)) (*DevelopmentProcessSet, error) {
 	manifest, err := buildInputManifest(ctx, result)
 	if err != nil {
 		return nil, err
@@ -262,6 +272,9 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 	var pending []*DevelopmentProcess
 	processes := make([]*DevelopmentProcess, 0, len(names))
 	for index, name := range names {
+		if index == 0 && !linkHost {
+			continue
+		}
 		serviceAddress := ""
 		if index > 0 {
 			serviceAddress = services[index-1].Address
@@ -312,9 +325,20 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 			return nil, err
 		}
 		shareDevelopmentProcesses(linking)
+		linked := make([]string, 0, len(linking))
+		for _, process := range linking {
+			linked = append(linked, process.Service)
+		}
+		RecordStep(ctx, Step{Name: "process.linked", OK: true, PackagesRebuilt: linked, PackagesRebuiltAvailable: true})
 	}
 	keep := map[string]bool{}
-	result.DevelopmentProcessBinaries = result.DevelopmentProcessBinaries[:0]
+	for _, binary := range retained {
+		if filepath.Dir(binary) == binaryRoot {
+			base := filepath.Base(binary)
+			keep[base], keep[base+developmentProcessDigestSuffix] = true, true
+		}
+	}
+	result.DevelopmentProcessBinaries = nil
 	for _, process := range processes {
 		result.DevelopmentProcessBinaries = append(result.DevelopmentProcessBinaries, filepath.Join(developmentProcessBinaryDir, filepath.Base(process.Binary)))
 		keep[filepath.Base(process.Binary)] = true
@@ -323,11 +347,19 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, planned func
 	for _, process := range pending {
 		set.Rebuilt = append(set.Rebuilt, process.Name)
 	}
-	if err := pruneDevelopmentProcessBinaries(binaryRoot, keep); err != nil {
-		return nil, err
+	// A candidate must retain the active generation's executables for
+	// restart until the supervisor confirms publication. Standalone bundle
+	// builds have no authority over the development generation's files.
+	if linkHost || retained != nil {
+		if err := pruneDevelopmentProcessBinaries(binaryRoot, keep); err != nil {
+			return nil, err
+		}
 	}
-	set.Host = *processes[0]
-	for _, process := range processes[1:] {
+	if linkHost {
+		set.Host = *processes[0]
+		processes = processes[1:]
+	}
+	for _, process := range processes {
 		set.Services = append(set.Services, *process)
 	}
 	return set, nil

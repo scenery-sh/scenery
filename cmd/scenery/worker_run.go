@@ -106,7 +106,7 @@ func runWorkerBundleExecutable(args []string) error {
 		defer func() { _ = static.Close() }()
 		frontend = static
 	}
-	return runWorkerBundle(bundle, workerListen(options), frontend, nil, "", "")
+	return runWorkerBundle(bundle, workerListen(options), frontend, nil, nil)
 }
 
 func workerListen(options devOptions) string {
@@ -133,11 +133,11 @@ func configureWorkerDevelopmentDatabase(root string, cfg app.Config, requirement
 	return nil
 }
 
-func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, onReady func(), watchRoot, initialFingerprint string) error {
+func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, onReady func(), dev *workerDevelopment) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	workerruntime.SetAppConfig(workerruntime.AppConfig{Name: bundle.Host.Name, ListenAddr: listen})
-	if err := bundle.configureRuntime(watchRoot != ""); err != nil {
+	if err := bundle.configureRuntime(dev != nil); err != nil {
 		return err
 	}
 	var err error
@@ -205,10 +205,9 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 			return err
 		}
 	}
-	if watchRoot != "" {
-		actual, err := workerSourceFingerprint(watchRoot)
-		if err != nil || actual != initialFingerprint {
-			return errors.Join(fmt.Errorf("application changed during startup"), err)
+	if dev != nil {
+		if err := dev.verify(dev.applied); err != nil {
+			return fmt.Errorf("validate application startup: %w", err)
 		}
 	}
 	if err := publishWorkerGeneration(ctx, httpClient, token, bundle, processes, 1); err != nil {
@@ -219,10 +218,10 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	}
 	fmt.Fprintf(os.Stderr, "application ready on %s\n", listen)
 	watcher := &workerWatcher{
-		root: watchRoot, directory: directory, capabilities: capabilities, token: token,
+		dev: dev, directory: directory, capabilities: capabilities, token: token,
 		client: httpClient, bundle: bundle, active: processes, generation: 1, sequence: 1,
 	}
-	return watcher.run(ctx, initialFingerprint, hostDone)
+	return watcher.run(ctx, hostDone)
 }
 
 func startBundleWorker(ctx context.Context, state, capabilities, number string, program workerProgram) (*workerProcess, error) {
@@ -350,7 +349,7 @@ func workerControlRequest(ctx context.Context, client *http.Client, token, metho
 func waitWorkerReady(ctx context.Context, probe func(context.Context) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	ticker := time.NewTicker(25 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		err := probe(ctx)

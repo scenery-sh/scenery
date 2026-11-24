@@ -379,14 +379,25 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 				return err
 			}
 			defer func() { _ = live.Release() }()
-			fingerprint, err := workerSourceFingerprint(root)
+			inputWatch, err := openWorkerInputs(root)
 			if err != nil {
 				return err
 			}
-			bundle, err := buildWorkerBundle(context.Background(), compiled, "development", false)
+			defer func() { _ = inputWatch.fs.Close() }()
+			inputWatch.generated, err = compiler.ManagedGeneratedRoots(compiled)
 			if err != nil {
 				return err
 			}
+			inputs, err := inputWatch.capture(nil, nil, true, true)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			workerDev, bundle, err := startWorkerDevelopment(ctx, inputWatch, inputs)
+			if err != nil {
+				return err
+			}
+			compiled = workerDev.compiled
 			if err := configureWorkerDevelopmentDatabase(root, cfg, compiled.SQLRequirements); err != nil {
 				return err
 			}
@@ -405,7 +416,7 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if telemetry != nil {
 				onReady = telemetry.startupReady
 			}
-			return runWorkerBundle(bundle, workerListen(opts), frontend, onReady, root, fingerprint)
+			return runWorkerBundle(bundle, workerListen(opts), frontend, onReady, workerDev)
 		}
 	}
 	warnDevEscapeHatches(opts)

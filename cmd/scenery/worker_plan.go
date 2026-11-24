@@ -25,6 +25,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		resources: cp.ResourcesByAddress(manifest), services: make(map[string]workerruntime.WorkerServicePlan),
 	}
 	operationOwners := make(map[string]string)
+	moduleOwners := make(map[string]string)
 	runtimeServices := make(map[string]bool)
 	for _, service := range compiler.RuntimeServices(manifest.Resources) {
 		runtimeServices[service.Address] = true
@@ -33,6 +34,10 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		if resource.Kind != "scenery.service" || !runtimeServices[resource.Address] && cp.StringValue(resource.Spec["runtime"]) != "rust" {
 			continue
 		}
+		if other, exists := moduleOwners[resource.Module]; exists {
+			return nil, fmt.Errorf("worker module %q declares services %s and %s; each service needs its own module", resource.Module, other, resource.Address)
+		}
+		moduleOwners[resource.Module] = resource.Address
 		digest := sha256.Sum256([]byte(resource.Address))
 		service := workerruntime.WorkerServicePlan{
 			Address: resource.Address, Name: resource.Name, Module: resource.Module, Process: fmt.Sprintf("worker-%x", digest[:8]),

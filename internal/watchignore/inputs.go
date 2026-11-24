@@ -140,3 +140,8 @@ func HasHiddenPart(rel string) bool {
 	}
 	return false
 }
+
+// IsLocalEnvironmentFile excludes local environment files from source scans.
+func IsLocalEnvironmentFile(name string) bool {
+	return strings.HasPrefix(name, ".env")
+}

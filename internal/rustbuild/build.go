@@ -16,9 +16,11 @@ import (
 	"slices"
 	"strings"
 
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/watchignore"
 )
 
 type Service struct {
@@ -38,47 +40,77 @@ func Build(ctx context.Context, root string, services []Service, release, check 
 	if len(services) == 0 {
 		return nil, nil
 	}
+	return buildSelected(ctx, root, services, services, release, check, nil)
+}
+
+// BuildSelected preserves all generated bin declarations in the private Cargo
+// workspace but invokes Cargo only for the selected service entrypoints.
+func BuildSelected(ctx context.Context, root string, services, selected []Service, verify func(map[string][sha256.Size]byte) error) (map[Service]Artifact, error) {
+	return buildSelected(ctx, root, services, selected, false, false, verify)
+}
+
+func buildSelected(ctx context.Context, root string, services, selected []Service, release, check bool, verify func(map[string][sha256.Size]byte) error) (map[Service]Artifact, error) {
+	if len(selected) == 0 {
+		return nil, nil
+	}
+	var artifacts map[Service]Artifact
+	err := withSnapshot(ctx, root, services, verify, func(snapshot, target, privateRoot string) error {
+		artifacts = make(map[Service]Artifact, len(selected))
+		for _, service := range selected {
+			artifact, err := buildService(ctx, snapshot, target, privateRoot, service, release, check)
+			if err != nil {
+				return err
+			}
+			artifacts[service] = artifact
+		}
+		return nil
+	})
+	return artifacts, err
+}
+
+func withSnapshot(ctx context.Context, root string, services []Service, verify func(map[string][sha256.Size]byte) error, use func(snapshot, target, privateRoot string) error) error {
 	root, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	cache, err := devcache.Root()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	privateRoot := filepath.Join(root, ".scenery", "rust")
 	if err := os.MkdirAll(privateRoot, 0o700); err != nil {
-		return nil, err
+		return err
 	}
 	canonical, err := filepath.EvalSymlinks(privateRoot)
 	if err != nil || canonical != privateRoot {
-		return nil, fmt.Errorf("build root for Rust must remain in the application workspace")
+		return fmt.Errorf("build root for Rust must remain in the application workspace")
 	}
 	// Cargo releases its target-directory lock before its caller can read the
 	// executable. Hold the lock through snapshot sync and executable publication.
 	unlock, err := devprocess.LockSubstrate(cache, "cargo-target", devprocess.LockOptions{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer unlock()
 	// Cargo tracks dependency paths and file mtimes. Keep both stable for
 	// unchanged files, including the injected bin declarations.
 	snapshot := filepath.Join(privateRoot, "snapshot")
-	if err := prepareSnapshot(ctx, root, snapshot, services); err != nil {
-		return nil, err
+	var captured map[string][sha256.Size]byte
+	if verify != nil {
+		captured = make(map[string][sha256.Size]byte)
 	}
-	artifacts := make(map[Service]Artifact, len(services))
-	for _, service := range services {
-		artifact, err := buildService(ctx, snapshot, filepath.Join(cache, "rust-target"), privateRoot, service, release, check)
-		if err != nil {
-			return nil, err
+	if err := prepareSnapshot(ctx, root, snapshot, services, captured); err != nil {
+		return err
+	}
+	if verify != nil {
+		if err := verify(captured); err != nil {
+			return err
 		}
-		artifacts[service] = artifact
 	}
-	return artifacts, nil
+	return use(snapshot, filepath.Join(cache, "rust-target"), privateRoot)
 }
 
-func prepareSnapshot(ctx context.Context, root, snapshot string, services []Service) error {
+func prepareSnapshot(ctx context.Context, root, snapshot string, services []Service, captured map[string][sha256.Size]byte) error {
 	manifests := make(map[string][]byte)
 	for _, service := range services {
 		worker := filepath.Join(root, service.ModuleDirectory, "scenerycontract", service.ServiceName+"_worker.rs")
@@ -88,7 +120,7 @@ func prepareSnapshot(ctx context.Context, root, snapshot string, services []Serv
 		manifest := filepath.Join(service.ModuleDirectory, "Cargo.toml")
 		manifests[manifest] = fmt.Appendf(manifests[manifest], "\n[[bin]]\nname = %q\npath = %q\n", binaryName(service), "scenerycontract/"+service.ServiceName+"_worker.rs")
 	}
-	if err := syncSources(ctx, root, snapshot, true, manifests); err != nil {
+	if err := syncSources(ctx, root, snapshot, true, manifests, captured); err != nil {
 		return err
 	}
 	const sdk = ".scenery/gen/rust-sdk"
@@ -97,10 +129,10 @@ func prepareSnapshot(ctx context.Context, root, snapshot string, services []Serv
 			return err
 		}
 	}
-	return syncSources(ctx, filepath.Join(root, sdk), filepath.Join(snapshot, sdk), false, nil)
+	return syncSources(ctx, filepath.Join(root, sdk), filepath.Join(snapshot, sdk), false, nil, nil)
 }
 
-func syncSources(ctx context.Context, root, destination string, skipIgnored bool, suffixes map[string][]byte) error {
+func syncSources(ctx context.Context, root, destination string, skipIgnored bool, suffixes map[string][]byte, captured map[string][sha256.Size]byte) error {
 	seen := make(map[string]bool)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -115,6 +147,9 @@ func syncSources(ctx context.Context, root, destination string, skipIgnored bool
 		}
 		output := filepath.Join(destination, relative)
 		if skipIgnored && relative != "." {
+			if entry.IsDir() && appwalk.SkipDir(root, path) {
+				return filepath.SkipDir
+			}
 			switch entry.Name() {
 			case ".git", ".scenery", "node_modules", "target", "dist":
 				if entry.IsDir() {
@@ -122,7 +157,7 @@ func syncSources(ctx context.Context, root, destination string, skipIgnored bool
 				}
 				return nil
 			}
-			if strings.HasPrefix(entry.Name(), ".env") || entry.Name() == ".DS_Store" {
+			if watchignore.IsLocalEnvironmentFile(entry.Name()) || entry.Name() == ".DS_Store" {
 				return nil
 			}
 		}
@@ -136,6 +171,9 @@ func syncSources(ctx context.Context, root, destination string, skipIgnored bool
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+		if captured != nil {
+			captured[relative] = sha256.Sum256(data)
 		}
 		mode, err := entry.Info()
 		if err != nil {
@@ -213,7 +251,7 @@ func buildService(ctx context.Context, snapshot, target, privateRoot string, ser
 	}
 	command := exec.CommandContext(ctx, "cargo", args...)
 	command.Dir = dir
-	command.Env = rustBuildEnvironment(target)
+	command.Env = rustBuildEnvironment(target, dir, !release)
 	var diagnostics bytes.Buffer
 	command.Stderr = &diagnostics
 	output, err := command.Output()
@@ -283,11 +321,15 @@ func workerExecutable(output []byte, name string) (string, error) {
 	return "", fmt.Errorf("no executable reported by Cargo for %s", name)
 }
 
-func rustBuildEnvironment(target string) []string {
-	ignored := []string{"CARGO_TARGET_DIR", "CARGO_ENCODED_RUSTFLAGS", "RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTUP_TOOLCHAIN", "CARGO_PROFILE_DEV_DEBUG"}
+func rustBuildEnvironment(target, directory string, development bool) []string {
+	ignored := []string{"CARGO_TARGET_DIR", "CARGO_ENCODED_RUSTFLAGS", "RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTUP_TOOLCHAIN"}
 	env := slices.DeleteFunc(envpolicy.Environ(), func(entry string) bool {
 		key, _, _ := strings.Cut(entry, "=")
 		return slices.Contains(ignored, key)
 	})
-	return append(env, "CARGO_TARGET_DIR="+target, "CARGO_PROFILE_DEV_DEBUG=0")
+	env = append(env, "CARGO_TARGET_DIR="+target)
+	if development && useDefaultDevDebug(directory, env) {
+		env = append(env, "CARGO_PROFILE_DEV_DEBUG=0")
+	}
+	return env
 }

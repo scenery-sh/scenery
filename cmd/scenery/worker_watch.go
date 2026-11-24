@@ -2,70 +2,139 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
+	"maps"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"sync"
 	"time"
 
-	"scenery.sh/internal/appwalk"
-	"scenery.sh/internal/compiler"
+	"github.com/fsnotify/fsnotify"
 )
 
 type workerWatcher struct {
-	root, directory, capabilities, token string
-	client                               *http.Client
-	bundle                               workerBundle
-	active                               map[string]*workerProcess
-	all                                  []*workerProcess
-	generation, sequence                 uint64
-	retirements                          sync.WaitGroup
+	directory, capabilities, token string
+	dev                            *workerDevelopment
+	exits                          chan struct{}
+	client                         *http.Client
+	bundle                         workerBundle
+	active                         map[string]*workerProcess
+	all                            []*workerProcess
+	generation, sequence           uint64
+	retirements                    sync.WaitGroup
 }
 
-func (watch *workerWatcher) run(ctx context.Context, initial string, hostDone <-chan error) error {
+func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) error {
 	defer func() {
 		watch.retirements.Wait()
-		for _, process := range watch.all {
-			process.stop()
-		}
+		stopWorkers(watch.all)
 	}()
-	ticker := time.NewTicker(150 * time.Millisecond)
-	defer ticker.Stop()
-	seen := initial
+	watch.exits = make(chan struct{}, 1)
+	for _, process := range watch.active {
+		watch.observeExit(ctx, process)
+	}
+	var events <-chan fsnotify.Event
+	var watchErrors <-chan error
+	var reconciliation <-chan time.Time
+	var seen workerInputs
+	if watch.dev != nil {
+		events, watchErrors = watch.dev.watch.fs.Events, watch.dev.watch.fs.Errors
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		reconciliation, seen = ticker.C, watch.dev.applied
+	}
+	debounce := time.NewTimer(time.Hour)
+	defer debounce.Stop()
+	debounce.Stop()
+	retry := time.NewTimer(time.Hour)
+	defer retry.Stop()
+	retry.Stop()
+	pending := make(map[string]struct{})
+	var detected time.Time
+	var reconcile, retryCandidate bool
+	schedule := func() {
+		if detected.IsZero() {
+			detected = time.Now()
+		}
+		debounce.Reset(workerEditDebounce)
+	}
 	for {
 		select {
 		case err := <-hostDone:
 			return err
 		case <-ctx.Done():
 			return <-hostDone
-		case <-ticker.C:
-			if watch.root != "" {
-				current, err := workerSourceFingerprint(watch.root)
-				if err == nil && seen != current {
-					seen = current
-					if err := watch.refresh(ctx, current); err != nil {
-						fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
-					}
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
+			if !watch.dev.watch.skip(event.Name) {
+				pending[event.Name] = struct{}{}
+				schedule()
+			}
+		case _, ok := <-watchErrors:
+			if !ok {
+				watchErrors = nil
+			}
+			reconcile = true
+			schedule()
+		case <-reconciliation:
+			reconcile = true
+			schedule()
+		case <-debounce.C:
+			current, err := watch.dev.watch.capture(seen, pending, reconcile, true)
+			observed := detected
+			clear(pending)
+			reconcile, detected = false, time.Time{}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "application inputs could not be read: %v\n", err)
+				continue
+			}
+			if maps.Equal(current, seen) && !retryCandidate {
+				continue
+			}
+			seen, retryCandidate = current, false
+			if err := watch.refresh(ctx, current, observed); err != nil {
+				fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
+				if errors.Is(err, errWorkerInputsChanged) {
+					// The next candidate must include edits even if their
+					// notifications were dropped or have not arrived yet.
+					reconcile, retryCandidate = true, true
+					schedule()
 				}
 			}
-			if watch.hasStoppedWorker() {
-				if err := watch.replace(ctx, watch.bundle); err != nil {
-					fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
-					select {
-					case <-ctx.Done():
-						return <-hostDone
-					case <-time.After(time.Second):
-					}
-				}
+		case <-watch.exits:
+			watch.restartStopped(ctx, retry)
+		case <-retry.C:
+			watch.restartStopped(ctx, retry)
+		}
+	}
+}
+
+func (watch *workerWatcher) observeExit(ctx context.Context, process *workerProcess) {
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-process.done:
+			select {
+			case watch.exits <- struct{}{}:
+			default:
 			}
+		}
+	}()
+}
+
+func (watch *workerWatcher) restartStopped(ctx context.Context, retry *time.Timer) {
+	if watch.hasStoppedWorker() {
+		if err := watch.replace(ctx, watch.bundle, nil); err != nil {
+			fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
+			retry.Reset(time.Second)
 		}
 	}
 }
@@ -81,34 +150,86 @@ func (watch *workerWatcher) hasStoppedWorker() bool {
 	return false
 }
 
-func (watch *workerWatcher) refresh(ctx context.Context, expected string) error {
-	result, err := compiler.CompileContext(ctx, watch.root)
+var errWorkerInputsChanged = errors.New("application changed while workers were compiling")
+
+func (dev *workerDevelopment) verify(expected workerInputs) error {
+	actual, err := dev.watch.capture(nil, nil, true, false)
 	if err != nil {
 		return err
 	}
-	if !result.Valid() {
-		return fmt.Errorf("invalid application: %s", firstCompilerDiagnostic(result.Diagnostics))
+	if !maps.Equal(actual, expected) {
+		return errWorkerInputsChanged
 	}
-	if result.Manifest.ContractRevision != watch.bundle.ContractRevision {
-		return fmt.Errorf("application contract changed; restart the application to load its new manifest")
-	}
-	bundle, err := buildWorkerBundle(ctx, result, "development", false)
-	if err != nil {
-		return err
-	}
-	bundle.config = watch.bundle.config
-	bundle.setWorkerConfig()
-	current, err := workerSourceFingerprint(watch.root)
-	if err != nil || current != expected {
-		return errors.Join(fmt.Errorf("application changed while workers were compiling"), err)
-	}
-	return watch.replace(ctx, bundle)
+	return nil
 }
 
-func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle) error {
+type workerRebuildTiming struct {
+	Generation   uint64   `json:"generation"`
+	Declarations bool     `json:"declarations"`
+	Go           bool     `json:"go"`
+	GoLinks      []string `json:"go_links,omitempty"`
+	Cargo        []string `json:"cargo,omitempty"`
+	Rebuilt      []string `json:"rebuilt"`
+	Skipped      int      `json:"skipped"`
+	DetectMS     float64  `json:"detect_ms"`
+	ContractMS   float64  `json:"contract_ms"`
+	GoMS         float64  `json:"go_ms"`
+	CargoMS      float64  `json:"cargo_ms"`
+	CompileMS    float64  `json:"compile_ms"`
+	ReadyMS      float64  `json:"ready_ms"`
+	TotalMS      float64  `json:"total_ms"`
+}
+
+func workerMilliseconds(duration time.Duration) float64 {
+	return float64(duration.Microseconds()) / 1000
+}
+
+func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, detected time.Time) error {
+	paths := changedWorkerInputs(watch.dev.applied, current)
+	if len(paths) == 0 {
+		return nil
+	}
+	started := time.Now()
+	timing := workerRebuildTiming{DetectMS: workerMilliseconds(started.Sub(detected)), Rebuilt: []string{}}
+	candidate := *watch.dev
+	candidate.rust.artifacts = maps.Clone(candidate.rust.artifacts)
+	bundle, err := candidate.rebuild(ctx, watch.bundle, current, paths, &timing)
+	if err != nil {
+		return err
+	}
+	timing.CompileMS = workerMilliseconds(time.Since(started))
+	for _, program := range bundle.Programs {
+		if workerStillMatches(watch.active[program.Process], program) {
+			timing.Skipped++
+		} else {
+			timing.Rebuilt = append(timing.Rebuilt, program.Service)
+		}
+	}
+	readyStarted := time.Now()
+	if err := watch.replace(ctx, bundle, func() error { return candidate.verify(current) }); err != nil {
+		return err
+	}
+	candidate.applied = current
+	*watch.dev = candidate
+	if !timing.Go && len(timing.Cargo) == 0 && !timing.Declarations {
+		return nil
+	}
+	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
+	timing.TotalMS = workerMilliseconds(time.Since(detected))
+	timing.Generation = watch.generation
+	slices.Sort(timing.Rebuilt)
+	if data, err := json.Marshal(timing); err == nil {
+		fmt.Fprintf(os.Stderr, "worker rebuild %s\n", data)
+	}
+	return nil
+}
+
+func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, verify func() error) error {
 	next := make(map[string]*workerProcess, len(bundle.Programs))
 	watch.sequence++
-	var started []*workerProcess
+	started := make([]*workerProcess, len(bundle.Programs))
+	errs := make([]error, len(bundle.Programs))
+	var group sync.WaitGroup
 	for index, program := range bundle.Programs {
 		previous := watch.active[program.Process]
 		if workerStillMatches(previous, program) {
@@ -116,16 +237,28 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle) er
 			continue
 		}
 		id := fmt.Sprintf("%x-%x", watch.sequence, index)
-		process, err := startBundleWorker(ctx, watch.directory, watch.capabilities, id, program)
-		if err != nil {
+		group.Go(func() {
+			started[index], errs[index] = startBundleWorker(ctx, watch.directory, watch.capabilities, id, program)
+		})
+	}
+	group.Wait()
+	started = slices.DeleteFunc(started, func(process *workerProcess) bool { return process == nil })
+	if err := errors.Join(errs...); err != nil {
+		stopWorkers(started)
+		return err
+	}
+	if verify != nil {
+		if err := verify(); err != nil {
 			stopWorkers(started)
 			return err
 		}
-		started = append(started, process)
-		next[program.Process] = process
 	}
 	if len(started) == 0 && len(next) == len(watch.active) {
+		watch.bundle = bundle
 		return nil
+	}
+	for _, process := range started {
+		next[process.program.Process] = process
 	}
 	watch.all = append(watch.all, started...)
 	if err := publishWorkerGeneration(ctx, watch.client, watch.token, bundle, next, watch.sequence); err != nil {
@@ -145,6 +278,9 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle) er
 	}
 	previous := watch.generation
 	watch.generation, watch.active, watch.bundle = watch.sequence, next, bundle
+	for _, process := range started {
+		watch.observeExit(ctx, process)
+	}
 	watch.retirements.Add(1)
 	go func() {
 		defer watch.retirements.Done()
@@ -215,41 +351,4 @@ func stopWorkers(processes []*workerProcess) {
 	for _, process := range processes {
 		process.stop()
 	}
-}
-
-func workerSourceFingerprint(root string) (string, error) {
-	hash := sha256.New()
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if appwalk.SkipDir(root, path) || path != root && slices.Contains([]string{"scenerycontract", "scenerygen", "target"}, entry.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		switch entry.Name() {
-		case "Cargo.toml", "Cargo.lock", "go.mod", "go.sum", ".scenery.json":
-		default:
-			if !slices.Contains([]string{".go", ".rs", ".scn"}, filepath.Ext(path)) {
-				return nil
-			}
-		}
-		if !entry.Type().IsRegular() {
-			return fmt.Errorf("worker input %s must be a regular file", path)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		digest := sha256.Sum256(data)
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(hash, "%s\x00%x\n", relative, digest)
-		return nil
-	})
-	return fmt.Sprintf("%x", hash.Sum(nil)), err
 }
