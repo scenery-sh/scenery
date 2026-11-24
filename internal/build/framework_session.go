@@ -61,17 +61,8 @@ func verifyFrameworkSession(ctx context.Context, appRoot, producerVersion string
 	if err != nil {
 		return FrameworkSource{}, err
 	}
-	if err := VerifyFrameworkVersion(pinned, producerVersion); err != nil {
-		return FrameworkSource{}, err
-	}
 	if pinned != "" {
-		_, err := os.Lstat(filepath.Join(appRoot, "go.mod"))
-		if errors.Is(err, os.ErrNotExist) {
-			return FrameworkSource{}, nil
-		}
-		if err != nil {
-			return FrameworkSource{}, err
-		}
+		return FrameworkSource{}, VerifyPrebuiltFramework(appRoot, pinned, producerVersion)
 	}
 	producer, err := VerifyFrameworkProducer()
 	if err != nil {
@@ -223,11 +214,24 @@ func ReadDesiredFramework(appRoot string) (DesiredFramework, error) {
 	return readGoFrameworkModule(appRoot)
 }
 
-// VerifyFrameworkVersion checks an explicit application pin against the
-// running executable without calling an application toolchain.
-func VerifyFrameworkVersion(pinned, running string) error {
-	if pinned != "" && pinned != running {
+// VerifyPrebuiltFramework checks the running version and, when present, its Go
+// SDK requirement. No application toolchain is needed to select a producer.
+func VerifyPrebuiltFramework(appRoot, pinned, running string) error {
+	if pinned == "" {
+		return nil
+	}
+	if pinned != running {
 		return fmt.Errorf("application selects Scenery %s; run its prebuilt executable (this executable is %s)", pinned, running)
+	}
+	sdk, err := readGoFrameworkModule(appRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if sdk.Root != "" || sdk.Version != pinned {
+		return fmt.Errorf("framework_version %s requires the same scenery.sh SDK version in go.mod without a replace directive", pinned)
 	}
 	return nil
 }

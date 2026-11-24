@@ -24,6 +24,7 @@ import (
 
 	"scenery.sh/errs"
 	"scenery.sh/internal/devtelemetry"
+	"scenery.sh/internal/workerabi"
 )
 
 // A process host is the stable front of a development session whose services
@@ -72,6 +73,7 @@ type ProcessHostConfig struct {
 	// Observability filters the logs and traces of requests the host serves
 	// itself, as the application entrypoint's configuration does.
 	Observability ObservabilityConfig
+	Workers       []WorkerServicePlan
 }
 
 type processGenerationManifest struct {
@@ -86,10 +88,12 @@ type processGenerationManifest struct {
 }
 
 type processGenerationInstance struct {
-	Network  string                  `json:"network"`
-	Address  string                  `json:"address"`
-	PID      int                     `json:"pid"`
-	Identity processInstanceIdentity `json:"identity"`
+	Network       string                  `json:"network"`
+	Address       string                  `json:"address"`
+	PID           int                     `json:"pid"`
+	Identity      processInstanceIdentity `json:"identity"`
+	WorkerService string                  `json:"worker_service,omitempty"`
+	WorkerToken   string                  `json:"worker_token,omitempty"`
 }
 
 type processInstanceIdentity struct {
@@ -127,9 +131,12 @@ type processHost struct {
 	// gateways) that localRoutes matches.
 	local       http.Handler
 	localRoutes *routeTable
+	frontend    http.Handler
 
 	faults        processHostFaults
 	conversations processHostConversations
+	workers       *workerHost
+	durable       *durableRuntime
 
 	mu          sync.RWMutex
 	current     *processHostGeneration
@@ -153,7 +160,9 @@ type processHostGeneration struct {
 	inFlight      atomic.Int64
 	// retired is closed when the generation is removed, which ends the
 	// admissions and conversation run scopes that hold it.
-	retired chan struct{}
+	retired  chan struct{}
+	lifetime context.Context
+	cancel   context.CancelFunc
 }
 
 type processHostInstance struct {
@@ -162,6 +171,7 @@ type processHostInstance struct {
 	ingress  http.Handler
 	dispatch http.Handler
 	client   *http.Client
+	worker   *workerabi.Client
 }
 
 type processHostGenerationKey struct{}
@@ -175,6 +185,16 @@ type processHostAttestationKey struct{}
 // it: public requests on the runtime listen address, and dispatch plus generation
 // control on the private dispatch listener of the process link.
 func MainProcessHost(cfg ProcessHostConfig) error {
+	return mainProcessHost(context.Background(), cfg, CurrentLinkedContractBundle().ContractRevision, nil, nil)
+}
+
+// MainWorkerProcessHost runs the precompiled Host against an application
+// manifest. No generated Go registrars are needed for its worker services.
+func MainWorkerProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevision string, codec WorkerValueCodec, frontend http.Handler) error {
+	return mainProcessHost(ctx, cfg, contractRevision, codec, frontend)
+}
+
+func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevision string, codec WorkerValueCodec, frontend http.Handler) error {
 	link, err := currentProcessLink()
 	if err != nil {
 		return err
@@ -182,10 +202,14 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 	if link == nil {
 		return fmt.Errorf("runtime: process host requires SCENERY_PROCESS_LINK")
 	}
-	host, err := newProcessHost(cfg, link.Token, CurrentLinkedContractBundle().ContractRevision)
+	host, err := newProcessHost(cfg, link.Token, contractRevision)
 	if err != nil {
 		return err
 	}
+	if err := host.registerWorkerServices(cfg.Workers, codec); err != nil {
+		return err
+	}
+	host.frontend = frontend
 	if link.HostState != "" {
 		if err := host.openState(link.HostState); err != nil {
 			return err
@@ -222,8 +246,19 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 			registerEndpointRoute(host.localRoutes, endpoint, func(http.ResponseWriter, *http.Request, routeParams) {})
 		}
 	}
-	runCtx, cancelRun := context.WithCancel(context.Background())
+	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
+	if host.workers != nil {
+		host.durable, err = openDurableRuntime(runCtx, appConfig)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			shutdown, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
+			defer cancel()
+			_ = host.durable.Close(shutdown)
+		}()
+	}
 	stopSupervisorMonitor := startSupervisorParentMonitor(cancelRun)
 	defer stopSupervisorMonitor()
 	sigCtx, stopSignals := signal.NotifyContext(runCtx, os.Interrupt, syscall.SIGTERM)
@@ -238,12 +273,27 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 		_ = control.Close()
 		return err
 	}
+	ingress := http.Handler(http.HandlerFunc(host.serveIngress))
+	if host.workers != nil {
+		ingress = neutralWorkerIngress(ingress)
+	}
 	servers := []*http.Server{
 		{Handler: http.HandlerFunc(host.serveControl), MaxHeaderBytes: processHostMaxHeaderBytes},
-		{Handler: http.HandlerFunc(host.serveIngress), MaxHeaderBytes: processHostMaxHeaderBytes},
+		{Handler: ingress, MaxHeaderBytes: processHostMaxHeaderBytes},
 	}
-	errCh := make(chan error, 2)
-	for index, listener := range []net.Listener{control, public} {
+	listeners := []net.Listener{control, public}
+	if host.workers != nil {
+		capabilities, err := listenRuntime("unix", link.Capabilities)
+		if err != nil {
+			_ = control.Close()
+			_ = public.Close()
+			return err
+		}
+		servers = append(servers, &http.Server{Handler: host.workers.scopes.Handler(host.workers.serveCapability), Protocols: workerabi.Protocols(), MaxHeaderBytes: processHostMaxHeaderBytes})
+		listeners = append(listeners, capabilities)
+	}
+	errCh := make(chan error, len(servers))
+	for index, listener := range listeners {
 		go func() { errCh <- servers[index].Serve(listener) }()
 	}
 	logTrace(context.Background(), fmt.Sprintf("process host %s forwarding %d routes", cfg.Name, len(cfg.Routes)))
@@ -311,7 +361,8 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 		if requested := strings.TrimSpace(req.Header.Get("Access-Control-Request-Method")); method == http.MethodOptions && requested != "" {
 			method = requested
 		}
-		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil {
+		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil ||
+			h.workers != nil && req.URL.Path == PublicConfigPath {
 			// The host's own endpoints serve before a generation is published;
 			// once one is, a request holds the generation current at ingress for
 			// its whole lifetime and its answer attests that generation, unless
@@ -346,6 +397,10 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 	}
 	if owner := h.routes.ownerRoute(req.URL.EscapedPath(), method); owner != nil {
 		owner.handler(w, req, nil)
+		return
+	}
+	if h.frontend != nil {
+		h.frontend.ServeHTTP(w, req)
 		return
 	}
 	if h.fallback == "" {
@@ -451,6 +506,11 @@ func (h *processHost) dispatch(w http.ResponseWriter, req *http.Request) {
 	if h.applyProcessFault(w, req, process, address) {
 		return
 	}
+	if instance.worker != nil {
+		local := &server{}
+		local.handleProcessLinkedBinding(w, req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, generation)), nil)
+		return
+	}
 	instance.dispatch.ServeHTTP(w, req)
 }
 
@@ -519,10 +579,23 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 				continue
 			}
 		}
-		generation.instances[name] = newProcessHostInstance(name, spec)
+		instance := newProcessHostInstance(name, spec)
+		if spec.WorkerService != "" {
+			if h.workers == nil || h.workers.services[spec.WorkerService].Process != name || spec.Network != "unix" || len(spec.WorkerToken) < 32 {
+				return fmt.Errorf("generation %d has an invalid worker instance %s", manifest.Generation, name)
+			}
+			instance.worker = workerabi.NewClient(spec.Address, spec.WorkerToken, workerabi.Identity{
+				ABI: workerabi.Version, Service: spec.WorkerService, ContractRevision: identity.ContractRevision, ImplementationRevision: identity.ImplementationRevision,
+			})
+		}
+		generation.instances[name] = instance
 	}
 	h.generations[generation.number] = generation
 	h.current = generation
+	generation.lifetime, generation.cancel = context.WithCancel(context.Background())
+	if h.durable != nil {
+		h.durable.StartBackground()
+	}
 	return nil
 }
 
@@ -553,6 +626,9 @@ func (h *processHost) removeGeneration(number uint64, force bool) (int, string) 
 		return http.StatusConflict, fmt.Sprintf("generation has %d requests in flight", generation.inFlight.Load())
 	}
 	delete(h.generations, number)
+	if generation.cancel != nil {
+		generation.cancel()
+	}
 	close(generation.retired)
 	return http.StatusNoContent, ""
 }

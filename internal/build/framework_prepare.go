@@ -19,13 +19,13 @@ import (
 )
 
 const frameworkSelectionKind = "scenery.framework-selection"
-const frameworkSelectionSchema = `{"identity":"artifact","app_root":"path","source":{"root":"path","digest":"digest","build_input_manifest":"go-build-input-manifest"},"source_origin":"path","source_revision":"optional_string","version":"string","executable":"path","executable_digest":"digest"}`
+const frameworkSelectionSchema = `{"identity":"artifact","app_root":"path","source":"optional framework source manifest for source-bound producers","source_origin":"optional_path","source_revision":"optional_string","version":"string","executable":"path","executable_digest":"digest"}`
 
 type FrameworkSelection struct {
 	machine.ArtifactIdentity
 	AppRoot          string          `json:"app_root"`
-	Source           FrameworkSource `json:"source"`
-	SourceOrigin     string          `json:"source_origin"`
+	Source           FrameworkSource `json:"source,omitzero"`
+	SourceOrigin     string          `json:"source_origin,omitempty"`
 	SourceRevision   string          `json:"source_revision,omitempty"`
 	Version          string          `json:"version"`
 	Executable       string          `json:"executable"`
@@ -50,8 +50,11 @@ func readFrameworkSelection(appRoot, path string) (FrameworkSelection, error) {
 		return selection, err
 	}
 	canonical, err := filepath.EvalSymlinks(appRoot)
-	if err != nil || selection.AppRoot != canonical || !validFrameworkDigest(selection.Source.Digest) || !validFrameworkDigest(selection.ExecutableDigest) {
+	if err != nil || selection.AppRoot != canonical || !validFrameworkDigest(selection.ExecutableDigest) {
 		return selection, fmt.Errorf("framework selection does not belong to this app root; prepare it again")
+	}
+	if selection.Source != (FrameworkSource{}) && !validFrameworkDigest(selection.Source.Digest) {
+		return selection, fmt.Errorf("framework selection has an invalid source identity")
 	}
 	return selection, nil
 }
@@ -211,7 +214,7 @@ func writeFrameworkSelectionAt(selection FrameworkSelection, path string) error 
 // OwnsFrameworkSelection is the finalization boundary, not an old-spec decoder.
 // Bootstrap results locate a candidate but cannot authorize publishing its receipt.
 func OwnsFrameworkSelection(selection FrameworkSelection) bool {
-	if linkedFrameworkDigest == "" || linkedFrameworkDigest != selection.Source.Digest {
+	if selection.Source.Digest == "" || linkedFrameworkDigest != selection.Source.Digest {
 		return false
 	}
 	executable, err := os.Executable()

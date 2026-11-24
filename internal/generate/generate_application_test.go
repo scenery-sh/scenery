@@ -134,7 +134,7 @@ func TestGenerateApplicationAdapterRegistersExecutablePageContract(t *testing.T)
 	}
 }
 
-func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
+func TestGenerateGoInternalClientProjectsCrossPackageContract(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	for index := range result.Manifest.Resources {
 		if result.Manifest.Resources[index].Kind == "scenery.module" && result.Manifest.Resources[index].Name == "house" {
@@ -148,7 +148,7 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 		Resource{Address: "app/module/audit", Kind: "scenery.module", Name: "audit", Module: "app", Spec: map[string]any{"source": "./audit", "package": map[string]any{"go_contract": map[string]any{"import_path": "clean.tech/audit"}}}, Origin: Origin{Kind: "authored"}},
 		Resource{Address: "audit/service/audit", Kind: "scenery.service", Name: "audit", Module: "audit", Spec: map[string]any{"runtime": "go"}, Origin: Origin{Kind: "authored"}},
 		Resource{Address: "audit/record/write_input", Kind: "scenery.record", Name: "write_input", Module: "audit", Spec: map[string]any{"field": map[string]any{"name": "message", "type": map[string]any{"$ref": "string"}}}, Origin: Origin{Kind: "authored"}},
-		Resource{Address: "audit/operation/write", Kind: "scenery.operation", Name: "write", Module: "audit", Spec: map[string]any{"service": map[string]any{"$ref": "service.audit"}, "input": map[string]any{"$ref": "record.write_input"}, "handler": map[string]any{"method": "Write"}, "result": map[string]any{"name": "written", "type": map[string]any{"$ref": "bool"}}}, Origin: Origin{Kind: "authored"}},
+		Resource{Address: "audit/operation/write", Kind: "scenery.operation", Name: "write", Module: "audit", Spec: map[string]any{"service": map[string]any{"$ref": "service.audit"}, "input": map[string]any{"$ref": "audit/record/write_input"}, "handler": map[string]any{"method": "Write"}, "result": map[string]any{"name": "written", "type": map[string]any{"$ref": "bool"}}}, Origin: Origin{Kind: "authored"}},
 		Resource{Address: "audit/binding/write_internal", Kind: "scenery.binding", Name: "write_internal", Module: "audit", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.write"}, "protocol": "internal", "delivery": "call", "exposure": "application", "authentication": map[string]any{"$ref": "std.authentication.inherit"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}, "internal": map[string]any{"visibility": "application", "principal": "inherit"}}, Origin: Origin{Kind: "authored"}},
 	)
 	houseModule := resourceByKind(result.Manifest.Resources, "scenery.module")
@@ -157,17 +157,20 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	contractSource := generatedSourceWithSuffix(contractFiles, "/contract.gen.go")
-	for _, fragment := range []string{`auditcontract "clean.tech/audit/scenerycontract"`, `Invoke(context.Context, scenery.Invocation, auditcontract.WriteInput) (auditcontract.WriteOutcome, error)`} {
+	for _, fragment := range []string{`Invoke(context.Context, scenery.Invocation, AuditClientInput) (AuditClientOutcome, error)`, `type AuditClientInput = AuditClientWriteInput`, `type AuditClientWritten struct`} {
 		if !strings.Contains(contractSource, fragment) {
 			t.Fatalf("cross-package contract missing %q:\n%s", fragment, contractSource)
 		}
+	}
+	if strings.Contains(contractSource, "clean.tech/audit/scenerycontract") {
+		t.Fatalf("caller contract imports callee code:\n%s", contractSource)
 	}
 	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
 	adapter := generatedSourceWithSuffix(applicationFiles, "/house_house_adapter/adapter.gen.go")
-	for _, fragment := range []string{`auditcontract "clean.tech/audit/scenerycontract"`, `input auditcontract.WriteInput`, `auditcontract.CloneWriteInput`, `value.(auditcontract.WriteOutcome)`, `InvokeContractBindingCodec(ctx, "audit/binding/write_internal", "house"`, `return auditcontract.UnmarshalWriteOutcome(data)`} {
+	for _, fragment := range []string{`input contract.AuditClientInput`, `InvokeContractBindingWire(ctx, "audit/binding/write_internal", "house"`, `outcome, err := contract.UnmarshalAuditClientOutcome(output)`} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("cross-package adapter missing %q:\n%s", fragment, adapter)
 		}

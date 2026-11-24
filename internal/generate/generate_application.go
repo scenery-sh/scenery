@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/format"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,8 +30,14 @@ type applicationAdapter struct {
 
 type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
 
+func goRuntimeServices(resources []Resource) []Resource {
+	return slices.DeleteFunc(compiler.RuntimeServices(resources), func(service Resource) bool {
+		return stringValue(service.Spec["runtime"]) == "rust"
+	})
+}
+
 func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error) {
-	services := compiler.RuntimeServices(result.Manifest.Resources)
+	services := goRuntimeServices(result.Manifest.Resources)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
 	if len(services) == 0 && len(assistants) == 0 {
 		// Nothing is composed, but the process model still runs a host that
@@ -72,7 +79,7 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 }
 
 func generateApplicationArtifacts(result *Result, idx *resourceIndex, input projectionInput) ([]generatedFile, error) {
-	services := compiler.RuntimeServices(result.Manifest.Resources)
+	services := goRuntimeServices(result.Manifest.Resources)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
 	if len(services) == 0 && len(assistants) == 0 {
 		return nil, nil
@@ -339,24 +346,6 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 			fmt.Fprintf(&b, "\tscenerystorage %q\n", "scenery.sh/storage")
 		}
 	}
-	clientImports := map[string]string{}
-	for _, client := range clients {
-		if client.ContractAlias == "" {
-			continue
-		}
-		if existing := clientImports[client.ContractAlias]; existing != "" && existing != client.ContractImport {
-			return nil, fmt.Errorf("generated client import alias %s resolves to both %s and %s", client.ContractAlias, existing, client.ContractImport)
-		}
-		clientImports[client.ContractAlias] = client.ContractImport
-	}
-	clientAliases := make([]string, 0, len(clientImports))
-	for alias := range clientImports {
-		clientAliases = append(clientAliases, alias)
-	}
-	sort.Strings(clientAliases)
-	for _, alias := range clientAliases {
-		fmt.Fprintf(&b, "\t%s %q\n", alias, clientImports[alias])
-	}
 	fmt.Fprintf(&b, "\timplementation %q\n", implementationImport)
 	fmt.Fprintf(&b, "\tcontract %q\n", contractImport)
 	b.WriteString(")\n\n")
@@ -387,8 +376,9 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 		operationName := goName(client.Operation.Name)
 		clientType := semanticPathName(client.Name) + "InternalClient"
 		contractQualifier := "contract."
-		if client.ContractAlias != "" {
-			contractQualifier = client.ContractAlias + "."
+		if client.Projected {
+			renderProjectedGoClient(&b, client, service.Module)
+			continue
 		}
 		fmt.Fprintf(&b, "type %s struct{}\n", clientType)
 		if client.Delivery == "enqueue" {

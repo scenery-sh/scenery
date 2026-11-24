@@ -1,0 +1,10 @@
+{
+  "name": "polyglot",
+  "frontends": {
+    "web": {"root": "web", "adapter": "vite", "mode": "static"}
+  },
+  "envs": {
+    "local": {"default": true},
+    "preview": {"frontends": {"web": {"serve": "production"}}}
+  }
+}

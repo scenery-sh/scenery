@@ -181,7 +181,7 @@ func resourceValues(resources map[string]Resource) []Resource {
 	return result
 }
 
-func goContractTypeClosure(module string, local, all []Resource) ([]Resource, map[string]bool, error) {
+func goContractTypeClosure(module string, local, all, clientOperations []Resource) ([]Resource, map[string]bool, error) {
 	byAddress := resourcesByAddress(&Manifest{Resources: all})
 	needed := map[string]bool{}
 	for _, resource := range local {
@@ -202,6 +202,23 @@ func goContractTypeClosure(module string, local, all []Resource) ([]Resource, ma
 			}
 		}
 	}
+	clientTypes := map[string]bool{}
+	for _, operation := range clientOperations {
+		for _, value := range contractTypeValues([]Resource{operation}) {
+			collectABITypeReferences(value, operation.Module, byAddress, clientTypes)
+		}
+	}
+	for changed := true; changed; {
+		before := len(clientTypes)
+		for address := range clientTypes {
+			resource := byAddress[address]
+			for _, value := range contractTypeValues([]Resource{resource}) {
+				collectABITypeReferences(value, resource.Module, byAddress, clientTypes)
+			}
+		}
+		changed = before != len(clientTypes)
+	}
+	maps.Copy(needed, clientTypes)
 	embedded := map[string]bool{}
 	for changed := true; changed; {
 		changed = false
@@ -216,7 +233,7 @@ func goContractTypeClosure(module string, local, all []Resource) ([]Resource, ma
 				continue
 			}
 			if resource.Module != module {
-				if _, hasContract := moduleContractImportPath(all, resource.Module); !hasContract && !embedded[address] {
+				if _, hasContract := moduleContractImportPath(all, resource.Module); (!hasContract || clientTypes[address]) && !embedded[address] {
 					embedded[address] = true
 					changed = true
 				}
@@ -235,8 +252,14 @@ func goContractTypeClosure(module string, local, all []Resource) ([]Resource, ma
 		}
 	}
 	for address := range embedded {
-		result = append(result, byAddress[address])
+		resource := byAddress[address]
+		if clientTypes[address] {
+			resource.Name = goName(strings.ReplaceAll(resource.Module, "/", "_")) + "Client" + goName(resource.Name)
+			resource.Spec = qualifyProjectedGoTypes(resource)
+		}
+		result = append(result, resource)
 	}
+	result = append(result, clientOperations...)
 	sort.Slice(result, func(i, j int) bool { return result[i].Address < result[j].Address })
 	if err := validateGoContractClosureNames(module, result); err != nil {
 		return nil, nil, err

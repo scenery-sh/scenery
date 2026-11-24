@@ -62,8 +62,46 @@ func buildCommand(out io.Writer, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed_precondition: discover app root: %w", err)
 	}
-	if err := build.VerifyFrameworkVersion(cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
+	if err := build.VerifyPrebuiltFramework(appRoot, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
+	}
+	if compiled, compileErr := compiler.Compile(appRoot); compileErr == nil && hasRustWorkers(compiled) {
+		if desktop || verifyGeneration {
+			return usageErrorf("worker bundles do not support desktop or Go generation verification")
+		}
+		role := "artifact"
+		if development {
+			role = "development"
+		}
+		bundle, err := buildWorkerBundle(context.Background(), compiled, role, false)
+		if err != nil {
+			return err
+		}
+		frontend, err := selectWorkerFrontend(appRoot, cfg, compiled)
+		if err != nil {
+			return err
+		}
+		if frontend != nil {
+			bundle.Frontend, err = buildWorkerFrontend(context.Background(), compiled, *frontend)
+			if err != nil {
+				return err
+			}
+		}
+		if outputPath == "" {
+			outputPath = filepath.Join(appRoot, "dist", "bundle")
+		}
+		outputPath, err = filepath.Abs(outputPath)
+		if err != nil {
+			return err
+		}
+		if err := writeWorkerBundle(bundle, outputPath); err != nil {
+			return err
+		}
+		if jsonOutput {
+			return writeCLIJSON(out, map[string]any{"ok": true, "bundle": outputPath, "contract_revision": bundle.ContractRevision})
+		}
+		_, err = fmt.Fprintln(out, outputPath)
+		return err
 	}
 	if err := validateRuntimePlan(appRoot); err != nil {
 		return fmt.Errorf("failed_precondition: validate runtime plan: %w", err)

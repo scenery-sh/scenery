@@ -142,6 +142,8 @@ type WatchConfig struct {
 
 type FrontendConfig struct {
 	Root                string               `json:"root"`
+	Adapter             string               `json:"adapter,omitempty"`
+	Mode                string               `json:"mode,omitempty"`
 	Upstream            string               `json:"upstream"`
 	AllowSharedUpstream bool                 `json:"allow_shared_upstream"`
 	Tauri               *FrontendTauriConfig `json:"tauri,omitempty"`
@@ -523,6 +525,11 @@ func (c Config) validateFrontends() error {
 		}
 	}
 	for name, frontend := range c.Frontends {
+		if frontend.Adapter != "" || frontend.Mode != "" {
+			if frontend.Adapter != "vite" || frontend.Mode != "static" || !filepath.IsLocal(frontend.Root) || frontend.Upstream != "" {
+				return fmt.Errorf("frontends.%s requires adapter vite, mode static, a workspace-relative root, and a managed upstream", name)
+			}
+		}
 		if frontend.Tauri == nil {
 			continue
 		}

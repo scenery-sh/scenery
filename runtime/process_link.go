@@ -50,8 +50,9 @@ type processLinkTarget struct {
 }
 
 type processLinkConfig struct {
-	Token    string            `json:"token"`
-	Dispatch processLinkTarget `json:"dispatch"`
+	Token        string            `json:"token"`
+	Dispatch     processLinkTarget `json:"dispatch"`
+	Capabilities string            `json:"capabilities,omitempty"`
 	// HostState is the session's private directory of process host state that
 	// outlives one host incarnation; only the host reads and writes it.
 	HostState string `json:"host_state,omitempty"`

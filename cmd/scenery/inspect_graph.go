@@ -16,11 +16,9 @@ import (
 func buildInspectAppResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) inspectdata.AppResponse {
 	services := inspectServices(result)
 	endpoints, _ := inspectEndpoints(result)
-	middleware, runtimeDeclarations := 0, 0
+	runtimeDeclarations := 0
 	for _, resource := range result.Manifest.Resources {
 		switch resource.Kind {
-		case "scenery.middleware":
-			middleware++
 		case "scenery.execution":
 			if inspectString(resource.Spec["mode"]) == "durable" {
 				runtimeDeclarations++
@@ -35,7 +33,7 @@ func buildInspectAppResponse(appRoot string, cfg appcfg.Config, result *compiler
 	}
 	response := inspectdata.AppResponse{
 		PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.app"), App: inspectAppRef(appRoot, cfg, result), Config: cfg,
-		Counts: inspectdata.AppCounts{Packages: len(services), Services: len(services), Endpoints: len(endpoints), Middleware: middleware, RuntimeDeclarations: runtimeDeclarations}, Services: names,
+		Counts: inspectdata.AppCounts{Packages: len(services), Services: len(services), Endpoints: len(endpoints), RuntimeDeclarations: runtimeDeclarations}, Services: names,
 		SQLRequirements: append(compiler.SQLRequirements{}, result.SQLRequirements...),
 	}
 	for _, service := range services {
@@ -199,8 +197,6 @@ func inspectServices(result *compiler.Result) []inspectdata.ServiceDetails {
 				serviceName = resource.Module
 			}
 			operations[serviceName] = append(operations[serviceName], name)
-		case "scenery.middleware":
-			middleware[resource.Module] = append(middleware[resource.Module], resource.Name)
 		}
 	}
 	roots := inspectServiceRoots(result)

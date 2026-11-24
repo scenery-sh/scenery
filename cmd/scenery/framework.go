@@ -130,6 +130,9 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	}
 	if opts.Runtime {
 		mode = "runtime"
+		if selection.Source.Digest == "" {
+			mode = "prebuilt"
+		}
 	}
 	result := frameworkResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.framework"), OK: true, AppRoot: root, Mode: mode,
@@ -162,7 +165,7 @@ func reportPrebuiltFramework(stdout io.Writer, opts frameworkOptions, root, pinn
 	if opts.Source != "" {
 		return &codedCLIError{err: fmt.Errorf("framework_version selects a prebuilt executable; remove the pin to select a local source snapshot"), code: 3}
 	}
-	if err := build.VerifyFrameworkVersion(pinned, runningFrameworkVersion()); err != nil {
+	if err := build.VerifyPrebuiltFramework(root, pinned, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
 	}
 	path, digest, err := build.CurrentFrameworkExecutable()

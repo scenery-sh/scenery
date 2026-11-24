@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"sync"
-
-	"scenery.sh/internal/compiler"
 )
 
 // Adapters depend on declarations, not the build-specific identities embedded
@@ -111,7 +109,7 @@ func forEachNativeServiceModule(result *Result, visit func(module, service Resou
 	for _, module := range localModuleInstances(result.Manifest.Resources) {
 		modules[moduleInstancePath(module)] = module
 	}
-	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
+	for _, service := range goRuntimeServices(result.Manifest.Resources) {
 		module, ok := modules[service.Module]
 		if !ok {
 			return fmt.Errorf("native service %s is not owned by a local module", service.Address)

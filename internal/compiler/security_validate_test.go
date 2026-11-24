@@ -56,15 +56,6 @@ func TestBindingAuthenticationRejectsUnsupportedProviderAndScheme(t *testing.T) 
 	}
 }
 
-func TestCustomMiddlewareFailsAsUnsupportedProfile(t *testing.T) {
-	resource := Resource{Address: "house/middleware/custom", Module: "house", Kind: "scenery.middleware", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
-		"protocols": []any{"http"}, "phases": []any{"after_authentication"},
-	}}
-	if diagnostics := validateSecurityResources([]Resource{resource}); !diagnosticsContain(diagnostics, "SCN4203") {
-		t.Fatalf("diagnostics = %#v", diagnostics)
-	}
-}
-
 func TestAuthorizationRulesAreTypeCheckedAgainstBindingInput(t *testing.T) {
 	resources := []Resource{
 		{Address: "house/record/input", Module: "house", Kind: "scenery.record", Name: "input", Spec: map[string]any{"field": map[string]any{"name": "count", "type": map[string]any{"$ref": "int32"}}}},

@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
@@ -27,6 +30,13 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
+	if filepath.Base(os.Args[0]) == "scenery-host" {
+		if err := runWorkerBundleExecutable(os.Args[1:]); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	os.Exit(executeCLI(os.Args[1:]))
 }
 
@@ -351,6 +361,34 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 	opts, err := parseDevArgs(args)
 	if err != nil {
 		return err
+	}
+	if root, cfg, discoverErr := discoverConfiguredApp(opts.AppRoot); discoverErr == nil {
+		if compiled, compileErr := compiler.Compile(root); compileErr == nil && hasRustWorkers(compiled) {
+			if err := build.VerifyPrebuiltFramework(root, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
+				return &codedCLIError{err: err, code: 3}
+			}
+			if opts.Detach || opts.Desktop {
+				return usageErrorf("worker applications currently support foreground up")
+			}
+			fingerprint, err := workerSourceFingerprint(root)
+			if err != nil {
+				return err
+			}
+			bundle, err := buildWorkerBundle(context.Background(), compiled, "development", false)
+			if err != nil {
+				return err
+			}
+			frontend, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
+			if err != nil {
+				return err
+			}
+			defer closeFrontend()
+			var onReady func()
+			if telemetry != nil {
+				onReady = telemetry.startupReady
+			}
+			return runWorkerBundle(bundle, workerListen(opts), frontend, onReady, root, fingerprint)
+		}
 	}
 	warnDevEscapeHatches(opts)
 	if !detachedDevChildMode() {

@@ -1,0 +1,70 @@
+package "pricing" {
+  rust_contract {
+    crate = "pricing"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+service "pricing" {
+  runtime = "rust"
+  implementation {
+    constructor = "NewService"
+  }
+}
+
+record "quote_input" {
+  field "amount" { type = int64 }
+  field "note" { type = optional(nullable(string)) }
+}
+
+record "quote_result" {
+  field "amount" { type = int64 }
+  field "note" { type = optional(nullable(string)) }
+}
+
+operation "quote" {
+  service = service.pricing
+  input   = record.quote_input
+  handler { method = "Quote" }
+  result "ok" { type = record.quote_result }
+}
+
+execution "quote_direct" {
+  operation = operation.quote
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "quote_http" {
+  gateway        = var.gateway
+  operation      = operation.quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/quote"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.quote.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}

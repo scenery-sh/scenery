@@ -301,7 +301,6 @@ SCN4106|authentication_provider|An authentication provider reference or kind is 
 SCN4107|security_reference|A security policy reference cannot be resolved
 SCN4201|middleware_contract|A middleware declaration has invalid protocols phases or effects
 SCN4202|pipeline_contract|A pipeline has invalid steps or middleware ordering
-SCN4203|runtime_policy_reference|A runtime policy or middleware reference cannot be resolved
 SCN6101|go_contract_generation|A Go contract cannot be generated from the canonical graph
 SCN6103|go_type_lowering|A canonical type cannot be lowered to Go
 SCN6104|go_handler_contract|A Go handler contract is invalid
@@ -331,6 +330,10 @@ SCN6142|go_architecture_features|Go target architecture features are invalid or 
 SCN6143|go_module_ownership|A Go module root or import path has multiple owners
 SCN6150|implementation_target_resolution|Implementation revision target inheritance cannot be resolved
 SCN6151|implementation_target_module|An implementation revision target has no resolved Go module
+SCN6160|rust_workspace|A Rust workspace root is missing unsafe or ambiguous
+SCN6161|rust_toolchain|A Rust toolchain version is not exact semantic version
+SCN6162|rust_target|A Rust target has an invalid workspace toolchain or role
+SCN6163|rust_service_declaration|A Rust service has an invalid crate or build target
 SCN6202|go_verification|Staged Go target or implementation verification failed
 SCN6204|stale_generated_typescript|Committed generated TypeScript artifacts are stale or invalid
 SCN6207|generated_artifact_transaction|Generated artifact planning overlay or transaction failed

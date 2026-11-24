@@ -47,38 +47,13 @@ func validateScheduleSemantics(resources map[string]Resource, schedule Resource)
 	}
 	if refString(invoke["identity"]) == "" || refString(invoke["authorization"]) == "" || refString(invoke["pipeline"]) == "" {
 		diagnostics = append(diagnostics, resourceDiagnostic("SCN2303", "schedule requires typed identity, authorization, and pipeline references", schedule))
-	} else if err := validateScheduleWorkloadIdentity(resources, schedule, invoke["identity"]); err != nil {
-		diagnostics = append(diagnostics, resourceDiagnostic("SCN2303", err.Error(), schedule))
+	} else if refString(invoke["identity"]) != "std.workload_identity.scheduler" {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2303", "schedule identity must be std.workload_identity.scheduler", schedule))
 	}
 	if err := validateStaticOperationInput(resources, operation, invoke["input"]); err != nil {
 		diagnostics = append(diagnostics, resourceDiagnostic("SCN2303", err.Error(), schedule))
 	}
 	return diagnostics
-}
-
-func validateScheduleWorkloadIdentity(resources map[string]Resource, schedule Resource, value any) error {
-	reference := refString(value)
-	if reference == "std.workload_identity.scheduler" {
-		return nil
-	}
-	address := resolveResourceRef(schedule, reference, "workload_identity")
-	identity, ok := resources[address]
-	if !ok || identity.Kind != "scenery.workload-identity" {
-		return fmt.Errorf("schedule identity must resolve to a workload_identity")
-	}
-	if refOrString(identity.Spec["issuer"]) == "" || refOrString(identity.Spec["principal_type"]) == "" {
-		return fmt.Errorf("schedule workload identity requires issuer and principal_type")
-	}
-	claims, ok := identity.Spec["claims"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("schedule workload identity claims must be an object")
-	}
-	for _, reserved := range []string{"issuer", "principal_type", "workload_identity"} {
-		if _, exists := claims[reserved]; exists {
-			return fmt.Errorf("schedule workload identity claim %s is reserved", reserved)
-		}
-	}
-	return nil
 }
 
 func validateScheduleTrigger(trigger map[string]any) error {

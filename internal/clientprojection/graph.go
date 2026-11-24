@@ -155,7 +155,7 @@ func ResolveResourceRef(resource Resource, reference, kind string) string {
 	}
 	module := resource.Module
 	switch kind {
-	case "application", "workspace", "go_module", "go_toolchain", "go_target", "http_gateway", "authentication", "authorization", "workload_identity", "pipeline", "provider", "data_source", "execution_engine", "secret_store", "secret", "mcp_server", "assistant", "typescript_client":
+	case "application", "workspace", "go_module", "go_toolchain", "go_target", "http_gateway", "authentication", "authorization", "pipeline", "provider", "data_source", "execution_engine", "secret_store", "secret", "mcp_server", "assistant", "typescript_client":
 		module = "app"
 	}
 	return graph.ResourceAddress(module, parts[0], parts[1])

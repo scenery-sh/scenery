@@ -3,18 +3,15 @@ package compiler
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 type goClientBinding struct {
-	Name           string
-	Field          string
-	InterfaceName  string
-	ContractAlias  string
-	ContractImport string
-	Binding        Resource
-	Operation      Resource
-	Delivery       string
+	Name          string
+	Field         string
+	InterfaceName string
+	Binding       Resource
+	Operation     Resource
+	Delivery      string
 }
 
 func serviceGoClients(resources []Resource, service Resource) ([]goClientBinding, error) {
@@ -36,39 +33,15 @@ func serviceGoClients(resources []Resource, service Resource) ([]goClientBinding
 		if !ok || operation.Kind != "scenery.operation" {
 			return nil, fmt.Errorf("service %s client %s references unavailable operation", service.Address, name)
 		}
-		contractAlias, contractImport := "", ""
-		if operation.Module != service.Module {
-			var found bool
-			contractImport, found = moduleContractImportPath(resources, operation.Module)
-			if !found {
-				return nil, fmt.Errorf("service %s client %s target package %s has no immutable Go contract import path", service.Address, name, operation.Module)
-			}
-			contractAlias = goPackageName(operation.Module) + "contract"
-		}
 		delivery := stringValue(binding.Spec["delivery"])
 		if delivery != "call" && delivery != "wait" && delivery != "enqueue" {
 			return nil, fmt.Errorf("service %s client %s has unsupported delivery %q", service.Address, name, delivery)
 		}
 		result = append(result, goClientBinding{
-			Name: name, Field: goName(name), InterfaceName: goName(name) + "InternalClient", ContractAlias: contractAlias, ContractImport: contractImport,
+			Name: name, Field: goName(name), InterfaceName: goName(name) + "InternalClient",
 			Binding: binding, Operation: operation, Delivery: delivery,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result, nil
-}
-
-func moduleContractImportPath(resources []Resource, module string) (string, bool) {
-	for _, resource := range resources {
-		if resource.Kind != "scenery.module" || moduleInstancePath(resource) != module {
-			continue
-		}
-		metadata, _ := resource.Spec["package"].(map[string]any)
-		goContract, _ := metadata["go_contract"].(map[string]any)
-		importPath := strings.TrimSpace(stringValue(goContract["import_path"]))
-		if importPath != "" {
-			return strings.TrimSuffix(importPath, "/") + "/scenerycontract", true
-		}
-	}
-	return "", false
 }

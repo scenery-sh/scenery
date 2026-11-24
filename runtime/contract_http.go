@@ -47,7 +47,7 @@ type ContractBodyMapping struct {
 	Codec                    string
 	Target                   string
 	Type                     string
-	DecodeValue              func([]byte, any) error
+	DecodeValue              func([]byte, any) error `json:"-"`
 	Include                  []string
 	Except                   []string
 	AcceptedMediaTypes       []string
@@ -625,7 +625,7 @@ type ContractResponseOptions struct {
 	CompressionAlgorithms []string
 	CompressionThreshold  int64
 	TypeExpression        string
-	EncodeValue           func(any) ([]byte, error)
+	EncodeValue           func(any) ([]byte, error) `json:"-"`
 }
 
 type ContractResponseCookie struct {

@@ -1,0 +1,71 @@
+package "native" {
+  go_contract { import_path = "example.test/polyglot/native" }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+
+service "native" {
+  runtime = "go"
+  implementation { constructor = "NewService" }
+}
+
+record "label_result" {
+  field "vendor" { type = string }
+}
+
+operation "label" {
+  service = service.native
+  input   = std.type.unit
+  handler { method = "Label" }
+  result "ok" { type = record.label_result }
+}
+
+execution "label_direct" {
+  operation = operation.label
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "label_internal" {
+  operation      = operation.label
+  execution      = execution.label_direct
+  protocol       = "internal"
+  exposure       = "application"
+  delivery       = "call"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+export "label_internal" { value = binding.label_internal }
+
+
+binding "label_http" {
+  gateway        = var.gateway
+  operation      = operation.label
+  execution      = execution.label_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    path          = "/native"
+    codec_profile = std.codec.http_json_v1
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}
+
+export "label" { value = operation.label }

@@ -179,7 +179,7 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 		return nil, err
 	}
 	o.record = record
-	if err := build.WriteRuntimeFramework(root, sceneryVersion, sceneryCommit); err != nil {
+	if err := build.WriteRuntimeFramework(root, runningFrameworkVersion(), sceneryCommit); err != nil {
 		return nil, err
 	}
 	controlPaths := paths.ControlPaths()

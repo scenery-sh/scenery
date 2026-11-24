@@ -1,0 +1,16 @@
+[package]
+name = "scenery-sdk"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bytes = "1"
+futures-core = "0.3"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "raw_value"] }
+tokio = { version = "1", features = ["io-util", "net", "rt-multi-thread", "sync"] }
+tokio-util = { version = "0.7", features = ["io"] }

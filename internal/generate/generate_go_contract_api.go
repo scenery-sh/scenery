@@ -2,6 +2,7 @@ package generate
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,17 +73,13 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		for _, dependency := range dependencies {
 			dependencyImports[dependency.ImportAlias] = dependency.ImportPath
 		}
-		for _, client := range clients {
-			if client.ContractAlias == "" {
-				continue
-			}
-			if existing := dependencyImports[client.ContractAlias]; existing != "" && existing != client.ContractImport {
-				return "", fmt.Errorf("generated import alias %s resolves to both %s and %s", client.ContractAlias, existing, client.ContractImport)
-			}
-			dependencyImports[client.ContractAlias] = client.ContractImport
-		}
 	}
-	for _, value := range contractTypeValues(resources) {
+	projected, err := projectedGoClientOperations(resources, idx)
+	if err != nil {
+		return "", err
+	}
+	allOperations := append(slices.Clone(resources), projected...)
+	for _, value := range contractTypeValues(allOperations) {
 		_ = typeResolver.Type(value)
 	}
 	for alias, importPath := range typeResolver.Imports() {
@@ -96,7 +93,7 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 	if hasInternalClients {
 		b.WriteString("\t\"context\"\n")
 	}
-	if hasOperations {
+	if hasOperations || len(projected) != 0 {
 		b.WriteString("\t\"fmt\"\n")
 	}
 	b.WriteString("\tscenery \"scenery.sh\"\n")
@@ -116,13 +113,12 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		}
 		serviceName := goName(service.Name)
 		for _, client := range serviceClients[service.Address] {
-			operationName := goName(client.Operation.Name)
-			contractQualifier := clientContractQualifier(client)
+			operationName := client.operationName()
 			fmt.Fprintf(&b, "type %s interface {\n", client.InterfaceName)
 			if client.Delivery == "enqueue" {
-				fmt.Fprintf(&b, "\tEnqueue(context.Context, scenery.Invocation, %s%sInput) (scenery.ExecutionReceipt, error)\n", contractQualifier, operationName)
+				fmt.Fprintf(&b, "\tEnqueue(context.Context, scenery.Invocation, %sInput) (scenery.ExecutionReceipt, error)\n", operationName)
 			} else {
-				fmt.Fprintf(&b, "\tInvoke(context.Context, scenery.Invocation, %s%sInput) (%s%sOutcome, error)\n", contractQualifier, operationName, contractQualifier, operationName)
+				fmt.Fprintf(&b, "\tInvoke(context.Context, scenery.Invocation, %sInput) (%sOutcome, error)\n", operationName, operationName)
 			}
 			b.WriteString("}\n\n")
 		}
@@ -141,7 +137,7 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		}
 		fmt.Fprintf(&b, "}\ntype %sConstructorInput struct {\n\tDependencies %sDependencies\n\tConfig %sConfig\n\tClients %sClients\n}\n\n", serviceName, serviceName, serviceName, serviceName)
 	}
-	for _, op := range resources {
+	for _, op := range allOperations {
 		if op.Kind != "scenery.operation" {
 			continue
 		}

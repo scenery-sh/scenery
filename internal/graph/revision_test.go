@@ -29,13 +29,18 @@ func TestServiceRuntimeDoesNotChangeContractIdentity(t *testing.T) {
 		Module:  "house",
 		Spec:    map[string]any{"runtime": "go"},
 	}
-	manifest := &Manifest{Application: ApplicationIdentity{Name: "estate"}, Resources: []Resource{service}}
+	module := Resource{
+		Address: "app/module/house", Kind: "scenery.module", Name: "house", Module: "app",
+		Spec: map[string]any{"package": map[string]any{"name": "house", "go_contract": map[string]any{"import_path": "example.test/house"}}},
+	}
+	manifest := &Manifest{Application: ApplicationIdentity{Name: "estate"}, Resources: []Resource{module, service}}
 	appRevision, err := ContractRevision(manifest.Resources, manifest.Application.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
 	serviceRevision := ServiceContractRevision(manifest, service, nil)
 	service.Spec["runtime"] = "rust"
+	module.Spec["package"] = map[string]any{"name": "house", "rust_contract": map[string]any{"crate": "house"}}
 	rustAppRevision, err := ContractRevision(manifest.Resources, manifest.Application.Name)
 	if err != nil {
 		t.Fatal(err)

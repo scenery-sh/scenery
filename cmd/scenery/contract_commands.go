@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -193,12 +194,20 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if err != nil {
 		return &codedCLIError{err: err, code: 3}
 	}
-	if err := build.VerifyFrameworkVersion(pinned, runningFrameworkVersion()); err != nil {
+	if err := build.VerifyPrebuiltFramework(root, pinned, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
 	}
 	result, err := checkCompiledContract(root)
 	if err != nil {
 		return err
+	}
+	if hasRustWorkers(result) && result.Valid() {
+		if _, err := buildWorkerBundle(context.Background(), result, "development", true); err != nil {
+			result.ImplementationStatus = "invalid"
+			result.Diagnostics = append(result.Diagnostics, graph.Diagnostic{Code: "SCN6163", Severity: "error", Message: err.Error()})
+		} else {
+			result.ImplementationStatus = "valid"
+		}
 	}
 	// check is a validation gate: it reports statuses, revisions, and a
 	// compact manifest summary. The full graph stays on `scenery compile`

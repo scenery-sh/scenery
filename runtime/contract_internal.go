@@ -20,6 +20,19 @@ type ContractInternalBindingRegistration struct {
 	Invoke       ContractInternalInvoke
 }
 
+// InvokeContractBindingWire invokes a binding with the caller's projection of
+// its contract. Both local and process-linked callees decode their own types.
+func InvokeContractBindingWire(ctx context.Context, address, callerPackage string, invocation runtimeapi.Invocation, input []byte) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	current, ok := runtimeapi.InvocationFromContext(ctx)
+	if !ok || !invocation.Valid() || !runtimeapi.SameInvocation(current, invocation) {
+		return nil, fmt.Errorf("permission_denied: internal binding requires the current runtime invocation")
+	}
+	return InvokeContractBindingJSON(ctx, address, callerPackage, input)
+}
+
 func InvokeContractBindingJSON(ctx context.Context, address, callerPackage string, input []byte) ([]byte, error) {
 	global.mu.RLock()
 	registration := global.contractBindings[address]

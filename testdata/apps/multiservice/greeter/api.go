@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	echocontract "example.com/multiservice/echo/scenerycontract"
 	greetercontract "example.com/multiservice/greeter/scenerycontract"
 	"example.com/multiservice/internal/text"
 	"scenery.sh"
@@ -20,7 +19,7 @@ func NewService(_ context.Context, input greetercontract.GreeterConstructorInput
 	return &Service{echo: input.Clients.Echo}, nil
 }
 
-// Greet crosses the service boundary through echo's typed internal client.
+// Greet crosses the service boundary through its typed echo client.
 func (s *Service) Greet(ctx context.Context, input greetercontract.GreetInput) (greetercontract.GreetOutcome, error) {
 	invocation, ok := scenery.InvocationFromContext(ctx)
 	if !ok {
@@ -42,11 +41,11 @@ func (s *Service) Greet(ctx context.Context, input greetercontract.GreetInput) (
 		}
 		name = remainder
 	}
-	outcome, err := s.echo.Invoke(ctx, invocation, echocontract.EchoInput{Message: "hello " + name})
+	outcome, err := s.echo.Invoke(ctx, invocation, greetercontract.EchoClientInput{Message: "hello " + name})
 	if err != nil {
 		return nil, fmt.Errorf("invoke echo: %w", err)
 	}
-	result, ok := outcome.(echocontract.EchoOk)
+	result, ok := outcome.(greetercontract.EchoClientOk)
 	if !ok {
 		return nil, fmt.Errorf("echo returned %T", outcome)
 	}

@@ -1,0 +1,76 @@
+application "polyglot" {}
+
+workspace {
+  managed_generated_roots = ["pricing/scenerycontract", "native/scenerycontract", "consumer/scenerycontract", "internal/scenerygen", "web/generated"]
+}
+
+rust_workspace "application" {
+  root = "pricing"
+}
+
+rust_toolchain "application" {
+  version = "1.99.1"
+}
+
+rust_target "development" {
+  role      = "development"
+  workspace = rust_workspace.application
+  toolchain = rust_toolchain.application
+}
+
+rust_target "production" {
+  role      = "artifact"
+  workspace = rust_workspace.application
+  toolchain = rust_toolchain.application
+}
+
+http_gateway "public_api" {
+  exposure       = "internet"
+  base_path      = "/api"
+  cors           = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+module "pricing" {
+  source = "./pricing"
+  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal }
+}
+
+
+go_module "application" {
+  root = "."
+  import_path = "example.test/polyglot"
+}
+
+go_toolchain "application" { version = "1.27.0" }
+
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+module "native" {
+  source = "./native"
+  inputs = { gateway = http_gateway.public_api }
+}
+
+module "consumer" {
+  source = "./consumer"
+  inputs = {
+    gateway = http_gateway.public_api
+    quote = module.pricing.quote_internal
+  }
+}
+
+typescript_client "public_api" {
+  gateways    = [http_gateway.public_api]
+  package     = "@example/polyglot-client"
+  module      = "esm"
+  runtime     = "fetch"
+  output_root = "web/generated"
+}

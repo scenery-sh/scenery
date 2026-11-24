@@ -1,0 +1,6 @@
+{
+  "name": "pricing",
+  "envs": {
+    "local": {"default": true}
+  }
+}

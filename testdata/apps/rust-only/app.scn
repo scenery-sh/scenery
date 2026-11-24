@@ -1,0 +1,38 @@
+application "pricing" {}
+
+workspace {
+  managed_generated_roots = ["pricing/scenerycontract"]
+}
+
+rust_workspace "application" {
+  root = "pricing"
+}
+
+rust_toolchain "application" {
+  version = "1.99.1"
+}
+
+rust_target "development" {
+  role      = "development"
+  workspace = rust_workspace.application
+  toolchain = rust_toolchain.application
+}
+
+rust_target "production" {
+  role      = "artifact"
+  workspace = rust_workspace.application
+  toolchain = rust_toolchain.application
+}
+
+http_gateway "public_api" {
+  exposure       = "internet"
+  base_path      = "/api"
+  cors           = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+module "pricing" {
+  source = "./pricing"
+  inputs = { gateway = http_gateway.public_api }
+}

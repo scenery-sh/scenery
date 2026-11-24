@@ -57,7 +57,7 @@ type ContractDurableRegistration struct {
 	MaxConcurrency         int
 	DeduplicationRetention time.Duration
 	DeduplicationConflict  string
-	Handler                func(context.Context, []byte) ([]byte, error)
+	Handler                func(context.Context, []byte) ([]byte, error) `json:"-"`
 }
 
 func RegisterContractDurableExecution(registration ContractDurableRegistration) error {

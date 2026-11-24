@@ -1,0 +1,6 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #18213a; background: #f6f8fc; }
+main { max-width: 36rem; margin: 12vh auto; padding: 2rem; }
+h1 { font-size: 3rem; letter-spacing: -.05em; }
+button { padding: .65rem 1rem; border: 0; border-radius: .5rem; color: #fff; background: #2543a5; font: inherit; cursor: pointer; }
+button:disabled { opacity: .65; }
+p { line-height: 1.5; }
