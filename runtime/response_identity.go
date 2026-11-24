@@ -6,11 +6,17 @@ import (
 	"strconv"
 )
 
-// withRuntimeIdentity binds development HTTP evidence to the linked bytes that
-// served the request. It reads no candidate files and is absent in production.
+// withRuntimeIdentity attests the linked executable for development inspection
+// and for a Host forwarding requests over the private service socket.
 func withRuntimeIdentity(next http.Handler) http.Handler {
 	if !devEndpointsEnabled() {
-		return next
+		if ListenNetworkFromEnv() != "unix" {
+			return next
+		}
+		link, err := currentProcessLink()
+		if err != nil || link == nil {
+			return next
+		}
 	}
 	bundle := CurrentLinkedContractBundle()
 	if VerifyLinkedContractBundle(bundle.ContractRevision) != nil {

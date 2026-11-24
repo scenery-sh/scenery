@@ -131,6 +131,7 @@ func validateLifecycleMethods(resource Resource, named *types.Named) []Diagnosti
 
 func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	for _, operation := range resources {
 		if operation.Kind != "scenery.operation" || operation.Origin.Kind != "authored" {
 			continue
@@ -143,12 +144,9 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 		if methodName == "" {
 			continue
 		}
-		var serviceResource Resource
-		for _, candidate := range resources {
-			if candidate.Kind == "scenery.service" && candidate.Module == operation.Module && candidate.Origin.Kind == "authored" {
-				serviceResource = candidate
-				break
-			}
+		serviceResource := byAddress[resolveResourceRef(operation, refString(operation.Spec["service"]), "service")]
+		if stringValue(serviceResource.Spec["runtime"]) == "rust" {
+			continue
 		}
 		implementation, _ := serviceResource.Spec["implementation"].(map[string]any)
 		pkg := nativeGoPackage(appModel, resources, operation.Module)

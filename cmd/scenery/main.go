@@ -370,6 +370,15 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if opts.Detach || opts.Desktop {
 				return usageErrorf("worker applications currently support foreground up")
 			}
+			paths, err := commandWorktreePaths(root)
+			if err != nil {
+				return err
+			}
+			live, err := paths.AcquireLiveLock()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = live.Release() }()
 			fingerprint, err := workerSourceFingerprint(root)
 			if err != nil {
 				return err
