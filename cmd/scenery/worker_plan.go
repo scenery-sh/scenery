@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
@@ -95,6 +96,31 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 			return nil, fmt.Errorf("worker execution %s: %w", execution.Address, err)
 		}
 		service.Durable[execution.Address] = plan
+	}
+	for _, schedule := range manifest.Resources {
+		if schedule.Kind != "scenery.schedule" {
+			continue
+		}
+		invoke, _ := schedule.Spec["invoke"].(map[string]any)
+		operation := workerReference(schedule, invoke["operation"], "operation")
+		service, ok := projection.services[operationOwners[operation]]
+		if !ok {
+			continue
+		}
+		execution := workerReference(schedule, invoke["execution"], "execution")
+		input, err := compiler.StaticOperationInputJSON(projection.resources, projection.resources[operation], invoke["input"])
+		if err != nil {
+			return nil, fmt.Errorf("schedule %s input: %w", schedule.Address, err)
+		}
+		policySource := schedule
+		policySource.Spec = invoke
+		service.Schedules = append(service.Schedules, workerruntime.WorkerSchedulePlan{
+			Address: schedule.Address, Operation: operation, Execution: execution, Input: input,
+			Authorization: workerRefText(invoke["authorization"]), Pipeline: workerRefText(invoke["pipeline"]),
+			Policy:  projection.policy(service, policySource, projection.resources[operation]),
+			Timeout: time.Duration(workerDuration(projection.resources[execution].Spec["timeout"])),
+		})
+		projection.services[service.Address] = service
 	}
 	for _, binding := range manifest.Resources {
 		if binding.Kind != "scenery.binding" {

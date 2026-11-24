@@ -178,6 +178,16 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return pruneCommand(args[1:])
 	case "db":
 		return dbCommand(args[1:])
+	case "durable":
+		if len(args) > 1 && args[1] == "run" {
+			return runDurableCommand(context.Background(), os.Stdout, args[2:])
+		}
+		return usageErrorf("usage: scenery durable run <target>")
+	case "add":
+		if len(args) > 1 && args[1] == "module" {
+			return runAddModule(context.Background(), os.Stdout, args[2:])
+		}
+		return usageErrorf("usage: scenery add module <name> --runtime go|rust|ts|js")
 	case "worktree":
 		return worktreeCommand(args[1:])
 	case "feature":

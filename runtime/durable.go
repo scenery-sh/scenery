@@ -518,6 +518,7 @@ func runDurableLocalAttempt(ctx context.Context, db *store.Store, workerID, leas
 		return
 	}
 	jobCtx, restore := enterDurableInvocation(admitted, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
+	logTrace(jobCtx, "starting durable attempt", "job_id", job.ID, "attempt", job.Attempt)
 	stopHeartbeat := startDurableHeartbeat(jobCtx, time.Duration(job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
 		return db.HeartbeatJob(heartbeatCtx, job.ID, workerID, leaseID)
 	})

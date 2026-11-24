@@ -28,7 +28,7 @@ type dbCLIOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return usageErrorf("usage: scenery db list|shell|migrate|seed|setup|reset|drop|server [--app-root <path>]")
+		return usageErrorf("usage: scenery db list|shell|query|migrate|seed|setup|reset|drop|server [--app-root <path>]")
 	}
 	if err := flagBeforeWord(args, "the db subcommand"); err != nil {
 		return err
@@ -36,6 +36,8 @@ func dbCommand(args []string) error {
 	switch args[0] {
 	case "list":
 		return dbListCommand(args[1:])
+	case "query":
+		return dbQueryCommand(args[1:])
 	case "shell":
 		return dbShellCommand(args[1:])
 	case "migrate":

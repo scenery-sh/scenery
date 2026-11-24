@@ -463,6 +463,8 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 	switch {
 	case h.developmentCall && req.URL.Path == "/__scenery/process/v1/dev-call" && req.Method == http.MethodPost:
 		h.serveWorkerDevCall(w, req)
+	case h.developmentCall && h.workers != nil && req.URL.Path == "/__scenery/process/v1/dev-durable" && req.Method == http.MethodPost:
+		h.serveWorkerDevDurable(w, req)
 	case h.workers == nil && req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
 		h.dispatch(w, req)
 	case req.URL.Path == processAdmissionsPath && req.Method == http.MethodPost:

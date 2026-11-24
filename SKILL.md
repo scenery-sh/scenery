@@ -22,6 +22,9 @@ with `scenery help <command> -o json`.
 | Exercise a live binding | `scenery call <binding> --input-file input.json -o json` |
 | Run or inspect local runtime | `scenery up`, `scenery ps -o json`, `scenery ps --wait -o json`, `scenery doctor -o json` |
 | Debug failures & telemetry | `scenery logs -o jsonl --limit 200`, `scenery traces list --status error -o json`, `scenery inspect report <token> -o json` |
+| Query a service's PostgreSQL schema | `scenery db query --service <module> '<sql>' --param <value> -o json` |
+| Trigger a durable execution or schedule | `scenery durable run <target> --input '<json>' -o json` |
+| Add a module with a starter test | `scenery add module <name> --runtime go\|rust\|ts\|js -o json` |
 | Regenerate clients / UI | `scenery generate -o json` |
 | Assistants | `scenery assistant status <name> -o json` |
 | Databases, migrations, storage | `scenery db migrate`, `scenery inspect storage -o json`, `scenery snapshot save/load` |

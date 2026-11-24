@@ -181,6 +181,8 @@ type JobDetail struct {
 	ResultBlob  []byte
 	ErrorCodec  string
 	ErrorBlob   []byte
+	InputBlob   []byte `json:"-"`
+	MemoJSON    string `json:"-"`
 }
 
 type JobEvent struct {
@@ -313,10 +315,10 @@ func (s *Store) GetJob(ctx context.Context, jobID string) (JobDetail, bool, erro
 	err := s.db.QueryRowContext(ctx, `
 SELECT id, task_name, state, COALESCE(dedupe_key, ''), attempt, max_attempts,
        created_at::text, updated_at::text, COALESCE(completed_at::text, ''),
-       COALESCE(result_codec, ''), result_blob, COALESCE(error_codec, ''), error_blob
+       COALESCE(result_codec, ''), result_blob, COALESCE(error_codec, ''), error_blob, input_blob, memo_json::text
 FROM scenery.durable_jobs
 WHERE service = $1 AND id = $2
-`, s.Service, jobID).Scan(&job.ID, &job.TaskName, &job.State, &job.DedupeKey, &job.Attempt, &job.MaxAttempts, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt, &job.ResultCodec, &job.ResultBlob, &job.ErrorCodec, &job.ErrorBlob)
+`, s.Service, jobID).Scan(&job.ID, &job.TaskName, &job.State, &job.DedupeKey, &job.Attempt, &job.MaxAttempts, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt, &job.ResultCodec, &job.ResultBlob, &job.ErrorCodec, &job.ErrorBlob, &job.InputBlob, &job.MemoJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return JobDetail{}, false, nil
 	}

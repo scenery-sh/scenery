@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.durable.run.result.schema.json",
+  "title": "scenery.durable.run.result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "job_id",
+    "target",
+    "module",
+    "execution_kind",
+    "state",
+    "attempts",
+    "duration_ms",
+    "input",
+    "trace_id",
+    "timed_out",
+    "logs",
+    "spans"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.durable.run.result"
+    },
+    "schema_revision": {
+      "const": "sha256:52be1b17481ad2e3b0b97647802b9c76959c80e0ae792aab927dbb90c0040f5c"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "module": {
+      "type": "string"
+    },
+    "execution_kind": {
+      "enum": [
+        "durable",
+        "schedule"
+      ]
+    },
+    "state": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "canceled"
+      ]
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "input": {},
+    "trace_id": {
+      "type": "string",
+      "pattern": "^([a-f0-9]{32})?$"
+    },
+    "timed_out": {
+      "type": "boolean"
+    },
+    "logs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "spans": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "output": {},
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "report_token": {
+          "type": "string"
+        }
+      }
+    },
+    "report": {
+      "$ref": "scenery.failure.report.schema.json"
+    }
+  }
+}

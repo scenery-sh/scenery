@@ -262,6 +262,19 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		kind string
 		data any
 	}{
+		{"scenery.db.query.result", withCLIPayloadIdentity("scenery.db.query.result", map[string]any{
+			"service": "inventory", "schema": "warehouse", "columns": []string{"id"}, "rows": [][]any{{1}},
+			"row_count": 1, "rows_affected": 0, "truncated": true, "duration_ms": 1,
+		})},
+		{"scenery.durable.run.result", withCLIPayloadIdentity("scenery.durable.run.result", map[string]any{
+			"ok": true, "job_id": "job_123", "target": "inventory/execution/restock", "module": "inventory",
+			"execution_kind": "durable", "state": "succeeded", "attempts": 1, "input": map[string]any{}, "output": map[string]any{},
+			"trace_id": strings.Repeat("a", 32), "timed_out": false, "duration_ms": 2, "logs": []any{}, "spans": []any{},
+		})},
+		{"scenery.add.module.result", withCLIPayloadIdentity("scenery.add.module.result", map[string]any{
+			"module": "inventory", "runtime": "go", "created_files": []string{"inventory/package.scn"},
+			"updated_files": []string{"app.scn"}, "generated_roots": []string{"inventory/scenerycontract"}, "check_ok": true, "diagnostics": []any{},
+		})},
 		{"scenery.dev-runtime.wait", dxWait},
 		{"scenery.call.result", withCLIPayloadIdentity("scenery.call.result", map[string]any{
 			"target": "POST /api/quote", "ok": false, "http_status": 0, "headers": map[string]any{}, "duration_ms": 0,

@@ -104,6 +104,10 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 			return err
 		}},
 		"harness": {ignoreParse(parseHarnessArgs)},
+
+		"db query":    {ignoreParse(parseDBQueryArgs)},
+		"durable run": {ignoreParse(parseDurableRunArgs)},
+		"add module":  {ignoreParse(parseAddModuleArgs)},
 	}
 	entries := map[string]helpCommandEntry{}
 	for _, entry := range helpCommandDescriptors(helpCommands) {

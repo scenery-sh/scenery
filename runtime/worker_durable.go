@@ -33,15 +33,10 @@ func (workers *workerHost) registerDurable(service WorkerServicePlan, execution 
 }
 
 func (workers *workerHost) dispatchDurable(ctx context.Context, plan WorkerDurablePlan, delivery string, input json.RawMessage) (workerabi.Result, error) {
-	key, err := workerDispatchKey(input, plan.Dedupe)
+	options, err := workerDurableOptions(plan, input)
 	if err != nil {
 		return workerabi.Result{}, ContractSystemError(err)
 	}
-	concurrency, err := workerDispatchKey(input, plan.Concurrency)
-	if err != nil {
-		return workerabi.Result{}, ContractSystemError(err)
-	}
-	options := ContractDurableDispatchOptions{DedupeKey: key, ConcurrencyKey: concurrency}
 	address := plan.Registration.Address
 	if delivery == "wait" {
 		output, err := DispatchAndWaitContractDurableExecutionWithOptions(ctx, address, input, options)
@@ -60,6 +55,15 @@ func (workers *workerHost) dispatchDurable(ctx context.Context, plan WorkerDurab
 	}
 	output, err := contract.EncodeManifestOutcome("result", "dispatch.enqueued", data)
 	return workerabi.Result{Outcome: output}, err
+}
+
+func workerDurableOptions(plan WorkerDurablePlan, input json.RawMessage) (ContractDurableDispatchOptions, error) {
+	key, err := workerDispatchKey(input, plan.Dedupe)
+	if err != nil {
+		return ContractDurableDispatchOptions{}, err
+	}
+	concurrency, err := workerDispatchKey(input, plan.Concurrency)
+	return ContractDurableDispatchOptions{DedupeKey: key, ConcurrencyKey: concurrency}, err
 }
 
 func workerDispatchKey(input json.RawMessage, fields []WorkerKeyField) (string, error) {

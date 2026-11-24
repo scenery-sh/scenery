@@ -8,6 +8,9 @@ type PayloadIdentity struct {
 }
 
 var payloadSchemaRevisions = map[string]string{
+	"scenery.add.module.result":         "sha256:8a2c549600d635d4a2cbfac7b50220b8bbe65e29686e8c25802aade225733d11",
+	"scenery.durable.run.result":        "sha256:52be1b17481ad2e3b0b97647802b9c76959c80e0ae792aab927dbb90c0040f5c",
+	"scenery.db.query.result":           "sha256:0ac6740ae588d177b3789c216b2e3ea81a085fa4b7336a6f5b229d82c7465ecc",
 	"scenery.test.result":               "sha256:d10e7c5c2090bfdfef132ef89233d788e106d93f000c7c6a3f76c031c669d511",
 	"scenery.context":                   "sha256:8741784f13af8c758e8afe7ccd427d1e88a59fc71ccae265a7ab85618f711bd4",
 	"scenery.call.result":               "sha256:b6430d42ccbb5f3d5e8e3790bcdf65549a3c7070028c27a2b048ff32883e2e48",

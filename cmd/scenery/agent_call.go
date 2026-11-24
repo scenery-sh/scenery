@@ -165,7 +165,7 @@ func runAgentCall(ctx context.Context, out io.Writer, args []string) error {
 		ReportToken string `json:"report_token"`
 	}
 	_ = json.Unmarshal(body, &problem)
-	connection.collect(ctx, root, &res, firstNonEmpty(response.Header.Get("X-Report-Token"), problem.ReportToken), started)
+	connection.collect(ctx, root, &res, firstNonEmpty(response.Header.Get("X-Report-Token"), problem.ReportToken), started, "REQUEST")
 	return printAgentCall(out, opts.jsonOutput, res)
 }
 
@@ -465,7 +465,7 @@ func uint64Header(headers http.Header, names ...string) uint64 {
 	return 0
 }
 
-func (c agentCallConnection) collect(ctx context.Context, root string, result *agentCallResult, reportToken string, started time.Time) {
+func (c agentCallConnection) collect(ctx context.Context, root string, result *agentCallResult, reportToken string, started time.Time, spanType string) {
 	trace, err := hex.DecodeString(result.TraceID)
 	if err != nil || len(trace) != 16 {
 		return
@@ -497,7 +497,7 @@ func (c agentCallConnection) collect(ctx context.Context, root string, result *a
 				result.FailureReport = &report
 			}
 		}
-		requestComplete := slices.ContainsFunc(result.Spans, func(span devdash.TraceSpanDetail) bool { return span.Type == "REQUEST" && span.IsRoot })
+		requestComplete := slices.ContainsFunc(result.Spans, func(span devdash.TraceSpanDetail) bool { return span.Type == spanType && span.IsRoot })
 		if (requestComplete || (c.worker.Socket == "" && stack == nil)) && (reportToken == "" || result.FailureReport != nil) {
 			break
 		}

@@ -93,6 +93,9 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 | `scenery context --for <target> -o json` | Read a module briefing by module, service, route, or source file |
 | `scenery test [<module>...] -o json` | Refresh contracts and run native module tests |
 | `scenery call <target> -o json` | Invoke the current local runtime and retrieve its logs and spans |
+| `scenery db query --service <module> '<sql>' -o json` | Run one statement in the module's PostgreSQL schema, bind repeatable `--param` values, and cap returned rows with `--limit` |
+| `scenery durable run <target> -o json` | Run a durable execution or schedule in the worker development Host and collect its result, logs, and spans. Use `--wait=false` to return after dispatch |
+| `scenery add module <name> --runtime <go\|rust\|ts\|js> -o json` | Scaffold a module and starter test, generate contracts, and check the application |
 | `scenery logs --follow` | Stream application logs |
 | `scenery check` | Validate `.scn` declarations and Go contracts |
 | `scenery generate` | Regenerate Go contracts, TypeScript clients, and SQLC outputs |
@@ -102,6 +105,13 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 Discover exact command grammar with `scenery help <command> -o json`.
 `scenery ps --wait -o json` waits for the captured source revision and reports
 compiler failures as soon as the supervisor records them.
+
+`durable run` accepts a qualified operation or execution name, a durable
+`external_name`, or a schedule name. JSON uses `execution_kind` for the
+declared target type. Direct schedules run in the current Host generation.
+
+`add module` reports the generated roots and the application check outcome.
+If generation or checking fails, the scaffold stays available for correction.
 
 ## Built for AI agents
 

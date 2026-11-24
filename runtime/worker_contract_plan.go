@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/workerabi"
@@ -21,6 +22,7 @@ type WorkerServicePlan struct {
 	Clients    map[string]WorkerClientPlan
 	Bindings   []WorkerBindingPlan
 	Durable    map[string]WorkerDurablePlan
+	Schedules  []WorkerSchedulePlan
 	Stores     map[string]string
 }
 
@@ -53,6 +55,17 @@ type WorkerDurablePlan struct {
 	Registration ContractDurableRegistration
 	Dedupe       []WorkerKeyField
 	Concurrency  []WorkerKeyField
+}
+
+type WorkerSchedulePlan struct {
+	Address       string
+	Operation     string
+	Execution     string
+	Authorization string
+	Pipeline      string
+	Policy        ContractHTTPPolicy
+	Input         json.RawMessage
+	Timeout       time.Duration
 }
 
 type WorkerKeyField struct {
