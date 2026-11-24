@@ -362,6 +362,7 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 }
 
 func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
+	req.Header.Del(processExpectedContractHdr)
 	if h.local != nil {
 		method := req.Method
 		if requested := strings.TrimSpace(req.Header.Get("Access-Control-Request-Method")); method == http.MethodOptions && requested != "" {
@@ -702,6 +703,7 @@ func newProcessHostInstance(name string, spec processGenerationInstance) *proces
 		// own rules, so it must receive exactly the query the host received.
 		request.Out.URL.RawQuery = request.In.URL.RawQuery
 		request.Out.Host = request.In.Host
+		request.Out.Header.Set(processExpectedContractHdr, spec.Identity.ContractRevision)
 		// The owning process applies the gateway's forwarded-header policy to
 		// the headers the host received, not to a host-rewritten set.
 		for _, header := range processHostForwardedHeaders {

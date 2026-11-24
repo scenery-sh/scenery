@@ -352,3 +352,34 @@ func TestForwardedRequestGenerationPinsItsInternalCalls(t *testing.T) {
 		t.Fatalf("invalid generation status = %d", recorder.Code)
 	}
 }
+
+func TestLinkedGoWorkerChecksContractBeforeDispatch(t *testing.T) {
+	useLinkedProcessIdentityForTest(t)
+	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken})
+	handler := withProcessGeneration(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get(processExpectedContractHdr) != "" {
+			t.Error("expected contract header reached the application request")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, tc := range []struct {
+		revisions []string
+		status    int
+	}{
+		{[]string{processHostTestContract}, http.StatusNoContent},
+		{[]string{"sha256:other"}, http.StatusConflict},
+		{[]string{""}, http.StatusConflict},
+		{[]string{processHostTestContract, "sha256:other"}, http.StatusConflict},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/label", nil)
+		request.Header[processExpectedContractHdr] = tc.revisions
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != tc.status {
+			t.Fatalf("expected revisions %q returned %d, want %d", tc.revisions, recorder.Code, tc.status)
+		}
+		if tc.status == http.StatusConflict {
+			assertProcessHostAttestation(t, recorder.Header(), processInstanceIdentity(CurrentLinkedContractBundle()))
+		}
+	}
+}

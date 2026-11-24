@@ -36,6 +36,7 @@ const processLinkBindingPath = "/__scenery/process/v1/bindings/invoke"
 const (
 	processLinkBindingHeader    = "X-Scenery-Binding"
 	processGenerationHeader     = "X-Scenery-Process-Generation"
+	processExpectedContractHdr  = "X-Scenery-Expected-Contract-Revision"
 	processIdentityPIDHeader    = "X-Scenery-Process-ID"
 	processIdentityBuildHeader  = "X-Scenery-Build-Input-Digest"
 	processIdentityImplHeader   = "X-Scenery-Implementation-Revision"

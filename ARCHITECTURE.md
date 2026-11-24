@@ -17,7 +17,9 @@ For applications with Rust services, the Host projects the Rust bindings from
 the compiled manifest and supervises the generated worker processes. Rust
 workers exchange scoped requests with the Host using [Worker ABI v1](docs/spec/WORKER-ABI.md).
 Go workers in the same application keep their generated adapters and use the
-process link over HTTP/2 Unix sockets. Vite can run behind the development
+process link over HTTP/2 Unix sockets. The Host sends the selected service
+contract revision on the private link, and Go workers check it before handler
+dispatch. Vite can run behind the development
 Host or supply static assets to the production bundle.
 
 ## Hard Invariants

@@ -55,7 +55,8 @@ func startProcessHostTestBackend(t *testing.T, name string, pid int, revision st
 			<-backend.release
 		}
 		seen := map[string]string{"method": req.Method, "uri": req.RequestURI, "host": req.Host, "generation": req.Header.Get(processGenerationHeader),
-			"forwarded_for": req.Header.Get("X-Forwarded-For"), "binding": req.Header.Get(processLinkBindingHeader)}
+			"forwarded_for": req.Header.Get("X-Forwarded-For"), "binding": req.Header.Get(processLinkBindingHeader),
+			"expected_contract": req.Header.Get(processExpectedContractHdr)}
 		backend.mu.Lock()
 		backend.seen = append(backend.seen, seen)
 		backend.mu.Unlock()
@@ -128,7 +129,7 @@ func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
 		backend        *processHostTestBackend
 		headers        map[string]string
 	}{
-		{method: "POST", target: "/greet?lang=cs", backend: greeter},
+		{method: "POST", target: "/greet?lang=cs", backend: greeter, headers: map[string]string{processExpectedContractHdr: "untrusted"}},
 		{method: "POST", target: "/echo", backend: echo},
 		{method: "GET", target: "/items/special", backend: greeter},
 		{method: "GET", target: "/items/42", backend: echo},
@@ -143,6 +144,9 @@ func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
 		seen := check.backend.last()
 		if recorder.Code != http.StatusOK || body["process"] != check.backend.name || seen["method"] != check.method || seen["uri"] != check.target || seen["generation"] != "1" || seen["host"] != "api.example.test" {
 			t.Errorf("%s %s reached %#v (status %d, seen %#v), want %s in generation 1", check.method, check.target, body, recorder.Code, seen, check.backend.name)
+		}
+		if seen["expected_contract"] != check.backend.instance.Identity.ContractRevision {
+			t.Errorf("%s %s expected worker contract %q", check.method, check.target, seen["expected_contract"])
 		}
 		// An answer names the generation that served it.
 		if recorder.Header().Get(processGenerationHeader) != "1" {

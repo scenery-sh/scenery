@@ -113,6 +113,7 @@ func (h *processHost) callProcessIn(ctx context.Context, number uint64, process,
 	request.Header.Set("Authorization", "Bearer "+h.token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
+	request.Header.Set(processExpectedContractHdr, instance.spec.Identity.ContractRevision)
 	response, err := instance.client.Do(request)
 	if err != nil {
 		return processMCPResponse{}, processLinkCallFailure(ctx, process, err)
