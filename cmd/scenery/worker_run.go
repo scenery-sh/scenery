@@ -39,13 +39,6 @@ type workerLink struct {
 	HostState    string            `json:"host_state"`
 }
 
-type workerLaunch struct {
-	WorkerSocket string             `json:"worker_socket"`
-	HostSocket   string             `json:"host_socket"`
-	Token        string             `json:"token"`
-	Identity     workerabi.Identity `json:"identity"`
-}
-
 type workerProcess struct {
 	program workerProgram
 	cmd     *exec.Cmd
@@ -194,7 +187,7 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 		}
 	}()
 	for i, program := range bundle.Programs {
-		process, err := startForeignWorker(ctx, directory, capabilities, linkPath, strconv.Itoa(i+1), program)
+		process, err := startBundleWorker(ctx, directory, capabilities, strconv.Itoa(i+1), program)
 		if err != nil {
 			return err
 		}
@@ -226,13 +219,13 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	}
 	fmt.Fprintf(os.Stderr, "application ready on %s\n", listen)
 	watcher := &workerWatcher{
-		root: watchRoot, directory: directory, capabilities: capabilities, link: linkPath, token: token,
+		root: watchRoot, directory: directory, capabilities: capabilities, token: token,
 		client: httpClient, bundle: bundle, active: processes, generation: 1, sequence: 1,
 	}
 	return watcher.run(ctx, initialFingerprint, hostDone)
 }
 
-func startForeignWorker(ctx context.Context, state, capabilities, link, number string, program workerProgram) (*workerProcess, error) {
+func startBundleWorker(ctx context.Context, state, capabilities, number string, program workerProgram) (*workerProcess, error) {
 	data, err := os.ReadFile(program.Binary)
 	if err != nil {
 		return nil, err
@@ -242,20 +235,16 @@ func startForeignWorker(ctx context.Context, state, capabilities, link, number s
 		return nil, fmt.Errorf("worker %s executable digest changed", program.Service)
 	}
 	process := &workerProcess{program: program, socket: filepath.Join(state, "w"+number+".sock"), token: workerRandomToken(), done: make(chan struct{})}
-	env := envWithoutKeys(minimalAppProcessEnv(envpolicy.Environ()), "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR", "SCENERY_PROCESS_LINK", workerruntime.ConfigSnapshotFDEnv)
-	var argv []string
-	if program.Runtime == "rust" {
-		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv, storageconfig.RuntimeConfigEnv)
-		config := filepath.Join(state, "w"+number+".json")
-		launch := workerLaunch{WorkerSocket: process.socket, HostSocket: capabilities, Token: process.token, Identity: process.workerIdentity()}
-		if err := writePrivateWorkerJSON(config, launch); err != nil {
-			return nil, err
-		}
-		argv = []string{config}
-	} else {
-		env = append(env, "SCENERY_LISTEN_NETWORK=unix", "SCENERY_LISTEN_ADDR="+process.socket, "SCENERY_PROCESS_LINK="+link)
+	env := envWithoutKeys(minimalAppProcessEnv(envpolicy.Environ()), "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR", "SCENERY_PROCESS_LINK", workerruntime.ConfigSnapshotFDEnv, storageconfig.RuntimeConfigEnv)
+	if program.Runtime != "go" {
+		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv)
 	}
-	process.cmd = exec.Command(program.Binary, argv...)
+	config := filepath.Join(state, "w"+number+".json")
+	launch := workerabi.Launch{WorkerSocket: process.socket, HostSocket: capabilities, Token: process.token, Identity: process.workerIdentity()}
+	if err := writePrivateWorkerJSON(config, launch); err != nil {
+		return nil, err
+	}
+	process.cmd = exec.Command(program.Binary, config)
 	process.cmd.Env = env
 	process.cmd.Stdout, process.cmd.Stderr = os.Stderr, os.Stderr
 	var privateInput *devprocess.PrivateInput
@@ -278,16 +267,7 @@ func startForeignWorker(ctx context.Context, state, capabilities, link, number s
 	go func() { _ = process.cmd.Wait(); close(process.done) }()
 	client := workerabi.NewClient(process.socket, process.token, process.workerIdentity())
 	defer client.Close()
-	if err := waitWorkerReady(ctx, func(ctx context.Context) error {
-		if program.Runtime == "rust" {
-			return client.Ready(ctx)
-		}
-		connection, err := (&net.Dialer{}).DialContext(ctx, "unix", process.socket)
-		if err != nil {
-			return err
-		}
-		return connection.Close()
-	}); err != nil {
+	if err := waitWorkerReady(ctx, client.Ready); err != nil {
 		process.stop()
 		return nil, fmt.Errorf("start worker %s: %w", program.Service, err)
 	}
@@ -296,7 +276,7 @@ func startForeignWorker(ctx context.Context, state, capabilities, link, number s
 
 func (process *workerProcess) workerIdentity() workerabi.Identity {
 	return workerabi.Identity{
-		ABI: workerabi.Version, Service: process.program.Service, ContractRevision: process.program.ContractRevision, ImplementationRevision: process.program.Digest,
+		ABI: workerabi.Version, Service: process.program.Service, ContractRevision: process.program.Identity.ContractRevision, ImplementationRevision: process.program.Identity.ImplementationRevision,
 	}
 }
 
@@ -325,18 +305,13 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 		_, _ = io.WriteString(aggregate, program.Digest)
 		instance := workerProcessInstance{
 			Network: "unix", Address: process.socket, Protocol: "h2c", PID: process.cmd.Process.Pid,
-			Identity: workerProcessIdentity{ContractRevision: program.ContractRevision, ImplementationRevision: program.Digest, BuildInputDigest: program.Digest, Target: program.Runtime},
-		}
-		if program.Runtime == "rust" {
-			instance.Service, instance.Token = program.Service, process.token
-		} else {
-			instance.Identity = program.Identity
+			Identity: program.Identity, Service: program.Service, Token: process.token,
 		}
 		instances[program.Process] = instance
 	}
 	digest := fmt.Sprintf("sha256:%x", aggregate.Sum(nil))
 	body, err := json.Marshal(map[string]any{
-		"generation": number, "contract_revision": bundle.ContractRevision, "processes": instances, "bindings": bundle.Bindings,
+		"generation": number, "contract_revision": bundle.ContractRevision, "processes": instances,
 		"identity": workerProcessIdentity{ContractRevision: bundle.ContractRevision, ImplementationRevision: digest, BuildInputDigest: digest, Target: "worker"},
 	})
 	if err != nil {

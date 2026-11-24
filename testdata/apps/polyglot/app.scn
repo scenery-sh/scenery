@@ -77,7 +77,7 @@ go_target "development" {
 
 module "native" {
   source = "./native"
-  inputs = { gateway = http_gateway.public_api, database = data_source.pricing }
+  inputs = { gateway = http_gateway.public_api, database = data_source.pricing, jobs = execution_engine.jobs }
 }
 
 module "consumer" {

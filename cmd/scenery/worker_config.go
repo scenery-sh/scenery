@@ -23,6 +23,10 @@ func (bundle *workerBundle) projectConfig(result *compiler.Result) error {
 	if err != nil {
 		return err
 	}
+	bundle.Host.Observability = workerruntime.ObservabilityConfig{
+		Logs:    workerruntime.EndpointFilterConfig(cfg.Observability.Logs),
+		Tracing: workerruntime.EndpointFilterConfig(cfg.Observability.Tracing),
+	}
 	if cfg.Auth.Enabled {
 		bundle.Auth = &auth.StandardConfig{
 			Enabled: true, AutoBootstrapDatabase: cfg.Auth.AutoBootstrapDatabase,
@@ -107,7 +111,7 @@ func (bundle *workerBundle) setWorkerConfig() {
 	bundle.Host.WorkerConfig = make(map[string]*workerruntime.ConfigSnapshot)
 	for index, program := range bundle.Programs {
 		snapshot := projectWorkerConfig(bundle.config, program.Service, program.ConfigKeys)
-		if program.Runtime == "rust" && snapshot != nil {
+		if snapshot != nil {
 			bundle.Host.WorkerConfig[program.Service] = snapshot
 		}
 		bundle.Programs[index].config = snapshot

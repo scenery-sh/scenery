@@ -1,6 +1,6 @@
 # Worker ABI v1
 
-The Host and ABI v1 workers use HTTP/2 with prior knowledge over private Unix
+The manifest-driven Host and its Go and Rust workers use HTTP/2 with prior knowledge over private Unix
 domain sockets. They use distinct listeners and pool connections across
 invocations. The supervisor provides the two socket paths and a bearer token
 unique to the worker instance through its private launch configuration. Each
@@ -42,7 +42,10 @@ headers stay on these listeners.
 have `mode: "durable"` and `execution_id` in `context`. Principal, tenant,
 traceparent, deadline, locale, execution ID and metadata are optional. The
 Host constructs this context from its own authenticated invocation. A worker
-verifies the addressed service and contract revision before dispatch.
+verifies the addressed service and contract revision before dispatch. A service or contract revision mismatch returns HTTP 409.
+The Host may include request type, admission time, caller binding, deployment,
+trace identity, and authenticated identity data in metadata. SQL connections
+for Go services are configured at startup and connect directly to PostgreSQL.
 
 A successful JSON response contains `outcome`, the contract outcome envelope
 with `kind`, `name` and `value` for a declared result or `problem` for a
@@ -78,7 +81,7 @@ deadline.
 | --- | --- |
 | `binding/invoke` | POST `{"client":"<local client name>","input":<canonical JSON>}`. An answer contains `output` with the typed outcome or an `error`. |
 | `durable/enqueue` | POST the same envelope with a declared enqueue client. The Host derives dispatch keys and returns the durable receipt. |
-| `storage/read`, `storage/write`, `storage/delete`, `storage/list` | Use `store` for the declared dependency name and `key` for object operations. GET reads and lists, PUT writes, and DELETE removes one object. Reads and writes stream bytes. Preconditions are carried by `If-Match` or `If-None-Match`. |
+| `storage/read`, `storage/write`, `storage/delete`, `storage/list` | Use `store` for the declared dependency name and `key` for object operations. GET reads and lists, HEAD reads object metadata, PUT writes, and DELETE removes one object. Reads and writes stream bytes. Preconditions are carried by `If-Match` or `If-None-Match`. |
 | `connections/token` | POST `{"provider":"<configured provider>","scopes":["..."]}`. The Host resolves the owner from invocation scope. |
 | `config/snapshot` | GET the revision-bound service configuration visible to this worker. |
 | `telemetry` | POST a batch of up to 64 span and log records. The Host supplies the correlation identities from the invocation. |

@@ -10,7 +10,8 @@ import (
 	"scenery.sh/internal/runtimeapi"
 )
 
-type workerTelemetryRecord struct {
+// WorkerTelemetryRecord is a span or log sent in a scoped batch.
+type WorkerTelemetryRecord struct {
 	Kind       string         `json:"kind"`
 	Name       string         `json:"name"`
 	Message    string         `json:"message,omitempty"`
@@ -23,7 +24,7 @@ func serveWorkerTelemetry(plan WorkerServicePlan, w http.ResponseWriter, request
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	var batch []workerTelemetryRecord
+	var batch []WorkerTelemetryRecord
 	decoder := json.NewDecoder(http.MaxBytesReader(w, request.Body, 64<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&batch); err != nil || len(batch) == 0 || len(batch) > 64 || decoder.Decode(new(json.RawMessage)) != io.EOF {

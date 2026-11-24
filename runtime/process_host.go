@@ -325,6 +325,9 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 
 func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost, error) {
 	cfg.Fallback = strings.TrimSpace(cfg.Fallback)
+	if len(cfg.Workers) > 0 && (cfg.Fallback != "" || len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
+		return nil, fmt.Errorf("runtime: worker host cannot forward process routes")
+	}
 	if cfg.Fallback == "" && (len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
 		return nil, fmt.Errorf("runtime: process host with service routes requires a fallback process")
 	}
@@ -442,7 +445,7 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	switch {
-	case req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
+	case h.workers == nil && req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
 		h.dispatch(w, req)
 	case req.URL.Path == processAdmissionsPath && req.Method == http.MethodPost:
 		h.serveAdmission(w, req)
@@ -513,11 +516,6 @@ func (h *processHost) dispatch(w http.ResponseWriter, req *http.Request) {
 	if h.applyProcessFault(w, req, process, address) {
 		return
 	}
-	if instance.worker != nil {
-		local := &server{}
-		local.handleProcessLinkedBinding(w, req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, generation)), nil)
-		return
-	}
 	instance.dispatch.ServeHTTP(w, req)
 }
 
@@ -580,20 +578,26 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 			identity.ImplementationRevision == "" || identity.BuildInputDigest == "" || identity.GoTarget == "" {
 			return fmt.Errorf("generation %d instance of %s is invalid", manifest.Generation, name)
 		}
+		if h.workers != nil {
+			if spec.WorkerService == "" || h.workers.services[spec.WorkerService].Process != name || spec.Network != "unix" || spec.Protocol != "h2c" || len(spec.WorkerToken) < 32 {
+				return fmt.Errorf("generation %d has an invalid worker instance %s", manifest.Generation, name)
+			}
+		} else if spec.WorkerService != "" || spec.WorkerToken != "" {
+			return fmt.Errorf("generation %d has an unexpected worker instance %s", manifest.Generation, name)
+		}
 		if h.current != nil {
 			if previous := h.current.instances[name]; previous != nil && previous.spec == spec {
 				generation.instances[name] = previous
 				continue
 			}
 		}
-		instance := newProcessHostInstance(name, spec)
-		if spec.WorkerService != "" {
-			if h.workers == nil || h.workers.services[spec.WorkerService].Process != name || spec.Network != "unix" || len(spec.WorkerToken) < 32 {
-				return fmt.Errorf("generation %d has an invalid worker instance %s", manifest.Generation, name)
-			}
-			instance.worker = workerabi.NewClient(spec.Address, spec.WorkerToken, workerabi.Identity{
+		var instance *processHostInstance
+		if h.workers != nil {
+			instance = &processHostInstance{name: name, spec: spec, worker: workerabi.NewClient(spec.Address, spec.WorkerToken, workerabi.Identity{
 				ABI: workerabi.Version, Service: spec.WorkerService, ContractRevision: identity.ContractRevision, ImplementationRevision: identity.ImplementationRevision,
-			})
+			})}
+		} else {
+			instance = newProcessHostInstance(name, spec)
 		}
 		generation.instances[name] = instance
 	}

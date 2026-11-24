@@ -97,6 +97,7 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 						response.Headers = make(http.Header)
 					}
 					response.Headers.Set("X-App-Worker-Pid", strconv.Itoa(result.ProcessID))
+					response.Headers.Set("X-App-Worker-Revision", result.ImplementationRevision)
 				}
 				return response, err
 			},
@@ -144,18 +145,19 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 	}
 	ctx, cancelInvocation := context.WithCancel(ctx)
 	stopRetirement := context.AfterFunc(generation.lifetime, cancelInvocation)
-	instance := generation.instances[plan.Process]
-	if instance == nil || instance.worker == nil {
+	releaseInvocation := func() {
 		stopRetirement()
 		cancelInvocation()
 		releaseGeneration()
+	}
+	instance := generation.instances[plan.Process]
+	if instance == nil || instance.worker == nil {
+		releaseInvocation()
 		return workerabi.Result{}, workerUnavailable(workerabi.NotSent, fmt.Errorf("worker instance is unavailable"))
 	}
 	current, ok := runtimeapi.InvocationFromContext(ctx)
 	if !ok {
-		stopRetirement()
-		cancelInvocation()
-		releaseGeneration()
+		releaseInvocation()
 		return workerabi.Result{}, ContractSystemError(fmt.Errorf("worker call has no runtime invocation"))
 	}
 	metadata := workerabi.InvocationContext{
@@ -165,7 +167,15 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 	if deadline, ok := ctx.Deadline(); ok {
 		metadata.Deadline = &deadline
 	}
+	extra := workerInvocationMetadata{Caller: current.CallerBinding(), Deployment: current.Deployment()}
 	if state := stateFromContext(ctx); state != nil {
+		auth, err := encodeProcessLinkAuth(state.auth)
+		if err != nil {
+			releaseInvocation()
+			return workerabi.Result{}, ContractSystemError(err)
+		}
+		extra.AuthDataKind, extra.AuthData = auth.DataKind, auth.Data
+		extra.Started, extra.Type = state.started, state.request.Type
 		cloned := *state
 		cloned.processGeneration = generation.number
 		ctx = withState(ctx, &cloned)
@@ -173,13 +183,20 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 			metadata.Traceparent = fmt.Sprintf("00-%s-%s-01", trace.traceID, trace.spanID)
 		}
 	}
+	if metadata.Traceparent == "" {
+		extra.TraceID = current.TraceID()
+	}
+	var err error
+	metadata.Metadata, err = json.Marshal(extra)
+	if err != nil {
+		releaseInvocation()
+		return workerabi.Result{}, ContractSystemError(err)
+	}
 	scope, revoke := workers.scopes.Open(ctx, plan.Address, instance.spec.WorkerToken)
 	metadata.Scope = scope
 	release := func() {
-		stopRetirement()
-		cancelInvocation()
+		releaseInvocation()
 		revoke()
-		releaseGeneration()
 	}
 	result, err := instance.worker.Invoke(ctx, workerabi.Invocation{
 		Service: plan.Address, Operation: address, Binding: binding, Mode: mode, Context: metadata, Input: input,
@@ -204,6 +221,7 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 		result.Stream = &workerStream{ReadCloser: result.Stream, release: release}
 	}
 	result.ProcessID = instance.spec.PID
+	result.ImplementationRevision = instance.spec.Identity.ImplementationRevision
 	return result, nil
 }
 
@@ -326,7 +344,14 @@ func (workers *workerHost) serveBindingCapability(plan WorkerServicePlan, w http
 		http.Error(w, "client is unavailable", http.StatusForbidden)
 		return
 	}
-	output, err := InvokeContractBindingJSON(request.Context(), clientPlan.Binding, plan.Module, fields["input"])
+	global.mu.RLock()
+	registration := global.contractBindings[clientPlan.Binding]
+	global.mu.RUnlock()
+	if registration.Invoke == nil {
+		http.Error(w, "client binding is unavailable", http.StatusForbidden)
+		return
+	}
+	output, err := invokeRegisteredContractBindingJSON(request.Context(), registration, clientPlan.Binding, plan.Module, fields["input"])
 	if err != nil {
 		writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Error: newProcessLinkError(err)})
 		return

@@ -31,8 +31,13 @@ func (e *dialError) Error() string { return e.cause.Error() }
 func (e *dialError) Unwrap() error { return e.cause }
 
 func NewClient(socket, token string, identity Identity) *Client {
+	return &Client{identity: identity, token: token, transport: NewTransport(socket)}
+}
+
+// NewTransport pools private HTTP/2 connections to one Unix listener.
+func NewTransport(socket string) *http.Transport {
 	dialer := &net.Dialer{}
-	transport := &http.Transport{
+	return &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			conn, err := dialer.DialContext(ctx, "unix", socket)
 			if err != nil {
@@ -44,7 +49,12 @@ func NewClient(socket, token string, identity Identity) *Client {
 		DisableCompression: true,
 		IdleConnTimeout:    90 * time.Second,
 	}
-	return &Client{identity: identity, token: token, transport: transport}
+}
+
+// WasNotSent reports whether a failed dial prevented delivery.
+func WasNotSent(err error) bool {
+	_, ok := errors.AsType[*dialError](err)
+	return ok
 }
 
 // Protocols is also used by the Host's capability socket.
@@ -83,10 +93,11 @@ func (c *Client) Ready(ctx context.Context) error {
 // Result owns the HTTP/2 stream until Stream is closed when the worker streams
 // bytes. The caller must close it even when it rejects the outcome.
 type Result struct {
-	Outcome    json.RawMessage
-	Stream     io.ReadCloser
-	StreamSize int64
-	ProcessID  int
+	Outcome                json.RawMessage
+	Stream                 io.ReadCloser
+	StreamSize             int64
+	ProcessID              int
+	ImplementationRevision string
 }
 
 func (c *Client) Invoke(ctx context.Context, invocation Invocation) (Result, error) {
@@ -103,7 +114,7 @@ func (c *Client) Invoke(ctx context.Context, invocation Invocation) (Result, err
 			return Result{}, ctx.Err()
 		}
 		delivery := Unknown
-		if _, ok := errors.AsType[*dialError](err); ok {
+		if WasNotSent(err) {
 			delivery = NotSent
 		}
 		return Result{}, &DeliveryError{Delivery: delivery, Cause: err}

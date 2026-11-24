@@ -39,6 +39,12 @@ func (sdkHost) ConnectionToken(ctx context.Context, user, provider string, scope
 	if !invocation.Valid() || !invocation.ConnectionWorker() && (invocation.Principal() == "" || invocation.Principal() != user) {
 		return "", errs.B().Code(errs.PermissionDenied).Msg("connection owner does not match the request").Err()
 	}
+	if capabilitiesFromContext(ctx) != nil {
+		if invocation.Principal() != user {
+			return "", errs.B().Code(errs.PermissionDenied).Msg("connection owner does not match the request").Err()
+		}
+		return workerConnectionToken(ctx, provider, scopes)
+	}
 	sdkConnections.RLock()
 	service := sdkConnections.service
 	sdkConnections.RUnlock()

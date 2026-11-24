@@ -55,7 +55,7 @@ func prepareWorkerStorage(plans []workerruntime.WorkerServicePlan) (workerruntim
 			"/host/v1/storage/read": http.MethodGet, "/host/v1/storage/write": http.MethodPut,
 			"/host/v1/storage/delete": http.MethodDelete, "/host/v1/storage/list": http.MethodGet,
 		}[request.URL.Path]
-		if request.Method != method {
+		if request.Method != method && (request.URL.Path != "/host/v1/storage/read" || request.Method != http.MethodHead) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}

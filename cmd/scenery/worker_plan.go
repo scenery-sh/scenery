@@ -25,8 +25,12 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		resources: cp.ResourcesByAddress(manifest), services: make(map[string]workerruntime.WorkerServicePlan),
 	}
 	operationOwners := make(map[string]string)
+	runtimeServices := make(map[string]bool)
+	for _, service := range compiler.RuntimeServices(manifest.Resources) {
+		runtimeServices[service.Address] = true
+	}
 	for _, resource := range manifest.Resources {
-		if resource.Kind != "scenery.service" || cp.StringValue(resource.Spec["runtime"]) != "rust" {
+		if resource.Kind != "scenery.service" || !runtimeServices[resource.Address] && cp.StringValue(resource.Spec["runtime"]) != "rust" {
 			continue
 		}
 		digest := sha256.Sum256([]byte(resource.Address))

@@ -2,6 +2,8 @@ package native
 
 import (
 	"context"
+	"io"
+	"strings"
 	"time"
 
 	contract "example.test/polyglot/native/scenerycontract"
@@ -36,4 +38,18 @@ func (s *Service) ReadDatabase(ctx context.Context, _ contract.ReadDatabaseInput
 		return nil, err
 	}
 	return contract.ReadDatabaseOk{Value: contract.LabelResult{Vendor: vendor}}, nil
+}
+
+func (s *Service) CheckDatabase(ctx context.Context, _ contract.CheckDatabaseInput) (contract.CheckDatabaseOutcome, error) {
+	var vendor string
+	if err := s.database.QueryRowContext(ctx, `SELECT 'postgres'::text`).Scan(&vendor); err != nil {
+		return nil, err
+	}
+	return contract.CheckDatabaseOk{Value: contract.LabelResult{Vendor: vendor}}, nil
+}
+
+// Download returns the same deterministic size as the Rust streaming fixture.
+func (*Service) Download(_ context.Context, _ contract.DownloadInput) (contract.DownloadOutcome, scenery.ByteStream, error) {
+	body := strings.NewReader(strings.Repeat("g", 64<<10))
+	return contract.DownloadOk{Value: []byte{}}, scenery.NewByteStream(io.NopCloser(body), body.Size()), nil
 }

@@ -16,11 +16,13 @@ import (
 	"scenery.sh/internal/storageconfig"
 	"scenery.sh/internal/storagefs"
 	"strings"
+
+	"scenery.sh/internal/workerabi"
 )
 
 type proxyRuntimeStore struct {
 	name         string
-	socket       string
+	worker       bool
 	client       *http.Client
 	binding      string
 	tenantScoped bool
@@ -85,7 +87,13 @@ func newProxyRuntimeStore(name, socket string) *proxyRuntimeStore {
 			return d.DialContext(ctx, "unix", socket)
 		},
 	}
-	return &proxyRuntimeStore{name: name, socket: socket, client: &http.Client{Transport: transport}}
+	return &proxyRuntimeStore{name: name, client: &http.Client{Transport: transport}}
+}
+
+// NewWorkerStore creates a store backed by the Worker ABI Host. The transport
+// authenticates each operation using its invocation scope.
+func NewWorkerStore(name string, transport http.RoundTripper) Store {
+	return &proxyRuntimeStore{name: name, worker: true, client: &http.Client{Transport: transport}}
 }
 
 func (s *proxyRuntimeStore) Put(ctx context.Context, key string, body io.Reader, opts PutOptions) (*Object, error) {
@@ -245,6 +253,21 @@ func (s *proxyRuntimeStore) DeletePrefix(ctx context.Context, prefix string) err
 }
 
 func (s *proxyRuntimeStore) newRequest(ctx context.Context, method, key string, query url.Values, body io.Reader) (*http.Request, error) {
+	if s.worker {
+		if query.Has("recursive") {
+			return nil, fmt.Errorf("worker storage supports deleting individual objects")
+		}
+		if query == nil {
+			query = make(url.Values)
+		}
+		query.Set("store", s.name)
+		action := "list"
+		if key != "" {
+			query.Set("key", key)
+			action = map[string]string{http.MethodGet: "read", http.MethodHead: "read", http.MethodPut: "write", http.MethodDelete: "delete"}[method]
+		}
+		return http.NewRequestWithContext(ctx, method, "http://host"+workerabi.CapabilityPrefix+"storage/"+action+"?"+query.Encode(), body)
+	}
 	path := "/v1/stores/" + url.PathEscape(s.name)
 	if key != "" {
 		path += "/objects/" + url.PathEscape(key)

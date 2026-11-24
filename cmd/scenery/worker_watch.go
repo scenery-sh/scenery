@@ -21,13 +21,13 @@ import (
 )
 
 type workerWatcher struct {
-	root, directory, capabilities, link, token string
-	client                                     *http.Client
-	bundle                                     workerBundle
-	active                                     map[string]*workerProcess
-	all                                        []*workerProcess
-	generation, sequence                       uint64
-	retirements                                sync.WaitGroup
+	root, directory, capabilities, token string
+	client                               *http.Client
+	bundle                               workerBundle
+	active                               map[string]*workerProcess
+	all                                  []*workerProcess
+	generation, sequence                 uint64
+	retirements                          sync.WaitGroup
 }
 
 func (watch *workerWatcher) run(ctx context.Context, initial string, hostDone <-chan error) error {
@@ -116,7 +116,7 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle) er
 			continue
 		}
 		id := fmt.Sprintf("%x-%x", watch.sequence, index)
-		process, err := startForeignWorker(ctx, watch.directory, watch.capabilities, watch.link, id, program)
+		process, err := startBundleWorker(ctx, watch.directory, watch.capabilities, id, program)
 		if err != nil {
 			stopWorkers(started)
 			return err
@@ -155,7 +155,7 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle) er
 }
 
 func workerStillMatches(process *workerProcess, program workerProgram) bool {
-	if process == nil || process.program.Digest != program.Digest || process.program.ContractRevision != program.ContractRevision || process.program.Runtime != program.Runtime {
+	if process == nil || process.program.Digest != program.Digest || process.program.Identity != program.Identity || process.program.Runtime != program.Runtime {
 		return false
 	}
 	select {

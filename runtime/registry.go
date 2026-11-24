@@ -189,6 +189,7 @@ type registry struct {
 	durableTasks              map[string]*DurableTask
 	contractDurableExecutions map[string]ContractDurableRegistration
 	contractBindings          map[string]ContractInternalBindingRegistration
+	workerOperations          map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error)
 	mcpTools                  map[string]MCPToolRegistration
 	assistantMCPManifests     map[string]mcpcontract.Manifest
 	assistants                map[string]AssistantRegistration

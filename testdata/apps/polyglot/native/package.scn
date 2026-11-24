@@ -4,6 +4,7 @@ package "native" {
 
 input "gateway" { type = resource_ref("http_gateway") }
 input "database" { type = resource_ref("data_source") }
+input "jobs" { type = resource_ref("execution_engine") }
 
 service "native" {
   runtime = "go"
@@ -108,6 +109,119 @@ binding "read_database_http" {
       body {
         codec = "json"
         from  = result.ok
+      }
+    }
+  }
+}
+
+operation "download" {
+  service = service.native
+  input   = std.type.unit
+  handler { method = "Download" }
+  result "ok" { type = bytes }
+}
+
+execution "download" {
+  operation = operation.download
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "download_http" {
+  gateway        = var.gateway
+  operation      = operation.download
+  execution      = execution.download
+  protocol       = "http"
+  delivery       = "stream"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    path          = "/native/download"
+    codec_profile = std.codec.http_json_v1
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "bytes"
+        from  = result.ok
+      }
+    }
+  }
+}
+
+record "database_job_input" {
+  field "id" { type = string }
+}
+
+operation "check_database" {
+  service = service.native
+  input   = record.database_job_input
+  handler { method = "CheckDatabase" }
+  result "ok" { type = record.label_result }
+  idempotency {
+    mode = "keyed"
+    key  = [input.id]
+  }
+}
+
+execution "database_job" {
+  operation     = operation.check_database
+  mode          = "durable"
+  engine        = var.jobs
+  external_name = "native.read_database"
+  revision      = 1
+  timeout       = "10s"
+  lease         = "2s"
+  attempts      = 3
+  retry {
+    strategy = "exponential"
+    initial  = "200ms"
+    factor   = 2
+    maximum  = "1s"
+  }
+  retention {
+    success = "1d"
+    failure = "1w"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+binding "database_job_http" {
+  gateway        = var.gateway
+  operation      = operation.check_database
+  execution      = execution.database_job
+  protocol       = "http"
+  delivery       = "enqueue"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/database/jobs"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.check_database.input
+    }
+    response "accepted" {
+      when   = dispatch.enqueued
+      status = 202
+      body {
+        codec = "json"
+        from  = dispatch.receipt
+      }
+    }
+    response "rejected" {
+      when   = dispatch.rejected
+      status = 503
+      body {
+        codec = "problem_json"
+        from  = dispatch.problem
       }
     }
   }

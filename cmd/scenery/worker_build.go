@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +26,6 @@ type workerBundle struct {
 	Host             workerruntime.ProcessHostConfig `json:"host"`
 	Types            contract.ManifestTypes          `json:"types"`
 	Programs         []workerProgram                 `json:"programs"`
-	Bindings         map[string]string               `json:"bindings"`
 	Frontend         *workerFrontend                 `json:"frontend,omitempty"`
 	Auth             *auth.StandardConfig            `json:"auth,omitempty"`
 	HostConfigKeys   []string                        `json:"host_config_keys,omitempty"`
@@ -35,27 +33,18 @@ type workerBundle struct {
 }
 
 type workerProgram struct {
-	Service          string                `json:"service"`
-	Process          string                `json:"process"`
-	Binary           string                `json:"binary"`
-	Digest           string                `json:"digest"`
-	ContractRevision string                `json:"contract_revision"`
-	Runtime          string                `json:"runtime"`
-	Identity         workerProcessIdentity `json:"identity"`
-	ConfigKeys       []string              `json:"config_keys,omitempty"`
-	config           *workerruntime.ConfigSnapshot
+	Service    string                `json:"service"`
+	Process    string                `json:"process"`
+	Binary     string                `json:"binary"`
+	Digest     string                `json:"digest"`
+	Runtime    string                `json:"runtime"`
+	Identity   workerProcessIdentity `json:"identity"`
+	ConfigKeys []string              `json:"config_keys,omitempty"`
+	config     *workerruntime.ConfigSnapshot
 }
 
 func hasRustWorkers(result *compiler.Result) bool {
-	if result == nil || result.Manifest == nil {
-		return false
-	}
-	for _, service := range result.Manifest.Resources {
-		if service.Kind == "scenery.service" && cp.StringValue(service.Spec["runtime"]) == "rust" {
-			return true
-		}
-	}
-	return false
+	return result != nil && result.Manifest != nil && compiler.UsesWorkerBundle(result.Manifest.Resources)
 }
 
 func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServicePlan, role string) (map[string]rustbuild.Service, error) {
@@ -68,6 +57,9 @@ func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServi
 	}
 	services := make(map[string]rustbuild.Service)
 	for _, service := range plan {
+		if cp.StringValue(resources[service.Address].Spec["runtime"]) != "rust" {
+			continue
+		}
 		module := modules[service.Module]
 		moduleDirectory := cp.StringValue(module.Spec["workspace_package_root"])
 		packageSpec, _ := module.Spec["package"].(map[string]any)
@@ -112,9 +104,11 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role string
 	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
 		return bundle, err
 	}
-	services := make([]rustbuild.Service, 0, len(plan))
+	services := make([]rustbuild.Service, 0, len(selection))
 	for _, service := range plan {
-		services = append(services, selection[service.Address])
+		if build, exists := selection[service.Address]; exists {
+			services = append(services, build)
+		}
 	}
 	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
 	if err != nil {
@@ -122,22 +116,23 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role string
 	}
 	bundle = workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
-		Host:     workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan},
-		Types:    projectWorkerTypes(result.Manifest),
-		Bindings: make(map[string]string),
+		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan},
+		Types: projectWorkerTypes(result.Manifest),
 	}
 	resources := cp.ResourcesByAddress(result.Manifest)
 	for _, service := range plan {
-		artifact := artifacts[selection[service.Address]]
-		bundle.Programs = append(bundle.Programs, workerProgram{
-			Service: service.Address, Process: service.Process, Binary: artifact.Path, Digest: artifact.Digest,
-			ContractRevision: compiler.ServiceContractRevision(result.Manifest, resources[service.Address], nil), Runtime: "rust",
-		})
-		for _, binding := range service.Bindings {
-			if binding.HTTP == nil {
-				bundle.Bindings[binding.Address] = service.Process
-			}
+		build, exists := selection[service.Address]
+		if !exists {
+			continue
 		}
+		artifact := artifacts[build]
+		bundle.Programs = append(bundle.Programs, workerProgram{
+			Service: service.Address, Process: service.Process, Binary: artifact.Path, Digest: artifact.Digest, Runtime: "rust",
+			Identity: workerProcessIdentity{
+				ContractRevision:       compiler.ServiceContractRevision(result.Manifest, resources[service.Address], nil),
+				ImplementationRevision: artifact.Digest, BuildInputDigest: artifact.Digest, Target: "rust",
+			},
+		})
 	}
 	if !check {
 		if err := bundle.addGoWorkers(ctx, result); err != nil {
@@ -151,16 +146,15 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role string
 }
 
 func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler.Result) error {
-	var hasGo bool
-	for _, resource := range compiled.Manifest.Resources {
-		hasGo = hasGo || resource.Kind == "scenery.service" && cp.StringValue(resource.Spec["runtime"]) == "go"
+	goProcesses := make(map[string]string)
+	resources := cp.ResourcesByAddress(compiled.Manifest)
+	for _, service := range bundle.Host.Workers {
+		if cp.StringValue(resources[service.Address].Spec["runtime"]) == "go" {
+			goProcesses[service.Address] = service.Process
+		}
 	}
-	if !hasGo {
+	if len(goProcesses) == 0 {
 		return nil
-	}
-	integration, err := generate.BuildRuntimeIntegrationPlan(compiled)
-	if err != nil {
-		return err
 	}
 	root, cfg, err := app.DiscoverRoot(compiled.Root)
 	if err != nil {
@@ -180,26 +174,13 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 	for _, process := range processes.Services {
 		identity := process.Identity
 		bundle.Programs = append(bundle.Programs, workerProgram{
-			Service: process.Service, Process: process.Name, Binary: process.Binary, Digest: process.ArtifactDigest,
-			ContractRevision: identity.ContractRevision, Runtime: "go",
+			Service: process.Service, Process: goProcesses[process.Service], Binary: process.Binary, Digest: process.ArtifactDigest, Runtime: "go",
 			Identity: workerProcessIdentity{
 				ContractRevision: identity.ContractRevision, ImplementationRevision: identity.ImplementationRevision,
 				BuildInputDigest: identity.BuildInputDigest, Target: identity.GoTarget,
 			},
 		})
-		if bundle.Host.Fallback == "" {
-			bundle.Host.Fallback = process.Name
-		}
 	}
-	for _, service := range integration.Services {
-		for _, route := range service.Routes {
-			bundle.Host.Routes = append(bundle.Host.Routes, workerruntime.ProcessHostRoute{Process: service.Name, Methods: route.Methods, Path: route.Path, PathTail: route.PathTail})
-		}
-		for _, tool := range service.MCPTools {
-			bundle.Host.MCPTools = append(bundle.Host.MCPTools, workerruntime.ProcessHostMCPTool{Process: service.Name, Name: tool.Name, AssistantAddress: tool.AssistantAddress})
-		}
-	}
-	maps.Copy(bundle.Bindings, processes.BindingOwners)
 	return nil
 }
 
