@@ -68,7 +68,7 @@ func renderRustContractFiles(result *compiler.Result, modules []rustSourceModule
 	for _, module := range modules {
 		dir := filepath.Join(result.Root, filepath.FromSlash(module.root), "scenerycontract")
 		if !rustContractManaged(result, dir) {
-			return nil, fmt.Errorf("Rust contract output %s is outside managed_generated_roots", dir)
+			return nil, fmt.Errorf("contract output for Rust at %s is outside managed_generated_roots", dir)
 		}
 		sdkPath, err := filepath.Rel(dir, sdk)
 		if err != nil {

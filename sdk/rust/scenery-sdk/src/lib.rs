@@ -119,6 +119,28 @@ pub struct Context {
     canceled: watch::Receiver<()>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BindingFailure {
+    pub code: Option<String>,
+    pub message: String,
+    pub meta: Option<serde_json::Value>,
+}
+
+impl std::fmt::Display for BindingFailure {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for BindingFailure {}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DispatchReceipt {
+    pub durable_identity: String,
+    pub execution_id: String,
+    pub accepted_revision: String,
+}
+
 impl Context {
     pub async fn canceled(&mut self) {
         let _ = self.canceled.changed().await;
@@ -126,6 +148,24 @@ impl Context {
 
     pub async fn invoke<T: Serialize + ?Sized>(
         &self,
+        client: &str,
+        input: &T,
+    ) -> Result<Box<RawValue>> {
+        self.call_binding("binding/invoke", client, input).await
+    }
+
+    pub async fn enqueue<T: Serialize + ?Sized>(
+        &self,
+        client: &str,
+        input: &T,
+    ) -> Result<DispatchReceipt> {
+        let reply = self.call_binding("durable/enqueue", client, input).await?;
+        Ok(serde_json::from_str(reply.get())?)
+    }
+
+    async fn call_binding<T: Serialize + ?Sized>(
+        &self,
+        path: &str,
         client: &str,
         input: &T,
     ) -> Result<Box<RawValue>> {
@@ -137,18 +177,15 @@ impl Context {
         #[derive(Deserialize)]
         struct Reply {
             output: Option<Box<RawValue>>,
-            error: Option<Box<RawValue>>,
+            error: Option<BindingFailure>,
         }
         let raw = self
-            .capability(
-                "binding/invoke",
-                serde_json::to_vec(&Call { client, input })?,
-            )
+            .capability(path, serde_json::to_vec(&Call { client, input })?)
             .await?;
         let reply: Reply = serde_json::from_slice(&raw)?;
         match (reply.output, reply.error) {
             (Some(output), None) => Ok(output),
-            (None, Some(_)) => Err("host rejected the binding invocation".into()),
+            (None, Some(error)) => Err(error.into()),
             _ => Err("invalid binding response".into()),
         }
     }

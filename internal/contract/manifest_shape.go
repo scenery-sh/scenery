@@ -241,6 +241,8 @@ func normalizeManifestScalar(t contractWireType, raw []byte, constraints Contrac
 		target = new(uint32)
 	case "int64":
 		target = new(int64)
+	case "int":
+		target = new(Int)
 	case "uint64":
 		target = new(uint64)
 	case "float32":
@@ -251,6 +253,16 @@ func normalizeManifestScalar(t contractWireType, raw []byte, constraints Contrac
 		target = new(Decimal)
 	case "timestamp":
 		target = new(time.Time)
+	case "datetime":
+		target = new(DateTime)
+	case "date":
+		target = new(Date)
+	case "uuid":
+		target = new(UUID)
+	case "url":
+		target = new(URL)
+	case "relative_path":
+		target = new(RelativePath)
 	case "duration":
 		target = new(Duration)
 	case "std.type.unit":

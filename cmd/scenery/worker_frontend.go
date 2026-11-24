@@ -31,12 +31,12 @@ func selectWorkerFrontend(root string, cfg app.Config, result *compiler.Result) 
 		return nil, nil
 	}
 	if !filepath.IsLocal(name) || filepath.Base(name) != name || name == "." {
-		return nil, fmt.Errorf("Vite frontend name must be a single directory name")
+		return nil, fmt.Errorf("frontend name for Vite must be a single directory name")
 	}
 	directory := filepath.Join(root, filepath.FromSlash(frontend.Root))
 	canonical, err := filepath.EvalSymlinks(directory)
 	if err != nil || canonical != directory {
-		return nil, fmt.Errorf("Vite root must be an app-relative non-symlink directory")
+		return nil, fmt.Errorf("frontend root for Vite must be an app-relative non-symlink directory")
 	}
 	reserved := []string{"/api", "/auth", "/__app", "/__scenery"}
 	for _, resource := range result.Manifest.Resources {
@@ -60,7 +60,7 @@ func buildWorkerFrontend(ctx context.Context, result *compiler.Result, frontend 
 	build := exec.CommandContext(ctx, program, args...)
 	build.Dir = frontend.Root
 	if output, err := build.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("Vite build %s: %w\n%s", frontend.Name, err, tailLines(string(output), 30))
+		return nil, fmt.Errorf("build Vite frontend %s: %w\n%s", frontend.Name, err, tailLines(string(output), 30))
 	}
 	frontend.Root = filepath.Join(frontend.Root, "dist")
 	verified, err := staticfrontend.Open(frontend.Root, frontend.Reserved)

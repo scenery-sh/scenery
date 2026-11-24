@@ -31,12 +31,14 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		digest := sha256.Sum256([]byte(resource.Address))
 		service := workerruntime.WorkerServicePlan{
 			Address: resource.Address, Name: resource.Name, Module: resource.Module, Process: fmt.Sprintf("worker-%x", digest[:8]),
-			Operations: make(map[string]workerruntime.WorkerOperationPlan), Clients: make(map[string]string),
+			Operations: make(map[string]workerruntime.WorkerOperationPlan), Clients: make(map[string]workerruntime.WorkerClientPlan),
 			Durable: make(map[string]workerruntime.WorkerDurablePlan),
 		}
 		for _, client := range cp.NamedChildren(resource.Spec, "client") {
 			binding := workerReference(resource, client["binding"], "binding")
-			service.Clients[cp.StringValue(client["name"])] = binding
+			service.Clients[cp.StringValue(client["name"])] = workerruntime.WorkerClientPlan{
+				Binding: binding, Enqueue: cp.StringValue(projection.resources[binding].Spec["delivery"]) == "enqueue",
+			}
 		}
 		projection.services[resource.Address] = service
 	}

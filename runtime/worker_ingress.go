@@ -41,7 +41,7 @@ func (w *workerIngressWriter) neutralize() {
 		return
 	}
 	w.started = true
-	headers := w.ResponseWriter.Header()
+	headers := w.Header()
 	names := map[string]string{
 		processGenerationHeader: "X-App-Generation", http.CanonicalHeaderKey(processIdentityPIDHeader): "X-App-Host-Pid",
 		processIdentityContractHdr: "X-App-Contract-Revision", processIdentityImplHeader: "X-App-Implementation-Revision",

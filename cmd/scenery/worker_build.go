@@ -86,7 +86,7 @@ func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServi
 			selected.Workspace, selected.Toolchain = root, cp.StringValue(toolchain.Spec["version"])
 		}
 		if selected.Workspace == "" || selected.Toolchain == "" || selected.Crate == "" {
-			return nil, fmt.Errorf("Rust service %s has no selected %s Cargo target", service.Address, role)
+			return nil, fmt.Errorf("service %s has no selected %s Cargo target", service.Address, role)
 		}
 		services[service.Address] = selected
 	}

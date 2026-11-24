@@ -52,33 +52,22 @@ func Build(ctx context.Context, root string, services []Service, release, check 
 	}
 	canonical, err := filepath.EvalSymlinks(privateRoot)
 	if err != nil || canonical != privateRoot {
-		return nil, fmt.Errorf("Rust build root must remain in the application workspace")
-	}
-	snapshot, err := os.MkdirTemp(privateRoot, "source-")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = os.RemoveAll(snapshot) }()
-	if err := copySources(ctx, root, snapshot, true); err != nil {
-		return nil, err
-	}
-	const sdk = ".scenery/gen/rust-sdk"
-	if err := copySources(ctx, filepath.Join(root, sdk), filepath.Join(snapshot, sdk), false); err != nil {
-		return nil, err
-	}
-	artifacts := make(map[Service]Artifact, len(services))
-	for _, service := range services {
-		if err := addEntrypoint(snapshot, service); err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("build root for Rust must remain in the application workspace")
 	}
 	// Cargo releases its target-directory lock before its caller can read the
-	// executable. Hold the publication lock through the copy to our own cache.
+	// executable. Hold the lock through snapshot sync and executable publication.
 	unlock, err := devprocess.LockSubstrate(cache, "cargo-target", devprocess.LockOptions{})
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
+	// Cargo tracks dependency paths and file mtimes. Keep both stable for
+	// unchanged files, including the injected bin declarations.
+	snapshot := filepath.Join(privateRoot, "snapshot")
+	if err := prepareSnapshot(ctx, root, snapshot, services); err != nil {
+		return nil, err
+	}
+	artifacts := make(map[Service]Artifact, len(services))
 	for _, service := range services {
 		artifact, err := buildService(ctx, snapshot, filepath.Join(cache, "rust-target"), privateRoot, service, release, check)
 		if err != nil {
@@ -89,8 +78,31 @@ func Build(ctx context.Context, root string, services []Service, release, check 
 	return artifacts, nil
 }
 
-func copySources(ctx context.Context, root, destination string, skipIgnored bool) error {
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+func prepareSnapshot(ctx context.Context, root, snapshot string, services []Service) error {
+	manifests := make(map[string][]byte)
+	for _, service := range services {
+		worker := filepath.Join(root, service.ModuleDirectory, "scenerycontract", service.ServiceName+"_worker.rs")
+		if info, err := os.Lstat(worker); err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("service %s has no generated worker entrypoint", service.ServiceName)
+		}
+		manifest := filepath.Join(service.ModuleDirectory, "Cargo.toml")
+		manifests[manifest] = fmt.Appendf(manifests[manifest], "\n[[bin]]\nname = %q\npath = %q\n", binaryName(service), "scenerycontract/"+service.ServiceName+"_worker.rs")
+	}
+	if err := syncSources(ctx, root, snapshot, true, manifests); err != nil {
+		return err
+	}
+	const sdk = ".scenery/gen/rust-sdk"
+	for _, dir := range []string{".scenery", ".scenery/gen"} {
+		if err := ensureSnapshotDirectory(filepath.Join(snapshot, dir)); err != nil {
+			return err
+		}
+	}
+	return syncSources(ctx, filepath.Join(root, sdk), filepath.Join(snapshot, sdk), false, nil)
+}
+
+func syncSources(ctx context.Context, root, destination string, skipIgnored bool, suffixes map[string][]byte) error {
+	seen := make(map[string]bool)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -114,11 +126,12 @@ func copySources(ctx context.Context, root, destination string, skipIgnored bool
 				return nil
 			}
 		}
+		seen[relative] = true
 		if entry.IsDir() {
-			return os.MkdirAll(output, 0o700)
+			return ensureSnapshotDirectory(output)
 		}
 		if !entry.Type().IsRegular() {
-			return fmt.Errorf("Rust build input is not a regular file: %s", relative)
+			return fmt.Errorf("build input for Rust is not a regular file: %s", relative)
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -128,26 +141,62 @@ func copySources(ctx context.Context, root, destination string, skipIgnored bool
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(output, data, mode.Mode().Perm()&0o700)
+		return syncSnapshotFile(output, append(data, suffixes[relative]...), mode.Mode().Perm()&0o700)
 	})
-}
-
-func addEntrypoint(snapshot string, service Service) error {
-	module := filepath.Join(snapshot, service.ModuleDirectory)
-	manifest := filepath.Join(module, "Cargo.toml")
-	worker := filepath.Join(module, "scenerycontract", service.ServiceName+"_worker.rs")
-	if info, err := os.Lstat(worker); err != nil || !info.Mode().IsRegular() {
-		return fmt.Errorf("service %s has no generated worker entrypoint", service.ServiceName)
-	}
-	file, err := os.OpenFile(manifest, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return err
 	}
-	_, writeErr := fmt.Fprintf(file, "\n[[bin]]\nname = %q\npath = %q\n", binaryName(service), "scenerycontract/"+service.ServiceName+"_worker.rs")
-	if closeErr := file.Close(); writeErr == nil {
-		writeErr = closeErr
+	return filepath.WalkDir(destination, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(destination, path)
+		if err != nil {
+			return err
+		}
+		if skipIgnored && relative == ".scenery" && entry.IsDir() {
+			return filepath.SkipDir
+		}
+		if seen[relative] {
+			return nil
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+}
+
+func ensureSnapshotDirectory(path string) error {
+	if info, err := os.Lstat(path); err == nil && !info.IsDir() {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
 	}
-	return writeErr
+	return os.MkdirAll(path, 0o700)
+}
+
+func syncSnapshotFile(path string, data []byte, mode fs.FileMode) error {
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode().IsRegular() {
+			previous, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if bytes.Equal(previous, data) && info.Mode().Perm() == mode {
+				return nil
+			}
+		} else if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(path, data, mode); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
 }
 
 func binaryName(service Service) string { return "scenery-worker-" + service.ServiceName }
@@ -186,7 +235,7 @@ func buildService(ctx context.Context, snapshot, target, privateRoot string, ser
 	}
 	relative, err := filepath.Rel(target, executable)
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return Artifact{}, fmt.Errorf("Cargo executable is outside its target directory")
+		return Artifact{}, fmt.Errorf("executable reported by Cargo is outside its target directory")
 	}
 	data, err := os.ReadFile(executable)
 	if err != nil {
@@ -231,7 +280,7 @@ func workerExecutable(output []byte, name string) (string, error) {
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
-	return "", fmt.Errorf("Cargo did not report executable %s", name)
+	return "", fmt.Errorf("no executable reported by Cargo for %s", name)
 }
 
 func rustBuildEnvironment(target string) []string {

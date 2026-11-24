@@ -237,14 +237,16 @@ func (stream *workerStream) Close() error {
 func (workers *workerHost) serveCapability(service string, w http.ResponseWriter, request *http.Request) {
 	plan := workers.services[service]
 	switch request.URL.Path {
-	case workerabi.CapabilityPrefix + "binding/invoke", workerabi.CapabilityPrefix + "durable/enqueue":
-		workers.serveBindingCapability(plan, w, request)
+	case workerabi.CapabilityPrefix + "binding/invoke":
+		workers.serveBindingCapability(plan, w, request, false)
+	case workerabi.CapabilityPrefix + "durable/enqueue":
+		workers.serveBindingCapability(plan, w, request, true)
 	default:
 		http.NotFound(w, request)
 	}
 }
 
-func (workers *workerHost) serveBindingCapability(plan WorkerServicePlan, w http.ResponseWriter, request *http.Request) {
+func (workers *workerHost) serveBindingCapability(plan WorkerServicePlan, w http.ResponseWriter, request *http.Request, enqueue bool) {
 	if request.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -260,12 +262,12 @@ func (workers *workerHost) serveBindingCapability(plan WorkerServicePlan, w http
 		http.Error(w, "invalid capability request", http.StatusBadRequest)
 		return
 	}
-	binding := plan.Clients[client]
-	if binding == "" {
+	clientPlan := plan.Clients[client]
+	if clientPlan.Binding == "" || clientPlan.Enqueue != enqueue {
 		http.Error(w, "client is unavailable", http.StatusForbidden)
 		return
 	}
-	output, err := InvokeContractBindingJSON(request.Context(), binding, plan.Module, fields["input"])
+	output, err := InvokeContractBindingJSON(request.Context(), clientPlan.Binding, plan.Module, fields["input"])
 	if err != nil {
 		writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Error: newProcessLinkError(err)})
 		return

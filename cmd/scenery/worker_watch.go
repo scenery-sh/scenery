@@ -179,7 +179,7 @@ func (watch *workerWatcher) currentGeneration(ctx context.Context) (uint64, erro
 	defer func() { _ = response.Body.Close() }()
 	var status struct{ Current uint64 }
 	if response.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("Host did not confirm the generation")
+		return 0, fmt.Errorf("host did not confirm the generation")
 	}
 	err = json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&status)
 	return status.Current, err

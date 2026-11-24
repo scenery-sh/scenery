@@ -101,7 +101,7 @@ func (p rustContractProjection) renderService(source *strings.Builder, service R
 		clientName := goName(client.Name) + "Client"
 		fmt.Fprintf(source, "#[derive(Clone, Copy, Default)]\npub struct %s;\nimpl %s {\n", clientName, clientName)
 		if client.Delivery == "enqueue" {
-			fmt.Fprintf(source, "    pub async fn enqueue(&self, ctx: &sdk::Context, input: %sInput) -> sdk::Result<Box<RawValue>> {\n        ctx.invoke(%q, &input).await\n    }\n", name, client.Name)
+			fmt.Fprintf(source, "    pub async fn enqueue(&self, ctx: &sdk::Context, input: %sInput) -> sdk::Result<sdk::DispatchReceipt> {\n        ctx.enqueue(%q, &input).await\n    }\n", name, client.Name)
 		} else {
 			fmt.Fprintf(source, "    pub async fn invoke(&self, ctx: &sdk::Context, input: %sInput) -> sdk::Result<%sOutcome> {\n        let outcome = ctx.invoke(%q, &input).await?;\n        %sOutcome::from_wire(&outcome)\n    }\n", name, name, client.Name, name)
 		}

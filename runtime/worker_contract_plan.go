@@ -18,9 +18,14 @@ type WorkerServicePlan struct {
 	Name       string
 	Process    string
 	Operations map[string]WorkerOperationPlan
-	Clients    map[string]string
+	Clients    map[string]WorkerClientPlan
 	Bindings   []WorkerBindingPlan
 	Durable    map[string]WorkerDurablePlan
+}
+
+type WorkerClientPlan struct {
+	Binding string
+	Enqueue bool
 }
 
 type WorkerOperationPlan struct {
