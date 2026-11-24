@@ -13,7 +13,7 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 	for index := range result {
 		service := &result[index]
 		runtime := stringValue(service.Spec["runtime"])
-		if service.Kind != "scenery.service" || (runtime != "go" && runtime != "rust") {
+		if service.Kind != "scenery.service" || (runtime != "go" && !IsExternalWorkerRuntime(runtime)) {
 			continue
 		}
 		config, _ := service.Spec["config"].(map[string]any)

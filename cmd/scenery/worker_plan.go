@@ -31,7 +31,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		runtimeServices[service.Address] = true
 	}
 	for _, resource := range manifest.Resources {
-		if resource.Kind != "scenery.service" || !runtimeServices[resource.Address] && cp.StringValue(resource.Spec["runtime"]) != "rust" {
+		if resource.Kind != "scenery.service" || !runtimeServices[resource.Address] && !compiler.IsExternalWorkerRuntime(cp.StringValue(resource.Spec["runtime"])) {
 			continue
 		}
 		if other, exists := moduleOwners[resource.Module]; exists {

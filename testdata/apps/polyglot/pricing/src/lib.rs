@@ -3,16 +3,19 @@ use std::time::Duration;
 
 use scenerycontract::{
     DownloadInput, DownloadOutcome, NativeClient, NativeClientOutcome, PricingConstructorInput,
-    PricingService, QuoteInput, QuoteOutcome, QuoteResult, SettleInput, SettleOutcome, sdk,
+    PricingService, QuoteInput, QuoteOutcome, QuoteResult, SettleInput, SettleOutcome,
+    TypescriptClient, TypescriptClientInput, TypescriptClientOutcome, sdk,
 };
 
 pub struct Service {
     native: NativeClient,
+    typescript: TypescriptClient,
 }
 
 pub fn new_service(input: PricingConstructorInput) -> sdk::Result<Service> {
     Ok(Service {
         native: input.native,
+        typescript: input.typescript,
     })
 }
 
@@ -35,6 +38,21 @@ impl PricingService for Service {
             eprintln!("delayed quote {} started", call.amount);
             sdk::sleep(Duration::from_millis(delay.clamp(1, 9_000) as u64)).await;
             call.completed = true;
+        }
+        if input.note == Some(Some("typescript".to_owned())) {
+            let TypescriptClientOutcome::Ok(echo) = self
+                .typescript
+                .invoke(
+                    &context,
+                    TypescriptClientInput {
+                        amount: input.amount,
+                        note: input.note.clone(),
+                    },
+                )
+                .await?;
+            if echo.amount != input.amount {
+                return Err("TypeScript did not preserve the exact integer".into());
+            }
         }
         let NativeClientOutcome::Ok(native) = self.native.invoke(&context, sdk::Unit {}).await?;
         let mut currency = None;

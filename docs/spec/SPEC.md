@@ -75,6 +75,28 @@ Composites: `list(T)`, `map(string, T)`, `optional(T)`, `nullable(T)`,
   typed outcomes, and clients derived from the caller's declarations. The
   selected Cargo target checks the implementation and links it to the
   [Worker ABI v1 adapter](WORKER-ABI.md).
+- A JavaScript or TypeScript service declares `runtime = "js"` or
+  `runtime = "ts"` and package metadata `js_contract { entry = "service.ts" }`.
+  The entry is a regular module-relative `.js`/`.mjs` or `.ts`/`.mts` file
+  matching the service runtime. Its named export comes from
+  `service.implementation.constructor`. Each worker service has its own
+  module directory. The nearest covering `js_workspace { root = "..." }`
+  selects its `js_target` with role `development` or `artifact`.
+  The target references the workspace and a `js_toolchain` with an exact
+  Bun release in `version`.
+- Generation publishes `<module>/scenerycontract` beneath a declared
+  `managed_generated_roots` entry. Its `index.ts` exports the constructor
+  and handler interfaces, operation types, and scoped `service.client`
+  clients. It uses the generated TypeScript client's exact codecs, including
+  `bigint` for 64-bit integers, exact decimal strings, and optional,
+  nullable properties. The constructor can open native database connections
+  using deployment-supplied URLs keyed by declared dependency name.
+- `scenery check` checks the TypeScript entry with `tsc --noEmit` and
+  bundles each JavaScript or TypeScript module to verify syntax and imports
+  without running application code. Development replaces only the worker
+  whose module build inputs changed. The artifact target embeds the JavaScript
+  and Bun runtime in a per-module executable in the Host's portable bundle.
+  Bundle execution requires the build platform and architecture.
 - `service.runtime` selects the implementation adapter and contributes to the
   implementation revision. Service declarations keep the same contract
   revision when only the implementation runtime changes.

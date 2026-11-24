@@ -1,7 +1,7 @@
 # Worker ABI v1
 
-The manifest-driven Host and its Go and Rust workers use HTTP/2 with prior knowledge over private Unix
-domain sockets. They use distinct listeners and pool connections across
+The manifest-driven Host and its Go, Rust, JavaScript, and TypeScript workers
+use HTTP/2 with prior knowledge over private Unix domain sockets. They use distinct listeners and pool connections across
 invocations. The supervisor provides the two socket paths and a bearer token
 unique to the worker instance through its private launch configuration. Each
 request carries the token in `Authorization`. The Host authenticates instance
@@ -44,8 +44,8 @@ traceparent, deadline, locale, execution ID and metadata are optional. The
 Host constructs this context from its own authenticated invocation. A worker
 verifies the addressed service and contract revision before dispatch. A service or contract revision mismatch returns HTTP 409.
 The Host may include request type, admission time, caller binding, deployment,
-trace identity, and authenticated identity data in metadata. SQL connections
-for Go services are configured at startup and connect directly to PostgreSQL.
+trace identity, and authenticated identity data in metadata. Go and JavaScript/TypeScript workers receive database connection information
+at startup and connect directly to PostgreSQL.
 
 A successful JSON response contains `outcome`, the contract outcome envelope
 with `kind`, `name` and `value` for a declared result or `problem` for a
@@ -92,8 +92,8 @@ for the Host to authorize.
 The Host and SDK validate the applicable contract type before dispatch and
 after receipt. Canonical wire bytes preserve exact numeric values, tagged
 outcomes and the distinction between missing and null fields. The shared
-wire conformance corpus covers integer bounds, exact scalars, presence, and
-closed records and enums in Go, Rust, and the generated TypeScript runtime.
+wire conformance corpus covers integer bounds, exact scalars, presence,
+closed records, enums, and outcomes in Go, Rust, and JavaScript/TypeScript.
 
 ## Delivery and cancellation
 

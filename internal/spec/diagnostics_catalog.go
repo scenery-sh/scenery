@@ -334,6 +334,10 @@ SCN6160|rust_workspace|A Rust workspace root is missing unsafe or ambiguous
 SCN6161|rust_toolchain|A Rust toolchain version is not exact semantic version
 SCN6162|rust_target|A Rust target has an invalid workspace toolchain or role
 SCN6163|rust_service_declaration|A Rust service has an invalid crate or build target
+SCN6164|js_workspace|A JavaScript workspace root is missing unsafe or ambiguous
+SCN6165|js_toolchain|A Bun toolchain version is not exact semantic version
+SCN6166|js_target|A JavaScript target has an invalid workspace toolchain or role
+SCN6167|js_service_implementation|A JavaScript service has an invalid entry build target or implementation
 SCN6202|go_verification|Staged Go target or implementation verification failed
 SCN6204|stale_generated_typescript|Committed generated TypeScript artifacts are stale or invalid
 SCN6207|generated_artifact_transaction|Generated artifact planning overlay or transaction failed

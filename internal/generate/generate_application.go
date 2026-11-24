@@ -32,7 +32,7 @@ type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
 
 func goRuntimeServices(resources []Resource) []Resource {
 	return slices.DeleteFunc(compiler.RuntimeServices(resources), func(service Resource) bool {
-		return stringValue(service.Spec["runtime"]) == "rust"
+		return compiler.IsExternalWorkerRuntime(stringValue(service.Spec["runtime"]))
 	})
 }
 

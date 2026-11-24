@@ -28,6 +28,9 @@ type resourceConditionalRequirement struct {
 }
 
 var resourceSchemas = map[string]resourceSchema{
+	"scenery.js-workspace":   {RevisionDomain: "implementation", Required: []string{"root"}, Attributes: []string{"root"}},
+	"scenery.js-toolchain":   {RevisionDomain: "implementation", Required: []string{"version"}, Attributes: []string{"version"}},
+	"scenery.js-target":      {RevisionDomain: "implementation", Required: []string{"role", "workspace", "toolchain"}, Attributes: []string{"role", "workspace", "toolchain"}},
 	"scenery.rust-workspace": {RevisionDomain: "implementation", Required: []string{"root"}, Attributes: []string{"root"}},
 	"scenery.rust-toolchain": {RevisionDomain: "implementation", Required: []string{"version"}, Attributes: []string{"version"}},
 	"scenery.rust-target":    {RevisionDomain: "implementation", Required: []string{"role", "workspace", "toolchain"}, Attributes: []string{"role", "workspace", "toolchain"}},

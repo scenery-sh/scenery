@@ -3,6 +3,7 @@ package "consumer" {
 }
 
 input "gateway" { type = resource_ref("http_gateway") }
+input "typescript" { type = resource_ref("binding") }
 input "quote" { type = resource_ref("binding") }
 input "session" { type = resource_ref("authentication") }
 
@@ -10,10 +11,12 @@ service "consumer" {
   runtime = "go"
   implementation { constructor = "NewService" }
   client "quote" { binding = var.quote }
+  client "typescript" { binding = var.typescript }
 }
 
 record "delegate_input" {
   field "amount" { type = int64 }
+  field "typescript" { type = optional(bool) }
 }
 
 record "delegate_result" {

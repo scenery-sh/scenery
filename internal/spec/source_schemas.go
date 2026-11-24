@@ -259,6 +259,7 @@ var authoredStructuralSchemas = map[string]*authoredBlockSchema{
 	"module":      sourceSchema("scenery.source.module", 1, []string{"source", "inputs"}, []string{"source"}, nil),
 	"package": sourceSchema("scenery.source.package", 1, nil, nil, map[string]authoredChildSchema{
 		"go_contract":   singleton(goContractSourceSchema),
+		"js_contract":   singleton(sourceSchema("scenery.source.package.js_contract", 0, []string{"entry"}, []string{"entry"}, nil)),
 		"rust_contract": singleton(sourceSchema("scenery.source.package.rust_contract", 0, []string{"crate"}, []string{"crate"}, nil)),
 	}),
 	"input": sourceSchema("scenery.source.input", 1,

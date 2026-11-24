@@ -23,6 +23,7 @@ type workerDevelopment struct {
 	declarations map[string]bool
 	goWorkspace  *build.Result
 	rust         workerRustDevelopment
+	js           []workerJSBuild
 }
 
 type workerRustDevelopment struct {
@@ -32,6 +33,7 @@ type workerRustDevelopment struct {
 	artifacts map[rustbuild.Service]rustbuild.Artifact
 	digests   map[rustbuild.Service]string
 	generated []string
+	jsModules []string
 }
 
 func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs workerInputs) (*workerDevelopment, workerBundle, error) {
@@ -44,6 +46,10 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs
 		return nil, workerBundle{}, err
 	}
 	bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
+	bundle, err = dev.rebuildJS(ctx, workerBundle{}, bundle, nil, true, &workerRebuildTiming{})
+	if err != nil {
+		return nil, workerBundle{}, err
+	}
 	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, nil, []string{})
 	if err != nil {
 		return nil, workerBundle{}, err
@@ -73,8 +79,16 @@ func (dev *workerDevelopment) prepare(ctx context.Context) (workerBundle, error)
 	if err != nil {
 		return workerBundle{}, err
 	}
+	dev.js, err = projectJSBuilds(result, bundle, "development")
+	if err != nil {
+		return workerBundle{}, err
+	}
 	dev.compiled, dev.declarations = result, declarations
 	dev.rust.selection, dev.rust.services, dev.rust.generated = selection, services, dev.watch.generated
+	dev.rust.jsModules = make([]string, 0, len(dev.js))
+	for _, build := range dev.js {
+		dev.rust.jsModules = append(dev.rust.jsModules, build.service.Directory)
+	}
 	return bundle, nil
 }
 
@@ -131,6 +145,10 @@ func (dev *workerDevelopment) rebuild(ctx context.Context, active workerBundle, 
 		next.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
 	} else {
 		next.keepPrograms(active, "rust")
+	}
+	next, err := dev.rebuildJS(ctx, active, next, paths, edit.declarations, timing)
+	if err != nil {
+		return workerBundle{}, err
 	}
 	goChanged, err := build.DevelopmentGoInputsChanged(dev.goWorkspace, paths)
 	if err != nil {
@@ -229,6 +247,9 @@ func (bundle *workerBundle) keepPrograms(active workerBundle, runtime string) {
 }
 
 func (rust *workerRustDevelopment) rebuild(ctx context.Context, root string, current workerInputs, rediscover bool) ([]string, error) {
+	if len(rust.services) == 0 {
+		return nil, nil
+	}
 	if rediscover {
 		inputs, err := rustbuild.DiscoverDevelopmentInputs(ctx, root, rust.services)
 		if err != nil {
@@ -243,7 +264,7 @@ func (rust *workerRustDevelopment) rebuild(ctx context.Context, root string, cur
 	digests := make(map[rustbuild.Service]string, len(rust.services))
 	var selected []rustbuild.Service
 	for _, service := range rust.services {
-		digest, err := workerRustDigest(root, service, rust.inputs, current)
+		digest, err := rust.digest(root, service, current)
 		if err != nil {
 			return nil, err
 		}
@@ -271,7 +292,7 @@ func (rust *workerRustDevelopment) rebuild(ctx context.Context, root string, cur
 func (rust *workerRustDevelopment) affects(paths []string) bool {
 	for _, service := range rust.services {
 		for _, path := range paths {
-			if rustWorkerInput(rust.inputs, service, path) {
+			if rust.consumes(service, path) {
 				return true
 			}
 		}
@@ -279,7 +300,7 @@ func (rust *workerRustDevelopment) affects(paths []string) bool {
 	return false
 }
 
-func rustWorkerInput(inputs *rustbuild.DevelopmentInputs, service rustbuild.Service, path string) bool {
+func (rust *workerRustDevelopment) consumes(service rustbuild.Service, path string) bool {
 	switch filepath.Base(path) {
 	case "go.mod", "go.sum", "go.work", "go.work.sum", ".scenery.json":
 		return false
@@ -287,13 +308,20 @@ func rustWorkerInput(inputs *rustbuild.DevelopmentInputs, service rustbuild.Serv
 	if filepath.Ext(path) == ".go" || filepath.Ext(path) == ".scn" {
 		return false
 	}
-	return inputs.Consumes(service, path)
+	// A Cargo workspace root may also cover independent JS worker modules.
+	// Preserve Rust inputs in a Rust package nested below a JS module.
+	for _, directory := range rust.jsModules {
+		if pathUnder(directory, path) && (!pathUnder(directory, service.ModuleDirectory) || !pathUnder(service.ModuleDirectory, path)) {
+			return false
+		}
+	}
+	return rust.inputs.Consumes(service, path)
 }
 
 func (rust *workerRustDevelopment) verifyInputs(root string, current workerInputs, selected []rustbuild.Service) func(map[string][sha256.Size]byte) error {
 	applies := func(path string) bool {
 		return slices.ContainsFunc(selected, func(service rustbuild.Service) bool {
-			return rustWorkerInput(rust.inputs, service, path)
+			return rust.consumes(service, path)
 		})
 	}
 	scope := workerInputWatch{root: root, generated: rust.generated}
@@ -314,10 +342,10 @@ func (rust *workerRustDevelopment) verifyInputs(root string, current workerInput
 	}
 }
 
-func workerRustDigest(root string, service rustbuild.Service, inputs *rustbuild.DevelopmentInputs, current workerInputs) (string, error) {
+func (rust *workerRustDevelopment) digest(root string, service rustbuild.Service, current workerInputs) (string, error) {
 	hash := sha256.New()
 	for _, path := range slices.Sorted(maps.Keys(current)) {
-		if rustWorkerInput(inputs, service, path) {
+		if rust.consumes(service, path) {
 			input := current[path]
 			_, _ = fmt.Fprintf(hash, "%s\x00%x/%o\n", path, input.Digest, input.Mode)
 		}

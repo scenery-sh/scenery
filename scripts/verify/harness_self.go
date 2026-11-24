@@ -553,6 +553,7 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 		"internal",
 		"middleware",
 		"runtime",
+		"sdk/js",
 		"sdk/rust",
 		"ui",
 	}

@@ -1,0 +1,220 @@
+// Package jsbuild checks and bundles independent JavaScript worker entrypoints.
+package jsbuild
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/tscheck"
+)
+
+type Service struct {
+	compiler.JSWorkerTarget
+	Name    string
+	Runtime string
+}
+
+type Artifact struct {
+	Path     string
+	Digest   string
+	CacheHit bool
+}
+
+func Build(ctx context.Context, root string, service Service, check bool) (Artifact, error) {
+	privateRoot := filepath.Join(root, ".scenery", "js")
+	if err := os.MkdirAll(privateRoot, 0o700); err != nil {
+		return Artifact{}, err
+	}
+	if canonical, err := filepath.EvalSymlinks(privateRoot); err != nil || canonical != privateRoot {
+		return Artifact{}, fmt.Errorf("JavaScript build directory must remain in the application workspace")
+	}
+
+	key := sha256.Sum256([]byte(service.Name))
+	cache := filepath.Join(privateRoot, fmt.Sprintf("build-%x.json", key[:8]))
+	if !check {
+		if prior := readBuildCache(root, cache, service); prior.CacheHit {
+			return prior, nil
+		}
+	}
+	var before string
+	if !check {
+		var err error
+		before, err = buildFingerprint(root, service, nil)
+		if err != nil {
+			return Artifact{}, err
+		}
+	}
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		return Artifact{}, fmt.Errorf("service %s requires Bun %s: %w", service.Name, service.Version, err)
+	}
+	version, err := exec.CommandContext(ctx, bun, "--version").Output()
+	if err != nil {
+		return Artifact{}, fmt.Errorf("read Bun version: %w", err)
+	}
+	if strings.TrimSpace(string(version)) != service.Version {
+		return Artifact{}, fmt.Errorf("service %s requires Bun %s, found %s", service.Name, service.Version, strings.TrimSpace(string(version)))
+	}
+	staging, err := os.MkdirTemp(privateRoot, "build-")
+	if err != nil {
+		return Artifact{}, err
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+	directory := filepath.Join(root, service.Directory)
+	entry := filepath.Join(directory, "scenerycontract", "main.ts")
+	if check && service.Runtime == "ts" {
+		if err := checkTypeScript(ctx, root, directory, staging, entry); err != nil {
+			return Artifact{}, err
+		}
+	}
+	output := filepath.Join(staging, "worker")
+	metadata := filepath.Join(staging, "modules.json")
+	args := []string{"build", "--no-env-file", "--target=bun", "--packages=bundle", "--outfile=" + output, "--metafile=" + metadata}
+	if !check {
+		args = append(args, "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig")
+	}
+	command := exec.CommandContext(ctx, bun, append(args, entry)...)
+	command.Dir = staging
+	if logs, err := command.CombinedOutput(); err != nil {
+		return Artifact{}, fmt.Errorf("bundle %s: %w\n%s", service.Name, err, logs)
+	}
+	inputs, err := verifyImports(root, directory, staging, metadata)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if check {
+		return Artifact{}, nil
+	}
+
+	after, err := buildFingerprint(root, service, nil)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if before != after {
+		return Artifact{}, fmt.Errorf("JavaScript worker sources changed during build")
+	}
+	dependencies := cacheDependencies(root, directory, inputs)
+	fingerprint, err := buildFingerprint(root, service, dependencies)
+	if err != nil {
+		return Artifact{}, err
+	}
+	digest, err := fileDigest(output)
+	if err != nil {
+		return Artifact{}, err
+	}
+	destination := filepath.Join(privateRoot, "worker-"+digest)
+	if err := os.Rename(output, destination); err != nil {
+		return Artifact{}, err
+	}
+
+	record, err := json.Marshal(buildCacheEntry{Inputs: fingerprint, Executable: digest, Dependencies: dependencies})
+	if err != nil {
+		return Artifact{}, err
+	}
+	recordPath := filepath.Join(staging, "build.json")
+	if err := os.WriteFile(recordPath, record, 0o600); err != nil {
+		return Artifact{}, err
+	}
+	if err := os.Rename(recordPath, cache); err != nil {
+		return Artifact{}, err
+	}
+	return Artifact{Path: destination, Digest: "sha256:" + digest}, nil
+}
+
+func checkTypeScript(ctx context.Context, root, module, staging, entry string) error {
+	binary, err := tscheck.ManagedBinary(ctx, root)
+	if err != nil {
+		return err
+	}
+	config := map[string]any{
+		"files":   []string{entry},
+		"include": []string{},
+		"compilerOptions": map[string]any{
+			"noEmit": true, "allowImportingTsExtensions": true, "composite": false, "incremental": false,
+			"target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+			"lib":    []string{"ES2022", "DOM", "DOM.Iterable"},
+			"strict": true, "exactOptionalPropertyTypes": true,
+		},
+	}
+	tsconfig := filepath.Join(module, "tsconfig.json")
+	if info, err := os.Lstat(tsconfig); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("TypeScript configuration must be a regular file")
+		}
+		config["extends"] = tsconfig
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	data, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(staging, "tsconfig.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	command := exec.CommandContext(ctx, binary, "--project", path, "--noEmit", "--pretty", "false")
+	command.Dir = module
+	if logs, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("typecheck %s: %w\n%s", filepath.Base(module), err, logs)
+	}
+	return nil
+}
+
+func verifyImports(root, module, cwd, path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var graph struct {
+		Inputs map[string]struct{} `json:"inputs"`
+	}
+	if err := json.Unmarshal(data, &graph); err != nil {
+		return nil, err
+	}
+	if len(graph.Inputs) == 0 {
+		return nil, fmt.Errorf("bun did not report its worker input graph")
+	}
+	dependency := func(path string) bool {
+		relative, err := filepath.Rel(root, path)
+		return err == nil && filepath.IsLocal(relative) && slices.Contains(strings.Split(relative, string(filepath.Separator)), "node_modules")
+	}
+	inputs := make([]string, 0, len(graph.Inputs))
+	for path := range graph.Inputs {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(cwd, path)
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil, err
+		}
+		relative, err := filepath.Rel(module, path)
+		if (err != nil || !filepath.IsLocal(relative) || path != resolved) && (!dependency(path) || !dependency(resolved)) {
+			return nil, fmt.Errorf("JavaScript worker import %s must belong to its module or installed workspace dependencies", path)
+		}
+		inputs = append(inputs, path)
+	}
+	return inputs, nil
+}
+
+func fileDigest(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", digest.Sum(nil)), nil
+}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/model"
 )
 
@@ -145,7 +146,7 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 			continue
 		}
 		serviceResource := byAddress[resolveResourceRef(operation, refString(operation.Spec["service"]), "service")]
-		if stringValue(serviceResource.Spec["runtime"]) == "rust" {
+		if compiler.IsExternalWorkerRuntime(stringValue(serviceResource.Spec["runtime"])) {
 			continue
 		}
 		implementation, _ := serviceResource.Spec["implementation"].(map[string]any)

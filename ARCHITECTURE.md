@@ -5,7 +5,7 @@ applications declared in `app.scn` and package-local `package.scn` files, with
 independent runtime config in `.scenery.json`.
 
 ```text
-.scenery.json + app.scn + package.scn + app.lock.scn + Go and Rust implementations
+.scenery.json + app.scn + package.scn + app.lock.scn + Go, Rust, JS/TS implementations
   → internal/app + internal/scn + internal/spec + internal/compiler
   → canonical source / effective / expanded manifests
   → internal/generate + internal/uigen + internal/build
@@ -13,11 +13,12 @@ independent runtime config in `.scenery.json`.
   → single local server + CLI/inspect/harness/worktree tooling
 ```
 
-For worker bundles, the Host projects Go and Rust bindings from the compiled
-manifest. Both worker languages exchange scoped requests with the Host over
+For worker bundles, the Host projects bindings from the compiled manifest.
+Go, Rust, and JavaScript/TypeScript workers exchange scoped requests over
 [Worker ABI v1](docs/spec/WORKER-ABI.md). Generated Go adapters connect the
 envelope to typed operation handlers and use native PostgreSQL connections.
-Vite can run behind the development Host or supply static assets to the
+The JS/TS adapter bundles each service with its Bun runtime and reuses the
+TypeScript client wire codec. Vite can run behind the development Host or supply static assets to the
 production bundle.
 
 ## Hard Invariants

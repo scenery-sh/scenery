@@ -1,0 +1,56 @@
+package "echo" {
+  js_contract { entry = "service.ts" }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+
+service "echo" {
+  runtime = "ts"
+  implementation { constructor = "newService" }
+}
+
+record "echo_value" {
+  field "amount" { type = int64 }
+  field "note" { type = optional(nullable(string)) }
+}
+
+operation "echo" {
+  service = service.echo
+  input = record.echo_value
+  handler { method = "echo" }
+  result "ok" { type = record.echo_value }
+}
+
+execution "echo" {
+  operation = operation.echo
+  mode = "direct"
+  timeout = "10s"
+}
+
+binding "echo" {
+  gateway = var.gateway
+  operation = operation.echo
+  execution = execution.echo
+  protocol = "http"
+  delivery = "call"
+  authentication = std.authentication.none
+  authorization = std.authorization.public
+  pipeline = std.pipeline.empty
+  http {
+    method = "POST"
+    path = "/echo"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to = operation.echo.input
+    }
+    response "ok" {
+      when = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from = result.ok
+      }
+    }
+  }
+}

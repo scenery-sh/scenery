@@ -4,3 +4,6 @@
 /pricing/target/
 /web/generated/
 /consumer/scenerycontract/
+/typescript/scenerycontract/
+/mirror/scenerycontract/
+/web/dist/

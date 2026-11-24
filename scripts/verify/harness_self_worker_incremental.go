@@ -33,7 +33,7 @@ func prepareHarnessWorkerIncremental(repo, app string) error {
 	}
 	declarations := filepath.Join(app, "app.scn")
 	if err := harnessReplaceInFile(declarations, `"echo/scenerycontract",`,
-		`"echo/scenerycontract", "idle/scenerycontract", "pricing/scenerycontract", "backup/scenerycontract",`); err != nil {
+		`"echo/scenerycontract", "idle/scenerycontract", "pricing/scenerycontract", "backup/scenerycontract", "echo_ts/scenerycontract",`); err != nil {
 		return err
 	}
 	write := func(name string, data []byte) error {
@@ -68,6 +68,16 @@ func prepareHarnessWorkerIncremental(repo, app string) error {
 		}
 		backup := strings.NewReplacer("pricing", "backup", "Pricing", "Backup", `"/quote"`, `"/backup"`).Replace(string(data))
 		if err := write("backup/"+file, []byte(backup)); err != nil {
+			return err
+		}
+	}
+	for _, file := range []string{"package.scn", "service.ts"} {
+		data, err := read("ts-only", "echo/"+file)
+		if err != nil {
+			return err
+		}
+		source := strings.ReplaceAll(string(data), `"/echo"`, `"/echo-ts"`)
+		if err := write("echo_ts/"+file, []byte(source)); err != nil {
 			return err
 		}
 	}
@@ -114,6 +124,17 @@ module "backup" {
   source = "./backup"
   inputs = { gateway = http_gateway.public_api }
 }
+js_workspace "application" { root = "echo_ts" }
+js_toolchain "application" { version = "1.3.14" }
+js_target "development" {
+  role = "development"
+  workspace = js_workspace.application
+  toolchain = js_toolchain.application
+}
+module "echo_ts" {
+  source = "./echo_ts"
+  inputs = { gateway = http_gateway.public_api }
+}
 `...))
 }
 
@@ -128,6 +149,7 @@ type harnessWorkerRebuild struct {
 	Go           bool
 	GoLinks      []string `json:"go_links"`
 	Cargo        []string
+	JS           []string
 	Rebuilt      []string
 	Skipped      int
 }
@@ -188,7 +210,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 		}
 		return reply, json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&reply.Body)
 	}
-	routes := map[string]string{"/echo": `{"message":"probe"}`, "/greet": `{"name":"probe"}`, "/idle": `{"message":"probe"}`, "/quote": `{"amount":"7"}`, "/backup": `{"amount":"7"}`}
+	routes := map[string]string{"/echo": `{"message":"probe"}`, "/greet": `{"name":"probe"}`, "/idle": `{"message":"probe"}`, "/quote": `{"amount":"7"}`, "/backup": `{"amount":"7"}`, "/echo-ts": `{"amount":"7"}`}
 	readWorkers := func() (map[string]harnessWorkerReply, error) {
 		workers := make(map[string]harnessWorkerReply)
 		for route, body := range routes {
@@ -250,17 +272,24 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	summary := make(map[string]any)
+	wire := exec.CommandContext(ctx, "bun", filepath.Join(repo, "sdk/js/scenery-sdk/tests/worker-wire.mjs"),
+		filepath.Join(app, "echo_ts/scenerycontract/codec.ts"))
+	if output, err := wire.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("JavaScript wire conformance: %w: %s", err, output)
+	}
+	summary := map[string]any{"js_wire_cases": 23}
 	for _, trial := range []struct {
 		name, file, old, new, route, key, want string
-		replaced, links, cargo                 []string
+		replaced, links, cargo, js             []string
 		declarations                           bool
 	}{
-		{"Go", "echo/api.go", `text.Label("echo",`, `text.Label("next",`, "/echo", "message", "next:probe", []string{"/echo"}, []string{"echo/service/echo"}, nil, false},
-		{"Rust", "pricing/src/lib.rs", "amount: input.amount,", "amount: sdk::Int64(input.amount.0 + 1),", "/quote", "amount", "8", []string{"/quote"}, nil, []string{"pricing"}, false},
+		{"Go", "echo/api.go", `text.Label("echo",`, `text.Label("next",`, "/echo", "message", "next:probe", []string{"/echo"}, []string{"echo/service/echo"}, nil, nil, false},
+		{"Rust", "pricing/src/lib.rs", "amount: input.amount,", "amount: sdk::Int64(input.amount.0 + 1),", "/quote", "amount", "8", []string{"/quote"}, nil, []string{"pricing"}, nil, false},
 		{"Go shared", "internal/text/text.go", `service + ":" + message`, `service + "::" + message`, "/echo", "message", "next::probe",
-			[]string{"/echo", "/greet"}, []string{"echo/service/echo", "greeter/service/greeter"}, nil, false},
-		{"declaration", "app.scn", "application \"multiservice\" {", "# declaration refresh\napplication \"multiservice\" {", "", "", "", nil, nil, nil, true},
+			[]string{"/echo", "/greet"}, []string{"echo/service/echo", "greeter/service/greeter"}, nil, nil, false},
+		{"TypeScript", "echo_ts/service.ts", "value: input", "value: { ...input, amount: input.amount + 1n }", "/echo-ts", "amount", "8",
+			[]string{"/echo-ts"}, nil, nil, []string{"echo_ts/service/echo"}, false},
+		{"declaration", "app.scn", "application \"multiservice\" {", "# declaration refresh\napplication \"multiservice\" {", "", "", "", nil, nil, nil, nil, true},
 	} {
 		stat, err := output.Stat()
 		if err != nil {
@@ -303,7 +332,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 		}
 		slices.Sort(timing.GoLinks)
 		if timing.Declarations != trial.declarations || timing.Go != (len(trial.links) != 0 || trial.declarations) ||
-			!slices.Equal(timing.GoLinks, trial.links) || !slices.Equal(timing.Cargo, trial.cargo) ||
+			!slices.Equal(timing.GoLinks, trial.links) || !slices.Equal(timing.Cargo, trial.cargo) || !slices.Equal(timing.JS, trial.js) ||
 			timing.Skipped != len(routes)-len(trial.replaced) || len(timing.Rebuilt) != len(trial.replaced) {
 			return nil, fmt.Errorf("%s selected unexpected builds: %+v", trial.name, timing)
 		}

@@ -39,11 +39,12 @@ type workerProgram struct {
 	Digest     string                `json:"digest"`
 	Runtime    string                `json:"runtime"`
 	Identity   workerProcessIdentity `json:"identity"`
+	Databases  map[string]string     `json:"databases,omitempty"`
 	ConfigKeys []string              `json:"config_keys,omitempty"`
 	config     *workerruntime.ConfigSnapshot
 }
 
-func hasRustWorkers(result *compiler.Result) bool {
+func usesWorkerBundle(result *compiler.Result) bool {
 	return result != nil && result.Manifest != nil && compiler.UsesWorkerBundle(result.Manifest.Resources)
 }
 
@@ -96,6 +97,19 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role string
 	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role)
 	if err != nil {
 		return bundle, err
+	}
+	js, err := projectJSBuilds(result, bundle, role)
+	if err != nil {
+		return bundle, err
+	}
+	for _, build := range js {
+		program, _, err := build.run(ctx, result.Root, check)
+		if err != nil {
+			return bundle, err
+		}
+		if !check {
+			bundle.Programs = append(bundle.Programs, program)
+		}
 	}
 	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
 	if err != nil || check {

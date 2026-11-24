@@ -39,14 +39,22 @@ func TestServiceRuntimeDoesNotChangeContractIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	serviceRevision := ServiceContractRevision(manifest, service, nil)
-	service.Spec["runtime"] = "rust"
-	module.Spec["package"] = map[string]any{"name": "house", "rust_contract": map[string]any{"crate": "house"}}
-	rustAppRevision, err := ContractRevision(manifest.Resources, manifest.Application.Name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rustAppRevision != appRevision || ServiceContractRevision(manifest, service, nil) != serviceRevision {
-		t.Fatal("changing a service runtime changed contract identity")
+	for _, runtime := range []string{"rust", "ts", "js"} {
+		service.Spec["runtime"] = runtime
+		packageSpec := map[string]any{"name": "house"}
+		if runtime == "rust" {
+			packageSpec["rust_contract"] = map[string]any{"crate": "house"}
+		} else {
+			packageSpec["js_contract"] = map[string]any{"entry": "house." + runtime}
+		}
+		module.Spec["package"] = packageSpec
+		got, err := ContractRevision(manifest.Resources, manifest.Application.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != appRevision || ServiceContractRevision(manifest, service, nil) != serviceRevision {
+			t.Errorf("changing a service runtime to %s changed contract identity", runtime)
+		}
 	}
 }
 

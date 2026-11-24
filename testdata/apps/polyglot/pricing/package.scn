@@ -8,6 +8,7 @@ input "gateway" {
   type = resource_ref("http_gateway")
 }
 
+input "typescript" { type = resource_ref("binding") }
 input "native" { type = resource_ref("binding") }
 input "session" { type = resource_ref("authentication") }
 input "currency" {
@@ -27,6 +28,7 @@ service "pricing" {
     constructor = "NewService"
   }
   client "native" { binding = var.native }
+  client "typescript" { binding = var.typescript }
   config { currency = var.currency }
 }
 

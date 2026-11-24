@@ -1,0 +1,173 @@
+import { once } from "node:events";
+import { connect as connectHTTP2 } from "node:http2";
+import { connect as connectUnix } from "node:net";
+import { pipeline } from "node:stream/promises";
+
+export const MAX_METADATA = 32 << 20;
+
+export async function readMetadata(stream) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of stream) {
+    size += chunk.length;
+    if (size > MAX_METADATA) throw new Error("worker metadata limit exceeded");
+    chunks.push(chunk);
+  }
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks, size));
+}
+
+export class CapabilityError extends Error {
+  constructor(message, delivery, details) {
+    super(message);
+    this.name = "CapabilityError";
+    this.delivery = delivery;
+    this.details = details;
+  }
+}
+
+export class Host {
+  #launch;
+  #session;
+  #connecting;
+
+  constructor(launch) {
+    this.#launch = launch;
+  }
+
+  async #connect() {
+    const socket = connectUnix(this.#launch.host_socket);
+    await once(socket, "connect");
+    const session = connectHTTP2("http://host", { createConnection: () => socket });
+    session.on("error", () => session.destroy());
+    this.#session = session;
+    return session;
+  }
+
+  #connection() {
+    if (this.#session && !this.#session.destroyed && !this.#session.closed) return this.#session;
+    this.#connecting ??= this.#connect().finally(() => { this.#connecting = undefined; });
+    return this.#connecting;
+  }
+
+  close() {
+    this.#session?.destroy();
+  }
+
+  async #request(scope, signal, method, path, expected, body, headers = {}) {
+    signal.throwIfAborted();
+    let session;
+    let request;
+    try {
+      session = await this.#connection();
+      signal.throwIfAborted();
+      request = session.request({
+        ...headers, ":method": method, ":path": "/host/v1/" + path,
+        authorization: "Bearer " + this.#launch.token, "x-worker-scope": scope,
+      }, { signal, endStream: body === undefined });
+    } catch {
+      signal.throwIfAborted();
+      throw new CapabilityError("host capability unavailable", "not_sent");
+    }
+    request.on("error", () => request.destroy());
+    const response = once(request, "response", { signal });
+    const prematureClose = () => request.emit("error", new Error("host closed capability stream"));
+    request.once("close", prematureClose);
+    try {
+      if (typeof body === "string") request.end(body);
+      else if (body !== undefined) {
+        // Keep the readable side open for the Host's reply.
+        void pipeline(body, request, { signal }).catch(() => request.destroy());
+      }
+      const [received] = await response;
+      if (received[":status"] !== expected) {
+        request.resume();
+        const status = received[":status"];
+        throw new CapabilityError("host rejected capability", status >= 400 && status < 500 ? "not_sent" : "unknown", { status });
+      }
+      return { headers: received, body: request };
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof CapabilityError) throw error;
+      throw new CapabilityError("host capability interrupted", "unknown");
+    } finally {
+      request.off("close", prematureClose);
+    }
+  }
+
+  context(envelope, signal, parse) {
+    const { scope, ...invocationContext } = envelope.context;
+    const invocation = Object.freeze(invocationContext);
+    const request = (method, path, status, body, headers) =>
+      this.#request(scope, signal, method, path, status, body, headers);
+    const read = async (...args) => {
+      const response = await request(...args);
+      try {
+        return await readMetadata(response.body);
+      } catch {
+        signal.throwIfAborted();
+        throw new CapabilityError("invalid or interrupted host capability response", "unknown");
+      }
+    };
+    const json = async (...args) => JSON.parse(await read(...args));
+    const media = { "content-type": "application/json" };
+    const post = (path, value) => json("POST", path, 200, JSON.stringify(value), media);
+    const storage = (operation, store, params) =>
+      "storage/" + operation + "?" + new URLSearchParams({ store, ...params });
+    const conditions = (options) => ({
+      ...(options?.ifMatch === undefined ? {} : { "if-match": options.ifMatch }),
+      ...(options?.ifNoneMatch === undefined ? {} : { "if-none-match": options.ifNoneMatch }),
+    });
+    return Object.freeze({
+      invocation, signal, mode: envelope.mode, binding: envelope.binding,
+      async bindingRequest(client, input, enqueue = false) {
+        const payload = '{"client":' + JSON.stringify(client) + ',"input":' + input + '}';
+        if (Buffer.byteLength(payload) > MAX_METADATA) {
+          throw new CapabilityError("binding metadata exceeds the limit", "not_sent");
+        }
+        const raw = await read("POST", enqueue ? "durable/enqueue" : "binding/invoke", 200, payload, media);
+        let reply;
+        try {
+          reply = parse(raw);
+        } catch {
+          throw new CapabilityError("invalid host binding reply", "unknown");
+        }
+        if (reply?.error && !Object.hasOwn(reply, "output")) {
+          const error = JSON.parse(raw).error;
+          let delivery;
+          for (let detail = error; detail; detail = detail.cause) {
+            const value = detail.meta?.delivery ?? detail.outcome;
+            if (value === "not_sent" || value === "unknown") {
+              delivery = value;
+              break;
+            }
+          }
+          throw new CapabilityError(error.message, delivery, error);
+        }
+        if (!reply || !Object.hasOwn(reply, "output") || Object.keys(reply).length !== 1) {
+          throw new CapabilityError("invalid host binding reply", "unknown");
+        }
+        return reply.output;
+      },
+      configSnapshot: async () => parse(await read("GET", "config/snapshot", 200)),
+      async connectionToken(provider, scopes) {
+        return (await post("connections/token", { provider, scopes })).token;
+      },
+      async telemetry(records) {
+        if (records.length > 64) throw new RangeError("telemetry batch exceeds 64 records");
+        await post("telemetry", records);
+      },
+      storageRead: (store, key, options) => request("GET", storage("read", store, { key }), 200, undefined, conditions(options)),
+      async storageHead(store, key) {
+        return (await request("HEAD", storage("read", store, { key }), 200)).headers;
+      },
+      storageWrite: (store, key, body, options) => json("PUT", storage("write", store, { key }), 201, body, {
+        ...conditions(options),
+        ...(options?.contentType === undefined ? {} : { "content-type": options.contentType }),
+      }),
+      async storageDelete(store, key, options) {
+        await request("DELETE", storage("delete", store, { key }), 204, undefined, conditions(options));
+      },
+      storageList: (store, options) => json("GET", storage("list", store, options), 200),
+    });
+  }
+}

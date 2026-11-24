@@ -348,7 +348,7 @@ func localModuleInstances(resources []Resource) []Resource {
 			continue
 		}
 		metadata, _ := resource.Spec["package"].(map[string]any)
-		if metadata["rust_contract"] != nil && metadata["go_contract"] == nil {
+		if (metadata["rust_contract"] != nil || metadata["js_contract"] != nil) && metadata["go_contract"] == nil {
 			continue
 		}
 		root, _ := resource.Spec["workspace_package_root"].(string)

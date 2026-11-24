@@ -1,7 +1,7 @@
 application "polyglot" {}
 
 workspace {
-  managed_generated_roots = ["pricing/scenerycontract", "native/scenerycontract", "consumer/scenerycontract", "internal/scenerygen", "web/generated"]
+  managed_generated_roots = ["pricing/scenerycontract", "typescript/scenerycontract", "mirror/scenerycontract", "native/scenerycontract", "consumer/scenerycontract", "internal/scenerygen", "web/generated"]
 }
 
 rust_workspace "application" {
@@ -55,7 +55,7 @@ authentication "session" {
 
 module "pricing" {
   source = "./pricing"
-  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal, jobs = execution_engine.jobs, session = authentication.session }
+  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal, jobs = execution_engine.jobs, session = authentication.session, typescript = module.mirror.echo_internal }
 }
 
 
@@ -85,6 +85,7 @@ module "consumer" {
   inputs = {
     gateway = http_gateway.public_api
     quote = module.pricing.quote_internal
+    typescript = module.typescript.quote_internal
     session = authentication.session
   }
 }
@@ -95,4 +96,36 @@ typescript_client "public_api" {
   module      = "esm"
   runtime     = "fetch"
   output_root = "web/generated"
+}
+
+js_workspace "application" { root = "." }
+js_toolchain "application" { version = "1.3.14" }
+
+js_target "development" {
+  role = "development"
+  workspace = js_workspace.application
+  toolchain = js_toolchain.application
+}
+
+js_target "production" {
+  role = "artifact"
+  workspace = js_workspace.application
+  toolchain = js_toolchain.application
+}
+
+module "typescript" {
+  source = "./typescript"
+  inputs = {
+    gateway = http_gateway.public_api
+    jobs = execution_engine.jobs
+    session = authentication.session
+    database = data_source.pricing
+    native = module.native.label_internal
+    rust = module.pricing.quote_internal
+  }
+}
+
+module "mirror" {
+  source = "./mirror"
+  inputs = { gateway = http_gateway.public_api }
 }

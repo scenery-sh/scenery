@@ -1,0 +1,38 @@
+application "echo" {}
+
+workspace {
+  managed_generated_roots = ["echo/scenerycontract"]
+}
+
+js_workspace "application" {
+  root = "echo"
+}
+
+js_toolchain "application" {
+  version = "1.3.14"
+}
+
+js_target "development" {
+  role      = "development"
+  workspace = js_workspace.application
+  toolchain = js_toolchain.application
+}
+
+js_target "production" {
+  role      = "artifact"
+  workspace = js_workspace.application
+  toolchain = js_toolchain.application
+}
+
+http_gateway "public_api" {
+  exposure       = "internet"
+  base_path      = "/api"
+  cors           = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+module "echo" {
+  source = "./echo"
+  inputs = { gateway = http_gateway.public_api }
+}

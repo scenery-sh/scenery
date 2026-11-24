@@ -105,6 +105,7 @@ func ContractResourceProjection(resource Resource) (Resource, bool) {
 					contractMetadata := maps.Clone(metadata)
 					delete(contractMetadata, "go_contract")
 					delete(contractMetadata, "rust_contract")
+					delete(contractMetadata, "js_contract")
 					value = contractMetadata
 				}
 			}

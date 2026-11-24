@@ -26,6 +26,7 @@ import (
 	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/postgresname"
 	"scenery.sh/internal/staticfrontend"
 	"scenery.sh/internal/storageconfig"
 	"scenery.sh/internal/workerabi"
@@ -247,7 +248,13 @@ func startBundleWorker(ctx context.Context, state, capabilities, number string, 
 	process.cmd.Env = env
 	process.cmd.Stdout, process.cmd.Stderr = os.Stderr, os.Stderr
 	var privateInput *devprocess.PrivateInput
-	if program.Runtime == "go" && program.config != nil {
+	if compiler.IsJSRuntime(program.Runtime) {
+		input, err := jsWorkerStartup(program)
+		if err != nil {
+			return nil, err
+		}
+		privateInput = input
+	} else if program.Runtime == "go" && program.config != nil {
 		data, err := json.Marshal(program.config)
 		if err != nil {
 			return nil, err
@@ -376,4 +383,25 @@ func writePrivateWorkerJSON(path string, value any) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
+}
+
+func jsWorkerStartup(program workerProgram) (*devprocess.PrivateInput, error) {
+	startup := struct {
+		Config    *workerruntime.ConfigSnapshot `json:"config,omitempty"`
+		Databases map[string]string             `json:"databases"`
+	}{Config: program.config, Databases: make(map[string]string)}
+	for name, schema := range program.Databases {
+		override, _ := envpolicy.Lookup(postgresname.ServiceDatabaseURLEnv(schema))
+		base, _ := envpolicy.Lookup(appDatabaseURLEnv)
+		endpoint, err := postgresdb.ResolveServiceEndpoint(schema, override, base)
+		if err != nil || endpoint.URL == "" {
+			return nil, fmt.Errorf("JavaScript worker %s database %s has no usable connection URL", program.Service, name)
+		}
+		startup.Databases[name] = endpoint.URL
+	}
+	data, err := json.Marshal(startup)
+	if err != nil {
+		return nil, err
+	}
+	return &devprocess.PrivateInput{Env: workerruntime.ConfigSnapshotFDEnv, Data: data}, nil
 }
