@@ -32,9 +32,25 @@ http_gateway "public_api" {
   forwarded       = std.forwarded_headers.reject
 }
 
+provider "postgres" { source = "registry.scenery.dev/core/postgres" }
+provider "durable" { source = "registry.scenery.dev/core/durable" }
+
+data_source "pricing" {
+  provider             = provider.postgres
+  lifecycle            = "managed"
+  require_capabilities = ["sql.query/v1"]
+  config               = { database = "pricing" }
+}
+
+execution_engine "jobs" {
+  provider             = provider.durable
+  lifecycle            = "managed"
+  require_capabilities = ["execution.durable/v1"]
+}
+
 module "pricing" {
   source = "./pricing"
-  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal }
+  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal, jobs = execution_engine.jobs }
 }
 
 
@@ -56,7 +72,7 @@ go_target "development" {
 
 module "native" {
   source = "./native"
-  inputs = { gateway = http_gateway.public_api }
+  inputs = { gateway = http_gateway.public_api, database = data_source.pricing }
 }
 
 module "consumer" {

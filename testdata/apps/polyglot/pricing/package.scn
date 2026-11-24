@@ -9,6 +9,11 @@ input "gateway" {
 }
 
 input "native" { type = resource_ref("binding") }
+input "jobs" {
+  type     = resource_ref("execution_engine")
+  phase    = "deployment"
+  requires = ["execution.durable/v1"]
+}
 
 service "pricing" {
   runtime = "rust"
@@ -126,6 +131,83 @@ binding "download_http" {
       body {
         codec = "bytes"
         from  = result.ok
+      }
+    }
+  }
+}
+
+record "settlement_input" {
+  field "id" { type = string }
+  field "delay_ms" { type = optional(int32) }
+}
+
+operation "settle" {
+  service = service.pricing
+  input   = record.settlement_input
+  handler { method = "Settle" }
+  result "ok" { type = std.type.unit }
+  idempotency {
+    mode = "keyed"
+    key  = [input.id]
+  }
+}
+
+execution "settle" {
+  operation     = operation.settle
+  mode          = "durable"
+  engine        = var.jobs
+  external_name = "pricing.settle"
+  revision      = 1
+  timeout       = "10s"
+  lease         = "2s"
+  attempts      = 3
+  retry {
+    strategy = "exponential"
+    initial  = "200ms"
+    factor   = 2
+    maximum  = "1s"
+  }
+  retention {
+    success = "1d"
+    failure = "1w"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+binding "settle_http" {
+  gateway        = var.gateway
+  operation      = operation.settle
+  execution      = execution.settle
+  protocol       = "http"
+  delivery       = "enqueue"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/settlements"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.settle.input
+    }
+    response "accepted" {
+      when   = dispatch.enqueued
+      status = 202
+      body {
+        codec = "json"
+        from  = dispatch.receipt
+      }
+    }
+    response "rejected" {
+      when   = dispatch.rejected
+      status = 503
+      body {
+        codec = "problem_json"
+        from  = dispatch.problem
       }
     }
   }

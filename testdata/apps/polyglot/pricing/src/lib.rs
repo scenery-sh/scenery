@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use scenerycontract::{
     DownloadInput, DownloadOutcome, NativeClient, NativeClientOutcome, PricingConstructorInput,
-    PricingService, QuoteInput, QuoteOutcome, QuoteResult, sdk,
+    PricingService, QuoteInput, QuoteOutcome, QuoteResult, SettleInput, SettleOutcome, sdk,
 };
 
 pub struct Service {
@@ -50,6 +50,21 @@ impl PricingService for Service {
                 size,
             }),
         ))
+    }
+
+    async fn settle(
+        &self,
+        context: sdk::Context,
+        input: SettleInput,
+    ) -> sdk::Result<SettleOutcome> {
+        if context.invocation.execution_id.is_none() {
+            return Err("missing execution identity".into());
+        }
+        if let Some(delay) = input.delay_ms {
+            eprintln!("settlement {} started", input.id);
+            sdk::sleep(Duration::from_millis(delay.clamp(1, 5_000) as u64)).await;
+        }
+        Ok(SettleOutcome::Ok(sdk::Unit {}))
     }
 }
 

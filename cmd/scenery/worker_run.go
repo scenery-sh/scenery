@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/staticfrontend"
 	"scenery.sh/internal/workerabi"
@@ -120,6 +122,20 @@ func workerListen(options devOptions) string {
 	return workerruntime.ListenAddrFromEnv()
 }
 
+func configureWorkerDevelopmentDatabase(root string, cfg app.Config, requirements compiler.SQLRequirements) error {
+	environment, _, err := managedDatabaseEnv(context.Background(), root, cfg, requirements, envpolicy.Environ())
+	if err != nil {
+		return err
+	}
+	for _, entry := range environment {
+		key, value, _ := strings.Cut(entry, "=")
+		if err := envpolicy.Set(key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, onReady func(), watchRoot, initialFingerprint string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -189,14 +205,11 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 		onReady()
 	}
 	fmt.Fprintf(os.Stderr, "application ready on %s\n", listen)
-	if watchRoot != "" {
-		watcher := &workerWatcher{
-			root: watchRoot, directory: directory, capabilities: capabilities, link: linkPath, token: token,
-			client: httpClient, bundle: bundle, active: processes, generation: 1, sequence: 1,
-		}
-		return watcher.run(ctx, initialFingerprint, hostDone)
+	watcher := &workerWatcher{
+		root: watchRoot, directory: directory, capabilities: capabilities, link: linkPath, token: token,
+		client: httpClient, bundle: bundle, active: processes, generation: 1, sequence: 1,
 	}
-	return <-hostDone
+	return watcher.run(ctx, initialFingerprint, hostDone)
 }
 
 func startForeignWorker(ctx context.Context, state, capabilities, link, number string, program workerProgram) (*workerProcess, error) {

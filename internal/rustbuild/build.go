@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/devcache"
+	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -71,6 +72,13 @@ func Build(ctx context.Context, root string, services []Service, release, check 
 			return nil, err
 		}
 	}
+	// Cargo releases its target-directory lock before its caller can read the
+	// executable. Hold the publication lock through the copy to our own cache.
+	unlock, err := devprocess.LockSubstrate(cache, "cargo-target", devprocess.LockOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	for _, service := range services {
 		artifact, err := buildService(ctx, snapshot, filepath.Join(cache, "rust-target"), privateRoot, service, release, check)
 		if err != nil {

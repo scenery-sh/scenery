@@ -47,16 +47,16 @@ func (watch *workerWatcher) run(ctx context.Context, initial string, hostDone <-
 		case <-ctx.Done():
 			return <-hostDone
 		case <-ticker.C:
-			current, err := workerSourceFingerprint(watch.root)
-			if err != nil {
-				continue
-			}
-			if seen != current {
-				seen = current
-				if err := watch.refresh(ctx, current); err != nil {
-					fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
+			if watch.root != "" {
+				current, err := workerSourceFingerprint(watch.root)
+				if err == nil && seen != current {
+					seen = current
+					if err := watch.refresh(ctx, current); err != nil {
+						fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
+					}
 				}
-			} else if watch.hasStoppedWorker() {
+			}
+			if watch.hasStoppedWorker() {
 				if err := watch.replace(ctx, watch.bundle); err != nil {
 					fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
 					select {

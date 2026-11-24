@@ -3,10 +3,12 @@ package "native" {
 }
 
 input "gateway" { type = resource_ref("http_gateway") }
+input "database" { type = resource_ref("data_source") }
 
 service "native" {
   runtime = "go"
   implementation { constructor = "NewService" }
+  dependency "database" { instance = var.database }
 }
 
 record "label_result" {
@@ -69,3 +71,40 @@ binding "label_http" {
 }
 
 export "label" { value = operation.label }
+
+operation "read_database" {
+  service = service.native
+  input   = std.type.unit
+  handler { method = "ReadDatabase" }
+  result "ok" { type = record.label_result }
+}
+
+execution "read_database" {
+  operation = operation.read_database
+  mode      = "direct"
+  timeout   = "5s"
+}
+
+binding "read_database_http" {
+  gateway        = var.gateway
+  operation      = operation.read_database
+  execution      = execution.read_database
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    path          = "/database"
+    codec_profile = std.codec.http_json_v1
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}
