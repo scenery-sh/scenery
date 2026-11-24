@@ -2,30 +2,63 @@ mod process;
 mod supervisor;
 mod transport;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::Permissions;
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
-use process::ProcessGroup;
+use process::{CONFIG_SNAPSHOT_FD, ProcessGroup};
 use supervisor::Control;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::oneshot;
 use tokio::time::interval;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    if let Err(error) = run().await {
+fn main() {
+    if let Err(error) = bootstrap() {
         eprintln!("{error:#}");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<()> {
-    let mut args = std::env::args_os().skip(1);
+fn bootstrap() -> Result<()> {
+    let mut args = std::env::args_os().skip(1).peekable();
+    let snapshot = if args.peek().is_some_and(|arg| arg == "--supervisor") {
+        None
+    } else {
+        inherited_snapshot()?
+    };
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(args, snapshot))
+}
+
+fn inherited_snapshot() -> Result<Option<OwnedFd>> {
+    let value = match std::env::var(CONFIG_SNAPSHOT_FD) {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if value.trim().is_empty() {
+        return Ok(None);
+    }
+    let fd: RawFd = value
+        .trim()
+        .parse()
+        .context("invalid configuration descriptor")?;
+    ensure!(
+        fd >= 3 && unsafe { libc::fcntl(fd, libc::F_GETFD) } != -1,
+        "configuration descriptor is unavailable",
+    );
+    // Claim the inherited descriptor before the runtime opens any files.
+    Ok(Some(unsafe { OwnedFd::from_raw_fd(fd) }))
+}
+
+async fn run(mut args: impl Iterator<Item = OsString>, snapshot: Option<OwnedFd>) -> Result<()> {
     let first = args.next();
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
@@ -66,6 +99,9 @@ async fn run() -> Result<()> {
             .args(first.into_iter().chain(args))
             .stdin(Stdio::inherit()),
     )?;
+    // The gateway inherited the deployment snapshot. Worker startup has
+    // separate, service-scoped descriptors.
+    drop(snapshot);
     let mut poll = interval(Duration::from_millis(100));
     tokio::pin!(signaled);
     let result = loop {

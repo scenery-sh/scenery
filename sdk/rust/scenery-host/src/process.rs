@@ -20,6 +20,8 @@ use tokio::time::{sleep, timeout};
 
 use crate::transport::{Client, read};
 
+pub(crate) const CONFIG_SNAPSHOT_FD: &str = "SCENERY_CONFIG_SNAPSHOT_FD";
+
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -111,7 +113,7 @@ impl Worker {
         }
         if let Some(file) = &startup {
             let fd = file.as_raw_fd();
-            command.env("SCENERY_CONFIG_SNAPSHOT_FD", "3");
+            command.env(CONFIG_SNAPSHOT_FD, "3");
             // Only syscalls are allowed between fork and exec. dup2 makes
             // the descriptor inheritable and leaves the parent copy private.
             unsafe {
