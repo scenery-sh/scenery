@@ -21,6 +21,7 @@ service "pricing" {
 record "quote_input" {
   field "amount" { type = int64 }
   field "note" { type = optional(nullable(string)) }
+  field "delay_ms" { type = optional(int32) }
 }
 
 record "quote_result" {
@@ -92,3 +93,40 @@ binding "quote_internal" {
 export "quote_internal" { value = binding.quote_internal }
 
 export "quote" { value = operation.quote }
+
+operation "download" {
+  service = service.pricing
+  input   = std.type.unit
+  handler { method = "Download" }
+  result "ok" { type = bytes }
+}
+
+execution "download" {
+  operation = operation.download
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "download_http" {
+  gateway        = var.gateway
+  operation      = operation.download
+  execution      = execution.download
+  protocol       = "http"
+  delivery       = "stream"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    path          = "/download"
+    codec_profile = std.codec.http_json_v1
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "bytes"
+        from  = result.ok
+      }
+    }
+  }
+}
