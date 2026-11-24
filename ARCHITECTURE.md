@@ -1,845 +1,115 @@
 # scenery Architecture
 
-This document is a stable map of the scenery repository. It should help a new
-contributor answer two questions quickly: where does a change belong, and which
-boundaries should the change preserve?
-
-Keep this file short and architectural. It names important packages, types, and
-invariants, but intentionally avoids file-by-file detail. Use symbol search for
-the names mentioned here.
-
-## Bird's Eye View
-
-scenery is a Go-native local runtime and toolchain for current Scenery applications
-that declare their canonical resource graph in `app.scn` and package-local
-`package.scn` files. `.scenery.json` carries independent runtime config.
-
-At a high level, scenery does four things:
-
-- discovers an app root and compiles `.scn` source into a typed resource graph
-- generates a transient build workspace and synthetic runtime entrypoint
-- runs one local HTTP server for the app's public, auth, and internal surfaces
-- exposes local development, inspection and harness tools, and the development
-  runtime RPC, around that server
-
-The central flow is:
+Scenery is a Go-native local runtime, compiler, and agent harness for
+applications declared in `app.scn` and package-local `package.scn` files, with
+independent runtime config in `.scenery.json`.
 
 ```text
 .scenery.json + app.scn + package.scn + app.lock.scn + Go implementations
-        |
-        v
-internal/app + internal/scn + internal/spec + compiler
-        |
-        v
-canonical source/effective/expanded manifests
-        |
-        v
-generated contracts/composition/library facades + internal/build
-        |
-        v
-generated workspace + scenery.sh/runtime
-        |
-        v
-single local server + dev/inspect/harness tooling
+  → internal/app + internal/scn + internal/spec + internal/compiler
+  → canonical source / effective / expanded manifests
+  → internal/generate + internal/uigen + internal/build
+  → generated workspace + scenery.sh/runtime (process host + per-service processes)
+  → single local server + CLI/inspect/harness/worktree tooling
 ```
 
-Declared assistants add one provider-neutral path to that flow: ordinary MCP
-bindings and MCP servers are compiled into a capability manifest, generated
-conversation routes and browser clients are registered in the app runtime, and
-each assistant implementation runs in a supervised child behind private
-control and loopback MCP listeners. The public app never depends on the child
-adapter's package or event vocabulary.
-
-Architecture invariant: the public scenery surface is scenery-named. User apps
-should depend on `scenery.sh/...` packages and current `.scn` resources,
-without alternate declaration frontends or compatibility syntax.
-
-Architecture invariant: app semantics live in the canonical current graph
-before code generation or runtime wiring. Avoid rediscovering graph facts from
-Go source or generated artifacts.
-
-## Code Map
-
-### `cmd/scenery`
-
-This is the CLI entrypoint and orchestration layer. `main`, `run`, and the
-command-specific functions parse flags and connect internal packages into user
-commands such as `up`, `worker`, `build`, `check`, `inspect`,
-`harness`, `logs`, `db`, `task`, and `generate`.
-
-`scenery up` starts the local
-app session around the app runtime: the development runtime RPC, agent routing, live rebuild behavior,
-logs, traces, metrics, managed dev services, optional frontend routing, and
-process supervision.
-
-The same supervisor owns managed assistant children. `scenery assistant status`
-is the provider-neutral CLI surface.
-
-Architecture invariant: non-CLI packages must not import `cmd/scenery`. Shared
-logic belongs in `internal/` or a public package, depending on whether user apps
-need it.
-
-Architecture invariant: the CLI stays hand-rolled unless a new dependency has a
-clear payoff. The command grammar is part of scenery's local contract and should
-remain easy to audit.
-
-`scenery inspect docs --for-path` combines the indexed knowledge base with the
-same changed-area relevance and verification-command logic used by self-harness,
-then narrows Markdown results to owning sections. It does not maintain a second
-path-routing catalog.
-
-`internal/repoinfo` owns the read-only knowledge-index types and reader,
-repository discovery, and the single pure path-classification table. CLI docs
-rendering stays here; neither classification nor artifact reading executes tests.
-
-### Shared verification data and child-process boundaries
-
-`internal/schemacheck` owns the existing schema-validation vocabulary shared by
-repository verification and product contract tests. It is not a product runtime
-dependency and adds no independent test binary.
-
-`internal/harnessreport` contains only current report values and pure bounded
-summary formatting. `internal/harnessevidence` owns explicitly requested artifact
-writes and output/reproduction formatting. Neither runs repository checks.
-The one payload schema identity registry lives in `internal/machine`.
-
-`internal/devprocess` owns the existing concrete child-process start, readiness,
-output capture and process-tree stop mechanics. The CLI still owns application,
-session, frontend, desktop and assistant lifecycle decisions. Process completion
-is exposed as a receive-only signal, not a second mutable runtime record.
-Process observations and named substrate locks live in that same concrete
-process layer. `internal/agent` owns session process-cleanup selection, which
-acts only on recorded, verified owners and registered children. `internal/watchignore` owns the
-shared watch-input path policy and embed-pattern parsing; snapshot caching
-remains in the CLI.
-
-`scripts/verify` is the repository-only orchestration owner. Run it from this
-root with `go run ./scripts/verify`. It uses the prepared absolute worktree-local
-product executable for product assertions and the existing fresh-test engine
-for repository tests. The application CLI neither dispatches repository
-verification nor depends on its execution engine. Its app/UI harnesses and
-bounded report readers remain product capabilities.
-
-### `internal/feature`
-
-Owns repository-local Git feature records, isolated integration candidates,
-revision-bound validation, shared expensive-probe admission and serialized main
-publication. State/evidence live in the Git common directory, separate from app
-runtime/data ownership. `cmd/scenery/feature.go` exposes typed commands and uses
-existing verified runtime inspection for the overview. The package never imports
-the verifier or application execution machinery. Repository-authored argv in
-`scenery.features.json` delegates validation; `scripts/feature-check` completes
-Scenery's single changed-area command union. See [feature workflow](docs/feature-workflow.md).
-
-### `internal/app`
-
-Follow [app instructions](internal/app/AGENTS.md) for this boundary.
-
-`internal/app` owns repository and app-root discovery. It walks upward to find
-`.scenery.json`, resolves symbolic links in the found root, decodes app config,
-and provides repo-root helpers for self-harness work.
-
-Architecture invariant: a discovered app root is canonical. Build workspaces,
-build state, runtime ownership and build identities derive from it, so every
-spelling that reaches one checkout names one build.
-
-Architecture invariant: `.scenery.json` is the app root marker for scenery apps. App
-loading should fail clearly when the marker is missing or invalid.
-
-Architecture invariant: configuration parsing must not import the PostgreSQL
-driver layer. Pure database, schema, and environment name derivation lives in
-`internal/postgresname`; database IO lives in `internal/postgresdb`.
-
-SQL requirements are not config declarations. `compiler.Result.SQLRequirements`
-is the immutable projection of registered services' typed dependencies and
-framework auth/durable registrations. The compiler owns service selection,
-dependency binding and schema validation once; generation, inspection, runtime
-supply and setup consume that result. Environment endpoints supply it; persisted
-worktree records own actual allocations. Snapshot recovery reads actual schemas
-without compiling desired source. Generated entrypoints configure the existing
-SQL environment before constructors; `db` never rediscovers app configuration.
-
-`internal/postgresdb.ResolveServiceEndpoint` owns the pure override-versus-base
-URL choice shared by generated runtime bindings and named standalone `db`
-calls. Consumers retain their distinct registry precedence, validation order,
-framework handling and managed provenance; the selector has no environment,
-configuration, database IO or allocation authority.
-
-`internal/postgresdb` also owns transactional numbered schema migrations,
-schema-local checksum/owner ledgers and explicit initial-baseline verification.
-The CLI resolves app-authored files and verified stopped worktree authority;
-this package executes SQL and ledger publication in one transaction. It does
-not infer migrations, reset populated schemas or adopt unknown schema shapes.
-
-### `internal/appconfig`
-
-Follow [environment configuration instructions](internal/appconfig/AGENTS.md)
-for this boundary.
-
-`internal/appconfig` owns environment configuration: the catalog of
-environment-configurable deployment inputs and framework inputs derived from a
-compiled manifest, pure two-layer resolution (declared default, then the
-selected environment's value), the authoritative per-application store under
-`<agent home>/apps/<app-id>/` and the OS secret-backend adapters.
-
-Architecture invariant: configuration is selected by application and
-environment only, and configured values are runtime inputs. They reach
-processes as revision-bound snapshots over inherited pipes
-(`runtime/deployment_config.go`) and never change generated code or
-executables. Local supervisors restart only the service processes whose
-snapshot changed.
-
-### `internal/desktop`
-
-`internal/desktop` owns the Tauri-specific project contract: resolving a
-configured desktop project, producing exact Tauri 2 dev/build overlays and
-commands, running those commands, and discovering installer bundles. The CLI
-package supplies frontend builds, session process registration, and output
-rendering around that package.
-
-Architecture invariant: Tauri project and command behavior stays independent
-of the `cmd/scenery` dev supervisor. Agent/session lifecycle remains CLI
-orchestration and does not leak into the desktop integration package.
-
-### `internal/gotarget`
-
-`internal/gotarget` is the tiny shared Go target-context value and hermetic
-environment used by both compiler and parse. Field identity is part of
-implementation revision.
-
-### `internal/parse`
-
-Follow [parse instructions](internal/parse/AGENTS.md) for this boundary.
-
-`internal/parse` is the narrow Go package-analysis boundary used by current
-constructor and handler ABI verification. It loads syntax, types, and package
-metadata with `go/packages`; it does not discover application declarations.
-
-Architecture invariant: `golang.org/x/tools/go/packages` is owned by this
-loader boundary. Downstream model consumers receive only model-owned analysis
-data, not the loader package itself. Compiler tests must not import parse.
-
-### `internal/model`
-
-`internal/model` owns only the Go analysis types passed from `internal/parse` to
-Go ABI verification. Canonical application resources belong to the graph and
-compiler layers, not this package.
-
-### `internal/scn`, `internal/spec`, `internal/graph`, and `internal/machine`
-
-`internal/scn` owns safe `.scn` discovery, parsing, lossless CSTs, positions, and
-formatting. `internal/spec` owns the singular current schema and diagnostic
-catalog with digest revisions. `internal/graph` owns canonical resources, graph
-views, provenance, and general revision projections (application and service
-contract revisions among them), including the
-`mcp_server` and `assistant` resource families.
-`internal/machine` owns the strict `scenery.cli` and `scenery.cli.event`
-envelopes. Compiler, evolution, generation, deployment, and Go verification
-build on these foundational boundaries; compiler packages remain independent
-of MCP SDKs, Node, and provider adapters.
-
-Architecture invariant: `app.scn` is required. There is no Go-comment,
-package-init, or alternate application-model frontend. Generated roots are declared, confined,
-transactional, and reproducible from the canonical graph.
-
-### `internal/appsdk`, `internal/contract`, and `internal/contractpolicy`
-
-`internal/appsdk` owns the lightweight process-local metadata, current-request,
-application-span, and SDK stream bridge used by the root `scenery.sh` facade.
-The full runtime binds request/span behavior through the current context and
-goroutine invocation. App-facing types remain aliases, so the runtime and facade
-retain identical assignability and method sets without making a facade import
-link runtime orchestration. The application SDK packages `scenery.sh/auth`
-and `scenery.sh/db` reach the runtime only through the one
-`appsdk.Host` the runtime registers from its package initialization (current
-authentication, standard-auth endpoint and handler registration, JSON contract
-codecs, SQL query tracing).
-Importing them therefore never links the runtime's implementation closure.
-
-### Provider-neutral connections
-
-`internal/connectionapi` owns credential-free values shared by configuration,
-compiler projections and the SDK host. `auth` forwards owner-bound token calls
-through `appsdk.Host`; it imports no vault or concrete provider.
-`internal/connectionruntime` composes declarations, existing environment snapshots,
-standard-auth SQL and browser state. `internal/connectionvault` owns encrypted
-lifecycle and injected provider/store/cipher/clock contracts; its SQL adapter uses
-the existing pool and preserves cross-process row/lease serialization. Durable
-refresh intent prevents blind reuse after ambiguous remote rotation.
-`internal/authprovider/oauth2` owns configured OAuth2/OIDC protocol mechanics,
-`internal/oidc` identity verification and `internal/authprovider/google` preset
-behavior. Connecting never mutates sign-in identity. Current schema ownership
-and explicit cutover are documented in [user connections](docs/auth-connections.md).
-
-`internal/contract` owns the contract value types, their canonical JSON wire
-form, schema-directed marshalling, constraint validation, and composite keys.
-`internal/contractpolicy` owns the authorization expression
-lexer, parser, and evaluator. Both depend only on `internal/spec`,
-`internal/machine`, and `internal/runtimeapi`.
-
-The root `scenery.sh` package is the app-facing spelling of the contract
-surface: it re-exports `internal/contract` as type aliases and thin forwarders,
-so generated app code keeps using `scenery.Duration`, `scenery.Registry`, and
-`scenery.MarshalContractValue` unchanged. `scenery.sh/runtime` is the only
-consumer of `internal/contractpolicy`'s evaluator.
-
-Architecture invariant: compiler-side packages depend on `internal/contract` and
-`internal/contractpolicy` directly, never on the root `scenery.sh` façade or on
-`scenery.sh/runtime`. The facade and the application SDK packages depend on
-`internal/appsdk` and other leaves, not the full runtime (enforced by the
-architecture check). Source, compiler, generator, and deployment packages must
-not link the runtime, its orchestration, or the PostgreSQL driver.
-`contract_surface_test.go` pins the facade to the leaf so the app-facing
-spelling cannot silently drift.
-
-### `internal/compiler`
-
-`internal/compiler` loads the current `.scn` workspace and produces immutable
-source, effective, and expanded graph snapshots. Before any ordinary source
-read, it uses `internal/workspacetx` to recover an abandoned source transaction
-or reject a live owner; staged validation admits only that transaction's owner.
-The compiler owns the shared SQLC ownership-receipt decoder used by both source
-classification and CLI publication, so malformed claims never suppress inputs.
-
-Architecture invariant: compiler depends on the foundational source/spec/graph
-packages and `internal/gotarget`. It does not import `internal/parse`.
-Evolution, generation, deployment, and runtime orchestration consume
-compiler results and never sit below it.
-
-### `internal/generate`
-
-`internal/generate` renders Go contracts and composition and TypeScript
-clients from one compiler result. It delegates optional React/page
-and binary-owned `@scenery/ui` catalog rendering to `internal/uigen`, which
-consumes validated canonical graph values and returns in-memory files.
-`internal/clientprojection` shares pure graph and naming queries across common
-clients and UI. Backend runtime/SDK closures never reach the UI renderer/assets.
-`internal/generate/api` is the
-stdlib-only leaf for `RuntimeIntegrationPlan` and assistant-asset descriptor types;
-packages that only need that surface must not import `internal/generate`. The
-catalog materializes its root component barrel and the direct
-`tokens.stylex.ts` defining module in the same artifact-set transaction. Its check path reports both diagnostics and
-whether native implementation verification was requested and valid.
-
-Generated React routes carry static or dynamic path contracts. A
-`detail_page` adapter receives decoded router params, loads one typed record,
-and feeds one shared content component into its routed-page and controlled-
-dialog wrappers; generated related tables remain scoped to those params.
-
-Application-imported Go packages are ordinary in-module projections, ignored by
-Git by default. One renderer supplies those packages and private cached
-composition. `workspacetx` serializes publication and abandoned-write recovery;
-descriptor/digest evidence authorizes exact replacement, never whole-directory
-ownership. Compilation has no generation side effect and owns no `go.work`.
-
-For assistants, generation also emits the provider-neutral conversation client,
-public route registration, MCP capability projection, private runtime
-descriptor, and (for a build target) the assistant asset registry. Provider
-implementation overlays are generated projections and never declaration
-surfaces.
-
-Architecture invariant: render every selected output before one atomic commit;
-verification is read-only and generated paths stay beneath declared managed
-roots. Architecture invariant: `internal/generate/api` stays free of
-compiler, parse, TypeScript verification, and generate itself.
-
-### `internal/lifecycle`
-
-The standard-library-only planner validates typed producer dependencies,
-duplicate identities, cycles and overlapping paths of different output owners
-before execution. One owner may describe nested output scopes. An output can
-name a shared publication node as its owner; that node must declare publication
-capability and depend on every producer whose paths it owns. SQLC uses
-its artifact-set publication owner, while other generators retain
-independent destination scopes.
-Go package destination scopes and exact file paths come from the same layout
-used by rendering. TypeScript library entrypoints retain a TypeScript-only
-selection even when selecting every client.
-It selects a deterministic serial closure and admits each node's declared
-capabilities before running any action. Pure projection reuse remains in its
-rendering owner; current validation and external effects are never skipped by
-the scheduler. Compiler semantics and workspace transactions stay in their
-existing packages.
-
-Source commands use a read-only compiler closure. Generation, build preparation
-and cached TypeScript preparation select the same rendering/validation nodes.
-SQLC captures declared inputs read-only during planning with compiler membership
-helpers, revalidates that digest during execution and response, renders in a
-private staging tree and publishes one digest-owned artifact set through
-workspacetx with the verified original-file preconditions. Explicit database operations remain live effects; development
-candidate preparation, verification and activation form their own selected
-closure over the existing runtime owners.
-
-### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`, and `internal/mcpgateway`
-
-These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines
-the manifest, tool policy, assertions, and limits; `internal/mcpprojection`
-projects the expanded graph, including each assistant's capability revision,
-and does not import the compiler; and `internal/mcpgateway`
-dispatches local generated bindings. They do not expose
-a public MCP listener and do not import the developer adapter.
-
-Only `internal/mcpgateway` imports the MCP SDK.
-`internal/mcpapi` is the SDK-free boundary: it owns the gateway's options, and
-the gateway installs its constructor there when it is linked. `scenery.sh/runtime` imports only that
-boundary, so the SDK and its dependencies are linked by the executables that
-import `scenery.sh/runtime/mcphost` — generated code that registers assistants,
-that is the production executable and the development process
-host — and by no development service process. A process asked to start a
-gateway it did not link reports the gateway unavailable.
-
-### `internal/assistantapi`, `internal/assistantcontrol`, `internal/assistantruntime`, and `internal/assistantadapter`
-
-`internal/assistantapi` owns the provider-neutral public conversation JSON and
-NDJSON contracts, opaque handles, normalized errors, and streaming redaction.
-`internal/assistantcontrol` owns the private versioned helper protocol, while
-`internal/assistantruntime` owns helper lifecycle interfaces, typed requests,
-revision handshakes, and supervision-facing states. Provider code is isolated
-below `internal/assistantadapter/<provider>`; the current developer/operator
-adapter is `internal/assistantadapter/eve` and is not imported by public API,
-compiler, graph, or generic runtime packages.
-
-### `internal/evolution`
-
-`internal/evolution` owns the revision-checked source transaction behind
-`scenery provider lock`. It shares workspace transaction metadata/recovery
-with the compiler through `internal/workspacetx`.
-
-Architecture invariant: evolution never defines another graph or transaction
-reader and does not import `internal/generate`.
-
-### `internal/contractagent`
-
-`internal/contractagent` answers `scenery schema` from the compiler and
-specification catalogs without owning their models.
-
-Architecture invariant: returned schemas are exact current contracts.
-
-### `internal/codegen`
-
-`internal/codegen` writes the small runtime entrypoint and configuration glue
-consumed by current builds. Resource-specific contracts and adapters are
-generated from the canonical expanded graph.
-
-Architecture invariant: generated code should be boring Go. Prefer explicit
-wrappers and registration over runtime reflection when the parser already knows
-the shape of the app.
-
-Architecture invariant: operation-to-operation calls go through generated
-binding clients when scenery semantics matter. Direct user function calls must
-not bypass auth context, private access rules, tracing, or delivery semantics.
-
-### `internal/devcache`
-
-`internal/devcache` is the stdlib-plus-envpolicy leaf for the scenery
-development cache root. Production honors `SCENERY_DEV_CACHE_DIR`; tests inject
-`SetRoot`. Doctor, build, and CLI resolve the cache here instead of linking
-through `internal/build`.
-
-### `internal/filemeta`
-
-`internal/filemeta` is a stdlib-only leaf that reads physical filesystem
-identity and status-change timestamps. Native macOS/Linux representations use
-typed access; other representations retain field-based observation and report
-missing metadata explicitly. It holds no cache or reuse authority. Watch,
-directory-listing and build-input caches consume the same observation.
-
-### `internal/dirlisting`
-
-`internal/dirlisting` is the stdlib leaf that reuses directory membership
-between walks of one tree. The development watcher's snapshot scans and
-generated-path discovery read a directory again when its identity, size,
-modification time or status-change time differ from those around its last
-read, or when it was modified within the timestamp granularity of common
-filesystems before that read; unchanged directories cost one `lstat`. A listing
-holds names and types only, entry metadata is always read from the entry, and
-files are still checked by their own metadata by each caller. Each walker owns
-a bounded `Tree`: a complete walk evicts directories it did not visit, and a
-fresh walk (pre-activation snapshot verification) reads every directory and
-reconciles the retained listings.
-
-Watched file hash reuse requires a regular file with the same physical device
-and inode, status-change time, size, permissions and modification time. Missing
-identity or change-time information always causes a fresh content read.
-
-### `internal/build`
-
-`internal/build` owns the transient app build workspace. It materializes the
-current generated overlay, syncs source and generated files, tracks
-build fingerprints, runs `go mod tidy` when needed, compiles the app binary (or,
-for the development process model, the host and per-service entrypoints with
-per-process identities), and writes latest-build metadata. Generation is injected through `GenerateHooks`;
-the production package does not import `internal/generate`.
-
-Every materialization of that private workspace holds its exclusive workspace
-lock: full preparation, the cached-graph refresh that resynchronizes source
-bytes for an unchanged declaration graph, and compilation. Each phase releases the
-lock before the next reacquires it, so a refresh in one process can neither
-expose a half-synced workspace nor remove another process's in-flight build
-output.
-
-Framework preparation snapshots the selected module's relevant source inputs,
-builds its content-stamped CLI and binds both digests into existing build input
-manifests. `cmd/scenery/framework.go` owns explicit preparation/inspection, not
-automatic version changes. A bare executable left in a private build workspace
-never authorizes reuse and never restores runtime identity.
-The supervisor still owns current candidate preflight and sequential
-stop/start/recovery; retained generation executables have independent bytes,
-not links into an evictable build cache.
-
-Authored non-framework local module replacements are copied, never linked, into
-an app-owned content-addressed generation before any Go discovery, checking or
-compilation. Complete regular-file and directory membership, content and
-executable modes define that private generation; VCS metadata and Scenery state
-are not source. The workspace `go.mod` selects the owned roots, while retained
-build state preserves each mutable origin for byte-and-membership freshness
-checks after compilation, during candidate activation and during later current-
-candidate inspection. Corrupt generations are quarantined and rebuilt, and
-bounded pruning protects the current published generation.
-
-Preparation publishes current public Go before implementation analysis, including
-cache reuse. Cached private bytes must match the current renderer. Authored
-fingerprints exclude exact generated paths; implementation fingerprints include
-the generated bytes actually consumed. Watch tracks missing generated files
-separately so ignored output can be restored without a self-triggered rebuild.
-Development preparation keys declaration/configuration work separately from the
-complete candidate snapshot. Persisted generated-file digests, cached TypeScript
-digests, verification patterns, and managed-output membership allow an
-implementation-only edit to reuse projections while current native verification
-still runs. The long-lived watch owner captures the compiler's complete
-workspace-revision membership and graph-affecting baseline. An unchanged graph
-is rebound to hash-validated captured bytes, and app configuration is parsed
-from the same capture. Declaration or configuration edits use a provisional
-read-only graph only to discover newly declared membership; the canonical full
-compile then runs in a private root materialized from the complete captured
-local bytes. Registry-backed external sources retain their conservative
-provider and snapshot validation. Go build-input hashing uses a bounded
-process-local digest cache, but accepts a hit only after current path, type,
-metadata, change-time, device, and inode checks; platforms without a usable
-change timestamp conservatively rehash. Development executables stay private to
-their build workspace; none is shared between workspaces.
-Every build links with stock `go build` under the fair link budget: `scenery up`
-links the process entrypoints whose identity changed, and single-executable
-builds link the application entrypoint. A process-model build also publishes
-the runtime bundle of the development target, the build identity every
-generation of its processes attests. Ordinary development executables
-link with `-w` ahead of configured linker flags, so they carry no DWARF unless
-`build.go_flags` adds `-ldflags=-w=false`. On macOS the `cmd/scenery`
-supervisor clears an inherited Darwin background policy before each build
-request and reports the observation as `process.scheduling`.
-Before publication or reuse, current workspace membership/bytes and Go input
-checks still run; private builds retain these freshness checks too. Local
-replacement compilation reads only its owned generation, so an external
-A-to-B-to-A change cannot alter compiler input under the captured A identity.
-No file/directory metadata heuristic grants reuse authority. Remaining unowned
-toolchain, module-cache and explicit tool/native reads retain conservative
-freshness checks and remain outside shared reuse. Run-local admission is not serialized in the
-public build-input manifest. A canceled producing caller leaves its
-subscription but retains the borrowed workspace lock until the producer and its
-cleanup have joined; other subscribers may still need that action. Publication
-stages use the same leased cleanup protocol as link stages. The v2 cache does
-not reuse pre-guard v1 entries or reclaim another version's active resources.
-Semantic manifest mismatch rebuilds and replaces the entry; destination reuse
-also requires the executable's expected mode. Its key retains the absolute module
-root because relocatability is not assumed; cross-worktree sharing remains at
-the Go toolchain package-cache layer until a path-independent executable is
-separately proven. Root-independent generated runtime-composition bytes use a
-separate bounded, producer- and generator-keyed immutable cache, while every
-worktree still materializes and owns its private workspace. Active and rollback
-processes always own independent copied bytes, so cache reclamation cannot
-invalidate them.
-
-When assistants are declared, it also archives the managed child runtime and
-authored assistant capsule, writes verified content-addressed descriptors, and
-adds provider-neutral assistant asset metadata to the runtime bundle. The Go
-binary still launches the child out of process; Node/V8 is never linked into
-the Go process.
-
-Architecture invariant: build outputs are disposable and reproducible from the
-app root, config, source, and generated model. Do not make the transient
-workspace the source of truth.
-
-Architecture invariant: build metadata should be machine-readable enough for
-agents and humans to diagnose drift without scraping terminal output.
-
-### `internal/testsuite`
-
-`internal/testsuite` discovers the complete repository test graph through the
-Go tool, caches linked test binaries by Go build ID, runs every test body fresh,
-and emits Go-compatible JSON timing events for the self-harness.
-
-Architecture invariant: the binary cache may avoid repeated linking but must
-never reuse test results or narrow the `./...` package and test surface.
-
-### `internal/edge`
-
-`internal/edge` owns the managed Caddy lifecycle behind `scenery system edge`:
-process start and stop, admin-socket reload, local-CA trust, and persistence of
-the corresponding `internal/agent` edge state. It also owns Caddyfile
-generation.
-`cmd/scenery` adapts CLI grammar, output, managed-tool resolution,
-DNS/helper process orchestration, and privileged-listener setup. See
-[the edge instructions](internal/edge/AGENTS.md) for lifecycle boundaries.
-
-Architecture invariant: edge lifecycle code exposes a small concrete interface
-and does not import the CLI. Platform-specific child-process behavior stays
-inside the module so command tests do not need to duplicate process semantics.
-
-### `scenery.sh/runtime`
-
-`runtime` is linked into generated app binaries. It registers generated
-services, bindings, middleware, auth policies, durable executions, schedules,
-events, data resources, and pages, then starts one local HTTP server.
-
-Important runtime concerns include route matching, request decode/encode, auth
-context, current request metadata, structured error responses, middleware,
-observability reports, secrets, DB tracing, durable workers, schedules, and graceful shutdown.
-
-Assistant routes are registered in this same runtime server. The runtime owns
-the five public conversation endpoints, principal ownership and sealed handles,
-NDJSON normalization/redaction, approval and cancellation, and revision-bound
-dispatch. Helper control and MCP listeners are private loopback services, so a
-helper crash can degrade an assistant without exposing a second public server.
-
-Architecture invariant: there is one local app server per generated app process.
-`scenery up` may run extra development services around it, but app API execution
-stays inside generated app binaries. In development the process model
-(Plan 0200) makes the generated binaries a process host that routes requests,
-MCP tool calls and internal calls by published generation, plus one runtime process per native service that acquires
-background work only after its generation is published and admits each
-background attempt to one generation for the attempt's lifetime. The host's
-public answers attest the build of the generation that served them. Production
-builds keep the single generated app binary.
-
-Architecture invariant: runtime request state must be scoped to the current
-request or internal call. Public helpers such as `scenery.CurrentRequest()` and
-`auth.UserID()` should not rely on global mutable app state that leaks across
-requests.
-
-### Public API Packages
-
-The public packages at the module root are what user apps import:
-
-- `scenery.sh` exposes `Meta`, `CurrentRequest`, and application-owned child
-  spans through `StartSpan`
-- `scenery.sh/auth` exposes request auth state helpers and the
-  standard auth module surface (`AuthData`, token helpers and standard auth
-  registration)
-- `scenery.sh/errs` exposes coded errors and HTTP status mapping
-- `scenery.sh/library` owns verified cgo-free loading, operation calls, and
-  load-alongside swaps for generated shared-library facades
-- `scenery.sh/storage` exposes the storage capability and owns the canonical
-  local filesystem store used by app runtimes, CLI commands, and the managed
-  storage proxy
-- `scenery.sh/db`, `scenery.sh/datasource`,
-  `scenery.sh/object`, and related small packages expose runtime capabilities
-
-Architecture invariant: public packages are boundaries. Keep them small,
-stable, and oriented around user-app concepts. Internal implementation can move;
-public names and behavior are much harder to change.
-
-Architecture invariant: public packages may delegate inward to runtime internals
-when necessary, but they should not pull in CLI, runtime control backend, parser, build, or
-codegen concerns.
-
-Architecture invariant: local object, metadata-sidecar, fsync, range, list,
-delete, and conditional-write behavior has one implementation in
-`scenery.sh/storage`; do not recreate a parallel backend under `internal/`.
-
-### `internal/inspect`
-
-`internal/inspect` renders app, route, service, endpoint, build, path, trace,
-metric, and docs information as stable JSON responses.
-
-Architecture invariant: inspect outputs are contracts. If the shape
-changes, update the corresponding schema and tests in the same change.
-
-### `internal/uireport`
-
-`internal/uireport` lexically scans hand-authored React frontend source for
-Astryx and `@scenery/ui` markup adoption, StyleX token use, hardcoded design
-values, and true inline styles. It also owns safe frontend collection,
-generated/dependency exclusions, aggregate shares, and deterministic triage
-ranking.
-
-Architecture invariant: UI inspection is read-only and heuristic. Keep markup
-and style axes independent, pin lexical rules with fixtures, and do not turn the
-score into validation or check-time enforcement without a separate contract
-decision.
-
-### Worktree Runtime Ownership
-
-`internal/agent/worktree_*` owns canonical-root identity, private state paths,
-lifetime and operation locks, strict retained resource records, read-only
-orphan discovery, and the embedded worktree control server. `cmd/scenery`
-composes those boundaries in `worktree_runtime_owner.go`; its
-`worktree_postgres*` resolver verifies Docker daemon/object/volume identity and
-authenticated cluster identity before lifecycle actions. Pending credentials
-and resource intent are durable before provisioning begins. Database CLI,
-snapshot, down, and prune commands use that single resolver.
-
-`internal/stateupgrade` owns explicit same-schema metadata transactions under
-one private worktree root: revision binding, exact backups, durable publication
-and interrupted-operation recovery. Agent/storage owners validate payloads and
-hold existing stopped-owner, operation and maintenance locks. The
-`worktree upgrade` CLI composes them; ordinary decoders stay strictly current.
-It never changes roots, credentials, database data or immutable object payloads.
-
-Architecture invariant: ordinary `up` owns one control plane and runtime per
-canonical app root in the same supervisor process. It never ensures a shared
-machine agent, adopts shared PostgreSQL resources, or replaces incompatible
-live ownership. Retained data and credentials live outside the checkout; Git
-removal does not authorize deletion. Explicit external databases retain their
-declared sharing semantics; managed storage never shares across canonical roots.
-
-`internal/storagefs` owns retained namespace/incarnation authority, stable
-cross-process leases, immutable payloads and atomic complete references,
-metadata-only bounded scans, conservative reclamation and stopped-owner
-restore/purge records. `storage` is the app-facing logical API and transport
-adapter; application authentication supplies tenant identity. `cmd/scenery`
-composes retained worktree and storage ownership without adding a provisioner.
-`internal/snapshotarchive` owns checksummed portable logical records and leased
-disposable materialization; targets get independent clone-or-copy files, never
-links into a shared blob pool. The one-shot legacy exporter lives only under
-`scripts/`; it is not an alternative runtime decoder.
-
-The machine agent and privileged helper remain explicit edge surfaces.
-An explicitly configured domain can register an edge-only forwarding lease
-to a compatible live worktree router, without moving runtime ownership or
-writing its session manifest. Localhost serving requires no machine edge.
-
-### `internal/devdash` and `internal/localproxy`
-
-These packages support the local development platform around a running app.
-
-`internal/devdash` stores the runtime control backend's session state and
-observability data. `internal/localproxy` owns the local proxy layer. Victoria
-sidecars are supervised from `cmd/scenery` as worktree-owned optional
-companions. The runtime control backend (the internal `dashboard` listener) is
-orchestrated from `cmd/scenery`: `dashboard_rpc.go` serves the documented
-development runtime RPC, `dashboard_rpc_limits.go` bounds its per-connection
-and per-app admission, call deadlines and result budgets,
-`dashboard_rpc_connections.go` closes its connections when the backend closes,
-`dashboard_postgres.go` its PostgreSQL inspection,
-`dashboard_storage.go` resolves registered app scopes for storage RPC, and
-`dashboard_storage_http.go` streams file transfers on the same listener under a
-pinned namespace maintenance lease. Scenery serves no dashboard UI; apps build
-developer tooling on the generated `dev-runtime.ts` client.
-
-Architecture invariant: development services should be optional around the app
-runtime. They can improve local ergonomics, but the generated app binary must
-remain runnable as a headless execution path.
-
-### `ui`
-
-`ui` is the editable Astryx + StyleX source for the binary-owned `@scenery/ui`
-catalog materialized into React-enabled TypeScript clients. `tools/typescript`
-holds only the TypeScript dependencies that typecheck it and the generated
-clients.
-
-Architecture invariant: the catalog stays domain-neutral, keeps its runtime
-libraries as peer dependencies, exports curated components from `index.ts`,
-and exposes StyleX variables only from the direct `tokens.stylex.ts` defining
-module. The catalog is router-agnostic; generated adapters own the route tree
-and app shell, while consuming apps supply route extensions, state, data,
-themes, and domain slots.
-
-### `docs`, `PLANS.md`, and `PLAN.md`
-
-`docs` contains local contracts, schemas, active plans, completed plans,
-runbooks, and the agent-readable knowledge index. `PLANS.md` defines the execution-plan
-format. `PLAN.md` is strategic roadmap material, not the place to track
-step-by-step implementation progress.
-
-Architecture invariant: substantial implementation plans live under
-`docs/plans/` and are linked from `docs/plans/active.md` while active.
-
-### `testdata`
-
-`testdata` contains current native fixture apps and golden generated files.
-It is the acceptance corpus for compiler, codegen, runtime, and CLI behavior.
-
-Architecture invariant: fixture apps should speak scenery syntax directly. Use
-historical reference material only as a corpus when porting behavior into
-scenery-native tests.
-
-## Cross-Cutting Concerns
-
-### Dependencies
-
-scenery prefers the Go standard library. Direct Go dependencies are allowlisted by
-the self-harness with a concrete rationale. New dependencies should be rare and
-should solve a specific maintenance, correctness, or interoperability problem.
-
-Dependency-heavy concerns should stay near the edge that needs them. For
-example, local proxy, package loading, runtime storage transfers, and websocket support
-are boundary concerns; parser/model/runtime fundamentals should stay as small as
-practical.
-
-### Testing And Harnesses
-
-Prefer tests at stable boundaries: `.scn` parsing and validation, canonical
-graphs, generated code, CLI JSON contracts, runtime HTTP behavior, and fixture apps. Use helper
-checks to keep tests data-driven and easy to update when internals move.
-
-After repository changes, publish a verifier run bundle, read its `agent-context.json` and run
-the exact changed-area command union and
-[root validation policy](AGENTS.md#validation-matrix), including named probes
-for changed external boundaries. Full release and resource measurement are
-explicit workflows, not the ordinary iteration loop. Use
-[Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) to
-prepare the local binary.
-
-### Generated Artifacts
-
-Generated app files should be deterministic. Golden tests should make generated
-shape changes explicit, and inspect schemas should describe JSON contracts that
-agents and tools consume.
-
-Generated workspaces and harness snapshots are
-outputs, not primary source. Keep source-of-truth logic in Go source, schemas,
-fixtures, and docs.
-
-### Observability
-
-Local observability is part of the product surface. Runtime traces, logs,
-metrics, runtime RPC status, and inspect commands should give enough evidence to
-debug a local app without relying on external services.
-
-`internal/telemetryreport` reads retained CLI and supervisor evidence; command
-boundaries supply verified current build blocks and serving/source identity. It
-reads active and archived CLI evidence with explicit purpose/producer cohorts
-and per-source coverage; rejected work remains separate from completed builds. `internal/rotatinglog` owns
-bounded detached event files. `internal/devtelemetry` is the private host event
-shape joining a captured source snapshot to its first attested response; it
-contains no request bodies or credentials and never controls activation.
-
-`scenery up` uses supervised VictoriaMetrics, VictoriaLogs, and VictoriaTraces
-sidecars for local observability when their managed binaries are available.
-Runtime session metadata lives in a small JSON store under the worktree's
-private control root; the project does not carry an embedded SQL driver for
-that state. Runtime remains decoupled from Victoria server packages;
-the stable boundary is HTTP/OTLP, not Go library imports.
-
-Framework adapters own automatic operation spans; generation supplies stable
-binding identities. `runtime/operation_trace.go` shares lifecycle and propagation
-across non-HTTP entrypoints and internal calls. Storage reaches the runtime
-through `internal/appsdk`, retaining its small application dependency closure.
-`internal/victoria` translates bounded backend results to the `internal/devdash`
-trace read model; the development RPC enforces app/session scope and returns that
-model through the generated client. TypeScript request observation lives in the
-shared invocation helper and does not duplicate per-method implementations.
-
-### File Size And Placement
-
-scenery favors code that can be found quickly. Keep related concepts adjacent in
-the tree, split very large files before they become hard to review, and prefer a
-flat package map over deeply nested internal hierarchies unless a boundary earns
-the extra structure.
-
-## Inspiration
-
-This document follows the style suggested by matklad's `ARCHITECTURE.md` essay:
-short overview, codemap, invariants, boundaries, and cross-cutting concerns. It
-also borrows ideas from the linked rust-analyzer architecture document and the
-same series' notes on testing, workspaces, and build-time discipline.
+## Hard Invariants
+
+1. **Single declaration surface.** App semantics live in the canonical `.scn`
+   graph before codegen or runtime wiring. Never rediscover app resources from
+   Go comments, `init()`, or generated files.
+2. **One rolling contract.** Remove superseded spellings without compatibility
+   aliases, old decoders, or fallback paths.
+3. **Neutral end-user HTTP surfaces.** URLs, headers, cookies, response bodies,
+   errors, and generated browser code/assets must not contain `"scenery"`.
+4. **Public SDK stays thin.** App-facing packages (`scenery.sh`, `auth`, `db`,
+   `datasource`, `errs`, `object`, `storage`) talk to the runtime through
+   `internal/appsdk.Host` and leaves, never linking CLI, compiler, parser, or
+   runtime orchestration.
+5. **Compiler stays pure.** `internal/compiler` depends only on foundational
+   `scn`/`spec`/`graph`/`gotarget`/`workspacetx` leaves—never `internal/parse`,
+   `internal/generate`, `runtime`, or PostgreSQL drivers.
+6. **Atomic, confined generation.** `internal/generate` renders all selected
+   outputs before one transactional commit (`internal/workspacetx`) beneath
+   declared managed roots. `.scenery/gen/` is cache, not an API.
+7. **Canonical worktree ownership.** `scenery up` owns one control plane and
+   runtime per canonical app root. Retained PostgreSQL databases and storage
+   live outside the checkout; Git removal never authorizes data deletion.
+8. **Minimal dependencies.** Direct Go dependencies are allowlisted in
+   `scripts/verify/harness_arch.go`. Hand-roll CLI grammar in `cmd/scenery`.
+
+## Package Map
+
+### CLI & Verification
+- `cmd/scenery`: CLI entrypoint, command grammar, `scenery up` supervisor,
+  frontend/desktop/Victoria/assistant lifecycle, development runtime RPC
+  (no embedded dashboard UI; apps use generated `dev-runtime.ts`). Never
+  imported by non-CLI packages.
+- `scripts/verify`: repository-only verification harness (`go run ./scripts/verify`).
+  Uses the worktree-local `.scenery/harness/bin/scenery` binary and
+  `internal/testsuite`.
+- `internal/repoinfo`, `internal/harnessreport`, `internal/harnessevidence`,
+  `internal/schemacheck`: shared path classification, validation-command
+  selection, report formatting, and JSON Schema validation.
+- `internal/feature`: repository-local Git feature ledger, isolated integration
+  candidates, and serialized `main` publication (`scenery feature land`).
+
+### Parsing, Specification & Compilation
+- `internal/app`, `internal/appconfig`: canonical app-root discovery
+  (`.scenery.json`), config decoding, per-app environment store, and OS secret
+  adapters. Never imports PostgreSQL drivers.
+- `internal/scn`: `.scn` discovery (no symlinks), lossless CST parsing,
+  positions, and canonical formatting.
+- `internal/spec`: singular current schema and `SCNxxxx` diagnostic catalog
+  with digest revisions.
+- `internal/graph`: canonical resources, provenance, and contract/implementation
+  revision projections.
+- `internal/machine`: strict `scenery.cli` / `scenery.cli.event` envelopes and
+  payload schema-revision registry.
+- `internal/compiler`: loads `.scn`, recovers/checks `internal/workspacetx`,
+  validates and expands immutable graph snapshots + `SQLRequirements`.
+- `internal/parse`, `internal/model`, `internal/gotarget`: narrow Go
+  package-analysis boundary (`golang.org/x/tools/go/packages`) for constructor
+  and handler ABI verification.
+- `internal/evolution`, `internal/contractagent`: `scenery provider lock`
+  source transactions and `scenery schema` catalog answers.
+
+### Contracts, Generation & Build
+- `internal/contract`, `internal/contractpolicy`, `internal/appsdk`: canonical
+  contract wire codecs, constraint validation, authorization policy evaluator,
+  and process-local SDK host bridge.
+- `internal/generate`, `internal/generate/api`, `internal/uigen`,
+  `internal/clientprojection`, `internal/codegen`, `ui/`: Go contracts and
+  composition, TypeScript API clients, optional React pages, and binary-owned
+  `@scenery/ui` Astryx + StyleX catalog.
+- `internal/lifecycle`: stdlib-only DAG planner for deterministic generation,
+  SQLC publication, and build preparation.
+- `internal/build`, `internal/workspacetx`, `internal/dirlisting`,
+  `internal/filemeta`, `internal/devcache`: transient build workspace,
+  content-addressed fingerprints, crash-safe atomic publication, and stock
+  `go build` per-service development linking + single-binary production builds.
+
+### Runtime, Capabilities & Local Platform
+- `runtime` (`scenery.sh/runtime`): linked into generated app binaries. In dev,
+  runs a stable `ProcessHost` (`runtime/process_host.go`) that pins requests and
+  internal calls (`runtime/process_link.go`) to published generations over
+  private sockets, plus one process per native service. Owns HTTP routing,
+  codecs, auth context, policies, durable workers, schedules, assistants,
+  tracing, and graceful drain.
+- Public SDK packages: `scenery.sh`, `auth`, `db`, `datasource`, `errs`,
+  `object`, `storage` (canonical local filesystem object store).
+- `internal/connectionapi`, `internal/connectionruntime`,
+  `internal/connectionvault`, `internal/authprovider/*`, `internal/oidc`:
+  provider-neutral encrypted OAuth2/OIDC user connections.
+- `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpapi`,
+  `internal/mcpgateway`, `internal/assistant*`: provider-neutral MCP ABI and
+  supervised out-of-process assistant helpers.
+- `internal/agent`, `internal/devprocess`, `internal/devdash`,
+  `internal/localproxy`, `internal/edge`, `internal/desktop`,
+  `internal/postgresdb`, `internal/postgresname`, `internal/storagefs`,
+  `internal/snapshotarchive`, `internal/stateupgrade`: worktree ownership,
+  process supervision, managed Caddy edge, Tauri 2 desktop integration,
+  PostgreSQL migrations, leased object storage, and portable snapshots.
+- `internal/inspect`, `internal/uireport`: machine-readable app/build/route
+  inspection and read-only frontend UI adherence scanning.
+- `testdata/`: fixture apps and golden generated outputs.

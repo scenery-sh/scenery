@@ -1,123 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestValidateActiveExecPlanIndexRejectsLinkedPlanMissingKnowledgeEntry(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n\n- [Plan](0001-plan.md)\n")
-	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[]`))
-
-	diagnostics, _ := validateActiveExecPlanIndex(root)
-	assertDiagnosticContains(t, diagnostics, "active ExecPlan is missing from docs/knowledge.json: docs/plans/0001-plan.md")
-}
-
-func TestValidateActiveExecPlanIndexRejectsIndexedPlanMissingActiveLink(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n")
-	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[{
-  "path":"docs/plans/0001-plan.md","title":"Plan","owner":"owner","status":"active",
-  "quality":"B","freshness":"current","last_reviewed":"2026-07-22",
-  "review_after":"2026-08-21","summary":"Plan.","tags":["plans","execplans"]
-}]`))
-
-	diagnostics, _ := validateActiveExecPlanIndex(root)
-	assertDiagnosticContains(t, diagnostics, "indexed active ExecPlan is missing from docs/plans/active.md: docs/plans/0001-plan.md")
-}
-
-func TestValidateActiveExecPlanIndexRejectsLinkedPlanMarkedCompleted(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n\n- [Plan](0001-plan.md)\n")
-	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[{
-  "path":"docs/plans/0001-plan.md","title":"Plan","owner":"owner","status":"completed",
-  "quality":"B","freshness":"current","last_reviewed":"2026-07-22",
-  "review_after":"2026-08-21","summary":"Plan.","tags":["plans","execplans"]
-}]`))
-
-	diagnostics, _ := validateActiveExecPlanIndex(root)
-	assertDiagnosticContains(t, diagnostics, "linked active ExecPlan is not marked active in docs/knowledge.json: docs/plans/0001-plan.md")
-}
-
-func TestValidateActiveExecPlanIndexAcceptsMatchingIndex(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n\n- [Plan](0001-plan.md)\n")
-	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[{
-  "path":"docs/plans/0001-plan.md","title":"Plan","owner":"owner","status":"active",
-  "quality":"B","freshness":"current","last_reviewed":"2026-07-22",
-  "review_after":"2026-08-21","summary":"Plan.","tags":["plans","execplans"]
-}]`))
-
-	diagnostics, summary := validateActiveExecPlanIndex(root)
-	if len(diagnostics) != 0 {
-		t.Fatalf("diagnostics = %#v", diagnostics)
-	}
-	if summary["active_exec_plan_links"] != 1 || summary["indexed_active_exec_plans"] != 1 {
-		t.Fatalf("summary = %#v", summary)
-	}
-}
-
-func TestValidateExecPlanValidationLanguageRejectsSubjectiveSelection(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	text := strings.Join([]string{
-		"# Plan",
-		"",
-		"## Validation and Acceptance",
-		"",
-		"Run the browser check when practical.",
-		"",
-		"## Idempotence and Recovery",
-	}, "\n")
-
-	diagnostics := validateExecPlanValidationLanguage(root, "docs/plans/0001-plan.md", text, "## Validation and Acceptance")
-	assertDiagnosticContains(t, diagnostics, "ExecPlan validation uses subjective selection phrase: when practical")
-	if len(diagnostics) != 1 || diagnostics[0].Line != 5 {
-		t.Fatalf("diagnostics = %#v", diagnostics)
-	}
-}
-
-func TestValidateExecPlanValidationLanguageAllowsExactSkipCondition(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	text := strings.Join([]string{
-		"# Plan",
-		"",
-		"## Validation and Acceptance",
-		"",
-		"Run `go run ./scripts/verify --probe ui --summary --write`.",
-		"If bun is absent, keep acceptance incomplete and attach the typescript dependencies diagnostic.",
-		"",
-		"## Idempotence and Recovery",
-	}, "\n")
-
-	diagnostics := validateExecPlanValidationLanguage(root, "docs/plans/0001-plan.md", text, "## Validation and Acceptance")
-	if len(diagnostics) != 0 {
-		t.Fatalf("diagnostics = %#v", diagnostics)
-	}
-}
-
-func testDocsIndexJSON(documents string) string {
-	return fmt.Sprintf(`{
-  "kind":"scenery.docs.index","schema_revision":%q,"generated_at":"2026-07-22T00:00:00Z",
-  "owner_default":"owner","freshness_policy":{"default_review_days":30,"quality_grades":["B"],"freshness_states":["current"]},
-  "documents":%s,"plans":{"active":"docs/plans/active.md","completed":"docs/plans/completed.md"},
-  "tech_debt":"docs/tech-debt.md"
-}`, docsIndexSchemaRevision, documents)
-}
 
 func assertDiagnosticContains(t *testing.T, diagnostics []checkDiagnostic, want string) {
 	t.Helper()
@@ -198,8 +85,6 @@ func TestValidateInstructionDocBudgetsWarnsOnOversizedDocs(t *testing.T) {
 	}
 }
 
-// The shipped instruction docs must stay within the budgets this harness
-// enforces, so the check never cries wolf on a clean tree.
 func TestShippedInstructionDocsWithinLeanBudgets(t *testing.T) {
 	t.Parallel()
 

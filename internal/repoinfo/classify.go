@@ -102,9 +102,7 @@ func classifyHarnessChangedFile(path string) string {
 		return "ui"
 	case strings.HasPrefix(path, "docs/schemas/"):
 		return "schema"
-	case strings.HasPrefix(path, "docs/plans/"):
-		return "exec-plan"
-	case strings.HasPrefix(path, "docs/") || path == "SKILL.md" || path == "PLAN.md" || path == "PLANS.md" || path == "README.md" || path == "ARCHITECTURE.md":
+	case strings.HasPrefix(path, "docs/") || path == "SKILL.md" || path == "README.md" || path == "ARCHITECTURE.md" || path == "CONTRIBUTING.md" || path == "SECURITY.md":
 		return "docs"
 	case strings.HasPrefix(path, "testdata/"):
 		return "fixture"
@@ -141,55 +139,46 @@ func harnessPublicRuntimePath(path string) bool {
 
 func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands map[string]bool) {
 	if harnessConnectionPath(path) {
-		docs["docs/auth-connections.md"] = true
-		docs["docs/runbooks/auth-connections-migration.md"] = true
 		docs["ARCHITECTURE.md"] = true
 		risks["connection-lifecycle"] = true
 		commands["go run ./scripts/verify --probe auth --summary --write"] = true
 	}
 	if harnessDevEventReadPath(path) {
-		docs["docs/local-contract.md"] = true
+		docs["ARCHITECTURE.md"] = true
 		risks["victoria-dev-event-read-path"] = true
 		commands["scenery logs --limit 500 -o jsonl"] = true
 	}
 	switch category {
 	case "cli":
-		docs["docs/harness-engineering.md"] = true
+		docs["ARCHITECTURE.md"] = true
 		risks["cli-contract"] = true
 		if strings.Contains(path, "harness") {
 			risks["harness-contract"] = true
-			docs["docs/plans/0051-harness-self-agent-oracle.md"] = true
 		}
 	case "schema":
-		docs["docs/knowledge.json"] = true
+		docs["ARCHITECTURE.md"] = true
 		risks["json-schema-contract"] = true
-	case "exec-plan":
-		docs["PLANS.md"] = true
-		docs["docs/plans/active.md"] = true
-		risks["exec-plan"] = true
 	case "ui":
 		risks["generated-ui-catalog"] = true
-		docs["docs/ui-agent-contract.md"] = true
+		docs["ARCHITECTURE.md"] = true
 		commands[ValidationCatalogTypecheckCommand] = true
 		commands["go test ./internal/generate"] = true
 	case "fixture":
-		docs["docs/app-development-cookbook.md"] = true
+		docs["docs/spec/SPEC.md"] = true
 		risks["fixture-contract"] = true
 	case "dependency":
-		docs["docs/harness-engineering.md"] = true
+		docs["AGENTS.md"] = true
 		risks["dependency-graph"] = true
 	case "runtime":
-		docs["docs/local-contract.md"] = true
+		docs["ARCHITECTURE.md"] = true
 		risks["runtime-contract"] = true
 	case "internal":
 		if harnessOptionalUIPath(path) {
-			docs["docs/generated-ui.md"] = true
 			docs["ARCHITECTURE.md"] = true
 			risks["optional-ui-projection"] = true
 			commands["go test ./internal/generate ./internal/uigen"] = true
 		}
 		if strings.HasPrefix(path, "internal/build/") {
-			docs["docs/plans/0050-test-suite-speed-hardening.md"] = true
 			risks["build-cache"] = true
 		}
 	}
@@ -219,10 +208,6 @@ func OnlvImpactingPath(path string) bool {
 		"cmd/scenery/db",
 		"internal/agent",
 		"internal/localproxy",
-		"docs/plans/0045-",
-		"docs/plans/0048-",
-		"docs/plans/0049-",
-		"docs/plans/0063-",
 	} {
 		if strings.Contains(path, needle) {
 			return true

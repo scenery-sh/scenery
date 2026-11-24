@@ -360,8 +360,8 @@ func summarizeHarnessInspect(subject string, payload map[string]any) map[string]
 func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 	entrypoints := []string{
 		"AGENTS.md",
-		"docs/local-contract.md",
-		"docs/agent-guide.md",
+		"ARCHITECTURE.md",
+		"SKILL.md",
 	}
 	schemas := []string{
 		"docs/schemas/scenery.config.schema.json",

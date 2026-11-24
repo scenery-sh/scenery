@@ -28,7 +28,6 @@ type inspectOptions struct {
 	JSON             bool
 	VerifyGeneration bool
 	StorageStats     bool
-	Docs             inspectDocsOptions
 	UI               inspectUIOptions
 	Trace            inspectTraceQueryOptions
 	Harness          inspectHarnessOptions
@@ -157,17 +156,6 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 			return err
 		}
 		return writeInspectJSON(stdout, report)
-	}
-	if opts.Subject == "docs" {
-		repoRoot, err := discoverSceneryRepoRoot(opts.RepoRoot)
-		if err != nil {
-			return err
-		}
-		resp, err := buildInspectDocsResponseForOptions(repoRoot, opts.Docs)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, resp)
 	}
 	if opts.Subject == "harness" {
 		if opts.Harness.Topic != "" {
@@ -351,17 +339,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
 	flags.BoolVar(&opts.VerifyGeneration, "verify-generation", false, "")
 	flags.BoolVar(&opts.StorageStats, "stats", false, "")
-	flags.Func("for-path", "repository path (repeatable)", func(value string) error {
-		if strings.TrimSpace(value) == "" {
-			return usageErrorf("--for-path must not be empty")
-		}
-		opts.Docs.ForPaths = append(opts.Docs.ForPaths, value)
-		return nil
-	})
-	flags.BoolVar(&opts.Docs.IncludeText, "include-text", false, "bounded source excerpts")
-	flags.StringVar(&opts.Docs.Tag, "tag", "", "")
-	flags.BoolVar(&opts.Docs.ReviewDue, "review-due", false, "")
-	flags.BoolVar(&opts.Docs.All, "all", false, "")
 	flags.StringVar(&opts.UI.Frontend, "frontend", "", "")
 	flags.StringVar(&opts.Harness.Severity, "severity", "", "")
 	flags.IntVar(&opts.Harness.Top, "top", 0, "")
@@ -376,8 +353,8 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	if err != nil {
 		return inspectOptions{}, err
 	}
-	if cliFlagSet(flags, "repo-root") && opts.Subject != "docs" && opts.Subject != "harness" {
-		return inspectOptions{}, usageErrorf("--repo-root is only supported for inspect docs and inspect harness")
+	if cliFlagSet(flags, "repo-root") && opts.Subject != "harness" {
+		return inspectOptions{}, usageErrorf("--repo-root is only supported for inspect harness")
 	}
 	if cliFlagSet(flags, "stats") && opts.Subject != "storage" {
 		return inspectOptions{}, usageErrorf("--stats requires inspect storage")
@@ -387,20 +364,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	}
 	if cliFlagSet(flags, "frontend") && opts.Subject != "ui" {
 		return inspectOptions{}, usageErrorf("--frontend is only supported for inspect ui")
-	}
-	for _, name := range []string{"for-path", "include-text", "tag", "review-due", "all"} {
-		if cliFlagSet(flags, name) && opts.Subject != "docs" {
-			return inspectOptions{}, usageErrorf("--%s is only supported for inspect docs", name)
-		}
-	}
-	if opts.Subject == "docs" {
-		opts.Docs.Tag = strings.TrimSpace(opts.Docs.Tag)
-		if cliFlagSet(flags, "for-path") && len(opts.Docs.ForPaths) == 0 {
-			return inspectOptions{}, usageErrorf("--for-path must not be empty")
-		}
-		if cliFlagSet(flags, "tag") && opts.Docs.Tag == "" {
-			return inspectOptions{}, usageErrorf("--tag must not be empty")
-		}
 	}
 	if opts.Subject == "report" {
 		if len(positionals) == 0 {
@@ -440,13 +403,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		if !cliFlagSet(flags, name) {
 			continue
 		}
-		if name == "status" && opts.Subject == "docs" {
-			opts.Docs.Status = strings.ToLower(strings.TrimSpace(*traceValues[name]))
-			if opts.Docs.Status == "" {
-				return inspectOptions{}, usageErrorf("--status must not be empty")
-			}
-			continue
-		}
 		if opts.Subject != "traces" && opts.Subject != "metrics" {
 			return inspectOptions{}, usageErrorf("--%s is only supported for traces list and metrics list", name)
 		}
@@ -456,11 +412,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	}
 	if cliFlagSet(flags, "slowest") && opts.Subject != "traces" && opts.Subject != "metrics" {
 		return inspectOptions{}, usageErrorf("--slowest is only supported for traces list and metrics list")
-	}
-	if opts.Subject == "docs" {
-		if err := validateInspectDocsOptions(opts.Docs); err != nil {
-			return inspectOptions{}, err
-		}
 	}
 	return opts, nil
 }

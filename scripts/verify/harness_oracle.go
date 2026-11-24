@@ -584,7 +584,7 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		suggestion := "Review `.scenery/harness/test-timing-latest.json` for regressions; timing is advisory in default self-harness mode."
 		if report.Budgets.Mode == "enforce-total" {
 			severity = "error"
-			suggestion = "Continue `docs/plans/0050-test-suite-speed-hardening.md` and reduce the full-suite runtime below the enforced harness budget."
+			suggestion = "Reduce the full-suite runtime below the enforced harness budget."
 		}
 		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
 			Stage:           "go tests",

@@ -245,16 +245,7 @@ func summarizeTestTiming(report *TestTimingReport) *SelfTestTimingSummary {
 }
 
 func summarizeKnowledge(resp SelfResponse) SelfKnowledgeSummary {
-	out := SelfKnowledgeSummary{EntrypointCount: len(resp.Knowledge.Entrypoints), SchemaCount: len(resp.Knowledge.Schemas), Drilldown: "scenery inspect docs --all -o json"}
-	for _, step := range resp.Steps {
-		if step.Name != "inspect docs" || step.Summary == nil {
-			continue
-		}
-		out.ReviewDueCount = anyInt(step.Summary["review_due_count"])
-		out.StaleCount = anyInt(step.Summary["stale_count"])
-		break
-	}
-	return out
+	return SelfKnowledgeSummary{EntrypointCount: len(resp.Knowledge.Entrypoints), SchemaCount: len(resp.Knowledge.Schemas), Drilldown: "scenery inspect harness -o json"}
 }
 
 func summarizeArchitecture(steps []Step, changedPaths map[string]bool, debtWarnings, changedWarnings int) SelfArchitectureSummary {

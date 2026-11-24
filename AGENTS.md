@@ -1,152 +1,51 @@
 # scenery Agent Instructions
 
 Use Czech with developers unless requested otherwise; keep code, comments,
-tests, docs, product copy and commits in English. Scenery runs the app runtime,
-gives capabilities, lets agents inspect and act safely, and hides the substrate
-unless intentionally debugging it. Keep solutions simple and task-scoped.
+tests, docs, product copy, and commits in English. Keep solutions simple and
+task-scoped.
 
-## Instruction Layers
+## Core References
 
-Read root and applicable child `AGENTS.md` once per task; reread only when scope,
-content or missing context requires it. Children own their subtrees but cannot
-weaken repo-wide engineering, public contracts or generated-artifact rules.
+- [ARCHITECTURE.md](ARCHITECTURE.md): package boundaries and hard invariants.
+- [docs/spec/SPEC.md](docs/spec/SPEC.md): `.scn` language, types, and runtime contracts.
+- [SKILL.md](SKILL.md): workflow for agents working inside Scenery apps.
+- Machine contracts: `docs/schemas/*.schema.json`, `docs/environment.registry.json`, and `scenery help <command> -o json`.
 
-Use `scenery inspect docs --for-path <path>... -o json` to locate applicable
-instructions, owning sections and cumulative validation commands. Add
-`--include-text` for bounded excerpts; read beyond any explicitly truncated text
-when that contract matters. A known local edit needs no whole-repo map.
-`--review-due` selects gardening; `--all` selects the catalog.
+## Autonomy & Safety
 
-Use `ARCHITECTURE.md` for boundaries, `docs/local-contract.md` and checked schemas
-for CLI/JSON/artifacts, `docs/agent-guide.md` for runtime/app workflows, `SKILL.md`
-for agents inside apps, and the cookbook for recipes. Read relevant active plans
-and, before substantial refactoring, `docs/tech-debt.md`. `PLAN.md` is the roadmap;
-complex multi-hour or multi-subsystem work uses `PLANS.md`, small fixes do not.
-Implementation, tests and current schemas establish behavior without waiving
-normative requirements. Correct disagreements in affected docs or record owner
-and resolution in an active plan. `.scenery/gen/` is cache, not an API.
-
-### Child Agent Index
-
-- `scripts/verify/AGENTS.md`
-- `examples/webhook-inbox/AGENTS.md`
-- `internal/app/AGENTS.md`
-- `internal/appconfig/AGENTS.md`
-- `internal/authprovider/AGENTS.md`
-- `internal/parse/AGENTS.md`
-- `internal/agent/AGENTS.md`
-- `internal/compiler/AGENTS.md`
-- `internal/connectionvault/AGENTS.md`
-- `internal/connectionruntime/AGENTS.md`
-- `internal/contractagent/AGENTS.md`
-- `internal/devprocess/AGENTS.md`
-- `internal/edge/AGENTS.md`
-- `internal/evolution/AGENTS.md`
-- `internal/feature/AGENTS.md`
-- `internal/generate/AGENTS.md`
-- `internal/graph/AGENTS.md`
-- `internal/harnessevidence/AGENTS.md`
-- `internal/harnessreport/AGENTS.md`
-- `internal/machine/AGENTS.md`
-- `internal/repoinfo/AGENTS.md`
-- `internal/scn/AGENTS.md`
-- `internal/spec/AGENTS.md`
-- `internal/stateupgrade/AGENTS.md`
-- `internal/testsuite/AGENTS.md`
-- `internal/uireport/AGENTS.md`
-- `internal/uigen/AGENTS.md`
-- `internal/workspacetx/AGENTS.md`
-- `testdata/apps/worktree-postgres/AGENTS.md`
-- `docs/spec/AGENTS.md`
-- `ui/AGENTS.md`
-- `ui/components/AGENTS.md`
-
-Add children only for durable ownership boundaries. Their Purpose, Ownership,
-Local Contracts, Work Guidance and Verification explain scope; keep detailed
-rules in the owning references.
-
-## Autonomy Policy
-
-Continue authorized reading, local edits, builds, cached tests and worktree
-`scenery up`, including corrections caused by the change. Ask only for a material
-unresolved scope choice or missing authorization; do not ask again for permission
-already granted.
+Continue authorized reading, local edits, builds, cached tests, and worktree
+`scenery up`, including corrections caused by the change. Ask only for material
+unresolved scope choices or missing authorization.
 
 - Do not spawn subagents unless the human explicitly asks; skills cannot grant permission.
 - Validate with `.scenery/harness/bin/scenery`. Do not run `go install ./cmd/scenery` unless the human explicitly requests installation; worktrees share that installed path.
-- Preserve unrelated dirty work and verified runtime/data ownership. Branch switches and worktree removal do not authorize data deletion. Never adopt/reset mismatched resources; follow the owning recovery/migration runbook.
-- Land on `main` only through `scenery feature land`. Once a worktree's work is fully on `main`, remove it completely in the same task: close its feature record, then remove the checkout, its local branch and its published candidate checkout. Keep a worktree with uncommitted or unlanded work, a running process or an unpublished candidate, and report it. Retained runtime state is reclaimed only by `scenery prune --orphaned`.
-- Add no environment-variable knobs unless requested or an active plan explains why flags/config are insufficient.
-- Browse interactively only through native ChatGPT/Codex Chrome controls, using the running profile in the background. Use `chrome:control-chrome` when installed; never standalone browser MCPs or separate profiles.
+- Preserve unrelated dirty work and verified runtime/data ownership. Branch switches and worktree removal do not authorize data deletion. Never adopt or reset mismatched resources.
+- Land on `main` only through `scenery feature land`. Once a worktree's work is fully on `main`, remove it completely in the same task (close its feature record, remove checkout, local branch, and candidate checkout). Retain worktrees with uncommitted/unlanded work or running processes and report them.
+- Add no environment-variable knobs unless requested; register approved env vars in `docs/environment.registry.json`.
+- Only humans may modify the top-level roadmap document unless explicitly instructed.
 
 ## Engineering Rules
 
-- Prefer Go's standard library and a small public surface; justify new dependency maintenance costs.
-- End-user HTTP surfaces must not contain "scenery" (case-insensitive): URLs, headers, cookies, response bodies, errors, and generated code/assets delivered to browsers. Use neutral application names. Developer/operator-only tools, diagnostics, private protocols, and source/package names may retain the name; keep them out of end-user responses and bundles.
-- Keep one rolling specification, compiler, runtime and machine protocol. Remove obsolete spellings without compatibility aliases, old decoders or fallback paths. Preserve `app.scn`, `package.scn`, `.scenery.json`, `scenery.sh/...`.
-- Declare service, operation, binding, durable-work, schedule, data, page, renderer and middleware identities in `.scn`; domain UI stays in app-owned slots. Changed persisted input with retained durable `external_name` needs a new `revision` and drained/migrated active rows.
-- Change JSON/model contracts with schemas, docs, tests and harness expectations. Use the checked diagnostic catalog: SCN8000-range request failures; SCN9000-range internal failures expose sanitized messages and opaque report tokens only.
-- Keep module sources in the non-symlink workspace and generated output beneath declared managed roots. Generate one artifact-set transaction. App-imported Go projections stay in the existing module, ignored by default; never synthesize editor modules or manage root workfiles.
-- Follow nearest ownership rules and the [Public Surface Checklist](docs/agent-guide.md#public-surface-checklist) for public-model changes.
-- Never commit `.scenery/`, Victoria state, node modules, coverage, `.DS_Store` or local environment files. Keep changes explicit.
-- Prefer parser, codegen, runtime HTTP, CLI JSON, schema and fixture boundary tests. Non-generated source over 1,000 lines warns; over 2,500 fails. Instruction budgets are 2,500 root / 800 child words; move detail instead of increasing limits.
-
-## CLI And Client Apps
-
-`.scenery.json` identifies an app root. Prefer `-o json` / `-o jsonl` with exact
-revisions and producer identity. Discover grammar through `scenery help <command>
--o json`, runtime URLs through `scenery ps -o json`, and use `scenery up` for the
-live loop. Run doctor for unknown readiness or failed prerequisites.
-
-Client `AGENTS.md` contains app/config paths, frontend/client roots, env names
-without values, checks, loop and product invariants; do not copy this manual or
-the shared skill. Use the [client guide](docs/agent-guide.md#client-app-instructions)
-and [application matrix](docs/agent-guide.md#application-validation-and-completion).
-Scenery has no dashboard UI; developer tooling uses generated `dev-runtime.ts`.
-Issues/specs live in `.scratch/<feature>/`; follow [issue workflow](docs/agents/issue-tracker.md),
-[triage vocabulary](docs/agents/triage-labels.md) and [domain guidance](docs/agents/domain.md).
-
-## Documentation Update Rules
-
-Only humans may modify `VNEXT.md`.
-
-Behavior changes update every affected owning
-layer; implementation-only edits need no instruction-doc update. Follow the
-[owning-document table](docs/agent-guide.md#repository-documentation-updates).
-Index changed docs/plans in `docs/knowledge.json` and active plans in
-`docs/plans/active.md`. Keep active Progress (including Resume here), discoveries,
-decisions and outcomes current. Completed/deprecated numbered plans are immutable
-history without freshness reviews; later guidance belongs in living docs/indexes.
+- Prefer Go's standard library and a small public surface; justify new direct dependencies (allowlisted in `scripts/verify/harness_arch.go`).
+- End-user HTTP surfaces must not contain "scenery" (case-insensitive): URLs, headers, cookies, response bodies, errors, and generated browser code/assets. Developer/operator tools and source packages may retain the name.
+- Keep one rolling specification, compiler, runtime, and machine protocol. Remove obsolete spellings without compatibility aliases, old decoders, or fallback paths. Preserve `app.scn`, `package.scn`, `.scenery.json`, `scenery.sh/...`.
+- Declare service, operation, binding, durable-work, schedule, data, page, renderer, and middleware identities in `.scn`; domain UI stays in app-owned slots. Changed persisted input with retained durable `external_name` needs a new `revision`.
+- Change JSON/model contracts together with `docs/schemas/`, tests, and harness expectations. Use the checked diagnostic catalog (`SCN8xxx` request failures; `SCN9xxx` internal failures expose sanitized messages and opaque report tokens only).
+- Keep module sources in the non-symlink workspace and generated output beneath declared managed roots as one atomic artifact-set transaction. Never commit `.scenery/`, Victoria state, `node_modules`, coverage, `.DS_Store`, or `.env*`.
+- Non-generated source over 1,000 lines warns; over 2,500 fails. Keep `AGENTS.md` lean (<2,500 words).
 
 ## Validation Matrix
 
-Registered feature worktrees use focused development checks while working;
-[local feature landing](docs/feature-workflow.md) owns the cumulative validation
-of the combined candidate. A ready label is not acceptance. For completion or
-landing, select quick/full **after editing** from the cumulative
-[repository matrix](docs/harness-engineering.md#repository-validation-matrix).
-Documentation-only edits select quick; source and contract changes retain the
-matrix's cumulative requirements.
-Run full directly when required. The selected `--write` run publishes an immutable
-archive: read `agent-context-summary.json` first, then complete the
-`agent-context.json` changed-area command union, reusing successful same-input,
-same-scope checks. Reclassify additional edits; pre-edit proof is insufficient.
-Always run `golangci-lint run ./...`; suppress only narrowly justified intentional
-violations. Keep Go's test cache enabled; `-count=1` / `--fresh-tests` require explicit
-fresh measurement or nondeterminism investigation. Every exact top-level Go test
-root must remain below repeated isolated 100ms p95 without exceptions; aim at
-50–60ms bodies. Processes, tools, services, network and OS proof belong in named
-integration probes, not hidden setup/TestMain costs. Quick/default/race are
-service-free. Changed external boundaries need their named probes and cleanup.
-Release certification uses only `scripts/release-gate.sh`; benchmarks/all-root
-timing audits require an explicit human request. Generator/UI changes retain the
-matrix's exact regeneration/TypeScript checks.
+- Documentation-only edits: `go run ./scripts/verify --quick --summary --write`.
+- Source / contract / runtime edits: run `go run ./scripts/verify --summary --write` (or `--quick` for scoped development checks, full before completion/landing), read `.scenery/harness/agent-context-summary.json`, and complete the `changed_area.recommended_commands` union.
+- Always run `golangci-lint run ./...` for Go changes; suppress only narrowly justified intentional violations.
+- Keep Go's test cache enabled (`-count=1` / `--fresh-tests` only for explicit fresh measurement or nondeterminism investigation). Every exact top-level Go test root must stay below 100ms p95; put process/service/network/OS proof in named integration probes (`--probe <id>`).
+- UI catalog or generator changes require `tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json` and regenerating committed fixtures.
+- Release certification uses `scripts/release-gate.sh`.
 
 ## Completion Contract
 
-Continue through required validation and change-caused failures. Define the
-observable scenario before runtime/UI work. Demonstrate the
-requested runtime/UI scenario and current served identity; a patch/build alone
-is insufficient. Keep independent blockers explicit without expanding scope.
-Report behavior, commands/results, skipped checks with reasons, remaining risks
-and intentionally unchanged docs. Planned/skipped/warning-only proof is not a pass.
+Continue through required validation and change-caused failures. Demonstrate the
+requested runtime/UI scenario and current served identity for runtime/UI tasks;
+a patch/build alone is insufficient. Report behavior, commands/results, skipped
+checks with exact reasons, and remaining risks.

@@ -103,12 +103,11 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 
 	// Checks of the built binary are independent of each other.
 	var (
-		binaryChecks                   sync.WaitGroup
-		toolchainStep, inspectDocsStep harnessStep
-		toolchain                      *harnessToolchainReport
+		binaryChecks  sync.WaitGroup
+		toolchainStep harnessStep
+		toolchain     *harnessToolchainReport
 	)
 	binaryChecks.Go(func() { toolchainStep, toolchain = runHarnessToolchainPreflightStep(ctx, repoRoot) })
-	binaryChecks.Go(func() { inspectDocsStep = runHarnessInspectDocsStep(repoRoot) })
 	sourceChecks.Wait()
 	driftStep, drift := finishHarnessDriftStep(repoRoot, drift, driftSourceDuration)
 	binaryChecks.Wait()
@@ -119,7 +118,6 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		toolchainStep,
 		knowledgeStep,
 		changedAreaStep,
-		inspectDocsStep,
 		architectureStep,
 		driftStep,
 	)
@@ -249,63 +247,6 @@ func harnessSelfGoTestEnv() []string {
 	// unavailable fallback keeps isolation without invalidating Go's result cache
 	// with the enclosing verifier's randomly named home on every invocation.
 	return []string{"GOWORK=off", "SCENERY_AGENT_HOME=" + os.DevNull}
-}
-
-func runHarnessInspectDocsStep(repoRoot string) harnessStep {
-	started := time.Now()
-	var out bytes.Buffer
-	err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--all", "-o", "json"}, &out)
-	step := harnessStep{
-		Name:       "inspect docs",
-		Command:    []string{"scenery", "inspect", "docs", "--repo-root", repoRoot, "--all", "-o", "json"},
-		OK:         err == nil,
-		DurationMS: time.Since(started).Milliseconds(),
-	}
-	if err != nil {
-		step.Error = strings.TrimSpace(err.Error())
-		step.OutputTail = tailString(out.String(), 8192)
-		step.Diagnostics = []checkDiagnostic{{
-			Stage:           step.Name,
-			Severity:        "error",
-			Message:         firstNonEmpty(step.OutputTail, step.Error),
-			SuggestedAction: "Run `scenery inspect docs --all -o json`, fix the reported docs issue, then rerun `go run ./scripts/verify -o json`.",
-		}}
-		return step
-	}
-	var payload inspectDocsResponse
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		step.OK = false
-		step.Error = "invalid inspect docs JSON: " + err.Error()
-		step.Diagnostics = []checkDiagnostic{{
-			Stage:           step.Name,
-			Severity:        "error",
-			Message:         step.Error,
-			SuggestedAction: "Fix `scenery inspect docs --all -o json` output so it conforms to the current scenery.inspect.docs schema.",
-		}}
-		return step
-	}
-	step.Summary = map[string]any{
-		"kind":             payload.Kind,
-		"schema_revision":  payload.SchemaRevision,
-		"document_count":   payload.Summary.DocumentCount,
-		"missing_count":    payload.Summary.MissingCount,
-		"review_due_count": payload.Summary.ReviewDueCount,
-		"stale_count":      payload.Summary.StaleCount,
-	}
-	if payload.Kind != inspectDocsKind || payload.SchemaRevision != newCLIPayloadIdentity(inspectDocsKind).SchemaRevision {
-		step.OK = false
-		step.Error = "unexpected inspect docs identity " + payload.Kind + " " + payload.SchemaRevision
-	}
-	if payload.Summary.MissingCount > 0 || payload.Summary.StaleCount > 0 {
-		step.OK = false
-		step.Diagnostics = []checkDiagnostic{{
-			Stage:           step.Name,
-			Severity:        "error",
-			Message:         "docs knowledge base has missing or stale entries",
-			SuggestedAction: "Run `scenery inspect docs --all -o json`, update docs/knowledge.json or the referenced docs, then rerun `go run ./scripts/verify -o json`.",
-		}}
-	}
-	return step
 }
 
 func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
@@ -704,27 +645,18 @@ func harnessBinaryInputFile(path string) bool {
 
 func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 	entrypoints := []string{
+		"README.md",
 		"AGENTS.md",
+		"ARCHITECTURE.md",
 		"SKILL.md",
-		"PLAN.md",
-		"PLANS.md",
-		"docs/index.md",
-		"docs/knowledge.json",
-		"docs/harness-engineering.md",
-		"docs/local-contract.md",
-		"docs/environment.md",
+		"CONTRIBUTING.md",
+		"docs/spec/SPEC.md",
 		"docs/environment.registry.json",
-		"docs/app-development-cookbook.md",
-		"docs/ui-agent-contract.md",
-		"docs/plans/active.md",
-		"docs/plans/completed.md",
-		"docs/tech-debt.md",
 	}
 	schemas := []string{
 		"docs/schemas/scenery.config.schema.json",
 		"docs/schemas/scenery.build.desktop.schema.json",
 		"docs/schemas/scenery.build.latest.schema.json",
-		"docs/schemas/scenery.docs.index.schema.json",
 		"docs/schemas/scenery.environment.registry.schema.json",
 		"docs/schemas/scenery.harness.artifact.schema.json",
 		"docs/schemas/scenery.harness.self.schema.json",
@@ -744,7 +676,6 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.cli.schema.json",
 		"docs/schemas/scenery.inspect.app.schema.json",
 		"docs/schemas/scenery.inspect.build.schema.json",
-		"docs/schemas/scenery.inspect.docs.schema.json",
 		"docs/schemas/scenery.inspect.endpoints.schema.json",
 		"docs/schemas/scenery.inspect.harness.schema.json",
 		"docs/schemas/scenery.inspect.metrics.schema.json",

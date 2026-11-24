@@ -117,7 +117,7 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 	}{
 		{
 			name:           "documentation only",
-			paths:          []string{"README.md", "ARCHITECTURE.md", "AGENTS.md", "PLANS.md", "ui/AGENTS.md", "ui/components/AGENTS.md"},
+			paths:          []string{"README.md", "ARCHITECTURE.md", "AGENTS.md", "SKILL.md", "docs/spec/SPEC.md"},
 			wantClasses:    []string{harnessValidationDocumentation},
 			wantCommands:   []string{harnessValidationQuickCommand},
 			forbidCommands: []string{"go test ./...", harnessValidationFullCommand},
@@ -132,12 +132,12 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 		},
 		{
 			name:             "cli json contract",
-			paths:            []string{"cmd/scenery/help.go", "ui/components/AGENTS.md"},
+			paths:            []string{"cmd/scenery/help.go", "AGENTS.md"},
 			packageDirs:      []string{"cmd/scenery"},
 			wantClasses:      []string{harnessValidationCLIJSONContract, harnessValidationGoPackage},
 			wantCommands:     []string{"go test ./cmd/scenery", "go test ./...", harnessValidationQuickCommand},
 			forbidCommands:   []string{harnessValidationFullCommand},
-			wantRelevantDocs: []string{"docs/local-contract.md"},
+			wantRelevantDocs: []string{"ARCHITECTURE.md"},
 		},
 		{
 			name:         "compiler",
@@ -166,7 +166,7 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 			packageDirs:      []string{"internal/uigen", "internal/clientprojection"},
 			wantClasses:      []string{harnessValidationCompilerGenerator, harnessValidationGoPackage},
 			wantCommands:     append([]string{"go test ./internal/generate ./internal/uigen", "go test ./..."}, harnessFixtureRegenerationCommands...),
-			wantRelevantDocs: []string{"docs/generated-ui.md", "ARCHITECTURE.md"},
+			wantRelevantDocs: []string{"ARCHITECTURE.md"},
 			forbidCommands:   []string{harnessValidationFullCommand},
 		},
 		{
@@ -174,14 +174,14 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 			paths:            []string{"auth", "internal/connectionvault"},
 			wantClasses:      []string{harnessValidationReleaseRuntime},
 			wantCommands:     []string{"go run ./scripts/verify --probe auth --summary --write", harnessValidationFullCommand},
-			wantRelevantDocs: []string{"docs/auth-connections.md", "docs/runbooks/auth-connections-migration.md"},
+			wantRelevantDocs: []string{"ARCHITECTURE.md"},
 		},
 		{
 			name:             "optional UI directory docs discovery",
 			paths:            []string{"internal/uigen"},
 			wantClasses:      []string{harnessValidationCompilerGenerator},
 			wantCommands:     []string{"go test ./internal/generate ./internal/uigen"},
-			wantRelevantDocs: []string{"docs/generated-ui.md"},
+			wantRelevantDocs: []string{"ARCHITECTURE.md"},
 		},
 		{
 			name:        "typescript tooling",
