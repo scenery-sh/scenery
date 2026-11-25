@@ -426,7 +426,6 @@ func repoRootForTest(t *testing.T) string {
 
 var isIgnoredHarnessLocalArtifact = repoinfo.IsLocalArtifact
 
-
 const harnessValidationDocumentation = repoinfo.ValidationDocumentation
 const harnessValidationGoPackage = repoinfo.ValidationGoPackage
 const harnessValidationCLIJSONContract = repoinfo.ValidationCLIJSONContract
