@@ -30,7 +30,22 @@ type workerBundle struct {
 	Frontend         *workerFrontend        `json:"frontend,omitempty"`
 	Auth             *workerAuthPlan        `json:"auth,omitempty"`
 	HostConfigKeys   []string               `json:"host_config_keys,omitempty"`
+	Reports          workerReportIdentity   `json:"reports"`
 	config           *workerruntime.ConfigSnapshot
+}
+
+// workerReportIdentity is the identity the Host stamps on the failure reports
+// it records, so `scenery report` reads them like the CLI's own.
+type workerReportIdentity struct {
+	SchemaRevision  string `json:"schema_revision"`
+	ProducerVersion string `json:"producer_version"`
+}
+
+func currentWorkerReportIdentity() workerReportIdentity {
+	return workerReportIdentity{
+		SchemaRevision:  newCLIPayloadIdentity(failureReportKind).SchemaRevision,
+		ProducerVersion: buildVersionResponse().Version,
+	}
 }
 
 type workerAuthPlan struct {
@@ -161,8 +176,9 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	}
 	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
-		Host:  workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
-		Types: types,
+		Host:    workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
+		Types:   types,
+		Reports: currentWorkerReportIdentity(),
 	}
 	if err := bundle.projectAssistants(result); err != nil {
 		return workerBundle{}, nil, nil, err

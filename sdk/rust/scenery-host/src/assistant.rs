@@ -289,12 +289,12 @@ impl Gateway {
             let address = descriptor.assistant_address.clone();
             let app = host.clone();
             let stop = stop.clone();
-            servers.spawn_local(serve_tools(app, address, listener, stop));
+            servers.spawn(serve_tools(app, address, listener, stop));
         }
         if !host.assistants.descriptors.is_empty() {
             let host = host.clone();
             let stop = stop.clone();
-            servers.spawn_local(async move {
+            servers.spawn(async move {
                 let mut tick = tokio::time::interval(Duration::from_secs(10));
                 loop {
                     tokio::select! {
@@ -729,12 +729,18 @@ async fn serve_tools(
             () = stop.cancelled() => break,
             completed = connections.join_next(), if !connections.is_empty() => { let _ = completed; }
             result = listener.accept() => {
-                let (socket, remote) = result?;
+                let (socket, remote) = match result {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        crate::transport::accept_failed(error).await?;
+                        continue;
+                    }
+                };
                 if !remote.ip().is_loopback() { continue; }
                 let host = host.clone();
                 let address = address.clone();
                 let gateway = gateway.clone();
-                connections.spawn_local(async move {
+                connections.spawn(async move {
                     let service = hyper::service::service_fn(|request| async {
                         let descriptor = &host.assistants.descriptors[&address];
                         let plan = host.bundle.host.assistants.iter().find(|plan| plan.address == address).expect("verified assistant");
@@ -842,7 +848,7 @@ struct ControlResponse {
 }
 
 async fn read_request(request: Request<Incoming>) -> Result<Value, Error> {
-    let bytes = crate::transport::read(request.into_body(), 128 << 10)
+    let bytes = crate::transport::read_request(request, 128 << 10)
         .await
         .map_err(|_| Error::Invalid)?;
     crate::values::parse(&bytes).map_err(|_| Error::Invalid)

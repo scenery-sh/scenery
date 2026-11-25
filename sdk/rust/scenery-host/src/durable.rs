@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,14 +11,14 @@ use time::OffsetDateTime;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, interval, sleep};
-use tokio_postgres::{Client, NoTls, Row};
+use tokio_postgres::{Client, GenericClient, NoTls, Row};
 use tokio_util::sync::CancellationToken;
 
 use crate::abi::Outcome;
 use crate::auth::Claims;
 use crate::host::{Call, Fault, Host, Reply, json_reply};
 use crate::plan::{Durable, Key, Registration, Schedule, Service};
-use crate::process::random_hex;
+use crate::process::{DRAIN_TIMEOUT, random_hex};
 use crate::{transport, values};
 
 const SCHEMA: &str = include_str!("durable_schema.sql");
@@ -46,26 +46,21 @@ impl Engine {
     }
 
     pub(crate) async fn prepare(&self, host: &Host) -> Result<()> {
-        let declarations: Vec<_> = host
+        let registrations: Vec<_> = host
             .bundle
             .host
             .workers
             .iter()
             .flat_map(|service| service.durable.values())
+            .map(|plan| &plan.registration)
             .collect();
-        if declarations.is_empty() {
+        if registrations.is_empty() {
             return Ok(());
         }
-        let client = self.connection().await?;
-        client.batch_execute(&format!(
-            "BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0)); {SCHEMA}
-             INSERT INTO scenery.durable_schema_migrations(version,name,checksum)
-             VALUES(2,'retention','durable-postgres-v2') ON CONFLICT(version) DO NOTHING; COMMIT;"
-        )).await.context("initialize durable schema")?;
-        for plan in declarations {
-            register(&client, &plan.registration).await?;
-        }
-        Ok(())
+        // Reconciliation needs a transaction of its own, which the shared
+        // pipelined connection cannot provide.
+        let (mut client, _driver) = connect().await?;
+        reconcile(&mut client, &registrations).await
     }
 
     pub(crate) async fn run(host: Arc<Host>, stopping: CancellationToken) {
@@ -562,7 +557,92 @@ fn dispatch_key(input: &Value, fields: &[Key]) -> Result<String> {
     ))
 }
 
-async fn register(client: &Client, reg: &Registration) -> Result<()> {
+/// Brings the stored task declarations in line with this deployment, as the
+/// Go store's `ReconcileTasks` does: it refuses to strand active jobs, then
+/// disables what the services no longer declare and registers the rest.
+async fn reconcile(client: &mut Client, registrations: &[&Registration]) -> Result<()> {
+    client
+        .batch_execute(&format!(
+        "BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0)); {SCHEMA}
+         INSERT INTO scenery.durable_schema_migrations(version,name,checksum)
+         VALUES(2,'retention','durable-postgres-v2') ON CONFLICT(version) DO NOTHING; COMMIT;"
+    ))
+        .await
+        .context("initialize durable schema")?;
+    let mut declared = BTreeMap::new();
+    for reg in registrations {
+        let key = (reg.service.as_str(), reg.external_name.as_str());
+        ensure!(
+            declared
+                .insert(key, reg.revision)
+                .is_none_or(|previous| previous == reg.revision),
+            "durable store: task {:?} has conflicting revisions",
+            reg.external_name
+        );
+    }
+    let services: Vec<&str> = declared
+        .keys()
+        .map(|(service, _)| *service)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let tx = client.transaction().await?;
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0))",
+        &[],
+    )
+    .await?;
+    let active: Vec<ActiveRevision> = tx
+        .query(
+            "SELECT service, task_name, task_version, count(*) FROM scenery.durable_jobs
+             WHERE service = ANY($1::text[]) AND state IN ('queued','running')
+             GROUP BY service, task_name, task_version",
+            &[&services],
+        )
+        .await
+        .context("inspect active task revisions")?
+        .iter()
+        .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
+        .collect();
+    migration_required(&declared, &active)?;
+    tx.execute(
+        "UPDATE scenery.durable_tasks SET enabled = false, updated_at = now()
+         WHERE service = ANY($1::text[])",
+        &[&services],
+    )
+    .await
+    .context("disable previous task declarations")?;
+    for reg in registrations {
+        register(&tx, reg).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// One `(service, task, revision, jobs)` group of queued or running jobs.
+type ActiveRevision = (String, String, i32, i64);
+
+/// Refuses to start while queued or running jobs belong to a revision this
+/// deployment does not provide. A job is only ever leased at the revision
+/// that enqueued it, so registering past it would strand it silently.
+fn migration_required(
+    declared: &BTreeMap<(&str, &str), u32>,
+    active: &[ActiveRevision],
+) -> Result<()> {
+    for (service, name, version, jobs) in active {
+        let wanted = declared
+            .get(&(service.as_str(), name.as_str()))
+            .copied()
+            .unwrap_or(0);
+        ensure!(
+            i64::from(wanted) == i64::from(*version),
+            "durable store: migration_required: task {name:?} has {jobs} active jobs at revision {version} but runtime provides revision {wanted}"
+        );
+    }
+    Ok(())
+}
+
+async fn register(client: &impl GenericClient, reg: &Registration) -> Result<()> {
     client.execute(
         "INSERT INTO scenery.durable_tasks (
             service,name,version,handler_ref,default_timeout_ms,default_lease_ms,max_attempts,
@@ -595,7 +675,7 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
             () = stop.cancelled() => break,
             _ = idle.tick() => {}
         }
-        if let Err(error) = execute_next(host, service, plan).await {
+        if let Err(error) = execute_next(host, service, plan, stop).await {
             eprintln!(
                 "durable engine {}: {error:#}",
                 plan.registration.external_name
@@ -608,7 +688,12 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
     }
 }
 
-async fn execute_next(host: &Host, service: &Service, plan: &Durable) -> Result<bool> {
+async fn execute_next(
+    host: &Host,
+    service: &Service,
+    plan: &Durable,
+    stop: &CancellationToken,
+) -> Result<bool> {
     let Some(generation) = host.generation() else {
         return Ok(false);
     };
@@ -703,9 +788,21 @@ async fn execute_next(host: &Host, service: &Service, plan: &Durable) -> Result<
     tokio::pin!(execute);
     let mut heartbeat = interval(Duration::from_nanos((reg.default_lease / 3).max(1_000_000)));
     heartbeat.tick().await;
+    // A stopping host stops claiming work, but a running execution keeps its
+    // lease for the drain window: most handlers finish within it.
+    let drained = async {
+        stop.cancelled().await;
+        sleep(DRAIN_TIMEOUT).await;
+    };
+    tokio::pin!(drained);
     let outcome = loop {
         tokio::select! {
             result = &mut execute => break result,
+            () = &mut drained => {
+                call.cancel.cancel();
+                release(&client, reg, &job.id, &lease).await?;
+                return Ok(true);
+            }
             _ = heartbeat.tick() => {
                 let updated = client.execute(
                     "UPDATE scenery.durable_jobs SET lease_until=LEAST(timeout_at,now() + ($4::bigint * interval '1 millisecond'))
@@ -749,6 +846,24 @@ async fn execute_next(host: &Host, service: &Service, plan: &Durable) -> Result<
     Ok(true)
 }
 
+/// Hands a leased job back when the host stops before its handler finished.
+/// The attempt is returned with the lease: a deployment is not a failure,
+/// and the job is claimable again at once instead of after its lease.
+async fn release(client: &Client, reg: &Registration, job: &str, lease: &str) -> Result<()> {
+    client.execute(
+        "WITH released AS (
+            UPDATE scenery.durable_jobs SET state='queued', attempt=GREATEST(attempt-1,0), run_after=now(),
+                lease_id=NULL, lease_owner=NULL, lease_token_hash=NULL, lease_until=NULL, timeout_at=NULL,
+                updated_at=now()
+            WHERE service=$1 AND id=$2 AND lease_id=$3 AND state='running'
+            RETURNING service,id,attempt
+         ) INSERT INTO scenery.durable_job_events (service,job_id,attempt,event_type)
+           SELECT service,id,attempt,'job.lease_released' FROM released",
+        &[&reg.service, &job, &lease],
+    ).await?;
+    Ok(())
+}
+
 fn retry_delay(reg: &Registration, attempt: i32) -> i64 {
     let delay = ms(reg.retry_initial) as f64
         * f64::from(reg.retry_backoff.max(1.0)).powi(attempt.saturating_sub(1));
@@ -758,3 +873,7 @@ fn retry_delay(reg: &Registration, attempt: i32) -> i64 {
         .min(bound)
         .max(0.0) as i64
 }
+
+#[cfg(test)]
+#[path = "durable_test.rs"]
+mod tests;

@@ -7,10 +7,11 @@ use hyper::body::Incoming;
 use hyper::{HeaderMap, Method, Request, StatusCode};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tokio_postgres::{Client, GenericClient};
+use tokio_postgres::GenericClient;
 
 use crate::auth::{Claims, DevBootstrap, cookie};
 use crate::connections::browser as connection_browser;
+use crate::database::Session;
 use crate::host::{Fault, Host, Reply, header, json_reply};
 use crate::{auth_google, auth_organizations, auth_sessions, transport, values};
 
@@ -139,22 +140,29 @@ async fn dispatch(
     ) {
         Value::Null
     } else {
-        let raw = transport::read(body, 64 << 10)
-            .await
-            .map_err(|_| invalid("invalid request body"))?;
-        values::parse(&raw)
+        // A cross-site form can post JSON-shaped text without a preflight,
+        // but not with this media type: no session is created for it.
+        crate::http_codec::require_json(&parts.headers)?;
+        let raw = transport::read(body, 64 << 10).await;
+        crate::http_timeout::request_body_finished(&parts.extensions);
+        values::parse(&raw.map_err(|_| invalid("invalid request body"))?)
             .ok()
             .filter(Value::is_object)
             .ok_or_else(|| invalid("invalid request body"))?
     };
-    if let Route::Connection(route) = route {
-        return connection_browser::serve(&browser, route, &user, input, parts.uri.query()).await;
-    }
-    let (mut db, _driver) = browser.connect().await?;
     match route {
-        Route::Signup => auth_sessions::signup(&browser, &mut db, &input).await,
+        Route::Connection(route) => {
+            return connection_browser::serve(&browser, route, &user, input, parts.uri.query())
+                .await;
+        }
+        // Password hashing waits for a slot without holding a session.
+        Route::Signup => return auth_sessions::signup(&browser, &input).await,
+        Route::Login => return auth_sessions::login(&browser, &input).await,
+        _ => {}
+    }
+    let mut db = browser.connect().await?;
+    match route {
         Route::VerifyEmail => auth_sessions::verify_email(&browser, &mut db, &input).await,
-        Route::Login => auth_sessions::login(&browser, &mut db, &input).await,
         Route::Refresh => auth_sessions::refresh(&browser, &mut db).await,
         Route::Logout => auth_sessions::logout(&browser, &db).await,
         Route::Me => auth_sessions::me(&browser, &db, &user).await,
@@ -177,7 +185,7 @@ pub(crate) async fn dev_bootstrap(host: &Host, request: Request<Incoming>) -> Re
             DevBootstrap::Token(token) => Ok(ok(&serde_json::json!({"token": token}))),
             DevBootstrap::Email { email, tenant } => {
                 let browser = Browser::new(host, &parts.headers, &parts.uri, "");
-                let (mut db, _driver) = browser.connect().await?;
+                let mut db = browser.connect().await?;
                 auth_sessions::dev_email_session(&browser, &mut db, email, &tenant).await
             }
         }
@@ -207,12 +215,18 @@ impl<'a> Browser<'a> {
         }
     }
 
-    pub(crate) async fn connect(&self) -> AuthResult<(Client, tokio::task::JoinHandle<()>)> {
+    /// Checks a session out of the shared pool. A saturated pool answers
+    /// 503 instead of opening one more database backend per request.
+    pub(crate) async fn connect(&self) -> AuthResult<Session> {
         self.host
             .ensure_auth_schema()
             .await
             .map_err(Fault::internal)?;
-        crate::durable::connect().await.map_err(Fault::internal)
+        self.host
+            .sessions
+            .acquire()
+            .await
+            .map_err(|_| Fault::new(503, "unavailable", "service is unavailable"))
     }
 
     async fn principal(&self) -> AuthResult<Claims> {

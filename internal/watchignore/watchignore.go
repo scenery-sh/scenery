@@ -44,6 +44,20 @@ type watchIgnoreRule struct {
 	hasSlash     bool
 }
 
+// NewGitignore builds a matcher that honors only the tree's `.gitignore`
+// files, without the application's configured watch patterns. The worker
+// input scan uses it: the Rust Host selects the same files from those files
+// alone, and both sides must agree for their source digests to match.
+func NewGitignore(root string) *Matcher {
+	m := &Matcher{
+		root:    root,
+		loaded:  make(map[string]struct{}),
+		parents: make(map[string]parentIgnore),
+	}
+	m.LoadDir("")
+	return m
+}
+
 func New(root string) *Matcher {
 	m := &Matcher{
 		root:        root,

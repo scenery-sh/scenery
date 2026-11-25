@@ -5,8 +5,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, ensure};
@@ -17,6 +17,7 @@ use scenery_wire::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tokio::time::{sleep, timeout};
+use tokio_util::sync::CancellationToken;
 
 use crate::transport::{Client, read};
 
@@ -24,6 +25,57 @@ pub(crate) const CONFIG_SNAPSHOT_FD: &str = "SCENERY_CONFIG_SNAPSHOT_FD";
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The descriptor limit the host was started with.
+static INHERITED_DESCRIPTORS: OnceLock<libc::rlimit> = OnceLock::new();
+
+/// Raises the soft descriptor limit to the hard one. Every connection,
+/// worker socket and open stream is a descriptor, and the inherited soft
+/// limit (256 under launchd, 1024 under systemd) is far below what a host
+/// serves. The Go runtime this host replaces did the same at startup.
+pub(crate) fn raise_descriptor_limit() {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return;
+    }
+    let _ = INHERITED_DESCRIPTORS.set(limit);
+    let wanted = limit.rlim_max.min(descriptor_ceiling());
+    if limit.rlim_cur < wanted {
+        limit.rlim_cur = wanted;
+        unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) };
+    }
+}
+
+/// Darwin reports an unlimited hard limit but rejects a soft limit above
+/// the kernel's per-process maximum.
+#[cfg(target_os = "macos")]
+fn descriptor_ceiling() -> libc::rlim_t {
+    let mut value: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    let read = unsafe {
+        libc::sysctlbyname(
+            c"kern.maxfilesperproc".as_ptr(),
+            (&raw mut value).cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read == 0 && value > 0 {
+        value as libc::rlim_t
+    } else {
+        // `OPEN_MAX`, which every Darwin kernel accepts.
+        10_240
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn descriptor_ceiling() -> libc::rlim_t {
+    libc::rlim_t::MAX
+}
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -56,6 +108,10 @@ pub(crate) struct Worker {
     pub(crate) client: Client,
     config: PathBuf,
     fault_recorded: AtomicBool,
+    /// Cancelled once no generation in service runs this process any more.
+    /// Calls end with it; a generation swap alone never ends a call on a
+    /// worker that the next generation carried over.
+    pub(crate) retired: CancellationToken,
 }
 
 impl Worker {
@@ -103,6 +159,18 @@ impl Worker {
                 .context("invalid worker environment")?;
             command.env(key, value);
         }
+        if let Some(inherited) = INHERITED_DESCRIPTORS.get().copied() {
+            // A worker starts with the limit the host itself was given, as
+            // it would under the Go runtime, and not with the raised one.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::setrlimit(libc::RLIMIT_NOFILE, &inherited) == -1 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
         if let Some(file) = &startup {
             let fd = file.as_raw_fd();
             command.env(CONFIG_SNAPSHOT_FD, "3");
@@ -138,6 +206,7 @@ impl Worker {
             client,
             config,
             fault_recorded: AtomicBool::new(false),
+            retired: CancellationToken::new(),
         };
         if let Err(error) = worker.wait_ready().await {
             tokio::task::spawn_blocking(move || drop(worker));
@@ -413,6 +482,7 @@ impl Worker {
             config: directory.join("worker.json"),
             launch,
             fault_recorded: AtomicBool::new(false),
+            retired: CancellationToken::new(),
         })
     }
 }
@@ -420,6 +490,37 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_raises_the_descriptor_limit_to_the_hard_limit() {
+        let current = || {
+            let mut limit = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            assert_eq!(
+                unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) },
+                0
+            );
+            limit
+        };
+        let before = current();
+        raise_descriptor_limit();
+        let after = current();
+        assert_eq!(after.rlim_max, before.rlim_max);
+        assert_eq!(
+            after.rlim_cur,
+            before
+                .rlim_max
+                .min(descriptor_ceiling())
+                .max(before.rlim_cur)
+        );
+        // Workers are started with the limit the host inherited.
+        assert_eq!(
+            INHERITED_DESCRIPTORS.get().unwrap().rlim_cur,
+            before.rlim_cur
+        );
+    }
 
     #[test]
     fn exit_observation_keeps_the_group_reserved_until_cleanup() -> Result<()> {

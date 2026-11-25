@@ -229,7 +229,10 @@ pub fn put_field<T: Serialize + ?Sized, E: serde::ser::Error>(
 mod tests {
     use super::{Float32, Float64};
 
+    // The literals with a digit beyond their shortest form are exact
+    // halfway cases: they pin the tie that Go breaks toward the even digit.
     #[test]
+    #[allow(clippy::excessive_precision)]
     fn floats_use_go_canonical_text() {
         for (value, text) in [
             (1.0, "1"),

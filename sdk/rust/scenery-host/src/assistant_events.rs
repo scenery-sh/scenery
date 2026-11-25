@@ -63,10 +63,12 @@ pub(super) async fn stream(
     {
         return Err(Error::Unavailable);
     }
+    // Each line is bounded below; the replay as a whole is not. It restarts
+    // from the first event on every connection, so a cap on its total size
+    // would end a long conversation for good once its history outgrew it.
     let reader = BufReader::new(StreamReader::new(
         response.bytes_stream().map_err(io::Error::other),
-    ))
-    .take(CONTROL_LIMIT as u64);
+    ));
     let events = EventStream {
         host: host.clone(),
         claims,

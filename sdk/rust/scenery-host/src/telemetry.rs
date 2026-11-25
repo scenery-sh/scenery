@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, ensure};
@@ -18,8 +18,13 @@ use tokio::sync::mpsc;
 use url::Url;
 
 use crate::host::{Call, Scope, stamp};
-use crate::plan::{EndpointFilter, Observability, Service};
+use crate::plan::{EndpointFilter, Observability, ReportIdentity, Service};
 use crate::process::random_hex;
+
+/// Connection strings and links never reach a stored failure cause.
+static URLS: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)(postgres(?:ql)?|https?)://[^\s]+").expect("valid URL pattern")
+});
 
 pub(crate) struct Sink {
     app: String,
@@ -29,6 +34,8 @@ pub(crate) struct Sink {
     sender: Option<mpsc::Sender<Value>>,
     victoria: Option<mpsc::Sender<(String, Value)>>,
     report_dir: PathBuf,
+    reports: ReportIdentity,
+    working_directory: String,
     recent: Option<Mutex<Recent>>,
 }
 
@@ -51,6 +58,7 @@ impl Sink {
         development: bool,
         filters: &Observability,
         victoria: crate::otlp::Endpoints,
+        reports: &ReportIdentity,
     ) -> Result<Self> {
         let session = env::var("SCENERY_SESSION_ID").unwrap_or_default();
         let mut sender = None;
@@ -85,6 +93,10 @@ impl Sink {
             sender,
             victoria: crate::otlp::start(victoria)?,
             report_dir,
+            reports: reports.clone(),
+            working_directory: env::current_dir()
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_default(),
             recent: development.then(|| Mutex::new(Recent::default())),
         })
     }
@@ -206,9 +218,7 @@ impl Sink {
 
     pub(crate) fn failure(&self, cause: &str) -> Option<String> {
         let token = format!("rpt_{}", random_hex::<20>().ok()?);
-        let scrub =
-            regex::Regex::new(r"(?i)(postgres(?:ql)?|https?)://[^\s]+").expect("valid URL pattern");
-        let cause = scrub.replace_all(cause, "[redacted URL]");
+        let cause = URLS.replace_all(cause, "[redacted URL]");
         let timestamp = stamp(OffsetDateTime::now_utc());
         let failure = json!({"report_token": token, "code": "SCN9000", "cause": cause, "timestamp": timestamp});
         let _ = self.save_failure(&failure, std::process::id().into());
@@ -227,13 +237,16 @@ impl Sink {
                         .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())),
             "invalid report token"
         );
-        let scrub =
-            regex::Regex::new(r"(?i)(postgres(?:ql)?|https?)://[^\s]+").expect("valid URL pattern");
         let raw = failure["cause"].as_str().unwrap_or_default();
-        let cause = scrub.replace_all(raw, "[redacted URL]");
+        let cause = URLS.replace_all(raw, "[redacted URL]");
+        // The CLI reads this record as `scenery.failure.report`, so it
+        // carries the identity and every field that schema requires.
         let record = json!({
-                "kind": "scenery.failure.report", "report_token": token, "code": "SCN9000",
-            "cause": cause, "recorded_at": failure["timestamp"], "command": "runtime", "arguments": [],
+            "kind": "scenery.failure.report", "schema_revision": self.reports.schema_revision,
+            "report_token": token, "code": "SCN9000", "cause": cause,
+            "recorded_at": failure["timestamp"], "command": "runtime", "arguments": [],
+            "working_directory": self.working_directory,
+            "producer_version": self.reports.producer_version,
             "origin": "runtime", "reporter_pid": pid, "app_id": self.app, "session_id": self.session,
         });
         std::fs::DirBuilder::new()
@@ -520,5 +533,55 @@ mod tests {
         assert!(!filter.allows("items", "app/binding/get_item", "/api/items/private"));
         assert!(!filter.allows("jobs", "app/binding/get_item", "/api/items/public"));
         assert!(!filter.allows("items", "app/binding/get_item", "/api/items/public/nested"));
+    }
+
+    #[test]
+    fn failure_reports_match_the_cli_report_schema() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let sink = Sink {
+            app: "inbox".into(),
+            logs: Filter::new(&EndpointFilter::default()),
+            tracing: Filter::new(&EndpointFilter::default()),
+            session: "session".into(),
+            sender: None,
+            victoria: None,
+            report_dir: directory.path().join("reports"),
+            reports: ReportIdentity {
+                schema_revision: "sha256:fixture".into(),
+                producer_version: "v1.2.3".into(),
+            },
+            working_directory: "/srv/app".into(),
+            recent: None,
+        };
+        let token = sink
+            .failure("connect postgres://user:secret@db/app failed")
+            .unwrap();
+        let path = directory
+            .path()
+            .join("reports")
+            .join(format!("{token}.json"));
+        let report: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../docs/schemas/scenery.failure.report.schema.json"
+        ))?;
+        // Every required field is present and nothing undeclared is added:
+        // the schema forbids additional properties.
+        for field in schema["required"].as_array().unwrap() {
+            let field = field.as_str().unwrap();
+            assert!(report.get(field).is_some(), "report lacks {field}");
+        }
+        let declared = schema["properties"].as_object().unwrap();
+        for field in report.as_object().unwrap().keys() {
+            assert!(declared.contains_key(field), "report adds {field}");
+        }
+        assert_eq!(report["kind"], schema["properties"]["kind"]["const"]);
+        assert_eq!(report["schema_revision"], "sha256:fixture");
+        assert_eq!(report["producer_version"], "v1.2.3");
+        assert_eq!(report["working_directory"], "/srv/app");
+        assert_eq!(report["origin"], "runtime");
+        assert_eq!(report["cause"], "connect [redacted URL] failed");
+        assert!(report["arguments"].as_array().is_some_and(Vec::is_empty));
+        assert!(report["reporter_pid"].is_u64() && report["recorded_at"].is_string());
+        Ok(())
     }
 }

@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"scenery.sh/internal/graph"
@@ -70,5 +74,36 @@ func TestWorkerPlanNamesDurableTasksAndKeepsHTTPAuthorization(t *testing.T) {
 		if got := projection.policy(service, source, operation).AuthorizationStrategy; got != test.want {
 			t.Errorf("%s %s %s authorization = %s, want %s", test.kind, test.protocol, test.strategy, got, test.want)
 		}
+	}
+}
+
+// The Rust Host records runtime failure reports itself. The bundle hands it
+// the identity `scenery.failure.report` requires, so `scenery report` and the
+// call and durable-run results that embed a report stay schema-valid.
+func TestWorkerBundleCarriesFailureReportIdentity(t *testing.T) {
+	identity := currentWorkerReportIdentity()
+	schema, err := os.ReadFile(filepath.Join("..", "..", "docs", "schemas", "scenery.failure.report.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Properties struct {
+			SchemaRevision struct {
+				Const string `json:"const"`
+			} `json:"schema_revision"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &document); err != nil {
+		t.Fatal(err)
+	}
+	if identity.SchemaRevision == "" || identity.SchemaRevision != document.Properties.SchemaRevision.Const || identity.ProducerVersion == "" {
+		t.Fatalf("report identity = %+v, schema revision %q", identity, document.Properties.SchemaRevision.Const)
+	}
+	encoded, err := json.Marshal(workerBundle{Reports: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"reports":{"schema_revision":"` + identity.SchemaRevision + `","producer_version":"`; !strings.Contains(string(encoded), want) {
+		t.Fatalf("bundle manifest %s lacks %s", encoded, want)
 	}
 }

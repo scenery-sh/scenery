@@ -19,6 +19,14 @@ pub(crate) struct Bundle {
     pub auth: Option<Auth>,
     #[serde(default)]
     pub host_config_keys: Vec<String>,
+    pub reports: ReportIdentity,
+}
+
+/// The identity the CLI expects on the failure reports the Host records.
+#[derive(Clone, Deserialize)]
+pub(crate) struct ReportIdentity {
+    pub schema_revision: String,
+    pub producer_version: String,
 }
 
 #[derive(Deserialize)]
@@ -316,7 +324,6 @@ pub(crate) struct Route {
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct PathTail {
     pub minimum_segments: usize,
-    pub empty_capture: String,
 }
 
 #[derive(Deserialize)]

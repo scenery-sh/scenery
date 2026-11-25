@@ -15,18 +15,19 @@ static PASSWORD_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_ne
 
 pub(crate) const SESSION_TTL: u64 = 30 * 86400;
 
-pub(crate) async fn signup(
-    browser: &Browser<'_>,
-    db: &mut Client,
-    input: &Value,
-) -> AuthResult<Reply> {
+pub(crate) async fn signup(browser: &Browser<'_>, input: &Value) -> AuthResult<Reply> {
     let address = text(input, "email");
     let normalized = email(address)?;
     let password = input["password"].as_str().unwrap_or_default();
     if !(10..=1024).contains(&password.len()) {
         return Err(invalid("password must contain between 10 and 1024 bytes"));
     }
-    rate_limit(browser, db, "signup_email", &normalized).await?;
+    // The session goes back to the pool while this request waits for a
+    // hashing slot: a signup flood must not pin every database session.
+    {
+        let db = browser.connect().await?;
+        rate_limit(browser, &db, "signup_email", &normalized).await?;
+    }
     let password = password.to_owned();
     let permit = PASSWORD_SLOTS.acquire().await.map_err(Fault::internal)?;
     let hash = tokio::task::spawn_blocking(move || {
@@ -35,6 +36,7 @@ pub(crate) async fn signup(
     })
     .await
     .map_err(Fault::internal)??;
+    let mut db = browser.connect().await?;
     let tx = db.transaction().await.map_err(Fault::internal)?;
     let user = tx.query_one("INSERT INTO scenery.scenery_auth_users (id,primary_email,normalized_primary_email,display_name)
         VALUES (gen_random_uuid(),$1,$2,$3) RETURNING id::text",
@@ -84,27 +86,27 @@ pub(crate) async fn verify_email(
     Ok(reply)
 }
 
-pub(crate) async fn login(
-    browser: &Browser<'_>,
-    db: &mut Client,
-    input: &Value,
-) -> AuthResult<Reply> {
+pub(crate) async fn login(browser: &Browser<'_>, input: &Value) -> AuthResult<Reply> {
     let normalized = email(text(input, "email"))?;
-    rate_limit(browser, db, "login_email", &normalized).await?;
     let wrong = || unauthorized("email or password is invalid");
     let password = input["password"].as_str().unwrap_or_default().to_owned();
-    if password.len() > 1024 {
-        return Err(wrong());
-    }
-    let identity = db
-        .query_opt(
+    // Verification needs the stored hash, so the session is released
+    // between reading it and recording the sign-in.
+    let identity = {
+        let db = browser.connect().await?;
+        rate_limit(browser, &db, "login_email", &normalized).await?;
+        if password.len() > 1024 {
+            return Err(wrong());
+        }
+        db.query_opt(
             "SELECT user_id::text,password_hash,id::text FROM scenery.scenery_auth_auth_identities
         WHERE provider='email' AND provider_subject=$1",
             &[&normalized],
         )
         .await
         .map_err(Fault::internal)?
-        .ok_or_else(wrong)?;
+        .ok_or_else(wrong)?
+    };
     let hash: String = identity.get(1);
     let permit = PASSWORD_SLOTS.acquire().await.map_err(Fault::internal)?;
     let upgrade = tokio::task::spawn_blocking(move || {
@@ -113,6 +115,7 @@ pub(crate) async fn login(
     })
     .await
     .map_err(Fault::internal)??;
+    let mut db = browser.connect().await?;
     let tx = db.transaction().await.map_err(Fault::internal)?;
     if let Some(updated) = upgrade {
         tx.execute("UPDATE scenery.scenery_auth_auth_identities SET password_hash=$2,updated_at=now() WHERE id=$1::text::uuid",

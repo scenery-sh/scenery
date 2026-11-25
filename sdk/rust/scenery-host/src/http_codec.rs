@@ -17,7 +17,7 @@ use crate::abi::Outcome;
 use crate::auth::Claims;
 use crate::host::{Call, Fault, Reply, body, empty, header};
 use crate::plan::{Mapping, RequestPlan, ResponsePlan, Selection};
-use crate::transport::read;
+use crate::transport::read_request;
 use crate::values;
 
 pub(crate) async fn decode_request(
@@ -110,6 +110,11 @@ fn context_value(source: &str, call: &Call) -> Value {
     }
 }
 
+/// Reports whether a decoded path segment stays one ordinary segment.
+fn safe_segment(value: &str) -> bool {
+    !matches!(value, "." | "..") && !value.contains(['/', '\\', '\0'])
+}
+
 pub(crate) fn decode_piece(value: &str) -> Result<String> {
     for (index, byte) in value.bytes().enumerate() {
         if byte == b'%' {
@@ -125,37 +130,51 @@ pub(crate) fn decode_piece(value: &str) -> Result<String> {
     Ok(percent_decode_str(value).decode_utf8()?.into_owned())
 }
 
+/// Decodes a path parameter into one safe segment, or a path tail into the
+/// remainder of the path, whose every segment is decoded once and is safe.
+fn path_values(path: &BTreeMap<&str, &str>, mapping: &Mapping) -> Result<Vec<String>> {
+    let Some(value) = path.get(mapping.name.as_str()) else {
+        return Ok(vec![]);
+    };
+    if mapping.source == "path" {
+        let value = decode_piece(value)?;
+        ensure!(safe_segment(&value), "invalid path segment");
+        return Ok(vec![value]);
+    }
+    if value.is_empty() {
+        // The compiler pins what an empty tail means to its type.
+        return match mapping.ty.trim() {
+            "string" => Ok(vec![String::new()]),
+            "optional(relative_path)" => Ok(vec![]),
+            _ => bail!("empty path tail"),
+        };
+    }
+    let mut segments = Vec::new();
+    for segment in value.split('/') {
+        ensure!(
+            !segment.is_empty() && !segment.contains('\\'),
+            "invalid path-tail segment"
+        );
+        let decoded = decode_piece(segment)?;
+        // A segment that decodes twice into a separator or a dot segment
+        // would escape a handler that decodes again.
+        ensure!(
+            safe_segment(&decoded)
+                && decode_piece(&decoded).map_or(true, |twice| safe_segment(&twice)),
+            "invalid path-tail segment"
+        );
+        segments.push(decoded);
+    }
+    Ok(vec![segments.join("/")])
+}
+
 fn mapping_values(
     request: &Request<Incoming>,
     path: &BTreeMap<&str, &str>,
     mapping: &Mapping,
 ) -> Result<Vec<String>> {
     match mapping.source.as_str() {
-        "path" | "path_tail" => {
-            let Some(value) = path.get(mapping.name.as_str()) else {
-                return Ok(vec![]);
-            };
-            let tail = mapping.source == "path_tail";
-            let encoded: Vec<_> = if tail && value.is_empty() {
-                vec![]
-            } else if tail {
-                value.split('/').collect()
-            } else {
-                vec![*value]
-            };
-            encoded
-                .into_iter()
-                .map(|value| {
-                    let value = decode_piece(value)?;
-                    ensure!(
-                        !value.contains(['/', '\\', '\0'])
-                            && (!tail || !matches!(value.as_str(), "" | "." | "..")),
-                        "invalid path segment"
-                    );
-                    Ok(value)
-                })
-                .collect()
-        }
+        "path" | "path_tail" => path_values(path, mapping),
         "query" => {
             let mut values = Vec::new();
             for pair in request
@@ -238,9 +257,6 @@ fn mapped_json(mapping: &Mapping, values: Vec<String>) -> Result<Value> {
                 .collect::<Result<_>>()?,
         ))
     } else {
-        if mapping.source == "path_tail" && ty == "relative_path" {
-            return Ok(Value::String(values.join("/")));
-        }
         ensure!(values.len() == 1, "scalar mapping requires one value");
         scalar(ty, values.into_iter().next().expect("one value"))
     }
@@ -272,31 +288,49 @@ fn scalar_text(ty: &str, text: String) -> Result<Value> {
     }
 }
 
-async fn decode_body(
-    request: Request<Incoming>,
-    plan: &crate::plan::BodyPlan,
-) -> Result<Value, Fault> {
-    let unsupported = || {
-        Fault::new(
-            415,
-            "transport.unsupported_media_type",
-            "unsupported request content type",
-        )
-    };
-    let mime = request
-        .headers()
+fn unsupported_media() -> Fault {
+    Fault::new(
+        415,
+        "transport.unsupported_media_type",
+        "unsupported request content type",
+    )
+}
+
+/// Reads the declared media type of a request body. A body without one, or
+/// in a charset other than UTF-8, is never decoded.
+pub(crate) fn media_type(headers: &HeaderMap) -> Result<mime_guess::mime::Mime, Fault> {
+    let mime = headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .map(str::parse::<mime_guess::mime::Mime>)
         .transpose()
         .map_err(|_| Fault::invalid())?
-        .ok_or_else(unsupported)?;
+        .ok_or_else(unsupported_media)?;
     if mime
         .get_param("charset")
         .is_some_and(|value| !value.as_str().eq_ignore_ascii_case("utf-8"))
     {
         return Err(Fault::invalid());
     }
+    Ok(mime)
+}
+
+/// Requires a JSON request body. Browsers can send other simple media types
+/// cross-site without a preflight, so this is also the CSRF barrier of the
+/// framework's own JSON routes.
+pub(crate) fn require_json(headers: &HeaderMap) -> Result<(), Fault> {
+    if media_type(headers)?.essence_str() == "application/json" {
+        Ok(())
+    } else {
+        Err(unsupported_media())
+    }
+}
+
+async fn decode_body(
+    request: Request<Incoming>,
+    plan: &crate::plan::BodyPlan,
+) -> Result<Value, Fault> {
+    let mime = media_type(request.headers())?;
     let default = match plan.codec.as_str() {
         "json" => "application/json",
         "problem_json" => "application/problem+json",
@@ -313,7 +347,7 @@ async fn decode_body(
             .iter()
             .any(|value| media_matches(value, mime.essence_str()))
     }) {
-        return Err(unsupported());
+        return Err(unsupported_media());
     }
     let encoding = request
         .headers()
@@ -335,7 +369,7 @@ async fn decode_body(
     } else {
         16 << 20
     };
-    let mut payload = read(request.into_body(), compressed)
+    let mut payload = read_request(request, compressed)
         .await
         .map_err(|_| Fault::invalid())?;
     if encoding == "gzip" {
@@ -752,6 +786,108 @@ fn wire_text(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mapping(source: &str, ty: &str) -> Mapping {
+        serde_json::from_value(json!({
+            "Source": source, "Name": "rest", "Target": "rest", "Type": ty,
+            "Encoding": "", "Optional": ty.starts_with("optional("), "EnumValues": [],
+        }))
+        .unwrap()
+    }
+
+    /// Decodes a captured path value the way `decode_request` maps it.
+    fn mapped(source: &str, ty: &str, captured: &str) -> Result<Option<Value>> {
+        let mapping = mapping(source, ty);
+        let values = path_values(&BTreeMap::from([("rest", captured)]), &mapping)?;
+        if values.is_empty() && mapping.optional {
+            return Ok(None);
+        }
+        mapped_json(&mapping, values).map(Some)
+    }
+
+    #[test]
+    fn path_tails_join_their_segments_and_map_the_empty_capture_by_type() {
+        // A `string` tail used to answer 400 for anything but one segment.
+        assert_eq!(
+            mapped("path_tail", "string", "a/b").unwrap(),
+            Some(json!("a/b"))
+        );
+        assert_eq!(mapped("path_tail", "string", "").unwrap(), Some(json!("")));
+        assert_eq!(
+            mapped("path_tail", "string", "a").unwrap(),
+            Some(json!("a"))
+        );
+        assert_eq!(
+            mapped("path_tail", "relative_path", "docs/a%20b.txt").unwrap(),
+            Some(json!("docs/a b.txt"))
+        );
+        assert!(mapped("path_tail", "relative_path", "").is_err());
+        assert_eq!(
+            mapped("path_tail", "optional(relative_path)", "").unwrap(),
+            None
+        );
+        for hazard in [
+            "a//b",
+            "a/./b",
+            "a/../b",
+            "a/%2e%2e/b",
+            "a/b%2Fc",
+            "a/b%5Cc",
+            "a\\b",
+            "a/%00",
+            // Decoding once more would produce a dot segment or a separator.
+            "a/%252e%252e/b",
+            "a/b%252Fc",
+            "a/%zz",
+        ] {
+            assert!(
+                mapped("path_tail", "string", hazard).is_err(),
+                "accepted {hazard}"
+            );
+        }
+        // A percent sign that decodes no further is ordinary content.
+        assert_eq!(
+            mapped("path_tail", "string", "50%25/off").unwrap(),
+            Some(json!("50%/off"))
+        );
+    }
+
+    #[test]
+    fn path_parameters_are_one_safe_segment() {
+        assert_eq!(
+            mapped("path", "string", "a%20b").unwrap(),
+            Some(json!("a b"))
+        );
+        for hazard in [".", "..", "%2E%2E", "a%2Fb", "a%5Cb", "%00"] {
+            assert!(
+                mapped("path", "string", hazard).is_err(),
+                "accepted {hazard}"
+            );
+        }
+    }
+
+    #[test]
+    fn framework_json_routes_require_the_json_media_type() {
+        let status = |content_type: Option<&'static str>| {
+            let mut headers = HeaderMap::new();
+            if let Some(value) = content_type {
+                headers.insert("content-type", HeaderValue::from_static(value));
+            }
+            require_json(&headers)
+                .err()
+                .map(|fault| fault.status.as_u16())
+        };
+        assert_eq!(status(Some("application/json")), None);
+        assert_eq!(status(Some("application/json; charset=UTF-8")), None);
+        // What a cross-site form can send without a preflight is refused,
+        // so it cannot plant a session in the victim's browser.
+        assert_eq!(status(Some("text/plain")), Some(415));
+        assert_eq!(status(Some("application/x-www-form-urlencoded")), Some(415));
+        assert_eq!(status(Some("multipart/form-data; boundary=x")), Some(415));
+        assert_eq!(status(None), Some(415));
+        assert_eq!(status(Some("application/json; charset=latin1")), Some(400));
+        assert_eq!(status(Some("not a media type")), Some(400));
+    }
 
     #[tokio::test]
     async fn response_projects_exact_header_numbers_and_cookie_defaults() {

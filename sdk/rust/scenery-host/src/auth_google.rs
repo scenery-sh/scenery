@@ -57,7 +57,7 @@ pub(crate) async fn serve(
         let state = random::<32>()?;
         let verifier = random::<48>()?;
         let nonce = random::<24>()?;
-        let (db, _driver) = browser.connect().await?;
+        let db = browser.connect().await?;
         db.execute(
             "DELETE FROM scenery.scenery_auth_oauth_states WHERE expires_at<now()",
             &[],
@@ -81,7 +81,7 @@ pub(crate) async fn serve(
     if client.is_empty() || secret.is_empty() || api_url.is_empty() {
         return fallback();
     }
-    let Ok((mut db, _driver)) = browser.connect().await else {
+    let Ok(mut db) = browser.connect().await else {
         return fallback();
     };
     let state = match db

@@ -16,6 +16,97 @@ use crate::process::BuildIdentity;
 use crate::supervisor::Generation;
 use crate::{assistant, durable, gateway, transport};
 
+/// A browser sends `text/plain` and form bodies cross-site without asking.
+/// The JSON routes must refuse them before they touch a session, and answer
+/// the preflight of the origins the application trusts.
+#[tokio::test]
+async fn auth_routes_refuse_cross_site_forms_and_answer_trusted_origins() -> Result<()> {
+    let app = TcpListener::bind("127.0.0.1:0").await?;
+    let base = format!("http://{}", app.local_addr()?);
+    let (host, generation) = auth_host(&base, "http://127.0.0.1:9")?;
+    let mut host = Arc::try_unwrap(host).ok().expect("unshared host");
+    host.origins = gateway::Origins::new("https://app.example", false);
+    let host = Arc::new(host);
+    let app_server = serve(app, move |request| {
+        let (host, generation) = (host.clone(), generation.clone());
+        async move { gateway::ingress(&host, generation, request, false).await }
+    });
+    let http = reqwest::Client::builder().no_proxy().build()?;
+    let forged = r#"{"email":"attacker@evil.test","password":"attacker-pass-123","x":"="}"#;
+    for route in ["login/email", "signup/email", "email-verification/confirm"] {
+        for media in [
+            Some("text/plain"),
+            Some("application/x-www-form-urlencoded"),
+            None,
+        ] {
+            let mut request = http
+                .post(format!("{base}/auth/{route}"))
+                .header("origin", "https://evil.example")
+                .body(forged);
+            if let Some(media) = media {
+                request = request.header("content-type", media);
+            }
+            let response = request.send().await?;
+            assert_eq!(
+                response.status(),
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "{route} {media:?}"
+            );
+            assert!(response.headers().get("set-cookie").is_none());
+            assert!(
+                response
+                    .headers()
+                    .get("access-control-allow-origin")
+                    .is_none()
+            );
+            assert_eq!(response.headers()["vary"], "Origin");
+        }
+    }
+
+    let preflight = |origin: &'static str| {
+        http.request(Method::OPTIONS, format!("{base}/auth/login/email"))
+            .header("origin", origin)
+            .header("access-control-request-method", "POST")
+            .header("access-control-request-headers", "content-type")
+            .send()
+    };
+    let allowed = preflight("https://app.example").await?;
+    assert_eq!(allowed.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        allowed.headers()["access-control-allow-origin"],
+        "https://app.example"
+    );
+    assert_eq!(
+        allowed.headers()["access-control-allow-credentials"],
+        "true"
+    );
+    assert_eq!(allowed.headers()["access-control-allow-methods"], "POST");
+    assert_eq!(
+        allowed.headers()["access-control-allow-headers"],
+        "content-type"
+    );
+    assert_eq!(
+        preflight("https://evil.example").await?.status(),
+        StatusCode::FORBIDDEN
+    );
+
+    // The grant is on the actual response too, also when it is an error.
+    let refused = http
+        .post(format!("{base}/auth/login/email"))
+        .header("origin", "https://app.example")
+        .header("content-type", "text/plain")
+        .body(forged)
+        .send()
+        .await?;
+    assert_eq!(refused.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(
+        refused.headers()["access-control-allow-origin"],
+        "https://app.example"
+    );
+    app_server.abort();
+    Ok(())
+}
+
 #[tokio::test]
 #[ignore = "requires an empty local PostgreSQL database in DATABASE_URL"]
 async fn development_email_session_and_oauth_connection_routes() -> Result<()> {
@@ -69,58 +160,7 @@ async fn development_email_session_and_oauth_connection_routes() -> Result<()> {
             _ => empty(StatusCode::NOT_FOUND),
         }
     });
-    let bundle: Bundle = serde_json::from_value(json!({
-        "version":1,"contract_revision":"contract","programs":[],
-        "host":{"Name":"connections","Workers":[]},"types":{},
-        "host_config_keys":["auth.jwt_secret"],
-        "auth":{
-            "Enabled":true,"GoogleOAuth":{"Enabled":false},
-            "DevBootstrap":{"Enabled":true,"DefaultUserEmail":"Developer@example.test","DefaultTenantID":""},
-            "Connections":[{
-                "id":"files","protocol":"oauth2","issuer":issuer_url,"client_auth":"none",
-                "authorize_url":format!("{issuer_url}/authorize"),"token_url":format!("{issuer_url}/token"),
-                "account_url":format!("{issuer_url}/account"),"revoke_url":format!("{issuer_url}/revoke"),
-                "subject_field":"id","allowed_scopes":["files.read"]
-            }],
-            "bootstrap_sql":include_str!("../../../../auth/db/gen/schema.sql"),
-        }
-    }))?;
-    let generation = Arc::new(Generation {
-        number: 1,
-        identity: BuildIdentity {
-            contract_revision: "contract".into(),
-            implementation_revision: "implementation".into(),
-            build_input_digest: "inputs".into(),
-            go_target: "test".into(),
-        },
-        workers: Default::default(),
-        retired: CancellationToken::new(),
-    });
-    let (_sender, receiver) = tokio::sync::watch::channel(Some(generation.clone()));
-    let mut host = Host::new(
-        bundle,
-        json!({
-            "secrets":{
-                "auth.jwt_secret":STANDARD.encode("test-key"),
-                "auth.token_cipher_key":STANDARD.encode(STANDARD.encode([9;32])),
-            },
-            "values":{
-                "auth.connections.files.client_id":"example-client",
-                "auth.connections.files.callback_uri":format!("{base}/auth/connections/files/callback"),
-            },
-        }),
-        Default::default(),
-        "control".into(),
-        None,
-        (
-            CancellationToken::new(),
-            assistant::Gateway::new(None, None, &[])?,
-        ),
-        receiver,
-    )?;
-    host.development = true;
-    host.auth = Authentication::new(host.bundle.auth.as_ref(), &host.configuration, true)?;
-    let host = Arc::new(host);
+    let (host, generation) = auth_host(&base, &issuer_url)?;
     let app_server = serve(app, {
         let host = host.clone();
         move |request| {
@@ -250,6 +290,63 @@ async fn development_email_session_and_oauth_connection_routes() -> Result<()> {
     app_server.abort();
     mock.abort();
     Ok(())
+}
+
+/// Builds a host with the standard auth routes and one OAuth connection.
+fn auth_host(base: &str, issuer_url: &str) -> Result<(Arc<Host>, Arc<Generation>)> {
+    let bundle: Bundle = serde_json::from_value(json!({
+        "version":1,"contract_revision":"contract","programs":[],
+        "reports":{"schema_revision":"sha256:fixture","producer_version":"test"},
+        "host":{"Name":"connections","Workers":[]},"types":{},
+        "host_config_keys":["auth.jwt_secret"],
+        "auth":{
+            "Enabled":true,"GoogleOAuth":{"Enabled":false},
+            "DevBootstrap":{"Enabled":true,"DefaultUserEmail":"Developer@example.test","DefaultTenantID":""},
+            "Connections":[{
+                "id":"files","protocol":"oauth2","issuer":issuer_url,"client_auth":"none",
+                "authorize_url":format!("{issuer_url}/authorize"),"token_url":format!("{issuer_url}/token"),
+                "account_url":format!("{issuer_url}/account"),"revoke_url":format!("{issuer_url}/revoke"),
+                "subject_field":"id","allowed_scopes":["files.read"]
+            }],
+            "bootstrap_sql":include_str!("../../../../auth/db/gen/schema.sql"),
+        }
+    }))?;
+    let generation = Arc::new(Generation {
+        number: 1,
+        identity: BuildIdentity {
+            contract_revision: "contract".into(),
+            implementation_revision: "implementation".into(),
+            build_input_digest: "inputs".into(),
+            go_target: "test".into(),
+        },
+        workers: Default::default(),
+        retired: CancellationToken::new(),
+    });
+    let (_sender, receiver) = tokio::sync::watch::channel(Some(generation.clone()));
+    let mut host = Host::new(
+        bundle,
+        json!({
+            "secrets":{
+                "auth.jwt_secret":STANDARD.encode("test-key"),
+                "auth.token_cipher_key":STANDARD.encode(STANDARD.encode([9;32])),
+            },
+            "values":{
+                "auth.connections.files.client_id":"example-client",
+                "auth.connections.files.callback_uri":format!("{base}/auth/connections/files/callback"),
+            },
+        }),
+        Default::default(),
+        "control".into(),
+        None,
+        (
+            CancellationToken::new(),
+            assistant::Gateway::new(None, None, &[])?,
+        ),
+        receiver,
+    )?;
+    host.development = true;
+    host.auth = Authentication::new(host.bundle.auth.as_ref(), &host.configuration, true)?;
+    Ok((Arc::new(host), generation))
 }
 
 fn serve<F, R>(listener: TcpListener, route: F) -> tokio::task::JoinHandle<()>

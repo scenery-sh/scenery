@@ -19,17 +19,12 @@ struct Decimal {
 }
 
 impl Decimal {
+    /// Reads a decimal like Go's `big.Rat.SetString`: a leading zero is a
+    /// decimal digit, never an octal prefix, and the decimal exponent of the
+    /// value may not exceed one million in either direction.
     fn parse(source: &str) -> Result<Self> {
         let negative = source.starts_with('-');
         let source = source.strip_prefix('-').unwrap_or(source);
-        let converted;
-        let source =
-            if source.len() > 1 && source.starts_with('0') && !source.contains(['.', 'e', 'E']) {
-                converted = base_eight(source)?;
-                &converted
-            } else {
-                source
-            };
         let (mantissa, exponent) = source
             .split_once(['e', 'E'])
             .map_or(Ok((source, 0_i64)), |(m, e)| e.parse().map(|e| (m, e)))?;
@@ -51,9 +46,13 @@ impl Decimal {
                 point: 0,
             });
         }
-        let point = exponent
-            .checked_add(integer.len() as i64 - (digits.len() - trim.len()) as i64)
-            .context("authorization number exponent exceeds range")?;
+        ensure!(
+            exponent
+                .checked_sub(fraction.len() as i64)
+                .is_some_and(|scale| scale.unsigned_abs() <= 1_000_000),
+            "authorization number exponent exceeds range"
+        );
+        let point = exponent + integer.len() as i64 - (digits.len() - trim.len()) as i64;
         Ok(Self {
             negative,
             digits: trim.trim_end_matches('0').into(),
@@ -88,26 +87,9 @@ impl Decimal {
     }
 }
 
-fn base_eight(value: &str) -> Result<String> {
-    // Match big.Rat for integer literals with an implicit octal base.
-    let mut decimal = vec![0_u8];
-    for byte in value.bytes() {
-        ensure!((b'0'..=b'7').contains(&byte), "invalid octal number");
-        let mut carry = byte - b'0';
-        for digit in &mut decimal {
-            let sum = *digit * 8 + carry;
-            *digit = sum % 10;
-            carry = sum / 10;
-        }
-        if carry != 0 {
-            decimal.push(carry);
-        }
-    }
-    Ok(decimal
-        .into_iter()
-        .rev()
-        .map(|digit| char::from(b'0' + digit))
-        .collect())
+/// Orders two decimal numbers exactly, without a policy expression.
+pub(crate) fn compare_numbers(left: &str, right: &str) -> Result<Ordering> {
+    Ok(Decimal::parse(left)?.compare(&Decimal::parse(right)?))
 }
 
 impl Operand {
@@ -180,15 +162,20 @@ pub(crate) fn evaluate(source: &str, variables: &Value) -> Result<bool> {
     };
     let result = parser.expression(0)?.boolean()?;
     ensure!(
-        parser.source.trim().is_empty(),
+        skip_space(parser.source).is_empty(),
         "unexpected authorization token"
     );
     Ok(result)
 }
 
+/// Go's lexer skips single bytes, so only ASCII whitespace separates tokens.
+fn skip_space(source: &str) -> &str {
+    source.trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+}
+
 impl Parser<'_> {
     fn take(&mut self, prefix: &str) -> bool {
-        self.source = self.source.trim_start();
+        self.source = skip_space(self.source);
         if let Some(rest) = self.source.strip_prefix(prefix) {
             self.source = rest;
             return true;
@@ -215,7 +202,7 @@ impl Parser<'_> {
         let mut left = self.primary()?;
         let mut compared = false;
         loop {
-            self.source = self.source.trim_start();
+            self.source = skip_space(self.source);
             let Some((op, precedence)) = OPS
                 .into_iter()
                 .find(|(op, precedence)| *precedence >= minimum && self.source.starts_with(op))
@@ -282,7 +269,14 @@ impl Parser<'_> {
             }
             bail!("unterminated authorization string");
         }
-        if first.is_ascii_digit() || *first == b'-' {
+        if first.is_ascii_digit()
+            || *first == b'-'
+                && self
+                    .source
+                    .as_bytes()
+                    .get(1)
+                    .is_some_and(u8::is_ascii_digit)
+        {
             let len = self
                 .source
                 .bytes()
@@ -401,7 +395,9 @@ mod tests {
             "!(false || !true)",
             "input.count == 9007199254740993.00",
             r#""\xFF" == "\377" && "\377" > "é""#,
-            "010 == 8",
+            "010 == 10 && 08 == 8 && -010 == -10 && 01.5 == 1.5",
+            "1e1000000 > 1 && 1.5e1000001 > 1 && 0e9999999 == 0 && 1. == 1 && 1.e2 == 100",
+            "!(010 == 8) && !(-010 == -8)",
             "input.count != 9007199254740992",
             "-0.001 >= -1e-3 && 0 < 1e-99 && 10 >= 9",
             "\"abc\" <= \"b\" && \"a\" < \"b\" && \"b\" > \"a\"",
@@ -427,6 +423,13 @@ mod tests {
             "true = true",
             "1.2.3 == 1",
             "input",
+            "1e1000001 == 1",
+            "10e-1000001 == 1",
+            "1e9223372036854775806 == 1",
+            "true &&\u{a0}true",
+            "true &&\u{85}true",
+            "true\u{2003}&& true",
+            "- 1 == 1",
         ] {
             assert!(evaluate(expression, &variables).is_err(), "{expression}");
         }

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -54,11 +55,17 @@ func pathUnder(root, path string) bool {
 	return err == nil && filepath.IsLocal(rel)
 }
 
-// scan hashes the startup inputs before the native host takes ownership.
+// scan hashes the startup inputs before the native host takes ownership. It
+// leaves out what the tree's `.gitignore` files ignore: local data, dumps and
+// build output are not sources, and hashing them made every scan cost as much
+// as the whole checkout. The Rust Host selects the same files (its
+// `gitignore` module ports internal/watchignore); the shared fixture
+// testdata/worker-input-scope.json keeps the two in step.
 func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 	if watch.skip(start) {
 		return nil
 	}
+	ignore := watchignore.NewGitignore(watch.root)
 	return filepath.WalkDir(start, func(path string, entry fs.DirEntry, err error) error {
 		if errors.Is(err, os.ErrNotExist) && path != watch.root {
 			return nil
@@ -72,12 +79,19 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 			}
 			return nil
 		}
-		if entry.IsDir() {
-			return nil
-		}
 		rel, err := filepath.Rel(watch.root, path)
 		if err != nil {
 			return err
+		}
+		if rel != "." && ignore.IgnoredEntry(rel, entry.IsDir()) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() {
+			ignore.LoadDir(rel)
+			return nil
 		}
 		if !entry.Type().IsRegular() {
 			if workerDeclarationInput(rel) || slices.Contains([]string{".go", ".rs"}, filepath.Ext(rel)) {
@@ -85,7 +99,7 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 			}
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		digest, err := hashWorkerInput(path)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
@@ -99,9 +113,25 @@ func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 		if err != nil {
 			return err
 		}
-		inputs[rel] = workerInput{Digest: sha256.Sum256(data), Mode: info.Mode().Perm()}
+		inputs[rel] = workerInput{Digest: digest, Mode: info.Mode().Perm()}
 		return nil
 	})
+}
+
+// hashWorkerInput streams the file: an input may be far larger than memory
+// should hold at once.
+func hashWorkerInput(path string) (digest [sha256.Size]byte, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return digest, err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return digest, err
+	}
+	copy(digest[:], hash.Sum(nil))
+	return digest, nil
 }
 
 func (watch *workerInputScope) capture() (workerInputs, error) {

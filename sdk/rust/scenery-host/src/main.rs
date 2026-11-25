@@ -12,6 +12,7 @@ mod browser_auth;
 #[cfg(test)]
 mod browser_auth_test;
 mod connections;
+mod database;
 mod dev;
 mod dev_build;
 mod dev_inputs;
@@ -19,9 +20,11 @@ mod durable;
 mod frontend;
 mod frontend_dev;
 mod gateway;
+mod gitignore;
 mod host;
 mod http_codec;
 mod http_timeout;
+mod json;
 mod local_storage;
 mod mcp;
 
@@ -47,7 +50,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
 use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::net::{TcpListener, UnixListener};
@@ -143,10 +146,13 @@ fn bootstrap() -> Result<()> {
         }
     };
     input.bundle.verify()?;
-    tokio::runtime::Builder::new_current_thread()
+    process::raise_descriptor_limit();
+    // Requests run on a pool of threads: decoding one large payload or
+    // hashing a file no longer stalls every other connection of the host.
+    tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(tokio::task::LocalSet::new().run_until(run(input)))
+        .block_on(run(input))
 }
 
 struct Input {
@@ -334,13 +340,13 @@ async fn run(mut input: Input) -> Result<()> {
     let mut servers = JoinSet::new();
     let private_stop = CancellationToken::new();
     assistant::Gateway::listeners(&host, &private_stop, &mut servers).await?;
-    servers.spawn_local(serve_private(
+    servers.spawn(serve_private(
         control_listener,
         host.clone(),
         private_stop.clone(),
         false,
     ));
-    servers.spawn_local(serve_private(
+    servers.spawn(serve_private(
         capability_listener,
         host.clone(),
         private_stop.clone(),
@@ -349,7 +355,7 @@ async fn run(mut input: Input) -> Result<()> {
     if let Some(resources) = &mut resources
         && let Some(listener) = resources.reports.take()
     {
-        servers.spawn_local(serve_reports(
+        servers.spawn(serve_reports(
             TcpListener::from_std(listener)?,
             host.clone(),
             private_stop.clone(),
@@ -400,8 +406,13 @@ async fn run(mut input: Input) -> Result<()> {
             },
         };
         stop.cancel();
-        engine.abort();
-        let _ = engine.await;
+        // Running durable executions get the drain window, then release
+        // their leases; the workers they call stay up until that is done.
+        let mut engine = engine;
+        if tokio::time::timeout(2 * DRAIN_TIMEOUT, &mut engine).await.is_err() {
+            engine.abort();
+            let _ = engine.await;
+        }
         let _ = scheduler.await;
         result
     }.await;
@@ -498,7 +509,13 @@ async fn serve_reports(
         tokio::select! {
             () = stop.cancelled() => return Ok(()),
             socket = listener.accept() => {
-                let (socket, _) = socket?;
+                let (socket, _) = match socket {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        transport::accept_failed(error).await?;
+                        continue;
+                    }
+                };
                 let host = host.clone();
                 let token = token.clone();
                 connections.spawn(async move {
@@ -527,15 +544,6 @@ async fn serve_reports(
     }
 }
 
-#[derive(Clone, Copy)]
-struct LocalExecutor;
-
-impl<F: Future<Output = ()> + 'static> hyper::rt::Executor<F> for LocalExecutor {
-    fn execute(&self, future: F) {
-        tokio::task::spawn_local(future);
-    }
-}
-
 async fn serve_private(
     listener: UnixListener,
     host: Arc<Host>,
@@ -547,9 +555,15 @@ async fn serve_private(
         tokio::select! {
             () = stop.cancelled() => return Ok(()),
             result = listener.accept() => {
-                let (socket, _) = result?;
+                let (socket, _) = match result {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        transport::accept_failed(error).await?;
+                        continue;
+                    }
+                };
                 let host = host.clone();
-                connections.spawn_local(async move {
+                connections.spawn(async move {
                     let service = service_fn(move |request| {
                         let host = host.clone();
                         async move {
@@ -560,7 +574,7 @@ async fn serve_private(
                             })
                         }
                     });
-                    let _ = hyper::server::conn::http2::Builder::new(LocalExecutor)
+                    let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
                         .serve_connection(TokioIo::new(socket), service).await;
                 });
             }
@@ -621,7 +635,7 @@ impl PublicListener {
         }
     }
 
-    async fn accept(&self) -> Result<(Box<dyn PublicStream>, Option<std::net::IpAddr>)> {
+    async fn accept(&self) -> std::io::Result<(Box<dyn PublicStream>, Option<std::net::IpAddr>)> {
         match self {
             Self::Tcp(listener) => {
                 let (stream, peer) = listener.accept().await?;
@@ -655,7 +669,15 @@ async fn serve_public(
         tokio::select! {
             () = stop.cancelled() => break,
             result = listener.accept() => {
-                let (socket, peer) = result?;
+                // Running out of descriptors, or a connection reset while it
+                // waited in the queue, must not take the application down.
+                let (socket, peer) = match result {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        transport::accept_failed(error).await?;
+                        continue;
+                    }
+                };
                 let host = host.clone();
                 let stop = stop.clone();
                 connections.spawn(async move {
@@ -664,6 +686,9 @@ async fn serve_public(
                         let host = host.clone();
                         let deadlines = deadlines.clone();
                         deadlines.begin_request(timeouts.read, timeouts.write);
+                        if hyper::body::Body::is_end_stream(request.body()) {
+                            deadlines.request_body_finished();
+                        }
                         request.extensions_mut().insert(deadlines.clone());
                         if let Some(peer) = peer {
                             request.extensions_mut().insert(peer);

@@ -6,7 +6,7 @@ use tokio_postgres::{Client, GenericClient, Row};
 use url::Url;
 
 use super::{
-    AbortOnDrop, Credentials, Grant, Provider, cipher_key, configured, decrypt, encrypt, limited,
+    Credentials, Grant, Provider, cipher_key, configured, decrypt, encrypt, limited,
     lock_owner_provider, missing_scope, normalize_scopes, parse_scopes, post_form, provider,
     provider_http, token_request, trusted_url, unavailable, valid_audience, verify_id_token,
 };
@@ -15,6 +15,7 @@ use crate::browser_auth::{
     AuthResult, Browser, config_url, denied, invalid, ok, precondition, random, safe_redirect,
     unauthorized,
 };
+use crate::database::Session;
 use crate::host::{Fault, Reply, empty, header};
 use sha2::{Digest, Sha256};
 
@@ -67,12 +68,16 @@ pub(crate) async fn serve(
             }
         };
         let provider = provider(browser.host, id)?;
-        let (mut db, driver) = browser.connect().await.map_err(|_| unavailable())?;
-        let _driver = AbortOnDrop(driver);
-        match route {
-            Route::Callback(_) => callback(browser, &mut db, provider, query).await,
-            _ => {
-                lock_owner_provider(&db, &user.user, provider).await?;
+        let mut db = browser.connect().await.map_err(|_| unavailable())?;
+        // Every route locks the connection's owner on this session. A dropped
+        // request closes the session and with it the lock; a finished one
+        // releases the lock before the session is reused.
+        let reply = async {
+            if matches!(route, Route::Callback(_)) {
+                return callback(browser, &mut db, provider, query).await;
+            }
+            {
+                lock_owner_provider(&mut db, &user.user, provider).await?;
                 let active = db
                     .query_one(
                         "SELECT EXISTS (
@@ -102,6 +107,9 @@ pub(crate) async fn serve(
                 }
             }
         }
+        .await;
+        let _ = db.release_session_state().await;
+        reply
     })
     .await
     .map_err(|_| unavailable())?
@@ -308,7 +316,7 @@ fn set_binding_cookie(reply: &mut Reply, provider: &Provider, callback: &Url, va
 
 async fn callback(
     browser: &Browser<'_>,
-    db: &mut Client,
+    db: &mut Session,
     provider: &Provider,
     query: Option<&str>,
 ) -> AuthResult<Reply> {

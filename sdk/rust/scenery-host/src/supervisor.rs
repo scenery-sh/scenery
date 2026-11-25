@@ -234,6 +234,18 @@ impl Supervisor {
         }
     }
 
+    /// Discards the pending candidate only if it is `generation`: a prepare
+    /// that reused the active generation left no candidate of its own.
+    fn discard_candidate(&mut self, generation: u64) {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.generation.number == generation)
+        {
+            self.discard();
+        }
+    }
+
     fn maintain(&mut self) {
         if self
             .pending
@@ -242,10 +254,18 @@ impl Supervisor {
         {
             self.discard();
         }
+        let now = Instant::now();
+        let active = self.publication.borrow().clone();
+        retire_workers(
+            self.retired
+                .values()
+                .map(|retired| (&*retired.generation, now >= retired.deadline)),
+            active
+                .iter()
+                .chain(self.pending.iter().map(|pending| &pending.generation))
+                .map(|generation| &**generation),
+        );
         self.retired.retain(|_, retired| {
-            if Instant::now() >= retired.deadline {
-                retired.generation.retired.cancel();
-            }
             if Arc::strong_count(&retired.generation) == 1 {
                 let generation = retired.generation.clone();
                 tokio::task::spawn_blocking(move || drop(generation));
@@ -326,6 +346,34 @@ impl Supervisor {
     }
 }
 
+/// Ends the calls of processes that left service. `retired` pairs each
+/// replaced generation with whether its drain window is over; `serving` are
+/// the active and the pending generation. A process still shared with one of
+/// those, or with a generation that is still draining, keeps its calls: only
+/// the processes a swap really replaced stop serving.
+fn retire_workers<'a>(
+    retired: impl Iterator<Item = (&'a Generation, bool)> + Clone,
+    serving: impl Iterator<Item = &'a Generation>,
+) {
+    let in_use: Vec<*const Worker> = serving
+        .chain(
+            retired
+                .clone()
+                .filter(|(_, drained)| !drained)
+                .map(|(generation, _)| generation),
+        )
+        .flat_map(|generation| generation.workers.values().map(Arc::as_ptr))
+        .collect();
+    for (generation, _) in retired.filter(|(_, drained)| *drained) {
+        generation.retired.cancel();
+        for worker in generation.workers.values() {
+            if !in_use.contains(&Arc::as_ptr(worker)) {
+                worker.retired.cancel();
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Publisher {
     state: Arc<Mutex<Supervisor>>,
@@ -340,26 +388,29 @@ impl Publisher {
             .map_or(0, |active| active.number)
     }
 
-    pub(crate) async fn replace(
+    /// Starts the workers of `plan` and publishes them if `verify` still
+    /// holds once they are ready. The check runs without the supervisor
+    /// lock: it may read the source tree, and worker restarts, status
+    /// requests and every request the host serves must not wait for it.
+    pub(crate) async fn replace<Check>(
         &self,
         plan: LaunchPlan,
-        verify: impl FnOnce() -> Result<bool>,
-    ) -> Result<Option<u64>> {
+        verify: impl FnOnce() -> Check,
+    ) -> Result<Option<u64>>
+    where
+        Check: Future<Output = Result<bool>>,
+    {
+        let candidate = self.state.lock().await.prepare(plan).await?;
+        let verified = verify().await;
         let mut supervisor = self.state.lock().await;
-        let candidate = supervisor.prepare(plan).await?;
-        match verify() {
-            Ok(true) => {
-                if let Err(error) = supervisor.commit(candidate) {
-                    supervisor.discard();
-                    return Err(error);
-                }
-                Ok(Some(candidate))
-            }
-            checked => {
-                supervisor.discard();
-                checked.map(|_| None)
-            }
+        let published = match verified {
+            Ok(true) => supervisor.commit(candidate).map(|()| Some(candidate)),
+            checked => checked.map(|_| None),
+        };
+        if !matches!(published, Ok(Some(_))) {
+            supervisor.discard_candidate(candidate);
         }
+        published
     }
 }
 
@@ -499,7 +550,10 @@ impl Control {
                 socket = self.listener.accept() => {
                     let (socket, _) = match socket {
                         Ok(pair) => pair,
-                        Err(error) => break Err(error.into()),
+                        Err(error) => match crate::transport::accept_failed(error).await {
+                            Ok(()) => continue,
+                            Err(error) => break Err(error.into()),
+                        },
                     };
                     let token = self.token.clone();
                     let state = self.state.clone();
@@ -533,6 +587,7 @@ impl Control {
         {
             generation.retired.cancel();
             for worker in generation.workers.values() {
+                worker.retired.cancel();
                 workers
                     .entry(worker.pid())
                     .or_insert_with(|| worker.clone());
@@ -618,5 +673,119 @@ async fn handle(
     match result {
         Ok(body) => response(StatusCode::OK, body),
         Err(error) => response(StatusCode::CONFLICT, format!("{error:#}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn generation(number: u64, workers: &[(&str, &Arc<Worker>)]) -> Generation {
+        Generation {
+            number,
+            identity: BuildIdentity {
+                contract_revision: "contract".into(),
+                implementation_revision: String::new(),
+                build_input_digest: String::new(),
+                go_target: "worker".into(),
+            },
+            workers: workers
+                .iter()
+                .map(|(name, worker)| ((*name).to_owned(), (*worker).clone()))
+                .collect(),
+            retired: CancellationToken::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_supervisor_answers_while_a_publication_is_verified() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()?;
+        let control = Control::bind(
+            directory.path(),
+            "contract".into(),
+            None,
+            BTreeMap::new(),
+            None,
+        )?;
+        let publisher = control.publisher(control.publication().await);
+        let (entered, checking) = tokio::sync::oneshot::channel();
+        let (finish, finished) = tokio::sync::oneshot::channel::<()>();
+        let replacing = tokio::spawn({
+            let publisher = publisher.clone();
+            async move {
+                let plan = LaunchPlan {
+                    contract_revision: "contract".into(),
+                    programs: vec![],
+                };
+                publisher
+                    .replace(plan, || async move {
+                        let _ = entered.send(());
+                        let _ = finished.await;
+                        Ok(true)
+                    })
+                    .await
+            }
+        });
+        checking.await?;
+        // The source check is still running, yet the supervisor lock is
+        // free: this used to wait until the whole tree had been hashed.
+        tokio::time::timeout(Duration::from_secs(1), control.publication()).await?;
+        assert_eq!(publisher.generation(), 0);
+        let _ = finish.send(());
+        assert_eq!(replacing.await??, Some(1));
+        assert_eq!(publisher.generation(), 1);
+
+        // A check that fails or reports a newer tree publishes nothing.
+        let stale = LaunchPlan {
+            contract_revision: "contract".into(),
+            programs: vec![],
+        };
+        assert_eq!(
+            publisher.replace(stale, || async { Ok(false) }).await?,
+            None
+        );
+        assert_eq!(publisher.generation(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_swap_ends_only_the_calls_of_replaced_workers() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let worker = || Worker::test_worker(directory.path()).map(Arc::new);
+        let (orders, billing, rebuilt) = (worker()?, worker()?, worker()?);
+        // Generation 2 rebuilt `orders` and carried `billing` over.
+        let first = generation(1, &[("orders", &orders), ("billing", &billing)]);
+        let second = generation(2, &[("orders", &rebuilt), ("billing", &billing)]);
+
+        retire_workers([(&first, false)].into_iter(), [&second].into_iter());
+        assert!(!orders.retired.is_cancelled(), "the drain window is open");
+
+        retire_workers([(&first, true)].into_iter(), [&second].into_iter());
+        assert!(first.retired.is_cancelled());
+        assert!(orders.retired.is_cancelled(), "the replaced process");
+        assert!(
+            !billing.retired.is_cancelled() && !rebuilt.retired.is_cancelled(),
+            "a healthy carried-over worker keeps its calls"
+        );
+
+        // Generation 3 replaces `billing`. Generation 2 is still draining,
+        // so the long-drained generation 1 must not cut that window short.
+        let replaced = worker()?;
+        let third = generation(3, &[("orders", &rebuilt), ("billing", &replaced)]);
+        retire_workers(
+            [(&first, true), (&second, false)].into_iter(),
+            [&third].into_iter(),
+        );
+        assert!(!billing.retired.is_cancelled());
+        retire_workers(
+            [(&first, true), (&second, true)].into_iter(),
+            [&third].into_iter(),
+        );
+        assert!(billing.retired.is_cancelled());
+        assert!(!rebuilt.retired.is_cancelled() && !replaced.retired.is_cancelled());
+        Ok(())
     }
 }

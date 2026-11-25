@@ -174,7 +174,9 @@ impl Call {
             None => (random_hex::<16>()?, String::new()),
         };
         Ok(Self {
-            cancel: generation.retired.child_token(),
+            // A call ends with its caller, its deadline or the worker that
+            // serves it, not with the generation it started in.
+            cancel: CancellationToken::new(),
             generation,
             principal: None,
             workload: None,
@@ -292,6 +294,8 @@ pub(crate) struct Host {
     pub configuration: Value,
     pub telemetry: telemetry::Sink,
     pub engine: Engine,
+    pub origins: gateway::Origins,
+    pub sessions: crate::database::Pool,
     generation: watch::Receiver<Option<Arc<Generation>>>,
     capability_scopes: Scopes,
     control_token: String,
@@ -319,6 +323,7 @@ impl Host {
             development,
             &bundle.host.observability,
             victoria,
+            &bundle.reports,
         )?;
         Ok(Self {
             bundle,
@@ -329,6 +334,11 @@ impl Host {
             generation,
             telemetry,
             engine: Engine::new(),
+            sessions: crate::database::Pool::new(),
+            origins: gateway::Origins::new(
+                &std::env::var("SCENERY_CORS_ALLOW_ORIGINS").unwrap_or_default(),
+                development,
+            ),
             control_token,
             dev_status,
             stop,
@@ -578,6 +588,7 @@ impl Host {
         let started = Instant::now();
         let result = tokio::select! {
             () = abi::cancelled(call.cancel.clone(), call.deadline) => Err(Fault::deadline()),
+            () = worker.retired.cancelled() => Err(Fault::deadline()),
             result = worker.invoke(invocation, guard) => result,
         };
         let code = match &result {
@@ -762,13 +773,7 @@ impl Host {
             return empty(StatusCode::NOT_FOUND);
         }
         let path = request.uri().path().to_owned();
-        request.headers_mut().remove("authorization");
-        if let Some(auth) = request
-            .headers_mut()
-            .remove("x-app-invocation-authorization")
-        {
-            request.headers_mut().insert("authorization", auth);
-        }
+        forward_invocation_authorization(request.headers_mut());
         match path.as_str() {
             "/__scenery/process/v1/shutdown" => crate::dev::shutdown(self.stop.clone()),
             "/__scenery/process/v1/worker-reports" => {
@@ -822,10 +827,51 @@ impl Host {
     }
 }
 
+/// Replaces the control credential with the caller's own for the invoked
+/// binding. A caller without one sends the header empty or not at all, and
+/// both leave the invocation unauthenticated.
+fn forward_invocation_authorization(headers: &mut HeaderMap) {
+    headers.remove("authorization");
+    if let Some(credential) = headers
+        .remove("x-app-invocation-authorization")
+        .filter(|value| !value.as_bytes().trim_ascii().is_empty())
+    {
+        headers.insert("authorization", credential);
+    }
+}
+
 pub(crate) fn authorized(headers: &HeaderMap, expected: &str) -> bool {
     let mut supplied = headers.get_all("authorization").iter();
     supplied
         .next()
         .is_some_and(|value| bool::from(value.as_bytes().ct_eq(expected.as_bytes())))
         && supplied.next().is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn control_calls_forward_only_a_real_invocation_credential() {
+        let forwarded = |invocation: Option<&'static str>| {
+            let mut headers = HeaderMap::new();
+            headers.insert("authorization", HeaderValue::from_static("Bearer control"));
+            if let Some(value) = invocation {
+                headers.insert(
+                    "x-app-invocation-authorization",
+                    HeaderValue::from_static(value),
+                );
+            }
+            forward_invocation_authorization(&mut headers);
+            assert!(!headers.contains_key("x-app-invocation-authorization"));
+            headers.get("authorization").cloned()
+        };
+        assert_eq!(forwarded(Some("Bearer user")).unwrap(), "Bearer user");
+        // `scenery call` without `--as` used to send the header empty,
+        // which turned every internal binding call into a 401.
+        assert_eq!(forwarded(Some("")), None);
+        assert_eq!(forwarded(Some("  ")), None);
+        assert_eq!(forwarded(None), None);
+    }
 }

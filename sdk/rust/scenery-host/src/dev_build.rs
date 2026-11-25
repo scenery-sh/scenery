@@ -27,6 +27,38 @@ pub(crate) struct Plan {
     pub host_config: Value,
 }
 
+impl Plan {
+    /// Reports whether the Go workspace mirrors `path`: Go sources, the
+    /// files a build embeds, and everything else inside a package directory
+    /// or next to an embedded file, where an embed pattern may select it.
+    pub(crate) fn go_mirrored(&self, path: &Path) -> bool {
+        go_source(path)
+            || self.go_inputs.contains(path)
+            || self.beside_embed(path)
+            || self
+                .commands
+                .iter()
+                .any(|build| build.tool() == "go" && build.in_roots(path))
+    }
+
+    /// Reports whether `path` sits in, or below, a directory that already
+    /// holds an embedded file. Embeds of the root package live in
+    /// subdirectories that no package root names.
+    fn beside_embed(&self, path: &Path) -> bool {
+        self.go_inputs
+            .iter()
+            .filter(|input| !go_source(input) && !dev_inputs::declaration(input))
+            .filter_map(|input| input.parent())
+            .any(|directory| {
+                if directory.as_os_str().is_empty() {
+                    path.parent() == Some(directory)
+                } else {
+                    path.starts_with(directory)
+                }
+            })
+    }
+}
+
 #[derive(Clone, Deserialize)]
 pub(crate) struct Build {
     pub process: String,
@@ -50,19 +82,27 @@ impl Build {
             .unwrap_or("")
     }
 
-    pub(crate) fn affected(&self, plan: &Plan, path: &Path) -> bool {
-        let in_roots = || {
-            self.roots.iter().any(|root| {
-                if self.tool() == "go" && root == Path::new(".") {
-                    path.parent() == Some(Path::new(""))
-                } else {
-                    under(path, root)
-                }
-            })
-        };
+    /// Reports whether `path` lies in one of this build's package
+    /// directories. The root package owns only the files directly in it.
+    fn in_roots(&self, path: &Path) -> bool {
+        self.roots.iter().any(|root| {
+            if self.tool() == "go" && root == Path::new(".") {
+                path.parent() == Some(Path::new(""))
+            } else {
+                under(path, root)
+            }
+        })
+    }
+
+    /// Reports whether a change of `path` requires this build to run again.
+    /// `appeared` is set for a file that was added or removed: such a file
+    /// can change what an existing `//go:embed` pattern selects even though
+    /// no build has ever named it.
+    pub(crate) fn affected(&self, plan: &Plan, path: &Path, appeared: bool) -> bool {
         match self.tool() {
             "go" => {
-                (go_source(path) || plan.go_inputs.contains(path)) && in_roots()
+                (go_source(path) || plan.go_inputs.contains(path)) && self.in_roots(path)
+                    || appeared && (self.in_roots(path) || plan.beside_embed(path))
                     || matches!(
                         path.to_str(),
                         Some("go.mod" | "go.sum" | "go.work" | "go.work.sum")
@@ -448,7 +488,7 @@ mod tests {
             "identity":{"contract_revision":"contract","implementation_revision":"","build_input_digest":"","go_target":"test"},
             "environment":[],
         }))?;
-        assert!(!plan.commands[0].affected(&plan, extra));
+        assert!(!plan.commands[0].affected(&plan, extra, false));
         let original = plan.commands[0]
             .compile(&root, &artifacts, &initial, "initial")
             .await?;
@@ -462,7 +502,7 @@ mod tests {
             .await?;
         command.refresh_go_roots(&artifacts).await?;
         assert_ne!(original.digest, first.digest);
-        assert!(plan.commands[0].affected(&plan, extra));
+        assert!(plan.commands[0].affected(&plan, extra, false));
 
         std::fs::write(
             workspace.join(extra),
@@ -472,6 +512,42 @@ mod tests {
             .compile(&root, &artifacts, &first, "dependency edit")
             .await?;
         assert_ne!(first.digest, second.digest);
+        Ok(())
+    }
+
+    #[test]
+    fn a_new_file_under_an_embed_pattern_reaches_the_go_build() -> Result<()> {
+        let plan: Plan = serde_json::from_value(json!({
+            "commands":[
+                {"process":"web","module":"web","directory":"/workspace","program":"go",
+                 "args":[],"roots":["web"]},
+                {"process":"root","module":"root","directory":"/workspace","program":"go",
+                 "args":[],"roots":["."]},
+                {"process":"pricing","module":"pricing","directory":"/app/pricing","program":"cargo",
+                 "args":[],"roots":["pricing"],"owners":["pricing"]},
+            ],
+            "programs":[], "source_digest":"", "host_config":{},
+            "go_inputs":["web/static/app.css","web/handler.go","templates/mail/hello.txt","main.go"],
+        }))?;
+        let (web, root, cargo) = (&plan.commands[0], &plan.commands[1], &plan.commands[2]);
+        // `//go:embed static/*` already exists: a new file it matches must be
+        // mirrored and rebuild the worker, although no build ever named it.
+        let added = Path::new("web/static/new.txt");
+        assert!(plan.go_mirrored(added));
+        assert!(web.affected(&plan, added, true));
+        assert!(!cargo.affected(&plan, added, true));
+        // Editing a file no pattern selected yet changes nothing.
+        assert!(!web.affected(&plan, Path::new("web/static/notes.md"), false));
+        assert!(web.affected(&plan, Path::new("web/static/app.css"), false));
+        // The root package embeds from subdirectories no package root names.
+        let nested = Path::new("templates/mail/welcome.txt");
+        assert!(plan.go_mirrored(nested));
+        assert!(root.affected(&plan, nested, true));
+        assert!(root.affected(&plan, Path::new("templates/mail/sub/new.txt"), true));
+        // An unrelated file is neither mirrored nor a reason to rebuild.
+        let unrelated = Path::new("docs/guide.md");
+        assert!(!plan.go_mirrored(unrelated));
+        assert!(!web.affected(&plan, unrelated, true) && !root.affected(&plan, unrelated, true));
         Ok(())
     }
 }

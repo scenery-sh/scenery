@@ -26,10 +26,12 @@ const VERSION: &str = "2025-11-25";
 const OPERATION: &str = "app/operation/tool";
 const BINDING: &str = "app/binding/tool";
 const PUBLIC_ROUTE: &str = "/assistants/tools/v1/conversations";
+/// Text deltas of 900 KiB that make a helper replay larger than 16 MiB.
+const LONG_HISTORY: u64 = 20;
 
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn assistant_and_mcp_use_the_public_and_worker_protocols() -> anyhow::Result<()> {
-    tokio::task::LocalSet::new().run_until(exercise()).await
+    exercise().await
 }
 
 async fn exercise() -> anyhow::Result<()> {
@@ -139,7 +141,7 @@ async fn exercise() -> anyhow::Result<()> {
     let base = format!("http://{}", public_listener.local_addr()?);
     let mut servers = tokio::task::JoinSet::new();
     assistant::Gateway::listeners(&host, &stop, &mut servers).await?;
-    servers.spawn_local(crate::serve_public(
+    servers.spawn(crate::serve_public(
         crate::PublicListener::Tcp(public_listener),
         host,
         stop.clone(),
@@ -316,6 +318,22 @@ async fn exercise() -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(stale.status(), StatusCode::CONFLICT);
+
+    // The helper replays the whole session on every connection. Once that
+    // history outgrew 16 MiB the relay used to stop at the cap, and no later
+    // event of the conversation ever reached the client again.
+    fake_state.lock().unwrap()["long_history"] = json!(true);
+    let long = http
+        .get(format!("{base}{events}?after={LONG_HISTORY}"))
+        .bearer_auth(&access)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let last: Value = serde_json::from_str(long.lines().last().unwrap())?;
+    assert_eq!(last["type"], "assistant.run.completed");
+    assert_eq!(last["sequence"], LONG_HISTORY + 2);
     stop.cancel();
     servers.shutdown().await;
     fake.abort();
@@ -351,9 +369,27 @@ async fn fake_control(
             request.uri().path(),
             "/scenery/v1/control/sessions/private-provider-session/events"
         );
-        let run = state.lock().unwrap()["run_id"].clone();
-        let data = [("run.started", json!({})), ("text.delta", json!({"text":"/eve/"})),
-            ("text.delta", json!({"text":"runtime"})), ("approval.wait", json!({"input":{"message":"hello"}}))]
+        let (run, long) = {
+            let state = state.lock().unwrap();
+            (state["run_id"].clone(), state["long_history"] == true)
+        };
+        let short = [
+            ("run.started", json!({})),
+            ("text.delta", json!({"text":"/eve/"})),
+            ("text.delta", json!({"text":"runtime"})),
+            ("approval.wait", json!({"input":{"message":"hello"}})),
+        ];
+        // About 17 MiB of deltas, then the event the client is waiting for.
+        let filler = json!({"text":"a".repeat(900 << 10)});
+        let history = std::iter::once(("run.started", json!({})))
+            .chain((0..LONG_HISTORY).map(|_| ("text.delta", filler.clone())))
+            .chain([("run.completed", json!({}))]);
+        let events: Vec<_> = if long {
+            history.collect()
+        } else {
+            short.into_iter().collect()
+        };
+        let data = events
             .into_iter().enumerate().map(|(i, (typ, data))| json!({
                 "kind":"scenery.assistant.control.event",
                 "schema_revision":"sha256:0a6e5fc603f3bb2ea15292b5910af273887003be5a7ae604745501b831a65df8",
@@ -422,6 +458,7 @@ fn bundle() -> Bundle {
     };
     serde_json::from_value(json!({
         "version":1,"contract_revision":"contract","programs":[],
+        "reports":{"schema_revision":"sha256:fixture","producer_version":"test"},
         "host":{"Name":"test","Workers":[{
             "Address":"app/service/tools","Module":"app","Name":"tools","Process":"worker-tools","Runtime":"go",
             "Operations":{"app/operation/tool":{"Input":"json","Outcomes":{"result.ok":"json"}}},

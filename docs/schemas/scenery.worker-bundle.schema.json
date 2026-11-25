@@ -3,7 +3,7 @@
   "$id": "https://scenery.sh/schemas/scenery.worker-bundle.schema.json",
   "title": "Scenery Worker Bundle Manifest",
   "type": "object",
-  "required": ["version", "contract_revision", "host", "types", "programs"],
+  "required": ["version", "contract_revision", "host", "types", "programs", "reports"],
   "properties": {
     "version": { "const": 1 },
     "contract_revision": { "$ref": "#/$defs/digest" },
@@ -24,7 +24,16 @@
       }
     },
     "types": { "type": "object" },
-    "programs": { "type": "array", "minItems": 1, "items": { "type": "object" } }
+    "programs": { "type": "array", "minItems": 1, "items": { "type": "object" } },
+    "reports": {
+      "type": "object",
+      "required": ["schema_revision", "producer_version"],
+      "properties": {
+        "schema_revision": { "$ref": "#/$defs/digest" },
+        "producer_version": { "$ref": "#/$defs/text" }
+      },
+      "additionalProperties": false
+    }
   },
   "$defs": {
     "text": { "type": "string", "minLength": 1 },

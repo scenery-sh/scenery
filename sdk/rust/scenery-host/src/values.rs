@@ -1,12 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result, bail, ensure};
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
-use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use serde_json::{Map, Number, Value, value::RawValue};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -58,93 +57,53 @@ struct Constraints {
     min_items: Option<usize>,
     max_items: Option<usize>,
     unique_items: bool,
+    /// The compiled `pattern`, built on first use and kept for the bundle's
+    /// lifetime. An invalid pattern matches nothing.
+    #[serde(skip)]
+    matcher: OnceLock<Option<regex::Regex>>,
 }
 
-struct UniqueObject(BTreeMap<String, Box<RawValue>>);
+pub(crate) use crate::json::{encode, parse};
 
-impl<'de> Deserialize<'de> for UniqueObject {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        struct ObjectVisitor;
-        impl<'de> Visitor<'de> for ObjectVisitor {
-            type Value = UniqueObject;
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an object with unique keys")
-            }
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-                let mut object = BTreeMap::new();
-                while let Some((key, value)) = map.next_entry()? {
-                    if object.insert(key, value).is_some() {
-                        return Err(serde::de::Error::custom("duplicate object key"));
-                    }
-                }
-                Ok(UniqueObject(object))
-            }
-        }
-        d.deserialize_map(ObjectVisitor)
-    }
-}
-
-pub(crate) fn parse(bytes: &[u8]) -> Result<Value> {
-    fn from_raw(raw: &RawValue, depth: usize) -> Result<Value> {
-        ensure!(depth < 128, "JSON exceeds nesting limit");
-        let raw = raw.get();
-        match raw.as_bytes()[0] {
-            b'{' => {
-                let UniqueObject(fields) = serde_json::from_str(raw)?;
-                let fields = fields
-                    .into_iter()
-                    .map(|(key, value)| Ok((key, from_raw(&value, depth + 1)?)))
-                    .collect::<Result<Map<_, _>>>()?;
-                Ok(Value::Object(fields))
-            }
-            b'[' => {
-                let raw: Vec<Box<RawValue>> = serde_json::from_str(raw)?;
-                let items = raw
-                    .iter()
-                    .map(|value| from_raw(value, depth + 1))
-                    .collect::<Result<_>>()?;
-                Ok(Value::Array(items))
-            }
-            b'-' | b'0'..=b'9' => Ok(Value::Number(Number::from_string_unchecked(raw.into()))),
-            _ => Ok(serde_json::from_str(raw)?),
-        }
-    }
-    let raw: &RawValue = serde_json::from_slice(bytes)?;
-    from_raw(raw, 0)
-}
-
-pub(crate) fn encode(value: &Value) -> String {
-    match value {
-        Value::Object(fields) => {
-            let mut fields: Vec<_> = fields.iter().collect();
-            fields.sort_by(|(a, _), (b, _)| a.encode_utf16().cmp(b.encode_utf16()));
-            let fields = fields
-                .into_iter()
-                .map(|(key, value)| format!("{}:{}", quote(key), encode(value)))
-                .collect::<Vec<_>>();
-            format!("{{{}}}", fields.join(","))
-        }
-        Value::Array(items) => format!(
-            "[{}]",
-            items.iter().map(encode).collect::<Vec<_>>().join(",")
-        ),
-        Value::String(value) => quote(value),
-        _ => value.to_string(),
-    }
-}
-
-fn quote(value: &str) -> String {
-    serde_json::to_string(value)
-        .expect("string can be serialized")
-        .replace('<', r"\u003c")
-        .replace('>', r"\u003e")
-        .replace('&', r"\u0026")
-        .replace('\u{2028}', "\\u2028")
-        .replace('\u{2029}', "\\u2029")
-}
-
+/// Normalizes `value` to the canonical wire form of `expression`. Free-form
+/// JSON inside it shares one growth budget sized from the whole input, so
+/// exponent-form numbers cannot amplify a request.
 pub(crate) fn normalize(types: &Types, expression: &str, value: Value) -> Result<Value> {
-    normalize_value(types, expression, value, &Constraints::default(), 0)
+    let mut budget = expansion_budget(encoded_size(&value));
+    normalize_value(
+        types,
+        expression,
+        value,
+        &Constraints::default(),
+        0,
+        &mut budget,
+    )
+}
+
+/// Go's `exactCanonicalJSONBudget`: canonical JSON may reach eight times its
+/// input plus a small constant, and never more than 16 MiB beyond it.
+fn expansion_budget(input: usize) -> usize {
+    input
+        .saturating_mul(8)
+        .saturating_add(1024)
+        .min(input.saturating_add(16 << 20))
+}
+
+/// Approximates the encoded length of `value` without building it.
+fn encoded_size(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(_) => 5,
+        Value::Number(number) => number.as_str().len(),
+        Value::String(text) => text.len() + 2,
+        Value::Array(items) => 2 + items.len() + items.iter().map(encoded_size).sum::<usize>(),
+        Value::Object(fields) => {
+            2 + fields
+                .iter()
+                .map(|(key, value)| key.len() + 4 + encoded_size(value))
+                .sum::<usize>()
+        }
+    }
 }
 
 fn type_parts(expression: &str) -> Result<(&str, Vec<&str>)> {
@@ -177,15 +136,18 @@ fn normalize_value(
     value: Value,
     rules: &Constraints,
     depth: usize,
+    budget: &mut usize,
 ) -> Result<Value> {
     ensure!(depth < 128, "value exceeds nesting limit");
     let (name, args) = type_parts(expression)?;
     let first = || args.first().copied().context("missing element type");
-    let nested = |ty, value| normalize_value(types, ty, value, &Constraints::default(), depth + 1);
+    let plain = Constraints::default();
     match name {
         "nullable" if value.is_null() => Ok(value),
-        "optional" | "nullable" => normalize_value(types, first()?, value, rules, depth + 1),
-        "json" => normalize_json(value),
+        "optional" | "nullable" => {
+            normalize_value(types, first()?, value, rules, depth + 1, budget)
+        }
+        "json" => normalize_json(value, budget),
         "list" | "set" | "tuple" => {
             let Value::Array(items) = value else {
                 bail!("expected array")
@@ -203,7 +165,7 @@ fn normalize_value(
                 } else {
                     first()?
                 };
-                let item = nested(inner, item)?;
+                let item = normalize_value(types, inner, item, &plain, depth + 1, budget)?;
                 if name == "set" || rules.unique_items {
                     ensure!(unique.insert(encode(&item)), "duplicate collection item");
                 }
@@ -220,12 +182,12 @@ fn normalize_value(
             };
             length(fields.len(), rules.min_items, rules.max_items)?;
             let ty = first()?;
-            Ok(Value::Object(
-                fields
-                    .into_iter()
-                    .map(|(key, value)| Ok((key, nested(ty, value)?)))
-                    .collect::<Result<_>>()?,
-            ))
+            let mut output = Map::new();
+            for (key, value) in fields {
+                let value = normalize_value(types, ty, value, &plain, depth + 1, budget)?;
+                output.insert(key, value);
+            }
+            Ok(Value::Object(output))
         }
         _ => match types.get(name) {
             Some(shape) if shape.kind == "record" => {
@@ -244,14 +206,21 @@ fn normalize_value(
                     };
                     output.insert(
                         field.name.clone(),
-                        normalize_value(types, &field.ty, input, &field.constraints, depth + 1)?,
+                        normalize_value(
+                            types,
+                            &field.ty,
+                            input,
+                            &field.constraints,
+                            depth + 1,
+                            budget,
+                        )?,
                     );
                 }
                 match shape.unknown_fields.as_str() {
                     "ignore" => {}
                     "preserve" => {
                         for (key, value) in fields {
-                            output.insert(key, normalize_json(value)?);
+                            output.insert(key, normalize_json(value, budget)?);
                         }
                     }
                     _ => ensure!(fields.is_empty(), "unexpected field"),
@@ -275,8 +244,15 @@ fn normalize_value(
                     .context("missing union tag")?;
                 let name = tag.as_str().context("invalid union tag")?;
                 let mut result = match shape.variants.get(name) {
-                    Some(variant) => nested(variant, Value::Object(fields))?,
-                    None if shape.open => normalize_json(Value::Object(fields))?,
+                    Some(variant) => normalize_value(
+                        types,
+                        variant,
+                        Value::Object(fields),
+                        &plain,
+                        depth + 1,
+                        budget,
+                    )?,
+                    None if shape.open => normalize_json(Value::Object(fields), budget)?,
                     None => bail!("unknown union variant"),
                 };
                 result
@@ -299,35 +275,54 @@ fn length(value: usize, min: Option<usize>, max: Option<usize>) -> Result<()> {
     Ok(())
 }
 
-fn normalize_json(mut value: Value) -> Result<Value> {
-    fn visit(value: &mut Value, budget: &mut usize) -> Result<()> {
-        match value {
-            Value::Number(number) => {
-                let encoded = exact_decimal(&number.to_string())?;
-                *budget = budget
-                    .checked_sub(encoded.len())
-                    .context("canonical JSON exceeds limit")?;
-                *number = Number::from_string_unchecked(encoded);
-            }
-            Value::Object(object) => {
-                for value in object.values_mut() {
-                    visit(value, budget)?;
-                }
-            }
-            Value::Array(array) => {
-                for value in array {
-                    visit(value, budget)?;
-                }
-            }
-            _ => {}
+/// Canonicalizes free-form JSON. Go bounds each such value by its own size;
+/// `shared` also bounds every such value of one request together.
+fn normalize_json(mut value: Value, shared: &mut usize) -> Result<Value> {
+    fn charge(budgets: &mut [&mut usize; 2], bytes: usize) -> Result<()> {
+        for budget in budgets {
+            **budget = budget
+                .checked_sub(bytes)
+                .context("canonical JSON exceeds limit")?;
         }
         Ok(())
     }
-    visit(&mut value, &mut (32 << 20))?;
+    fn visit(value: &mut Value, budgets: &mut [&mut usize; 2]) -> Result<()> {
+        match value {
+            Value::Null => charge(budgets, 4),
+            Value::Bool(_) => charge(budgets, 5),
+            Value::String(text) => charge(budgets, text.len() + 2),
+            Value::Number(number) => {
+                let limit = (*budgets[0]).min(*budgets[1]);
+                let encoded = exact_decimal(number.as_str(), limit)?;
+                charge(budgets, encoded.len())?;
+                *number = Number::from_string_unchecked(encoded);
+                Ok(())
+            }
+            Value::Object(object) => {
+                charge(budgets, 2)?;
+                for (key, value) in object.iter_mut() {
+                    charge(budgets, key.len() + 4)?;
+                    visit(value, budgets)?;
+                }
+                Ok(())
+            }
+            Value::Array(array) => {
+                charge(budgets, 2 + array.len())?;
+                for value in array {
+                    visit(value, budgets)?;
+                }
+                Ok(())
+            }
+        }
+    }
+    let mut own = expansion_budget(encoded_size(&value));
+    visit(&mut value, &mut [&mut own, shared])?;
     Ok(value)
 }
 
-fn exact_decimal(text: &str) -> Result<String> {
+/// Writes a JSON number as an exact decimal without an exponent, refusing
+/// before it materializes more than `limit` bytes.
+fn exact_decimal(text: &str, limit: usize) -> Result<String> {
     let (negative, unsigned) = text
         .strip_prefix('-')
         .map_or(("", text), |rest| ("-", rest));
@@ -355,6 +350,11 @@ fn exact_decimal(text: &str) -> Result<String> {
         return Ok("0".into());
     }
     let scale = fraction.len() as i64 - i64::from(exponent);
+    // An exponent only moves the point, so zero padding is the sole growth.
+    ensure!(
+        digits.len() as u64 + scale.unsigned_abs() <= limit as u64,
+        "canonical JSON exceeds limit"
+    );
     if scale <= 0 {
         return Ok(format!(
             "{negative}{digits}{}",
@@ -416,11 +416,18 @@ fn normalize_scalar(name: &str, value: Value, rules: &Constraints) -> Result<Val
         }
         _ => {
             let text = value.as_str().context("expected string")?;
-            length(text.chars().count(), rules.min_length, rules.max_length)?;
+            if rules.min_length.is_some() || rules.max_length.is_some() {
+                length(text.chars().count(), rules.min_length, rules.max_length)?;
+            }
             let canonical = validate_string(name, text)?;
             if !rules.pattern.is_empty() {
+                let pattern = rules
+                    .matcher
+                    .get_or_init(|| regex::Regex::new(&rules.pattern).ok());
                 ensure!(
-                    regex::Regex::new(&rules.pattern)?.is_match(&canonical),
+                    pattern
+                        .as_ref()
+                        .is_some_and(|pattern| pattern.is_match(&canonical)),
                     "string does not match declared pattern"
                 );
             }
@@ -436,18 +443,24 @@ fn normalize_scalar(name: &str, value: Value, rules: &Constraints) -> Result<Val
 }
 
 fn bounds(value: &Value, rules: &Constraints) -> Result<()> {
-    if rules.minimum.is_some() || rules.maximum.is_some() {
-        let number = value
-            .as_str()
-            .map(str::to_owned)
-            .unwrap_or_else(|| value.to_string());
-        for (bound, operator) in [(&rules.minimum, ">="), (&rules.maximum, "<=")] {
-            if let Some(bound) = bound {
-                ensure!(
-                    crate::policy::evaluate(&format!("{number} {operator} {bound}"), &Value::Null)?,
-                    "numeric value exceeds limits"
-                );
-            }
+    use std::cmp::Ordering;
+    if rules.minimum.is_none() && rules.maximum.is_none() {
+        return Ok(());
+    }
+    let number = match value {
+        Value::String(text) => text.as_str(),
+        Value::Number(number) => number.as_str(),
+        _ => bail!("numeric limits require a number"),
+    };
+    for (bound, excluded) in [
+        (&rules.minimum, Ordering::Less),
+        (&rules.maximum, Ordering::Greater),
+    ] {
+        if let Some(bound) = bound {
+            ensure!(
+                crate::policy::compare_numbers(number, bound)? != excluded,
+                "numeric value exceeds limits"
+            );
         }
     }
     Ok(())
@@ -465,36 +478,16 @@ fn canonical_digits(text: &str, signed: bool) -> bool {
             && digits.bytes().all(|byte| byte.is_ascii_digit())
 }
 
+/// Accepts only Go's `strconv.FormatFloat(value, 'g', -1, bits)` spelling,
+/// which the SDKs write through the same shared formatter.
 fn validate_float(value: &Value, narrow: bool) -> Result<()> {
-    let raw = value
-        .as_number()
-        .context("expected float number")?
-        .to_string();
-    let (number, fixed, scientific) = if narrow {
-        let number = raw.parse::<f32>()?;
-        (f64::from(number), number.to_string(), format!("{number:e}"))
+    let raw = value.as_number().context("expected float number")?.as_str();
+    let canonical = if narrow {
+        scenery_wire::canonical_float(raw.parse::<f32>()?, 9)
     } else {
-        let number = raw.parse::<f64>()?;
-        (number, number.to_string(), format!("{number:e}"))
+        scenery_wire::canonical_float(raw.parse::<f64>()?, 17)
     };
-    ensure!(
-        number.is_finite() && !(number == 0.0 && number.is_sign_negative()),
-        "invalid float"
-    );
-    let (mantissa, exponent) = scientific
-        .split_once('e')
-        .context("invalid float encoding")?;
-    let exponent = exponent.parse::<i32>()?;
-    let canonical = if !(-4..6).contains(&exponent) {
-        format!(
-            "{mantissa}e{}{exp:02}",
-            if exponent >= 0 { '+' } else { '-' },
-            exp = exponent.unsigned_abs()
-        )
-    } else {
-        fixed
-    };
-    ensure!(canonical == raw, "noncanonical float");
+    ensure!(canonical.as_deref() == Some(raw), "noncanonical float");
     Ok(())
 }
 
@@ -528,7 +521,7 @@ fn validate_string(ty: &str, text: &str) -> Result<String> {
             ensure!(
                 text.len() <= 1_000_001
                     && !text.contains(['e', 'E'])
-                    && exact_decimal(text)? == text,
+                    && exact_decimal(text, usize::MAX)? == text,
                 "invalid decimal"
             );
         }
@@ -667,5 +660,197 @@ mod tests {
         assert!(normalize(&types, "json", parse(b"1e1000001").unwrap()).is_err());
         assert!(normalize(&types, "duration", parse(br#""PT0.000000001S""#).unwrap()).is_ok());
         assert!(normalize(&types, "duration", parse(br#""PT60S""#).unwrap()).is_err());
+    }
+
+    fn record(fields: Vec<Field>, unknown_fields: &str) -> Shape {
+        Shape {
+            kind: "record".into(),
+            fields,
+            unknown_fields: unknown_fields.into(),
+            open: false,
+            values: vec![],
+            discriminator: String::new(),
+            variants: BTreeMap::new(),
+        }
+    }
+
+    fn field(name: &str, ty: &str, constraints: Constraints) -> Field {
+        Field {
+            name: name.into(),
+            ty: ty.into(),
+            default: None,
+            constraints,
+        }
+    }
+
+    #[test]
+    fn free_form_json_cannot_amplify_a_request() {
+        let types = Types::from([(
+            "Note".into(),
+            record(
+                vec![field("text", "string", Constraints::default())],
+                "preserve",
+            ),
+        )]);
+        // Each element used to get its own 32 MiB: 901 bytes became 100 MB.
+        let exponents = format!("[{}]", vec!["1e999999"; 100].join(","));
+        let started = std::time::Instant::now();
+        for (ty, body) in [
+            ("list(json)", exponents.clone()),
+            ("map(json)", r#"{"a":1e999999}"#.into()),
+            ("json", exponents.clone()),
+            ("Note", format!(r#"{{"text":"a","extra":{exponents}}}"#)),
+            ("list(Note)", r#"[{"text":"a","extra":1e999999}]"#.into()),
+        ] {
+            let value = parse(body.as_bytes()).unwrap();
+            assert!(normalize(&types, ty, value).is_err(), "{ty} accepted");
+        }
+        assert!(started.elapsed() < std::time::Duration::from_millis(250));
+        // Many small expansions share the budget of the whole request.
+        let small = format!("[{}]", vec!["1e999"; 2000].join(","));
+        let value = parse(small.as_bytes()).unwrap();
+        assert!(normalize(&types, "list(json)", value).is_err());
+        // Ordinary exponent forms still fit: growth stays within the bound.
+        let value = parse(br#"{"n":[1e3,2.5e-3,-1E+2],"s":"<text>"}"#).unwrap();
+        assert_eq!(
+            encode(&normalize(&types, "json", value).unwrap()),
+            r#"{"n":[1000,0.0025,-100],"s":"\u003ctext\u003e"}"#
+        );
+    }
+
+    #[test]
+    fn patterns_compile_once_and_limits_compare_exact_decimals() {
+        let types = Types::from([
+            (
+                "Request".into(),
+                record(
+                    vec![
+                        field("slugs", "list(Slug)", Constraints::default()),
+                        field(
+                            "amount",
+                            "optional(decimal)",
+                            Constraints {
+                                minimum: Some("010".into()),
+                                maximum: Some("1000.5".into()),
+                                ..Constraints::default()
+                            },
+                        ),
+                    ],
+                    "reject",
+                ),
+            ),
+            (
+                "Slug".into(),
+                record(
+                    vec![field(
+                        "id",
+                        "string",
+                        Constraints {
+                            pattern: r"^\w+(-\w+)*$".into(),
+                            ..Constraints::default()
+                        },
+                    )],
+                    "reject",
+                ),
+            ),
+        ]);
+        let slugs: Vec<_> = (0..20_000)
+            .map(|n| serde_json::json!({"id": format!("item-{n}")}))
+            .collect();
+        let started = std::time::Instant::now();
+        let value = serde_json::json!({"slugs": slugs});
+        assert!(normalize(&types, "Request", value).is_ok());
+        // Compiling this pattern per value took about 400 µs each.
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        let amount = |text: &str| {
+            normalize(
+                &types,
+                "Request",
+                serde_json::json!({"slugs": [], "amount": text}),
+            )
+            .is_ok()
+        };
+        assert!(amount("10") && amount("1000.5") && amount("999.99999999999999999"));
+        assert!(
+            !amount("9.99999999999999999") && !amount("1000.50000000000000001") && !amount("8")
+        );
+        let invalid = Types::from([(
+            "Broken".into(),
+            record(
+                vec![field(
+                    "id",
+                    "string",
+                    Constraints {
+                        pattern: "(".into(),
+                        ..Constraints::default()
+                    },
+                )],
+                "reject",
+            ),
+        )]);
+        assert!(normalize(&invalid, "Broken", serde_json::json!({"id": "("})).is_err());
+    }
+
+    #[test]
+    fn worker_wire_corpus_matches_the_shared_codecs() {
+        #[derive(Deserialize)]
+        struct Case {
+            name: String,
+            #[serde(rename = "type")]
+            ty: String,
+            wire: String,
+            #[serde(default)]
+            reject: bool,
+        }
+        let optional = |name: &str, ty: &str| field(name, ty, Constraints::default());
+        let types = Types::from([
+            (
+                "probe/record/patch".into(),
+                record(
+                    vec![optional("note", "optional(nullable(string))")],
+                    "reject",
+                ),
+            ),
+            (
+                "probe/record/note".into(),
+                record(
+                    vec![
+                        optional("note", "optional(nullable(string))"),
+                        optional("ratio", "optional(float64)"),
+                        optional("text", "string"),
+                    ],
+                    "preserve",
+                ),
+            ),
+            (
+                "probe/enum/status".into(),
+                Shape {
+                    kind: "enum".into(),
+                    values: vec!["in_review".into()],
+                    ..record(vec![], "")
+                },
+            ),
+        ]);
+        let cases: Vec<Case> = serde_json::from_str(include_str!(
+            "../../../../internal/contract/testdata/worker-wire-v1.json"
+        ))
+        .unwrap();
+        let mut checked = 0;
+        for case in cases {
+            // Outcome envelopes belong to the wire crate, not to a type.
+            if case.ty == "probe/outcome/quote" {
+                continue;
+            }
+            checked += 1;
+            let result = parse(case.wire.as_bytes())
+                .and_then(|value| normalize(&types, &case.ty, value))
+                .map(|value| encode(&value));
+            if case.reject {
+                assert!(result.is_err(), "accepted {}", case.name);
+            } else {
+                assert_eq!(result.unwrap(), case.wire, "{}", case.name);
+            }
+        }
+        assert!(checked >= 30);
     }
 }

@@ -1,0 +1,124 @@
+[
+  {
+    "name": "root rules select by name, directory and path",
+    "files": {
+      ".gitignore": "*.log\n/var/\nbuild/\n!keep.log\ndocs/**/drafts\n*.glb\n",
+      "main.go": "package main\n",
+      "debug.log": "x",
+      "keep.log": "x",
+      "var/db.dump": "x",
+      "pkg/var/data.txt": "x",
+      "build/out.bin": "x",
+      "src/build": "a file named like an ignored directory",
+      "docs/a/drafts/x.md": "x",
+      "docs/drafts/y.md": "x",
+      "docs/final/z.md": "x",
+      "model.glb": "x",
+      "nested/app.log": "x"
+    },
+    "inputs": [
+      ".gitignore",
+      "docs/final/z.md",
+      "keep.log",
+      "main.go",
+      "src/build"
+    ]
+  },
+  {
+    "name": "nested files add rules and negate outer ones",
+    "files": {
+      ".gitignore": "*.tmp\ngenerated/\n",
+      "web/.gitignore": "!important.tmp\nlocal/\n/cache\n",
+      "a.tmp": "x",
+      "web/important.tmp": "x",
+      "web/other.tmp": "x",
+      "web/local/x.ts": "x",
+      "web/cache": "x",
+      "web/src/cache/x.ts": "x",
+      "generated/code.go": "x",
+      "web/generated/code.ts": "x",
+      "web/src/app.ts": "x"
+    },
+    "inputs": [
+      ".gitignore",
+      "web/.gitignore",
+      "web/important.tmp",
+      "web/src/app.ts"
+    ]
+  },
+  {
+    "name": "entries of a re-included directory stay ignored unless named",
+    "files": {
+      ".gitignore": "data/\n!data/\n!keep.txt\n",
+      "data/x.bin": "x",
+      "data/keep.txt": "x",
+      "data/sub/y.bin": "x"
+    },
+    "inputs": [
+      ".gitignore",
+      "data/keep.txt"
+    ]
+  },
+  {
+    "name": "comments, escapes, classes and anchored paths",
+    "files": {
+      ".gitignore": "# comment\n\\#notes\n\\!bang\nlogs/[0-9]*.txt\nsrc/**/gen_?.go\n\n!\n/\n",
+      "#notes": "x",
+      "!bang": "x",
+      "logs/1a.txt": "x",
+      "logs/a1.txt": "x",
+      "deep/logs/1a.txt": "x",
+      "src/gen_a.go": "x",
+      "src/x/y/gen_b.go": "x",
+      "src/x/gen_ab.go": "x"
+    },
+    "inputs": [
+      ".gitignore",
+      "deep/logs/1a.txt",
+      "logs/a1.txt",
+      "src/x/gen_ab.go"
+    ]
+  },
+  {
+    "name": "built-in exclusions and generated roots apply without any rule",
+    "generated": [
+      "internal/gen"
+    ],
+    "files": {
+      "app.scn": "application \"a\" {}\n",
+      ".env": "x",
+      ".env.local": "x",
+      "node_modules/x/index.js": "x",
+      "dist/app.js": "x",
+      "out/x": "x",
+      "target/debug/x": "x",
+      "svc/scenerycontract/a.go": "x",
+      "internal/gen/z.go": "x",
+      "internal/keep/z.go": "x",
+      ".scenery/state.json": "x",
+      ".claude/x": "x",
+      "vendor/lib/.git/HEAD": "x",
+      "vendor/lib/code.go": "x",
+      ".github/workflows/ci.yml": "x",
+      ".DS_Store": "x"
+    },
+    "inputs": [
+      ".github/workflows/ci.yml",
+      "app.scn",
+      "internal/keep/z.go"
+    ]
+  },
+  {
+    "name": "an ignored rule file still declares rules",
+    "files": {
+      ".gitignore": ".*\n!.github\n*.bak\n",
+      "a.bak": "x",
+      "a.go": "x",
+      ".hidden": "x",
+      ".github/x.yml": "x"
+    },
+    "inputs": [
+      "a.go"
+    ]
+  }
+]

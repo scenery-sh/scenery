@@ -64,9 +64,8 @@ fn match_path<'a>(plan: &'a Route, path: &'a str) -> Option<(BTreeMap<&'a str, &
             if count < descriptor.minimum_segments {
                 return None;
             }
-            if count != 0 || descriptor.empty_capture != "omit" {
-                fields.insert(tail, remainder);
-            }
+            // The request codec decides what an empty tail constructs.
+            fields.insert(tail, remainder);
             rank.push(1);
             return Some((fields, rank));
         }
@@ -154,30 +153,44 @@ pub(crate) async fn ingress(
     if path == "/users/dev-bootstrap" {
         return attest(empty(StatusCode::NOT_FOUND), &generation, None);
     }
-    let auth_route = crate::browser_auth::route(host, &method, &path)
+    let cors_origin = request.headers().get("origin").cloned();
+    // A preflight asks about the method it announces, not about OPTIONS.
+    let requested = request
+        .headers()
+        .get("access-control-request-method")
+        .filter(|_| method == Method::OPTIONS)
+        .and_then(|value| Method::from_bytes(value.as_bytes()).ok());
+    let preflight = requested.is_some();
+    let asked = requested.as_ref().unwrap_or(&method);
+    let auth_route = crate::browser_auth::route(host, asked, &path)
         .map(|route| (route, ""))
         .or_else(|| {
-            crate::browser_auth::route(host, &method, mounted_path?).map(|route| (route, "/api"))
+            crate::browser_auth::route(host, asked, mounted_path?).map(|route| (route, "/api"))
         });
     if let Some((route, mount)) = auth_route {
-        return attest(
-            crate::browser_auth::serve(host, route, request, mount).await,
-            &generation,
+        let mut response = if preflight {
+            cors_preflight(
+                &host.origins,
+                None,
+                cors_origin.as_ref(),
+                asked.as_str(),
+                request.headers(),
+            )
+        } else {
+            crate::browser_auth::serve(host, route, request, mount).await
+        };
+        add_cors(
+            response.headers_mut(),
+            &host.origins,
             None,
+            cors_origin.as_ref(),
         );
+        return attest(response, &generation, None);
     }
-    let preflight = method == Method::OPTIONS
-        && request
-            .headers()
-            .contains_key("access-control-request-method");
     let select_route =
         |method: &str| route(host, &path, method).or_else(|| route(host, mounted_path?, method));
     let match_method = if preflight {
-        request
-            .headers()
-            .get("access-control-request-method")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
+        asked.as_str()
     } else if method == Method::HEAD && select_route("HEAD").is_none() {
         "GET"
     } else {
@@ -188,23 +201,37 @@ pub(crate) async fn ingress(
             .host
             .assistants
             .iter()
-            .find_map(|plan| plan.route(&method, path).map(|route| (plan, route)))
+            .find_map(|plan| plan.route(asked, path).map(|route| (plan, route)))
     };
     if let Some((plan, route, mount)) = assistant_route(&path)
         .map(|(plan, route)| (plan, route, ""))
         .or_else(|| assistant_route(mounted_path?).map(|(plan, route)| (plan, route, "/api")))
     {
+        if preflight {
+            let reply = cors_preflight(
+                &host.origins,
+                Some(&plan.policy),
+                cors_origin.as_ref(),
+                match_method,
+                request.headers(),
+            );
+            return attest(reply, &generation, None);
+        }
         if let Some(deadlines) = request
             .extensions()
             .get::<Arc<crate::http_timeout::DeadlineControl>>()
         {
             deadlines.apply_policy(&plan.policy);
         }
-        let origin = request.headers().get("origin").cloned();
         let mut response =
             crate::assistant::Gateway::serve(host, plan, route, request, mount, generation.clone())
                 .await;
-        add_cors(response.headers_mut(), &plan.policy, origin.as_ref());
+        add_cors(
+            response.headers_mut(),
+            &host.origins,
+            Some(&plan.policy),
+            cors_origin.as_ref(),
+        );
         return attest(response, &generation, None);
     }
     let Some(selected) = select_route(match_method) else {
@@ -218,11 +245,11 @@ pub(crate) async fn ingress(
     {
         deadlines.apply_policy(policy);
     }
-    let cors_origin = request.headers().get("origin").cloned();
     if preflight {
         return attest(
             cors_preflight(
-                policy,
+                &host.origins,
+                Some(policy),
                 cors_origin.as_ref(),
                 match_method,
                 request.headers(),
@@ -260,7 +287,12 @@ pub(crate) async fn ingress(
     if method == Method::HEAD {
         *response.body_mut() = body(Bytes::new());
     }
-    add_cors(response.headers_mut(), policy, cors_origin.as_ref());
+    add_cors(
+        response.headers_mut(),
+        &host.origins,
+        Some(policy),
+        cors_origin.as_ref(),
+    );
     header(response.headers_mut(), "x-trace-id", &call.trace_id);
     host.telemetry.span(
         &call,
@@ -447,31 +479,77 @@ pub(crate) fn timeout(policy: &Policy) -> Duration {
     }
 }
 
-fn allowed_origin(policy: &Policy, origin: Option<&HeaderValue>) -> bool {
-    policy.cors != "none"
-        && origin
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|origin| {
-                policy
-                    .allowed_origins
-                    .iter()
-                    .any(|value| value == origin || value == "*")
-            })
+/// Browser origins the application as a whole trusts. Development trusts
+/// every origin; a deployment lists them in `SCENERY_CORS_ALLOW_ORIGINS`.
+pub(crate) struct Origins {
+    listed: Vec<String>,
+    any: bool,
+}
+
+impl Origins {
+    pub(crate) fn new(list: &str, development: bool) -> Self {
+        Self {
+            listed: list
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            any: development,
+        }
+    }
+
+    fn allows(&self, origin: &str, wildcard: bool) -> bool {
+        self.any
+            || self
+                .listed
+                .iter()
+                .any(|item| wildcard && item == "*" || item.eq_ignore_ascii_case(origin))
+    }
+}
+
+/// Decides whether a response may be shared with `origin`. A route without
+/// a policy is one of the framework's own `/auth/*` routes: it follows the
+/// application list, and never its wildcard, because it sets credentials.
+fn allowed_origin(
+    origins: &Origins,
+    policy: Option<&Policy>,
+    origin: Option<&HeaderValue>,
+) -> bool {
+    let Some(origin) = origin
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|origin| !origin.is_empty())
+    else {
+        return false;
+    };
+    match policy.map(|policy| policy.cors.as_str()) {
+        None => origins.allows(origin, false),
+        Some("" | "none") => false,
+        Some("application") => origins.allows(origin, true),
+        Some(_) => policy.is_some_and(|policy| {
+            policy
+                .allowed_origins
+                .iter()
+                .any(|value| value == "*" || value.eq_ignore_ascii_case(origin))
+        }),
+    }
 }
 
 fn cors_preflight(
-    policy: &Policy,
+    origins: &Origins,
+    policy: Option<&Policy>,
     origin: Option<&HeaderValue>,
     method: &str,
     headers: &HeaderMap,
 ) -> Reply {
-    let status = if allowed_origin(policy, origin) {
+    let status = if allowed_origin(origins, policy, origin) {
         StatusCode::NO_CONTENT
     } else {
         StatusCode::FORBIDDEN
     };
     let mut reply = empty(status);
-    add_cors(reply.headers_mut(), policy, origin);
+    add_cors(reply.headers_mut(), origins, policy, origin);
     if status == StatusCode::NO_CONTENT {
         header(reply.headers_mut(), "access-control-allow-methods", method);
         if let Some(headers) = headers.get("access-control-request-headers") {
@@ -483,16 +561,36 @@ fn cors_preflight(
     reply
 }
 
-fn add_cors(headers: &mut HeaderMap, policy: &Policy, origin: Option<&HeaderValue>) {
+fn add_cors(
+    headers: &mut HeaderMap,
+    origins: &Origins,
+    policy: Option<&Policy>,
+    origin: Option<&HeaderValue>,
+) {
     headers.remove("access-control-allow-origin");
     headers.remove("access-control-allow-credentials");
-    if let Some(origin) = origin.filter(|value| allowed_origin(policy, Some(value))) {
+    let configured = match policy {
+        None => origins.any || !origins.listed.is_empty(),
+        Some(policy) => !matches!(policy.cors.as_str(), "" | "none"),
+    };
+    if !configured {
+        return;
+    }
+    // A shared cache must key every response of a CORS route by origin,
+    // including the ones that carry no grant.
+    if !headers
+        .get_all("vary")
+        .iter()
+        .any(|value| value.as_bytes().eq_ignore_ascii_case(b"origin"))
+    {
+        headers.append("vary", HeaderValue::from_static("Origin"));
+    }
+    if let Some(origin) = origin.filter(|value| allowed_origin(origins, policy, Some(value))) {
         headers.insert("access-control-allow-origin", origin.clone());
         headers.insert(
             "access-control-allow-credentials",
             HeaderValue::from_static("true"),
         );
-        headers.append("vary", HeaderValue::from_static("Origin"));
         header(headers, "access-control-expose-headers", "X-Trace-Id");
     }
 }
@@ -501,14 +599,19 @@ fn add_cors(headers: &mut HeaderMap, policy: &Policy, origin: Option<&HeaderValu
 mod tests {
     use super::*;
 
+    fn policy(cors: &str, allowed: &[&str]) -> Policy {
+        serde_json::from_value(json!({
+            "BindingAddress":"api", "AuthorizationStrategy":"public", "AuthorizationRules":[],
+            "TotalInvocationTimeoutNanos":0, "MaxRequestHeaderBytes":0, "CORS":cors,
+            "AllowedOrigins":allowed, "TransportStatuses":{},
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn cors_credentials_follow_the_allowed_origin_for_preflight_and_actual_responses() {
-        let policy: Policy = serde_json::from_value(json!({
-            "BindingAddress":"api", "AuthorizationStrategy":"public", "AuthorizationRules":[],
-            "TotalInvocationTimeoutNanos":0, "MaxRequestHeaderBytes":0, "CORS":"explicit",
-            "AllowedOrigins":["https://app.example"], "TransportStatuses":{},
-        }))
-        .unwrap();
+        let origins = Origins::new("", false);
+        let policy = policy("explicit", &["https://app.example"]);
         let mut request = HeaderMap::new();
         request.insert(
             "access-control-request-headers",
@@ -516,10 +619,12 @@ mod tests {
         );
         for (raw, allowed) in [
             ("https://app.example", true),
+            ("https://APP.example", true),
             ("https://elsewhere.example", false),
         ] {
             let origin = HeaderValue::from_static(raw);
-            let preflight = cors_preflight(&policy, Some(&origin), "POST", &request);
+            let preflight =
+                cors_preflight(&origins, Some(&policy), Some(&origin), "POST", &request);
             assert_eq!(
                 preflight.status(),
                 if allowed {
@@ -541,7 +646,7 @@ mod tests {
                 HeaderValue::from_static("false"),
             );
             actual.insert("access-control-allow-origin", HeaderValue::from_static("*"));
-            add_cors(&mut actual, &policy, Some(&origin));
+            add_cors(&mut actual, &origins, Some(&policy), Some(&origin));
             for headers in [preflight.headers(), &actual] {
                 assert_eq!(
                     headers.get("access-control-allow-origin"),
@@ -551,7 +656,64 @@ mod tests {
                     headers.get("access-control-allow-credentials"),
                     allowed.then_some(&HeaderValue::from_static("true"))
                 );
+                // Denied responses vary by origin too, so a shared cache
+                // never serves one to an allowed origin.
+                assert_eq!(headers.get("vary").unwrap(), "Origin");
             }
         }
+    }
+
+    #[test]
+    fn application_origins_cover_auth_routes_and_application_policies() {
+        let origin = HeaderValue::from_static("https://app.example");
+        let other = HeaderValue::from_static("https://other.example");
+        let listed = Origins::new(" https://app.example , ", false);
+        let wildcard = Origins::new("*", false);
+        let none = Origins::new("", false);
+        let development = Origins::new("", true);
+        let application = policy("application", &[]);
+        let disabled = policy("none", &["https://app.example"]);
+
+        // `/auth/*` has no policy: it follows the application list.
+        assert!(allowed_origin(&listed, None, Some(&origin)));
+        assert!(!allowed_origin(&listed, None, Some(&other)));
+        assert!(!allowed_origin(&none, None, Some(&origin)));
+        assert!(allowed_origin(&development, None, Some(&other)));
+        // Its responses carry credentials, so the wildcard never applies.
+        assert!(!allowed_origin(&wildcard, None, Some(&origin)));
+
+        assert!(allowed_origin(&listed, Some(&application), Some(&origin)));
+        assert!(!allowed_origin(&listed, Some(&application), Some(&other)));
+        assert!(allowed_origin(&wildcard, Some(&application), Some(&other)));
+        assert!(!allowed_origin(&listed, Some(&disabled), Some(&origin)));
+        assert!(!allowed_origin(&listed, Some(&application), None));
+
+        let preflight = cors_preflight(&listed, None, Some(&origin), "POST", &HeaderMap::new());
+        assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
+        assert_eq!(preflight.headers()["access-control-allow-origin"], origin);
+        assert_eq!(preflight.headers()["access-control-allow-methods"], "POST");
+        let denied = cors_preflight(&listed, None, Some(&other), "POST", &HeaderMap::new());
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+        // Without any application origin the auth routes stay CORS-free.
+        let mut headers = HeaderMap::new();
+        add_cors(&mut headers, &none, None, Some(&origin));
+        assert!(headers.is_empty());
+        add_cors(&mut headers, &none, Some(&disabled), Some(&origin));
+        assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn path_tails_capture_the_empty_and_the_nested_remainder() {
+        let route: Route = serde_json::from_value(json!({
+            "Path":"/files/*rest", "Method":"GET", "Access":"public",
+            "PathTail":{"MinimumSegments":0},
+            "Request":{"Mappings":[],"ContextMappings":[],"Body":null}, "Responses":{},
+        }))
+        .unwrap();
+        let capture = |path| match_path(&route, path).map(|(fields, _)| fields["rest"]);
+        assert_eq!(capture("/files/a/b"), Some("a/b"));
+        assert_eq!(capture("/files/"), Some(""));
+        assert_eq!(capture("/other/a"), None);
     }
 }

@@ -106,6 +106,7 @@ impl Worker {
                     finished: false,
                     _scope: guard,
                     cancellation: Box::pin(cancellation),
+                    retired: Box::pin(self.retired.clone().cancelled_owned()),
                     deadline,
                 };
                 (data, Some(stream))
@@ -158,6 +159,7 @@ pub(crate) struct Stream {
     finished: bool,
     _scope: ScopeGuard,
     cancellation: Pin<Box<WaitForCancellationFutureOwned>>,
+    retired: Pin<Box<WaitForCancellationFutureOwned>>,
     deadline: Pin<Box<tokio::time::Sleep>>,
 }
 
@@ -179,6 +181,7 @@ impl Body for Stream {
             return Poll::Ready(None);
         }
         if self.cancellation.as_mut().poll(cx).is_ready()
+            || self.retired.as_mut().poll(cx).is_ready()
             || self.deadline.as_mut().poll(cx).is_ready()
         {
             self.finished = true;

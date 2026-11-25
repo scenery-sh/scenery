@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use tokio_postgres::Client;
 
+use crate::database::Session;
 use crate::host::{Fault, Host, Scope};
 use crate::plan::Auth;
 use crate::values;
@@ -133,12 +134,12 @@ pub(crate) async fn token(
     host.ensure_auth_schema()
         .await
         .map_err(|_| configured("connection schema requires explicit migration"))?;
-    // Keep a dedicated database session throughout the refresh checkpoint. Its
-    // lock is released on cancellation, including when the request drops.
-    let (mut database, driver) = crate::durable::connect().await.map_err(|_| unavailable())?;
-    let _driver = AbortOnDrop(driver);
-    lock_owner_provider(&database, user, provider).await?;
-    issue(
+    // Keep one database session throughout the refresh checkpoint. A request
+    // that is dropped while it holds the lock closes the session, which
+    // releases the lock; otherwise the session returns to the pool unlocked.
+    let mut database = host.sessions.acquire().await.map_err(|_| unavailable())?;
+    lock_owner_provider(&mut database, user, provider).await?;
+    let result = issue(
         &mut database,
         provider,
         user,
@@ -146,7 +147,9 @@ pub(crate) async fn token(
         &host.configuration,
         &required,
     )
-    .await
+    .await;
+    let _ = database.release_session_state().await;
+    result
 }
 
 fn provider<'a>(host: &'a Host, id: &str) -> Result<&'a Provider, Fault> {
@@ -164,7 +167,7 @@ fn provider<'a>(host: &'a Host, id: &str) -> Result<&'a Provider, Fault> {
 }
 
 async fn lock_owner_provider(
-    database: &Client,
+    database: &mut Session,
     user: &str,
     provider: &Provider,
 ) -> Result<(), Fault> {
@@ -173,6 +176,8 @@ async fn lock_owner_provider(
         user.to_ascii_lowercase(),
         provider.id
     );
+    // The lock belongs to the session, not to a transaction.
+    database.hold_session_state();
     database
         .execute("SELECT pg_advisory_lock(hashtextextended($1, 0))", &[&lock])
         .await
@@ -343,14 +348,6 @@ fn missing_scope() -> Fault {
         "connection_scope_missing",
         "connection is missing required scopes",
     )
-}
-
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
 }
 
 enum RefreshFailure {

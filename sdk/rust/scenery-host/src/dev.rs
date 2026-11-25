@@ -15,7 +15,7 @@ use tokio::time::{Instant, sleep};
 use tokio_util::sync::CancellationToken;
 
 use crate::dev_build::{self, Plan};
-use crate::dev_inputs::{self, Inputs};
+use crate::dev_inputs::{self, Inputs, Scanner};
 use crate::host::{Reply, empty, json_reply, stamp};
 use crate::process::{Program, hex};
 use crate::supervisor::{Generation, LaunchPlan, Publisher};
@@ -44,11 +44,17 @@ pub(crate) struct Development {
 }
 
 pub(crate) struct Status {
-    root: PathBuf,
+    scanner: Arc<Scanner>,
     ignore: RwLock<Vec<PathBuf>>,
     update: watch::Sender<Snapshot>,
+    /// Counts the file events that may have changed an input, so a waiting
+    /// request scans again when something happened instead of on a timer.
+    events: watch::Sender<u64>,
     schema: String,
 }
+
+/// A changed input and whether it was added or removed, not edited.
+type Change = (PathBuf, bool);
 
 #[derive(Default)]
 struct Snapshot {
@@ -74,12 +80,20 @@ impl Status {
         let started = Instant::now();
         let deadline = started + Duration::from_millis(timeout);
         let mut updates = self.update.subscribe();
+        let mut events = self.events.subscribe();
         let mut target = String::new();
+        let mut scanned: Option<Instant> = None;
         loop {
-            let root = self.root.clone();
+            // A process that keeps writing files must not turn one waiting
+            // request into a scan loop.
+            if let Some(at) = scanned {
+                tokio::time::sleep_until(at + Duration::from_millis(50)).await;
+            }
+            events.borrow_and_update();
+            let scanner = self.scanner.clone();
             let ignore = self.ignore.read().expect("generated roots").clone();
-            let current =
-                tokio::task::spawn_blocking(move || dev_inputs::scan(&root, &ignore)).await?;
+            let current = tokio::task::spawn_blocking(move || scanner.scan(&ignore)).await?;
+            scanned = Some(Instant::now());
             let current = match current {
                 Ok(inputs) => dev_inputs::digest(&inputs),
                 Err(error)
@@ -155,9 +169,13 @@ impl Status {
                     return Ok(json_reply(hyper::StatusCode::OK, &result));
                 }
             }
+            // A scan only reads what changed, but it still walks the tree:
+            // repeat it when a file event or a publication says there is
+            // something to see, and otherwise rarely.
             tokio::select! {
                 _ = updates.changed() => {}
-                () = sleep(Duration::from_millis(100)) => {}
+                _ = events.changed() => {}
+                () = tokio::time::sleep_until(deadline.min(Instant::now() + Duration::from_secs(1))) => {}
             }
         }
     }
@@ -168,18 +186,25 @@ pub(crate) struct WatcherLoop {
     _watcher: RecommendedWatcher,
     events: mpsc::Receiver<()>,
     status: Arc<Status>,
+    scanner: Arc<Scanner>,
     active: Inputs,
-    materialized: Inputs,
+    /// What each build mirror last received. The Go workspace and the Rust
+    /// snapshot are synchronized at different times, so one shared record
+    /// would mark files as copied into a mirror that never got them.
+    go_materialized: Inputs,
+    rust_materialized: Inputs,
     programs: Vec<Program>,
 }
 
 impl WatcherLoop {
     pub(crate) fn start(config: Development) -> Result<Self> {
         let (update, _) = watch::channel(Snapshot::default());
+        let scanner = Arc::new(Scanner::new(config.root.clone()));
         let status = Arc::new(Status {
-            root: config.root.clone(),
+            scanner: scanner.clone(),
             ignore: RwLock::new(config.rebuild.generated.clone()),
             update,
+            events: watch::channel(0).0,
             schema: config.wait_schema.clone(),
         });
         let (send, events) = mpsc::channel(1);
@@ -192,17 +217,18 @@ impl WatcherLoop {
                 Ok(event) => {
                     let ignored = event_status.ignore.read().expect("generated roots");
                     event.paths.iter().any(|path| {
-                        path.strip_prefix(&event_status.root)
+                        path.strip_prefix(event_status.scanner.root())
                             .is_ok_and(|path| !dev_inputs::ignored(path, &ignored))
                     })
                 }
             };
             if relevant {
+                event_status.events.send_modify(|count| *count += 1);
                 let _ = send.try_send(());
             }
         })?;
         watcher.watch(&config.root, RecursiveMode::Recursive)?;
-        let active = dev_inputs::scan(&config.root, &config.rebuild.generated)?;
+        let active = scanner.scan(&config.rebuild.generated)?;
         ensure!(
             dev_inputs::digest(&active) == config.rebuild.source_digest,
             "application changed during startup; run it again to build the latest sources"
@@ -211,9 +237,11 @@ impl WatcherLoop {
             programs: config.rebuild.programs.clone(),
             config,
             status,
+            scanner,
             _watcher: watcher,
             active: active.clone(),
-            materialized: active,
+            go_materialized: active.clone(),
+            rust_materialized: active,
             events,
         })
     }
@@ -248,24 +276,28 @@ impl WatcherLoop {
                 _ = reconcile.tick() => Instant::now(),
                 Some(()) = self.events.recv() => {
                     let detected = Instant::now();
-                    while tokio::time::timeout(Duration::from_millis(20), self.events.recv()).await.is_ok() {}
+                    // Wait for a quiet moment, but not forever: a process
+                    // that keeps writing must not starve every rebuild.
+                    let settled = detected + Duration::from_millis(250);
+                    while Instant::now() < settled
+                        && tokio::time::timeout(Duration::from_millis(20), self.events.recv()).await.is_ok()
+                    {}
                     detected
                 }
             };
-            let root = self.config.root.clone();
+            let scanner = self.scanner.clone();
             let ignore = self.config.rebuild.generated.clone();
-            let inputs =
-                match tokio::task::spawn_blocking(move || dev_inputs::scan(&root, &ignore)).await {
-                    Ok(Ok(inputs)) => inputs,
-                    Ok(Err(error)) => {
-                        eprintln!("could not read application inputs: {error:#}");
-                        continue;
-                    }
-                    Err(error) => {
-                        eprintln!("input scan failed: {error}");
-                        continue;
-                    }
-                };
+            let inputs = match tokio::task::spawn_blocking(move || scanner.scan(&ignore)).await {
+                Ok(Ok(inputs)) => inputs,
+                Ok(Err(error)) => {
+                    eprintln!("could not read application inputs: {error:#}");
+                    continue;
+                }
+                Err(error) => {
+                    eprintln!("input scan failed: {error}");
+                    continue;
+                }
+            };
             if inputs == seen {
                 continue;
             }
@@ -275,9 +307,15 @@ impl WatcherLoop {
                 self.publish(digest, None);
                 continue;
             }
-            let paths = dev_inputs::changed(&self.active, &inputs);
+            let paths: Vec<Change> = dev_inputs::changed(&self.active, &inputs)
+                .into_iter()
+                .map(|path| {
+                    let appeared = self.active.contains_key(&path) != inputs.contains_key(&path);
+                    (path, appeared)
+                })
+                .collect();
             let rebuild_started = Instant::now();
-            let declarations = paths.iter().any(|path| {
+            let declarations = paths.iter().any(|(path, _)| {
                 dev_inputs::declaration(path)
                     || self
                         .config
@@ -402,7 +440,7 @@ impl WatcherLoop {
         publisher: &Publisher,
         revision: &str,
         inputs: &Inputs,
-        paths: &[PathBuf],
+        paths: &[Change],
         declarations: bool,
         module: &mut String,
         times: &mut [f64; 4],
@@ -433,22 +471,21 @@ impl WatcherLoop {
             if dev_inputs::digest(inputs) != plan.source_digest {
                 return Ok(None);
             }
-            self.materialized = inputs.clone();
+            // The CLI rebuilt both mirrors from these inputs.
+            self.go_materialized = inputs.clone();
+            self.rust_materialized = inputs.clone();
             times[3] = ms(begin.elapsed());
             Some(plan)
         } else {
             None
         };
         let selected = plan.as_ref().unwrap_or(&self.config.rebuild);
-        let changed = dev_inputs::changed(&self.materialized, inputs);
         let root = &self.config.root;
         let workspace = if let Some(workspace) = &selected.go_workspace {
             let lock = dev_build::lock_file(&workspace.join(".scenery-workspace.lock")).await?;
-            for path in &changed {
-                if selected.go_inputs.contains(path) || dev_build::go_source(path) {
-                    dev_inputs::sync(root, workspace, path, inputs.get(path))?;
-                }
-            }
+            materialize(root, workspace, &mut self.go_materialized, inputs, |path| {
+                selected.go_mirrored(path)
+            })?;
             Some(lock)
         } else {
             None
@@ -456,7 +493,9 @@ impl WatcherLoop {
         let cargo_lock = if let Some(workspace) = &selected.rust_workspace
             && selected.commands.iter().any(|build| {
                 build.cargo_lock().is_some()
-                    && paths.iter().any(|path| build.affected(selected, path))
+                    && paths
+                        .iter()
+                        .any(|(path, appeared)| build.affected(selected, path, *appeared))
             })
             && let Some(lock) = selected
                 .commands
@@ -468,22 +507,27 @@ impl WatcherLoop {
                 workspace.canonicalize()? == *workspace,
                 "invalid Cargo source workspace"
             );
-            for path in &changed {
-                if !dev_inputs::declaration(path)
-                    && selected.commands.iter().any(|command| {
-                        self.programs.iter().any(|program| {
-                            program.process == command.process && program.runtime == "rust"
-                        }) && command.affected(selected, path)
-                    })
-                {
-                    dev_inputs::sync(root, workspace, path, inputs.get(path))?;
-                }
-            }
+            // Every path the snapshot has not received yet, not only the
+            // ones of this edit: an earlier refresh may have skipped Cargo.
+            let programs = &self.programs;
+            materialize(
+                root,
+                workspace,
+                &mut self.rust_materialized,
+                inputs,
+                |path| {
+                    !dev_inputs::declaration(path)
+                        && selected.commands.iter().any(|command| {
+                            programs.iter().any(|program| {
+                                program.process == command.process && program.runtime == "rust"
+                            }) && command.affected(selected, path, false)
+                        })
+                },
+            )?;
             Some(lease)
         } else {
             None
         };
-        self.materialized = inputs.clone();
         let mut next = self.programs.clone();
         let mut rebuilt = BTreeSet::new();
         let mut go_dependencies = Vec::new();
@@ -502,7 +546,10 @@ impl WatcherLoop {
                 // subprocess environment is only used to prepare commands.
                 candidate.startup = helper.startup.clone();
             }
-            if paths.iter().any(|path| command.affected(selected, path)) {
+            if paths
+                .iter()
+                .any(|(path, appeared)| command.affected(selected, path, *appeared))
+            {
                 *module = command.module.clone();
                 let start = Instant::now();
                 let mut identity = Sha256::new();
@@ -537,14 +584,19 @@ impl WatcherLoop {
         drop(cargo_lock);
         times[0] = ms(begin.elapsed());
         let ready = Instant::now();
+        let scanner = self.scanner.clone();
+        let generated = selected.generated.clone();
         let generation = publisher
             .replace(
                 LaunchPlan {
                     contract_revision: revision.into(),
                     programs: next.clone(),
                 },
-                || {
-                    let current = dev_inputs::scan(root, &selected.generated)?;
+                // The check walks the tree: it runs on a blocking thread and
+                // reads only what changed since the scan that started this.
+                || async move {
+                    let current =
+                        tokio::task::spawn_blocking(move || scanner.scan(&generated)).await??;
                     Ok(current == *inputs)
                 },
             )
@@ -564,6 +616,25 @@ impl WatcherLoop {
         self.programs = next;
         Ok(Some((generation, rebuilt)))
     }
+}
+
+/// Copies into `mirror` the inputs it has not received since `held` and
+/// records that it holds them now. Each build mirror keeps its own record:
+/// a refresh that skips one mirror must not mark its files as copied.
+fn materialize(
+    root: &Path,
+    mirror: &Path,
+    held: &mut Inputs,
+    inputs: &Inputs,
+    mirrored: impl Fn(&Path) -> bool,
+) -> Result<()> {
+    for path in dev_inputs::changed(held, inputs) {
+        if mirrored(&path) {
+            dev_inputs::sync(root, mirror, &path, inputs.get(&path))?;
+        }
+    }
+    *held = inputs.clone();
+    Ok(())
 }
 
 fn diagnostic(config: &Development, module: String, stderr: &str) -> Value {
@@ -668,21 +739,110 @@ mod tests {
     use super::*;
     use http_body_util::BodyExt;
 
+    #[test]
+    fn each_mirror_receives_what_it_missed_since_its_own_last_sync() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let base = temp.path().canonicalize()?;
+        let (root, go, rust) = (base.join("app"), base.join("go"), base.join("rust"));
+        for directory in [&root, &go, &rust] {
+            fs::create_dir(directory)?;
+        }
+        let write = |name: &str, content: &str| fs::write(root.join(name), content);
+        let read = |mirror: &Path, name: &str| fs::read_to_string(mirror.join(name));
+        write("a.rs", "fn a() {}")?;
+        write("b.rs", "fn b() {}")?;
+        write("README.md", "first")?;
+        let scanner = Scanner::new(root.clone());
+        let rust_source = |path: &Path| dev_inputs::extension(path) == "rs";
+        let any = |_: &Path| true;
+        let (mut go_held, mut rust_held) = (Inputs::new(), Inputs::new());
+        let started = scanner.scan(&[])?;
+        materialize(&root, &go, &mut go_held, &started, any)?;
+        materialize(&root, &rust, &mut rust_held, &started, rust_source)?;
+
+        // A syntax error reaches the Rust snapshot and fails its build.
+        write("a.rs", "fn a( {}")?;
+        let broken = scanner.scan(&[])?;
+        materialize(&root, &go, &mut go_held, &broken, any)?;
+        materialize(&root, &rust, &mut rust_held, &broken, rust_source)?;
+        assert_eq!(read(&rust, "a.rs")?, "fn a( {}");
+
+        // The error is undone together with an edit that no Cargo build
+        // reads: this refresh skips the Rust snapshot.
+        write("a.rs", "fn a() {}")?;
+        write("README.md", "second")?;
+        let reverted = scanner.scan(&[])?;
+        materialize(&root, &go, &mut go_held, &reverted, any)?;
+        assert_eq!(read(&rust, "a.rs")?, "fn a( {}");
+
+        // The next Rust edit must bring the reverted file along. One shared
+        // record had marked it as copied, so Cargo kept compiling the error.
+        write("b.rs", "fn b() -> u8 { 1 }")?;
+        let edited = scanner.scan(&[])?;
+        materialize(&root, &go, &mut go_held, &edited, any)?;
+        materialize(&root, &rust, &mut rust_held, &edited, rust_source)?;
+        for name in ["a.rs", "b.rs"] {
+            assert_eq!(read(&rust, name)?, read(&root, name)?, "{name}");
+        }
+        assert!(!rust.join("README.md").exists());
+        for name in ["a.rs", "b.rs", "README.md"] {
+            assert_eq!(read(&go, name)?, read(&root, name)?, "{name}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wait_scans_again_only_when_a_file_event_or_publication_arrives() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        fs::write(root.path().join("worker.go"), "package worker")?;
+        let scanner = Arc::new(Scanner::new(root.path().into()));
+        let digest = dev_inputs::digest(&scanner.scan(&[])?);
+        let status = Arc::new(Status {
+            scanner: scanner.clone(),
+            ignore: RwLock::new(Vec::new()),
+            events: watch::channel(0).0,
+            schema: "fixture".into(),
+            update: watch::channel(Snapshot::default()).0,
+        });
+        let publication = watch::channel(None).1;
+        let waiting = tokio::spawn({
+            let status = status.clone();
+            async move {
+                let reply = status.reply(Some("timeout_ms=30000"), &publication).await?;
+                let body = reply.into_body().collect().await?.to_bytes();
+                Ok::<Value, anyhow::Error>(serde_json::from_slice(&body)?)
+            }
+        });
+        // The edit is announced like the file watcher announces it. The
+        // waiting request must notice it at once, not on its next timer.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        fs::write(root.path().join("worker.go"), "package edited")?;
+        let announced = Instant::now();
+        status.events.send_modify(|count| *count += 1);
+        let reply = waiting.await??;
+        assert!(announced.elapsed() < Duration::from_millis(500));
+        assert_eq!(reply["outcome"], "superseded");
+        assert_eq!(reply["target_source_snapshot_digest"], digest);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn wait_returns_only_the_failure_for_the_requested_source() -> Result<()> {
         let root = tempfile::tempdir()?;
         let file = root.path().join("worker.go");
         fs::write(&file, "bad source")?;
+        let scanner = Arc::new(Scanner::new(root.path().into()));
         let (update, _) = watch::channel(Snapshot {
             failure: Some((
-                dev_inputs::digest(&dev_inputs::scan(root.path(), &[])?),
+                dev_inputs::digest(&scanner.scan(&[])?),
                 json!({"module":"worker","file":"worker.go","line":1,"column":2,"stderr":"unexpected token"}),
             )),
             ..Snapshot::default()
         });
         let status = Status {
-            root: root.path().into(),
+            scanner,
             ignore: RwLock::new(Vec::new()),
+            events: watch::channel(0).0,
             schema: "fixture".into(),
             update,
         };
