@@ -191,6 +191,12 @@ impl Worker {
         self.group.exited()
     }
 
+    pub(crate) fn signal_shutdown(&self, force: bool) {
+        let _ = self
+            .group
+            .signal(if force { libc::SIGKILL } else { libc::SIGTERM });
+    }
+
     pub(crate) fn record_fault(&self) -> bool {
         !self.fault_recorded.swap(true, Ordering::Relaxed)
     }
@@ -367,6 +373,48 @@ fn write_launch(path: &Path, launch: &Launch) -> Result<()> {
         .open(path)?;
     serde_json::to_writer(file, launch)?;
     Ok(())
+}
+
+#[cfg(test)]
+impl Worker {
+    pub(crate) fn test_worker(directory: &Path) -> Result<Self> {
+        let identity = BuildIdentity {
+            contract_revision: "contract".into(),
+            implementation_revision: "implementation".into(),
+            build_input_digest: "inputs".into(),
+            go_target: "test".into(),
+        };
+        let launch = Launch {
+            worker_socket: directory.join("worker.sock"),
+            host_socket: directory.join("host.sock"),
+            token: "test-worker-token".into(),
+            identity: Identity {
+                abi: VERSION,
+                service: "app/service/tools".into(),
+                contract_revision: identity.contract_revision.clone(),
+                implementation_revision: identity.implementation_revision.clone(),
+            },
+        };
+        let binary = PathBuf::from("/bin/sleep");
+        Ok(Self {
+            program: Program {
+                service: launch.identity.service.clone(),
+                process: "worker-tools".into(),
+                binary: binary.clone(),
+                digest: String::new(),
+                runtime: "go".into(),
+                identity,
+                environment: vec![],
+                startup: None,
+                artifact: None,
+            },
+            group: ProcessGroup::spawn(Command::new(binary).arg("60"))?,
+            client: Client::new(launch.worker_socket.clone(), &launch.token),
+            config: directory.join("worker.json"),
+            launch,
+            fault_recorded: AtomicBool::new(false),
+        })
+    }
 }
 
 #[cfg(test)]

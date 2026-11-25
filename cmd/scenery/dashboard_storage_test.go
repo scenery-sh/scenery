@@ -51,7 +51,7 @@ func TestDashboardStorageTransferAuthority(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "http://localhost/__storage", nil)
 		if origin != "" {
 			req.Header.Set("Origin", origin)
-			req.Header.Set("X-Scenery-Storage-Request", "1")
+			req.Header.Set("X-App-Storage-Request", "1")
 		}
 		response := httptest.NewRecorder()
 		server.handleStorageTransfer(response, req)
@@ -61,7 +61,7 @@ func TestDashboardStorageTransferAuthority(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPut, "http://localhost/__storage?key=x&key=y", nil)
 	req.Header.Set("Origin", "http://localhost")
-	req.Header.Set("X-Scenery-Storage-Request", "1")
+	req.Header.Set("X-App-Storage-Request", "1")
 	response := httptest.NewRecorder()
 	server.handleStorageTransfer(response, req)
 	if response.Code != http.StatusBadRequest {

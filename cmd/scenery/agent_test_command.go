@@ -7,11 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"scenery.sh/internal/envpolicy"
-	"slices"
 	"strings"
 	"time"
 
+	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
 )
 
@@ -45,13 +44,9 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	for _, target := range targets {
-		if !slices.ContainsFunc(modules, func(module agentModule) bool { return module.Name == target }) {
-			return usageErrorf("unknown test module %q", target)
-		}
-	}
-	if len(targets) != 0 {
-		modules = slices.DeleteFunc(modules, func(module agentModule) bool { return !slices.Contains(targets, module.Name) })
+	modules, err = selectTestModules(modules, targets)
+	if err != nil {
+		return err
 	}
 	if len(modules) == 0 {
 		return fmt.Errorf("failed_precondition: no application modules to test")
@@ -109,6 +104,36 @@ func runAgentTests(ctx context.Context, out io.Writer, args []string) error {
 		return &silentCLIError{err: fmt.Errorf("module tests failed"), code: 3}
 	}
 	return nil
+}
+
+func selectTestModules(modules []agentModule, targets []string) ([]agentModule, error) {
+	if len(targets) == 0 {
+		return modules, nil
+	}
+	selected := make(map[int]bool, len(targets))
+	for _, target := range targets {
+		match := -1
+		for i, module := range modules {
+			if !matchesModuleSelector(module, target) {
+				continue
+			}
+			if match >= 0 {
+				return nil, usageErrorf("ambiguous test module %q", target)
+			}
+			match = i
+		}
+		if match < 0 {
+			return nil, usageErrorf("unknown test module %q", target)
+		}
+		selected[match] = true
+	}
+	result := make([]agentModule, 0, len(selected))
+	for i, module := range modules {
+		if selected[i] {
+			result = append(result, module)
+		}
+	}
+	return result, nil
 }
 
 func (g agentGraph) testCommand(module agentModule) (string, []string, error) {

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.worker-bundle.schema.json",
+  "title": "Scenery Worker Bundle Manifest",
+  "type": "object",
+  "required": ["version", "contract_revision", "host", "types", "programs"],
+  "properties": {
+    "version": { "const": 1 },
+    "contract_revision": { "$ref": "#/$defs/digest" },
+    "host": {
+      "type": "object",
+      "required": ["Name", "Workers"],
+      "properties": {
+        "Name": { "$ref": "#/$defs/text" },
+        "Workers": { "type": "array", "minItems": 1, "items": { "type": "object" } },
+        "MCPServers": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/mcp" }
+        },
+        "Assistants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assistant" }
+        }
+      }
+    },
+    "types": { "type": "object" },
+    "programs": { "type": "array", "minItems": 1, "items": { "type": "object" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "byteLimit": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+    "mcp": {
+      "type": "object",
+      "required": ["kind", "schema_revision", "protocol_version", "contract_revision", "capabilities"],
+      "properties": {
+        "kind": { "const": "scenery.mcp-capability-manifest" },
+        "schema_revision": { "$ref": "#/$defs/digest" },
+        "protocol_version": { "const": "2025-11-25" },
+        "contract_revision": { "$ref": "#/$defs/digest" },
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/capability" } }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "required": ["id", "name", "input_schema", "output_schema", "operation_address", "execution_address", "origin", "auth", "limits", "effect", "approval"],
+      "properties": {
+        "name": { "$ref": "#/$defs/text" },
+        "input_schema": { "type": "object" },
+        "output_schema": { "type": "object" },
+        "operation_address": { "$ref": "#/$defs/text" },
+        "execution_address": { "$ref": "#/$defs/text" },
+        "origin": {
+          "type": "object",
+          "required": ["kind", "address"],
+          "properties": {
+            "kind": { "const": "local" },
+            "address": { "$ref": "#/$defs/text" }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "required": ["max_input_bytes", "max_result_bytes"],
+          "properties": {
+            "max_input_bytes": { "$ref": "#/$defs/byteLimit" },
+            "max_result_bytes": { "$ref": "#/$defs/byteLimit" }
+          }
+        },
+        "approval": { "enum": ["always", "never"] }
+      }
+    },
+    "assistant": {
+      "type": "object",
+      "required": ["address", "path", "mcp_server", "authentication", "session_access", "runtime_revision", "capability_revision", "policy"],
+      "additionalProperties": false,
+      "properties": {
+        "address": { "$ref": "#/$defs/text" },
+        "path": { "type": "string", "pattern": "^/" },
+        "mcp_server": { "$ref": "#/$defs/text" },
+        "authentication": { "$ref": "#/$defs/text" },
+        "session_access": { "const": "initiator" },
+        "runtime_revision": { "$ref": "#/$defs/text" },
+        "capability_revision": { "$ref": "#/$defs/digest" },
+        "policy": { "type": "object" }
+      }
+    }
+  }
+}

@@ -72,7 +72,7 @@ func harnessCLIContractSmokes(repoRoot, fixture string) []harnessCLIContractSmok
 		{"inspect harness", "scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]", []string{"inspect", "harness", "--repo-root", repoRoot, "-o", "json"}},
 		{"ps", "scenery ps [-o json] [--app-root <path>] [--watch]", []string{"ps", "--app-root", fixture, "-o", "json"}},
 		{"context", "scenery context --for <module|service|route|file>", []string{"context", "--for", "service", "--app-root", fixture, "-o", "json"}},
-		{"test", "scenery test [<module>...]", []string{"test", "service", "--app-root", fixture, "-o", "json"}},
+		{"test", "scenery test [<module|directory>...]", []string{"test", "service", "--app-root", fixture, "-o", "json"}},
 		{"db query", "scenery db query --service <module>", []string{"help", "db", "query", "-o", "json"}},
 		{"durable run", "scenery durable run <target>", []string{"help", "durable", "run", "-o", "json"}},
 		{"add module", "scenery add module <name>", []string{"help", "add", "module", "-o", "json"}},

@@ -1,4 +1,9 @@
 mod abi;
+mod assistant;
+#[cfg(test)]
+mod assistant_test;
+mod assistant_token;
+
 mod auth;
 mod auth_google;
 mod auth_organizations;
@@ -10,10 +15,13 @@ mod dev_build;
 mod dev_inputs;
 mod durable;
 mod frontend;
+mod frontend_dev;
 mod gateway;
 mod host;
 mod http_codec;
 mod local_storage;
+mod mcp;
+
 mod otlp;
 mod plan;
 mod policy;
@@ -259,6 +267,26 @@ async fn run(mut input: Input) -> Result<()> {
     let mut publication = control.publication().await;
     let revision = input.bundle.contract_revision.clone();
     let publisher = control.publisher(publication.clone());
+    let (assistant_runtime, assistant_key) = if let Some((config, _)) = &input.dev {
+        (
+            config.assistant_runtime_path.clone(),
+            config.assistant_key_path.clone(),
+        )
+    } else {
+        (
+            std::env::var_os("SCENERY_ASSISTANT_RUNTIME_CONFIG")
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
+            std::env::var_os("SCENERY_ASSISTANT_TOKEN_KEY_FILE")
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
+        )
+    };
+    let assistants = assistant::Gateway::new(
+        assistant_runtime.as_deref(),
+        assistant_key.as_deref(),
+        &input.bundle.host.assistants,
+    )?;
     let mut resources = None;
     let mut startup = None;
     let mut victoria = otlp::Endpoints::new();
@@ -295,7 +323,7 @@ async fn run(mut input: Input) -> Result<()> {
         victoria,
         control.token().into(),
         watcher.as_ref().map(dev::WatcherLoop::status),
-        stop.clone(),
+        (stop.clone(), assistants),
         publication.clone(),
     )?);
     host.engine.prepare(&host).await?;
@@ -303,6 +331,7 @@ async fn run(mut input: Input) -> Result<()> {
     let capability_listener = UnixListener::bind(directory.join("capabilities.sock"))?;
     let mut servers = JoinSet::new();
     let private_stop = CancellationToken::new();
+    assistant::Gateway::listeners(&host, &private_stop, &mut servers).await?;
     servers.spawn_local(serve_private(
         control_listener,
         host.clone(),
@@ -379,6 +408,7 @@ async fn run(mut input: Input) -> Result<()> {
         rebuild.abort();
         let _ = rebuild.await;
     }
+    host.assistants.clear_runs();
     private_stop.cancel();
     if !supervisor.is_finished() {
         supervisor.await??;
@@ -394,6 +424,7 @@ struct DevResources {
     reports: Option<std::net::TcpListener>,
     endpoint: Option<PathBuf>,
     frontend: i32,
+    assistants: i32,
 }
 
 impl DevResources {
@@ -404,6 +435,7 @@ impl DevResources {
             reports: None,
             endpoint: None,
             frontend: config.frontend_pid,
+            assistants: config.assistant_pid,
         };
         for &fd in &config.lock_fds {
             resources._locks.push(inherit_fd(fd)?);
@@ -425,6 +457,19 @@ fn inherit_fd(fd: RawFd) -> Result<OwnedFd> {
 
 impl Drop for DevResources {
     fn drop(&mut self) {
+        if self.assistants > 0 {
+            // The supervisor terminates and reaps its helper process groups.
+            unsafe {
+                libc::kill(self.assistants, libc::SIGTERM);
+                loop {
+                    if libc::waitpid(self.assistants, std::ptr::null_mut(), 0) >= 0
+                        || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                    {
+                        break;
+                    }
+                }
+            }
+        }
         if self.frontend > 0 {
             // The inherited frontend remains our child. Keep the leader
             // unreaped until its group has been stopped.
@@ -574,10 +619,13 @@ impl PublicListener {
         }
     }
 
-    async fn accept(&self) -> Result<Box<dyn PublicStream>> {
+    async fn accept(&self) -> Result<(Box<dyn PublicStream>, Option<std::net::IpAddr>)> {
         match self {
-            Self::Tcp(listener) => Ok(Box::new(listener.accept().await?.0)),
-            Self::Unix { listener, .. } => Ok(Box::new(listener.accept().await?.0)),
+            Self::Tcp(listener) => {
+                let (stream, peer) = listener.accept().await?;
+                Ok((Box::new(stream), Some(peer.ip())))
+            }
+            Self::Unix { listener, .. } => Ok((Box::new(listener.accept().await?.0), None)),
         }
     }
 }
@@ -604,12 +652,15 @@ async fn serve_public(
         tokio::select! {
             () = stop.cancelled() => break,
             result = listener.accept() => {
-                let socket = result?;
+                let (socket, peer) = result?;
                 let host = host.clone();
                 let stop = stop.clone();
                 connections.spawn(async move {
-                    let service = service_fn(move |request| {
+                    let service = service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
                         let host = host.clone();
+                        if let Some(peer) = peer {
+                            request.extensions_mut().insert(peer);
+                        }
                         async move { Ok::<_, Infallible>(gateway::public(&host, request).await) }
                     });
                     let mut builder = hyper::server::conn::http1::Builder::new();

@@ -32,13 +32,13 @@ func TestStandardAuthConnectionProjectionFollowsRuntimeConfig(t *testing.T) {
 	}
 	projected := standardAuthProjectionResources(cfg, resources)
 	for _, address := range []string{
-		"scenery_auth/operation/connection_start",
-		"scenery_auth/operation/connection_status",
-		"scenery_auth/operation/connection_disconnect",
-		"scenery_auth/operation/connection_callback_google",
-		"scenery_auth/binding/connection_callback_google_public_api_http",
-		"scenery_auth/binding/connection_start_public_api_http",
-		"scenery_auth/record/connection_response",
+		"std_auth/operation/connection_start",
+		"std_auth/operation/connection_status",
+		"std_auth/operation/connection_disconnect",
+		"std_auth/operation/connection_callback_google",
+		"std_auth/binding/connection_callback_google_public_api_http",
+		"std_auth/binding/connection_start_public_api_http",
+		"std_auth/record/connection_response",
 	} {
 		if !hasProjectionResource(projected, address) {
 			t.Fatalf("projection missing %s: %#v", address, projected)

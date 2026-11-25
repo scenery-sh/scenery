@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Frame, Incoming};
-use hyper::{Method, Request, Response, StatusCode};
+use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -255,6 +255,10 @@ pub(crate) fn not_found() -> Reply {
 }
 
 async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result<Reply> {
+    let Some(uri) = crate::frontend_dev::upstream_uri(request.uri()) else {
+        return Ok(not_found());
+    };
+    crate::frontend_dev::prepare(&mut request, uri);
     let (mut sender, connection) =
         hyper::client::conn::http1::handshake(TokioIo::new(TcpStream::connect(upstream).await?))
             .await?;
@@ -266,7 +270,20 @@ async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result
     if upgrade.is_none() {
         strip_hop_headers(request.headers_mut());
     }
-    header(request.headers_mut(), "host", upstream);
+    let original_host = request.headers().get("host").cloned();
+    let peer = request.extensions().get::<std::net::IpAddr>().copied();
+    let headers = request.headers_mut();
+    headers.remove("forwarded");
+    headers.remove("x-forwarded-for");
+    headers.remove("x-forwarded-host");
+    headers.remove("x-forwarded-proto");
+    if let Some(original_host) = original_host {
+        headers.insert("x-forwarded-host", original_host);
+    }
+    if let Some(peer) = peer {
+        header(headers, "x-forwarded-for", &peer.to_string());
+    }
+    header(headers, "x-forwarded-proto", "http");
     let mut response = sender.send_request(request).await?;
     if response.status() == StatusCode::SWITCHING_PROTOCOLS {
         if let Some(client) = upgrade {
@@ -282,11 +299,7 @@ async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result
     } else {
         strip_hop_headers(response.headers_mut());
     }
-    let (parts, payload) = response.into_parts();
-    Ok(Response::from_parts(
-        parts,
-        payload.map_err(io::Error::other).boxed_unsync(),
-    ))
+    crate::frontend_dev::response(response).await
 }
 
 fn strip_hop_headers(headers: &mut hyper::HeaderMap) {

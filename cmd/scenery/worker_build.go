@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
+	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/rustbuild"
 	workerruntime "scenery.sh/runtime"
 )
@@ -41,6 +42,8 @@ type workerHostPlan struct {
 	Name          string
 	Observability workerruntime.ObservabilityConfig
 	Workers       []workerruntime.WorkerServicePlan
+	MCPServers    map[string]mcpcontract.Manifest `json:",omitempty"`
+	Assistants    []workerAssistantPlan           `json:",omitempty"`
 }
 
 type workerProgram struct {
@@ -160,6 +163,9 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
 		Host:  workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
 		Types: types,
+	}
+	if err := bundle.projectAssistants(result); err != nil {
+		return workerBundle{}, nil, nil, err
 	}
 	return bundle, selection, services, nil
 }

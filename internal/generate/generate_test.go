@@ -816,8 +816,8 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 			Origin:  Origin{Kind: "authored"},
 		},
 		{
-			Address: "scenery_auth/record/connection_start_input",
-			Module:  "scenery_auth",
+			Address: "std_auth/record/connection_start_input",
+			Module:  "std_auth",
 			Kind:    "scenery.record",
 			Name:    "connection_start_input",
 			Spec: map[string]any{"field": []any{
@@ -827,8 +827,8 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 			Origin: Origin{Kind: "framework"},
 		},
 		{
-			Address: "scenery_auth/record/connection_start_response",
-			Module:  "scenery_auth",
+			Address: "std_auth/record/connection_start_response",
+			Module:  "std_auth",
 			Kind:    "scenery.record",
 			Name:    "connection_start_response",
 			Spec: map[string]any{"field": map[string]any{
@@ -838,24 +838,24 @@ func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) 
 			Origin: Origin{Kind: "framework"},
 		},
 		{
-			Address: "scenery_auth/operation/connection_start",
-			Module:  "scenery_auth",
+			Address: "std_auth/operation/connection_start",
+			Module:  "std_auth",
 			Kind:    "scenery.operation",
 			Name:    "connection_start",
 			Spec: map[string]any{
-				"input":  map[string]any{"$ref": "scenery_auth/record/connection_start_input"},
-				"result": map[string]any{"name": "success", "type": map[string]any{"$ref": "scenery_auth/record/connection_start_response"}},
+				"input":  map[string]any{"$ref": "std_auth/record/connection_start_input"},
+				"result": map[string]any{"name": "success", "type": map[string]any{"$ref": "std_auth/record/connection_start_response"}},
 			},
 			Origin: Origin{Kind: "framework"},
 		},
 		{
-			Address: "scenery_auth/binding/connection_start_public_http",
-			Module:  "scenery_auth",
+			Address: "std_auth/binding/connection_start_public_http",
+			Module:  "std_auth",
 			Kind:    "scenery.binding",
 			Name:    "connection_start_public_http",
 			Spec: map[string]any{
 				"gateway":   map[string]any{"$ref": "app/http_gateway/public"},
-				"operation": map[string]any{"$ref": "scenery_auth/operation/connection_start"},
+				"operation": map[string]any{"$ref": "std_auth/operation/connection_start"},
 				"protocol":  "http",
 				"http": map[string]any{
 					"method":         "POST",

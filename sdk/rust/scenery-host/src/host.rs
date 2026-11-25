@@ -287,6 +287,7 @@ impl Drop for ScopeGuard {
 pub(crate) struct Host {
     pub bundle: Bundle,
     pub auth: Authentication,
+    pub assistants: crate::assistant::Gateway,
     pub development: bool,
     pub configuration: Value,
     pub telemetry: telemetry::Sink,
@@ -306,9 +307,10 @@ impl Host {
         victoria: crate::otlp::Endpoints,
         control_token: String,
         dev_status: Option<Arc<crate::dev::Status>>,
-        stop: CancellationToken,
+        lifetime: (CancellationToken, crate::assistant::Gateway),
         generation: watch::Receiver<Option<Arc<Generation>>>,
     ) -> Result<Self> {
+        let (stop, assistants) = lifetime;
         let development = dev_status.is_some();
         let scope = project_snapshot(&configuration, "host", &bundle.host_config_keys);
         let auth = Authentication::new(bundle.auth.as_ref(), &scope, development)?;
@@ -323,6 +325,7 @@ impl Host {
             configuration,
             development,
             auth,
+            assistants,
             generation,
             telemetry,
             engine: Engine::new(),

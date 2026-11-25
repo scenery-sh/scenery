@@ -214,6 +214,8 @@ func (p workerPlanProjection) binding(service workerruntime.WorkerServicePlan, b
 			return result, err
 		}
 		result.HTTP = &httpPlan
+	case "mcp":
+		result.MCP = true
 	case "internal":
 		internal, _ := binding.Spec["internal"].(map[string]any)
 		result.Visibility = cp.StringValue(internal["visibility"])

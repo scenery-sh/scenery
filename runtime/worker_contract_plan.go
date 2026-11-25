@@ -36,6 +36,7 @@ type WorkerBindingPlan struct {
 	Operation  string
 	Policy     ContractHTTPPolicy
 	HTTP       *WorkerHTTPPlan
+	MCP        bool `json:",omitempty"`
 	Visibility string
 	Delivery   string
 	Execution  string

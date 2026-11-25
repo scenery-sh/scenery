@@ -84,14 +84,14 @@ func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
 			{Address: "app/http_gateway/public_api", Kind: "scenery.http-gateway", Name: "public_api", Module: "app", Spec: map[string]any{"base_path": "/"}},
 		}},
 		FrameworkResources: []graph.Resource{
-			{Address: "scenery_auth/service/auth", Kind: "scenery.service", Name: "auth", Module: "scenery_auth", Spec: map[string]any{}, Origin: graph.Origin{Kind: "framework"}},
-			{Address: "scenery_auth/operation/connection_start", Kind: "scenery.operation", Name: "connection_start", Module: "scenery_auth", Spec: map[string]any{
-				"service": map[string]any{"$ref": "scenery_auth/service/auth"},
+			{Address: "std_auth/service/auth", Kind: "scenery.service", Name: "auth", Module: "std_auth", Spec: map[string]any{}, Origin: graph.Origin{Kind: "framework"}},
+			{Address: "std_auth/operation/connection_start", Kind: "scenery.operation", Name: "connection_start", Module: "std_auth", Spec: map[string]any{
+				"service": map[string]any{"$ref": "std_auth/service/auth"},
 				"handler": map[string]any{"method": "ConnectionStart"},
 			}, Origin: graph.Origin{Kind: "framework"}},
-			{Address: "scenery_auth/binding/connection_start_public_api_http", Kind: "scenery.binding", Name: "connection_start_public_api_http", Module: "scenery_auth", Spec: map[string]any{
+			{Address: "std_auth/binding/connection_start_public_api_http", Kind: "scenery.binding", Name: "connection_start_public_api_http", Module: "std_auth", Spec: map[string]any{
 				"protocol":       "http",
-				"operation":      map[string]any{"$ref": "scenery_auth/operation/connection_start"},
+				"operation":      map[string]any{"$ref": "std_auth/operation/connection_start"},
 				"gateway":        map[string]any{"$ref": "app/http_gateway/public_api"},
 				"authentication": map[string]any{"$ref": "app/authentication/standard"},
 				"http":           map[string]any{"method": "POST", "path": "/auth/google/connect/start", "body": map[string]any{}},
@@ -99,11 +99,11 @@ func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
 		},
 	}
 	result.FrameworkResources = append(result.FrameworkResources,
-		graph.Resource{Address: "scenery_auth/operation/connection_callback_files", Kind: "scenery.operation", Name: "connection_callback_files", Module: "scenery_auth", Origin: graph.Origin{Kind: "framework"}, Spec: map[string]any{
-			"service": map[string]any{"$ref": "scenery_auth/service/auth"}, "handler": map[string]any{"method": "ConnectionCallback_files"},
+		graph.Resource{Address: "std_auth/operation/connection_callback_files", Kind: "scenery.operation", Name: "connection_callback_files", Module: "std_auth", Origin: graph.Origin{Kind: "framework"}, Spec: map[string]any{
+			"service": map[string]any{"$ref": "std_auth/service/auth"}, "handler": map[string]any{"method": "ConnectionCallback_files"},
 		}},
-		graph.Resource{Address: "scenery_auth/binding/connection_callback_files_public_api_http", Kind: "scenery.binding", Name: "connection_callback_files_public_api_http", Module: "scenery_auth", Origin: graph.Origin{Kind: "framework"}, Spec: map[string]any{
-			"protocol": "http", "operation": map[string]any{"$ref": "scenery_auth/operation/connection_callback_files"}, "gateway": map[string]any{"$ref": "app/http_gateway/public_api"}, "authentication": map[string]any{"$ref": "std.authentication.none"},
+		graph.Resource{Address: "std_auth/binding/connection_callback_files_public_api_http", Kind: "scenery.binding", Name: "connection_callback_files_public_api_http", Module: "std_auth", Origin: graph.Origin{Kind: "framework"}, Spec: map[string]any{
+			"protocol": "http", "operation": map[string]any{"$ref": "std_auth/operation/connection_callback_files"}, "gateway": map[string]any{"$ref": "app/http_gateway/public_api"}, "authentication": map[string]any{"$ref": "std.authentication.none"},
 			"http": map[string]any{"method": "GET", "path": "/auth/connections/files/callback", "guarantee": "opaque"},
 		}},
 	)

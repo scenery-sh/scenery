@@ -30,12 +30,18 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "worker-refresh-plan" {
-		if err := refreshWorkerRebuildPlan(os.Args[2:]); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+	if len(os.Args) > 1 {
+		internal := map[string]func([]string) error{
+			"worker-refresh-plan": refreshWorkerRebuildPlan,
+			"worker-assistants":   runWorkerAssistants,
 		}
-		return
+		if command := internal[os.Args[1]]; command != nil {
+			if err := command(os.Args[2:]); err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 	}
 	os.Exit(executeCLI(os.Args[1:]))
 }

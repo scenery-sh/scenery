@@ -93,7 +93,7 @@ fn match_path<'a>(plan: &'a Route, path: &'a str) -> Option<(BTreeMap<&'a str, &
     Some((fields, rank))
 }
 
-pub(crate) async fn public(host: &Host, request: Request<Incoming>) -> Reply {
+pub(crate) async fn public(host: &Arc<Host>, request: Request<Incoming>) -> Reply {
     let Some(generation) = host.generation() else {
         return empty(StatusCode::SERVICE_UNAVAILABLE);
     };
@@ -101,7 +101,7 @@ pub(crate) async fn public(host: &Host, request: Request<Incoming>) -> Reply {
 }
 
 pub(crate) async fn ingress(
-    host: &Host,
+    host: &Arc<Host>,
     generation: Arc<Generation>,
     request: Request<Incoming>,
     private: bool,
@@ -191,6 +191,24 @@ pub(crate) async fn ingress(
     } else {
         method.as_str()
     };
+    let assistant_route = |path| {
+        host.bundle
+            .host
+            .assistants
+            .iter()
+            .find_map(|plan| plan.route(&method, path).map(|route| (plan, route)))
+    };
+    if let Some((plan, route, mount)) = assistant_route(&path)
+        .map(|(plan, route)| (plan, route, ""))
+        .or_else(|| assistant_route(mounted_path?).map(|(plan, route)| (plan, route, "/api")))
+    {
+        let origin = request.headers().get("origin").cloned();
+        let mut response =
+            crate::assistant::Gateway::serve(host, plan, route, request, mount, generation.clone())
+                .await;
+        add_cors(response.headers_mut(), &plan.policy, origin.as_ref());
+        return attest(response, &generation, None);
+    }
     let Some(selected) = select_route(match_method) else {
         let response = crate::frontend::serve(host.bundle.frontend.as_ref(), request).await;
         return attest(response, &generation, None);
@@ -321,7 +339,7 @@ pub(crate) async fn dev_binding(
 ) -> Reply {
     let Some((service, binding)) = host
         .binding(address)
-        .filter(|(_, binding)| binding.http.is_none())
+        .filter(|(_, binding)| binding.http.is_none() && !binding.mcp)
     else {
         return empty(StatusCode::NOT_FOUND);
     };
@@ -427,7 +445,7 @@ fn attest(mut response: Reply, generation: &Generation, worker: Option<(u32, Str
     response
 }
 
-fn timeout(policy: &Policy) -> Duration {
+pub(crate) fn timeout(policy: &Policy) -> Duration {
     if policy.total_invocation_timeout_nanos > 0 {
         Duration::from_nanos(policy.total_invocation_timeout_nanos)
     } else {

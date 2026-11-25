@@ -169,6 +169,10 @@ func printAgentContext(out io.Writer, data map[string]any, module agentModule) e
 	return err
 }
 
+func matchesModuleSelector(module agentModule, target string) bool {
+	return target == module.Name || target != "" && filepath.IsLocal(target) && filepath.Clean(target) == module.Directory
+}
+
 func (g agentGraph) contextModule(target string, modules []agentModule) (agentModule, error) {
 	file := target
 	if filepath.IsAbs(file) {
@@ -193,7 +197,7 @@ func (g agentGraph) contextModule(target string, modules []agentModule) (agentMo
 	}
 	var matches []agentModule
 	for _, module := range modules {
-		if module.Name == strings.TrimPrefix(target, "module.") || graph.ModuleResourceAddress(module.Name) == target || resourceModules[module.Name] {
+		if matchesModuleSelector(module, target) || target == "module."+module.Name || graph.ModuleResourceAddress(module.Name) == target || resourceModules[module.Name] {
 			matches = append(matches, module)
 		}
 	}

@@ -525,13 +525,35 @@ impl Control {
         let retired = std::mem::take(&mut state.retired);
         let pending = state.pending.take();
         drop(state);
+        let mut workers = BTreeMap::new();
         for generation in active
             .into_iter()
             .chain(retired.into_values().map(|r| r.generation))
             .chain(pending.into_iter().map(|p| p.generation))
         {
             generation.retired.cancel();
-            connections.spawn_blocking(move || drop(generation));
+            for worker in generation.workers.values() {
+                workers
+                    .entry(worker.pid())
+                    .or_insert_with(|| worker.clone());
+            }
+        }
+        // Give every owned group the same drain window, even if a request
+        // still holds its generation or several workers have slow shutdowns.
+        for worker in workers.values() {
+            worker.signal_shutdown(false);
+        }
+        let deadline = Instant::now() + DRAIN_TIMEOUT;
+        while Instant::now() < deadline
+            && workers
+                .values()
+                .any(|worker| matches!(worker.exited(), Ok(None)))
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        for worker in workers.into_values() {
+            worker.signal_shutdown(true);
+            connections.spawn_blocking(move || drop(worker));
         }
         while connections.join_next().await.is_some() {}
         result

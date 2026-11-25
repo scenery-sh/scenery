@@ -138,3 +138,23 @@ An expired deadline or canceled caller cancels the HTTP/2 stream and the
 worker invocation context. A handler may finish after cancellation. Its
 result is discarded, its scope is revoked, and its side effects are governed
 by the operation's existing idempotency contract.
+
+## Tools and assistant ingress
+
+The [worker bundle manifest](../schemas/scenery.worker-bundle.schema.json)
+projects MCP capabilities and assistant surfaces from the compiled graph. Each local capability names its worker binding, including its
+input and output schemas, execution address, size limits, and approval policy.
+MCP requests cross the same ABI as HTTP and internal bindings. The host chooses
+the worker generation and supplies the principal and tenant from the
+authenticated assistant run.
+
+An assistant exposes the declared conversation, turn, event, approval, and
+cancel routes. The host seals public conversation and approval handles, checks
+ownership, and translates private runtime events to public events. A capability
+requiring approval can consume one grant bound to the run, tool, and proposed
+arguments. Control endpoints and MCP assertions stay on loopback.
+
+Development uses the CLI's managed assistant supervisor. A production host can
+use a separate supervisor via the existing private assistant runtime descriptor
+and token key settings. The bundle manifest contains the declarations and expected
+revisions. Runtime credentials stay in the private descriptor file.

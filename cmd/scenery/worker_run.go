@@ -109,6 +109,15 @@ func runWorkerDevelopment(bundle workerBundle, listen string, dev *workerDevelop
 	if err != nil {
 		return err
 	}
+	var assistants workerAssistantProcess
+	if len(bundle.Host.Assistants) != 0 {
+		var closeAssistants func()
+		assistants, closeAssistants, err = startWorkerAssistants(ctx, cli, dev.watch.root, environment, directory)
+		if err != nil {
+			return err
+		}
+		defer closeAssistants()
+	}
 	rebuild, err := dev.project(bundle)
 	if err != nil {
 		return err
@@ -129,6 +138,7 @@ func runWorkerDevelopment(bundle workerBundle, listen string, dev *workerDevelop
 		}
 	}
 	config := struct {
+		workerAssistantProcess
 		Victoria       map[string]string   `json:"victoria,omitempty"`
 		Startup        *cliTelemetryRecord `json:"startup,omitempty"`
 		TelemetryPath  string              `json:"telemetry_path"`
@@ -144,7 +154,8 @@ func runWorkerDevelopment(bundle workerBundle, listen string, dev *workerDevelop
 		WaitSchema     string              `json:"wait_schema"`
 		Rebuild        workerRebuildPlan   `json:"rebuild"`
 	}{
-		TelemetryPath: telemetryPath, App: app, Startup: startup, Victoria: endpoints,
+		workerAssistantProcess: assistants,
+		TelemetryPath:          telemetryPath, App: app, Startup: startup, Victoria: endpoints,
 		Root: dev.watch.root, CLI: cli, CLIEnvironment: envpolicy.Environ(), Environment: environment,
 		FrontendPID: frontendPID, ReportFD: int(reportFile.Fd()), SessionID: session,
 		WaitSchema: newCLIPayloadIdentity(devRuntimeWaitKind).SchemaRevision, Rebuild: rebuild,

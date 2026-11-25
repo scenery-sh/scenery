@@ -28,6 +28,10 @@ pub(crate) struct HostPlan {
     pub workers: Vec<Service>,
     #[serde(default)]
     pub observability: Observability,
+    #[serde(rename = "MCPServers", default)]
+    pub mcp_servers: BTreeMap<String, crate::mcp::Manifest>,
+    #[serde(default)]
+    pub assistants: Vec<crate::assistant::Plan>,
 }
 
 #[derive(Default, Deserialize)]
@@ -136,6 +140,9 @@ pub(crate) struct Binding {
     pub execution: String,
     #[serde(rename = "HTTP")]
     pub http: Option<Route>,
+    #[serde(rename = "MCP", default)]
+    pub mcp: bool,
+
     pub policy: Policy,
 }
 
@@ -388,6 +395,13 @@ impl Bundle {
             self.host.workers.len() == self.programs.len(),
             "bundle does not cover every service"
         );
+        for manifest in self.host.mcp_servers.values() {
+            manifest.verify(&self.host.workers)?;
+        }
+        for assistant in &self.host.assistants {
+            assistant.verify(&self.host.mcp_servers)?;
+        }
+
         let mut names = std::collections::BTreeSet::new();
         for program in &self.programs {
             ensure!(

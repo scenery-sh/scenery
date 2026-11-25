@@ -23,12 +23,15 @@ func TestTypeScriptDevRuntimeClientIsOptInAndPinsTheStatusRevision(t *testing.T)
 	}
 	revision, _ := machine.PayloadSchemaRevision("scenery.dev-runtime.status")
 	source := string(file.Bytes)
+	if strings.Contains(strings.ToLower(source), "scenery") {
+		t.Fatal("development client exposes the framework name")
+	}
 	if strings.Contains(source, devRuntimeStatusRevisionPlaceholder) || !strings.Contains(source, `DEV_RUNTIME_STATUS_SCHEMA_REVISION = "`+revision+`"`) {
 		t.Fatalf("generated client does not pin the status schema revision %s", revision)
 	}
 	// A runtime without this status kind is an older Scenery: the remedy is a
 	// restart, not regenerating the client against that runtime.
-	for _, message := range []string{"does not serve ${DEV_RUNTIME_STATUS_KIND}; restart scenery up", "restart scenery up if the app's Scenery version changed"} {
+	for _, message := range []string{"does not serve ${DEV_RUNTIME_STATUS_KIND}; restart the app", "restart the app if its framework version changed"} {
 		if !strings.Contains(source, message) {
 			t.Errorf("generated client does not explain status mismatches with %q", message)
 		}

@@ -90,7 +90,7 @@ func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
 
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
-	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
+	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into std_auth.users(id) values ('dev-user');
 `)
 
 	plan, ok, err := buildSQLCGeneratorPlan(root, appcfg.Config{Name: "demo"})
@@ -208,7 +208,7 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp"}`)
-	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
+	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into std_auth.users(id) values ('dev-user');
 `)
 	writeTestAppFile(t, root, "reports/db/seed.sql", `insert into reports.events(id) values ('event-1');
 `)
@@ -333,9 +333,9 @@ func TestDBSeedApplyFailureReportsFailed(t *testing.T) {
 
 func TestDBSeedSafetyAllowsIdempotentInsertsAndUpserts(t *testing.T) {
 	root := writeSeedCommandFixture(t)
-	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
-insert into scenery_auth.users(id) values ('dev-user') on conflict (id) do update set id = excluded.id;
-delete from scenery_auth.temp_users where id = 'dev-user';
+	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into std_auth.users(id) values ('dev-user');
+insert into std_auth.users(id) values ('dev-user') on conflict (id) do update set id = excluded.id;
+delete from std_auth.temp_users where id = 'dev-user';
 `)
 	store := newFakeSeedStore()
 	hooks := seedStoreHooks(t, store)
@@ -359,11 +359,11 @@ func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
 		sql     string
 		message string
 	}{
-		{name: "drop", sql: "drop table scenery_auth.users;\n", message: "DROP"},
-		{name: "truncate", sql: "truncate table scenery_auth.users;\n", message: "TRUNCATE"},
-		{name: "delete without where", sql: "delete from scenery_auth.users;\n", message: "broad DELETE"},
-		{name: "delete where true", sql: "delete from scenery_auth.users where true;\n", message: "broad DELETE"},
-		{name: "delete one equals one", sql: "delete from scenery_auth.users where 1 = 1;\n", message: "broad DELETE"},
+		{name: "drop", sql: "drop table std_auth.users;\n", message: "DROP"},
+		{name: "truncate", sql: "truncate table std_auth.users;\n", message: "TRUNCATE"},
+		{name: "delete without where", sql: "delete from std_auth.users;\n", message: "broad DELETE"},
+		{name: "delete where true", sql: "delete from std_auth.users where true;\n", message: "broad DELETE"},
+		{name: "delete one equals one", sql: "delete from std_auth.users where 1 = 1;\n", message: "broad DELETE"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -396,10 +396,10 @@ func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
 
 func TestDBSeedSafetyIgnoresCommentsAndStrings(t *testing.T) {
 	root := writeSeedCommandFixture(t)
-	writeTestAppFile(t, root, "auth/db/seed.sql", `-- drop table scenery_auth.users;
-/* truncate table scenery_auth.users; */
-insert into scenery_auth.audit(message) values ('delete from scenery_auth.users;');
-insert into scenery_auth.audit(message) values ($$drop table scenery_auth.users;$$);
+	writeTestAppFile(t, root, "auth/db/seed.sql", `-- drop table std_auth.users;
+/* truncate table std_auth.users; */
+insert into std_auth.audit(message) values ('delete from std_auth.users;');
+insert into std_auth.audit(message) values ($$drop table std_auth.users;$$);
 `)
 	store := newFakeSeedStore()
 	hooks := seedStoreHooks(t, store)
@@ -592,7 +592,7 @@ sql:
       go:
         out: "auth/db/gen"
 `)
-	writeTestAppFile(t, root, "auth/db/schema.hcl", `schema "scenery_auth" {}`)
+	writeTestAppFile(t, root, "auth/db/schema.hcl", `schema "std_auth" {}`)
 	writeTestAppFile(t, root, "auth/db/gen/schema.sql", `create table scenery_auth_ping (
   id text primary key not null
 );
@@ -609,7 +609,7 @@ func writeSeedCommandFixture(t *testing.T) string {
 	writeSQLTestDeclarations(t, root, "main")
 	// External SQL supply is ambient process input, never a dotenv file.
 	t.Setenv("DATABASE_URL", "postgres://user:secret@localhost/seedapp")
-	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
+	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into std_auth.users(id) values ('dev-user');
 `)
 	return root
 }

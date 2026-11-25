@@ -94,3 +94,18 @@ pub(crate) fn response(status: StatusCode, bytes: impl Into<Bytes>) -> Response<
     *response.status_mut() = status;
     response
 }
+
+pub(crate) async fn read_response(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        anyhow::ensure!(
+            chunk.len() <= limit - bytes.len(),
+            "response limit exceeded"
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}

@@ -32,6 +32,10 @@ pub(crate) struct Development {
     pub cli_environment: Vec<String>,
     environment: String,
     pub frontend_pid: i32,
+    #[serde(default)]
+    pub assistant_pid: i32,
+    pub assistant_runtime_path: Option<PathBuf>,
+    pub assistant_key_path: Option<PathBuf>,
     pub report_fd: i32,
     pub lock_fds: Vec<i32>,
     pub session_id: String,
