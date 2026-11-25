@@ -59,13 +59,13 @@ type workerLaunchProgram struct {
 	Startup     json.RawMessage       `json:"startup,omitempty"`
 }
 
-func startWorkerSupervisor(executable, directory string) (<-chan error, func(), error) {
-	command := exec.Command(executable, "--supervisor", directory)
+func startNativeWorkerHost(executable, directory, planPath, listen string) (int, <-chan error, func(), error) {
+	command := exec.Command(executable, "--development", directory, planPath, listen)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Stdout, command.Stderr = os.Stderr, os.Stderr
 	command.Env = minimalAppProcessEnv(envpolicy.Environ())
 	if err := command.Start(); err != nil {
-		return nil, nil, err
+		return 0, nil, nil, err
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -76,7 +76,7 @@ func startWorkerSupervisor(executable, directory string) (<-chan error, func(), 
 		_ = command.Process.Signal(syscall.SIGTERM)
 		<-done
 	}
-	return done, stop, nil
+	return command.Process.Pid, done, stop, nil
 }
 
 func openWorkerSupervisor(ctx context.Context, directory string, done <-chan error) (*workerSupervisor, error) {

@@ -21,15 +21,26 @@ import (
 )
 
 type workerBundle struct {
-	Version          int                             `json:"version"`
-	ContractRevision string                          `json:"contract_revision"`
-	Host             workerruntime.ProcessHostConfig `json:"host"`
-	Types            contract.ManifestTypes          `json:"types"`
-	Programs         []workerProgram                 `json:"programs"`
-	Frontend         *workerFrontend                 `json:"frontend,omitempty"`
-	Auth             *auth.StandardConfig            `json:"auth,omitempty"`
-	HostConfigKeys   []string                        `json:"host_config_keys,omitempty"`
+	Version          int                    `json:"version"`
+	ContractRevision string                 `json:"contract_revision"`
+	Host             workerHostPlan         `json:"host"`
+	Types            contract.ManifestTypes `json:"types"`
+	Programs         []workerProgram        `json:"programs"`
+	Frontend         *workerFrontend        `json:"frontend,omitempty"`
+	Auth             *workerAuthPlan        `json:"auth,omitempty"`
+	HostConfigKeys   []string               `json:"host_config_keys,omitempty"`
 	config           *workerruntime.ConfigSnapshot
+}
+
+type workerAuthPlan struct {
+	auth.StandardConfig
+	BootstrapSQL string `json:"bootstrap_sql,omitempty"`
+}
+
+type workerHostPlan struct {
+	Name          string
+	Observability workerruntime.ObservabilityConfig
+	Workers       []workerruntime.WorkerServicePlan
 }
 
 type workerProgram struct {
@@ -151,7 +162,7 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	}
 	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
-		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan},
+		Host:  workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
 		Types: types,
 	}
 	return bundle, selection, services, nil
@@ -324,13 +335,6 @@ func writeWorkerBundle(ctx context.Context, bundle workerBundle, destination str
 			return err
 		}
 		bundle.Programs[i].Binary = relative
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	if err := copyWorkerExecutable(executable, filepath.Join(staging, "worker-gateway")); err != nil {
-		return err
 	}
 	host, err := rustbuild.Host(ctx)
 	if err != nil {

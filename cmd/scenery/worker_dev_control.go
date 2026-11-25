@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -11,11 +12,13 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/devdash"
@@ -32,15 +35,17 @@ type workerDevEndpoint struct {
 }
 
 type workerDevControl struct {
-	mu        sync.RWMutex
-	watch     workerInputWatch
-	serving   *runtimeServingIdentity
-	attempt   *devBuildAttempt
-	timing    *workerRebuildTiming
-	reports   []devreport.ReportEnvelope
-	next      int
-	sessionID string
-	appID     string
+	mu           sync.RWMutex
+	watch        workerInputWatch
+	serving      *runtimeServingIdentity
+	attempt      *devBuildAttempt
+	timing       *workerRebuildTiming
+	sessionID    string
+	appID        string
+	hostPID      atomic.Int64
+	reportClient *http.Client
+	controlToken string
+	exporter     *dashboardServer
 }
 
 func workerDevEndpointPath(root string) string {
@@ -48,7 +53,7 @@ func workerDevEndpointPath(root string) string {
 }
 
 func startWorkerDevControl(dev *workerDevelopment, directory, hostControl, token string) (*workerDevControl, func(), error) {
-	socket := filepath.Join(directory, "dev.sock")
+	socket := filepath.Join(directory, "watcher.sock")
 	local, err := net.Listen("unix", socket)
 	if err != nil {
 		return nil, nil, err
@@ -64,11 +69,18 @@ func startWorkerDevControl(dev *workerDevelopment, directory, hostControl, token
 	}
 	privateMux := http.NewServeMux()
 	privateMux.HandleFunc("GET /status", control.status)
-	privateMux.HandleFunc("GET /trace", control.trace)
 	rpc := &http.Server{Handler: privateMux, ReadHeaderTimeout: 2 * time.Second}
+	control.reportClient, control.controlToken = workerControlClient(hostControl), token
+	if stack := resolveLogsVictoriaStack(context.Background(), dev.watch.root); stack != nil {
+		control.exporter = &dashboardServer{traces: newDashboardTraceEventBuffer()}
+		control.exporter.telemetry = newTelemetryExporter(func(batch []telemetryExportJob) int {
+			return exportTelemetryBatch(stack, nil, batch)
+		})
+	}
+	reportToken := workerRandomToken()
 	receiver := &http.Server{ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost || req.URL.Path != "/report" ||
-			subtle.ConstantTimeCompare([]byte(req.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
+			subtle.ConstantTimeCompare([]byte(req.Header.Get("Authorization")), []byte("Bearer "+reportToken)) != 1 {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -79,10 +91,14 @@ func startWorkerDevControl(dev *workerDevelopment, directory, hostControl, token
 		_ = receiver.Close()
 		_ = local.Close()
 		_ = reports.Close()
+		control.reportClient.CloseIdleConnections()
+		if control.exporter != nil {
+			control.exporter.telemetry.close()
+		}
 	}
 	for key, value := range map[string]string{
 		"SCENERY_DEV_REPORT_URL":   "http://" + reports.Addr().String() + "/report",
-		"SCENERY_DEV_REPORT_TOKEN": token, "SCENERY_APP_ID": control.appID, "SCENERY_SESSION_ID": control.sessionID,
+		"SCENERY_DEV_REPORT_TOKEN": reportToken, "SCENERY_APP_ID": control.appID, "SCENERY_SESSION_ID": control.sessionID,
 	} {
 		if err := envpolicy.Set(key, value); err != nil {
 			closeServers()
@@ -101,7 +117,7 @@ func startWorkerDevControl(dev *workerDevelopment, directory, hostControl, token
 		return nil, nil, err
 	}
 	defer func() { _ = os.Remove(file.Name()) }()
-	err = json.NewEncoder(file).Encode(workerDevEndpoint{dev.watch.root, socket, hostControl, token, control.sessionID})
+	err = json.NewEncoder(file).Encode(workerDevEndpoint{dev.watch.root, hostControl, hostControl, token, control.sessionID})
 	if closeErr := file.Close(); err == nil {
 		err = closeErr
 	}
@@ -174,7 +190,7 @@ func (control *workerDevControl) publish(inputs workerInputs, bundle workerBundl
 	control.mu.Lock()
 	defer control.mu.Unlock()
 	control.serving = &runtimeServingIdentity{
-		Generation: generation, PID: strconv.Itoa(os.Getpid()), ContractRevision: bundle.ContractRevision,
+		Generation: generation, PID: strconv.FormatInt(control.hostPID.Load(), 10), ContractRevision: bundle.ContractRevision,
 		ImplementationRevision: workerBundleDigest(bundle), BuildInputDigest: workerBundleDigest(bundle),
 		SourceSnapshotDigest: workerSourceDigest(inputs), PublishedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -247,12 +263,20 @@ func writeWorkerDevJSON(w http.ResponseWriter, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func workerDevGet(ctx context.Context, socket, path string, result any) error {
-	client := localCallClient("unix", socket)
+func readWorkerSourceStatus(ctx context.Context, endpoint workerDevEndpoint, timeout time.Duration, result *runtimeSourceWait) error {
+	client := workerControlClient(endpoint.Control)
 	defer client.CloseIdleConnections()
+	path := fmt.Sprintf("/__scenery/process/v1/source?timeout_ms=%d", timeout.Milliseconds())
+	return workerReadJSON(ctx, client, endpoint.Token, path, result)
+}
+
+func workerReadJSON(ctx context.Context, client *http.Client, token, path string, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://host"+path, nil)
 	if err != nil {
 		return err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	response, err := client.Do(req)
 	if err != nil {
@@ -275,8 +299,26 @@ func emptyCallTelemetry() callTelemetry {
 	return callTelemetry{Logs: []devreport.LogEvent{}, Spans: []devdash.TraceSpanDetail{}}
 }
 
-// Keep recent trace-scoped development records even when the optional
-// Victoria substrate has not been started for this foreground runtime.
+type workerLogEntry struct {
+	devreport.LogEvent
+	EventID int64 `json:"event_id"`
+}
+
+type workerTelemetrySnapshot struct {
+	Logs  []workerLogEntry          `json:"logs"`
+	Spans []devdash.TraceSpanDetail `json:"spans"`
+}
+
+func readWorkerTelemetry(ctx context.Context, client *http.Client, endpoint workerDevEndpoint, traceID string) (workerTelemetrySnapshot, error) {
+	var snapshot workerTelemetrySnapshot
+	path := "/__scenery/process/v1/telemetry"
+	if traceID != "" {
+		path += "?id=" + url.QueryEscape(traceID)
+	}
+	err := workerReadJSON(ctx, client, endpoint.Token, path, &snapshot)
+	return snapshot, err
+}
+
 func (control *workerDevControl) report(w http.ResponseWriter, req *http.Request) {
 	var batch devreport.ReportBatch
 	decoder := json.NewDecoder(http.MaxBytesReader(w, req.Body, devreport.MaxBatchBytes))
@@ -284,8 +326,7 @@ func (control *workerDevControl) report(w http.ResponseWriter, req *http.Request
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	control.mu.Lock()
-	defer control.mu.Unlock()
+	var workers devreport.ReportBatch
 	for _, report := range batch.Reports {
 		if report.AppID != control.appID || report.SessionID != control.sessionID {
 			continue
@@ -294,37 +335,39 @@ func (control *workerDevControl) report(w http.ResponseWriter, req *http.Request
 			recordRuntimeFailureReport(report)
 			continue
 		}
-		if len(control.reports) < 512 {
-			control.reports = append(control.reports, report)
-		} else {
-			control.reports[control.next] = report
-			control.next = (control.next + 1) % len(control.reports)
+		if control.exporter != nil {
+			control.exporter.acceptReport(report)
+		}
+		if int64(report.ReporterPID) != control.hostPID.Load() {
+			workers.Reports = append(workers.Reports, report)
+		}
+	}
+	if len(workers.Reports) != 0 {
+		if err := control.forwardWorkerReports(req.Context(), workers); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (control *workerDevControl) trace(w http.ResponseWriter, req *http.Request) {
-	id := req.URL.Query().Get("id")
-	result := emptyCallTelemetry()
-	events := map[string][]devdash.TraceDetailEvent{}
-	control.mu.RLock()
-	for index := range control.reports {
-		report := control.reports[(control.next+index)%len(control.reports)]
-		switch {
-		case report.TraceSummary != nil && report.TraceSummary.TraceID == id:
-			result.Spans = append(result.Spans, devdash.TraceSpanDetail{TraceSummary: *report.TraceSummary})
-		case report.TraceEvent != nil && report.TraceEvent.TraceID == id:
-			event := report.TraceEvent
-			events[event.SpanID] = append(events[event.SpanID], devdash.TraceDetailEvent{Time: event.EventTime, Data: event.Event})
-		case report.LogEvent != nil && report.LogEvent.TraceID == id:
-			result.Logs = append(result.Logs, *report.LogEvent)
-		}
+func (control *workerDevControl) forwardWorkerReports(ctx context.Context, batch devreport.ReportBatch) error {
+	raw, err := json.Marshal(batch)
+	if err != nil {
+		return err
 	}
-	control.mu.RUnlock()
-	for i := range result.Spans {
-		span := &result.Spans[i]
-		span.Events = append([]devdash.TraceDetailEvent{}, events[span.SpanID]...)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://host/__scenery/process/v1/worker-reports", bytes.NewReader(raw))
+	if err != nil {
+		return err
 	}
-	writeWorkerDevJSON(w, result)
+	req.Header.Set("Authorization", "Bearer "+control.controlToken)
+	response, err := control.reportClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("worker report intake: %s", response.Status)
+	}
+	return nil
 }

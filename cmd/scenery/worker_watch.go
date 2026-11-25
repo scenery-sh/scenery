@@ -24,7 +24,7 @@ type workerWatcher struct {
 	lastFault  uint64
 }
 
-func (watch *workerWatcher) run(ctx context.Context, hostDone, supervisorDone <-chan error) error {
+func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) error {
 	events, watchErrors := watch.dev.watch.fs.Events, watch.dev.watch.fs.Errors
 	reconciliation := time.NewTicker(5 * time.Second)
 	defer reconciliation.Stop()
@@ -47,10 +47,8 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone, supervisorDone <-
 		select {
 		case err := <-hostDone:
 			return err
-		case err := <-supervisorDone:
-			return fmt.Errorf("worker supervisor stopped: %w", err)
 		case <-ctx.Done():
-			return <-hostDone
+			return nil
 		case event, ok := <-events:
 			if !ok {
 				events = nil

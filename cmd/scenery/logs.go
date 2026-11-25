@@ -68,6 +68,21 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 	if err != nil {
 		return err
 	}
+	worker, found, err := readWorkerDevEndpoint(appRoot)
+	if err != nil {
+		return err
+	}
+	if found && workerSessionMatches(worker, opts.Session) {
+		client := workerControlClient(worker.Control)
+		defer client.CloseIdleConnections()
+		return followDevEvents(ctx, stdout, appID, appRoot, worker.SessionID, opts, func(ctx context.Context, query devdash.DevEventQuery) ([]devdash.DevEvent, error) {
+			snapshot, err := readWorkerTelemetry(ctx, client, worker, "")
+			if err != nil {
+				return nil, err
+			}
+			return workerDevEvents(snapshot.Logs, query), nil
+		})
+	}
 	sessionID, err := resolveLogsSessionID(ctx, opts.Session, appRoot)
 	if err != nil {
 		return err
@@ -94,12 +109,7 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 	if err != nil {
 		return err
 	}
-	devQuery := logsDevEventQuery(opts, appID, sessionID)
-	devItems, err := victoria.ListDevEvents(ctx, devQuery)
-	if err != nil {
-		return err
-	}
-	return followVictoriaDevEvents(ctx, stdout, victoria, appID, appRoot, sessionID, opts, devItems)
+	return followDevEvents(ctx, stdout, appID, appRoot, sessionID, opts, victoria.ListDevEvents)
 }
 
 // discoverRuntimeAppIdentity prefers the retained worktree record because it
@@ -263,6 +273,11 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	if value != "" && value != "current" {
 		return value, nil
 	}
+	if endpoint, found, err := readWorkerDevEndpoint(appRoot); err != nil {
+		return "", err
+	} else if found {
+		return endpoint.SessionID, nil
+	}
 	client, err := commandWorktreeClient(ctx, appRoot)
 	if err != nil {
 		client, err = commandRetainedWorktreeClient(ctx, appRoot)
@@ -290,7 +305,11 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	return sessions[0].SessionID, nil
 }
 
-func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *victoria.Stack, appID, appRoot, sessionID string, opts logsOptions, items []devdash.DevEvent) error {
+func followDevEvents(ctx context.Context, stdout io.Writer, appID, appRoot, sessionID string, opts logsOptions, list func(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error)) error {
+	items, err := list(ctx, logsDevEventQuery(opts, appID, sessionID))
+	if err != nil {
+		return err
+	}
 	lastID := int64(0)
 	eventCount := 0
 	var events *cliEventWriter
@@ -324,7 +343,7 @@ func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *vi
 		case <-ticker.C:
 			query := logsDevEventQuery(opts, appID, sessionID)
 			query.AfterID = lastID
-			items, err := victoria.ListDevEvents(ctx, query)
+			items, err := list(ctx, query)
 			if err != nil {
 				return err
 			}

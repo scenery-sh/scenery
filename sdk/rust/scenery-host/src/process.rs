@@ -47,21 +47,11 @@ pub(crate) struct Program {
     pub(crate) startup: Option<Box<RawValue>>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct Instance {
-    network: &'static str,
-    address: PathBuf,
-    protocol: &'static str,
-    pid: u32,
-    identity: BuildIdentity,
-    worker_service: String,
-    worker_token: String,
-}
-
 pub(crate) struct Worker {
     pub(crate) program: Program,
     group: ProcessGroup,
-    launch: Launch,
+    pub(crate) launch: Launch,
+    pub(crate) client: Client,
     config: PathBuf,
     fault_recorded: AtomicBool,
 }
@@ -138,25 +128,29 @@ impl Worker {
                 return Err(error).with_context(|| format!("launch worker {}", program.service));
             }
         };
+        let client = Client::new(launch.worker_socket.clone(), &launch.token);
         let worker = Self {
             program,
             group,
             launch,
+            client,
             config,
             fault_recorded: AtomicBool::new(false),
         };
-        worker.wait_ready().await?;
+        if let Err(error) = worker.wait_ready().await {
+            tokio::task::spawn_blocking(move || drop(worker));
+            return Err(error);
+        }
         Ok(worker)
     }
 
     async fn wait_ready(&self) -> Result<()> {
-        let client = Client::new(self.launch.worker_socket.clone(), &self.launch.token);
         timeout(STARTUP_TIMEOUT, async {
             loop {
                 if let Some(status) = self.exited()? {
                     anyhow::bail!("exited before readiness: {status}");
                 }
-                match client.request(Method::GET, READY_PATH, vec![]).await {
+                match self.client.request(Method::GET, READY_PATH, vec![]).await {
                     Ok(reply) if reply.status() == StatusCode::OK => {
                         for (name, expected) in [
                             (CONTRACT_HEADER, &self.launch.identity.contract_revision),
@@ -203,23 +197,14 @@ impl Worker {
         self.group.child.id()
     }
 
-    pub(crate) fn instance(&self) -> Instance {
-        Instance {
-            network: "unix",
-            protocol: "h2c",
-            address: self.launch.worker_socket.clone(),
-            pid: self.pid(),
-            identity: self.program.identity.clone(),
-            worker_service: self.program.service.clone(),
-            worker_token: self.launch.token.clone(),
-        }
-    }
-
     pub(crate) fn still_matches(&self, program: &Program) -> bool {
         self.program.digest == program.digest
             && self.program.identity == program.identity
             && self.program.service == program.service
             && self.program.runtime == program.runtime
+            && self.program.environment == program.environment
+            && self.program.startup.as_ref().map(|config| config.get())
+                == program.startup.as_ref().map(|config| config.get())
             && matches!(self.exited(), Ok(None))
     }
 }
@@ -301,10 +286,6 @@ impl ProcessGroup {
         // exits. Remove them before releasing the group's numeric identity.
         let _ = self.signal(libc::SIGKILL);
         let _ = self.child.wait();
-    }
-
-    pub(crate) async fn shutdown(self) {
-        let _ = tokio::task::spawn_blocking(move || drop(self)).await;
     }
 }
 

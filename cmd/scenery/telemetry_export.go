@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/devreport"
 )
 
 // Report intake hands accepted telemetry to the observability backend through
@@ -26,6 +27,7 @@ const (
 // with its buffered events.
 type telemetryExportJob struct {
 	log     *devdash.LogEvent
+	metric  *devreport.MetricEvent
 	summary *devdash.TraceSummary
 	events  []*devdash.TraceEvent
 }
@@ -127,6 +129,10 @@ func (e *telemetryExporter) close() {
 // requests, which protobuf reads as one request holding all their resources.
 // A log event goes to the logExporter hook instead when one is set.
 func (s *dashboardServer) exportTelemetryBatch(batch []telemetryExportJob) int {
+	return exportTelemetryBatch(s.dashboardVictoria(), s.logExporter, batch)
+}
+
+func exportTelemetryBatch(victoria dashboardVictoria, logExporter func(*devdash.LogEvent), batch []telemetryExportJob) int {
 	payloads := map[string][]byte{}
 	reports := map[string]int{}
 	add := func(signal string, payload []byte) {
@@ -135,10 +141,12 @@ func (s *dashboardServer) exportTelemetryBatch(batch []telemetryExportJob) int {
 	}
 	for _, job := range batch {
 		switch {
-		case job.log != nil && s.logExporter != nil:
-			s.logExporter(job.log)
+		case job.log != nil && logExporter != nil:
+			logExporter(job.log)
 		case job.log != nil:
 			add("logs", buildOTLPLogProto(job.log))
+		case job.metric != nil:
+			add("metrics", buildOTLPGaugeProto(job.metric))
 		case job.summary != nil:
 			add("traces", buildOTLPTraceProto(job.summary, job.events))
 			add("metrics", buildOTLPMetricProto(job.summary))
@@ -147,7 +155,6 @@ func (s *dashboardServer) exportTelemetryBatch(batch []telemetryExportJob) int {
 	if len(payloads) == 0 {
 		return 0
 	}
-	victoria := s.dashboardVictoria()
 	if victoria == nil {
 		// Observability is off: nothing was due to be exported.
 		return 0

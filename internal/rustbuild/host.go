@@ -19,7 +19,7 @@ import (
 
 const hostToolchain = "1.99.1"
 
-// Host builds the framework-owned supervisor only on cache miss.
+// Host builds the framework-owned worker Host only on cache miss.
 func Host(ctx context.Context) (string, error) {
 	cache, err := devcache.Root()
 	if err != nil {
@@ -68,7 +68,7 @@ func Host(ctx context.Context) (string, error) {
 		"--manifest-path", filepath.Join(sources, "scenery-host", "Cargo.toml"), "--target-dir", target)
 	command.Dir = filepath.Join(sources, "scenery-host")
 	if output, err := command.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build worker supervisor: %w\n%s", err, output)
+		return "", fmt.Errorf("build worker Host: %w\n%s", err, output)
 	}
 	binary, err := os.Open(filepath.Join(target, "release", "scenery-host"))
 	if err != nil {

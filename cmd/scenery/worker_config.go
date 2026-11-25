@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"slices"
-	"strings"
 
 	"scenery.sh/auth"
 	"scenery.sh/internal/app"
@@ -28,13 +26,19 @@ func (bundle *workerBundle) projectConfig(result *compiler.Result) error {
 		Tracing: workerruntime.EndpointFilterConfig(cfg.Observability.Tracing),
 	}
 	if cfg.Auth.Enabled {
-		bundle.Auth = &auth.StandardConfig{
+		bundle.Auth = &workerAuthPlan{StandardConfig: auth.StandardConfig{
 			Enabled: true, AutoBootstrapDatabase: cfg.Auth.AutoBootstrapDatabase,
 			GoogleOAuth: auth.GoogleOAuthConfig{Enabled: cfg.Auth.GoogleOAuth.Enabled}, Connections: cfg.Auth.Connections,
 			DevBootstrap: auth.DevBootstrapConfig{
 				Enabled: cfg.Auth.DevBootstrap.Enabled, DefaultUserEmail: cfg.Auth.DevBootstrap.DefaultUserEmail,
 				DefaultTenantID: cfg.Auth.DevBootstrap.DefaultTenantID,
 			},
+		}}
+		if cfg.Auth.AutoBootstrapDatabase {
+			bundle.Auth.BootstrapSQL, err = auth.StandardSchemaSQL()
+			if err != nil {
+				return err
+			}
 		}
 	}
 	for _, input := range catalog.Inputs {
@@ -81,39 +85,9 @@ func (bundle *workerBundle) resolveDevelopmentConfig(ctx context.Context, compil
 	return err
 }
 
-func (bundle *workerBundle) configureRuntime(development bool) error {
-	if development {
-		if err := workerruntime.InstallWorkerHostConfig(projectWorkerConfig(bundle.config, hostConsumer, bundle.HostConfigKeys)); err != nil {
-			return err
-		}
-	} else {
-		var err error
-		bundle.config, err = workerruntime.LoadConfigSnapshot()
-		if err != nil {
-			return err
-		}
-	}
-	bundle.setWorkerConfig()
-	if bundle.Auth == nil {
-		return nil
-	}
-	configuration := *bundle.Auth
-	if !development {
-		configuration.DevBootstrap = auth.DevBootstrapConfig{}
-		if bundle.config == nil || strings.TrimSpace(string(bundle.config.Secrets["auth.jwt_secret"])) == "" {
-			return fmt.Errorf("authentication requires auth.jwt_secret in the production configuration snapshot")
-		}
-	}
-	return auth.RegisterStandard(configuration)
-}
-
 func (bundle *workerBundle) setWorkerConfig() {
-	bundle.Host.WorkerConfig = make(map[string]*workerruntime.ConfigSnapshot)
 	for index, program := range bundle.Programs {
 		snapshot := projectWorkerConfig(bundle.config, program.Service, program.ConfigKeys)
-		if snapshot != nil {
-			bundle.Host.WorkerConfig[program.Service] = snapshot
-		}
 		bundle.Programs[index].config = snapshot
 	}
 }

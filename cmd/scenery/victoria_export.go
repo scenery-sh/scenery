@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/devreport"
 )
 
 var victoriaExportClient = &http.Client{Timeout: telemetryExportTimeout}
@@ -128,6 +129,39 @@ func buildOTLPMetricProto(summary *devdash.TraceSummary) []byte {
 	resourceMetrics := protoMessage(1, protoResource(summary.AppID))
 	resourceMetrics = append(resourceMetrics, protoMessage(2, scopeMetrics)...)
 	return protoMessage(1, resourceMetrics)
+}
+
+func buildOTLPGaugeProto(sample *devreport.MetricEvent) []byte {
+	point := protoFixed64(3, uint64(sample.Timestamp.UTC().UnixNano()))
+	point = append(point, protoDouble(4, sample.Value)...)
+	for _, attr := range []otlpAttribute{
+		{Key: "scenery_app", Value: sample.AppID},
+		{Key: "scenery_session_id", Value: sample.SessionID},
+		{Key: "trace_id", Value: sample.TraceID},
+		{Key: "span_id", Value: sample.SpanID},
+		{Key: "parent_span_id", Value: sample.ParentSpanID},
+		{Key: "invocation_id", Value: sample.InvocationID},
+		{Key: "execution_id", Value: sample.ExecutionID},
+		{Key: "generation", Value: strconv.FormatUint(sample.Generation, 10)},
+		{Key: "module", Value: sample.Module},
+		{Key: "runtime", Value: sample.Runtime},
+		{Key: "service", Value: sample.Service},
+		{Key: "operation", Value: sample.Operation},
+		{Key: "duration_ms", Value: sample.DurationMS},
+		{Key: "error_code", Value: sample.ErrorCode},
+	} {
+		if attr.Value != "" {
+			point = append(point, protoMessage(7, protoKeyValue(attr.Key, attr.Value))...)
+		}
+	}
+	metric := protoString(1, sample.Name)
+	if sample.Unit != "" {
+		metric = append(metric, protoString(3, sample.Unit)...)
+	}
+	metric = append(metric, protoMessage(5, protoMessage(1, point))...)
+	scope := append(protoMessage(1, protoInstrumentationScope()), protoMessage(2, metric)...)
+	resource := append(protoMessage(1, protoResource(sample.AppID)), protoMessage(2, scope)...)
+	return protoMessage(1, resource)
 }
 
 func traceEventAttributePairs(event *devdash.TraceEvent) []otlpAttribute {

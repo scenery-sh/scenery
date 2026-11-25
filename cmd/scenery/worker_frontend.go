@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"net"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +22,7 @@ type workerFrontend struct {
 	Name     string   `json:"name"`
 	Root     string   `json:"root"`
 	Reserved []string `json:"reserved"`
+	Upstream string   `json:"upstream,omitempty"`
 }
 
 // requireWorkerFrontends rejects a frontend that the environment serves and
@@ -98,7 +96,7 @@ func buildWorkerFrontend(ctx context.Context, result *compiler.Result, frontend 
 	return &frontend, nil
 }
 
-func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, result *compiler.Result, env string) (http.Handler, func(), error) {
+func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, result *compiler.Result, env string) (*workerFrontend, func(), error) {
 	clean := func() {}
 	frontend, err := selectWorkerFrontend(root, cfg, result)
 	if err != nil || frontend == nil {
@@ -113,11 +111,7 @@ func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, r
 		if err != nil {
 			return nil, clean, err
 		}
-		static, err := staticfrontend.Open(built.Root, built.Reserved)
-		if err != nil {
-			return nil, clean, err
-		}
-		return static, func() { _ = static.Close() }, nil
+		return built, clean, nil
 	}
 	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "", false); err != nil {
 		return nil, clean, err
@@ -125,7 +119,7 @@ func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, r
 	return startWorkerVite(ctx, *frontend)
 }
 
-func startWorkerVite(ctx context.Context, frontend workerFrontend) (http.Handler, func(), error) {
+func startWorkerVite(ctx context.Context, frontend workerFrontend) (*workerFrontend, func(), error) {
 	clean := func() {}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -156,17 +150,6 @@ func startWorkerVite(ctx context.Context, frontend workerFrontend) (http.Handler
 		clean()
 		return nil, func() {}, err
 	}
-	upstream := &url.URL{Scheme: "http", Host: address}
-	proxy := &httputil.ReverseProxy{Rewrite: func(request *httputil.ProxyRequest) {
-		request.SetURL(upstream)
-		request.Out.Host = address
-		request.Out.URL.RawQuery = request.In.URL.RawQuery
-	}}
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if staticfrontend.Reserved(req.URL.Path, frontend.Reserved) {
-			staticfrontend.NotFound(w)
-			return
-		}
-		proxy.ServeHTTP(w, req)
-	}), clean, nil
+	frontend.Upstream = address
+	return &frontend, clean, nil
 }

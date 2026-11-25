@@ -162,3 +162,7 @@ func workerConnectionToken(ctx context.Context, provider string, scopes []string
 	}
 	return response.Token, nil
 }
+
+func workerUnavailable(delivery string, cause error) error {
+	return &errs.Error{Code: errs.Unavailable, Message: "service is unavailable", Meta: errs.Metadata{"delivery": delivery}, Cause: cause}
+}

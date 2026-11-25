@@ -96,10 +96,15 @@ deadline.
 | `storage/read`, `storage/write`, `storage/delete`, `storage/list` | Use `store` for the declared dependency name and `key` for object operations. GET reads and lists, HEAD reads object metadata, PUT writes, and DELETE removes one object. Reads and writes stream bytes. Preconditions are carried by `If-Match` or `If-None-Match`. |
 | `connections/token` | POST `{"provider":"<configured provider>","scopes":["..."]}`. The Host resolves the owner from invocation scope. |
 | `config/snapshot` | GET the revision-bound service configuration visible to this worker. |
-| `telemetry` | POST a batch of up to 64 span and log records. The Host supplies the correlation identities from the invocation. |
+| `telemetry` | POST a batch of up to 64 span, log, and metric records. The Host supplies the correlation identities from the invocation. |
 
 `events/emit` is reserved. The current `.scn` graph has no event declaration
 for the Host to authorize.
+
+A metric record names a gauge and may include a finite numeric
+`attributes.value` and an `attributes.unit`. With no value the Host
+reports `elapsed_ns` in seconds. The Host attaches the invocation's
+trace, service, runtime, generation, and operation to the sample.
 
 Telemetry batches are sent explicitly. Await the acknowledgement before
 returning the outcome or closing the stream so that the invocation scope

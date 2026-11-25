@@ -8,6 +8,7 @@ use hyper::client::conn::http2::{SendRequest, handshake};
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use scenery_wire::Delivery;
 use tokio::net::UnixStream;
 use tokio::sync::Mutex;
 
@@ -34,24 +35,49 @@ impl Client {
         path: &str,
         data: Vec<u8>,
     ) -> Result<Response<Incoming>> {
+        self.exchange(method, path, data)
+            .await
+            .map_err(|(_, error)| error)
+    }
+
+    pub(crate) async fn exchange(
+        &self,
+        method: Method,
+        path: &str,
+        data: Vec<u8>,
+    ) -> std::result::Result<Response<Incoming>, (Delivery, anyhow::Error)> {
         let request = Request::builder()
             .method(method)
-            .uri(format!("http://host{path}"))
+            .uri(format!("http://worker{path}"))
             .header(AUTHORIZATION, &self.authorization)
             .header(CONTENT_TYPE, "application/json")
-            .body(Full::new(data.into()))?;
+            .body(Full::new(data.into()))
+            .map_err(|error| (Delivery::NotSent, error.into()))?;
         let mut pool = self.sender.lock().await;
         if pool.as_ref().is_none_or(SendRequest::is_closed) {
-            let stream = UnixStream::connect(&self.socket).await?;
-            let (sender, connection) =
-                handshake(TokioExecutor::new(), TokioIo::new(stream)).await?;
+            let stream = UnixStream::connect(&self.socket)
+                .await
+                .map_err(|error| (Delivery::NotSent, error.into()))?;
+            let (sender, connection) = handshake(TokioExecutor::new(), TokioIo::new(stream))
+                .await
+                .map_err(|error| (Delivery::NotSent, error.into()))?;
             tokio::spawn(connection);
             *pool = Some(sender);
         }
         let mut sender = pool.as_ref().expect("connection initialized").clone();
         drop(pool);
-        sender.ready().await?;
-        Ok(sender.send_request(request).await?)
+        sender
+            .ready()
+            .await
+            .map_err(|error| (Delivery::NotSent, error.into()))?;
+        sender.try_send_request(request).await.map_err(|mut error| {
+            let delivery = if error.take_message().is_some() {
+                Delivery::NotSent
+            } else {
+                Delivery::Unknown
+            };
+            (delivery, anyhow::anyhow!("{}", error.error()))
+        })
     }
 }
 

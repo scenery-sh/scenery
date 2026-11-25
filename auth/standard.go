@@ -21,6 +21,12 @@ import (
 //go:embed db/gen/schema.sql
 var standardAuthSchema embed.FS
 
+// StandardSchemaSQL returns the standard-auth schema for deployment hosts.
+func StandardSchemaSQL() (string, error) {
+	data, err := standardAuthSchema.ReadFile("db/gen/schema.sql")
+	return string(data), err
+}
+
 type StandardConfig struct {
 	Enabled               bool
 	GoogleOAuth           GoogleOAuthConfig
@@ -371,7 +377,7 @@ func standardPathNames(path string) []string {
 }
 
 func bootstrapStandardAuthSchema(ctx context.Context, pool *sql.DB) error {
-	data, err := standardAuthSchema.ReadFile("db/gen/schema.sql")
+	data, err := StandardSchemaSQL()
 	if err != nil {
 		return fmt.Errorf("read standard auth schema: %w", err)
 	}
@@ -387,7 +393,7 @@ func bootstrapStandardAuthSchema(ctx context.Context, pool *sql.DB) error {
 		_ = tx.Rollback()
 		return err
 	}
-	for _, statement := range splitSQLStatements(string(data)) {
+	for _, statement := range splitSQLStatements(data) {
 		if strings.TrimSpace(statement) == "" || strings.HasPrefix(strings.TrimSpace(statement), "--") {
 			continue
 		}

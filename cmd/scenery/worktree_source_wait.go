@@ -106,7 +106,7 @@ func waitForWorktreeSource(ctx context.Context, appRoot string, timeout time.Dur
 		return result, err
 	}
 	if found {
-		err = workerDevGet(ctx, endpoint.Socket, fmt.Sprintf("/status?timeout_ms=%d", timeout.Milliseconds()), &result)
+		err = readWorkerSourceStatus(ctx, endpoint, timeout, &result)
 	} else {
 		err = worktreeRuntimeCall(ctx, root, "wait", map[string]any{"timeout_ms": timeout.Milliseconds()}, &result)
 	}

@@ -116,7 +116,7 @@ func (h *processHost) serveWorkerDevBinding(w http.ResponseWriter, req *http.Req
 		if kind, name, _, decodeErr := contract.DecodeContractOutcomeEnvelope(encoded); decodeErr == nil && kind == "error" {
 			err = traceCodedError(name)
 		}
-		if pid := h.devBindingWorkerPID(generation, address, module); pid != 0 {
+		if pid := h.devBindingWorkerPID(generation, address); pid != 0 {
 			w.Header().Set("X-App-Worker-Pid", strconv.Itoa(pid))
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -133,16 +133,9 @@ func (h *processHost) serveWorkerDevBinding(w http.ResponseWriter, req *http.Req
 	}
 }
 
-func (h *processHost) devBindingWorkerPID(generation *processHostGeneration, address, module string) int {
+func (h *processHost) devBindingWorkerPID(generation *processHostGeneration, address string) int {
 	if owner := generation.instances[generation.bindings[address]]; owner != nil {
 		return owner.spec.PID
-	}
-	if h.workers != nil {
-		for _, instance := range generation.instances {
-			if plan := h.workers.services[instance.spec.WorkerService]; plan.Module == module {
-				return instance.spec.PID
-			}
-		}
 	}
 	return 0
 }

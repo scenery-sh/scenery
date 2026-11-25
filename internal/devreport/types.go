@@ -92,6 +92,25 @@ type LogEvent struct {
 	Timestamp    time.Time      `json:"timestamp"`
 }
 
+// MetricEvent is an invocation-scoped gauge sample reported by a worker Host.
+type MetricEvent struct {
+	InvocationCorrelation
+	AppID        string    `json:"app_id"`
+	SessionID    string    `json:"session_id,omitempty"`
+	TraceID      string    `json:"trace_id"`
+	SpanID       string    `json:"span_id"`
+	ParentSpanID string    `json:"parent_span_id,omitempty"`
+	Generation   uint64    `json:"generation"`
+	Service      string    `json:"service"`
+	Operation    string    `json:"operation"`
+	ErrorCode    string    `json:"error_code,omitempty"`
+	DurationMS   float64   `json:"duration_ms"`
+	Name         string    `json:"name"`
+	Value        float64   `json:"value"`
+	Unit         string    `json:"unit,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
 // InternalFailure is the cause behind a report token an application process
 // minted. The token went out in a sanitized answer; the cause goes to the
 // session's supervisor, which keeps it where the developer can read it.
@@ -113,6 +132,7 @@ type ReportEnvelope struct {
 	TraceSummary *TraceSummary `json:"trace_summary,omitempty"`
 	TraceEvent   *TraceEvent   `json:"trace_event,omitempty"`
 	LogEvent     *LogEvent     `json:"log_event,omitempty"`
+	MetricEvent  *MetricEvent  `json:"metric_event,omitempty"`
 	// InternalFailure accompanies Type "internal-failure".
 	InternalFailure *InternalFailure `json:"internal_failure,omitempty"`
 }

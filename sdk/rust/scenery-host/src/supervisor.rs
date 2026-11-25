@@ -18,62 +18,58 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::net::UnixListener;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinSet;
-use tokio::time::{interval, timeout};
+use tokio::time::interval;
+use tokio_util::sync::CancellationToken;
 
-use crate::process::{BuildIdentity, DRAIN_TIMEOUT, Instance, Program, Worker, hex, random_hex};
-use crate::transport::{Body, Client, read, response};
+use crate::process::{BuildIdentity, DRAIN_TIMEOUT, Program, Worker, hex, random_hex};
+use crate::transport::{Body, read, response};
 
-const GATEWAY_GENERATIONS: &str = "/__scenery/process/v1/generations";
-const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
 const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(20);
 
-type Workers = BTreeMap<String, Arc<Worker>>;
+pub(crate) type Workers = BTreeMap<String, Arc<Worker>>;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LaunchPlan {
-    contract_revision: String,
-    programs: Vec<Program>,
+pub(crate) struct LaunchPlan {
+    pub contract_revision: String,
+    pub programs: Vec<Program>,
 }
 
-#[derive(Serialize)]
-struct Publication {
-    generation: u64,
-    contract_revision: String,
-    identity: BuildIdentity,
-    processes: BTreeMap<String, Instance>,
+pub(crate) struct Generation {
+    pub number: u64,
+    pub identity: BuildIdentity,
+    pub workers: Workers,
+    pub retired: CancellationToken,
 }
 
 struct Candidate {
-    workers: Workers,
-    publication: Publication,
+    generation: Arc<Generation>,
     prepared: Instant,
-    attempted: bool,
     order: Vec<String>,
 }
 
 struct Retired {
-    workers: Workers,
+    generation: Arc<Generation>,
     deadline: Instant,
 }
 
 #[derive(Serialize)]
-struct Status<'a> {
+struct Status {
     current: u64,
     pending: Option<u64>,
-    processes: BTreeMap<&'a str, WorkerStatus<'a>>,
-    faults: &'a VecDeque<WorkerFault>,
+    processes: BTreeMap<String, WorkerStatus>,
+    faults: VecDeque<WorkerFault>,
 }
 
 #[derive(Serialize)]
-struct WorkerStatus<'a> {
+struct WorkerStatus {
     pid: u32,
-    digest: &'a str,
+    digest: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct WorkerFault {
     sequence: u64,
     generation: u64,
@@ -84,18 +80,12 @@ struct WorkerFault {
     signal: Option<i32>,
 }
 
-#[derive(Deserialize)]
-struct GatewayStatus {
-    current: u64,
-}
-
 struct Supervisor {
     directory: PathBuf,
-    gateway: Client,
-    revision: Option<String>,
-    current: u64,
+    publication: watch::Sender<Option<Arc<Generation>>>,
+    revision: String,
+    expected: BTreeMap<String, (String, String)>,
     sequence: u64,
-    active: Workers,
     order: Vec<String>,
     pending: Option<Candidate>,
     retired: BTreeMap<u64, Retired>,
@@ -111,22 +101,27 @@ impl Supervisor {
             "missing contract revision"
         );
         ensure!(
-            self.revision
-                .as_ref()
-                .is_none_or(|rev| rev == &plan.contract_revision),
+            self.revision == plan.contract_revision,
             "application contract changed",
         );
-        ensure!(!plan.programs.is_empty(), "worker plan is empty");
+        ensure!(
+            plan.programs.len() == self.expected.len(),
+            "worker plan is incomplete"
+        );
         let mut names = std::collections::BTreeSet::new();
         for program in &plan.programs {
             ensure!(
-                !program.process.is_empty()
-                    && !program.service.is_empty()
+                self.expected
+                    .get(&program.process)
+                    .is_some_and(|(service, runtime)| {
+                        service == &program.service && runtime == &program.runtime
+                    })
                     && program.binary.is_absolute()
                     && names.insert(&program.process),
                 "invalid or duplicate worker process",
             );
         }
+        let active = self.publication.borrow().clone();
         let order = plan
             .programs
             .iter()
@@ -137,9 +132,9 @@ impl Supervisor {
         let mut hash = Sha256::new();
         for program in plan.programs {
             hash.update(program.digest.as_bytes());
-            if let Some(worker) = self
-                .active
-                .get(&program.process)
+            if let Some(worker) = active
+                .as_ref()
+                .and_then(|generation| generation.workers.get(&program.process))
                 .filter(|worker| worker.still_matches(&program))
             {
                 workers.insert(program.process, worker.clone());
@@ -150,135 +145,87 @@ impl Supervisor {
                 Worker::spawn(&directory, &directory.join("capabilities.sock"), program).await
             });
         }
-        while let Some(worker) = started.join_next().await {
-            let worker = worker??;
-            workers.insert(worker.program.process.clone(), Arc::new(worker));
+        let mut failure = None;
+        while let Some(result) = started.join_next().await {
+            match result
+                .map_err(anyhow::Error::from)
+                .and_then(std::convert::identity)
+            {
+                Ok(worker) => {
+                    workers.insert(worker.program.process.clone(), Arc::new(worker));
+                }
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
         }
-        if workers.len() == self.active.len()
+        if let Some(error) = failure {
+            tokio::task::spawn_blocking(move || drop(workers));
+            return Err(error);
+        }
+        if let Some(active) = active
+            && workers.len() == active.workers.len()
             && workers.iter().all(|(name, worker)| {
-                self.active
+                active
+                    .workers
                     .get(name)
                     .is_some_and(|active| Arc::ptr_eq(worker, active))
             })
         {
-            return Ok(self.current);
+            return Ok(active.number);
         }
         self.sequence += 1;
         let digest = format!("sha256:{}", hex(&hash.finalize()));
         self.pending = Some(Candidate {
-            publication: Publication {
-                generation: self.sequence,
+            generation: Arc::new(Generation {
+                number: self.sequence,
                 identity: BuildIdentity {
-                    contract_revision: plan.contract_revision.clone(),
+                    contract_revision: plan.contract_revision,
                     implementation_revision: digest.clone(),
                     build_input_digest: digest,
                     go_target: "worker".into(),
                 },
-                contract_revision: plan.contract_revision,
-                processes: workers
-                    .iter()
-                    .map(|(name, worker)| (name.clone(), worker.instance()))
-                    .collect(),
-            },
-            workers,
+                workers,
+                retired: CancellationToken::new(),
+            }),
             prepared: Instant::now(),
-            attempted: false,
             order,
         });
         Ok(self.sequence)
     }
 
-    async fn commit(&mut self, generation: u64) -> Result<()> {
-        if self.current == generation {
+    fn commit(&mut self, generation: u64) -> Result<()> {
+        if self
+            .publication
+            .borrow()
+            .as_ref()
+            .is_some_and(|active| active.number == generation)
+        {
             return Ok(());
         }
-        let candidate = self.pending.as_mut().context("no prepared generation")?;
+        let candidate = self.pending.as_ref().context("no prepared generation")?;
         ensure!(
-            candidate.publication.generation == generation,
+            candidate.generation.number == generation,
             "generation is not prepared"
         );
-        if !candidate.attempted {
-            for worker in candidate.workers.values() {
-                if worker.exited()?.is_some() {
-                    self.discard();
-                    anyhow::bail!("worker exited before publication");
-                }
-            }
-            candidate.attempted = true;
-        }
-        self.reconcile_publication().await
-    }
-
-    async fn reconcile_publication(&mut self) -> Result<()> {
-        let candidate = self.pending.as_ref().context("no pending publication")?;
-        let generation = candidate.publication.generation;
-        let data = serde_json::to_vec(&candidate.publication)?;
-        let published = timeout(
-            CONTROL_TIMEOUT,
-            self.gateway.request(Method::PUT, GATEWAY_GENERATIONS, data),
-        )
-        .await;
-        let rejection = match published {
-            Ok(Ok(reply)) if reply.status() == StatusCode::NO_CONTENT => {
-                self.activate();
-                return Ok(());
-            }
-            Ok(Ok(reply)) => {
-                let status = reply.status();
-                let bytes = timeout(CONTROL_TIMEOUT, read(reply.into_body(), 16 << 10)).await??;
-                Some((status, bytes))
-            }
-            _ => None,
-        };
-        let status = timeout(CONTROL_TIMEOUT, async {
-            let reply = self
-                .gateway
-                .request(Method::GET, GATEWAY_GENERATIONS, vec![])
-                .await?;
+        for worker in candidate.generation.workers.values() {
             ensure!(
-                reply.status() == StatusCode::OK,
-                "gateway status unavailable"
-            );
-            let bytes = read(reply.into_body(), MAX_METADATA).await?;
-            Ok::<_, anyhow::Error>(serde_json::from_slice::<GatewayStatus>(&bytes)?)
-        })
-        .await??;
-        if status.current == generation {
-            self.activate();
-            return Ok(());
-        }
-        ensure!(
-            status.current == self.current,
-            "gateway published an unexpected generation"
-        );
-        if let Some((status, bytes)) = rejection.filter(|(status, _)| status.is_client_error()) {
-            self.discard();
-            anyhow::bail!(
-                "gateway rejected generation: {status}: {}",
-                String::from_utf8_lossy(&bytes).trim()
+                worker.exited()?.is_none(),
+                "worker exited before publication"
             );
         }
-        // A timeout or transport error does not establish whether the gateway
-        // received the publication. Keep its workers alive until reconciled.
-        anyhow::bail!("gateway publication is awaiting confirmation");
-    }
-
-    fn activate(&mut self) {
         let candidate = self.pending.take().expect("candidate already validated");
-        let previous = self.current;
-        self.current = candidate.publication.generation;
-        self.revision = Some(candidate.publication.contract_revision);
         self.order = candidate.order;
-        let workers = std::mem::replace(&mut self.active, candidate.workers);
-        if previous > 0 {
+        if let Some(previous) = self.publication.send_replace(Some(candidate.generation)) {
             self.retired.insert(
-                previous,
+                previous.number,
                 Retired {
-                    workers,
+                    generation: previous,
                     deadline: Instant::now() + DRAIN_TIMEOUT,
                 },
             );
         }
+        Ok(())
     }
 
     fn discard(&mut self) {
@@ -287,62 +234,56 @@ impl Supervisor {
         }
     }
 
-    async fn maintain(&mut self) -> Result<()> {
-        if let Some(candidate) = &self.pending {
-            if candidate.attempted {
-                self.reconcile_publication().await?;
-            } else if candidate.prepared.elapsed() >= CANDIDATE_TIMEOUT {
-                self.discard();
-            }
+    fn maintain(&mut self) {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|p| p.prepared.elapsed() >= CANDIDATE_TIMEOUT)
+        {
+            self.discard();
         }
-
-        for (generation, retired) in &self.retired {
-            let force = if Instant::now() >= retired.deadline {
-                "?force=true"
-            } else {
-                ""
-            };
-            let path = format!("{GATEWAY_GENERATIONS}/{generation}{force}");
-            let result = timeout(
-                CONTROL_TIMEOUT,
-                self.gateway.request(Method::DELETE, &path, vec![]),
-            )
-            .await;
-            if matches!(result, Ok(Ok(reply)) if matches!(reply.status(), StatusCode::NO_CONTENT | StatusCode::NOT_FOUND))
-            {
-                let generation = *generation;
-                let retired = self.retired.remove(&generation);
-                tokio::task::spawn_blocking(move || drop(retired));
-                break;
+        self.retired.retain(|_, retired| {
+            if Instant::now() >= retired.deadline {
+                retired.generation.retired.cancel();
             }
-        }
-        Ok(())
+            if Arc::strong_count(&retired.generation) == 1 {
+                let generation = retired.generation.clone();
+                tokio::task::spawn_blocking(move || drop(generation));
+                return false;
+            }
+            true
+        });
     }
 
-    fn status(&self) -> Status<'_> {
+    fn status(&self) -> Status {
+        let active = self.publication.borrow();
         Status {
-            current: self.current,
-            pending: self.pending.as_ref().map(|p| p.publication.generation),
-            processes: self
-                .active
-                .iter()
+            current: active.as_ref().map_or(0, |a| a.number),
+            pending: self.pending.as_ref().map(|p| p.generation.number),
+            processes: active
+                .as_ref()
+                .into_iter()
+                .flat_map(|a| a.workers.iter())
                 .map(|(name, worker)| {
                     (
-                        name.as_str(),
+                        name.clone(),
                         WorkerStatus {
                             pid: worker.pid(),
-                            digest: &worker.program.digest,
+                            digest: worker.program.digest.clone(),
                         },
                     )
                 })
                 .collect(),
-            faults: &self.faults,
+            faults: self.faults.clone(),
         }
     }
 
     async fn restart(&mut self) -> Result<()> {
+        let Some(active) = self.publication.borrow().clone() else {
+            return Ok(());
+        };
         let mut stopped = false;
-        for worker in self.active.values() {
+        for worker in active.workers.values() {
             let Some(status) = worker.exited()? else {
                 continue;
             };
@@ -353,7 +294,7 @@ impl Supervisor {
             self.fault_sequence += 1;
             let fault = WorkerFault {
                 sequence: self.fault_sequence,
-                generation: self.current,
+                generation: active.number,
                 service: worker.program.service.clone(),
                 runtime: worker.program.runtime.clone(),
                 pid: worker.pid(),
@@ -367,11 +308,11 @@ impl Supervisor {
             self.faults.push_back(fault);
         }
         if stopped && self.pending.is_none() {
-            let revision = self.revision.clone().context("missing active revision")?;
+            let revision = self.revision.clone();
             let programs = self
                 .order
                 .iter()
-                .map(|name| self.active[name].program.clone())
+                .map(|name| active.workers[name].program.clone())
                 .collect();
             let generation = self
                 .prepare(LaunchPlan {
@@ -379,7 +320,7 @@ impl Supervisor {
                     programs,
                 })
                 .await?;
-            self.commit(generation).await?;
+            self.commit(generation)?;
         }
         Ok(())
     }
@@ -392,7 +333,12 @@ pub(crate) struct Control {
 }
 
 impl Control {
-    pub(crate) fn bind(directory: &Path) -> Result<Self> {
+    pub(crate) fn bind(
+        directory: &Path,
+        revision: String,
+        token: Option<String>,
+        expected: BTreeMap<String, (String, String)>,
+    ) -> Result<Self> {
         let metadata = symlink_metadata(directory)?;
         ensure!(
             metadata.is_dir()
@@ -400,21 +346,21 @@ impl Control {
                 && metadata.mode() & 0o077 == 0,
             "supervisor requires a private runtime directory",
         );
-        let token = random_hex::<32>()?;
+        let token = token.map_or_else(random_hex::<32>, Ok)?;
+        ensure!(token.len() >= 32, "control token is too short");
         OpenOptions::new()
             .create_new(true)
             .write(true)
             .mode(0o600)
             .open(directory.join("supervisor.token"))?
             .write_all(token.as_bytes())?;
-        let gateway = Client::new(directory.join("control.sock"), &token);
+        let (publication, _) = watch::channel(None);
         let state = Supervisor {
             directory: directory.to_owned(),
-            gateway,
-            revision: None,
-            current: 0,
+            publication,
+            revision,
+            expected,
             sequence: 0,
-            active: Workers::new(),
             order: Vec::new(),
             pending: None,
             retired: BTreeMap::new(),
@@ -428,6 +374,20 @@ impl Control {
         })
     }
 
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub(crate) async fn publication(&self) -> watch::Receiver<Option<Arc<Generation>>> {
+        self.state.lock().await.publication.subscribe()
+    }
+
+    pub(crate) async fn publish_initial(&self, plan: LaunchPlan) -> Result<()> {
+        let mut state = self.state.lock().await;
+        let number = state.prepare(plan).await?;
+        state.commit(number)
+    }
+
     pub(crate) async fn serve(self, stop: impl Future<Output = ()>) -> Result<()> {
         tokio::pin!(stop);
         let mut connections = JoinSet::new();
@@ -438,9 +398,7 @@ impl Control {
             loop {
                 maintenance.tick().await;
                 let mut inner = state.lock().await;
-                if let Err(error) = inner.maintain().await {
-                    eprintln!("worker generation reconciliation failed: {error:#}");
-                }
+                inner.maintain();
                 if let Err(error) = inner.restart().await {
                     eprintln!("worker restart failed: {error:#}");
                     drop(inner);
@@ -476,16 +434,17 @@ impl Control {
         let _ = monitor.await;
         connections.shutdown().await;
         let mut state = self.state.lock().await;
-        let workers = std::mem::take(&mut state.active);
+        let active = state.publication.send_replace(None);
         let retired = std::mem::take(&mut state.retired);
         let pending = state.pending.take();
         drop(state);
-        for worker in workers
-            .into_values()
-            .chain(retired.into_values().flat_map(|r| r.workers.into_values()))
-            .chain(pending.into_iter().flat_map(|p| p.workers.into_values()))
+        for generation in active
+            .into_iter()
+            .chain(retired.into_values().map(|r| r.generation))
+            .chain(pending.into_iter().map(|p| p.generation))
         {
-            connections.spawn_blocking(move || drop(worker));
+            generation.retired.cancel();
+            connections.spawn_blocking(move || drop(generation));
         }
         while connections.join_next().await.is_some() {}
         result
@@ -533,12 +492,12 @@ async fn handle(
                 return response(StatusCode::BAD_REQUEST, "invalid candidate selection");
             };
             if kind.0 == Method::PUT {
-                supervisor.commit(generation).await.map(|()| vec![])
+                supervisor.commit(generation).map(|()| vec![])
             } else {
                 if supervisor
                     .pending
                     .as_ref()
-                    .is_some_and(|p| p.publication.generation == generation && !p.attempted)
+                    .is_some_and(|p| p.generation.number == generation)
                 {
                     supervisor.discard();
                 }
