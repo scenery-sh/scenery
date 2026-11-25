@@ -98,19 +98,19 @@ func (i *cliTelemetryInvocation) finish(exitCode int) {
 }
 
 func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
-	finished := i.now()
-	duration := finished.Sub(i.started)
-	if duration < 0 {
-		duration = 0
-	}
 	recorder := i.recorder
 	if recorder == nil {
 		recorder = recordCLITelemetry
 	}
+	recorder(i.recordData(measurement, exitCode))
+}
+
+func (i *cliTelemetryInvocation) recordData(measurement string, exitCode int) cliTelemetryRecord {
+	duration := max(0, i.now().Sub(i.started))
 	producer := cliProducer()
 	dirty := cliBuildDirty()
 	mode := telemetryMode(i.args)
-	recorder(cliTelemetryRecord{
+	return cliTelemetryRecord{
 		InvocationID:   i.invocationID,
 		Producer:       &producer,
 		DiagnosticCode: i.diagnosticCode,
@@ -126,7 +126,7 @@ func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
 		LongRunning:    new(mode == "long_running"),
 		Measurement:    measurement,
 		App:            telemetryInvocationApp(i.args),
-	})
+	}
 }
 
 // Purpose is explicit process attribution, independent of app/build identity.

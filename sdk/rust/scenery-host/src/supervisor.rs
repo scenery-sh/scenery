@@ -326,7 +326,50 @@ impl Supervisor {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct Publisher {
+    state: Arc<Mutex<Supervisor>>,
+    publication: watch::Receiver<Option<Arc<Generation>>>,
+}
+
+impl Publisher {
+    pub(crate) fn generation(&self) -> u64 {
+        self.publication
+            .borrow()
+            .as_ref()
+            .map_or(0, |active| active.number)
+    }
+
+    pub(crate) async fn replace(
+        &self,
+        plan: LaunchPlan,
+        verify: impl FnOnce() -> Result<bool>,
+    ) -> Result<Option<u64>> {
+        let mut supervisor = self.state.lock().await;
+        let candidate = supervisor.prepare(plan).await?;
+        match verify() {
+            Ok(true) => {
+                if let Err(error) = supervisor.commit(candidate) {
+                    supervisor.discard();
+                    return Err(error);
+                }
+                Ok(Some(candidate))
+            }
+            checked => {
+                supervisor.discard();
+                checked.map(|_| None)
+            }
+        }
+    }
+}
+
+pub(crate) struct EventTarget {
+    pub path: PathBuf,
+    pub app: serde_json::Value,
+}
+
 pub(crate) struct Control {
+    events: Option<EventTarget>,
     listener: UnixListener,
     token: String,
     state: Arc<Mutex<Supervisor>>,
@@ -338,6 +381,7 @@ impl Control {
         revision: String,
         token: Option<String>,
         expected: BTreeMap<String, (String, String)>,
+        events: Option<EventTarget>,
     ) -> Result<Self> {
         let metadata = symlink_metadata(directory)?;
         ensure!(
@@ -370,6 +414,7 @@ impl Control {
         Ok(Self {
             listener: UnixListener::bind(directory.join("supervisor.sock"))?,
             token: format!("Bearer {token}"),
+            events,
             state: Arc::new(Mutex::new(state)),
         })
     }
@@ -380,6 +425,16 @@ impl Control {
 
     pub(crate) async fn publication(&self) -> watch::Receiver<Option<Arc<Generation>>> {
         self.state.lock().await.publication.subscribe()
+    }
+
+    pub(crate) fn publisher(
+        &self,
+        publication: watch::Receiver<Option<Arc<Generation>>>,
+    ) -> Publisher {
+        Publisher {
+            state: self.state.clone(),
+            publication,
+        }
     }
 
     pub(crate) async fn publish_initial(&self, plan: LaunchPlan) -> Result<()> {
@@ -394,14 +449,46 @@ impl Control {
         let mut maintenance = interval(Duration::from_millis(200));
         maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let state = self.state.clone();
+        let events = self.events;
         let monitor = tokio::spawn(async move {
+            let mut observed = 0;
             loop {
                 maintenance.tick().await;
-                let mut inner = state.lock().await;
-                inner.maintain();
-                if let Err(error) = inner.restart().await {
+                let (restart, faults) = {
+                    let mut inner = state.lock().await;
+                    inner.maintain();
+                    let restart = inner.restart().await;
+                    let faults = if events.is_some() {
+                        inner
+                            .faults
+                            .iter()
+                            .filter(|fault| fault.sequence > observed)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+                    (restart, faults)
+                };
+                if let Some(target) = &events {
+                    for fault in faults {
+                        observed = fault.sequence;
+                        let event = serde_json::json!({
+                            "at": crate::host::stamp(time::OffsetDateTime::now_utc()),
+                            "kind":"worker_fault","app":target.app,"generation":fault.generation,
+                            "worker_fault":{
+                                "module":fault.service.split("/service/").next().unwrap_or(""),
+                                "runtime":fault.runtime,"exit_code":fault.exit_code.unwrap_or(-1),
+                                "signal":fault.signal.map(|signal| signal.to_string()).unwrap_or_default(),
+                            }
+                        });
+                        if let Err(error) = crate::dev::journal(&target.path, &event).await {
+                            eprintln!("could not record worker fault: {error:#}");
+                        }
+                    }
+                }
+                if let Err(error) = restart {
                     eprintln!("worker restart failed: {error:#}");
-                    drop(inner);
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             }

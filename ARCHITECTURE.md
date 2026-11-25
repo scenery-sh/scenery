@@ -16,8 +16,9 @@ independent runtime config in `.scenery.json`.
 For worker bundles, the Rust `scenery-host` owns public ingress, binding
 policy, scoped worker capabilities, durable execution, and worker supervision.
 It binds public ingress after publishing an attested generation. In
-development the Go CLI watches inputs and submits candidate worker sets to
-the Host. A production bundle starts directly through `scenery-host`.
+development the Go CLI prepares the initial build and hands over the runtime
+lock. The Host watches source inputs, rebuilds affected workers, and invokes the
+CLI on demand for declaration and build configuration changes. A production bundle starts directly through `scenery-host`.
 
 Go, Rust, and JavaScript/TypeScript workers exchange scoped requests over
 [Worker ABI v1](docs/spec/WORKER-ABI.md). The Rust Host and SDK share

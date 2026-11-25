@@ -314,6 +314,9 @@ func (n *Namespace) acquire(ctx context.Context, exclusive bool) (*namespaceLeas
 	return &namespaceLease{root: r, maintenance: l, owner: owner}, nil
 }
 
+// File returns the held maintenance lock for an in-place process handoff.
+func (l *namespaceLease) File() *os.File { return l.maintenance.file }
+
 func (l *namespaceLease) Close() error { return errors.Join(l.maintenance.Close(), l.root.Close()) }
 
 func loadOwner(r *os.Root, binding Binding, incarnation string, inspection bool) (Owner, error) {

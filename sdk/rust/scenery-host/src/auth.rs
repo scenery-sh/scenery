@@ -25,8 +25,8 @@ pub(crate) struct Claims {
     #[serde(rename = "actor_sub")]
     pub actor: String,
     pub impersonation_id: String,
-    exp: i64,
-    nbf: Option<i64>,
+    pub(crate) exp: i64,
+    pub(crate) nbf: Option<i64>,
 }
 
 pub(crate) struct Authentication {
@@ -55,6 +55,9 @@ impl Authentication {
                     value.into()
                 });
             }
+        }
+        if development && plan.is_some_and(|plan| plan.enabled) && secret.is_empty() {
+            secret = crate::process::random_hex::<32>()?.into_bytes();
         }
         Ok(Self {
             secret,
@@ -91,15 +94,16 @@ impl Authentication {
             exp: OffsetDateTime::now_utc().unix_timestamp() + 86400,
             ..Claims::default()
         };
-        let header = base64url(br#"{"alg":"HS256","typ":"JWT"}"#);
-        let payload = base64url(&serde_json::to_vec(&claims)?);
-        let content = format!("{header}.{payload}");
-        let mut mac = Signature::new_from_slice(self.dev_secret.as_bytes())?;
-        mac.update(content.as_bytes());
-        Ok(format!(
-            "{content}.{}",
-            base64url(&mac.finalize().into_bytes())
-        ))
+        sign(&claims, self.dev_secret.as_bytes())
+    }
+
+    pub(crate) fn issue(&self, mut claims: Claims) -> Result<String> {
+        ensure!(
+            !self.secret.is_empty(),
+            "authentication signing is disabled"
+        );
+        claims.exp = OffsetDateTime::now_utc().unix_timestamp() + 900;
+        sign(&claims, &self.secret)
     }
 
     pub(crate) fn credentials(&self, headers: &HeaderMap, private: bool) -> Result<Claims> {
@@ -158,6 +162,20 @@ impl Claims {
             .get(0);
         Ok(exists)
     }
+}
+
+fn sign(claims: &Claims, key: &[u8]) -> Result<String> {
+    let header = base64url(br#"{"alg":"HS256","typ":"JWT"}"#);
+    let mut payload = serde_json::to_value(claims)?;
+    payload["iat"] = json!(OffsetDateTime::now_utc().unix_timestamp());
+    let payload = base64url(&serde_json::to_vec(&payload)?);
+    let content = format!("{header}.{payload}");
+    let mut mac = Signature::new_from_slice(key)?;
+    mac.update(content.as_bytes());
+    Ok(format!(
+        "{content}.{}",
+        base64url(&mac.finalize().into_bytes())
+    ))
 }
 
 fn verify(token: &str, key: &[u8]) -> Result<Claims> {

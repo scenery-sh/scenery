@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,14 +14,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/devreport"
-	"scenery.sh/internal/envpolicy"
 )
 
 type workerDevEndpoint struct {
@@ -34,106 +28,8 @@ type workerDevEndpoint struct {
 	SessionID string `json:"session_id"`
 }
 
-type workerDevControl struct {
-	mu           sync.RWMutex
-	watch        workerInputWatch
-	serving      *runtimeServingIdentity
-	attempt      *devBuildAttempt
-	timing       *workerRebuildTiming
-	sessionID    string
-	appID        string
-	hostPID      atomic.Int64
-	reportClient *http.Client
-	controlToken string
-	exporter     *dashboardServer
-}
-
 func workerDevEndpointPath(root string) string {
 	return filepath.Join(root, ".scenery", "worker-dev.json")
-}
-
-func startWorkerDevControl(dev *workerDevelopment, directory, hostControl, token string) (*workerDevControl, func(), error) {
-	socket := filepath.Join(directory, "watcher.sock")
-	local, err := net.Listen("unix", socket)
-	if err != nil {
-		return nil, nil, err
-	}
-	reports, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		_ = local.Close()
-		return nil, nil, err
-	}
-	control := &workerDevControl{
-		watch:     workerInputWatch{root: dev.watch.root, generated: slices.Clone(dev.watch.generated)},
-		sessionID: workerRandomToken(), appID: dev.compiled.Manifest.Application.Name,
-	}
-	privateMux := http.NewServeMux()
-	privateMux.HandleFunc("GET /status", control.status)
-	rpc := &http.Server{Handler: privateMux, ReadHeaderTimeout: 2 * time.Second}
-	control.reportClient, control.controlToken = workerControlClient(hostControl), token
-	if stack := resolveLogsVictoriaStack(context.Background(), dev.watch.root); stack != nil {
-		control.exporter = &dashboardServer{traces: newDashboardTraceEventBuffer()}
-		control.exporter.telemetry = newTelemetryExporter(func(batch []telemetryExportJob) int {
-			return exportTelemetryBatch(stack, nil, batch)
-		})
-	}
-	reportToken := workerRandomToken()
-	receiver := &http.Server{ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != http.MethodPost || req.URL.Path != "/report" ||
-			subtle.ConstantTimeCompare([]byte(req.Header.Get("Authorization")), []byte("Bearer "+reportToken)) != 1 {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		control.report(w, req)
-	})}
-	closeServers := func() {
-		_ = rpc.Close()
-		_ = receiver.Close()
-		_ = local.Close()
-		_ = reports.Close()
-		control.reportClient.CloseIdleConnections()
-		if control.exporter != nil {
-			control.exporter.telemetry.close()
-		}
-	}
-	for key, value := range map[string]string{
-		"SCENERY_DEV_REPORT_URL":   "http://" + reports.Addr().String() + "/report",
-		"SCENERY_DEV_REPORT_TOKEN": reportToken, "SCENERY_APP_ID": control.appID, "SCENERY_SESSION_ID": control.sessionID,
-	} {
-		if err := envpolicy.Set(key, value); err != nil {
-			closeServers()
-			return nil, nil, err
-		}
-	}
-	path := workerDevEndpointPath(dev.watch.root)
-	parent := filepath.Dir(path)
-	if canonical, err := filepath.EvalSymlinks(parent); err != nil || canonical != parent {
-		closeServers()
-		return nil, nil, fmt.Errorf("worker development state directory must remain in the app root")
-	}
-	file, err := os.CreateTemp(parent, ".worker-dev-*")
-	if err != nil {
-		closeServers()
-		return nil, nil, err
-	}
-	defer func() { _ = os.Remove(file.Name()) }()
-	err = json.NewEncoder(file).Encode(workerDevEndpoint{dev.watch.root, hostControl, hostControl, token, control.sessionID})
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(file.Name(), path)
-	}
-	if err != nil {
-		closeServers()
-		return nil, nil, err
-	}
-	go func() { _ = rpc.Serve(local) }()
-	go func() { _ = receiver.Serve(reports) }()
-	return control, func() {
-		_ = os.Remove(path)
-		closeServers()
-	}, nil
 }
 
 func readWorkerDevEndpoint(root string) (workerDevEndpoint, bool, error) {
@@ -184,83 +80,6 @@ func workerSourceDigest(inputs workerInputs) string {
 		_, _ = fmt.Fprintf(hash, "%s\x00%x:%o\n", path, input.Digest, input.Mode)
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil))
-}
-
-func (control *workerDevControl) publish(inputs workerInputs, bundle workerBundle, generation uint64, timing *workerRebuildTiming) {
-	control.mu.Lock()
-	defer control.mu.Unlock()
-	control.serving = &runtimeServingIdentity{
-		Generation: generation, PID: strconv.FormatInt(control.hostPID.Load(), 10), ContractRevision: bundle.ContractRevision,
-		ImplementationRevision: workerBundleDigest(bundle), BuildInputDigest: workerBundleDigest(bundle),
-		SourceSnapshotDigest: workerSourceDigest(inputs), PublishedAt: time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	if timing != nil {
-		control.attempt = nil
-		control.timing = timing
-	}
-}
-
-func (control *workerDevControl) failure(inputs workerInputs, failure *devBuildFailure, timing *workerRebuildTiming) {
-	control.mu.Lock()
-	defer control.mu.Unlock()
-	control.attempt = &devBuildAttempt{SourceSnapshotDigest: workerSourceDigest(inputs), Error: failure.Stderr, Failure: failure}
-	control.timing = timing
-}
-
-func (control *workerDevControl) status(w http.ResponseWriter, req *http.Request) {
-	timeout, _ := strconv.ParseInt(req.URL.Query().Get("timeout_ms"), 10, 64)
-	ctx, cancel := context.WithTimeout(req.Context(), time.Duration(min(max(0, timeout), maxSourceWaitTimeout.Milliseconds()))*time.Millisecond)
-	defer cancel()
-	started := time.Now()
-	result := runtimeSourceWait{cliPayloadIdentity: newCLIPayloadIdentity(devRuntimeWaitKind), SourceFreshness: "unknown"}
-	for {
-		_, source := worktreeSourceStatus(control.watch.root)
-		if source == "missing" {
-			result.Outcome, result.SourceFreshness = "source_missing", "source_missing"
-			break
-		}
-		current, err := control.watch.capture(nil, nil, true, false)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		digest := workerSourceDigest(current)
-		control.mu.RLock()
-		result.Serving, result.RebuildTiming = control.serving, control.timing
-		attempt := control.attempt
-		control.mu.RUnlock()
-		if result.TargetSourceSnapshotDigest == "" {
-			result.TargetSourceSnapshotDigest = digest
-		}
-		result.SourceFreshness = "stale"
-		switch {
-		case digest != result.TargetSourceSnapshotDigest:
-			result.Outcome, result.CurrentSourceSnapshotDigest = "superseded", digest
-		case result.Serving != nil && result.Serving.SourceSnapshotDigest == digest:
-			result.Outcome, result.SourceFreshness, result.OK = "served", "current", true
-		case attempt != nil && attempt.SourceSnapshotDigest == digest:
-			result.Outcome, result.CompileError, result.BuildFailure = "failed", attempt.Error, attempt.Failure
-		case timeout <= 0:
-			result.Outcome = "building"
-		}
-		if result.Outcome != "" {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			result.Outcome = "timeout"
-		case <-time.After(sourceWaitPollInterval):
-			continue
-		}
-		break
-	}
-	result.WaitedMS = time.Since(started).Milliseconds()
-	writeWorkerDevJSON(w, result)
-}
-
-func writeWorkerDevJSON(w http.ResponseWriter, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(value)
 }
 
 func readWorkerSourceStatus(ctx context.Context, endpoint workerDevEndpoint, timeout time.Duration, result *runtimeSourceWait) error {
@@ -317,57 +136,4 @@ func readWorkerTelemetry(ctx context.Context, client *http.Client, endpoint work
 	}
 	err := workerReadJSON(ctx, client, endpoint.Token, path, &snapshot)
 	return snapshot, err
-}
-
-func (control *workerDevControl) report(w http.ResponseWriter, req *http.Request) {
-	var batch devreport.ReportBatch
-	decoder := json.NewDecoder(http.MaxBytesReader(w, req.Body, devreport.MaxBatchBytes))
-	if err := decoder.Decode(&batch); err != nil || len(batch.Reports) > devreport.MaxBatchReports {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	var workers devreport.ReportBatch
-	for _, report := range batch.Reports {
-		if report.AppID != control.appID || report.SessionID != control.sessionID {
-			continue
-		}
-		if report.InternalFailure != nil {
-			recordRuntimeFailureReport(report)
-			continue
-		}
-		if control.exporter != nil {
-			control.exporter.acceptReport(report)
-		}
-		if int64(report.ReporterPID) != control.hostPID.Load() {
-			workers.Reports = append(workers.Reports, report)
-		}
-	}
-	if len(workers.Reports) != 0 {
-		if err := control.forwardWorkerReports(req.Context(), workers); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (control *workerDevControl) forwardWorkerReports(ctx context.Context, batch devreport.ReportBatch) error {
-	raw, err := json.Marshal(batch)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://host/__scenery/process/v1/worker-reports", bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+control.controlToken)
-	response, err := control.reportClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("worker report intake: %s", response.Status)
-	}
-	return nil
 }

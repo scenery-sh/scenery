@@ -3,20 +3,19 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
+
+	"golang.org/x/sys/unix"
 	"path/filepath"
+	"scenery.sh/internal/agent"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"scenery.sh/internal/app"
@@ -60,88 +59,117 @@ func configureWorkerDevelopmentDatabase(root string, cfg app.Config, requirement
 	return nil
 }
 
-func runWorkerDevelopment(bundle workerBundle, listen string, onReady func(), dev *workerDevelopment) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	bundle.setWorkerConfig()
+func runWorkerDevelopment(bundle workerBundle, listen string, dev *workerDevelopment, live *agent.ProcessLock, frontendPID int, environment string, telemetry *cliTelemetryInvocation) error {
+	ctx := context.Background()
 	lease, err := storageTaskLease(ctx, envpolicy.Environ())
 	if err != nil {
 		return err
 	}
-	if lease != nil {
-		defer func() { _ = lease.Close() }()
-	}
 	executable, err := rustbuild.Host(ctx)
 	if err != nil {
 		return err
+	}
+	files := []*os.File{live.File()}
+	if lease != nil {
+		defer func() { _ = lease.Close() }()
+		held, ok := lease.(interface{ File() *os.File })
+		if !ok {
+			return fmt.Errorf("storage lease does not support host handoff")
+		}
+		files = append(files, held.File())
 	}
 	directory, err := os.MkdirTemp("/tmp", "app-workers-")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(directory) }()
-	token := workerRandomToken()
-	control := filepath.Join(directory, "control.sock")
-	devControl, closeControl, err := startWorkerDevControl(dev, directory, control, token)
+	reportListener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		return err
 	}
-	defer closeControl()
-	planPath := filepath.Join(directory, "host-input.json")
+	defer func() { _ = reportListener.Close() }()
+	reportFile, err := reportListener.File()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = reportFile.Close() }()
+	files = append(files, reportFile)
+	token, session := workerRandomToken(), workerRandomToken()
+	for key, value := range map[string]string{
+		"SCENERY_DEV_REPORT_URL":   "http://" + reportListener.Addr().String() + "/report",
+		"SCENERY_DEV_REPORT_TOKEN": workerRandomToken(),
+		"SCENERY_APP_ID":           dev.compiled.Manifest.Application.Name,
+		"SCENERY_SESSION_ID":       session,
+	} {
+		if err := envpolicy.Set(key, value); err != nil {
+			return err
+		}
+	}
+	cli, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	rebuild, err := dev.project(bundle)
+	if err != nil {
+		return err
+	}
+	telemetryPath, _ := cliTelemetryPath()
+	app := telemetryInvocationAppFrom(nil, dev.watch.root)
+	var startup *cliTelemetryRecord
+	if telemetry != nil && !telemetry.suppressed {
+		record := telemetry.recordData(cliTelemetryMeasurementStartup, 0)
+		startup = &record
+	}
+	endpoints := map[string]string{}
+	if stack := resolveLogsVictoriaStack(ctx, dev.watch.root); stack != nil {
+		for _, signal := range []string{"logs", "metrics", "traces"} {
+			if endpoint := stack.Endpoint(signal); endpoint != "" {
+				endpoints[signal] = endpoint
+			}
+		}
+	}
+	config := struct {
+		Victoria       map[string]string   `json:"victoria,omitempty"`
+		Startup        *cliTelemetryRecord `json:"startup,omitempty"`
+		TelemetryPath  string              `json:"telemetry_path"`
+		App            *cliTelemetryApp    `json:"app"`
+		Root           string              `json:"root"`
+		CLI            string              `json:"cli"`
+		CLIEnvironment []string            `json:"cli_environment"`
+		Environment    string              `json:"environment"`
+		FrontendPID    int                 `json:"frontend_pid"`
+		ReportFD       int                 `json:"report_fd"`
+		LockFDs        []int               `json:"lock_fds"`
+		SessionID      string              `json:"session_id"`
+		WaitSchema     string              `json:"wait_schema"`
+		Rebuild        workerRebuildPlan   `json:"rebuild"`
+	}{
+		TelemetryPath: telemetryPath, App: app, Startup: startup, Victoria: endpoints,
+		Root: dev.watch.root, CLI: cli, CLIEnvironment: envpolicy.Environ(), Environment: environment,
+		FrontendPID: frontendPID, ReportFD: int(reportFile.Fd()), SessionID: session,
+		WaitSchema: newCLIPayloadIdentity(devRuntimeWaitKind).SchemaRevision, Rebuild: rebuild,
+	}
+	for _, file := range files[:len(files)-1] {
+		config.LockFDs = append(config.LockFDs, int(file.Fd()))
+	}
 	plan := struct {
 		Bundle   workerBundle                  `json:"bundle"`
 		Snapshot *workerruntime.ConfigSnapshot `json:"snapshot"`
 		Token    string                        `json:"token"`
-	}{Bundle: bundle, Snapshot: bundle.config, Token: token}
+		Config   any                           `json:"config"`
+	}{bundle, bundle.config, token, config}
+	planPath := filepath.Join(directory, "host-input.json")
 	if err := writePrivateWorkerJSON(planPath, plan); err != nil {
 		return err
 	}
-	pid, hostDone, stopHost, err := startNativeWorkerHost(executable, directory, planPath, listen)
-	if err != nil {
-		return err
-	}
-	defer stopHost()
-	supervisor, err := openWorkerSupervisor(ctx, directory, hostDone)
-	if err != nil {
-		return err
-	}
-	defer supervisor.client.CloseIdleConnections()
-	if err := os.Remove(planPath); err != nil {
-		return err
-	}
-	devControl.hostPID.Store(int64(pid))
-	status, err := supervisor.replace(ctx, bundle, func() error { return dev.verify(dev.applied) })
-	if err != nil {
-		return err
-	}
-	if err := waitWorkerReady(ctx, func(context.Context) error {
-		_, err := os.Stat(filepath.Join(directory, "ready"))
-		return err
-	}); err != nil {
-		select {
-		case hostErr := <-hostDone:
-			return errors.Join(err, hostErr)
-		default:
+	for _, file := range files {
+		fd := file.Fd()
+		if _, err := unix.FcntlInt(fd, unix.F_SETFD, 0); err != nil {
 			return err
 		}
+		defer func() { _, _ = unix.FcntlInt(fd, unix.F_SETFD, unix.FD_CLOEXEC) }()
 	}
-	devControl.publish(dev.applied, bundle, status.Current, nil)
-	if onReady != nil {
-		onReady()
-	}
-	watcher := &workerWatcher{
-		app: telemetryInvocationAppFrom(nil, dev.watch.root),
-		dev: dev, devControl: devControl, supervisor: supervisor, bundle: bundle, status: status,
-	}
-	return watcher.run(ctx, hostDone)
-}
-
-func workerBundleDigest(bundle workerBundle) string {
-	aggregate := sha256.New()
-	for _, program := range bundle.Programs {
-		_, _ = io.WriteString(aggregate, program.Digest)
-	}
-	return fmt.Sprintf("sha256:%x", aggregate.Sum(nil))
+	return execProcess(executable, []string{executable, "--dev", directory, planPath, listen}, minimalAppProcessEnv(envpolicy.Environ()))
 }
 
 func workerControlClient(socket string) *http.Client {

@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"slices"
-	"time"
 
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
@@ -72,48 +69,4 @@ func (build workerJSBuild) run(ctx context.Context, root string, check bool) (wo
 	program.Binary, program.Digest = artifact.Path, artifact.Digest
 	program.Identity.ImplementationRevision, program.Identity.BuildInputDigest = artifact.Digest, artifact.Digest
 	return program, !artifact.CacheHit, nil
-}
-
-func (build workerJSBuild) affected(paths []string) bool {
-	for _, path := range paths {
-		switch filepath.Ext(path) {
-		case ".go", ".rs", ".scn":
-			continue
-		}
-		if pathUnder(build.service.Directory, path) {
-			return true
-		}
-		switch filepath.Base(path) {
-		case "package.json", "bun.lock", "bun.lockb", "package-lock.json", "tsconfig.json", "bunfig.toml":
-			if pathUnder(build.service.Workspace, path) && pathUnder(filepath.Dir(path), build.service.Directory) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (dev *workerDevelopment) rebuildJS(ctx context.Context, active, next workerBundle, paths []string, declarations bool, timing *workerRebuildTiming) (workerBundle, error) {
-	start := time.Now()
-	for _, build := range dev.js {
-		index := slices.IndexFunc(active.Programs, func(program workerProgram) bool {
-			return program.Service == build.program.Service && program.Runtime == build.program.Runtime
-		})
-		if index >= 0 && !declarations && !build.affected(paths) {
-			next.Programs = append(next.Programs, active.Programs[index])
-			continue
-		}
-		program, compiled, err := build.run(ctx, dev.watch.root, false)
-		if err != nil {
-			return workerBundle{}, err
-		}
-		next.Programs = append(next.Programs, program)
-		if compiled {
-			timing.JS = append(timing.JS, program.Service)
-		}
-	}
-	if len(timing.JS) > 0 {
-		timing.JSMS = workerMilliseconds(time.Since(start))
-	}
-	return next, nil
 }

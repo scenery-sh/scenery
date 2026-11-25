@@ -6,17 +6,21 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+argon2 = "0.5"
+httpdate = "1"
 base64 = "0.22"
 bytes = "1"
 flate2 = "1"
 futures-util = "0.3"
 getrandom = "0.4"
+glob = "0.3"
 hmac = "0.13"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 libc = "0.2"
 mime_guess = "2"
+notify = "=8.2.1"
 multer = "3"
 percent-encoding = "2"
 regex = "1"
@@ -30,7 +34,7 @@ sha2 = "0.11"
 subtle = "2"
 tempfile = "3"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
-tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
 tokio-postgres-rustls = { version = "0.14", features = ["native-certs", "ring", "webpki-roots"] }
 tokio-util = { version = "0.7", features = ["io", "rt"] }

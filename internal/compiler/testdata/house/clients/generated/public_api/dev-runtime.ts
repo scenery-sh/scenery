@@ -9,7 +9,7 @@
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
 export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:31018f9d0d0e6e25e58a7ffbab06046245dba58ec9b7c189c729f2b4ab74dbb1";
 export const DEV_RUNTIME_WAIT_KIND = "scenery.dev-runtime.wait";
-export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:c762a72a445a9b6c8925c8cd8d174ef31e2c286407de0fac41f4e51ea24f9eb0";
+export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:a5cc428e7d4d58de1f60eaba29ba6f572ee99edf46ef6ce70842e227eeda6d4a";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
@@ -179,8 +179,11 @@ export interface DevRuntimeRebuildTiming {
 	readonly skipped_modules: readonly string[];
 	readonly detect_ms: number;
 	readonly compile_ms: number;
+	readonly link_ms?: number;
 	readonly ready_ms: number;
 	readonly total_ms: number;
+	readonly edit_to_ready_ms?: number;
+	readonly trigger_kind?: "body_only" | "contract_or_config";
 }
 
 export interface DevRuntimeBuildBlock {

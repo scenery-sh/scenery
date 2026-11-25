@@ -5,14 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
-
-	"github.com/fsnotify/fsnotify"
 
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
@@ -26,38 +22,12 @@ type workerInput struct {
 
 type workerInputs map[string]workerInput
 
-func changedWorkerInputs(before, after workerInputs) []string {
-	var changed []string
-	for path, input := range after {
-		if previous, exists := before[path]; !exists || previous != input {
-			changed = append(changed, path)
-		}
-	}
-	for path := range before {
-		if _, exists := after[path]; !exists {
-			changed = append(changed, path)
-		}
-	}
-	slices.Sort(changed)
-	return changed
-}
-
-type workerInputWatch struct {
+type workerInputScope struct {
 	root      string
 	generated []string
-	fs        *fsnotify.Watcher
-	addFailed bool
 }
 
-func openWorkerInputs(root string) (*workerInputWatch, error) {
-	watcher, err := fsnotify.NewBufferedWatcher(256)
-	if err != nil {
-		return nil, err
-	}
-	return &workerInputWatch{root: root, fs: watcher}, nil
-}
-
-func (watch *workerInputWatch) skip(path string) bool {
+func (watch *workerInputScope) skip(path string) bool {
 	rel, err := filepath.Rel(watch.root, path)
 	if err != nil || !filepath.IsLocal(rel) {
 		return true
@@ -84,9 +54,8 @@ func pathUnder(root, path string) bool {
 	return err == nil && filepath.IsLocal(rel)
 }
 
-// scan hashes bytes directly. Register each directory before enumerating its
-// children so writes racing with discovery are also visible to the watcher.
-func (watch *workerInputWatch) scan(start string, inputs workerInputs, register bool) error {
+// scan hashes the startup inputs before the native host takes ownership.
+func (watch *workerInputScope) scan(start string, inputs workerInputs) error {
 	if watch.skip(start) {
 		return nil
 	}
@@ -104,17 +73,6 @@ func (watch *workerInputWatch) scan(start string, inputs workerInputs, register 
 			return nil
 		}
 		if entry.IsDir() {
-			if register {
-				if err := watch.fs.Add(path); err != nil {
-					if errors.Is(err, os.ErrNotExist) && path != watch.root {
-						return filepath.SkipDir
-					}
-					if !watch.addFailed {
-						fmt.Fprintf(os.Stderr, "application watch coverage reduced; using reconciliation: %v\n", err)
-						watch.addFailed = true
-					}
-				}
-			}
 			return nil
 		}
 		rel, err := filepath.Rel(watch.root, path)
@@ -146,26 +104,9 @@ func (watch *workerInputWatch) scan(start string, inputs workerInputs, register 
 	})
 }
 
-func (watch *workerInputWatch) capture(previous workerInputs, paths map[string]struct{}, reconcile, register bool) (workerInputs, error) {
-	if reconcile {
-		inputs := make(workerInputs)
-		return inputs, watch.scan(watch.root, inputs, register)
-	}
-	inputs := maps.Clone(previous)
-	for _, path := range slices.Sorted(maps.Keys(paths)) {
-		rel, err := filepath.Rel(watch.root, path)
-		if err != nil || !filepath.IsLocal(rel) {
-			continue
-		}
-		delete(inputs, rel)
-		// A removed or renamed directory invalidates its descendants.
-		prefix := rel + string(filepath.Separator)
-		maps.DeleteFunc(inputs, func(name string, _ workerInput) bool { return strings.HasPrefix(name, prefix) })
-		if err := watch.scan(path, inputs, register); err != nil {
-			return nil, err
-		}
-	}
-	return inputs, nil
+func (watch *workerInputScope) capture() (workerInputs, error) {
+	inputs := make(workerInputs)
+	return inputs, watch.scan(watch.root, inputs)
 }
 
 func workerDeclarationInput(path string) bool {
@@ -194,5 +135,3 @@ func workerCompilerInputs(result *compiler.Result) (map[string]bool, error) {
 	}
 	return declarations, nil
 }
-
-const workerEditDebounce = 20 * time.Millisecond

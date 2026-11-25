@@ -30,6 +30,13 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "worker-refresh-plan" {
+		if err := refreshWorkerRebuildPlan(os.Args[2:]); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	os.Exit(executeCLI(os.Args[1:]))
 }
 
@@ -392,16 +399,12 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 				return err
 			}
 			defer func() { _ = live.Release() }()
-			inputWatch, err := openWorkerInputs(root)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = inputWatch.fs.Close() }()
+			inputWatch := &workerInputScope{root: root}
 			inputWatch.generated, err = compiler.ManagedGeneratedRoots(compiled)
 			if err != nil {
 				return err
 			}
-			inputs, err := inputWatch.capture(nil, nil, true, true)
+			inputs, err := inputWatch.capture()
 			if err != nil {
 				return err
 			}
@@ -423,17 +426,13 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env); err != nil {
 				return err
 			}
-			frontend, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
+			frontend, frontendPID, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
 			if err != nil {
 				return err
 			}
 			defer closeFrontend()
-			var onReady func()
-			if telemetry != nil {
-				onReady = telemetry.startupReady
-			}
 			bundle.Frontend = frontend
-			return runWorkerDevelopment(bundle, workerListen(opts), onReady, workerDev)
+			return runWorkerDevelopment(bundle, workerListen(opts), workerDev, live, frontendPID, opts.Env, telemetry)
 		}
 	}
 	warnDevEscapeHatches(opts)

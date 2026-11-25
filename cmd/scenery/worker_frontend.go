@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"scenery.sh/internal/app"
 	cp "scenery.sh/internal/clientprojection"
@@ -96,50 +97,52 @@ func buildWorkerFrontend(ctx context.Context, result *compiler.Result, frontend 
 	return &frontend, nil
 }
 
-func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, result *compiler.Result, env string) (*workerFrontend, func(), error) {
+func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, result *compiler.Result, env string) (*workerFrontend, int, func(), error) {
 	clean := func() {}
 	frontend, err := selectWorkerFrontend(root, cfg, result)
 	if err != nil || frontend == nil {
-		return nil, clean, err
+		return nil, 0, clean, err
 	}
 	resolved, err := cfg.ResolveEnv(env)
 	if err != nil {
-		return nil, clean, err
+		return nil, 0, clean, err
 	}
 	if resolved.Frontends[frontend.Name].Serve == "production" {
 		built, err := buildWorkerFrontend(ctx, result, *frontend)
 		if err != nil {
-			return nil, clean, err
+			return nil, 0, clean, err
 		}
-		return built, clean, nil
+		return built, 0, clean, nil
 	}
 	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "", false); err != nil {
-		return nil, clean, err
+		return nil, 0, clean, err
 	}
 	return startWorkerVite(ctx, *frontend)
 }
 
-func startWorkerVite(ctx context.Context, frontend workerFrontend) (*workerFrontend, func(), error) {
+func startWorkerVite(ctx context.Context, frontend workerFrontend) (*workerFrontend, int, func(), error) {
 	clean := func() {}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return nil, clean, err
+		return nil, 0, clean, err
 	}
 	address := listener.Addr().String()
 	_ = listener.Close()
 	_, port, _ := net.SplitHostPort(address)
 	program, args, err := managedFrontendCommand(frontend.Root, port, "", "/")
 	if err != nil {
-		return nil, clean, err
+		return nil, 0, clean, err
 	}
-	process, err := devprocess.Start(ctx, devprocess.StartRequest{
-		Name: frontend.Name, Dir: frontend.Root, Command: program, Args: append(args, "--strictPort"),
-		Stdout: os.Stderr, Stderr: os.Stderr,
-	})
-	if err != nil {
-		return nil, clean, err
+	process := exec.Command(program, append(args, "--strictPort")...)
+	process.Dir, process.Stdout, process.Stderr = frontend.Root, os.Stderr, os.Stderr
+	devprocess.ConfigureChild(process)
+	if err := process.Start(); err != nil {
+		return nil, 0, clean, err
 	}
-	clean = func() { _ = process.Stop(devprocess.DefaultStopTimeout) }
+	clean = func() {
+		_ = syscall.Kill(-process.Process.Pid, syscall.SIGKILL)
+		_ = process.Wait()
+	}
 	if err := waitWorkerReady(ctx, func(ctx context.Context) error {
 		connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 		if err != nil {
@@ -148,8 +151,8 @@ func startWorkerVite(ctx context.Context, frontend workerFrontend) (*workerFront
 		return connection.Close()
 	}); err != nil {
 		clean()
-		return nil, func() {}, err
+		return nil, 0, func() {}, err
 	}
 	frontend.Upstream = address
-	return &frontend, clean, nil
+	return &frontend, process.Process.Pid, clean, nil
 }

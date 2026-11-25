@@ -9,7 +9,8 @@ use hyper_util::rt::TokioIo;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use serde_json::json;
-use tokio::io::copy_bidirectional;
+use sha2::{Digest, Sha256};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, copy_bidirectional};
 use tokio::net::TcpStream;
 use tokio_util::io::ReaderStream;
 
@@ -71,11 +72,32 @@ pub(crate) async fn serve(frontend: Option<&Frontend>, request: Request<Incoming
         selected = "index.html";
         path = asset(&frontend.root, selected).await;
     }
-    let Some(path) = path else { return not_found() };
-    let Ok(file) = tokio::fs::File::open(path).await else {
+    let Some(mut path) = path else {
+        return not_found();
+    };
+    let brotli = asset(&frontend.root, &format!("{selected}.br")).await;
+    let gzip = asset(&frontend.root, &format!("{selected}.gz")).await;
+    let vary = brotli.is_some() || gzip.is_some();
+    let accepted = request
+        .headers()
+        .get("accept-encoding")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let encoding = select_encoding(accepted, brotli.is_some(), gzip.is_some());
+    if let Some(variant) = match encoding {
+        "br" => brotli,
+        "gzip" => gzip,
+        _ => None,
+    } {
+        path = variant;
+    }
+    let Ok(mut file) = tokio::fs::File::open(path).await else {
         return not_found();
     };
     let Ok(info) = file.metadata().await else {
+        return not_found();
+    };
+    let Ok(tag) = etag(&mut file).await else {
         return not_found();
     };
     let media = mime_guess::from_path(selected).first_or_octet_stream();
@@ -87,18 +109,123 @@ pub(crate) async fn serve(frontend: Option<&Frontend>, request: Request<Incoming
         "no-cache"
     };
     header(reply.headers_mut(), "cache-control", cache);
+    header(reply.headers_mut(), "etag", &tag);
+    if vary {
+        header(reply.headers_mut(), "vary", "Accept-Encoding");
+    }
+    if request
+        .headers()
+        .get_all("if-none-match")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|v| {
+            v.split(',')
+                .map(str::trim)
+                .any(|value| value == "*" || value.strip_prefix("W/").unwrap_or(value) == tag)
+        })
+    {
+        *reply.status_mut() = StatusCode::NOT_MODIFIED;
+        return reply;
+    }
+    if !encoding.is_empty() {
+        header(reply.headers_mut(), "content-encoding", encoding);
+    }
     header(reply.headers_mut(), "content-type", media.essence_str());
-    header(
-        reply.headers_mut(),
-        "content-length",
-        &info.len().to_string(),
-    );
+    header(reply.headers_mut(), "accept-ranges", "bytes");
+    let size = info.len();
+    let mut offset = 0;
+    let mut length = size;
+    if let Some(range) = request.headers().get("range").and_then(|v| v.to_str().ok())
+        && request
+            .headers()
+            .get("if-range")
+            .is_none_or(|value| value == tag.as_str())
+    {
+        let Some((start, end)) = byte_range(range, size) else {
+            *reply.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
+            reply.headers_mut().remove("content-encoding");
+            header(
+                reply.headers_mut(),
+                "content-range",
+                &format!("bytes */{size}"),
+            );
+            return reply;
+        };
+        *reply.status_mut() = StatusCode::PARTIAL_CONTENT;
+        offset = start;
+        length = end - start + 1;
+        header(
+            reply.headers_mut(),
+            "content-range",
+            &format!("bytes {start}-{end}/{size}"),
+        );
+    }
+    header(reply.headers_mut(), "content-length", &length.to_string());
     if request.method() == Method::GET {
-        let stream =
-            futures_util::StreamExt::map(ReaderStream::new(file), |chunk| chunk.map(Frame::data));
+        if file.seek(io::SeekFrom::Start(offset)).await.is_err() {
+            return not_found();
+        }
+        let stream = futures_util::StreamExt::map(ReaderStream::new(file.take(length)), |chunk| {
+            chunk.map(Frame::data)
+        });
         *reply.body_mut() = StreamBody::new(stream).boxed_unsync();
     }
     reply
+}
+
+async fn etag(file: &mut tokio::fs::File) -> io::Result<String> {
+    let mut hash = Sha256::new();
+    let mut buffer = vec![0; 32 << 10];
+    loop {
+        let count = file.read(&mut buffer).await?;
+        if count == 0 {
+            return Ok(format!("\"{}\"", crate::process::hex(&hash.finalize())));
+        }
+        hash.update(&buffer[..count]);
+    }
+}
+
+fn select_encoding(accept: &str, brotli: bool, gzip: bool) -> &'static str {
+    let mut quality = std::collections::HashMap::new();
+    for item in accept.split(',') {
+        let mut parts = item.split(';').map(str::trim);
+        let encoding = parts.next().unwrap_or_default().to_ascii_lowercase();
+        let q = parts
+            .find_map(|parameter| parameter.strip_prefix("q="))
+            .map_or(1.0, |q| q.parse::<f64>().unwrap_or_default());
+        quality.insert(encoding, q);
+    }
+    let q = |encoding| {
+        *quality
+            .get(encoding)
+            .or_else(|| quality.get("*"))
+            .unwrap_or(&0.0)
+    };
+    let br = if brotli { q("br") } else { 0.0 };
+    let gz = if gzip { q("gzip") } else { 0.0 };
+    if br > 0.0 && br >= gz {
+        "br"
+    } else if gz > 0.0 {
+        "gzip"
+    } else {
+        ""
+    }
+}
+
+fn byte_range(value: &str, length: u64) -> Option<(u64, u64)> {
+    let (start, end) = value.strip_prefix("bytes=")?.trim().split_once('-')?;
+    let last = length.checked_sub(1)?;
+    if start.is_empty() {
+        let suffix = end.parse::<u64>().ok()?;
+        return (suffix > 0).then(|| (length.saturating_sub(suffix), last));
+    }
+    let start = start.parse().ok()?;
+    let end = if end.is_empty() {
+        last
+    } else {
+        last.min(end.parse().ok()?)
+    };
+    (start <= end).then_some((start, end))
 }
 
 fn valid_path(path: &str) -> bool {
@@ -183,5 +310,22 @@ fn strip_hop_headers(headers: &mut hyper::HeaderMap) {
         "transfer-encoding",
     ] {
         headers.remove(key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selects_an_available_encoding_and_validates_byte_ranges() {
+        assert_eq!(select_encoding("gzip;q=0.8, br;q=0.6", true, true), "gzip");
+        assert_eq!(select_encoding("*;q=0.5, gzip;q=0", true, true), "br");
+        assert_eq!(select_encoding("br;q=0,gzip;q=0", true, true), "");
+        assert_eq!(byte_range("bytes=1-7", 5), Some((1, 4)));
+        assert_eq!(byte_range("bytes=-3", 5), Some((2, 4)));
+        assert_eq!(byte_range("bytes=2-", 5), Some((2, 4)));
+        assert_eq!(byte_range("bytes=5-", 5), None);
+        assert_eq!(byte_range("bytes=-0", 5), None);
     }
 }

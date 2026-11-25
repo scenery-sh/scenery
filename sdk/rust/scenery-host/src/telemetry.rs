@@ -18,13 +18,16 @@ use tokio::sync::mpsc;
 use url::Url;
 
 use crate::host::{Call, Scope, stamp};
-use crate::plan::Service;
+use crate::plan::{EndpointFilter, Observability, Service};
 use crate::process::random_hex;
 
 pub(crate) struct Sink {
     app: String,
+    logs: Filter,
+    tracing: Filter,
     session: String,
     sender: Option<mpsc::Sender<Value>>,
+    victoria: Option<mpsc::Sender<(String, Value)>>,
     report_dir: PathBuf,
     recent: Option<Mutex<Recent>>,
 }
@@ -43,13 +46,20 @@ struct Stored {
 }
 
 impl Sink {
-    pub(crate) fn new(app: &str, development: bool) -> Result<Self> {
+    pub(crate) fn new(
+        app: &str,
+        development: bool,
+        filters: &Observability,
+        victoria: crate::otlp::Endpoints,
+    ) -> Result<Self> {
         let session = env::var("SCENERY_SESSION_ID").unwrap_or_default();
         let mut sender = None;
-        if let (Ok(endpoint), Ok(token)) = (
-            env::var("SCENERY_DEV_REPORT_URL"),
-            env::var("SCENERY_DEV_REPORT_TOKEN"),
-        ) {
+        if !development
+            && let (Ok(endpoint), Ok(token)) = (
+                env::var("SCENERY_DEV_REPORT_URL"),
+                env::var("SCENERY_DEV_REPORT_TOKEN"),
+            )
+        {
             let endpoint = Url::parse(&endpoint)?;
             ensure!(
                 endpoint.scheme() == "http"
@@ -69,8 +79,11 @@ impl Sink {
             .join("reports");
         Ok(Self {
             app: app.into(),
+            logs: Filter::new(&filters.logs),
+            tracing: Filter::new(&filters.tracing),
             session,
             sender,
+            victoria: crate::otlp::start(victoria)?,
             report_dir,
             recent: development.then(|| Mutex::new(Recent::default())),
         })
@@ -104,12 +117,19 @@ impl Sink {
 
     fn report(&self, kind: &str, key: &str, value: Value) {
         self.retain(kind, value.clone());
+        self.export(kind, &value);
         if let Some(sender) = &self.sender {
             let envelope = json!({
                 "type": kind, "app_id": self.app, "session_id": self.session,
                 "reporter_pid": std::process::id(), key: value,
             });
             let _ = sender.try_send(envelope);
+        }
+    }
+
+    fn export(&self, kind: &str, value: &Value) {
+        if let Some(sender) = &self.victoria {
+            let _ = sender.try_send((kind.into(), value.clone()));
         }
     }
 
@@ -130,10 +150,18 @@ impl Sink {
                 Some("log") => ("log", &report["log_event"]),
                 Some("trace-summary") => ("trace-summary", &report["trace_summary"]),
                 Some("trace-event") => ("trace-event", &report["trace_event"]),
+                Some("internal-failure") => {
+                    let _ = self.save_failure(
+                        &report["internal_failure"],
+                        report["reporter_pid"].as_u64().unwrap_or_default(),
+                    );
+                    continue;
+                }
                 _ => continue,
             };
             if record.is_object() {
                 self.retain(kind, record.clone());
+                self.export(kind, record);
             }
         }
         Ok(())
@@ -183,33 +211,42 @@ impl Sink {
         let cause = scrub.replace_all(cause, "[redacted URL]");
         let timestamp = stamp(OffsetDateTime::now_utc());
         let failure = json!({"report_token": token, "code": "SCN9000", "cause": cause, "timestamp": timestamp});
-        if self.sender.is_some() {
-            self.report("internal-failure", "internal_failure", failure);
-        } else {
-            let record = json!({
-                "kind": "scenery.failure.report", "report_token": token, "code": "SCN9000",
-                "cause": cause, "recorded_at": timestamp, "command": "runtime", "arguments": [],
-                "origin": "runtime", "reporter_pid": std::process::id(), "app_id": self.app,
-            });
-            use std::io::Write;
-            let saved = (|| -> Result<()> {
-                std::fs::DirBuilder::new()
-                    .mode(0o700)
-                    .recursive(true)
-                    .create(&self.report_dir)?;
-                let mut file = std::fs::OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .mode(0o600)
-                    .open(self.report_dir.join(format!("{token}.json")))?;
-                file.write_all(&serde_json::to_vec(&record)?)?;
-                Ok(())
-            })();
-            if let Err(error) = saved {
-                eprintln!("could not write internal failure report: {error}");
-            }
-        }
+        let _ = self.save_failure(&failure, std::process::id().into());
         Some(token)
+    }
+
+    fn save_failure(&self, failure: &Value, pid: u64) -> Result<()> {
+        use std::io::Write;
+        let token = failure["report_token"].as_str().unwrap_or_default();
+        ensure!(
+            token
+                .strip_prefix("rpt_")
+                .is_some_and(|tail| (16..=80).contains(&tail.len())
+                    && tail
+                        .bytes()
+                        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())),
+            "invalid report token"
+        );
+        let scrub =
+            regex::Regex::new(r"(?i)(postgres(?:ql)?|https?)://[^\s]+").expect("valid URL pattern");
+        let raw = failure["cause"].as_str().unwrap_or_default();
+        let cause = scrub.replace_all(raw, "[redacted URL]");
+        let record = json!({
+                "kind": "scenery.failure.report", "report_token": token, "code": "SCN9000",
+            "cause": cause, "recorded_at": failure["timestamp"], "command": "runtime", "arguments": [],
+            "origin": "runtime", "reporter_pid": pid, "app_id": self.app, "session_id": self.session,
+        });
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .recursive(true)
+            .create(&self.report_dir)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(self.report_dir.join(format!("{token}.json")))?;
+        file.write_all(&serde_json::to_vec(&record)?)?;
+        Ok(())
     }
 
     pub(crate) fn span(
@@ -220,7 +257,9 @@ impl Sink {
         duration: Duration,
         code: &str,
     ) {
-        self.span_record(call, service, operation, duration, code, Map::new());
+        if self.tracing.allows(&service.name, operation, &call.path) {
+            self.span_record(call, service, operation, duration, code, Map::new());
+        }
     }
 
     fn span_record(
@@ -269,7 +308,9 @@ impl Sink {
     }
 
     pub(crate) fn started(&self, call: &Call, service: &Service, operation: &str) {
-        if self.recent.is_none() && self.sender.is_none() {
+        if !self.logs_enabled(call, service, operation)
+            || self.recent.is_none() && self.sender.is_none()
+        {
             return;
         }
         self.report("log", "log_event", json!({
@@ -279,6 +320,10 @@ impl Sink {
             "runtime": service.runtime, "module": service.module, "operation": operation,
             "generation": call.generation.number, "level": "info", "message": "starting request",
         }));
+    }
+
+    pub(crate) fn logs_enabled(&self, call: &Call, service: &Service, endpoint: &str) -> bool {
+        self.logs.allows(&service.name, endpoint, &call.path)
     }
 
     pub(crate) fn worker(&self, scope: &Scope, service: &Service, input: &[u8]) -> Result<usize> {
@@ -320,7 +365,7 @@ impl Sink {
         for record in records {
             let call = &scope.call;
             match record.kind.as_str() {
-                "span" => {
+                "span" if self.tracing.allows(&service.name, &scope.endpoint, &call.path) => {
                     let mut child = call.clone();
                     child.parent_span_id.clone_from(&call.span_id);
                     child.stack.push(scope.operation.clone());
@@ -340,7 +385,7 @@ impl Sink {
                     "unit": record.attributes.get("unit").and_then(Value::as_str).unwrap_or(
                         if record.attributes.contains_key("value") { "" } else { "s" }),
                 })),
-                "log" => self.report("log", "log_event", json!({
+                "log" if self.logs_enabled(call, service, &scope.endpoint) => self.report("log", "log_event", json!({
                     "app_id": self.app, "session_id": self.session, "timestamp": stamp(OffsetDateTime::now_utc()),
                     "trace_id": call.trace_id, "span_id": call.span_id, "parent_span_id": call.parent_span_id,
                     "invocation_id": call.invocation_id, "execution_id": call.execution_id,
@@ -348,10 +393,75 @@ impl Sink {
                     "operation": scope.operation, "generation": call.generation.number, "level": "info",
                     "message": record.message, "attrs": {"name": record.name, "kind": record.kind, "values": record.attributes},
                 })),
-                _ => unreachable!(),
+                _ => {},
             }
         }
         Ok(count)
+    }
+}
+
+struct Filter {
+    included: Vec<(String, Option<glob::Pattern>)>,
+    excluded: Vec<(String, Option<glob::Pattern>)>,
+}
+
+impl Filter {
+    fn new(config: &EndpointFilter) -> Self {
+        let parse = |patterns: &[String]| {
+            patterns
+                .iter()
+                .map(|pattern| {
+                    let pattern = pattern.trim();
+                    (pattern.to_owned(), glob::Pattern::new(pattern).ok())
+                })
+                .collect()
+        };
+        Self {
+            included: parse(&config.include_endpoints),
+            excluded: parse(&config.exclude_endpoints),
+        }
+    }
+
+    fn allows(&self, service: &str, operation: &str, path: &str) -> bool {
+        if self.included.is_empty() && self.excluded.is_empty() {
+            return true;
+        }
+        // Go registers generated HTTP bindings under their exported name.
+        let name = operation.rsplit('/').next().unwrap_or(operation);
+        let endpoint: String = name
+            .split(['_', '-'])
+            .filter(|part| !part.is_empty())
+            .flat_map(|part| {
+                let mut characters = part.chars();
+                characters
+                    .next()
+                    .into_iter()
+                    .flat_map(char::to_uppercase)
+                    .chain(characters)
+            })
+            .collect();
+        let qualified = format!("{service}.{endpoint}");
+        let candidates = [qualified.as_str(), service, &endpoint, path];
+        let matches = |patterns: &[(String, Option<glob::Pattern>)]| {
+            patterns.iter().any(|(text, pattern)| {
+                candidates
+                    .iter()
+                    .filter(|candidate| !candidate.is_empty())
+                    .any(|candidate| {
+                        text == candidate
+                            || pattern.as_ref().is_some_and(|pattern| {
+                                pattern.matches_with(
+                                    candidate,
+                                    glob::MatchOptions {
+                                        require_literal_separator: true,
+                                        ..glob::MatchOptions::new()
+                                    },
+                                )
+                            })
+                    })
+            })
+        };
+        (self.included.is_empty() || matches(&self.included)) && !matches(&self.excluded)
     }
 }
 
@@ -392,5 +502,23 @@ async fn send_reports(mut receiver: mpsc::Receiver<Value>, endpoint: Url, token:
             Ok::<_, anyhow::Error>(())
         };
         let _ = tokio::time::timeout(Duration::from_secs(2), send).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filters_use_the_go_binding_name_and_request_path() {
+        let filter = Filter::new(&EndpointFilter {
+            include_endpoints: vec!["tenants.GetConfig".into(), "/api/items/*".into()],
+            exclude_endpoints: vec!["jobs.*".into(), "/api/items/private".into()],
+        });
+        assert!(filter.allows("tenants", "app/binding/get_config", "/tenants/config"));
+        assert!(filter.allows("items", "app/binding/get_item", "/api/items/public"));
+        assert!(!filter.allows("items", "app/binding/get_item", "/api/items/private"));
+        assert!(!filter.allows("jobs", "app/binding/get_item", "/api/items/public"));
+        assert!(!filter.allows("items", "app/binding/get_item", "/api/items/public/nested"));
     }
 }

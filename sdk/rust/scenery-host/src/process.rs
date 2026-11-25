@@ -5,6 +5,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -15,7 +16,6 @@ use scenery_wire::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sha2::{Digest, Sha256};
 use tokio::time::{sleep, timeout};
 
 use crate::transport::{Client, read};
@@ -45,6 +45,8 @@ pub(crate) struct Program {
     pub(crate) identity: BuildIdentity,
     pub(crate) environment: Vec<String>,
     pub(crate) startup: Option<Box<RawValue>>,
+    #[serde(skip)]
+    pub(crate) artifact: Option<Arc<tempfile::TempPath>>,
 }
 
 pub(crate) struct Worker {
@@ -328,10 +330,10 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     encoded
 }
 
-fn file_digest(binary: &Path) -> Result<String> {
+pub(crate) fn file_digest(binary: &Path) -> Result<String> {
     let mut file = File::open(binary)?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0; 16 << 10];
+    let mut hash = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buffer = [0; 64 << 10];
     loop {
         let length = file.read(&mut buffer)?;
         if length == 0 {
@@ -339,7 +341,7 @@ fn file_digest(binary: &Path) -> Result<String> {
         }
         hash.update(&buffer[..length]);
     }
-    Ok(format!("sha256:{}", hex(&hash.finalize())))
+    Ok(format!("sha256:{}", hex(hash.finish().as_ref())))
 }
 
 fn private_input(directory: &Path, raw: &RawValue) -> Result<File> {

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt::Display;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -267,6 +266,7 @@ pub(crate) struct Scope {
     pub call: Call,
     pub service: String,
     pub operation: String,
+    pub endpoint: String,
     pub token: String,
     pub cancel: CancellationToken,
 }
@@ -294,7 +294,8 @@ pub(crate) struct Host {
     generation: watch::Receiver<Option<Arc<Generation>>>,
     capability_scopes: Scopes,
     control_token: String,
-    watcher: Option<PathBuf>,
+    dev_status: Option<Arc<crate::dev::Status>>,
+    pub stop: CancellationToken,
     auth_schema: tokio::sync::OnceCell<()>,
 }
 
@@ -302,14 +303,21 @@ impl Host {
     pub(crate) fn new(
         bundle: Bundle,
         configuration: Value,
-        development: bool,
+        victoria: crate::otlp::Endpoints,
         control_token: String,
-        watcher: Option<PathBuf>,
+        dev_status: Option<Arc<crate::dev::Status>>,
+        stop: CancellationToken,
         generation: watch::Receiver<Option<Arc<Generation>>>,
     ) -> Result<Self> {
+        let development = dev_status.is_some();
         let scope = project_snapshot(&configuration, "host", &bundle.host_config_keys);
         let auth = Authentication::new(bundle.auth.as_ref(), &scope, development)?;
-        let telemetry = telemetry::Sink::new(&bundle.host.name, development)?;
+        let telemetry = telemetry::Sink::new(
+            &bundle.host.name,
+            development,
+            &bundle.host.observability,
+            victoria,
+        )?;
         Ok(Self {
             bundle,
             configuration,
@@ -319,7 +327,8 @@ impl Host {
             telemetry,
             engine: Engine::new(),
             control_token,
-            watcher,
+            dev_status,
+            stop,
             auth_schema: tokio::sync::OnceCell::new(),
             capability_scopes: Scopes::default(),
         })
@@ -513,6 +522,7 @@ impl Host {
             call: call.clone(),
             service: service.address.clone(),
             operation: address.into(),
+            endpoint: binding.unwrap_or(address).into(),
             token: worker.launch.token.clone(),
             cancel: call.cancel.child_token(),
         });
@@ -528,7 +538,7 @@ impl Host {
         let mut metadata = json!({
             "caller_binding": call.caller, "started": stamp(call.started),
             "parent_span_id": call.parent_span_id, "module": service.module, "service_name": service.name,
-            "logs_enabled": self.development, "request_type": if mode == "durable" { "durable-call" } else { "api-call" },
+            "logs_enabled": self.development && self.telemetry.logs_enabled(call, service, &scope.endpoint), "request_type": if mode == "durable" { "durable-call" } else { "api-call" },
         });
         if let Some(workload) = &call.workload {
             metadata["auth_data_kind"] = json!("json");
@@ -718,7 +728,7 @@ impl Host {
         }
     }
 
-    pub(crate) async fn control(&self, mut request: Request<Incoming>) -> Reply {
+    pub(crate) async fn control(self: &Arc<Self>, mut request: Request<Incoming>) -> Reply {
         if !authorized(request.headers(), &self.control_token) {
             return empty(StatusCode::UNAUTHORIZED);
         }
@@ -737,10 +747,13 @@ impl Host {
         }
         if request.method() == Method::GET && request.uri().path() == "/__scenery/process/v1/source"
         {
-            return match self.source_status(request.uri().query()).await {
-                Ok(reply) => reply,
-                Err(_) => empty(StatusCode::SERVICE_UNAVAILABLE),
+            let Some(status) = &self.dev_status else {
+                return empty(StatusCode::NOT_FOUND);
             };
+            return status
+                .reply(request.uri().query(), &self.generation)
+                .await
+                .unwrap_or_else(|_| empty(StatusCode::SERVICE_UNAVAILABLE));
         }
         if request.method() != Method::POST {
             return empty(StatusCode::NOT_FOUND);
@@ -754,6 +767,7 @@ impl Host {
             request.headers_mut().insert("authorization", auth);
         }
         match path.as_str() {
+            "/__scenery/process/v1/shutdown" => crate::dev::shutdown(self.stop.clone()),
             "/__scenery/process/v1/worker-reports" => {
                 let result = match read(request.into_body(), 1 << 20).await {
                     Ok(data) => self.telemetry.ingest(&data),
@@ -802,29 +816,6 @@ impl Host {
             }
             _ => empty(StatusCode::NOT_FOUND),
         }
-    }
-    async fn source_status(&self, query: Option<&str>) -> Result<Reply> {
-        let Some(watcher) = &self.watcher else {
-            return Ok(empty(StatusCode::NOT_FOUND));
-        };
-        let socket = tokio::net::UnixStream::connect(watcher).await?;
-        let (mut sender, connection) =
-            hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(socket)).await?;
-        tokio::spawn(connection);
-        let path = query.map_or_else(|| "/status".into(), |query| format!("/status?{query}"));
-        let reply = sender
-            .send_request(
-                Request::get(path)
-                    .header("host", "watcher")
-                    .header("connection", "close")
-                    .body(Full::new(Bytes::new()))?,
-            )
-            .await?;
-        let (parts, incoming) = reply.into_parts();
-        Ok(Response::from_parts(
-            parts,
-            incoming.map_err(std::io::Error::other).boxed_unsync(),
-        ))
     }
 }
 

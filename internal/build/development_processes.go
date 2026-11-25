@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -468,6 +470,69 @@ func developmentLinkSlot(ctx context.Context, result *Result) (func(), error) {
 	}
 	digest := sha256.Sum256([]byte(result.Dir))
 	return acquireSharedBinarySlotObserved(ctx, root, hex.EncodeToString(digest[:]))
+}
+
+// DiscoverDevelopmentWorkerInputs refreshes the Go command graph after a
+// declaration edit without linking any worker.
+func DiscoverDevelopmentWorkerInputs(ctx context.Context, result *Result) error {
+	unlock, err := lockWorkspace(result.Dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if result.NeedsTidy {
+		if err := tidyWorkspace(ctx, result); err != nil {
+			return err
+		}
+	}
+	result.BuildInput, err = buildInputManifest(ctx, result)
+	return err
+}
+
+// DevelopmentWorkerCommand projects the retained import closure and the
+// normal linker command for one native development worker.
+func DevelopmentWorkerCommand(result *Result, service, revision string) ([]string, []string, error) {
+	plan, err := generateHooks.RuntimeIntegrationPlan(result.Contract)
+	if err != nil {
+		return nil, nil, err
+	}
+	graph := result.BuildInput.processes
+	for _, entry := range plan.Services {
+		if entry.Address != service {
+			continue
+		}
+		main := graph.mains[entry.Name]
+		if main == "" {
+			return nil, nil, fmt.Errorf("missing Go entrypoint for %s", service)
+		}
+		if revision == "" {
+			revision = entry.ContractRevision
+		}
+		roots := map[string]bool{}
+		seen := map[string]bool{}
+		var visit func(string)
+		visit = func(pkg string) {
+			if seen[pkg] {
+				return
+			}
+			seen[pkg] = true
+			if dir := graph.dirs[pkg]; dir != "" {
+				roots[dir] = true
+			}
+			for _, dep := range graph.imports[pkg] {
+				visit(dep)
+			}
+		}
+		visit(main)
+		process := &DevelopmentProcess{Package: main, Identity: DevelopmentProcessIdentity{
+			ContractRevision: revision, ImplementationRevision: "{revision}", BuildInputDigest: "{revision}", GoTarget: result.Target.Name,
+		}}
+		args := developmentProcessBuildArgs(result.GoBuildFlags, developmentLinkerDefaults(result), "{output}", []*DevelopmentProcess{process})
+		// A single package can write directly to the staging output path.
+		args[len(args)-2] = "{output}"
+		return args, slices.Sorted(maps.Keys(roots)), nil
+	}
+	return nil, nil, fmt.Errorf("missing Go entrypoint for %s", service)
 }
 
 // developmentProcessBuildArgs keeps the configured Go build flags, moves every

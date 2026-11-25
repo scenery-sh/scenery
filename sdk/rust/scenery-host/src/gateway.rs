@@ -154,6 +154,15 @@ pub(crate) async fn ingress(
     if path == "/users/dev-bootstrap" {
         return attest(empty(StatusCode::NOT_FOUND), &generation, None);
     }
+    if path.starts_with("/auth/")
+        && let Some(route) = crate::browser_auth::route(host, &method, &path)
+    {
+        return attest(
+            crate::browser_auth::serve(host, route, request).await,
+            &generation,
+            None,
+        );
+    }
     let preflight = method == Method::OPTIONS
         && request
             .headers()

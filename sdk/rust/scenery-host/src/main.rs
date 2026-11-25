@@ -1,12 +1,20 @@
 mod abi;
 mod auth;
+mod auth_google;
+mod auth_organizations;
+mod auth_sessions;
+mod browser_auth;
 mod connections;
+mod dev;
+mod dev_build;
+mod dev_inputs;
 mod durable;
 mod frontend;
 mod gateway;
 mod host;
 mod http_codec;
 mod local_storage;
+mod otlp;
 mod plan;
 mod policy;
 mod process;
@@ -35,7 +43,6 @@ use serde_json::Value;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinSet;
-use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 
 use crate::durable::Engine;
@@ -53,10 +60,7 @@ fn main() {
 
 fn bootstrap() -> Result<()> {
     let mut args = std::env::args_os().skip(1).peekable();
-    let input = if args
-        .peek()
-        .is_some_and(|argument| argument == "--development")
-    {
+    let input = if args.peek().is_some_and(|argument| argument == "--dev") {
         args.next();
         let directory = args
             .next()
@@ -67,12 +71,16 @@ fn bootstrap() -> Result<()> {
             args.next().is_none(),
             "unexpected development host arguments"
         );
-        let file = File::open(plan)?;
+        let directory = PathBuf::from(directory);
+        let file = File::open(&plan)?;
         let Development {
             mut bundle,
             snapshot,
             token,
+            config,
         } = serde_json::from_reader(file.take(36 << 20))?;
+        let resources = DevResources::inherit(&config, directory.clone())?;
+        std::fs::remove_file(plan)?;
         if let Some(frontend) = &mut bundle.frontend
             && frontend.upstream.is_none()
         {
@@ -84,9 +92,9 @@ fn bootstrap() -> Result<()> {
             listen: listen
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("invalid listen address"))?,
-            development: true,
+            dev: Some((config, resources)),
             token: Some(token),
-            directory: directory.into(),
+            directory,
             _temporary: None,
             root: PathBuf::new(),
         }
@@ -117,7 +125,7 @@ fn bootstrap() -> Result<()> {
             bundle,
             snapshot,
             listen: parse_listen(args)?,
-            development: false,
+            dev: None,
             token: None,
             directory: directory.path().into(),
             _temporary: Some(directory),
@@ -135,7 +143,7 @@ struct Input {
     bundle: Bundle,
     snapshot: Value,
     listen: String,
-    development: bool,
+    dev: Option<(dev::Development, DevResources)>,
     token: Option<String>,
     directory: PathBuf,
     _temporary: Option<tempfile::TempDir>,
@@ -147,6 +155,7 @@ struct Development {
     bundle: Bundle,
     snapshot: Value,
     token: String,
+    config: dev::Development,
 }
 
 fn parse_listen(args: impl Iterator<Item = OsString>) -> Result<String> {
@@ -205,18 +214,16 @@ fn inherited_snapshot() -> Result<Value> {
     values::parse(&bytes)
 }
 
-async fn run(input: Input) -> Result<()> {
+async fn run(mut input: Input) -> Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
-    let development = input.development;
-    let parent = unsafe { libc::getppid() };
+    let development = input.dev.is_some();
     let stop = CancellationToken::new();
     let stop_signal = stop.clone();
     let signals = tokio::spawn(async move {
         tokio::select! {
             _ = terminate.recv() => {}
             _ = interrupt.recv() => {}
-            () = parent_exits(parent), if development => {}
         }
         stop_signal.cancel();
     });
@@ -233,32 +240,62 @@ async fn run(input: Input) -> Result<()> {
             )
         })
         .collect();
+    let events = input.dev.as_ref().and_then(|(config, _)| {
+        config
+            .telemetry_path
+            .clone()
+            .map(|path| supervisor::EventTarget {
+                path,
+                app: config.app.clone(),
+            })
+    });
     let control = Control::bind(
         directory,
         input.bundle.contract_revision.clone(),
         input.token,
         expected,
+        events,
     )?;
     let mut publication = control.publication().await;
-    let plan = if development {
-        None
+    let revision = input.bundle.contract_revision.clone();
+    let publisher = control.publisher(publication.clone());
+    let mut resources = None;
+    let mut startup = None;
+    let mut victoria = otlp::Endpoints::new();
+    let watcher = if let Some((mut config, owned)) = input.dev.take() {
+        resources = Some(owned);
+        let endpoint = dev::write_endpoint(
+            &config,
+            &directory.join("control.sock"),
+            control.token().trim_start_matches("Bearer "),
+        )?;
+        resources.as_mut().expect("development resources").endpoint = Some(endpoint);
+        startup = config.startup.take().zip(config.telemetry_path.clone());
+        victoria = std::mem::take(&mut config.victoria);
+        Some(dev::WatcherLoop::start(config)?)
     } else {
-        Some(LaunchPlan {
-            contract_revision: input.bundle.contract_revision.clone(),
+        None
+    };
+    let plan = if let Some(watcher) = &watcher {
+        watcher.initial(revision.clone())
+    } else {
+        LaunchPlan {
+            contract_revision: revision.clone(),
             programs: input
                 .bundle
                 .programs
                 .iter()
                 .map(|program| program.program(&input.root, &input.snapshot))
                 .collect::<Result<_>>()?,
-        })
+        }
     };
     let host = Arc::new(Host::new(
         input.bundle,
         input.snapshot,
-        development,
+        victoria,
         control.token().into(),
-        development.then(|| directory.join("watcher.sock")),
+        watcher.as_ref().map(dev::WatcherLoop::status),
+        stop.clone(),
         publication.clone(),
     )?);
     host.engine.prepare(&host).await?;
@@ -278,20 +315,24 @@ async fn run(input: Input) -> Result<()> {
         private_stop.clone(),
         true,
     ));
-    if let Some(plan) = plan {
-        let launched = tokio::select! {
-            result = control.publish_initial(plan) => result,
-            () = stop.cancelled() => return Ok(()),
-        };
-        launched?;
+    if let Some(resources) = &mut resources
+        && let Some(listener) = resources.reports.take()
+    {
+        servers.spawn_local(serve_reports(
+            TcpListener::from_std(listener)?,
+            host.clone(),
+            private_stop.clone(),
+        ));
     }
+    tokio::select! {
+        result = control.publish_initial(plan) => result?,
+        () = stop.cancelled() => return Ok(()),
+    }
+    let rebuild =
+        watcher.map(|watcher| tokio::spawn(watcher.run(directory.clone(), publisher, revision)));
     let shutdown = private_stop.clone();
     let mut supervisor = tokio::spawn(control.serve(async move { shutdown.cancelled().await }));
     let result = async {
-        if !development {
-            // Subscription remains at the initially published generation.
-            publication.mark_changed();
-        }
         tokio::select! {
             result = publication.wait_for(Option::is_some) => { result?; }
             () = stop.cancelled() => return Ok(()),
@@ -304,6 +345,15 @@ async fn run(input: Input) -> Result<()> {
             let mut marker = std::fs::OpenOptions::new().create_new(true).write(true).mode(0o600)
                 .open(directory.join("ready"))?;
             writeln!(marker, "{address}")?;
+        }
+        if let Some((mut record, path)) = startup
+            && let Some(at) = record["at"].as_str().and_then(|timestamp| time::OffsetDateTime::parse(
+                timestamp, &time::format_description::well_known::Rfc3339).ok())
+        {
+            record["duration_ms"] = serde_json::json!((time::OffsetDateTime::now_utc() - at).whole_milliseconds().max(0));
+            if let Err(error) = dev::journal(&path, &record).await {
+                eprintln!("could not record startup telemetry: {error:#}");
+            }
         }
         eprintln!("application ready on {address}");
         let engine = tokio::spawn(Engine::run(host.clone(), stop.clone()));
@@ -325,6 +375,10 @@ async fn run(input: Input) -> Result<()> {
         result
     }.await;
     stop.cancel();
+    if let Some(rebuild) = rebuild {
+        rebuild.abort();
+        let _ = rebuild.await;
+    }
     private_stop.cancel();
     if !supervisor.is_finished() {
         supervisor.await??;
@@ -332,6 +386,98 @@ async fn run(input: Input) -> Result<()> {
     servers.shutdown().await;
     signals.abort();
     result
+}
+
+struct DevResources {
+    directory: PathBuf,
+    _locks: Vec<OwnedFd>,
+    reports: Option<std::net::TcpListener>,
+    endpoint: Option<PathBuf>,
+    frontend: i32,
+}
+
+impl DevResources {
+    fn inherit(config: &dev::Development, directory: PathBuf) -> Result<Self> {
+        let mut resources = Self {
+            directory,
+            _locks: Vec::new(),
+            reports: None,
+            endpoint: None,
+            frontend: config.frontend_pid,
+        };
+        for &fd in &config.lock_fds {
+            resources._locks.push(inherit_fd(fd)?);
+        }
+        let listener = std::net::TcpListener::from(inherit_fd(config.report_fd)?);
+        listener.set_nonblocking(true)?;
+        resources.reports = Some(listener);
+        Ok(resources)
+    }
+}
+
+fn inherit_fd(fd: RawFd) -> Result<OwnedFd> {
+    ensure!(
+        fd >= 3 && unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } == 0,
+        "development descriptor is unavailable"
+    );
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+impl Drop for DevResources {
+    fn drop(&mut self) {
+        if self.frontend > 0 {
+            // The inherited frontend remains our child. Keep the leader
+            // unreaped until its group has been stopped.
+            unsafe {
+                libc::kill(-self.frontend, libc::SIGKILL);
+                libc::waitpid(self.frontend, std::ptr::null_mut(), 0);
+            }
+        }
+        if let Some(endpoint) = &self.endpoint {
+            let _ = std::fs::remove_file(endpoint);
+        }
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+async fn serve_reports(
+    listener: TcpListener,
+    host: Arc<Host>,
+    stop: CancellationToken,
+) -> Result<()> {
+    let token = format!("Bearer {}", std::env::var("SCENERY_DEV_REPORT_TOKEN")?);
+    let mut connections = JoinSet::new();
+    loop {
+        tokio::select! {
+            () = stop.cancelled() => return Ok(()),
+            socket = listener.accept() => {
+                let (socket, _) = socket?;
+                let host = host.clone();
+                let token = token.clone();
+                connections.spawn(async move {
+                    let service = service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
+                        let host = host.clone();
+                        let token = token.clone();
+                        async move {
+                            use hyper::{Method, StatusCode};
+                            let status = if request.method() != Method::POST || request.uri().path() != "/report"
+                                || !host::authorized(request.headers(), &token) {
+                                StatusCode::UNAUTHORIZED
+                            } else {
+                                match transport::read(request.into_body(), 1 << 20).await {
+                                    Ok(raw) if host.telemetry.ingest(&raw).is_ok() => StatusCode::NO_CONTENT,
+                                    _ => StatusCode::BAD_REQUEST,
+                                }
+                            };
+                            Ok::<_, Infallible>(host::empty(status))
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(socket), service).await;
+                });
+            }
+            _ = connections.join_next(), if !connections.is_empty() => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -484,14 +630,4 @@ async fn serve_public(
     }
     while connections.join_next().await.is_some() {}
     Ok(())
-}
-
-async fn parent_exits(parent: libc::pid_t) {
-    let mut poll = interval(Duration::from_millis(100));
-    loop {
-        if parent <= 1 || unsafe { libc::getppid() } != parent {
-            return;
-        }
-        poll.tick().await;
-    }
 }

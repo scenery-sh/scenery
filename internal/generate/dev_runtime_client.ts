@@ -179,8 +179,11 @@ export interface DevRuntimeRebuildTiming {
 	readonly skipped_modules: readonly string[];
 	readonly detect_ms: number;
 	readonly compile_ms: number;
+	readonly link_ms?: number;
 	readonly ready_ms: number;
 	readonly total_ms: number;
+	readonly edit_to_ready_ms?: number;
+	readonly trigger_kind?: "body_only" | "contract_or_config";
 }
 
 export interface DevRuntimeBuildBlock {

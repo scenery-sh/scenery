@@ -26,6 +26,24 @@ pub(crate) struct Bundle {
 pub(crate) struct HostPlan {
     pub name: String,
     pub workers: Vec<Service>,
+    #[serde(default)]
+    pub observability: Observability,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub(crate) struct Observability {
+    pub logs: EndpointFilter,
+    pub tracing: EndpointFilter,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub(crate) struct EndpointFilter {
+    #[serde(default, deserialize_with = "nullable")]
+    pub include_endpoints: Vec<String>,
+    #[serde(default, deserialize_with = "nullable")]
+    pub exclude_endpoints: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -41,9 +59,17 @@ pub(crate) struct Auth {
     #[serde(rename = "bootstrap_sql", default)]
     pub bootstrap_sql: String,
     pub enabled: bool,
+    #[serde(rename = "GoogleOAuth")]
+    pub google_o_auth: GoogleOAuth,
     pub dev_bootstrap: Bootstrap,
     #[serde(deserialize_with = "nullable")]
     pub connections: Vec<crate::connections::Provider>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct GoogleOAuth {
+    #[serde(rename = "Enabled")]
+    pub enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -449,6 +475,7 @@ impl Artifact {
             identity: self.identity.clone(),
             environment,
             startup,
+            artifact: None,
         })
     }
 }

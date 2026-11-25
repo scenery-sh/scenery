@@ -262,7 +262,7 @@ impl Engine {
         })
     }
 
-    pub(crate) async fn dev_run(&self, host: &Host, request: Request<Incoming>) -> Reply {
+    pub(crate) async fn dev_run(&self, host: &Arc<Host>, request: Request<Incoming>) -> Reply {
         self.run_development(host, request)
             .await
             .unwrap_or_else(|fault| fault.reply(host, None))
@@ -270,7 +270,7 @@ impl Engine {
 
     async fn run_development(
         &self,
-        host: &Host,
+        host: &Arc<Host>,
         request: Request<Incoming>,
     ) -> Result<Reply, Fault> {
         let raw = transport::read(request.into_body(), scenery_wire::MAX_METADATA)
@@ -345,11 +345,38 @@ impl Engine {
             let execution_id = format!("run_{}", random_hex::<16>().map_err(Fault::internal)?);
             call.method = "SCHEDULE".into();
             call.execution_id = Some(execution_id.clone());
+            let mut reply = json!({"job_id": execution_id, "target": address, "module": service.module,
+                "execution_kind": "schedule", "attempts": 1, "input": input, "trace_id": call.trace_id, "timed_out": false});
+            if !command.wait {
+                reply["state"] = json!("queued");
+                reply["attempts"] = json!(0);
+                let host = host.clone();
+                let service_address = service.address.clone();
+                let operation = operation.clone();
+                tokio::spawn(async move {
+                    let Some(service) = host
+                        .bundle
+                        .host
+                        .workers
+                        .iter()
+                        .find(|service| service.address == service_address)
+                    else {
+                        return;
+                    };
+                    tokio::select! {
+                        () = host.stop.cancelled() => {}
+                        output = host.invoke(&call, service, &operation, None, "direct", &input) => {
+                            if !matches!(output, Ok(output) if output.stream.is_none()) {
+                                host.telemetry.failure("scheduled execution failed");
+                            }
+                        }
+                    }
+                });
+                return Ok(json_reply(StatusCode::OK, &reply));
+            }
             let output = host
                 .invoke(&call, service, operation, None, "direct", &input)
                 .await;
-            let mut reply = json!({"job_id": execution_id, "target": address, "module": service.module,
-                "execution_kind": "schedule", "attempts": 1, "input": input, "trace_id": call.trace_id, "timed_out": false});
             match output {
                 Ok(output) if output.stream.is_none() => {
                     reply["state"] = json!("succeeded");
@@ -654,10 +681,11 @@ async fn execute_next(host: &Host, service: &Service, plan: &Durable) -> Result<
         .as_str()
         .filter(|value| !value.is_empty())
     {
-        let mut identity = Claims::default();
-        identity.user = user.into();
-        identity.tenant = job.memo["tenant_id"].as_str().unwrap_or_default().into();
-        call.principal = Some(identity);
+        call.principal = Some(Claims {
+            user: user.into(),
+            tenant: job.memo["tenant_id"].as_str().unwrap_or_default().into(),
+            ..Claims::default()
+        });
     }
     let execute = async {
         let input = values::parse(&job.input).map_err(Fault::internal)?;

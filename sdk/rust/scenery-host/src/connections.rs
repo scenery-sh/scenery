@@ -425,7 +425,7 @@ async fn refresh_grant(
     Ok(grant)
 }
 
-async fn limited(response: &mut reqwest::Response, limit: usize) -> Result<Vec<u8>> {
+pub(crate) async fn limited(response: &mut reqwest::Response, limit: usize) -> Result<Vec<u8>> {
     let mut data = Vec::new();
     while let Some(chunk) = response.chunk().await? {
         ensure!(
@@ -444,6 +444,21 @@ async fn check_id_token(
     subject: &str,
     token: &str,
 ) -> Result<()> {
+    let claims = verify_id_token(client, provider.jwks_url(), token).await?;
+    ensure!(
+        claims["iss"] == provider.issuer()
+            && claims["sub"] == subject
+            && valid_audience(&claims, audience),
+        "invalid identity claims"
+    );
+    Ok(())
+}
+
+pub(crate) async fn verify_id_token(
+    client: &HttpClient,
+    jwks_url: &str,
+    token: &str,
+) -> Result<Value> {
     let (message, sig) = token.rsplit_once('.').context("invalid identity token")?;
     let (header, claims) = message.split_once('.').context("invalid identity token")?;
     let header = values::parse(&URL_SAFE_NO_PAD.decode(header)?)?;
@@ -453,7 +468,7 @@ async fn check_id_token(
         .filter(|value| !value.is_empty())
         .context("missing identity key id")?;
     let mut response = client
-        .get(trusted_url(provider.jwks_url())?)
+        .get(trusted_url(jwks_url)?)
         .send()
         .await?
         .error_for_status()?;
@@ -479,22 +494,22 @@ async fn check_id_token(
         )
         .map_err(|_| anyhow::anyhow!("invalid identity signature"))?;
     let claims = values::parse(&URL_SAFE_NO_PAD.decode(claims)?)?;
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    ensure!(
+        claims["exp"].as_i64().is_some_and(|exp| exp > now)
+            && claims["nbf"].as_i64().is_none_or(|nbf| nbf <= now),
+        "invalid identity token expiry"
+    );
+    Ok(claims)
+}
+
+pub(crate) fn valid_audience(claims: &Value, audience: &str) -> bool {
     let aud = &claims["aud"];
-    let audience_matches = aud == audience
+    aud == audience
         || aud.as_array().is_some_and(|values| {
             values.iter().any(|value| value == audience)
                 && (values.len() == 1 || claims["azp"] == audience)
-        });
-    let now = OffsetDateTime::now_utc().unix_timestamp();
-    ensure!(
-        claims["iss"] == provider.issuer()
-            && claims["sub"] == subject
-            && audience_matches
-            && claims["exp"].as_i64().is_some_and(|exp| exp > now)
-            && claims["nbf"].as_i64().is_none_or(|nbf| nbf <= now),
-        "invalid identity claims"
-    );
-    Ok(())
+        })
 }
 
 fn trusted_url(raw: &str) -> Result<url::Url> {
