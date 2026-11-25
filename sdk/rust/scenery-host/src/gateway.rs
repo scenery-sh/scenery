@@ -194,6 +194,12 @@ pub(crate) async fn ingress(
         .map(|(plan, route)| (plan, route, ""))
         .or_else(|| assistant_route(mounted_path?).map(|(plan, route)| (plan, route, "/api")))
     {
+        if let Some(deadlines) = request
+            .extensions()
+            .get::<Arc<crate::http_timeout::DeadlineControl>>()
+        {
+            deadlines.apply_policy(&plan.policy);
+        }
         let origin = request.headers().get("origin").cloned();
         let mut response =
             crate::assistant::Gateway::serve(host, plan, route, request, mount, generation.clone())
@@ -206,6 +212,12 @@ pub(crate) async fn ingress(
         return attest(response, &generation, None);
     };
     let policy = &selected.binding.policy;
+    if let Some(deadlines) = request
+        .extensions()
+        .get::<Arc<crate::http_timeout::DeadlineControl>>()
+    {
+        deadlines.apply_policy(policy);
+    }
     let cors_origin = request.headers().get("origin").cloned();
     if preflight {
         return attest(

@@ -21,6 +21,7 @@ mod frontend_dev;
 mod gateway;
 mod host;
 mod http_codec;
+mod http_timeout;
 mod local_storage;
 mod mcp;
 
@@ -43,7 +44,6 @@ use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
 use hyper::service::service_fn;
@@ -649,6 +649,7 @@ async fn serve_public(
     host: Arc<Host>,
     stop: CancellationToken,
 ) -> Result<()> {
+    let timeouts = host.bundle.host.http_timeouts();
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
@@ -658,16 +659,30 @@ async fn serve_public(
                 let host = host.clone();
                 let stop = stop.clone();
                 connections.spawn(async move {
+                    let (stream, deadlines) = http_timeout::DeadlineStream::new(socket, timeouts);
                     let service = service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
                         let host = host.clone();
+                        let deadlines = deadlines.clone();
+                        deadlines.begin_request(timeouts.read, timeouts.write);
+                        request.extensions_mut().insert(deadlines.clone());
                         if let Some(peer) = peer {
                             request.extensions_mut().insert(peer);
                         }
-                        async move { Ok::<_, Infallible>(gateway::public(&host, request).await) }
+                        async move {
+                            let response = gateway::public(&host, request).await;
+                            deadlines.begin_response(
+                                response.status(),
+                                response.headers(),
+                                timeouts.idle,
+                            );
+                            Ok::<_, Infallible>(response)
+                        }
                     });
                     let mut builder = hyper::server::conn::http1::Builder::new();
-                    builder.timer(hyper_util::rt::TokioTimer::new()).header_read_timeout(Duration::from_secs(10));
-                    let connection = builder.serve_connection(TokioIo::new(socket), service).with_upgrades();
+                    builder
+                        .timer(hyper_util::rt::TokioTimer::new())
+                        .header_read_timeout(timeouts.header_read);
+                    let connection = builder.serve_connection(TokioIo::new(stream), service).with_upgrades();
                     tokio::pin!(connection);
                     tokio::select! {
                         _ = &mut connection => {}

@@ -205,7 +205,7 @@ pub(crate) struct Key {
     pub ty: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct Policy {
     pub binding_address: String,
@@ -213,6 +213,12 @@ pub(crate) struct Policy {
     #[serde(deserialize_with = "nullable")]
     pub authorization_rules: Vec<Rule>,
     pub total_invocation_timeout_nanos: u64,
+    #[serde(default)]
+    pub read_timeout_nanos: u64,
+    #[serde(default)]
+    pub write_timeout_nanos: u64,
+    #[serde(default)]
+    pub idle_timeout_nanos: u64,
     pub max_request_header_bytes: usize,
     #[serde(rename = "CORS")]
     pub cors: String,
@@ -222,7 +228,73 @@ pub(crate) struct Policy {
     pub transport_statuses: BTreeMap<String, u16>,
 }
 
-#[derive(Deserialize)]
+impl Policy {
+    pub(crate) fn read_timeout(&self) -> std::time::Duration {
+        if self.read_timeout_nanos > 0 {
+            std::time::Duration::from_nanos(self.read_timeout_nanos)
+        } else {
+            crate::http_timeout::DEFAULT_HTTP_READ_TIMEOUT
+        }
+    }
+
+    pub(crate) fn write_timeout(&self) -> std::time::Duration {
+        if self.write_timeout_nanos > 0 {
+            std::time::Duration::from_nanos(self.write_timeout_nanos)
+        } else {
+            crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT
+        }
+    }
+}
+
+impl HostPlan {
+    pub(crate) fn http_timeouts(&self) -> crate::http_timeout::HttpTimeouts {
+        use std::time::Duration;
+        let mut max_read = Duration::ZERO;
+        let mut max_write = Duration::ZERO;
+        let mut max_idle = Duration::ZERO;
+        let policies = self
+            .workers
+            .iter()
+            .flat_map(|service| service.bindings.iter())
+            .filter(|binding| binding.http.is_some())
+            .map(|binding| &binding.policy)
+            .chain(self.assistants.iter().map(|assistant| &assistant.policy));
+        for policy in policies {
+            if policy.read_timeout_nanos > 0 {
+                max_read = max_read.max(Duration::from_nanos(policy.read_timeout_nanos));
+            }
+            if policy.write_timeout_nanos > 0 {
+                max_write = max_write.max(Duration::from_nanos(policy.write_timeout_nanos));
+            }
+            if policy.idle_timeout_nanos > 0 {
+                max_idle = max_idle.max(Duration::from_nanos(policy.idle_timeout_nanos));
+            }
+        }
+        let read = if max_read.is_zero() {
+            crate::http_timeout::DEFAULT_HTTP_READ_TIMEOUT
+        } else {
+            max_read.min(crate::http_timeout::DEFAULT_HTTP_READ_TIMEOUT)
+        };
+        let write = if max_write.is_zero() {
+            crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT
+        } else {
+            max_write.min(crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT)
+        };
+        let idle = if max_idle.is_zero() {
+            crate::http_timeout::DEFAULT_HTTP_IDLE_TIMEOUT
+        } else {
+            max_idle
+        };
+        crate::http_timeout::HttpTimeouts {
+            header_read: read.min(crate::http_timeout::MAX_HEADER_READ_TIMEOUT),
+            read,
+            write,
+            idle,
+        }
+    }
+}
+
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct Rule {
     pub effect: String,
