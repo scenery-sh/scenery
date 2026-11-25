@@ -59,6 +59,9 @@ func (types ManifestTypes) normalize(t contractWireType, raw []byte, constraints
 		if err != nil {
 			return nil, err
 		}
+		if err := validateManifestItemCount(len(fields), constraints); err != nil {
+			return nil, err
+		}
 		result := make(map[string][]byte, len(fields))
 		for name, value := range fields {
 			encoded, err := types.normalize(t.args[0], value, ContractConstraints{}, depth+1)
@@ -86,9 +89,8 @@ func (types ManifestTypes) normalizeArray(t contractWireType, raw []byte, constr
 	if t.name == "tuple" && len(array) != len(t.args) {
 		return nil, fmt.Errorf("tuple has %d fields, want %d", len(array), len(t.args))
 	}
-	length := int64(len(array))
-	if constraints.MinItems != nil && length < *constraints.MinItems || constraints.MaxItems != nil && length > *constraints.MaxItems {
-		return nil, fmt.Errorf("collection exceeds declared item count limits")
+	if err := validateManifestItemCount(len(array), constraints); err != nil {
+		return nil, err
 	}
 	result := make([][]byte, 0, len(array))
 	seen := make(map[string]bool)
@@ -114,6 +116,14 @@ func (types ManifestTypes) normalizeArray(t contractWireType, raw []byte, constr
 		slices.SortFunc(result, bytes.Compare)
 	}
 	return joinContractJSONArray(result), nil
+}
+
+func validateManifestItemCount(count int, constraints ContractConstraints) error {
+	length := int64(count)
+	if constraints.MinItems != nil && length < *constraints.MinItems || constraints.MaxItems != nil && length > *constraints.MaxItems {
+		return fmt.Errorf("collection exceeds declared item count limits")
+	}
+	return nil
 }
 
 func (types ManifestTypes) normalizeNamed(shape ManifestShape, raw []byte, constraints ContractConstraints, depth int) ([]byte, error) {

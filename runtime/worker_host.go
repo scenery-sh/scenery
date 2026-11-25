@@ -53,6 +53,11 @@ func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec Wo
 				return err
 			}
 		}
+		for _, schedule := range plan.Schedules {
+			if err := workers.registerSchedule(plan, schedule); err != nil {
+				return err
+			}
+		}
 		for _, binding := range plan.Bindings {
 			if err := workers.registerBinding(plan, binding); err != nil {
 				return err

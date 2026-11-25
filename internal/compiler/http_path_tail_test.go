@@ -74,7 +74,7 @@ func TestHTTPPathTailRouteIdentityAllowsSpecificRoutesAndRejectsEqualTails(t *te
 }
 
 func TestDrivePathTailCompilesAndProjectsAllArtifacts(t *testing.T) {
-	parallelVNextIntegrationTest(t)
+	parallelCompilerIntegrationTest(t)
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	rootPath := filepath.Join(root, appFilename)

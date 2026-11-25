@@ -12,7 +12,7 @@ import (
 )
 
 func TestLockedBuiltinProviderDerivesCapabilitiesAndSchema(t *testing.T) {
-	parallelVNextIntegrationTest(t)
+	parallelCompilerIntegrationTest(t)
 
 	root := deploymentPlanFixture(t, "external")
 	result, err := Compile(root)

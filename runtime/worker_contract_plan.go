@@ -59,14 +59,17 @@ type WorkerDurablePlan struct {
 }
 
 type WorkerSchedulePlan struct {
-	Address       string
-	Operation     string
-	Execution     string
-	Authorization string
-	Pipeline      string
-	Policy        ContractHTTPPolicy
-	Input         json.RawMessage
-	Timeout       time.Duration
+	Address           string
+	Operation         string
+	Execution         string
+	Authorization     string
+	Pipeline          string
+	Policy            ContractHTTPPolicy
+	Input             json.RawMessage
+	Timeout           time.Duration
+	Every             time.Duration
+	Overlap           string
+	CatchupMaximumAge time.Duration
 }
 
 type WorkerKeyField struct {

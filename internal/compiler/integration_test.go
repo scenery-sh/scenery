@@ -5,15 +5,15 @@ import (
 )
 
 const (
-	vnextIntegrationParallelism = 3
-	vnextGoCommandMaxProcs      = 2
+	compilerIntegrationParallelism = 3
+	compilerGoCommandMaxProcs      = 2
 )
 
-var vnextIntegrationSlots = make(chan struct{}, vnextIntegrationParallelism)
+var compilerIntegrationSlots = make(chan struct{}, compilerIntegrationParallelism)
 
-func parallelVNextIntegrationTest(t *testing.T) {
+func parallelCompilerIntegrationTest(t *testing.T) {
 	t.Helper()
 	t.Parallel()
-	vnextIntegrationSlots <- struct{}{}
-	t.Cleanup(func() { <-vnextIntegrationSlots })
+	compilerIntegrationSlots <- struct{}{}
+	t.Cleanup(func() { <-compilerIntegrationSlots })
 }

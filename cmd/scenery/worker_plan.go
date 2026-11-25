@@ -113,11 +113,15 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		if err != nil {
 			return nil, fmt.Errorf("schedule %s input: %w", schedule.Address, err)
 		}
+		trigger, _ := schedule.Spec["trigger"].(map[string]any)
+		catchup, _ := schedule.Spec["catchup"].(map[string]any)
 		policySource := schedule
 		policySource.Spec = invoke
 		service.Schedules = append(service.Schedules, workerruntime.WorkerSchedulePlan{
 			Address: schedule.Address, Operation: operation, Execution: execution, Input: input,
-			Authorization: workerRefText(invoke["authorization"]), Pipeline: workerRefText(invoke["pipeline"]),
+			Every: time.Duration(workerDuration(trigger["every"])), Overlap: cp.StringValue(schedule.Spec["overlap"]),
+			CatchupMaximumAge: time.Duration(workerDuration(catchup["maximum_age"])),
+			Authorization:     workerRefText(invoke["authorization"]), Pipeline: workerRefText(invoke["pipeline"]),
 			Policy:  projection.policy(service, policySource, projection.resources[operation]),
 			Timeout: time.Duration(workerDuration(projection.resources[execution].Spec["timeout"])),
 		})

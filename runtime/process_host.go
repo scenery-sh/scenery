@@ -303,6 +303,10 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 		servers = append(servers, &http.Server{Handler: host.workers.scopes.Handler(host.workers.serveCapability), Protocols: workerabi.Protocols(), MaxHeaderBytes: processHostMaxHeaderBytes})
 		listeners = append(listeners, capabilities)
 	}
+	var scheduler *cronScheduler
+	if host.workers != nil {
+		scheduler = startInProcessCronScheduler(sigCtx, listCronJobs())
+	}
 	errCh := make(chan error, len(servers))
 	for index, listener := range listeners {
 		go func() { errCh <- servers[index].Serve(listener) }()
@@ -316,7 +320,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	close(host.closing)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
 	defer cancel()
-	shutdownErrs := []error{}
+	shutdownErrs := []error{scheduler.Stop(shutdownCtx)}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		shutdownErrs = append(shutdownErrs, serveErr)
 	}

@@ -143,10 +143,14 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 			services = append(services, selected)
 		}
 	}
+	types, err := projectWorkerTypes(result.Manifest)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
+	}
 	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
 		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan},
-		Types: projectWorkerTypes(result.Manifest),
+		Types: types,
 	}
 	return bundle, selection, services, nil
 }
@@ -220,8 +224,9 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 	return preparation, nil
 }
 
-func projectWorkerTypes(manifest *graph.Manifest) contract.ManifestTypes {
+func projectWorkerTypes(manifest *graph.Manifest) (contract.ManifestTypes, error) {
 	types := make(contract.ManifestTypes)
+	resources := cp.ResourcesByAddress(manifest)
 	for _, resource := range manifest.Resources {
 		shape := contract.ManifestShape{Open: resource.Spec["open"] == true}
 		switch resource.Kind {
@@ -229,7 +234,15 @@ func projectWorkerTypes(manifest *graph.Manifest) contract.ManifestTypes {
 			shape.Kind = "record"
 			shape.UnknownFields = cp.StringValue(resource.Spec["unknown_fields"])
 			for _, field := range cp.NamedChildren(resource.Spec, "field") {
-				shape.Fields = append(shape.Fields, projectWorkerField(resource, field))
+				projected := projectWorkerField(resource, field)
+				if _, exists := field["default"]; exists {
+					wire, err := compiler.StaticFieldDefaultJSON(resources, resource, field)
+					if err != nil {
+						return nil, fmt.Errorf("record %s field %s default: %w", resource.Address, projected.Name, err)
+					}
+					projected.Default = wire
+				}
+				shape.Fields = append(shape.Fields, projected)
 			}
 		case "scenery.enum":
 			shape.Kind = "enum"
@@ -248,7 +261,7 @@ func projectWorkerTypes(manifest *graph.Manifest) contract.ManifestTypes {
 		}
 		types[resource.Address] = shape
 	}
-	return types
+	return types, nil
 }
 
 func projectWorkerField(resource graph.Resource, field map[string]any) contract.ManifestField {
@@ -269,16 +282,9 @@ func projectWorkerField(resource graph.Resource, field map[string]any) contract.
 	if value := cp.StringValue(field["maximum"]); value != "" {
 		constraints.Maximum = new(value)
 	}
-	var defaultValue []byte
-	if value, exists := field["default"]; exists {
-		if scalar, ok := value.(map[string]any); ok && scalar["$scalar"] == "int" {
-			value = json.Number(cp.StringValue(scalar["value"]))
-		}
-		defaultValue, _ = json.Marshal(value)
-	}
 	return contract.ManifestField{
 		Name: cp.WireName(field, cp.StringValue(field["name"])), Type: workerTypeExpression(resource.Module, field["type"]),
-		Default: defaultValue, Constraints: constraints,
+		Constraints: constraints,
 	}
 }
 

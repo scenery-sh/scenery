@@ -32,6 +32,7 @@ type workerWatcher struct {
 	all                            []*workerProcess
 	generation, sequence           uint64
 	retirements                    sync.WaitGroup
+	generations                    workerGenerations
 }
 
 func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) error {
@@ -39,6 +40,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 		watch.retirements.Wait()
 		stopWorkers(watch.all)
 	}()
+	watch.generations.add(watch.generation, watch.active)
 	watch.exits = make(chan struct{}, 1)
 	watch.faults = make(map[*workerProcess]struct{})
 	for _, process := range watch.active {
@@ -328,13 +330,12 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 			return errors.Join(err, statusErr)
 		}
 	}
-	var retired []*workerProcess
 	for name, process := range watch.active {
 		if next[name] != process {
-			retired = append(retired, process)
 			delete(watch.faults, process)
 		}
 	}
+	watch.generations.add(watch.sequence, next)
 	previous := watch.generation
 	watch.generation, watch.active, watch.bundle = watch.sequence, next, bundle
 	for _, process := range started {
@@ -343,7 +344,7 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 	watch.retirements.Add(1)
 	go func() {
 		defer watch.retirements.Done()
-		watch.retire(ctx, previous, retired)
+		watch.retire(ctx, previous)
 	}()
 	fmt.Fprintf(os.Stderr, "application generation %d ready (%d worker replacements)\n", watch.generation, len(started))
 	return nil
@@ -382,7 +383,7 @@ func (watch *workerWatcher) currentGeneration(ctx context.Context) (uint64, erro
 	return status.Current, err
 }
 
-func (watch *workerWatcher) retire(ctx context.Context, generation uint64, workers []*workerProcess) {
+func (watch *workerWatcher) retire(ctx context.Context, generation uint64) {
 	path := "/__scenery/process/v1/generations/" + strconv.FormatUint(generation, 10)
 	drain, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -390,7 +391,7 @@ func (watch *workerWatcher) retire(ctx context.Context, generation uint64, worke
 	defer ticker.Stop()
 	for {
 		if err := workerControlRequest(drain, watch.client, watch.token, http.MethodDelete, path, nil, http.StatusNoContent); err == nil {
-			stopWorkers(workers)
+			stopWorkers(watch.generations.remove(generation))
 			return
 		}
 		select {
@@ -398,12 +399,48 @@ func (watch *workerWatcher) retire(ctx context.Context, generation uint64, worke
 			force, cancelForce := context.WithTimeout(ctx, time.Second)
 			defer cancelForce()
 			if err := workerControlRequest(force, watch.client, watch.token, http.MethodDelete, path+"?force=true", nil, http.StatusNoContent); err == nil {
-				stopWorkers(workers)
+				stopWorkers(watch.generations.remove(generation))
 			}
 			return
 		case <-ticker.C:
 		}
 	}
+}
+
+// workerGenerations owns the references to processes in published generations,
+// including generations still draining on the Host.
+type workerGenerations struct {
+	mu        sync.Mutex
+	instances map[uint64]map[string]*workerProcess
+	refs      map[*workerProcess]int
+}
+
+func (g *workerGenerations) add(number uint64, processes map[string]*workerProcess) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.instances == nil {
+		g.instances = make(map[uint64]map[string]*workerProcess)
+		g.refs = make(map[*workerProcess]int)
+	}
+	g.instances[number] = processes
+	for _, process := range processes {
+		g.refs[process]++
+	}
+}
+
+func (g *workerGenerations) remove(number uint64) []*workerProcess {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var stopped []*workerProcess
+	for _, process := range g.instances[number] {
+		g.refs[process]--
+		if g.refs[process] == 0 {
+			delete(g.refs, process)
+			stopped = append(stopped, process)
+		}
+	}
+	delete(g.instances, number)
+	return stopped
 }
 
 func stopWorkers(processes []*workerProcess) {

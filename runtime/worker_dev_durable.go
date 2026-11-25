@@ -253,11 +253,7 @@ func authorizeDevSchedule(target devDurableTarget, state *requestState) error {
 	if target.kind != "schedule" {
 		return nil
 	}
-	identity := ContractWorkloadIdentity{
-		Address: "std.workload_identity.scheduler", Issuer: "std.identity_issuer.runtime",
-		PrincipalType: "std.type.workload_principal", ClaimsJSON: `{"workload":"scheduler"}`,
-	}
-	auth, err := identity.Mint()
+	auth, err := workerScheduleIdentity().Mint()
 	if err != nil {
 		return err
 	}
@@ -318,12 +314,7 @@ func (workers *workerHost) executeDevSchedule(ctx context.Context, target devDur
 	defer restore()
 	logTrace(ctx, "starting scheduled operation")
 	encoded, err := invokeDevSchedulePolicy(ctx, target, result.Input, func(ctx context.Context) (any, error) {
-		operation := target.schedule.Operation
-		value, err := workers.invoke(ctx, target.service, target.service.Operations[operation], operation, "", "direct", result.Input)
-		if value.Stream != nil {
-			return nil, closeWorkerResult(value, fmt.Errorf("scheduled operation returned a stream"))
-		}
-		return json.RawMessage(value.Outcome), err
+		return workers.invokeScheduledOperation(ctx, target.service, target.schedule, result.Input)
 	})
 	if err != nil {
 		result.State = "failed"
