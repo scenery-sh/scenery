@@ -57,3 +57,43 @@ func TestManifestMapItemCount(t *testing.T) {
 		})
 	}
 }
+
+func TestManifestNormalizesSizeLikeNativeContracts(t *testing.T) {
+	types := ManifestTypes{"files/record/Upload": {Kind: "record", Fields: []ManifestField{
+		{Name: "limit", Type: "size", Constraints: ContractConstraints{Minimum: new("1"), Maximum: new("18446744073709551616")}},
+		{Name: "quota", Type: "optional(size)"},
+	}}}
+	for _, test := range []struct {
+		input string
+		valid bool
+	}{
+		{`{"limit":"1024"}`, true},
+		// A size stays exact beyond the machine integer range.
+		{`{"limit":"18446744073709551616","quota":"0"}`, true},
+		{`{"limit":1024}`, false},
+		{`{"limit":"1KiB"}`, false},
+		{`{"limit":"01"}`, false},
+		{`{"limit":"-1"}`, false},
+		{`{"limit":"0"}`, false},
+		{`{"limit":"18446744073709551617"}`, false},
+	} {
+		t.Run(test.input, func(t *testing.T) {
+			got, err := types.Normalize("files/record/Upload", []byte(test.input))
+			if test.valid && (err != nil || string(got) != test.input) {
+				t.Fatalf("normalize = %s, %v", got, err)
+			}
+			if !test.valid && err == nil {
+				t.Fatalf("accepted %s as %s", test.input, got)
+			}
+		})
+	}
+	// The manifest codec accepts exactly what the native codec accepts.
+	for _, raw := range []string{`"1024"`, `1024`, `"1KiB"`} {
+		var native Size
+		nativeErr := UnmarshalContractValue([]byte(raw), &native, "size")
+		_, manifestErr := types.Normalize("size", []byte(raw))
+		if (nativeErr == nil) != (manifestErr == nil) {
+			t.Fatalf("size %s: native %v, manifest %v", raw, nativeErr, manifestErr)
+		}
+	}
+}

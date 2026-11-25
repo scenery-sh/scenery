@@ -102,6 +102,10 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   whose module build inputs changed. The artifact target embeds the JavaScript
   and Bun runtime in a per-module executable in the Host's portable bundle.
   Bundle execution requires the build platform and architecture.
+- A worker bundle links each Go service from the `go_target` its build
+  selects: the target named by `scenery build --target`, otherwise the target
+  with role `artifact`, or `development` for `scenery up` and
+  `scenery build --development`.
 - `service.runtime` selects the implementation adapter and contributes to the
   implementation revision. Service declarations keep the same contract
   revision when only the implementation runtime changes.
@@ -130,6 +134,9 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   `.scenery.json`. `scenery up` proxies Vite with same-origin HMR and APIs.
   The environment's `serve = "production"` setting and a production worker
   bundle serve the built tree through the same static handler.
+  An application with worker services serves only that root frontend, at its
+  own origin: `scenery up` rejects any other frontend the environment serves
+  instead of starting without it.
 
 ## 7. Revisions & Machine Envelopes
 

@@ -50,7 +50,7 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
-	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, nil, []string{})
+	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
@@ -183,7 +183,7 @@ func (dev *workerDevelopment) rebuild(ctx context.Context, active workerBundle, 
 				timing.GoLinks = step.PackagesRebuilt
 			}
 		})
-		dev.goWorkspace, err = next.addGoWorkers(goContext, dev.compiled, workspace, retained)
+		dev.goWorkspace, err = next.addGoWorkers(goContext, dev.compiled, "development", "", workspace, retained)
 		timing.GoMS = workerMilliseconds(time.Since(goStarted))
 		if err != nil {
 			return workerBundle{}, err

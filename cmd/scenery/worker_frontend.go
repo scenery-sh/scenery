@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 
 	"scenery.sh/internal/app"
 	cp "scenery.sh/internal/clientprojection"
@@ -22,6 +24,28 @@ type workerFrontend struct {
 	Name     string   `json:"name"`
 	Root     string   `json:"root"`
 	Reserved []string `json:"reserved"`
+}
+
+// requireWorkerFrontends rejects a frontend that the environment serves and
+// the worker Host would start without. The Host serves one frontend at the
+// application origin: the root frontend, declared as a static Vite build. It
+// has no route for another frontend and manages neither a development server
+// selected by root alone nor an upstream.
+func requireWorkerFrontends(cfg app.Config, envName string) error {
+	environment, err := cfg.ResolveEnv(envName)
+	if err != nil {
+		return err
+	}
+	root := cfg.RootFrontend()
+	for _, name := range slices.Sorted(maps.Keys(environment.Frontends)) {
+		if name != root {
+			return preconditionErrorf("frontend %q is not served by an application with worker services: its Host serves only the root frontend at the application origin; make %q the root frontend, or set envs.%s.frontends.%s.serve to \"disabled\"", name, name, environment.Name, name)
+		}
+		if environment.Frontends[name].Adapter != "vite" {
+			return preconditionErrorf("frontend %q is not served by an application with worker services: declare frontends.%s with \"adapter\": \"vite\" and \"mode\": \"static\", a workspace-relative root and no upstream", name, name)
+		}
+	}
+	return nil
 }
 
 func selectWorkerFrontend(root string, cfg app.Config, result *compiler.Result) (*workerFrontend, error) {

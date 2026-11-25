@@ -57,10 +57,6 @@ func dbCommand(args []string) error {
 	}
 }
 
-func runDatabaseApplyCommandWithEnvIO(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer) error {
-	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, defaultLifecycleHooks())
-}
-
 func runDatabaseApplyCommandWithEnvIOHooks(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer, hooks lifecycleHooks) error {
 	command := strings.TrimSpace(apply.Command)
 	if command == "" {

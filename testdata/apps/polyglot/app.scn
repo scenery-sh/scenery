@@ -75,6 +75,15 @@ go_target "development" {
   cgo       = "disabled"
 }
 
+go_target "production" {
+  role      = "artifact"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
 module "native" {
   source = "./native"
   inputs = { gateway = http_gateway.public_api, database = data_source.pricing, jobs = execution_engine.jobs }

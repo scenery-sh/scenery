@@ -175,11 +175,11 @@ func (p workerPlanProjection) httpRequest(spec map[string]any, operation graph.R
 	return request, nil
 }
 
+// workerInputField maps one input field for the HTTP parameter decoder. Every
+// enum travels as its string wire form; EnumValues constrains a closed enum
+// and stays empty for an open one, which accepts any string.
 func workerInputField(field cp.OperationInputField) workerruntime.ContractInputMapping {
-	expression := cp.TypeExpression(field.Type)
-	if len(field.EnumValues) > 0 {
-		expression = workerEnumType.ReplaceAllString(expression, "string")
-	}
+	expression := workerEnumType.ReplaceAllString(cp.TypeExpression(field.Type), "string")
 	return workerruntime.ContractInputMapping{Name: field.WireName, Target: field.WireName, Type: expression, Optional: field.Optional, EnumValues: field.EnumValues}
 }
 

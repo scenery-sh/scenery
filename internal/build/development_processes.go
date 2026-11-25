@@ -91,17 +91,29 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 }
 
 // BuildDevelopmentWorkersContext links only service entrypoints for a caller
-// that supplies its own host executable.
+// that supplies its own host executable. The prepared target may have any
+// runtime role: a worker bundle links its services from the target its build
+// selected.
 func BuildDevelopmentWorkersContext(ctx context.Context, result *Result, retained []string) (*DevelopmentProcessSet, func() error, error) {
 	return buildDevelopmentProcessesContext(ctx, result, false, retained)
 }
 
-func buildDevelopmentProcessesContext(ctx context.Context, result *Result, linkHost bool, retained []string) (*DevelopmentProcessSet, func() error, error) {
+// developmentProcessTarget rejects a preparation the process model cannot
+// link. A linked host makes the development runtime; service entrypoints alone
+// follow whichever runtime target the caller prepared.
+func developmentProcessTarget(result *Result, linkHost bool) error {
 	if result == nil || result.Contract == nil || result.Contract.Manifest == nil || result.Target == nil {
-		return nil, nil, fmt.Errorf("development processes require a prepared contract and target")
+		return fmt.Errorf("development processes require a prepared contract and target")
 	}
-	if result.Target.Role != "development" || result.ProductionAssets {
-		return nil, nil, fmt.Errorf("development processes require an ordinary development target")
+	if result.ProductionAssets || linkHost && result.Target.Role != "development" {
+		return fmt.Errorf("development processes require an ordinary development target")
+	}
+	return nil
+}
+
+func buildDevelopmentProcessesContext(ctx context.Context, result *Result, linkHost bool, retained []string) (*DevelopmentProcessSet, func() error, error) {
+	if err := developmentProcessTarget(result, linkHost); err != nil {
+		return nil, nil, err
 	}
 	if err := requireGenerateHooks(); err != nil {
 		return nil, nil, err
@@ -286,7 +298,7 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 		if process.Identity.ImplementationRevision == "" {
 			return nil, fmt.Errorf("implementation_revision is unavailable for development process %s", name)
 		}
-		key, err := developmentProcessKey(process, result.GoBuildFlags)
+		key, err := developmentProcessKey(process, result.GoBuildFlags, developmentLinkerDefaults(result))
 		if err != nil {
 			return nil, err
 		}
@@ -369,13 +381,13 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, linkHost boo
 // are read at once to prove them reusable.
 const developmentProcessDigestReaders = 8
 
-func developmentProcessKey(process *DevelopmentProcess, buildFlags []string) (string, error) {
+func developmentProcessKey(process *DevelopmentProcess, buildFlags []string, linkerDefaults string) (string, error) {
 	encoded, err := json.Marshal(struct {
 		Package    string
 		Identity   DevelopmentProcessIdentity
 		BuildFlags []string
 		Linker     string
-	}{process.Package, process.Identity, buildFlags, developmentLinkerFlags})
+	}{process.Package, process.Identity, buildFlags, linkerDefaults})
 	if err != nil {
 		return "", err
 	}
@@ -397,7 +409,7 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 	if err != nil {
 		return err
 	}
-	args := withDevelopmentLinkParallelism(developmentProcessBuildArgs(result.GoBuildFlags, generation, pending), result.GoBuildFlags,
+	args := withDevelopmentLinkParallelism(developmentProcessBuildArgs(result.GoBuildFlags, developmentLinkerDefaults(result), generation, pending), result.GoBuildFlags,
 		developmentLinkParallelism(len(pending), runtime.GOMAXPROCS(0), physicalMemory()))
 	linkStarted := time.Now()
 	err = runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, args...)
@@ -447,9 +459,6 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 	return nil
 }
 
-// developmentProcessBuildArgs keeps the configured Go build flags, moves every
-// -ldflags value (both -ldflags=value and the -ldflags value pair) into each
-// entrypoint's package-scoped linker flags, and names the pending entrypoints.
 // developmentLinkSlot waits for the host-wide fair link slot that orders the
 // links of every worktree's development builds.
 func developmentLinkSlot(ctx context.Context, result *Result) (func(), error) {
@@ -461,11 +470,15 @@ func developmentLinkSlot(ctx context.Context, result *Result) (func(), error) {
 	return acquireSharedBinarySlotObserved(ctx, root, hex.EncodeToString(digest[:]))
 }
 
-func developmentProcessBuildArgs(buildFlags []string, output string, pending []*DevelopmentProcess) []string {
+// developmentProcessBuildArgs keeps the configured Go build flags, moves every
+// -ldflags value (both -ldflags=value and the -ldflags value pair) into each
+// entrypoint's package-scoped linker flags after the target's linker defaults,
+// and names the pending entrypoints.
+func developmentProcessBuildArgs(buildFlags []string, linkerDefaults, output string, pending []*DevelopmentProcess) []string {
 	flags := withRuntimeBundleLinkerMetadata(gotarget.WithTrimpath(normalizeGoBuildFlags(buildFlags)), "", nil)
 	args := append([]string{"build"}, flags[:len(flags)-1]...)
 	for _, process := range pending {
-		linker := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), developmentLinkerFlags, map[string]string{
+		linker := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), linkerDefaults, map[string]string{
 			"scenery.sh/runtime.linkedContractRevision":       process.Identity.ContractRevision,
 			"scenery.sh/runtime.linkedImplementationRevision": process.Identity.ImplementationRevision,
 			"scenery.sh/runtime.linkedBuildInputDigest":       process.Identity.BuildInputDigest,

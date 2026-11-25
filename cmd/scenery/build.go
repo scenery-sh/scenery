@@ -73,9 +73,15 @@ func buildCommand(out io.Writer, args []string) error {
 		if development {
 			role = "development"
 		}
-		bundle, err := buildWorkerBundle(context.Background(), compiled, role, false)
+		if targetName != "" {
+			// Fail before any worker is built for a target that does not exist.
+			if _, err := compiler.ResolveGoBuildTarget(compiled, targetName, role); err != nil {
+				return goTargetSelectionCLIError(err)
+			}
+		}
+		bundle, err := buildWorkerBundle(context.Background(), compiled, role, targetName, false)
 		if err != nil {
-			return err
+			return goTargetSelectionCLIError(err)
 		}
 		frontend, err := selectWorkerFrontend(appRoot, cfg, compiled)
 		if err != nil {
@@ -98,7 +104,7 @@ func buildCommand(out io.Writer, args []string) error {
 			return err
 		}
 		if jsonOutput {
-			return writeCLIJSON(out, map[string]any{"ok": true, "bundle": outputPath, "contract_revision": bundle.ContractRevision})
+			return writeCLIJSON(out, workerBundleBuildResult(outputPath))
 		}
 		_, err = fmt.Fprintln(out, outputPath)
 		return err
@@ -139,10 +145,7 @@ func buildCommand(out io.Writer, args []string) error {
 		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName)
 	}
 	if err != nil {
-		if _, ok := errors.AsType[*compiler.GoTargetSelectionError](err); ok {
-			return &codedCLIError{err: err, code: 2}
-		}
-		return err
+		return goTargetSelectionCLIError(err)
 	}
 	if outputPath == "" {
 		goos := goruntime.GOOS
@@ -205,6 +208,30 @@ func buildCommand(out io.Writer, args []string) error {
 	}
 	_, _ = fmt.Fprintf(out, "scenery: built %s\n", outputPath)
 	return nil
+}
+
+// goTargetSelectionCLIError reports a go_target the application does not
+// declare as an invalid request; every other error passes through.
+func goTargetSelectionCLIError(err error) error {
+	if _, ok := errors.AsType[*compiler.GoTargetSelectionError](err); ok {
+		return &codedCLIError{err: err, code: 2}
+	}
+	return err
+}
+
+// workerBundleBuildResult reports a worker bundle through the declared
+// application build result. output_path is the bundle directory, which a
+// successful build always writes anew; the runtime descriptor, candidate
+// identity and verification module of a single Go executable do not exist.
+func workerBundleBuildResult(outputPath string) map[string]any {
+	return withCLIPayloadIdentity("scenery.build.result", map[string]any{
+		"output_path":                outputPath,
+		"descriptor_path":            "",
+		"copied":                     true,
+		"candidate_identity":         nil,
+		"verification_module_path":   "",
+		"verification_module_digest": "",
+	})
 }
 
 func copyBinary(src, dst string) (bool, error) {

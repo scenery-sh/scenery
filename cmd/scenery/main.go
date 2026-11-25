@@ -387,6 +387,9 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if opts.Detach || opts.Desktop {
 				return usageErrorf("worker applications currently support foreground up")
 			}
+			if err := requireWorkerFrontends(cfg, opts.Env); err != nil {
+				return err
+			}
 			paths, err := commandWorktreePaths(root)
 			if err != nil {
 				return err
@@ -422,6 +425,9 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 				return err
 			}
 			if err := configureWorkerDevelopmentStorage(context.Background(), root, cfg); err != nil {
+				return err
+			}
+			if err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env); err != nil {
 				return err
 			}
 			frontend, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)

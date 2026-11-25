@@ -275,6 +275,8 @@ func normalizeManifestScalar(t contractWireType, raw []byte, constraints Contrac
 		target = new(RelativePath)
 	case "duration":
 		target = new(Duration)
+	case "size":
+		target = new(Size)
 	case "std.type.unit":
 		target = new(Unit)
 	case "std.type.problem":
