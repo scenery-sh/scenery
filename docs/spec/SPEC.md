@@ -24,6 +24,11 @@ content-revisioned graph (source, effective, and expanded views). Source files
 must stay inside the workspace with no symlinks. Go comments and `init()`
 register nothing.
 
+Set `worker_host = true` in `app.scn`'s `workspace` block to select the Rust
+host and worker ABI for an application with only Go services.
+An application with Rust, JavaScript, or TypeScript workers already uses the
+Rust host. Worker bundles currently support HTTP and internal bindings.
+
 ## 2. Core Kernel
 
 ```text

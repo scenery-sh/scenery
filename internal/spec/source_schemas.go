@@ -253,7 +253,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 }
 
 var authoredStructuralSchemas = map[string]*authoredBlockSchema{
-	"workspace": sourceSchema("scenery.source.workspace", 0, []string{"managed_generated_roots"}, nil,
+	"workspace": sourceSchema("scenery.source.workspace", 0, []string{"managed_generated_roots", "worker_host"}, nil,
 		map[string]authoredChildSchema{"implementation_root": repeated(implementationRootSourceSchema), "revision_input": repeated(revisionInputSourceSchema)}),
 	"application": sourceSchema("scenery.source.application", 1, nil, nil, map[string]authoredChildSchema{"go_contract": singleton(goContractSourceSchema)}),
 	"module":      sourceSchema("scenery.source.module", 1, []string{"source", "inputs"}, []string{"source"}, nil),

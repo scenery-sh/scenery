@@ -65,7 +65,7 @@ func buildCommand(out io.Writer, args []string) error {
 	if err := build.VerifyPrebuiltFramework(appRoot, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
 	}
-	if compiled, compileErr := compiler.Compile(appRoot); compileErr == nil && usesWorkerBundle(compiled) {
+	if compiled, compileErr := compiler.Compile(appRoot); compileErr == nil && compiled.UsesWorkerBundle() {
 		if desktop || verifyGeneration {
 			return usageErrorf("worker bundles do not support desktop or Go generation verification")
 		}

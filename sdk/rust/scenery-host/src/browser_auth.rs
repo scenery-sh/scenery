@@ -88,16 +88,26 @@ pub(crate) fn route<'a>(host: &Host, method: &Method, path: &'a str) -> Option<R
     }
 }
 
-pub(crate) async fn serve(host: &Host, route: Route<'_>, request: Request<Incoming>) -> Reply {
-    let result = dispatch(host, route, request).await;
+pub(crate) async fn serve(
+    host: &Host,
+    route: Route<'_>,
+    request: Request<Incoming>,
+    mount: &str,
+) -> Reply {
+    let result = dispatch(host, route, request, mount).await;
     let mut result = result.unwrap_or_else(|fault| fault.reply(host, None));
     header(result.headers_mut(), "cache-control", "no-store");
     result
 }
 
-async fn dispatch(host: &Host, route: Route<'_>, request: Request<Incoming>) -> AuthResult<Reply> {
+async fn dispatch(
+    host: &Host,
+    route: Route<'_>,
+    request: Request<Incoming>,
+    mount: &str,
+) -> AuthResult<Reply> {
     let (parts, body) = request.into_parts();
-    let browser = Browser::new(host, &parts.headers, &parts.uri);
+    let browser = Browser::new(host, &parts.headers, &parts.uri, mount);
     if matches!(route, Route::GoogleStart | Route::GoogleCallback) {
         return auth_google::serve(&browser, route, parts.uri.query()).await;
     }
@@ -136,10 +146,11 @@ pub(crate) struct Browser<'a> {
     pub host: &'a Host,
     headers: &'a HeaderMap,
     authority: String,
+    mount: &'a str,
 }
 
 impl<'a> Browser<'a> {
-    fn new(host: &'a Host, headers: &'a HeaderMap, uri: &hyper::Uri) -> Self {
+    fn new(host: &'a Host, headers: &'a HeaderMap, uri: &hyper::Uri, mount: &'a str) -> Self {
         let authority = uri.authority().map_or_else(
             || header_value(headers, "host"),
             |authority| authority.as_str(),
@@ -148,6 +159,7 @@ impl<'a> Browser<'a> {
             host,
             headers,
             authority: authority.into(),
+            mount,
         }
     }
 
@@ -214,6 +226,9 @@ impl<'a> Browser<'a> {
     }
 
     pub(crate) fn prefix(&self) -> String {
+        if !self.mount.is_empty() {
+            return self.mount.into();
+        }
         let forwarded = header_value(self.headers, "x-forwarded-prefix");
         let configured = std::env::var("SCENERY_API_BASE_URL")
             .ok()

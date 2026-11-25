@@ -199,7 +199,7 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if usesWorkerBundle(result) && result.Valid() {
+	if result.UsesWorkerBundle() && result.Valid() {
 		if _, err := buildWorkerBundle(context.Background(), result, "development", "", true); err != nil {
 			result.ImplementationStatus = "invalid"
 			result.Diagnostics = append(result.Diagnostics, workerCheckDiagnostic(result, err))

@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, ensure};
 use sha2::{Digest, Sha256};
 
-use crate::process::hex;
+use crate::process::{hex, sha256_file};
 
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Input {
@@ -77,12 +78,12 @@ fn scan_path(
             scan_path(root, &relative.join(entry?.file_name()), generated, inputs)?;
         }
     } else if result.is_file() {
-        match fs::read(path) {
-            Ok(bytes) => {
+        match sha256_file(&path) {
+            Ok(digest) => {
                 inputs.insert(
                     relative.into(),
                     Input {
-                        digest: Sha256::digest(bytes).into(),
+                        digest,
                         mode: result.permissions().mode() & 0o777,
                     },
                 );
@@ -146,13 +147,13 @@ pub(crate) fn changed(before: &Inputs, after: &Inputs) -> Vec<PathBuf> {
 
 pub(crate) fn digest(inputs: &Inputs) -> String {
     let mut hash = Sha256::new();
-    for (path, input) in inputs {
-        hash.update(format!(
-            "{}\0{}:{:o}\n",
-            path.display(),
-            hex(&input.digest),
-            input.mode
-        ));
+    // Go orders relative paths by their raw bytes. PathBuf orders components,
+    // which puts `service/file.go` before `service-extra/file.go`.
+    let mut ordered: Vec<_> = inputs.iter().collect();
+    ordered.sort_unstable_by_key(|(path, _)| path.as_os_str().as_bytes());
+    for (path, input) in ordered {
+        hash.update(path.as_os_str().as_bytes());
+        hash.update(format!("\0{}:{:o}\n", hex(&input.digest), input.mode));
     }
     hex(&hash.finalize())
 }
@@ -202,6 +203,26 @@ pub(crate) fn sync(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn digest_matches_go_byte_order() {
+        let inputs = [("service/file.go", 0x22), ("service-extra/file.go", 0x11)]
+            .into_iter()
+            .map(|(path, byte)| {
+                (
+                    PathBuf::from(path),
+                    Input {
+                        digest: [byte; 32],
+                        mode: 0o644,
+                    },
+                )
+            })
+            .collect();
+        assert_eq!(
+            digest(&inputs),
+            "ff92a1e62b20b27d4871c12d4af42f681ccd5f5329c85f49a2996f72328a25cd"
+        );
+    }
 
     #[test]
     fn byte_identical_saves_leave_snapshot_unchanged() -> Result<()> {

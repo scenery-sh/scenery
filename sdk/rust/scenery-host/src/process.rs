@@ -331,7 +331,11 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 }
 
 pub(crate) fn file_digest(binary: &Path) -> Result<String> {
-    let mut file = File::open(binary)?;
+    Ok(format!("sha256:{}", hex(&sha256_file(binary)?)))
+}
+
+pub(crate) fn sha256_file(path: &Path) -> io::Result<[u8; 32]> {
+    let mut file = File::open(path)?;
     let mut hash = ring::digest::Context::new(&ring::digest::SHA256);
     let mut buffer = [0; 64 << 10];
     loop {
@@ -341,7 +345,11 @@ pub(crate) fn file_digest(binary: &Path) -> Result<String> {
         }
         hash.update(&buffer[..length]);
     }
-    Ok(format!("sha256:{}", hex(hash.finish().as_ref())))
+    Ok(hash
+        .finish()
+        .as_ref()
+        .try_into()
+        .expect("SHA-256 digest size"))
 }
 
 fn private_input(directory: &Path, raw: &RawValue) -> Result<File> {

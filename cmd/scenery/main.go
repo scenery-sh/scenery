@@ -380,7 +380,7 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 		return err
 	}
 	if root, cfg, discoverErr := discoverConfiguredApp(opts.AppRoot); discoverErr == nil {
-		if compiled, compileErr := compiler.Compile(root); compileErr == nil && usesWorkerBundle(compiled) {
+		if compiled, compileErr := compiler.Compile(root); compileErr == nil && compiled.UsesWorkerBundle() {
 			if err := build.VerifyPrebuiltFramework(root, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
 				return &codedCLIError{err: err, code: 3}
 			}

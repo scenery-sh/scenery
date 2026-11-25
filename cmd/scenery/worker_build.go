@@ -55,10 +55,6 @@ type workerProgram struct {
 	config     *workerruntime.ConfigSnapshot
 }
 
-func usesWorkerBundle(result *compiler.Result) bool {
-	return result != nil && result.Manifest != nil && compiler.UsesWorkerBundle(result.Manifest.Resources)
-}
-
 func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServicePlan, role string) (map[string]rustbuild.Service, error) {
 	resources := cp.ResourcesByAddress(result.Manifest)
 	modules := make(map[string]graph.Resource)

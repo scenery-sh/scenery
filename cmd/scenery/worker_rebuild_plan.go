@@ -123,8 +123,13 @@ func refreshWorkerRebuildPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	if compiled.Valid() && compiled.Manifest.ContractRevision != args[1] {
-		return fmt.Errorf("application contract changed; restart the application to load its new manifest")
+	if compiled.Valid() {
+		if !compiled.UsesWorkerBundle() {
+			return fmt.Errorf("application host changed; restart the application to load its new runtime")
+		}
+		if compiled.Manifest.ContractRevision != args[1] {
+			return fmt.Errorf("application contract changed; restart the application to load its new manifest")
+		}
 	}
 	generated, err := compiler.ManagedGeneratedRoots(compiled)
 	if err != nil {

@@ -114,6 +114,12 @@ pub(crate) async fn ingress(
         return empty(StatusCode::NOT_FOUND);
     }
     let method = request.method().clone();
+    let mounted_path = if !private && host.bundle.frontend.is_some() {
+        path.strip_prefix("/api")
+            .filter(|tail| tail.starts_with('/'))
+    } else {
+        None
+    };
     if private && method == Method::POST && path == "/users/dev-bootstrap" {
         let token = async {
             let input = read(request.into_body(), 8 << 10).await?;
@@ -127,7 +133,9 @@ pub(crate) async fn ingress(
         header(response.headers_mut(), "cache-control", "no-store");
         return attest(response, &generation, None);
     }
-    if path == "/_app/public-config" && matches!(method, Method::GET | Method::HEAD) {
+    if (path == "/_app/public-config" || mounted_path == Some("/_app/public-config"))
+        && matches!(method, Method::GET | Method::HEAD)
+    {
         let mut public = Map::new();
         if let Some(keys) = host.configuration["public"].as_array() {
             for key in keys.iter().filter_map(Value::as_str) {
@@ -154,11 +162,14 @@ pub(crate) async fn ingress(
     if path == "/users/dev-bootstrap" {
         return attest(empty(StatusCode::NOT_FOUND), &generation, None);
     }
-    if path.starts_with("/auth/")
-        && let Some(route) = crate::browser_auth::route(host, &method, &path)
-    {
+    let auth_route = crate::browser_auth::route(host, &method, &path)
+        .map(|route| (route, ""))
+        .or_else(|| {
+            crate::browser_auth::route(host, &method, mounted_path?).map(|route| (route, "/api"))
+        });
+    if let Some((route, mount)) = auth_route {
         return attest(
-            crate::browser_auth::serve(host, route, request).await,
+            crate::browser_auth::serve(host, route, request, mount).await,
             &generation,
             None,
         );
@@ -167,18 +178,20 @@ pub(crate) async fn ingress(
         && request
             .headers()
             .contains_key("access-control-request-method");
+    let select_route =
+        |method: &str| route(host, &path, method).or_else(|| route(host, mounted_path?, method));
     let match_method = if preflight {
         request
             .headers()
             .get("access-control-request-method")
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default()
-    } else if method == Method::HEAD && route(host, &path, "HEAD").is_none() {
+    } else if method == Method::HEAD && select_route("HEAD").is_none() {
         "GET"
     } else {
         method.as_str()
     };
-    let Some(selected) = route(host, &path, match_method) else {
+    let Some(selected) = select_route(match_method) else {
         let response = crate::frontend::serve(host.bundle.frontend.as_ref(), request).await;
         return attest(response, &generation, None);
     };

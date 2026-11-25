@@ -16,6 +16,11 @@ candidate leaves the serving generation active. The gateway retains admitted
 work through retirement, while the supervisor owns worker lifetimes and
 restarts exited workers with fresh sockets and tokens.
 
+With a Vite frontend at the application root, the Host also serves backend
+routes under the browser's `/api` mount. Directly declared paths keep priority
+over mounted application bindings. Browser authentication uses the mount in
+its cookie paths and callback URLs.
+
 ## Host to worker
 
 - `GET /worker/v1/ready` returns a JSON object with `abi: 1`, `service`,
