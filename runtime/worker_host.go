@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/internal/workerabi"
+	"scenery.sh/runtime/shared"
 )
 
 // WorkerValueCodec validates and canonicalizes a value against the manifest's
@@ -209,6 +210,8 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 		extra.AuthDataKind, extra.AuthData = auth.DataKind, auth.Data
 		extra.Started, extra.Type = state.started, state.request.Type
 		extra.LogsEnabled, extra.Module, extra.ServiceName = state.logsEnabled, plan.Module, plan.Name
+		extra.Method, extra.Path = state.request.Method, state.request.Path
+		extra.PathParams, extra.Headers = workerPathParams(state.request.PathParams), workerRequestHeaders(state.request.Headers)
 		if trace := state.trace; trace != nil {
 			metadata.Traceparent = traceParentForContext(ctx)
 			extra.ParentSpanID = trace.parentSpanID
@@ -261,6 +264,28 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 	result.ProcessID = instance.spec.PID
 	result.ImplementationRevision = instance.spec.Identity.ImplementationRevision
 	return result, nil
+}
+
+func workerPathParams(params shared.PathParams) []workerPathParam {
+	wire := make([]workerPathParam, 0, len(params))
+	for _, param := range params {
+		wire = append(wire, workerPathParam{Name: param.Name, Value: param.Value})
+	}
+	return wire
+}
+
+// workerRequestHeaders returns the ingress headers a worker may observe. The
+// Host has already consumed the credentials; they do not reach a worker.
+func workerRequestHeaders(headers http.Header) http.Header {
+	forwarded := make(http.Header, len(headers))
+	for name, values := range headers {
+		switch http.CanonicalHeaderKey(name) {
+		case "Authorization", "Proxy-Authorization", "Cookie":
+		default:
+			forwarded[name] = values
+		}
+	}
+	return forwarded
 }
 
 func (workers *workerHost) validateOutcome(operation WorkerOperationPlan, result *workerabi.Result) (string, string, error) {

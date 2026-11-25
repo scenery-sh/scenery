@@ -44,7 +44,11 @@ traceparent, deadline, locale, execution ID and metadata are optional. The
 Host constructs this context from its own authenticated invocation. A worker
 verifies the addressed service and contract revision before dispatch. A service or contract revision mismatch returns HTTP 409.
 The Host may include request type, admission time, caller binding, deployment,
-trace identity, and authenticated identity data in metadata. Go and JavaScript/TypeScript workers receive database connection information
+trace identity, and authenticated identity data in metadata. For an invocation
+admitted over HTTP, metadata also carries the request `method`, `path`,
+`path_params` as `{"name","value"}` pairs in route order, and `headers` as
+lists of values by case-insensitive name. The `Authorization`,
+`Proxy-Authorization`, and `Cookie` headers stay at the Host. Go and JavaScript/TypeScript workers receive database connection information
 at startup and connect directly to PostgreSQL.
 
 A successful JSON response contains `outcome`, the contract outcome envelope

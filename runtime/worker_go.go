@@ -98,6 +98,17 @@ type workerInvocationMetadata struct {
 	TraceID      string             `json:"trace_id,omitempty"`
 	Started      time.Time          `json:"started,omitzero"`
 	Type         shared.RequestType `json:"request_type,omitempty"`
+	// The HTTP request admitted at ingress, as CurrentRequest reports it.
+	Method     string            `json:"method,omitempty"`
+	Path       string            `json:"path,omitempty"`
+	PathParams []workerPathParam `json:"path_params,omitempty"`
+	Headers    http.Header       `json:"headers,omitempty"`
+}
+
+// workerPathParam keeps the route order of path parameters on the wire.
+type workerPathParam struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 func invokeGoWorker(ctx context.Context, invocation workerabi.Invocation) (workerabi.Result, error) {
@@ -148,10 +159,22 @@ func goWorkerContext(ctx context.Context, invocation workerabi.Invocation) (cont
 	})
 	state := &requestState{started: metadata.Started, auth: auth, invocation: token, processGeneration: wire.Generation, traceEnabled: hasTrace, logsEnabled: metadata.LogsEnabled,
 		workerRuntime: "go", workerModule: metadata.Module}
+	// Header names are case-insensitive on the wire; Go reads canonical keys.
+	headers := make(http.Header, len(metadata.Headers))
+	for name, values := range metadata.Headers {
+		for _, value := range values {
+			headers.Add(name, value)
+		}
+	}
+	var pathParams shared.PathParams
+	for _, param := range metadata.PathParams {
+		pathParams = append(pathParams, shared.PathParam{Name: param.Name, Value: param.Value})
+	}
 	state.request = shared.Request{
-		Type: metadata.Type, Started: metadata.Started, InvocationID: wire.InvocationID, TraceID: traceID, Headers: make(http.Header),
+		Type: metadata.Type, Started: metadata.Started, InvocationID: wire.InvocationID, TraceID: traceID, Headers: headers,
 		CallerBinding: metadata.Caller, ExecutionID: wire.ExecutionID, Locale: wire.Locale, Deployment: metadata.Deployment,
 		Deadline: deadline, Service: metadata.ServiceName, Endpoint: invocation.Operation,
+		Method: metadata.Method, Path: metadata.Path, PathParams: pathParams,
 	}
 	if state.request.Service == "" {
 		state.request.Service = invocation.Service
