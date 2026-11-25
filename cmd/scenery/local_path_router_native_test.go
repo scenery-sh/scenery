@@ -45,10 +45,7 @@ func TestNativeLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 		},
 	}
 
-	port, err := freeLoopbackPort()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln, port := listenRouterLoopback(t)
 	stateRoot := t.TempDir()
 	session := localagent.Session{
 		SessionID: "sess-1",
@@ -65,6 +62,7 @@ func TestNativeLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 		DashboardBackend: backendA,
 		DialRetry:        dialRetry,
 		Agent:            localagent.NewClient(paths.SocketPath),
+		Listener:         ln,
 	})
 	if err != nil {
 		t.Fatalf("startLocalPathRouter: %v", err)

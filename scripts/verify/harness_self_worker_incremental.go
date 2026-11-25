@@ -279,7 +279,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	if output, err := wire.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("JavaScript wire conformance: %w: %s", err, output)
 	}
-	summary := map[string]any{"js_wire_cases": 23}
+	summary := map[string]any{"js_wire_cases": 33}
 	for _, trial := range []struct {
 		name, file, old, new, route, key, want string
 		replaced, links, cargo, js             []string

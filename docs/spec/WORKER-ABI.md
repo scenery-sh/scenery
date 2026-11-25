@@ -98,8 +98,9 @@ the Host has not acknowledged.
 The Host and SDK validate the applicable contract type before dispatch and
 after receipt. Canonical wire bytes preserve exact numeric values, tagged
 outcomes and the distinction between missing and null fields. The shared
-wire conformance corpus covers integer bounds, exact scalars, presence,
-closed records, enums, and outcomes in Go, Rust, and JavaScript/TypeScript.
+wire conformance corpus covers integer bounds, exact scalars, canonical
+floats, presence, closed and unknown-preserving records, enums, and outcomes
+in Go, Rust, and JavaScript/TypeScript.
 
 ## Delivery and cancellation
 

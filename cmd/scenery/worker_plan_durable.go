@@ -22,7 +22,9 @@ func (p workerPlanProjection) durable(service workerruntime.WorkerServicePlan, e
 	plan := workerruntime.WorkerDurablePlan{
 		Operation: operation.Address,
 		Registration: workerruntime.ContractDurableRegistration{
-			Address: execution.Address, ExternalName: cp.StringValue(spec["external_name"]), Service: service.Name,
+			// Like the native runtime, an unnamed durable execution is its own task:
+			// executions sharing one empty name would lease each other's jobs.
+			Address: execution.Address, ExternalName: firstNonEmpty(cp.StringValue(spec["external_name"]), execution.Address), Service: service.Name,
 			EngineAddress: workerReference(execution, spec["engine"], "execution_engine"), Revision: uint32(workerInt(spec["revision"])),
 			DefaultTimeout: time.Duration(workerDuration(spec["timeout"])), DefaultLease: time.Duration(workerDuration(spec["lease"])),
 			MaxAttempts: int(workerInt(spec["attempts"])), RetryInitial: time.Duration(workerDuration(retry["initial"])),

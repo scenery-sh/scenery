@@ -57,16 +57,12 @@ func buildFingerprint(root string, service Service, dependencies []string) (stri
 			return err
 		}
 		if entry.IsDir() {
-			if appwalk.SkipDir(module, path) || entry.Name() == "target" {
+			if skipModuleDir(module, path) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		switch filepath.Ext(path) {
-		case ".go", ".rs", ".scn":
-			return nil
-		}
-		if !entry.Type().IsRegular() || watchignore.IsLocalEnvironmentFile(entry.Name()) || entry.Name() == ".DS_Store" {
+		if !entry.Type().IsRegular() || skipModuleFile(entry.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -94,16 +90,28 @@ func buildFingerprint(root string, service Service, dependencies []string) (stri
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
+// skipModuleDir reports the module directories the fingerprint walk skips.
+// Bundle inputs below them are fingerprinted as recorded dependencies.
+func skipModuleDir(module, path string) bool {
+	return appwalk.SkipDir(module, path) || filepath.Base(path) == "target"
+}
+
+func skipModuleFile(name string) bool {
+	switch filepath.Ext(name) {
+	case ".go", ".rs", ".scn":
+		return true
+	}
+	return watchignore.IsLocalEnvironmentFile(name) || name == ".DS_Store"
+}
+
+// cacheDependencies records every bundle input the module walk does not hash:
+// installed packages and module files below skipped directories such as
+// node_modules, target, dist or out.
 func cacheDependencies(root, module string, inputs []string) []string {
 	var dependencies []string
 	for _, path := range inputs {
-		relative, err := filepath.Rel(module, path)
-		if err == nil && filepath.IsLocal(relative) {
-			// An installed package can change even when the module's walk
-			// excludes node_modules.
-			if !slices.Contains(strings.Split(relative, string(filepath.Separator)), "node_modules") {
-				continue
-			}
+		if walkedModuleInput(module, path) {
+			continue
 		}
 		if relative, err := filepath.Rel(root, path); err == nil {
 			dependencies = append(dependencies, relative)
@@ -111,4 +119,21 @@ func cacheDependencies(root, module string, inputs []string) []string {
 	}
 	slices.Sort(dependencies)
 	return dependencies
+}
+
+func walkedModuleInput(module, path string) bool {
+	relative, err := filepath.Rel(module, path)
+	if err != nil || !filepath.IsLocal(relative) || skipModuleFile(filepath.Base(path)) {
+		return false
+	}
+	dir := module
+	for _, name := range strings.Split(filepath.Dir(relative), string(filepath.Separator)) {
+		if name == "." {
+			continue
+		}
+		if dir = filepath.Join(dir, name); skipModuleDir(module, dir) {
+			return false
+		}
+	}
+	return true
 }

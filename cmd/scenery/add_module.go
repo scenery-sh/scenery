@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
+	"scenery.sh/internal/appwalk"
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
@@ -63,7 +64,24 @@ func parseAddModuleArgs(args []string) (addModuleOptions, error) {
 	if strings.Contains(opts.name, "scenery") || opts.runtime == "go" && token.Lookup(opts.name).IsKeyword() {
 		return opts, usageErrorf("module name %q cannot be used in the generated package or HTTP route", opts.name)
 	}
+	if reservedModuleName(opts.name, opts.runtime) {
+		return opts, usageErrorf("module name %q is reserved or names a directory that source watching skips", opts.name)
+	}
 	return opts, nil
+}
+
+// reservedModuleName reports names that collide with the root `app` or
+// standard `std` address namespace, with Go's main package, or with
+// directories that rebuild planning and build caches skip (Cargo `target`,
+// `dist`, `out`, `node_modules`): edits there would never trigger a rebuild.
+func reservedModuleName(name, runtime string) bool {
+	switch name {
+	case "app", "std", "target":
+		return true
+	case "main":
+		return runtime == "go"
+	}
+	return appwalk.SkipDirName(name)
 }
 
 type moduleScaffold struct {

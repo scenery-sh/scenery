@@ -456,7 +456,11 @@ func (c agentCallConnection) invoke(ctx context.Context, method, path string, bi
 	}
 	if c.controlToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.controlToken)
-		req.Header.Set("X-App-Invocation-Authorization", bearer)
+		// The Host authenticates any invocation header, even an empty one,
+		// so a call without --as sends none.
+		if bearer != "" {
+			req.Header.Set("X-App-Invocation-Authorization", bearer)
+		}
 	} else if bearer != "" {
 		req.Header.Set("Authorization", bearer)
 	}

@@ -47,15 +47,20 @@ operation + binding + execution + policy
 ## 3. Types & Canonical Wire Format
 
 Scalar types: `string`, `bool`, `int` / `int32` / `int64`, `uint32` / `uint64`,
-`float64`, `decimal`, `bytes`, `timestamp`, `duration`, `uuid`, `json`.
-Composites: `list(T)`, `map(string, T)`, `optional(T)`, `nullable(T)`,
-`record`, `enum`, `union`.
+`float32` / `float64`, `decimal`, `bytes`, `uuid`, `date`, `datetime`,
+`duration`, `size`, `url`, `relative_path`, `json`. Deployment-phase package
+inputs may also declare `host_path`.
+Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
+`optional(T)`, `nullable(T)`, `record`, `enum`, `union`.
 
 - `optional(nullable(T))` preserves the distinction between absent fields and
   explicit `null`.
 - Unknown fields are rejected by default (`unknown_fields = "reject"`).
 - Large integers (`int64`/`uint64`) and `decimal` preserve exact precision in
   JSON and TypeScript (`bigint` / exact string representations).
+- Floats use the shortest text that reads back as the same `float32` or
+  `float64`, in Go `strconv.FormatFloat(v, 'g', -1, bits)` form (`1`, `0.1`,
+  `1e+06`, `1.5e-07`). NaN, infinities and negative zero are invalid.
 - Canonical JSON serialization determines contract revisions and idempotency
   key hashes deterministically across runtimes.
 

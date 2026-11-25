@@ -7,23 +7,33 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/postgresdb"
 )
 
 const dbQueryKind = "scenery.db.query.result"
+
+// dbQueryLockTimeout bounds how long a statement may queue behind locks held
+// by the running application, so a blocked DDL cannot stall the app's queries.
+const dbQueryLockTimeout = 5 * time.Second
 
 type dbQueryOptions struct {
 	root, service, sql string
 	params             []any
 	limit              int
+	timeout            time.Duration
 	json               bool
 }
 
@@ -46,6 +56,7 @@ func parseDBQueryArgs(args []string) (dbQueryOptions, error) {
 	flags.StringVar(&opts.service, "service", "", "")
 	flags.StringVar(&opts.sql, "sql", "", "")
 	flags.IntVar(&opts.limit, "limit", 200, "")
+	flags.DurationVar(&opts.timeout, "timeout", 30*time.Second, "")
 	flags.Func("param", "", func(value string) error {
 		opts.params = append(opts.params, value)
 		return nil
@@ -62,6 +73,9 @@ func parseDBQueryArgs(args []string) (dbQueryOptions, error) {
 	}
 	if strings.TrimSpace(opts.service) == "" || strings.TrimSpace(opts.sql) == "" || opts.limit < 1 {
 		return opts, usageErrorf("db query requires --service, one SQL statement, and a positive --limit")
+	}
+	if opts.timeout <= 0 || opts.timeout > time.Hour {
+		return opts, usageErrorf("--timeout must be positive and at most 1h")
 	}
 	return opts, nil
 }
@@ -108,10 +122,12 @@ func dbQueryBinding(compiled *compiler.Result, service string) (compiler.SQLBind
 }
 
 func dbQueryCommand(args []string) error {
-	return runDBQuery(context.Background(), os.Stdout, args)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runDBQuery(ctx, os.Stdout, args)
 }
 
-func runDBQuery(ctx context.Context, out io.Writer, args []string) (returnErr error) {
+func runDBQuery(ctx context.Context, out io.Writer, args []string) error {
 	opts, err := parseDBQueryArgs(args)
 	if err != nil {
 		return err
@@ -128,22 +144,7 @@ func runDBQuery(ctx context.Context, out io.Writer, args []string) (returnErr er
 	if err != nil {
 		return err
 	}
-	env := envpolicy.Environ()
-	if lookupEnvValue(env, appDatabaseURLEnv) == "" {
-		paths, err := commandWorktreePaths(root)
-		if err != nil {
-			return err
-		}
-		op, err := paths.BeginOperation()
-		if err != nil {
-			return err
-		}
-		defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
-		if err := checkStorageStartup(ctx, root, cfg); err != nil {
-			return err
-		}
-	}
-	database, err := resolvePostgresDatabaseFromEnv(ctx, root, cfg, compiled.SQLRequirements, env)
+	database, err := resolveDBQueryDatabase(ctx, root, cfg, compiled.SQLRequirements)
 	if err != nil {
 		return err
 	}
@@ -162,12 +163,53 @@ func runDBQuery(ctx context.Context, out io.Writer, args []string) (returnErr er
 	return preconditionErrorf("Postgres schema %q is unavailable", binding.Schema)
 }
 
+// resolveDBQueryDatabase holds the worktree operation lock only while the
+// retained database is verified. The statement runs after the lock is
+// released, so a slow query never blocks `scenery up` or `db server stop`.
+func resolveDBQueryDatabase(ctx context.Context, root string, cfg appcfg.Config, requirements compiler.SQLRequirements) (_ postgresdb.Database, returnErr error) {
+	env := envpolicy.Environ()
+	if lookupEnvValue(env, appDatabaseURLEnv) == "" {
+		paths, err := commandWorktreePaths(root)
+		if err != nil {
+			return postgresdb.Database{}, err
+		}
+		op, err := paths.BeginOperation()
+		if err != nil {
+			return postgresdb.Database{}, err
+		}
+		defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
+		if err := checkStorageStartup(ctx, root, cfg); err != nil {
+			return postgresdb.Database{}, err
+		}
+	}
+	return resolvePostgresDatabaseFromEnv(ctx, root, cfg, requirements, env)
+}
+
+// dbQueryConnConfig bounds the session: the statement may run for at most
+// timeout and may wait at most dbQueryLockTimeout for a lock.
+func dbQueryConnConfig(databaseURL string, timeout time.Duration) (*pgx.ConnConfig, error) {
+	config, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	config.ConnectTimeout = min(timeout, 10*time.Second)
+	config.RuntimeParams["statement_timeout"] = strconv.FormatInt(timeout.Milliseconds(), 10)
+	config.RuntimeParams["lock_timeout"] = strconv.FormatInt(min(timeout, dbQueryLockTimeout).Milliseconds(), 10)
+	return config, nil
+}
+
 func executeDBQuery(ctx context.Context, opts dbQueryOptions, databaseURL, schema string) (dbQueryResult, error) {
 	result := dbQueryResult{
 		cliPayloadIdentity: newCLIPayloadIdentity(dbQueryKind),
 		Service:            opts.service, Schema: schema, Columns: []string{}, Rows: [][]json.RawMessage{},
 	}
-	conn, err := pgx.Connect(ctx, databaseURL)
+	ctx, cancel := context.WithTimeout(ctx, opts.timeout)
+	defer cancel()
+	config, err := dbQueryConnConfig(databaseURL, opts.timeout)
+	if err != nil {
+		return result, preconditionErrorf("cannot connect to the selected Postgres database")
+	}
+	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		return result, preconditionErrorf("cannot connect to the selected Postgres database")
 	}
@@ -199,7 +241,7 @@ func executeDBQuery(ctx context.Context, opts dbQueryOptions, databaseURL, schem
 		}
 		row := make([]json.RawMessage, len(values))
 		for i, value := range values {
-			encoded, err := json.Marshal(value)
+			encoded, err := json.Marshal(dbQueryValue(value))
 			if err != nil {
 				encoded, _ = json.Marshal(string(rows.RawValues()[i]))
 			}
@@ -218,6 +260,23 @@ func executeDBQuery(ctx context.Context, opts dbQueryOptions, databaseURL, schem
 	}
 	result.DurationMS = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+// dbQueryValue gives decoded values without a natural JSON form their
+// canonical text: pgx decodes uuid columns as [16]byte, not as a string.
+func dbQueryValue(value any) any {
+	switch typed := value.(type) {
+	case [16]byte:
+		return fmt.Sprintf("%x-%x-%x-%x-%x", typed[0:4], typed[4:6], typed[6:8], typed[8:10], typed[10:16])
+	case []any:
+		items := make([]any, len(typed))
+		for index, item := range typed {
+			items[index] = dbQueryValue(item)
+		}
+		return items
+	default:
+		return value
+	}
 }
 
 func dbQueryError(err error) error {

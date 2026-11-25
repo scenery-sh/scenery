@@ -1000,16 +1000,15 @@ function encodePrimitive(value: unknown, name: string, path: string): string {
       if (typeof value !== "bigint" || value < 0n) invalid(path, `expected ${name}`);
       return JSON.stringify(value.toString(10));
     case "int32":
-      return encodeBoundedNumber(value, path, -2147483648, 2147483647, true);
+      return encodeBoundedInteger(value, path, -2147483648, 2147483647);
     case "uint32":
-      return encodeBoundedNumber(value, path, 0, 4294967295, true);
-    case "float32": {
-      const encoded = encodeBoundedNumber(value, path, -3.4028234663852886e38, 3.4028234663852886e38, false);
-      if (typeof value !== "number" || Math.fround(value) !== value) invalid(path, "float32 value is not exactly representable");
-      return encoded;
-    }
+      return encodeBoundedInteger(value, path, 0, 4294967295);
+    case "float32":
+      if (typeof value !== "number" || !Number.isFinite(value) || Object.is(value, -0) || Math.fround(value) !== value) invalid(path, "float32 value is not exactly representable");
+      return formatFloat(value, 32);
     case "float64":
-      return encodeBoundedNumber(value, path, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, false);
+      if (typeof value !== "number" || !Number.isFinite(value) || Object.is(value, -0)) invalid(path, "invalid numeric value");
+      return formatFloat(value, 64);
     case "bytes":
       if (!(value instanceof Uint8Array)) invalid(path, "expected bytes");
       return JSON.stringify(bytesToBase64(new Uint8Array(value)));
@@ -1075,12 +1074,12 @@ function decodePrimitive(value: unknown, name: string, path: string): unknown {
     case "float32":
     case "float64": {
       if (!isJsonNumber(value)) invalid(path, "expected JSON number");
-      const decoded = Number(renderJsonNumber(value));
+      const wide = Number(renderJsonNumber(value));
+      const decoded = name === "float32" ? Math.fround(wide) : wide;
       if (!Number.isFinite(decoded) || Object.is(decoded, -0)) invalid(path, "lossy or non-finite float");
-      const roundTrip = jsonNumberTokenParts(String(decoded), path);
+      const canonical = jsonNumberTokenParts(formatFloat(decoded, name === "float32" ? 32 : 64), path);
       const original = normalizeJsonNumber(value.coefficient, value.scale);
-      if (roundTrip.coefficient !== original.coefficient || roundTrip.scale !== original.scale) invalid(path, "lossy float representation");
-      if (name === "float32" && Math.fround(decoded) !== decoded) invalid(path, "float32 value is not exactly representable");
+      if (canonical.coefficient !== original.coefficient || canonical.scale !== original.scale) invalid(path, "lossy float representation");
       return decoded;
     }
     case "bytes":
@@ -1119,8 +1118,55 @@ function encodeProblem(value: unknown, path: string): string {
   return `{${members.join(",")}}`;
 }
 
-function encodeBoundedNumber(value: unknown, path: string, minimum: number, maximum: number, integer: boolean): string {
-  if (typeof value !== "number" || !Number.isFinite(value) || Object.is(value, -0) || value < minimum || value > maximum || (integer && !Number.isInteger(value))) invalid(path, "invalid numeric value");
+// formatFloat writes a finite float in the canonical contract form, Go's
+// strconv.FormatFloat(value, 'g', -1, bits): the shortest digits that read
+// back as the same float, in exponent form when the decimal exponent is below
+// -4 or at least 6 (1, 0.1, 1e+06, 1.5e-07).
+function formatFloat(value: number, bits: 32 | 64): string {
+  const text = bits === 32 ? shortestFloat32(value) : value.toExponential();
+  const marker = text.indexOf("e");
+  const sign = text.startsWith("-") ? "-" : "";
+  const digits = text.slice(sign.length, marker).replace(".", "");
+  const exponent = Number(text.slice(marker + 1));
+  if (exponent < -4 || exponent >= 6) {
+    const fraction = digits.length > 1 ? "." + digits.slice(1) : "";
+    return sign + digits.charAt(0) + fraction + "e" + (exponent < 0 ? "-" : "+") + String(Math.abs(exponent)).padStart(2, "0");
+  }
+  if (exponent < 0) return sign + "0." + "0".repeat(-exponent - 1) + digits;
+  if (digits.length <= exponent + 1) return sign + digits + "0".repeat(exponent + 1 - digits.length);
+  return sign + digits.slice(0, exponent + 1) + "." + digits.slice(exponent + 1);
+}
+
+// shortestFloat32 returns the shortest exponential text that reads back as
+// the float32 value. Of the two candidates at that length it keeps the nearer
+// one and, on an exact tie, the even one, as Go does; toExponential alone
+// rounds ties away from zero.
+function shortestFloat32(value: number): string {
+  for (let precision = 1; precision <= 9; precision++) {
+    const rounded = value.toExponential(precision - 1);
+    const marker = rounded.indexOf("e");
+    const scale = Number(rounded.slice(marker + 1)) - precision + 1;
+    const nearest = Number(rounded.slice(0, marker).replace(".", ""));
+    const other = nearest + (Number(nearest + "e" + scale) < value ? 1 : -1);
+    const reads = (units: number) => Math.fround(Number(units + "e" + scale)) === value;
+    let chosen: number | undefined;
+    if (reads(nearest) && reads(other)) {
+      const full = value.toExponential(99);
+      const exact = full.slice(0, full.indexOf("e")).replace(/[-.]/g, "");
+      const tie = exact.charAt(precision) === "5" && /^0*$/.test(exact.slice(precision + 1));
+      chosen = tie && nearest % 2 !== 0 ? other : nearest;
+    } else if (reads(nearest)) {
+      chosen = nearest;
+    } else if (reads(other)) {
+      chosen = other;
+    }
+    if (chosen !== undefined) return Number(chosen + "e" + scale).toExponential();
+  }
+  return value.toExponential();
+}
+
+function encodeBoundedInteger(value: unknown, path: string, minimum: number, maximum: number): string {
+  if (typeof value !== "number" || !Number.isInteger(value) || Object.is(value, -0) || value < minimum || value > maximum) invalid(path, "invalid numeric value");
   return JSON.stringify(value);
 }
 

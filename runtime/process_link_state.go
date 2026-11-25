@@ -233,7 +233,32 @@ func (encoded *processLinkError) err() error {
 	case "canceled":
 		return &processLinkSentinelError{message: encoded.Message, sentinel: context.Canceled}
 	default:
+		if encoded.Code != "" || len(encoded.Meta) != 0 {
+			// A Host binding failure carries {code,message,meta}; keeping the
+			// code and meta.delivery lets the caller tell a safe retry apart.
+			return &errs.Error{Code: hostFailureCode(encoded.Code), Message: encoded.Message, Meta: encoded.Meta, Cause: encoded.Cause.err()}
+		}
 		return errors.New(encoded.Message)
+	}
+}
+
+// hostFailureCode maps a Host fault code onto the errs vocabulary. The Host
+// names its transport and system faults by category; known errs codes pass
+// through and any other code is unknown.
+func hostFailureCode(code errs.ErrCode) errs.ErrCode {
+	switch code {
+	case "transport.invalid_request":
+		return errs.InvalidArgument
+	case "system.internal":
+		return errs.Internal
+	case errs.Canceled, errs.InvalidArgument, errs.DeadlineExceeded, errs.NotFound, errs.AlreadyExists,
+		errs.PermissionDenied, errs.ResourceExhausted, errs.FailedPrecondition, errs.Aborted, errs.OutOfRange,
+		errs.Unimplemented, errs.Internal, errs.Unavailable, errs.DataLoss, errs.Unauthenticated, errs.Conflict,
+		errs.ConnectionNotConfigured, errs.ConnectionNotConnected, errs.ConnectionReauthRequired,
+		errs.ConnectionScopeMissing, errs.ConnectionUnavailable, errs.ConnectionConfiguration:
+		return code
+	default:
+		return errs.Unknown
 	}
 }
 

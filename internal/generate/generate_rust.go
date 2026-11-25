@@ -223,9 +223,9 @@ func (p rustContractProjection) rustExpression(expression string) string {
 	case "uint64":
 		return "sdk::UInt64"
 	case "float32":
-		return "f32"
+		return "sdk::Float32"
 	case "float64":
-		return "f64"
+		return "sdk::Float64"
 	case "decimal":
 		return "sdk::Decimal"
 	case "timestamp":

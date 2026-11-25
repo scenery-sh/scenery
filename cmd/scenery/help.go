@@ -301,7 +301,7 @@ var helpCommands = []helpCommandEntry{
 		Summary: "Manage Postgres database lifecycle, server status, and local shells.",
 		Usage: []string{
 			"scenery db list|shell [--app-root <path>] [service]",
-			"scenery db query --service <module> <sql> [--param <value> ...] [--limit <n>] [--app-root <path>] [-o human|json]",
+			"scenery db query --service <module> <sql> [--param <value> ...] [--limit <n>] [--timeout <duration>] [--app-root <path>] [-o human|json]",
 			"scenery db seed|setup|reset|drop [--app-root <path>] [-o json]",
 			"scenery db migrate [service] [--status | --adopt-initial] [--app-root <path>] [-o json]",
 			"scenery db seed [--env <name>] [--app-root <path>] [-o json]",
@@ -314,9 +314,9 @@ var helpCommands = []helpCommandEntry{
 	},
 	{
 		Command: "db query", Group: "Database", Summary: "Run one PostgreSQL statement in the selected service schema.",
-		Usage:           []string{"scenery db query --service <module> <sql> [--param <value> ...] [--limit <n>] [--app-root <path>] [-o human|json]"},
-		Flags:           []string{"--service <module>", "--sql <sql>", "--param <value>", "--limit <n>", "--app-root <path>", "-o human|json"},
-		Notes:           []string{"Supply SQL positionally or with --sql. Repeat --param for $1, $2, and subsequent placeholders. The default result cap is 200 rows."},
+		Usage:           []string{"scenery db query --service <module> <sql> [--param <value> ...] [--limit <n>] [--timeout <duration>] [--app-root <path>] [-o human|json]"},
+		Flags:           []string{"--service <module>", "--sql <sql>", "--param <value>", "--limit <n>", "--timeout <duration>", "--app-root <path>", "-o human|json"},
+		Notes:           []string{"Supply SQL positionally or with --sql. Repeat --param for $1, $2, and subsequent placeholders. The default result cap is 200 rows.", "The statement runs for at most --timeout (default 30s, at most 1h) and waits at most 5s for a lock."},
 		SideEffectClass: "mixed", AppRootRequirement: "required",
 		OutputSchemas: []helpOutputSchema{{Mode: "query", Kind: dbQueryKind}}, JSON: true, Stability: "beta",
 	},

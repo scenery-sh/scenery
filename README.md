@@ -93,7 +93,7 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 | `scenery context --for <target> -o json` | Read a module briefing by module, service, route, or source file |
 | `scenery test [<module>...] -o json` | Refresh contracts and run native module tests |
 | `scenery call <target> -o json` | Invoke the current local runtime and retrieve its logs and spans |
-| `scenery db query --service <module> '<sql>' -o json` | Run one statement in the module's PostgreSQL schema, bind repeatable `--param` values, and cap returned rows with `--limit` |
+| `scenery db query --service <module> '<sql>' -o json` | Run one statement in the module's PostgreSQL schema, bind repeatable `--param` values, cap returned rows with `--limit`, and bound the statement with `--timeout` |
 | `scenery durable run <target> -o json` | Run a durable execution or schedule in the worker development Host and collect its result, logs, and spans. Use `--wait=false` to return after dispatch |
 | `scenery add module <name> --runtime <go\|rust\|ts\|js> -o json` | Scaffold a module and starter test, generate contracts, and check the application |
 | `scenery logs --follow` | Stream application logs |

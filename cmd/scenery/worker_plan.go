@@ -230,7 +230,10 @@ func (p workerPlanProjection) policy(service workerruntime.WorkerServicePlan, bi
 	if policy.AuthorizationStrategy == "" {
 		policy.AuthorizationStrategy = cp.LastRef(workerRefText(binding.Spec["authorization"]))
 	}
-	if policy.AuthorizationStrategy == "application" || policy.AuthorizationStrategy == "scheduled" {
+	// Application and scheduled authorization only describe callers the Host
+	// already admitted (internal and MCP bindings, schedules), as in the native
+	// generator. An HTTP binding keeps the strategy, which the Host refuses.
+	if (policy.AuthorizationStrategy == "application" || policy.AuthorizationStrategy == "scheduled") && cp.StringValue(binding.Spec["protocol"]) != "http" {
 		policy.AuthorizationStrategy = "public"
 	}
 	for _, rule := range cp.OrderedChildren(auth.Spec, "rule") {

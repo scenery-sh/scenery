@@ -5,7 +5,7 @@ export const clientMetadata = /* @__PURE__ */ freezeMetadata({
     "house/binding/process_scene_http"
   ],
   "compatibilityCatalog": "compatibility-core",
-  "contractRevision": "sha256:dd89da732e94f7a06130a645b30b6da52d58c558b96f19b5d4e26348a4166a80",
+  "contractRevision": "sha256:091ad52f9ce52282df01b623674d2e91b5ef200a5a31498709fa19f57bf8e027",
   "gateways": [
     "http_gateway.public_api"
   ],

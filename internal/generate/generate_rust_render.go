@@ -9,6 +9,10 @@ func (p rustContractProjection) renderType(source *strings.Builder, resource Res
 	name := p.typeName(resource)
 	switch resource.Kind {
 	case "scenery.record":
+		if stringValue(resource.Spec["unknown_fields"]) == "preserve" {
+			p.renderPreservingRecord(source, resource)
+			return nil
+		}
 		source.WriteString("#[derive(Clone, Debug, Deserialize, Serialize)]\n#[serde(crate = \"serde\")]\n")
 		if stringValue(resource.Spec["unknown_fields"]) == "reject" || resource.Spec["unknown_fields"] == nil {
 			source.WriteString("#[serde(deny_unknown_fields)]\n")
@@ -26,9 +30,6 @@ func (p rustContractProjection) renderType(source *strings.Builder, resource Res
 			}
 			fmt.Fprintf(source, ")]\n    pub %s: %s,\n", rustIdent(label), p.rustType(field["type"], resource.Module))
 		}
-		if stringValue(resource.Spec["unknown_fields"]) == "preserve" {
-			source.WriteString("    #[serde(flatten)]\n    pub extra: std::collections::BTreeMap<String, Box<RawValue>>,\n")
-		}
 		source.WriteString("}\n\n")
 	case "scenery.enum":
 		if resource.Spec["open"] == true {
@@ -45,6 +46,39 @@ func (p rustContractProjection) renderType(source *strings.Builder, resource Res
 		return p.renderRustUnion(source, resource)
 	}
 	return nil
+}
+
+// renderPreservingRecord writes a record that keeps undeclared members in
+// `extra`. Serde cannot buffer RawValue through `flatten`, so the record maps
+// its wire object with the SDK's field helpers instead.
+func (p rustContractProjection) renderPreservingRecord(source *strings.Builder, resource Resource) {
+	name := p.typeName(resource)
+	fields := namedChildren(resource.Spec, "field")
+	fmt.Fprintf(source, "#[derive(Clone, Debug)]\npub struct %s {\n", name)
+	for _, field := range fields {
+		fmt.Fprintf(source, "    pub %s: %s,\n", rustIdent(stringValue(field["name"])), p.rustType(field["type"], resource.Module))
+	}
+	source.WriteString("    pub extra: std::collections::BTreeMap<String, Box<RawValue>>,\n}\n")
+	fmt.Fprintf(source, "impl Serialize for %s {\n    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n        let mut object = sdk::record_object::<S::Error>(&self.extra)?;\n", name)
+	for _, field := range fields {
+		label := stringValue(field["name"])
+		if strings.HasPrefix(typeExpression(field["type"]), "optional(") {
+			fmt.Fprintf(source, "        if let Some(value) = &self.%s {\n            sdk::put_field::<_, S::Error>(&mut object, %q, value)?;\n        }\n", rustIdent(label), wireName(field, label))
+		} else {
+			fmt.Fprintf(source, "        sdk::put_field::<_, S::Error>(&mut object, %q, &self.%s)?;\n", wireName(field, label), rustIdent(label))
+		}
+	}
+	source.WriteString("        object.serialize(serializer)\n    }\n}\n")
+	fmt.Fprintf(source, "impl<'de> Deserialize<'de> for %s {\n    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {\n        let mut object = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;\n        Ok(Self {\n", name)
+	for _, field := range fields {
+		label := stringValue(field["name"])
+		take := "take_field"
+		if strings.HasPrefix(typeExpression(field["type"]), "optional(") {
+			take = "take_optional_field"
+		}
+		fmt.Fprintf(source, "            %s: sdk::%s::<_, D::Error>(&mut object, %q)?,\n", rustIdent(label), take, wireName(field, label))
+	}
+	source.WriteString("            extra: sdk::unknown_fields::<D::Error>(object)?,\n        })\n    }\n}\n\n")
 }
 
 func (p rustContractProjection) renderRustUnion(source *strings.Builder, resource Resource) error {

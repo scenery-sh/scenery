@@ -18,6 +18,16 @@ const registry = {
     ],
   },
   "probe/enum/status": { kind: "enum", values: ["in_review"], open: false },
+  "probe/record/note": {
+    kind: "record", preserveUnknown: true,
+    fields: [
+      { property: "note", wire: "note", optional: true, value: {
+        kind: "nullable", value: { kind: "primitive", name: "string" },
+      } },
+      { property: "ratio", wire: "ratio", optional: true, value: { kind: "primitive", name: "float64" } },
+      { property: "text", wire: "text", optional: false, value: { kind: "primitive", name: "string" } },
+    ],
+  },
 };
 const outcome = outcomeCodec(codec, registry, {
   "result.ok": patch, "error.negative_amount": { kind: "primitive", name: "problem" },
@@ -34,5 +44,5 @@ for (const { name, type, wire, reject } of examples) {
   if (reject) assert.throws(roundtrip, undefined, name);
   else assert.equal(roundtrip(), wire, name);
 }
-assert.equal(examples.length, 23);
-console.log(`${examples.length}/23 Worker ABI JavaScript wire cases passed`);
+assert.equal(examples.length, 33);
+console.log(`${examples.length}/33 Worker ABI JavaScript wire cases passed`);

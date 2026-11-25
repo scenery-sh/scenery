@@ -1,5 +1,8 @@
 use scenery_sdk::{self as sdk, serde, serde_json};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+
+include!("preserved_record.rs.inc");
 
 #[derive(Deserialize)]
 struct Case {
@@ -51,12 +54,15 @@ fn worker_wire_v1_corpus() {
         let wire = entry.wire.as_str();
         let got = match entry.wire_type.as_str() {
             "int64" => round_trip::<sdk::Int64>(wire),
+            "float32" => round_trip::<sdk::Float32>(wire),
+            "float64" => round_trip::<sdk::Float64>(wire),
             "uint64" => round_trip::<sdk::UInt64>(wire),
             "decimal" => round_trip::<sdk::Decimal>(wire),
             "datetime" => round_trip::<sdk::Timestamp>(wire),
             "duration" => round_trip::<sdk::Duration>(wire),
             "bytes" => round_trip::<sdk::ContractBytes>(wire),
             "probe/record/patch" => round_trip::<Patch>(wire),
+            "probe/record/note" => round_trip::<Note>(wire),
             "probe/enum/status" => round_trip::<Status>(wire),
             "probe/outcome/quote" => outcome(wire),
             other => panic!("unexpected corpus type {other}"),

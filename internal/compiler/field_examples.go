@@ -108,7 +108,7 @@ func exampleWireValue(value any, typeExpression, module string, resources map[st
 		}
 	}
 	if typeExpression == "json" {
-		return value, nil
+		return plainJSONValue(value)
 	}
 	if scalar, ok := value.(map[string]any); typeExpression == "bytes" && ok && scalar["$scalar"] == "bytes" {
 		return stringValue(scalar["value"]), nil

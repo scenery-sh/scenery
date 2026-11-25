@@ -1,7 +1,7 @@
 {
   "compatibility_catalog": "scenery.compatibility-core",
-  "content_digest": "sha256:70e098d75e78723212b5841030cbb2c35a827c23500d2ee6c4555322e4195faf",
-  "contract_revision": "sha256:184224a24a8344fec6bcdf38f58068dc8ffe8ee1fd66d4fbf617e5498e4b28f2",
+  "content_digest": "sha256:d9db32fa5fb28e1d2ca7a384adbedcc042cd42b7eccf9b461d4b4bd117fd644b",
+  "contract_revision": "sha256:ce54abde919e77736518b03e05a6dbf0eb55a61d1fd332315f0095319555a175",
   "covered_bindings": [],
   "covered_gateways": [
     "http_gateway.public_api"
@@ -18,24 +18,24 @@
   ],
   "generator": "scenery.generate.typescript",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:7700381c440cab1c3ee218e0fbacca9db5f613431aed5f128a64c673d823af77"
+    "app/http_gateway/public_api": "sha256:9d18bf4711ffa96a681fe83fe3251e3470e1f852543d64702618f082144519bf"
   },
   "javascript_target": null,
   "kind": "scenery.typescript-client-generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:378b8b68df98857640eaf057e5bcd3118c73751adcf6fcf46c60a94e7973012f"
+    "app/http_gateway/public_api": "sha256:02df2fae9710df87fab30a2f1db64ddf803912eb85b2107ba69c84322ab9db1d"
   },
   "package": "@example/assistant-client",
   "producer": {
-    "version": "v0.3.7-0.20261124225249-b3ca649fb7a5+dirty",
-    "commit": "b3ca649fb7a58635f2c977976a291aa739a1c4ea",
-    "built_at": "2026-11-24T22:52:49Z",
+    "version": "v0.3.7-0.20261125094204-acb00595206f+dirty",
+    "commit": "acb00595206f4778bdcb77e0da3fa2be5e7d90bd",
+    "built_at": "2026-11-25T09:42:04Z",
     "toolchain": {
       "go_version": "go1.27.0"
     }
   },
   "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",
-  "spec_revision": "sha256:fcdb7f6cecf79da6dd124150b6fa8d7172f19ea25e3b1381d6e274bf71cc042c",
+  "spec_revision": "sha256:0e2895ce2b109a06f117fa3c578d114428136e797c7844df18154253556d0a4a",
   "target": "app/typescript_client/public_api",
   "typescript_client_revision": "sha256:86af9a0116997da07954c4dab16ca3a208d415eec1ab92bfda409f7cae4936e8",
   "typescript_version": null,

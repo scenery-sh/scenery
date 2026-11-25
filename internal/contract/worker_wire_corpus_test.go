@@ -13,6 +13,9 @@ func TestWorkerWireV1Corpus(t *testing.T) {
 	types := ManifestTypes{
 		"probe/record/patch": {Kind: "record", Fields: []ManifestField{{Name: "note", Type: "optional(nullable(string))"}}},
 		"probe/enum/status":  {Kind: "enum", Values: []string{"in_review"}},
+		"probe/record/note": {Kind: "record", UnknownFields: "preserve", Fields: []ManifestField{
+			{Name: "text", Type: "string"}, {Name: "note", Type: "optional(nullable(string))"}, {Name: "ratio", Type: "optional(float64)"},
+		}},
 	}
 	var cases []struct {
 		Name   string
