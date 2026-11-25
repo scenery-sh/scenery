@@ -63,7 +63,8 @@ struct Constraints {
     matcher: OnceLock<Option<regex::Regex>>,
 }
 
-pub(crate) use crate::json::{encode, parse};
+pub(crate) use crate::json::{encode, encode_exact, parse};
+use crate::json::{exact_decimal, expansion_budget};
 
 /// Normalizes `value` to the canonical wire form of `expression`. Free-form
 /// JSON inside it shares one growth budget sized from the whole input, so
@@ -78,15 +79,6 @@ pub(crate) fn normalize(types: &Types, expression: &str, value: Value) -> Result
         0,
         &mut budget,
     )
-}
-
-/// Go's `exactCanonicalJSONBudget`: canonical JSON may reach eight times its
-/// input plus a small constant, and never more than 16 MiB beyond it.
-fn expansion_budget(input: usize) -> usize {
-    input
-        .saturating_mul(8)
-        .saturating_add(1024)
-        .min(input.saturating_add(16 << 20))
 }
 
 /// Approximates the encoded length of `value` without building it.
@@ -320,63 +312,6 @@ fn normalize_json(mut value: Value, shared: &mut usize) -> Result<Value> {
     Ok(value)
 }
 
-/// Writes a JSON number as an exact decimal without an exponent, refusing
-/// before it materializes more than `limit` bytes.
-fn exact_decimal(text: &str, limit: usize) -> Result<String> {
-    let (negative, unsigned) = text
-        .strip_prefix('-')
-        .map_or(("", text), |rest| ("-", rest));
-    let (mantissa, exponent) = unsigned
-        .split_once(['e', 'E'])
-        .map_or(Ok((unsigned, 0)), |(base, exponent)| {
-            Ok::<_, anyhow::Error>((base, exponent.parse::<i32>()?))
-        })?;
-    ensure!(
-        (-1_000_000..=1_000_000).contains(&exponent),
-        "number exponent exceeds limit"
-    );
-    let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-    ensure!(
-        !integer.is_empty()
-            && integer
-                .bytes()
-                .chain(fraction.bytes())
-                .all(|c| c.is_ascii_digit()),
-        "invalid decimal digits"
-    );
-    let digits = format!("{integer}{fraction}");
-    let digits = digits.trim_start_matches('0');
-    if digits.is_empty() {
-        return Ok("0".into());
-    }
-    let scale = fraction.len() as i64 - i64::from(exponent);
-    // An exponent only moves the point, so zero padding is the sole growth.
-    ensure!(
-        digits.len() as u64 + scale.unsigned_abs() <= limit as u64,
-        "canonical JSON exceeds limit"
-    );
-    if scale <= 0 {
-        return Ok(format!(
-            "{negative}{digits}{}",
-            "0".repeat((-scale) as usize)
-        ));
-    }
-    let trailing = (digits.len() - digits.trim_end_matches('0').len()).min(scale as usize);
-    let scale = scale as usize - trailing;
-    let digits = &digits[..digits.len() - trailing];
-    if scale == 0 {
-        return Ok(format!("{negative}{digits}"));
-    }
-    if scale >= digits.len() {
-        return Ok(format!(
-            "{negative}0.{}{digits}",
-            "0".repeat(scale - digits.len())
-        ));
-    }
-    let (integer, decimal) = digits.split_at(digits.len() - scale);
-    Ok(format!("{negative}{integer}.{decimal}"))
-}
-
 fn normalize_scalar(name: &str, value: Value, rules: &Constraints) -> Result<Value> {
     match name {
         "bool" => ensure!(value.is_boolean(), "expected boolean"),
@@ -394,6 +329,15 @@ fn normalize_scalar(name: &str, value: Value, rules: &Constraints) -> Result<Val
         "int" => {
             let text = value.as_str().context("expected integer string")?;
             ensure!(canonical_digits(text, true), "invalid integer");
+        }
+        // An exact byte count without a machine width: Go keeps it in a big
+        // integer of at most a million digits.
+        "size" => {
+            let text = value.as_str().context("expected size string")?;
+            ensure!(
+                canonical_digits(text, false) && text.len() <= 1_000_000,
+                "invalid size"
+            );
         }
         "std.type.unit" => ensure!(
             value.as_object().is_some_and(Map::is_empty),
@@ -789,6 +733,54 @@ mod tests {
             ),
         )]);
         assert!(normalize(&invalid, "Broken", serde_json::json!({"id": "("})).is_err());
+    }
+
+    /// The cases of Go's `TestManifestNormalizesSizeLikeNativeContracts`.
+    #[test]
+    fn sizes_are_exact_byte_counts_within_their_limits() {
+        let types = Types::from([(
+            "files/record/Upload".into(),
+            record(
+                vec![
+                    field(
+                        "limit",
+                        "size",
+                        Constraints {
+                            minimum: Some("1".into()),
+                            maximum: Some("18446744073709551616".into()),
+                            ..Constraints::default()
+                        },
+                    ),
+                    field("quota", "optional(size)", Constraints::default()),
+                ],
+                "reject",
+            ),
+        )]);
+        for (input, valid) in [
+            (r#"{"limit":"1024"}"#, true),
+            // A size stays exact beyond the machine integer range.
+            (r#"{"limit":"18446744073709551616","quota":"0"}"#, true),
+            (r#"{"limit":1024}"#, false),
+            (r#"{"limit":"1KiB"}"#, false),
+            (r#"{"limit":"01"}"#, false),
+            (r#"{"limit":"-1"}"#, false),
+            (r#"{"limit":"0"}"#, false),
+            (r#"{"limit":"18446744073709551617"}"#, false),
+        ] {
+            let result = parse(input.as_bytes())
+                .and_then(|value| normalize(&types, "files/record/Upload", value))
+                .map(|value| encode(&value));
+            if valid {
+                assert_eq!(result.unwrap(), input);
+            } else {
+                assert!(result.is_err(), "accepted {input}");
+            }
+        }
+        let size = |text: &str| normalize(&types, "size", Value::String(text.into())).is_ok();
+        assert!(size("0") && !size("") && !size("-0") && !size("+1") && !size("1e3"));
+        assert!(!size("1.0") && !size("1B") && !size(" 1"));
+        // Go's exact decimals end at a million digits.
+        assert!(size(&"9".repeat(1_000_000)) && !size(&"9".repeat(1_000_001)));
     }
 
     #[test]

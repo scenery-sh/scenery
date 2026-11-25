@@ -118,12 +118,28 @@ impl Fault {
         value
     }
 
-    pub(crate) fn reply(self, host: &Host, policy: Option<&Policy>) -> Reply {
+    /// The status and problem a binding answers this fault with. A binding
+    /// declares a failed authentication or authorization as an admission
+    /// outcome: its status mapping and the clients generated from it know
+    /// that name, not the code the host uses inside.
+    fn problem(&self, policy: Option<&Policy>) -> (StatusCode, Value) {
+        let code = match (policy, self.code) {
+            (Some(_), "unauthenticated") => "admission.unauthenticated",
+            (Some(_), "permission_denied") => "admission.forbidden",
+            (_, code) => code,
+        };
         let status = policy
-            .and_then(|policy| policy.transport_statuses.get(self.code))
+            .and_then(|policy| policy.transport_statuses.get(code))
             .and_then(|status| StatusCode::from_u16(*status).ok())
             .unwrap_or(self.status);
-        let mut reply = json_reply(status, &self.envelope());
+        let mut problem = self.envelope();
+        problem["code"] = json!(code);
+        (status, problem)
+    }
+
+    pub(crate) fn reply(self, host: &Host, policy: Option<&Policy>) -> Reply {
+        let (status, problem) = self.problem(policy);
+        let mut reply = json_reply(status, &problem);
         header(
             reply.headers_mut(),
             "content-type",
@@ -851,6 +867,42 @@ pub(crate) fn authorized(headers: &HeaderMap, expected: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bindings_answer_admission_failures_with_their_declared_outcomes() {
+        let policy: Policy = serde_json::from_value(json!({
+            "BindingAddress":"api", "AuthorizationStrategy":"deny_unless_allowed",
+            "AuthorizationRules":[], "TotalInvocationTimeoutNanos":0, "MaxRequestHeaderBytes":0,
+            "CORS":"none", "AllowedOrigins":[],
+            "TransportStatuses":{"admission.unauthenticated":499, "admission.forbidden":404},
+        }))
+        .unwrap();
+        let unauthenticated =
+            || Fault::new(401, "unauthenticated", "invalid or missing authentication");
+        for (fault, status, code) in [
+            (unauthenticated(), 499, "admission.unauthenticated"),
+            (Fault::forbidden(), 404, "admission.forbidden"),
+            (Fault::invalid(), 400, "transport.invalid_request"),
+        ] {
+            let message = fault.message;
+            let (answered, problem) = fault.problem(Some(&policy));
+            assert_eq!(answered, status);
+            // Generated clients select the failure branch by this code.
+            assert_eq!(problem, json!({"code": code, "message": message}));
+        }
+        // Without a mapping the outcome keeps the status of the fault.
+        let plain = Policy {
+            transport_statuses: Default::default(),
+            ..policy
+        };
+        let (status, problem) = unauthenticated().problem(Some(&plain));
+        assert_eq!(status, 401);
+        assert_eq!(problem["code"], "admission.unauthenticated");
+        // Host capabilities are no binding and keep the internal code.
+        let (status, problem) = Fault::forbidden().problem(None);
+        assert_eq!(status, 403);
+        assert_eq!(problem["code"], "permission_denied");
+    }
 
     #[test]
     fn control_calls_forward_only_a_real_invocation_credential() {

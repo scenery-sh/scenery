@@ -17,7 +17,7 @@ glob = "0.3"
 hmac = "0.13"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "server", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 libc = "0.2"
 mime_guess = "2"
 notify = "=8.2.1"

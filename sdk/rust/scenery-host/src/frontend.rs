@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, SystemTime};
 
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Frame, Incoming};
@@ -11,7 +13,6 @@ use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, copy_bidirectional};
-use tokio::net::TcpStream;
 use tokio_util::io::ReaderStream;
 
 use crate::host::{Reply, empty, header, json_reply};
@@ -20,6 +21,22 @@ use crate::plan::Frontend;
 static HASHED_ASSET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"-[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9]+$").expect("valid asset pattern")
 });
+
+/// The ETag of a file with the size and modification time it was computed
+/// for.
+struct Tagged {
+    size: u64,
+    modified: SystemTime,
+    tag: String,
+}
+
+/// The ETags of the served files by path. Hashing a file on every request
+/// made a revalidation or a range read cost as much as the whole transfer.
+static ETAGS: LazyLock<Mutex<HashMap<PathBuf, Tagged>>> = LazyLock::new(Mutex::default);
+
+/// A file is remembered only once it has been quiet for this long: a rewrite
+/// within the resolution of its timestamp would otherwise keep its stamp.
+const SETTLED: Duration = Duration::from_secs(2);
 
 pub(crate) async fn serve(frontend: Option<&Frontend>, request: Request<Incoming>) -> Reply {
     let Some(frontend) = frontend else {
@@ -91,13 +108,13 @@ pub(crate) async fn serve(frontend: Option<&Frontend>, request: Request<Incoming
     } {
         path = variant;
     }
-    let Ok(mut file) = tokio::fs::File::open(path).await else {
+    let Ok(mut file) = tokio::fs::File::open(&path).await else {
         return not_found();
     };
     let Ok(info) = file.metadata().await else {
         return not_found();
     };
-    let Ok(tag) = etag(&mut file).await else {
+    let Ok(tag) = etag(&path, &mut file, &info).await else {
         return not_found();
     };
     let media = mime_guess::from_path(selected).first_or_octet_stream();
@@ -173,16 +190,41 @@ pub(crate) async fn serve(frontend: Option<&Frontend>, request: Request<Incoming
     reply
 }
 
-async fn etag(file: &mut tokio::fs::File) -> io::Result<String> {
+/// The ETag of the open `file` at `path`: the one remembered for its size
+/// and modification time, or else a hash of its content.
+async fn etag(
+    path: &Path,
+    file: &mut tokio::fs::File,
+    info: &std::fs::Metadata,
+) -> io::Result<String> {
+    let stamp = info.modified().ok().map(|modified| (info.len(), modified));
+    if let Some(stamp) = stamp
+        && let Some(known) = ETAGS.lock().expect("etags").get(path)
+        && (known.size, known.modified) == stamp
+    {
+        return Ok(known.tag.clone());
+    }
     let mut hash = Sha256::new();
     let mut buffer = vec![0; 32 << 10];
     loop {
         let count = file.read(&mut buffer).await?;
         if count == 0 {
-            return Ok(format!("\"{}\"", crate::process::hex(&hash.finalize())));
+            break;
         }
         hash.update(&buffer[..count]);
     }
+    let tag = format!("\"{}\"", crate::process::hex(&hash.finalize()));
+    if let Some((size, modified)) = stamp
+        && modified.elapsed().is_ok_and(|quiet| quiet >= SETTLED)
+    {
+        let known = Tagged {
+            size,
+            modified,
+            tag: tag.clone(),
+        };
+        ETAGS.lock().expect("etags").insert(path.into(), known);
+    }
+    Ok(tag)
 }
 
 fn select_encoding(accept: &str, brotli: bool, gzip: bool) -> &'static str {
@@ -255,14 +297,10 @@ pub(crate) fn not_found() -> Reply {
 }
 
 async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result<Reply> {
-    let Some(uri) = crate::frontend_dev::upstream_uri(request.uri()) else {
+    let Some(uri) = crate::frontend_dev::upstream_uri(upstream, request.uri()) else {
         return Ok(not_found());
     };
     crate::frontend_dev::prepare(&mut request, uri);
-    let (mut sender, connection) =
-        hyper::client::conn::http1::handshake(TokioIo::new(TcpStream::connect(upstream).await?))
-            .await?;
-    tokio::spawn(connection.with_upgrades());
     let upgrade = request
         .headers()
         .contains_key("upgrade")
@@ -284,7 +322,7 @@ async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result
         header(headers, "x-forwarded-for", &peer.to_string());
     }
     header(headers, "x-forwarded-proto", "http");
-    let mut response = sender.send_request(request).await?;
+    let mut response = crate::frontend_dev::send(request).await?;
     if response.status() == StatusCode::SWITCHING_PROTOCOLS {
         if let Some(client) = upgrade {
             let target = hyper::upgrade::on(&mut response);
@@ -329,6 +367,42 @@ fn strip_hop_headers(headers: &mut hyper::HeaderMap) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn remembers_an_etag_for_the_size_and_time_of_its_file() -> io::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("app.js");
+        let write = |content: &str, modified: SystemTime| {
+            std::fs::write(&path, content)?;
+            let file = std::fs::File::options().write(true).open(&path)?;
+            file.set_modified(modified)
+        };
+        let tag = || async {
+            let mut file = tokio::fs::File::open(&path).await?;
+            let info = file.metadata().await?;
+            etag(&path, &mut file, &info).await
+        };
+        let earlier = SystemTime::now() - Duration::from_secs(3600);
+        write("first", earlier)?;
+        let first = tag().await?;
+        // The same size and time: the file is not read again.
+        write("again", earlier)?;
+        assert_eq!(tag().await?, first);
+        // A new time or a new size is a new file.
+        write("again", earlier + Duration::from_secs(1))?;
+        let second = tag().await?;
+        assert_ne!(second, first);
+        write("longer content", earlier + Duration::from_secs(1))?;
+        assert_ne!(tag().await?, second);
+        // A file written moments ago may change again within its timestamp,
+        // so it is hashed every time.
+        let now = SystemTime::now();
+        write("fresh", now)?;
+        let fresh = tag().await?;
+        write("other", now)?;
+        assert_ne!(tag().await?, fresh);
+        Ok(())
+    }
 
     #[test]
     fn selects_an_available_encoding_and_validates_byte_ranges() {

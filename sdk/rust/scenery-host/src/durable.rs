@@ -530,27 +530,33 @@ fn tail(address: &str) -> &str {
     address.rsplit('/').next().unwrap_or(address)
 }
 
+/// Builds the deduplication or concurrency key of `input` as Go's
+/// `contract.EncodeContractCompositeKey` does. Each component is written in
+/// exact canonical JSON, so a float the wire spells `1e+06` is keyed as
+/// `1000000` and a job enqueued by either host deduplicates against the
+/// other's.
 fn dispatch_key(input: &Value, fields: &[Key]) -> Result<String> {
     if fields.is_empty() {
         return Ok(String::new());
     }
-    let parts = fields
-        .iter()
-        .map(|field| {
-            let value = match input.get(&field.name) {
-                None if field.ty.starts_with("optional(") => {
-                    json!({"state": "absent", "type": field.ty})
-                }
-                Some(Value::Null) if field.ty.starts_with("nullable(") => {
-                    json!({"state": "null", "type": field.ty})
-                }
-                Some(value) => json!({"state": "value", "type": field.ty, "value": value}),
-                _ => anyhow::bail!("required execution key is absent"),
-            };
-            Ok(value)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let encoded = values::encode(&Value::Array(parts));
+    let mut encoded = String::from("[");
+    for (index, field) in fields.iter().enumerate() {
+        let component = match input.get(&field.name) {
+            None if field.ty.starts_with("optional(") => {
+                json!({"state": "absent", "type": field.ty})
+            }
+            Some(Value::Null) if field.ty.starts_with("nullable(") => {
+                json!({"state": "null", "type": field.ty})
+            }
+            Some(value) => json!({"state": "value", "type": field.ty, "value": value}),
+            _ => anyhow::bail!("required execution key is absent"),
+        };
+        if index > 0 {
+            encoded.push(',');
+        }
+        encoded.push_str(&values::encode_exact(&component)?);
+    }
+    encoded.push(']');
     Ok(format!(
         "scenery-key-v1.{}",
         values::base64url(encoded.as_bytes())

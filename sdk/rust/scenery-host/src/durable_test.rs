@@ -20,6 +20,48 @@ fn active_jobs_of_another_revision_require_a_migration() {
     assert!(migration_required(&declared, &other).is_err());
 }
 
+/// Jobs already in a database carry the keys Go's
+/// `contract.EncodeContractCompositeKey` built, which the shared corpus pins.
+#[test]
+fn dispatch_keys_match_the_go_corpus() {
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    #[derive(Deserialize)]
+    struct Case {
+        name: String,
+        fields: Vec<Key>,
+        input: String,
+        #[serde(default)]
+        canonical: String,
+        #[serde(default)]
+        reject: bool,
+    }
+    let cases: Vec<Case> = serde_json::from_str(include_str!(
+        "../../../../internal/contract/testdata/worker-keys-v1.json"
+    ))
+    .unwrap();
+    assert!(cases.len() >= 15);
+    for case in cases {
+        let input = values::parse(case.input.as_bytes()).unwrap();
+        let key = dispatch_key(&input, &case.fields);
+        if case.reject {
+            assert!(key.is_err(), "accepted {}", case.name);
+            continue;
+        }
+        let expected = format!("scenery-key-v1.{}", URL_SAFE_NO_PAD.encode(&case.canonical));
+        assert_eq!(key.unwrap(), expected, "{}", case.name);
+    }
+    // The exponent form Go's wire gives a float is keyed as its exact decimal.
+    let amount: Vec<Key> =
+        serde_json::from_value(json!([{"Name":"amount","Type":"float64"}])).unwrap();
+    assert_eq!(
+        dispatch_key(&values::parse(br#"{"amount":1e+06}"#).unwrap(), &amount).unwrap(),
+        "scenery-key-v1.W3sic3RhdGUiOiJ2YWx1ZSIsInR5cGUiOiJmbG9hdDY0IiwidmFsdWUiOjEwMDAwMDB9XQ"
+    );
+    assert_eq!(dispatch_key(&json!({}), &[]).unwrap(), "");
+}
+
 fn registration(name: &str, revision: u32) -> Registration {
     serde_json::from_value(json!({
         "Address": format!("orders/execution/{name}"), "EngineAddress": "orders/engine/main",

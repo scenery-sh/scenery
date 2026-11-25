@@ -1,10 +1,13 @@
 use std::borrow::Cow;
 use std::io;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bytes::Bytes;
-use hyper::{Request, Uri, body::Incoming};
+use hyper::{Request, Response, Uri, Version, body::Incoming};
+use hyper_util::client::legacy::{Client, connect::HttpConnector};
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 
@@ -15,8 +18,23 @@ const ASSET_PATH: &str = "/@files/";
 const ESCAPE: &str = "~";
 const TEXT_LIMIT: usize = 32 << 20;
 
+/// How long an unused connection to the development server is kept. Node
+/// closes an idle connection after five seconds; staying well below that
+/// keeps a request from meeting a connection its server is closing.
+const IDLE: Duration = Duration::from_secs(2);
+
 static ASSET: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"/@fs/[^"'\x60<>\s\\)?,;#]+"#).expect("Vite filesystem URL"));
+
+/// Connections to the development server, kept alive between requests. A
+/// page load asks it for a thousand modules or more, and a connection for
+/// each costs a handshake and leaves a socket in TIME_WAIT.
+static UPSTREAM: LazyLock<Client<HttpConnector, Incoming>> = LazyLock::new(|| {
+    Client::builder(TokioExecutor::new())
+        .pool_idle_timeout(IDLE)
+        .pool_timer(TokioTimer::new())
+        .build_http()
+});
 
 fn forbidden(value: &str) -> bool {
     percent_decode_str(value)
@@ -47,14 +65,23 @@ fn rewrite(source: &str) -> Cow<'_, str> {
     })
 }
 
-pub(crate) fn upstream_uri(uri: &Uri) -> Option<Uri> {
-    let Some(path) = uri.path().strip_prefix(ASSET_PATH) else {
-        return Some(uri.clone());
+/// The address of `uri` on the development server at `upstream`.
+pub(crate) fn upstream_uri(upstream: &str, uri: &Uri) -> Option<Uri> {
+    let absolute = |target: &str| {
+        Uri::builder()
+            .scheme("http")
+            .authority(upstream)
+            .path_and_query(target)
+            .build()
+            .ok()
     };
-    let mut upstream = VITE_FS.to_owned();
+    let Some(path) = uri.path().strip_prefix(ASSET_PATH) else {
+        return absolute(uri.path_and_query().map_or("/", |target| target.as_str()));
+    };
+    let mut target = VITE_FS.to_owned();
     for (index, segment) in path.split('/').enumerate() {
         if index != 0 {
-            upstream.push('/');
+            target.push('/');
         }
         let decoded = if let Some(escaped) = segment.strip_prefix(ESCAPE) {
             String::from_utf8(URL_SAFE_NO_PAD.decode(escaped).ok()?).ok()?
@@ -65,21 +92,28 @@ pub(crate) fn upstream_uri(uri: &Uri) -> Option<Uri> {
         if file.contains(['/', '\\', '?', '#', '\0']) || matches!(file.as_ref(), ".." | ".") {
             return None;
         }
-        upstream.push_str(&decoded);
+        target.push_str(&decoded);
     }
     if let Some(query) = uri.query() {
-        upstream.push('?');
-        upstream.push_str(query);
+        target.push('?');
+        target.push_str(query);
     }
-    upstream.parse().ok()
+    absolute(&target)
 }
 
 pub(crate) fn prepare(request: &mut Request<Incoming>, uri: Uri) {
     *request.uri_mut() = uri;
+    // The kept connections speak HTTP/1.1, whatever the caller spoke.
+    *request.version_mut() = Version::HTTP_11;
     request.headers_mut().remove("accept-encoding");
 }
 
-pub(crate) async fn response(upstream: hyper::Response<Incoming>) -> anyhow::Result<Reply> {
+/// Sends a prepared request over a kept connection to its server.
+pub(crate) async fn send(request: Request<Incoming>) -> anyhow::Result<Response<Incoming>> {
+    Ok(UPSTREAM.request(request).await?)
+}
+
+pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Reply> {
     use http_body_util::BodyExt;
     let textual = upstream
         .headers()
@@ -133,15 +167,15 @@ mod tests {
             .zip(neutral.split(['"', '\'']).skip(1).step_by(2))
         {
             assert_eq!(
-                upstream_uri(&got.parse().unwrap())
+                upstream_uri("127.0.0.1:5173", &got.parse().unwrap())
                     .unwrap()
-                    .path_and_query()
-                    .unwrap()
-                    .as_str(),
-                *expected
+                    .to_string(),
+                format!("http://127.0.0.1:5173{expected}")
             );
         }
-        assert!(upstream_uri(&"/@files/~/..%2fsecret".parse().unwrap()).is_none());
+        assert!(
+            upstream_uri("127.0.0.1:5173", &"/@files/~/..%2fsecret".parse().unwrap()).is_none()
+        );
     }
 
     #[tokio::test]
@@ -160,15 +194,32 @@ mod tests {
             reserved: vec!["/api".into()],
             upstream: Some(vite.local_addr()?.to_string()),
         };
+        let connections = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let accepted = connections.clone();
         let vite = tokio::spawn(async move {
             while let Ok((socket, _)) = vite.accept().await {
+                accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 tokio::spawn(async move {
-                    let service = service_fn(|request: Request<Incoming>| async move {
+                    let service = service_fn(|mut request: Request<Incoming>| async move {
                         assert_eq!(request.headers()["host"], front_address.to_string());
                         assert_eq!(
                             request.headers()["x-forwarded-host"],
                             front_address.to_string()
                         );
+                        if request.uri().path() == "/hmr" {
+                            // The module reload socket: echo what arrives.
+                            let socket = hyper::upgrade::on(&mut request);
+                            tokio::spawn(async move {
+                                let mut socket = TokioIo::new(socket.await.expect("upgrade"));
+                                let (mut reader, mut writer) = tokio::io::split(&mut socket);
+                                let _ = tokio::io::copy(&mut reader, &mut writer).await;
+                            });
+                            let mut response =
+                                crate::transport::response(StatusCode::SWITCHING_PROTOCOLS, "");
+                            crate::host::header(response.headers_mut(), "connection", "upgrade");
+                            crate::host::header(response.headers_mut(), "upgrade", "hmr");
+                            return Ok(response);
+                        }
                         let path = request.uri().path();
                         let (media, content) = match path {
                             "/src/main.tsx" => (
@@ -193,6 +244,7 @@ mod tests {
                     });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(TokioIo::new(socket), service)
+                        .with_upgrades()
                         .await;
                 });
             }
@@ -208,18 +260,21 @@ mod tests {
                     });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(TokioIo::new(socket), service)
+                        .with_upgrades()
                         .await;
                 });
             }
         });
         let http = reqwest::Client::new();
-        let get = |url: &str| http.get(format!("http://{front_address}{url}")).send();
+        let get = |url: &str| http.get(format!("http://{front_address}{url}"));
         let module = get("/src/main.tsx")
+            .send()
             .await?
             .error_for_status()?
             .text()
             .await?;
         let css = get(module.split('"').nth(1).expect("stylesheet URL"))
+            .send()
             .await?
             .error_for_status()?
             .text()
@@ -227,10 +282,25 @@ mod tests {
         assert!(!forbidden(&module));
         assert!(!forbidden(&css));
         let response = get(css.split('"').nth(1).expect("font URL"))
+            .send()
             .await?
             .error_for_status()?;
         assert_eq!(response.headers()["content-type"], "font/woff2");
         assert_eq!(response.text().await?, "binary-font");
+        // Each of the three requests used to open a connection of its own.
+        assert_eq!(connections.load(std::sync::atomic::Ordering::Relaxed), 1);
+        // An upgrade still reaches the development server and carries data.
+        let response = get("/hmr")
+            .header("connection", "upgrade")
+            .header("upgrade", "hmr")
+            .send()
+            .await?;
+        assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+        let mut socket = response.upgrade().await?;
+        tokio::io::AsyncWriteExt::write_all(&mut socket, b"ping").await?;
+        let mut echo = [0; 4];
+        tokio::io::AsyncReadExt::read_exact(&mut socket, &mut echo).await?;
+        assert_eq!(&echo, b"ping");
         vite.abort();
         proxy.abort();
         Ok(())
