@@ -314,6 +314,99 @@ pub(crate) fn go_source(path: &Path) -> bool {
     ) && !path.to_string_lossy().ends_with("_test.go")
 }
 
+/// Lists the inputs that the `//go:embed` directives of the Go source at
+/// `path` select, as `internal/build` selects them for the first workspace.
+/// A pattern names a file, or a directory whose whole tree is embedded.
+pub(crate) fn embedded<'a>(
+    source: &str,
+    path: &Path,
+    inputs: impl Iterator<Item = &'a PathBuf>,
+) -> Vec<&'a PathBuf> {
+    let patterns = embed_patterns(source);
+    if patterns.is_empty() {
+        return Vec::new();
+    }
+    let package = path.parent().unwrap_or(Path::new(""));
+    inputs
+        .filter(|input| {
+            input.strip_prefix(package).is_ok_and(|file| {
+                patterns.iter().any(|pattern| {
+                    let mut names = file.iter();
+                    pattern.split('/').all(|segment| {
+                        names
+                            .next()
+                            .is_some_and(|name| segment_matches(segment, &name.to_string_lossy()))
+                    })
+                })
+            })
+        })
+        .collect()
+}
+
+/// Reads the patterns of every `//go:embed` line: bare words and Go string
+/// literals, without the `all:` prefix that only widens a directory.
+fn embed_patterns(source: &str) -> Vec<String> {
+    let mut patterns = Vec::new();
+    for line in source.lines() {
+        let Some(mut rest) = line.trim().strip_prefix("//go:embed") else {
+            continue;
+        };
+        loop {
+            rest = rest.trim_start();
+            let (pattern, next) = match rest.chars().next() {
+                None => break,
+                Some('`') => match rest[1..].split_once('`') {
+                    Some((raw, next)) => (raw.to_owned(), next),
+                    None => break,
+                },
+                Some('"') => {
+                    let mut escaped = false;
+                    let end = rest[1..].find(|c| {
+                        let closes = c == '"' && !escaped;
+                        escaped = c == '\\' && !escaped;
+                        closes
+                    });
+                    let Some(end) = end else { break };
+                    // The escapes of a file name are the ones JSON shares.
+                    let Ok(text) = serde_json::from_str(&rest[..end + 2]) else {
+                        break;
+                    };
+                    (text, &rest[end + 2..])
+                }
+                Some(_) => {
+                    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+                    (rest[..end].to_owned(), &rest[end..])
+                }
+            };
+            patterns.push(pattern.strip_prefix("all:").unwrap_or(&pattern).to_owned());
+            rest = next;
+        }
+    }
+    patterns
+}
+
+/// Matches one path segment against a segment of a `path.Match` pattern. A
+/// character class or an escape matches anything: a file the build does not
+/// embed is harmless in the workspace, a missing one fails the build.
+fn segment_matches(pattern: &str, name: &str) -> bool {
+    let mut rest = pattern.chars();
+    match rest.next() {
+        None => name.is_empty(),
+        Some('[' | '\\') => true,
+        Some('*') => name
+            .char_indices()
+            .map(|(at, _)| at)
+            .chain([name.len()])
+            .any(|at| segment_matches(rest.as_str(), &name[at..])),
+        Some(expected) => {
+            let mut name = name.chars();
+            name.next()
+                .is_some_and(|actual| expected == '?' || expected == actual)
+                && segment_matches(rest.as_str(), name.as_str())
+        }
+    }
+}
+
 pub(crate) async fn lock_file(path: &Path) -> Result<File> {
     use std::os::fd::AsRawFd;
     let file = OpenOptions::new()
@@ -513,6 +606,38 @@ mod tests {
             .await?;
         assert_ne!(first.digest, second.digest);
         Ok(())
+    }
+
+    #[test]
+    fn embed_directives_select_files_globs_and_directory_trees() {
+        let source = "package web\n\n//go:embed static/*.css \"my file.txt\" `raw name`\n\t//go:embed all:templates\nvar files embed.FS\n// go:embed ignored.txt\n";
+        assert_eq!(
+            embed_patterns(source),
+            ["static/*.css", "my file.txt", "raw name", "templates"]
+        );
+        let inputs = [
+            "web/static/app.css",
+            "web/static/app.js",
+            "web/static/deep/app.css",
+            "web/my file.txt",
+            "web/templates/mail/_hidden.txt",
+            "web/ignored.txt",
+            "other/static/app.css",
+            "static/app.css",
+        ]
+        .map(PathBuf::from);
+        let selected: Vec<_> = embedded(source, Path::new("web/handler.go"), inputs.iter())
+            .into_iter()
+            .map(|path| path.to_str().unwrap())
+            .collect();
+        assert_eq!(
+            selected,
+            [
+                "web/static/app.css",
+                "web/my file.txt",
+                "web/templates/mail/_hidden.txt"
+            ]
+        );
     }
 
     #[test]

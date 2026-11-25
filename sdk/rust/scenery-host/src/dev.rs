@@ -483,9 +483,7 @@ impl WatcherLoop {
         let root = &self.config.root;
         let workspace = if let Some(workspace) = &selected.go_workspace {
             let lock = dev_build::lock_file(&workspace.join(".scenery-workspace.lock")).await?;
-            materialize(root, workspace, &mut self.go_materialized, inputs, |path| {
-                selected.go_mirrored(path)
-            })?;
+            materialize_go(root, workspace, &mut self.go_materialized, inputs, selected)?;
             Some(lock)
         } else {
             None
@@ -621,19 +619,47 @@ impl WatcherLoop {
 /// Copies into `mirror` the inputs it has not received since `held` and
 /// records that it holds them now. Each build mirror keeps its own record:
 /// a refresh that skips one mirror must not mark its files as copied.
+/// Returns the paths that differed, mirrored or not.
 fn materialize(
     root: &Path,
     mirror: &Path,
     held: &mut Inputs,
     inputs: &Inputs,
     mirrored: impl Fn(&Path) -> bool,
-) -> Result<()> {
-    for path in dev_inputs::changed(held, inputs) {
-        if mirrored(&path) {
-            dev_inputs::sync(root, mirror, &path, inputs.get(&path))?;
+) -> Result<Vec<PathBuf>> {
+    let received = dev_inputs::changed(held, inputs);
+    for path in &received {
+        if mirrored(path) {
+            dev_inputs::sync(root, mirror, path, inputs.get(path))?;
         }
     }
     *held = inputs.clone();
+    Ok(received)
+}
+
+/// Brings the Go workspace up to `inputs` before a build. Of the files that
+/// are not Go sources the workspace holds only the embedded ones, so a
+/// `//go:embed` directive added to a source can name a file that never
+/// changed and was never copied. Every received source therefore brings the
+/// files its directives select, whether or not those changed.
+fn materialize_go(
+    root: &Path,
+    workspace: &Path,
+    held: &mut Inputs,
+    inputs: &Inputs,
+    plan: &Plan,
+) -> Result<()> {
+    let received = materialize(root, workspace, held, inputs, |path| plan.go_mirrored(path))?;
+    for source in received.iter().filter(|path| {
+        dev_inputs::extension(path) == "go"
+            && dev_build::go_source(path)
+            && inputs.contains_key(*path)
+    }) {
+        let text = fs::read(workspace.join(source))?;
+        for path in dev_build::embedded(&String::from_utf8_lossy(&text), source, inputs.keys()) {
+            dev_inputs::sync(root, workspace, path, inputs.get(path))?;
+        }
+    }
     Ok(())
 }
 
@@ -788,6 +814,60 @@ mod tests {
         for name in ["a.rs", "b.rs", "README.md"] {
             assert_eq!(read(&go, name)?, read(&root, name)?, "{name}");
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_new_embed_of_an_unchanged_file_builds_on_the_first_rebuild() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let base = temp.path().canonicalize()?;
+        let (root, workspace, artifacts) =
+            (base.join("app"), base.join("go"), base.join("artifacts"));
+        let write = |name: &str, content: &str| {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().expect("file parent"))?;
+            fs::write(path, content)
+        };
+        write("go.mod", "module example.test/app\n\ngo 1.23\n")?;
+        write("worker/main.go", "package main\n\nfunc main() {}\n")?;
+        write("worker/assets/config.json", "{}\n")?;
+        fs::create_dir(&artifacts)?;
+        let scanner = Scanner::new(root.clone());
+        let started = scanner.scan(&[])?;
+        // The CLI's workspace has the Go sources and the files they embed
+        // at startup, while the loop records the whole snapshot as held.
+        for name in ["go.mod", "worker/main.go"] {
+            dev_inputs::sync(
+                &root,
+                &workspace,
+                Path::new(name),
+                started.get(Path::new(name)),
+            )?;
+        }
+        let mut held = started;
+        let plan: Plan = serde_json::from_value(json!({
+            "commands":[{
+                "process":"worker", "module":"worker", "directory":workspace, "program":"go",
+                "args":["build","-o","{output}","./worker"], "roots":["worker"],
+            }],
+            "programs":[], "source_digest":"", "host_config":{}, "go_workspace":workspace,
+        }))?;
+        let program: Program = serde_json::from_value(json!({
+            "service":"app/service/worker","process":"worker","binary":"","digest":"","runtime":"go",
+            "identity":{"contract_revision":"contract","implementation_revision":"","build_input_digest":"","go_target":"test"},
+            "environment":[],
+        }))?;
+
+        write(
+            "worker/main.go",
+            "package main\n\nimport _ \"embed\"\n\n//go:embed assets/config.json\nvar config []byte\n\nfunc main() { println(len(config)) }\n",
+        )?;
+        let edited = scanner.scan(&[])?;
+        materialize_go(&root, &workspace, &mut held, &edited, &plan)?;
+        // Without the embedded file the build fails on its pattern.
+        plan.commands[0]
+            .compile(&root, &artifacts, &program, "embed")
+            .await?;
         Ok(())
     }
 

@@ -110,6 +110,16 @@ impl Fault {
         Self::new(504, "deadline_exceeded", "invocation deadline exceeded")
     }
 
+    /// The outcome a binding with `delivery = "wait"` declares for an
+    /// execution that did not finish within the invocation deadline.
+    pub(crate) fn wait_timeout() -> Self {
+        Self::new(
+            504,
+            "dispatch.wait_timeout",
+            "timed out waiting for execution",
+        )
+    }
+
     pub(crate) fn envelope(&self) -> Value {
         let mut value = json!({"code": self.code, "message": self.message});
         if !self.details.is_null() {
@@ -122,7 +132,7 @@ impl Fault {
     /// declares a failed authentication or authorization as an admission
     /// outcome: its status mapping and the clients generated from it know
     /// that name, not the code the host uses inside.
-    fn problem(&self, policy: Option<&Policy>) -> (StatusCode, Value) {
+    pub(crate) fn problem(&self, policy: Option<&Policy>) -> (StatusCode, Value) {
         let code = match (policy, self.code) {
             (Some(_), "unauthenticated") => "admission.unauthenticated",
             (Some(_), "permission_denied") => "admission.forbidden",
@@ -171,6 +181,10 @@ pub(crate) struct Call {
     pub started: OffsetDateTime,
     pub method: String,
     pub path: String,
+    /// The HTTP request a worker observes: the invocation metadata members
+    /// `method`, `path`, `path_params` and `headers`. Calls made on behalf of
+    /// the request inherit it; durable and scheduled work has none.
+    pub request: Option<Arc<Value>>,
 }
 
 impl Call {
@@ -207,6 +221,7 @@ impl Call {
             started: OffsetDateTime::now_utc(),
             method: method.into(),
             path: path.into(),
+            request: None,
         })
     }
 
@@ -575,6 +590,11 @@ impl Host {
         } else if let Some(principal) = &call.principal {
             metadata["auth_data_kind"] = json!("scenery.auth.standard");
             metadata["auth_data"] = principal.data();
+        }
+        if let Some(request) = call.request.as_deref().and_then(Value::as_object) {
+            for (member, value) in request {
+                metadata[member.as_str()] = value.clone();
+            }
         }
         let invocation = Invocation {
             service: service.address.clone(),

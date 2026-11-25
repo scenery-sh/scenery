@@ -46,7 +46,9 @@ func workerTraceSummaries(spans []devdash.TraceSpanDetail, query devdash.TraceQu
 	items := make([]*devdash.TraceSummary, 0, len(spans))
 	for _, span := range spans {
 		summary := &span.TraceSummary
-		if summary.StartedAt.Before(query.Since) || summary.DurationNanos < query.MinDurationNanos ||
+		// A summary query lists requests; only one trace shows the spans within.
+		if query.TraceID == "" && !summary.IsRoot ||
+			summary.StartedAt.Before(query.Since) || summary.DurationNanos < query.MinDurationNanos ||
 			query.ServiceName != "" && summary.ServiceName != query.ServiceName ||
 			query.EndpointName != "" && (summary.EndpointName == nil || *summary.EndpointName != query.EndpointName) ||
 			query.Status == "ok" && summary.IsError || query.Status == "error" && !summary.IsError {

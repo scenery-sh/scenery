@@ -214,11 +214,7 @@ impl Engine {
                 .await
                 .map_err(Fault::internal)?;
             if timed_out {
-                return Err(Fault::new(
-                    504,
-                    "dispatch.wait_timeout",
-                    "timed out waiting for execution",
-                ));
+                return Err(Fault::wait_timeout());
             }
             if job.state != "succeeded" {
                 return Err(Fault::internal("durable execution failed"));

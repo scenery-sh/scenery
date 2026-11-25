@@ -25,6 +25,7 @@ use crate::values;
 
 const OBJECT_FORMAT: &str = r#"{"store":"string","tenant":"string","key":"string","size_bytes":"integer","content_type":"string","etag":"string","sha256":"string","modified_at":"date-time","metadata":{"additionalProperties":"string"}}"#;
 const RECORD_LIMIT: usize = 64 << 10;
+const METADATA_LIMIT: usize = 16 << 10;
 const PRIVATE_FILE: Mode = Mode::RUSR.union(Mode::WUSR);
 const PRIVATE_DIR: Mode = PRIVATE_FILE.union(Mode::XUSR);
 
@@ -491,26 +492,7 @@ async fn put(
     if media_type.len() > 255 {
         return Err(Fault::invalid());
     }
-    let metadata = parts
-        .headers
-        .get("x-storage-metadata")
-        .map(|header| {
-            let decoded = URL_SAFE_NO_PAD
-                .decode(header.as_bytes())
-                .map_err(|_| Fault::invalid())?;
-            if decoded.len() > 16 << 10 {
-                return Err(Fault::invalid());
-            }
-            let data = values::parse(&decoded).map_err(|_| Fault::invalid())?;
-            if !data
-                .as_object()
-                .is_some_and(|map| map.values().all(Value::is_string))
-            {
-                return Err(Fault::invalid());
-            }
-            Ok(data)
-        })
-        .transpose()?;
+    let metadata = user_metadata(&parts.headers)?;
     let mut hash = Sha256::new();
     let mut size = 0_u64;
     while let Some(frame) = data.frame().await {
@@ -541,8 +523,10 @@ async fn put(
     if let Some(metadata) = metadata {
         object["metadata"] = metadata;
     }
-    let record = json!({"kind": "scenery.storage.reference", "schema_revision": reference_revision(),
-        "spec_revision": owner.identity["spec_revision"], "producer": owner.identity["producer"], "object": object, "version_id": version});
+    let record = encode_reference(
+        &json!({"kind": "scenery.storage.reference", "schema_revision": reference_revision(),
+        "spec_revision": owner.identity["spec_revision"], "producer": owner.identity["producer"], "object": object, "version_id": version}),
+    )?;
     let payload = partition.version_path(key, &version);
     let payload_dir = directory(
         &owner.generation,
@@ -561,8 +545,7 @@ async fn put(
         directory: &staging,
         name: format!("{version}.ref"),
     };
-    file.write_all(values::encode(&record).as_bytes())
-        .map_err(Fault::internal)?;
+    file.write_all(record.as_bytes()).map_err(Fault::internal)?;
     file.sync_all().map_err(Fault::internal)?;
     drop(file);
     let _lock = owner.lock(true).await.map_err(Fault::internal)?;
@@ -586,6 +569,40 @@ async fn put(
     .map_err(Fault::internal)?;
     ref_dir.sync_all().map_err(Fault::internal)?;
     Ok(json_reply(StatusCode::CREATED, &object))
+}
+
+/// Decodes the user metadata of a write. A reference stores the canonical
+/// encoding, which escapes `<`, `>` and `&` to six bytes each, so the limit
+/// applies to that form and not to the bytes the header carried.
+fn user_metadata(headers: &HeaderMap) -> Result<Option<Value>, Fault> {
+    let Some(header) = headers.get("x-storage-metadata") else {
+        return Ok(None);
+    };
+    let decoded = URL_SAFE_NO_PAD
+        .decode(header.as_bytes())
+        .map_err(|_| Fault::invalid())?;
+    if decoded.len() > METADATA_LIMIT {
+        return Err(Fault::invalid());
+    }
+    let data = values::parse(&decoded).map_err(|_| Fault::invalid())?;
+    if !data
+        .as_object()
+        .is_some_and(|map| map.values().all(Value::is_string))
+        || values::encode(&data).len() > METADATA_LIMIT
+    {
+        return Err(Fault::invalid());
+    }
+    Ok(Some(data))
+}
+
+/// Encodes a reference for publication. `record` refuses to read a longer
+/// one, which would hide the object and fail every listing of its partition.
+fn encode_reference(reference: &Value) -> Result<String, Fault> {
+    let encoded = values::encode(reference);
+    if encoded.len() > RECORD_LIMIT {
+        return Err(Fault::invalid());
+    }
+    Ok(encoded)
 }
 
 fn get_usize(query: &BTreeMap<String, Vec<String>>, key: &str) -> Result<Option<u64>, Fault> {
@@ -768,4 +785,34 @@ async fn list(
         ));
     }
     Ok(json_reply(StatusCode::OK, &result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hyper::header::HeaderValue;
+
+    #[test]
+    fn metadata_and_references_are_limited_by_their_stored_encoding() {
+        let headers = |note: &str| {
+            let raw = format!(r#"{{"note":"{note}"}}"#);
+            let mut headers = HeaderMap::new();
+            let value = HeaderValue::from_str(&values::base64url(raw.as_bytes())).unwrap();
+            headers.insert("x-storage-metadata", value);
+            headers
+        };
+        let stored = user_metadata(&headers(&"a".repeat(11_000))).ok().flatten();
+        assert_eq!(stored.unwrap()["note"].as_str().map(str::len), Some(11_000));
+        // 11 KiB on the wire, 66 KiB once every `<` is stored as `\u003c`.
+        let escaping = "<".repeat(11_000);
+        let Err(fault) = user_metadata(&headers(&escaping)) else {
+            panic!("metadata beyond the stored limit was accepted");
+        };
+        assert_eq!(fault.status, StatusCode::BAD_REQUEST);
+        // Such a reference could be published but never read again.
+        let reference = json!({"object": {"metadata": {"note": escaping}}});
+        assert!(values::encode(&reference).len() > RECORD_LIMIT);
+        assert!(encode_reference(&reference).is_err());
+        assert!(encode_reference(&json!({"object": {"metadata": {"note": "a"}}})).is_ok());
+    }
 }

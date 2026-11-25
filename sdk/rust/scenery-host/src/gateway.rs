@@ -6,8 +6,10 @@ use bytes::Bytes;
 use hyper::body::Incoming;
 use hyper::header::HeaderValue;
 use hyper::{HeaderMap, Method, Request, StatusCode};
+use percent_encoding::percent_decode_str;
 use serde_json::{Map, Value, json};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::abi::Outcome;
 use crate::host::{Call, Fault, Host, Reply, body, empty, header, json_reply};
@@ -268,15 +270,23 @@ pub(crate) async fn ingress(
         Ok(call) => call,
         Err(error) => return Fault::internal(error).reply(host, Some(policy)),
     };
+    call.request = Some(Arc::new(worker_request(
+        method.as_str(),
+        &path,
+        selected.route,
+        &selected.path,
+        request.headers(),
+    )));
     let started = Instant::now();
     host.telemetry
         .started(&call, selected.service, &selected.binding.address);
-    let cancel = call.cancel.clone();
-    let deadline = call.deadline;
-    let result = tokio::select! {
-        () = crate::abi::cancelled(cancel, deadline) => Err(Fault::deadline()),
-        result = serve_route(host, request, &selected, &mut call, private) => result,
-    };
+    let result = bounded(
+        call.cancel.clone(),
+        call.deadline,
+        &selected.binding.delivery,
+        serve_route(host, request, &selected, &mut call, private),
+    )
+    .await;
     let (mut response, worker, error) = match result {
         Ok((response, worker, error)) => (response, worker, error),
         Err(fault) => {
@@ -302,6 +312,65 @@ pub(crate) async fn ingress(
         &error,
     );
     attest(response, &generation, worker)
+}
+
+/// Describes the admitted request to workers, as the invocation metadata
+/// carries it: the decoded path, the raw path parameters in route order and
+/// the request headers. The credentials the host consumed stay here.
+fn worker_request(
+    method: &str,
+    path: &str,
+    route: &Route,
+    fields: &BTreeMap<&str, &str>,
+    headers: &HeaderMap,
+) -> Value {
+    let path_params: Vec<Value> = route
+        .path
+        .split('/')
+        .filter_map(|part| part.strip_prefix(':').or_else(|| part.strip_prefix('*')))
+        .filter_map(|name| Some(json!({"name": name, "value": fields.get(name)?})))
+        .collect();
+    let mut forwarded = Map::new();
+    for name in headers.keys() {
+        if matches!(
+            name.as_str(),
+            "authorization" | "proxy-authorization" | "cookie" | "host"
+        ) {
+            continue;
+        }
+        let values: Vec<_> = headers
+            .get_all(name)
+            .iter()
+            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+            .collect();
+        forwarded.insert(name.as_str().into(), json!(values));
+    }
+    json!({
+        "method": method,
+        "path": percent_decode_str(path).decode_utf8_lossy(),
+        "path_params": path_params,
+        "headers": forwarded,
+    })
+}
+
+/// Serves an admitted route until its invocation is cancelled or expires. A
+/// binding that waits for a durable execution declares the expiry as
+/// `dispatch.wait_timeout`. The wait observes this same deadline, so the
+/// outcome must not depend on which of the two notices it first.
+async fn bounded<T>(
+    cancel: CancellationToken,
+    deadline: Instant,
+    delivery: &str,
+    route: impl Future<Output = Result<T, Fault>>,
+) -> Result<T, Fault> {
+    tokio::select! {
+        () = crate::abi::cancelled(cancel, deadline) => Err(if delivery == "wait" {
+            Fault::wait_timeout()
+        } else {
+            Fault::deadline()
+        }),
+        result = route => result,
+    }
 }
 
 async fn serve_route(
@@ -701,6 +770,59 @@ mod tests {
         assert!(headers.is_empty());
         add_cors(&mut headers, &none, Some(&disabled), Some(&origin));
         assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn workers_observe_the_admitted_request_without_its_credentials() {
+        let route: Route = serde_json::from_value(json!({
+            "Path":"/orders/:order/lines/:line", "Method":"PUT", "Access":"auth", "PathTail":null,
+            "Request":{"Mappings":[],"ContextMappings":[],"Body":null}, "Responses":{},
+        }))
+        .unwrap();
+        let path = "/orders/42/lines/a%20b";
+        let (fields, _) = match_path(&route, path).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-correlation-id", HeaderValue::from_static("corr-1"));
+        headers.append("accept-language", HeaderValue::from_static("cs"));
+        headers.append("accept-language", HeaderValue::from_static("en"));
+        for consumed in ["authorization", "proxy-authorization", "cookie", "host"] {
+            headers.insert(consumed, HeaderValue::from_static("secret"));
+        }
+        // Go workers read this shape in `runtime/worker_go.go`.
+        assert_eq!(
+            worker_request("PUT", path, &route, &fields, &headers),
+            json!({
+                "method": "PUT", "path": "/orders/42/lines/a b",
+                "path_params": [{"name":"order","value":"42"}, {"name":"line","value":"a%20b"}],
+                "headers": {"accept-language":["cs","en"], "x-correlation-id":["corr-1"]},
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_waiting_binding_answers_an_expired_deadline_with_its_declared_outcome() {
+        let mut policy = policy("none", &[]);
+        policy
+            .transport_statuses
+            .insert("dispatch.wait_timeout".into(), 524);
+        for (delivery, status, code) in [
+            ("wait", 524, "dispatch.wait_timeout"),
+            ("direct", 504, "deadline_exceeded"),
+        ] {
+            // The durable wait ends at this same deadline: the route is
+            // still pending when the invocation expires.
+            let route = std::future::pending::<Result<(), Fault>>();
+            let deadline = Instant::now() + Duration::from_millis(5);
+            let Err(fault) = bounded(CancellationToken::new(), deadline, delivery, route).await
+            else {
+                unreachable!("a pending route cannot answer");
+            };
+            let (answered, problem) = fault.problem(Some(&policy));
+            assert_eq!(
+                (answered.as_u16(), &problem["code"]),
+                (status, &json!(code))
+            );
+        }
     }
 
     #[test]
