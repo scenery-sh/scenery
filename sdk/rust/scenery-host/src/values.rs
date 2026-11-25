@@ -218,6 +218,7 @@ fn normalize_value(
             let Value::Object(fields) = value else {
                 bail!("expected object")
             };
+            length(fields.len(), rules.min_items, rules.max_items)?;
             let ty = first()?;
             Ok(Value::Object(
                 fields
@@ -613,6 +614,42 @@ pub(crate) fn base64url(value: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enforces_map_item_bounds() {
+        let types = Types::from([(
+            "Request".into(),
+            Shape {
+                kind: "record".into(),
+                fields: vec![Field {
+                    name: "limits".into(),
+                    ty: "map(int32)".into(),
+                    default: None,
+                    constraints: Constraints {
+                        min_items: Some(1),
+                        max_items: Some(2),
+                        ..Constraints::default()
+                    },
+                }],
+                unknown_fields: "reject".into(),
+                open: false,
+                values: vec![],
+                discriminator: String::new(),
+                variants: BTreeMap::new(),
+            },
+        )]);
+        for (input, ok) in [
+            (serde_json::json!({}), false),
+            (serde_json::json!({"a":1}), true),
+            (serde_json::json!({"a":1,"b":2}), true),
+            (serde_json::json!({"a":1,"b":2,"c":3}), false),
+        ] {
+            assert_eq!(
+                normalize(&types, "Request", serde_json::json!({"limits":input})).is_ok(),
+                ok
+            );
+        }
+    }
 
     #[test]
     fn preserves_wire_precision_and_rejects_invalid_members() {

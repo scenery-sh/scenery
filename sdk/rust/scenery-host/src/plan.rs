@@ -80,6 +80,8 @@ pub(crate) struct GoogleOAuth {
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct Bootstrap {
     pub enabled: bool,
+    #[serde(default)]
+    pub default_user_email: String,
     #[serde(rename = "DefaultTenantID")]
     pub default_tenant_id: String,
 }

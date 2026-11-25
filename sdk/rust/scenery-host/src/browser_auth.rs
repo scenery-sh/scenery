@@ -9,7 +9,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio_postgres::{Client, GenericClient};
 
-use crate::auth::{Claims, cookie};
+use crate::auth::{Claims, DevBootstrap, cookie};
+use crate::connections::browser as connection_browser;
 use crate::host::{Fault, Host, Reply, header, json_reply};
 use crate::{auth_google, auth_organizations, auth_sessions, transport, values};
 
@@ -33,6 +34,7 @@ pub(crate) enum Route<'a> {
     StopImpersonation,
     GoogleStart,
     GoogleCallback,
+    Connection(connection_browser::Route<'a>),
 }
 
 impl Route<'_> {
@@ -48,6 +50,11 @@ impl Route<'_> {
                 | Self::Disable(_)
                 | Self::Impersonate
                 | Self::StopImpersonation
+                | Self::Connection(
+                    connection_browser::Route::Start(_)
+                        | connection_browser::Route::Status(_)
+                        | connection_browser::Route::Disconnect(_)
+                )
         )
     }
 }
@@ -84,7 +91,8 @@ pub(crate) fn route<'a>(host: &Host, method: &Method, path: &'a str) -> Option<R
         (&Method::GET, ["auth", "google", "callback"]) if config.google_o_auth.enabled => {
             Some(Route::GoogleCallback)
         }
-        _ => None,
+        _ => connection_browser::Route::select(method, &path, &config.connections)
+            .map(Route::Connection),
     }
 }
 
@@ -118,7 +126,16 @@ async fn dispatch(
     };
     let input = if matches!(
         route,
-        Route::Refresh | Route::Logout | Route::Me | Route::Members(_) | Route::StopImpersonation
+        Route::Refresh
+            | Route::Logout
+            | Route::Me
+            | Route::Members(_)
+            | Route::StopImpersonation
+            | Route::Connection(
+                connection_browser::Route::Callback(_)
+                    | connection_browser::Route::Status(_)
+                    | connection_browser::Route::Disconnect(_)
+            )
     ) {
         Value::Null
     } else {
@@ -130,6 +147,9 @@ async fn dispatch(
             .filter(Value::is_object)
             .ok_or_else(|| invalid("invalid request body"))?
     };
+    if let Route::Connection(route) = route {
+        return connection_browser::serve(&browser, route, &user, input, parts.uri.query()).await;
+    }
     let (mut db, _driver) = browser.connect().await?;
     match route {
         Route::Signup => auth_sessions::signup(&browser, &mut db, &input).await,
@@ -140,6 +160,30 @@ async fn dispatch(
         Route::Me => auth_sessions::me(&browser, &db, &user).await,
         _ => auth_organizations::serve(&browser, &mut db, &user, route, &input).await,
     }
+}
+
+pub(crate) async fn dev_bootstrap(host: &Host, request: Request<Incoming>) -> Reply {
+    let result = async {
+        let (parts, body) = request.into_parts();
+        let input = transport::read(body, 8 << 10)
+            .await
+            .map_err(|_| invalid("invalid request body"))?;
+        let input = values::parse(&input).map_err(|_| invalid("invalid request body"))?;
+        match host
+            .auth
+            .bootstrap(&input)
+            .map_err(|_| denied("development identity is unavailable"))?
+        {
+            DevBootstrap::Token(token) => Ok(ok(&serde_json::json!({"token": token}))),
+            DevBootstrap::Email { email, tenant } => {
+                let browser = Browser::new(host, &parts.headers, &parts.uri, "");
+                let (mut db, _driver) = browser.connect().await?;
+                auth_sessions::dev_email_session(&browser, &mut db, email, &tenant).await
+            }
+        }
+    }
+    .await;
+    result.unwrap_or_else(|fault| fault.reply(host, None))
 }
 
 pub(crate) struct Browser<'a> {
@@ -207,6 +251,19 @@ impl<'a> Browser<'a> {
                 .starts_with("https://")
             || std::env::var("SCENERY_API_BASE_URL")
                 .is_ok_and(|value| value.starts_with("https://"))
+    }
+
+    pub(crate) fn request_hostname_matches(&self, url: &url::Url) -> bool {
+        let actual = url::Url::parse(&format!("http://{}", self.authority)).ok();
+        actual
+            .as_ref()
+            .and_then(url::Url::host_str)
+            .zip(url.host_str())
+            .is_some_and(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
+    }
+
+    pub(crate) fn cookie(&self, name: &str) -> &str {
+        cookie(self.headers, name).unwrap_or_default()
     }
 
     pub(crate) fn external_origin(&self) -> String {

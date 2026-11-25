@@ -33,12 +33,19 @@ pub(crate) struct Authentication {
     secret: Vec<u8>,
     dev_secret: String,
     dev_tenant: Option<String>,
+    dev_email: String,
+}
+
+pub(crate) enum DevBootstrap<'a> {
+    Token(String),
+    Email { email: &'a str, tenant: String },
 }
 
 impl Authentication {
     pub(crate) fn new(plan: Option<&Auth>, config: &Value, development: bool) -> Result<Self> {
         let mut secret = Vec::new();
         let mut dev_tenant = None;
+        let mut dev_email = String::new();
         if let Some(plan) = plan.filter(|plan| plan.enabled) {
             if let Some(encoded) = config["secrets"]["auth.jwt_secret"].as_str() {
                 secret = STANDARD.decode(encoded)?;
@@ -48,6 +55,7 @@ impl Authentication {
                 "authentication requires auth.jwt_secret in the production configuration snapshot"
             );
             if development && plan.dev_bootstrap.enabled {
+                dev_email = plan.dev_bootstrap.default_user_email.trim().into();
                 let value = plan.dev_bootstrap.default_tenant_id.trim();
                 dev_tenant = Some(if value.is_empty() {
                     "00000000-0000-0000-0000-000000000001".into()
@@ -63,10 +71,11 @@ impl Authentication {
             secret,
             dev_secret: crate::process::random_hex::<32>()?,
             dev_tenant,
+            dev_email,
         })
     }
 
-    pub(crate) fn bootstrap(&self, input: &Value) -> Result<String> {
+    pub(crate) fn bootstrap(&self, input: &Value) -> Result<DevBootstrap<'_>> {
         let default = self
             .dev_tenant
             .as_deref()
@@ -88,13 +97,28 @@ impl Authentication {
                 value.into()
             })
         };
+        let user = claim("user_id", "")?;
+        let tenant = claim("tenant_id", default)?;
+        if user.is_empty() && !self.dev_email.is_empty() {
+            return Ok(DevBootstrap::Email {
+                email: &self.dev_email,
+                tenant,
+            });
+        }
         let claims = Claims {
-            user: claim("user_id", "dev-user")?,
-            tenant: claim("tenant_id", default)?,
+            user: if user.is_empty() {
+                "dev-user".into()
+            } else {
+                user
+            },
+            tenant,
             exp: OffsetDateTime::now_utc().unix_timestamp() + 86400,
             ..Claims::default()
         };
-        sign(&claims, self.dev_secret.as_bytes())
+        Ok(DevBootstrap::Token(sign(
+            &claims,
+            self.dev_secret.as_bytes(),
+        )?))
     }
 
     pub(crate) fn issue(&self, mut claims: Claims) -> Result<String> {
@@ -237,8 +261,12 @@ mod tests {
             secret: b"prod key".to_vec(),
             dev_secret: "dev key".into(),
             dev_tenant: Some("example".into()),
+            dev_email: "developer@example.test".into(),
         };
-        let token = auth.bootstrap(&json!({"user_id": "owner"})).unwrap();
+        let DevBootstrap::Token(token) = auth.bootstrap(&json!({"user_id": "owner"})).unwrap()
+        else {
+            panic!("explicit user should get a synthetic token");
+        };
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
         let claims = auth.credentials(&headers, true).unwrap();

@@ -123,6 +123,59 @@ pub(crate) async fn login(
     Ok(reply)
 }
 
+pub(crate) async fn dev_email_session(
+    browser: &Browser<'_>,
+    db: &mut Client,
+    address: &str,
+    tenant: &str,
+) -> AuthResult<Reply> {
+    let normalized = email(address)?;
+    let tenant = uuid(tenant, "tenant_id is invalid")?;
+    let tx = db.transaction().await.map_err(Fault::internal)?;
+    let user = tx.query_one(
+        "INSERT INTO scenery.scenery_auth_users (id,primary_email,normalized_primary_email,display_name,email_verified_at)
+         VALUES (gen_random_uuid(),$1,$2,$3,now())
+         ON CONFLICT (normalized_primary_email) WHERE normalized_primary_email <> ''
+         DO UPDATE SET normalized_primary_email=EXCLUDED.normalized_primary_email
+         RETURNING id::text,disabled_at IS NOT NULL",
+        &[&address, &normalized, &display_name(&normalized, "")],
+    ).await.map_err(Fault::internal)?;
+    if user.get::<_, bool>(1) {
+        return Err(denied("default user is disabled"));
+    }
+    let user: String = user.get(0);
+    let workspace = tx
+        .query_one(
+            "INSERT INTO scenery.scenery_auth_tenants (id,name)
+         VALUES ($1::text::uuid,'Development Workspace')
+         ON CONFLICT (id) DO UPDATE SET name=scenery.scenery_auth_tenants.name
+         RETURNING id::text,deleted_at IS NOT NULL",
+            &[&tenant],
+        )
+        .await
+        .map_err(Fault::internal)?;
+    if workspace.get::<_, bool>(1) {
+        return Err(precondition("default tenant is deleted"));
+    }
+    let tenant: String = workspace.get(0);
+    tx.execute(
+        "INSERT INTO scenery.scenery_auth_organization_memberships (id,tenant_id,user_id,role)
+         VALUES (gen_random_uuid(),$1::text::uuid,$2::text::uuid,'owner')
+         ON CONFLICT (user_id,tenant_id) WHERE disabled_at IS NULL DO NOTHING",
+        &[&tenant, &user],
+    )
+    .await
+    .map_err(Fault::internal)?;
+    let mut claims = Claims {
+        user,
+        tenant,
+        ..Claims::default()
+    };
+    let reply = create_session(browser, &tx, &mut claims, "", SESSION_TTL).await?;
+    tx.commit().await.map_err(Fault::internal)?;
+    Ok(reply)
+}
+
 pub(crate) async fn sign_in(
     browser: &Browser<'_>,
     tx: &Transaction<'_>,

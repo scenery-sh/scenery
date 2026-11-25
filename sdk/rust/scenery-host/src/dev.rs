@@ -486,7 +486,8 @@ impl WatcherLoop {
         self.materialized = inputs.clone();
         let mut next = self.programs.clone();
         let mut rebuilt = BTreeSet::new();
-        for command in &selected.commands {
+        let mut go_dependencies = Vec::new();
+        for (index, command) in selected.commands.iter().enumerate() {
             let program = next
                 .iter_mut()
                 .find(|program| program.process == command.process)
@@ -518,6 +519,11 @@ impl WatcherLoop {
                 };
                 times[0] = ms(begin.elapsed());
                 candidate = built?;
+                if command.tool() == "go" {
+                    let mut updated = command.clone();
+                    let embeds = updated.refresh_go_roots(directory).await?;
+                    go_dependencies.push((index, updated, embeds));
+                }
             }
             if candidate.digest != program.digest
                 || candidate.startup.as_ref().map(|v| v.get())
@@ -550,6 +556,10 @@ impl WatcherLoop {
         if let Some(plan) = plan {
             *self.status.ignore.write().expect("generated roots") = plan.generated.clone();
             self.config.rebuild = plan;
+        }
+        for (index, command, embeds) in go_dependencies {
+            self.config.rebuild.commands[index] = command;
+            self.config.rebuild.go_inputs.extend(embeds);
         }
         self.programs = next;
         Ok(Some((generation, rebuilt)))

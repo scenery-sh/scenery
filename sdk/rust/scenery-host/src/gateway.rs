@@ -121,15 +121,7 @@ pub(crate) async fn ingress(
         None
     };
     if private && method == Method::POST && path == "/users/dev-bootstrap" {
-        let token = async {
-            let input = read(request.into_body(), 8 << 10).await?;
-            host.auth.bootstrap(&values::parse(&input)?)
-        }
-        .await;
-        let mut response = match token {
-            Ok(token) => json_reply(StatusCode::OK, &json!({"token": token})),
-            Err(_) => empty(StatusCode::FORBIDDEN),
-        };
+        let mut response = crate::browser_auth::dev_bootstrap(host, request).await;
         header(response.headers_mut(), "cache-control", "no-store");
         return attest(response, &generation, None);
     }
@@ -216,26 +208,16 @@ pub(crate) async fn ingress(
     let policy = &selected.binding.policy;
     let cors_origin = request.headers().get("origin").cloned();
     if preflight {
-        let status = if allowed_origin(policy, cors_origin.as_ref()) {
-            StatusCode::NO_CONTENT
-        } else {
-            StatusCode::FORBIDDEN
-        };
-        let mut reply = empty(status);
-        add_cors(reply.headers_mut(), policy, cors_origin.as_ref());
-        if status == StatusCode::NO_CONTENT {
-            header(
-                reply.headers_mut(),
-                "access-control-allow-methods",
+        return attest(
+            cors_preflight(
+                policy,
+                cors_origin.as_ref(),
                 match_method,
-            );
-            if let Some(headers) = request.headers().get("access-control-request-headers") {
-                reply
-                    .headers_mut()
-                    .insert("access-control-allow-headers", headers.clone());
-            }
-        }
-        return attest(reply, &generation, None);
+                request.headers(),
+            ),
+            &generation,
+            None,
+        );
     }
     let mut call = match Call::new(
         generation.clone(),
@@ -465,12 +447,99 @@ fn allowed_origin(policy: &Policy, origin: Option<&HeaderValue>) -> bool {
             })
 }
 
+fn cors_preflight(
+    policy: &Policy,
+    origin: Option<&HeaderValue>,
+    method: &str,
+    headers: &HeaderMap,
+) -> Reply {
+    let status = if allowed_origin(policy, origin) {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::FORBIDDEN
+    };
+    let mut reply = empty(status);
+    add_cors(reply.headers_mut(), policy, origin);
+    if status == StatusCode::NO_CONTENT {
+        header(reply.headers_mut(), "access-control-allow-methods", method);
+        if let Some(headers) = headers.get("access-control-request-headers") {
+            reply
+                .headers_mut()
+                .insert("access-control-allow-headers", headers.clone());
+        }
+    }
+    reply
+}
+
 fn add_cors(headers: &mut HeaderMap, policy: &Policy, origin: Option<&HeaderValue>) {
     headers.remove("access-control-allow-origin");
     headers.remove("access-control-allow-credentials");
     if let Some(origin) = origin.filter(|value| allowed_origin(policy, Some(value))) {
         headers.insert("access-control-allow-origin", origin.clone());
+        headers.insert(
+            "access-control-allow-credentials",
+            HeaderValue::from_static("true"),
+        );
         headers.append("vary", HeaderValue::from_static("Origin"));
         header(headers, "access-control-expose-headers", "X-Trace-Id");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cors_credentials_follow_the_allowed_origin_for_preflight_and_actual_responses() {
+        let policy: Policy = serde_json::from_value(json!({
+            "BindingAddress":"api", "AuthorizationStrategy":"public", "AuthorizationRules":[],
+            "TotalInvocationTimeoutNanos":0, "MaxRequestHeaderBytes":0, "CORS":"explicit",
+            "AllowedOrigins":["https://app.example"], "TransportStatuses":{},
+        }))
+        .unwrap();
+        let mut request = HeaderMap::new();
+        request.insert(
+            "access-control-request-headers",
+            HeaderValue::from_static("Authorization"),
+        );
+        for (raw, allowed) in [
+            ("https://app.example", true),
+            ("https://elsewhere.example", false),
+        ] {
+            let origin = HeaderValue::from_static(raw);
+            let preflight = cors_preflight(&policy, Some(&origin), "POST", &request);
+            assert_eq!(
+                preflight.status(),
+                if allowed {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::FORBIDDEN
+                }
+            );
+            assert_eq!(
+                preflight
+                    .headers()
+                    .get("access-control-allow-methods")
+                    .is_some(),
+                allowed
+            );
+            let mut actual = HeaderMap::new();
+            actual.insert(
+                "access-control-allow-credentials",
+                HeaderValue::from_static("false"),
+            );
+            actual.insert("access-control-allow-origin", HeaderValue::from_static("*"));
+            add_cors(&mut actual, &policy, Some(&origin));
+            for headers in [preflight.headers(), &actual] {
+                assert_eq!(
+                    headers.get("access-control-allow-origin"),
+                    allowed.then_some(&origin)
+                );
+                assert_eq!(
+                    headers.get("access-control-allow-credentials"),
+                    allowed.then_some(&HeaderValue::from_static("true"))
+                );
+            }
+        }
     }
 }

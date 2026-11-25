@@ -9,6 +9,8 @@ mod auth_google;
 mod auth_organizations;
 mod auth_sessions;
 mod browser_auth;
+#[cfg(test)]
+mod browser_auth_test;
 mod connections;
 mod dev;
 mod dev_build;

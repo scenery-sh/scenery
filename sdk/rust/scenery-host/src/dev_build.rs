@@ -27,7 +27,7 @@ pub(crate) struct Plan {
     pub host_config: Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub(crate) struct Build {
     pub process: String,
     pub module: String,
@@ -43,7 +43,7 @@ pub(crate) struct Build {
 }
 
 impl Build {
-    fn tool(&self) -> &str {
+    pub(crate) fn tool(&self) -> &str {
         self.program
             .file_name()
             .and_then(|name| name.to_str())
@@ -171,6 +171,65 @@ impl Build {
             Ok(next)
         })
         .await?
+    }
+
+    pub(crate) async fn refresh_go_roots(&mut self, directory: &Path) -> Result<BTreeSet<PathBuf>> {
+        // The build command ends with -o, {output}, and its entrypoint.
+        let (_, args) = self
+            .args
+            .split_first()
+            .context("missing Go build command")?;
+        let (flags, [output, target, entry]) = args
+            .split_last_chunk::<3>()
+            .context("missing Go build entrypoint")?;
+        ensure!(
+            output == "-o" && target == "{output}",
+            "invalid Go build command"
+        );
+        let mut list = vec!["list".into(), "-deps".into(), "-json=Dir,EmbedFiles".into()];
+        list.extend(flags.iter().cloned());
+        list.push(entry.clone());
+        let output = run(
+            &self.program,
+            &list,
+            &self.directory,
+            self.environment.as_deref(),
+            directory,
+        )
+        .await?;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct Dependency {
+            dir: PathBuf,
+            #[serde(default)]
+            embed_files: Vec<PathBuf>,
+        }
+        let mut roots = BTreeSet::new();
+        let mut embeds = BTreeSet::new();
+        for package in
+            serde_json::Deserializer::from_reader(BufReader::new(output)).into_iter::<Dependency>()
+        {
+            let package = package?;
+            if let Ok(relative) = package.dir.strip_prefix(&self.directory) {
+                let relative = if relative.as_os_str().is_empty() {
+                    Path::new(".")
+                } else {
+                    relative
+                };
+                roots.insert(relative.to_owned());
+                for file in package.embed_files {
+                    let path = relative.join(file);
+                    // The input scanner records workspace-relative paths.
+                    embeds.insert(
+                        path.components()
+                            .filter(|part| *part != std::path::Component::CurDir)
+                            .collect(),
+                    );
+                }
+            }
+        }
+        self.roots = roots.into_iter().collect();
+        Ok(embeds)
     }
 
     pub(crate) fn cargo_lock(&self) -> Option<PathBuf> {
@@ -348,4 +407,71 @@ fn verify_imports(root: &Path, module: &Path, cwd: &Path, metafile: &Path) -> Re
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn rebuild_watches_a_new_local_go_import() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().canonicalize()?;
+        let workspace = root.join("source");
+        let artifacts = root.join("artifacts");
+        std::fs::create_dir_all(workspace.join("worker"))?;
+        std::fs::create_dir_all(workspace.join("extra"))?;
+        std::fs::create_dir(&artifacts)?;
+        std::fs::write(
+            workspace.join("go.mod"),
+            "module example.test/app\n\ngo 1.23\n",
+        )?;
+        std::fs::write(
+            workspace.join("worker/main.go"),
+            "package main\nfunc main() {}\n",
+        )?;
+        let extra = Path::new("extra/value.go");
+        std::fs::write(
+            workspace.join(extra),
+            "package extra\nconst Value = \"first\"\n",
+        )?;
+        let mut plan: Plan = serde_json::from_value(json!({
+            "commands":[{
+                "process":"worker", "module":"worker", "directory":workspace, "program":"go",
+                "args":["build","-o","{output}","./worker"], "roots":["worker"],
+            }],
+            "programs":[], "source_digest":"", "host_config":{},
+        }))?;
+        let initial: Program = serde_json::from_value(json!({
+            "service":"app/service/worker","process":"worker","binary":"","digest":"","runtime":"go",
+            "identity":{"contract_revision":"contract","implementation_revision":"","build_input_digest":"","go_target":"test"},
+            "environment":[],
+        }))?;
+        assert!(!plan.commands[0].affected(&plan, extra));
+        let original = plan.commands[0]
+            .compile(&root, &artifacts, &initial, "initial")
+            .await?;
+        std::fs::write(
+            workspace.join("worker/main.go"),
+            "package main\nimport \"example.test/app/extra\"\nfunc main() { println(extra.Value) }\n",
+        )?;
+        let command = &mut plan.commands[0];
+        let first = command
+            .compile(&root, &artifacts, &original, "import")
+            .await?;
+        command.refresh_go_roots(&artifacts).await?;
+        assert_ne!(original.digest, first.digest);
+        assert!(plan.commands[0].affected(&plan, extra));
+
+        std::fs::write(
+            workspace.join(extra),
+            "package extra\nconst Value = \"second\"\n",
+        )?;
+        let second = plan.commands[0]
+            .compile(&root, &artifacts, &first, "dependency edit")
+            .await?;
+        assert_ne!(first.digest, second.digest);
+        Ok(())
+    }
 }

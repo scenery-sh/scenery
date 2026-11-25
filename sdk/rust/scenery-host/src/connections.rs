@@ -17,6 +17,9 @@ use crate::host::{Fault, Host, Scope};
 use crate::plan::Auth;
 use crate::values;
 
+#[path = "connection_browser.rs"]
+pub(crate) mod browser;
+
 #[derive(Deserialize)]
 pub(crate) struct Provider {
     id: String,
@@ -29,7 +32,17 @@ pub(crate) struct Provider {
     #[serde(default)]
     resource: String,
     #[serde(default)]
+    authorize_url: String,
+    #[serde(default)]
     token_url: String,
+    #[serde(default)]
+    revoke_url: String,
+    #[serde(default)]
+    account_url: String,
+    #[serde(default)]
+    subject_field: String,
+    #[serde(default)]
+    email_field: String,
     #[serde(default)]
     jwks_url: String,
     #[serde(default)]
@@ -43,6 +56,30 @@ impl Provider {
             "https://accounts.google.com"
         } else {
             &self.issuer
+        }
+    }
+
+    fn authorize_url(&self) -> &str {
+        if self.preset == "google" && self.authorize_url.is_empty() {
+            "https://accounts.google.com/o/oauth2/v2/auth"
+        } else {
+            &self.authorize_url
+        }
+    }
+
+    fn revoke_url(&self) -> &str {
+        if self.preset == "google" && self.revoke_url.is_empty() {
+            "https://oauth2.googleapis.com/revoke"
+        } else {
+            &self.revoke_url
+        }
+    }
+
+    fn client_auth(&self) -> &str {
+        match (self.preset.as_str(), self.client_auth.as_str()) {
+            ("google", _) => "post",
+            (_, "") => "basic",
+            (_, method) => method,
         }
     }
 
@@ -62,6 +99,10 @@ impl Provider {
         }
     }
 
+    fn matches_issuer(&self, value: &Value) -> bool {
+        value == self.issuer() || self.preset == "google" && value == "accounts.google.com"
+    }
+
     fn oidc(&self) -> bool {
         self.protocol == "oidc" || self.preset == "google"
     }
@@ -79,22 +120,7 @@ pub(crate) async fn token(
         .map(|claims| claims.user.as_str())
         .filter(|id| valid_uuid(id))
         .ok_or_else(Fault::forbidden)?;
-    let provider = host
-        .bundle
-        .auth
-        .as_ref()
-        .and_then(|auth: &Auth| {
-            auth.connections
-                .iter()
-                .find(|provider| provider.id == request.provider)
-        })
-        .ok_or_else(|| {
-            Fault::new(
-                412,
-                "connection_not_configured",
-                "connection provider is not configured",
-            )
-        })?;
+    let provider = provider(host, &request.provider)?;
     let required = normalize_scopes(request.scopes).ok_or_else(Fault::invalid)?;
     if !required
         .iter()
@@ -111,15 +137,7 @@ pub(crate) async fn token(
     // lock is released on cancellation, including when the request drops.
     let (mut database, driver) = crate::durable::connect().await.map_err(|_| unavailable())?;
     let _driver = AbortOnDrop(driver);
-    let lock = format!(
-        "scenery.connection:{}:{}",
-        user.to_ascii_lowercase(),
-        provider.id
-    );
-    database
-        .execute("SELECT pg_advisory_lock(hashtextextended($1, 0))", &[&lock])
-        .await
-        .map_err(|_| unavailable())?;
+    lock_owner_provider(&database, user, provider).await?;
     issue(
         &mut database,
         provider,
@@ -129,6 +147,37 @@ pub(crate) async fn token(
         &required,
     )
     .await
+}
+
+fn provider<'a>(host: &'a Host, id: &str) -> Result<&'a Provider, Fault> {
+    host.bundle
+        .auth
+        .as_ref()
+        .and_then(|auth: &Auth| auth.connections.iter().find(|provider| provider.id == id))
+        .ok_or_else(|| {
+            Fault::new(
+                412,
+                "connection_not_configured",
+                "connection provider is not configured",
+            )
+        })
+}
+
+async fn lock_owner_provider(
+    database: &Client,
+    user: &str,
+    provider: &Provider,
+) -> Result<(), Fault> {
+    let lock = format!(
+        "scenery.connection:{}:{}",
+        user.to_ascii_lowercase(),
+        provider.id
+    );
+    database
+        .execute("SELECT pg_advisory_lock(hashtextextended($1, 0))", &[&lock])
+        .await
+        .map_err(|_| unavailable())?;
+    Ok(())
 }
 
 async fn issue(
@@ -207,14 +256,7 @@ async fn issue(
     };
     let refresh = decrypt(key, refresh)
         .map_err(|_| configured("connection credentials cannot be decrypted"))?;
-    let id = format!("auth.connections.{}.client_id", provider.id);
-    let secret = format!("auth.connections.{}.client_secret", provider.id);
-    let client_id = configuration["values"][id]
-        .as_str()
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| configured("connection client configuration is unavailable"))?;
-    let secret = configuration_secret(configuration, &secret)
-        .map_err(|_| configured("connection client configuration is unavailable"))?;
+    let credentials = provider.credentials(configuration)?;
     let token_url = trusted_url(provider.token_url())
         .map_err(|_| configured("connection token URL is invalid"))?;
     tx.execute(
@@ -226,7 +268,7 @@ async fn issue(
     .await
     .map_err(|_| unavailable())?;
     tx.commit().await.map_err(|_| unavailable())?;
-    let grant = refresh_grant(provider, token_url, client_id, &secret, &refresh, &subject).await;
+    let grant = refresh_grant(provider, token_url, &credentials, &refresh, &subject).await;
     let grant = match grant {
         Ok(grant) => grant,
         Err(error) => {
@@ -337,6 +379,83 @@ impl RefreshFailure {
     }
 }
 
+struct Credentials<'a> {
+    id: &'a str,
+    secret: String,
+}
+
+impl Provider {
+    fn credentials<'a>(&self, configuration: &'a Value) -> Result<Credentials<'a>, Fault> {
+        let fault = || configured("connection client configuration is unavailable");
+        let id = configuration["values"][format!("auth.connections.{}.client_id", self.id)]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(fault)?;
+        let secret = configuration_secret(
+            configuration,
+            &format!("auth.connections.{}.client_secret", self.id),
+        )
+        .ok()
+        .and_then(|value| String::from_utf8(value).ok())
+        .ok_or_else(fault)?;
+        if self.client_auth() != "none" && secret.is_empty() {
+            return Err(fault());
+        }
+        Ok(Credentials { id, secret })
+    }
+}
+
+fn provider_http() -> Result<HttpClient> {
+    Ok(HttpClient::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(15))
+        .build()?)
+}
+
+fn post_form<'a>(
+    client: &HttpClient,
+    url: url::Url,
+    provider: &'a Provider,
+    credentials: &'a Credentials<'a>,
+    mut form: Vec<(&str, &'a str)>,
+) -> Result<reqwest::RequestBuilder> {
+    let mut request = client.post(url);
+    match provider.client_auth() {
+        "basic" => {
+            let escape = |value: &str| {
+                url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()
+            };
+            request = request.basic_auth(escape(credentials.id), Some(escape(&credentials.secret)));
+        }
+        "post" => form.extend([
+            ("client_id", credentials.id),
+            ("client_secret", &credentials.secret),
+        ]),
+        "none" => form.push(("client_id", credentials.id)),
+        _ => anyhow::bail!("invalid client authentication"),
+    }
+    let encoded = url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(form)
+        .finish();
+    Ok(request
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(encoded))
+}
+
+fn token_request<'a>(
+    client: &HttpClient,
+    url: url::Url,
+    provider: &'a Provider,
+    credentials: &'a Credentials<'a>,
+    mut form: Vec<(&str, &'a str)>,
+) -> Result<reqwest::RequestBuilder> {
+    if !provider.resource.is_empty() {
+        form.push(("resource", &provider.resource));
+    }
+    post_form(client, url, provider, credentials, form)
+}
+
 #[derive(Deserialize)]
 struct Grant {
     access_token: String,
@@ -345,46 +464,45 @@ struct Grant {
     expires_in: Option<i64>,
     scope: Option<String>,
     id_token: Option<String>,
+    #[serde(default)]
+    resource: String,
+}
+
+impl Grant {
+    fn valid(&self, provider: &Provider) -> bool {
+        !self.access_token.is_empty()
+            && !self.access_token.contains(['\r', '\n'])
+            && !self.token_type.is_empty()
+            && self
+                .expires_in
+                .is_none_or(|value| (1..=315360000).contains(&value))
+            && self
+                .scope
+                .as_deref()
+                .is_none_or(|scope| parse_scopes(scope).is_some())
+            && (self.resource.is_empty() || self.resource == provider.resource)
+    }
 }
 
 async fn refresh_grant(
     provider: &Provider,
     token_url: url::Url,
-    client_id: &str,
-    secret: &[u8],
+    credentials: &Credentials<'_>,
     refresh: &str,
     subject: &str,
 ) -> Result<Grant, RefreshFailure> {
-    let client = HttpClient::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|_| RefreshFailure::Misconfigured)?;
-    let secret = std::str::from_utf8(secret).map_err(|_| RefreshFailure::Misconfigured)?;
-    let mut form = vec![("grant_type", "refresh_token"), ("refresh_token", refresh)];
-    if !provider.resource.is_empty() {
-        form.push(("resource", provider.resource.as_str()));
-    }
-    let mut request = client.post(token_url);
-    match provider.client_auth.as_str() {
-        "basic" => request = request.basic_auth(client_id, Some(secret)),
-        "post" => form.extend([("client_id", client_id), ("client_secret", secret)]),
-        "" if provider.preset == "google" => {
-            form.extend([("client_id", client_id), ("client_secret", secret)])
-        }
-        "" | "none" => form.push(("client_id", client_id)),
-        _ => return Err(RefreshFailure::Misconfigured),
-    }
-    let encoded = url::form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(form)
-        .finish();
-    let mut response = request
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(encoded)
-        .send()
-        .await
-        .map_err(|_| RefreshFailure::Unknown)?;
+    let client = provider_http().map_err(|_| RefreshFailure::Misconfigured)?;
+    let mut response = token_request(
+        &client,
+        token_url,
+        provider,
+        credentials,
+        vec![("grant_type", "refresh_token"), ("refresh_token", refresh)],
+    )
+    .map_err(|_| RefreshFailure::Misconfigured)?
+    .send()
+    .await
+    .map_err(|_| RefreshFailure::Unknown)?;
     let status = response.status();
     let data = limited(&mut response, 64 << 10)
         .await
@@ -402,23 +520,13 @@ async fn refresh_grant(
         });
     }
     let grant: Grant = serde_json::from_value(payload).map_err(|_| RefreshFailure::Unknown)?;
-    if grant.access_token.is_empty()
-        || grant.access_token.contains(['\r', '\n'])
-        || grant.token_type.is_empty()
-        || grant
-            .expires_in
-            .is_some_and(|value| !(1..=315360000).contains(&value))
-        || grant
-            .scope
-            .as_deref()
-            .is_some_and(|scope| parse_scopes(scope).is_none())
-    {
+    if !grant.valid(provider) {
         return Err(RefreshFailure::Unknown);
     }
     if provider.oidc()
         && let Some(token) = grant.id_token.as_deref().filter(|token| !token.is_empty())
     {
-        check_id_token(&client, provider, client_id, subject, token)
+        check_id_token(&client, provider, credentials.id, subject, token)
             .await
             .map_err(|_| RefreshFailure::Unknown)?;
     }
@@ -446,7 +554,7 @@ async fn check_id_token(
 ) -> Result<()> {
     let claims = verify_id_token(client, provider.jwks_url(), token).await?;
     ensure!(
-        claims["iss"] == provider.issuer()
+        provider.matches_issuer(&claims["iss"])
             && claims["sub"] == subject
             && valid_audience(&claims, audience),
         "invalid identity claims"
@@ -515,7 +623,8 @@ pub(crate) fn valid_audience(claims: &Value, audience: &str) -> bool {
 fn trusted_url(raw: &str) -> Result<url::Url> {
     let url = url::Url::parse(raw)?;
     ensure!(
-        url.username().is_empty()
+        url.host().is_some()
+            && url.username().is_empty()
             && url.password().is_none()
             && url.fragment().is_none()
             && (url.scheme() == "https"
