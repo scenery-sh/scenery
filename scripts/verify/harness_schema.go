@@ -191,6 +191,9 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "build.result", schemaRel: "docs/schemas/scenery.build.result.schema.json", payload: withCLIPayloadIdentity("scenery.build.result", map[string]any{
 			"output_path": "/tmp/app/dist/bundle",
 		})},
+		{name: "build.result.oci", schemaRel: "docs/schemas/scenery.build.result.schema.json", payload: withCLIPayloadIdentity("scenery.build.result", map[string]any{
+			"oci": map[string]any{"image": "registry.example.com/app:1.0", "platform": "linux/amd64", "built": true, "image_id": digest},
+		})},
 		{name: "build.desktop", schemaRel: "docs/schemas/scenery.build.desktop.schema.json", payload: withCLIPayloadIdentity("scenery.build.desktop", map[string]any{
 			"environment": "production",
 			"frontends": []map[string]any{{

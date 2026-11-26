@@ -105,7 +105,8 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   without running application code. Development replaces only the worker
   whose module build inputs changed. The artifact target embeds the JavaScript
   and Bun runtime in a per-module executable in the Host's portable bundle.
-  Bundle execution requires the build platform and architecture.
+  Bundle execution requires the build platform and architecture;
+  `scenery build --oci` builds a Linux image instead (section 8).
 - A host bundle links each Go service from the `go_target` its build
   selects: the target named by `scenery build --target`, otherwise the target
   with role `artifact`, or `development` for `scenery up` and
@@ -197,3 +198,12 @@ falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
   Host releases its leases, and `replace` ends the leased run it supersedes. Claims older than a day are
   pruned. Without a database the Host schedules alone, in memory, and an
   unavailable database skips a slot rather than risk running it twice.
+- **Images.** `scenery build --oci <image> [--platform linux/amd64|linux/arm64]`
+  cross-compiles Go services with cgo disabled from the selected `go_target`
+  (a `platform = "host"` target adopts the image platform) and Bun services
+  for the platform, then writes a two-stage Dockerfile whose Debian 12
+  builder stage compiles the Host and Rust services and seals their digests
+  into the manifest. The `gcr.io/distroless/cc-debian12` runtime stage runs
+  `/app/scenery-host --listen 0.0.0.0:4000` as user 65532. `--oci-context
+  <dir>` writes the reproducible context instead of building it with Docker
+  Buildx.

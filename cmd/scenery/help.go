@@ -471,15 +471,19 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command: "build",
 		Group:   "Build and checks",
-		Summary: "Build the deployable application bundle or a configured desktop shell.",
+		Summary: "Build the deployable application bundle, its Linux container image, or a configured desktop shell.",
 		Usage: []string{
 			"scenery build [--development] [--target <go-target>] [--app-root <path>] [--output <dir>] [-o human|json]",
+			"scenery build --oci <image> [--platform linux/amd64|linux/arm64] [--oci-context <dir>] [--target <go-target>] [--app-root <path>] [-o human|json]",
 			"scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]",
 		},
 		Flags: []string{
 			"--development",
 			"--target <go-target>",
 			"--output <dir>",
+			"--oci <image>",
+			"--platform linux/amd64|linux/arm64",
+			"--oci-context <dir>",
 			"--desktop",
 			"--env <name>",
 			"--app-root <path>",
@@ -489,11 +493,15 @@ var helpCommands = []helpCommandEntry{
 			{When: "--env", Requires: []string{"--desktop"}},
 			{When: "--development", ConflictsWith: []string{"--desktop"}},
 			{When: "--desktop", ConflictsWith: []string{"--target", "--output", "--development"}},
+			{When: "--platform", Requires: []string{"--oci"}},
+			{When: "--oci-context", Requires: []string{"--oci"}},
+			{When: "--oci", ConflictsWith: []string{"--desktop", "--output", "--development"}},
 		},
 		SideEffectClass:    "local_artifacts",
 		AppRootRequirement: "required",
 		OutputSchemas: []helpOutputSchema{
 			{Mode: "application", Kind: "scenery.build.result"},
+			{Mode: "oci", Kind: "scenery.build.result"},
 			{Mode: "desktop", Kind: "scenery.build.desktop"},
 		},
 		CommonExitCategories: []helpExitCategory{

@@ -243,7 +243,7 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, retained []s
 		if process.Identity.ImplementationRevision == "" {
 			return nil, fmt.Errorf("implementation_revision is unavailable for development process %s", name)
 		}
-		key, err := developmentProcessKey(process, result.GoBuildFlags, developmentLinkerDefaults(result))
+		key, err := developmentProcessKey(process, result.GoBuildFlags, developmentLinkerDefaults(result), crossPlatform(result))
 		if err != nil {
 			return nil, err
 		}
@@ -322,18 +322,32 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, retained []s
 // are read at once to prove them reusable.
 const developmentProcessDigestReaders = 8
 
-func developmentProcessKey(process *DevelopmentProcess, buildFlags []string, linkerDefaults string) (string, error) {
+func developmentProcessKey(process *DevelopmentProcess, buildFlags []string, linkerDefaults, platform string) (string, error) {
 	encoded, err := json.Marshal(struct {
 		Package    string
 		Identity   DevelopmentProcessIdentity
 		BuildFlags []string
 		Linker     string
-	}{process.Package, process.Identity, buildFlags, linkerDefaults})
+		Platform   string `json:",omitempty"`
+	}{process.Package, process.Identity, buildFlags, linkerDefaults, platform})
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:8]), nil
+}
+
+// crossPlatform names the platform a result builds for when it is not the
+// build host's, so its executables never share a key with native ones.
+func crossPlatform(result *Result) string {
+	if result.Target == nil {
+		return ""
+	}
+	goos, goarch := result.Target.Context.GOOS, result.Target.Context.GOARCH
+	if goos == "" || goos == runtime.GOOS && goarch == runtime.GOARCH {
+		return ""
+	}
+	return goos + "/" + goarch
 }
 
 // linkDevelopmentProcesses runs one stock Go build for every pending process

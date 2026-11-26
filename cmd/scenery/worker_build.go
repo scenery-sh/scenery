@@ -34,6 +34,9 @@ type workerBundle struct {
 	HostConfigKeys   []string                 `json:"host_config_keys,omitempty"`
 	Reports          workerReportIdentity     `json:"reports"`
 	config           *workerruntime.ConfigSnapshot
+	// goPlatform builds the Go services for another platform, as an OCI
+	// image build does; nil builds them for this host.
+	goPlatform *compiler.GoPlatform
 }
 
 // workerReportIdentity is the identity the Host stamps on the failure reports
@@ -260,7 +263,11 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 		}
 	}
 	if !reused {
-		preparation, err = build.PrepareForTargetWithContractSnapshotContext(ctx, root, cfg, nil, compiled, goTarget, role)
+		if bundle.goPlatform != nil {
+			preparation, err = build.PrepareForPlatformContext(ctx, root, cfg, compiled, goTarget, role, *bundle.goPlatform)
+		} else {
+			preparation, err = build.PrepareForTargetWithContractSnapshotContext(ctx, root, cfg, nil, compiled, goTarget, role)
+		}
 		if err != nil {
 			return nil, err
 		}

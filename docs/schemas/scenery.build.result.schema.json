@@ -5,8 +5,19 @@
   "type": "object",
   "required": [
     "kind",
-    "schema_revision",
-    "output_path"
+    "schema_revision"
+  ],
+  "anyOf": [
+    {
+      "required": [
+        "output_path"
+      ]
+    },
+    {
+      "required": [
+        "oci"
+      ]
+    }
   ],
   "additionalProperties": false,
   "properties": {
@@ -14,11 +25,42 @@
       "const": "scenery.build.result"
     },
     "schema_revision": {
-      "const": "sha256:e56b4787ccf708ba7ca8a0172dfb8a2868e11b3b70a187bb298a043e2f171f1e"
+      "const": "sha256:ec81503bb7e8d37ae0b258b779649b1e474dd32e0b2d5c98ba1d6d6b20f1a76b"
     },
     "output_path": {
+      "description": "The application bundle directory, or with --oci-context the image build context directory.",
       "type": "string",
       "minLength": 1
+    },
+    "oci": {
+      "description": "The Linux container image of an --oci build.",
+      "type": "object",
+      "required": [
+        "image",
+        "platform",
+        "built"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "enum": [
+            "linux/amd64",
+            "linux/arm64"
+          ]
+        },
+        "built": {
+          "description": "Whether Docker built and loaded the image; false when only the build context was written.",
+          "type": "boolean"
+        },
+        "image_id": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
     }
   }
 }

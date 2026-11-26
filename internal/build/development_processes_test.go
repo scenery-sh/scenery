@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -348,7 +349,7 @@ func TestWorkerProcessesFollowTheirSelectedTarget(t *testing.T) {
 		t.Fatalf("linker flags: development %q, artifact %q", linker(development), linker(artifact))
 	}
 	key := func(result *Result) string {
-		key, err := developmentProcessKey(process, nil, developmentLinkerDefaults(result))
+		key, err := developmentProcessKey(process, nil, developmentLinkerDefaults(result), crossPlatform(result))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -356,6 +357,17 @@ func TestWorkerProcessesFollowTheirSelectedTarget(t *testing.T) {
 	}
 	if key(development) == key(artifact) {
 		t.Fatal("development and artifact executables share an identity")
+	}
+	// An executable built for another platform never shares a native key.
+	native := *artifact.Target
+	native.Context.GOOS, native.Context.GOARCH = runtime.GOOS, runtime.GOARCH
+	linux := native
+	linux.Context.GOOS, linux.Context.GOARCH = "linux", "riscv64"
+	if crossPlatform(&Result{Target: &native}) != "" || key(&Result{Contract: contract, Target: &native}) != key(artifact) {
+		t.Fatal("a native target changed its executable identity")
+	}
+	if crossPlatform(&Result{Target: &linux}) != "linux/riscv64" || key(&Result{Contract: contract, Target: &linux}) == key(artifact) {
+		t.Fatal("a cross-platform executable shares the native identity")
 	}
 }
 

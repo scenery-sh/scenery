@@ -23,6 +23,9 @@ type Service struct {
 	compiler.JSWorkerTarget
 	Name    string
 	Runtime string
+	// Platform is the Bun compile target of the executable, such as
+	// bun-linux-x64-baseline; empty builds for the build host.
+	Platform string
 }
 
 // ErrSourcesChanged reports that a worker source or dependency changed during bundling.
@@ -132,7 +135,11 @@ func buildJSWorkerAttempt(ctx context.Context, root, privateRoot, cache, directo
 	}
 	output := filepath.Join(staging, "worker")
 	metadata := filepath.Join(staging, "modules.json")
-	args := []string{"build", "--no-env-file", "--target=bun", "--packages=bundle", "--outfile=" + output, "--metafile=" + metadata}
+	target := "bun"
+	if service.Platform != "" && !check {
+		target = service.Platform
+	}
+	args := []string{"build", "--no-env-file", "--target=" + target, "--packages=bundle", "--outfile=" + output, "--metafile=" + metadata}
 	if !check {
 		args = append(args, "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig")
 	}

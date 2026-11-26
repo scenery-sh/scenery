@@ -14,13 +14,17 @@ import (
 	"scenery.sh/internal/compiler"
 )
 
-// buildCommand builds the application's portable Rust host bundle, or with
-// --desktop the Tauri desktop shells of its frontends.
+// buildCommand builds the application's portable Rust host bundle, with
+// --oci a Linux container image of it, or with --desktop the Tauri desktop
+// shells of its frontends.
 func buildCommand(out io.Writer, args []string) error {
 	outputPath := ""
 	appRootFlag := ""
 	targetName := ""
 	envName := ""
+	ociImage := ""
+	ociPlatformName := ""
+	ociContext := ""
 	desktop := false
 	development := false
 	jsonOutput := false
@@ -30,6 +34,9 @@ func buildCommand(out io.Writer, args []string) error {
 	flags.StringVar(&appRootFlag, "app-root", "", "")
 	flags.StringVar(&targetName, "target", "", "")
 	flags.StringVar(&envName, "env", "", "")
+	flags.StringVar(&ociImage, "oci", "", "")
+	flags.StringVar(&ociPlatformName, "platform", "", "")
+	flags.StringVar(&ociContext, "oci-context", "", "")
 	flags.BoolVar(&desktop, "desktop", false, "")
 	flags.BoolVar(&development, "development", false, "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -38,6 +45,26 @@ func buildCommand(out io.Writer, args []string) error {
 	}
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return fmt.Errorf("invalid_request: %w", err)
+	}
+	oci := cliFlagSet(flags, "oci")
+	for _, name := range []string{"platform", "oci-context"} {
+		if cliFlagSet(flags, name) && !oci {
+			return fmt.Errorf("invalid_request: --%s requires --oci", name)
+		}
+	}
+	var image ociRequest
+	if oci {
+		for _, name := range []string{"desktop", "output", "development"} {
+			if cliFlagSet(flags, name) {
+				return fmt.Errorf("invalid_request: --oci cannot be combined with --%s", name)
+			}
+		}
+		if cliFlagSet(flags, "oci-context") && ociContext == "" {
+			return fmt.Errorf("invalid_request: --oci-context requires a directory")
+		}
+		if image, err = parseOCIRequest(ociImage, ociPlatformName, ociContext); err != nil {
+			return fmt.Errorf("invalid_request: %w", err)
+		}
 	}
 	if desktop {
 		for _, name := range []string{"target", "output", "development"} {
@@ -76,6 +103,9 @@ func buildCommand(out io.Writer, args []string) error {
 	}
 	if err := validateWorkerBundleTargetPlatform(compiled, role, targetName); err != nil {
 		return goTargetSelectionCLIError(err)
+	}
+	if oci {
+		return buildOCICommand(context.Background(), out, compiled, appRoot, cfg, targetName, image, jsonOutput)
 	}
 	bundle, err := buildWorkerBundle(context.Background(), compiled, role, targetName, false)
 	if err != nil {

@@ -249,6 +249,21 @@ func syncSnapshotFile(path string, data []byte, mode fs.FileMode) error {
 
 func binaryName(service Service) string { return "scenery-worker-" + service.ServiceName }
 
+// BinaryName is the Cargo binary target of a service's generated worker.
+func BinaryName(service Service) string { return binaryName(service) }
+
+// ExportWorkerSources writes the private Cargo snapshot the services build
+// from to destination: the application's sources with each worker's bin
+// declaration and the generated Rust SDK. An OCI build compiles it in a
+// Linux builder stage.
+func ExportWorkerSources(ctx context.Context, root string, services []Service, destination string) error {
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	return prepareSnapshot(ctx, root, destination, services, nil)
+}
+
 func buildService(ctx context.Context, snapshot, target, privateRoot string, service Service, release, check bool) (Artifact, error) {
 	dir := filepath.Join(snapshot, service.Workspace)
 	action := "build"

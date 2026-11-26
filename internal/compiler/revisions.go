@@ -219,7 +219,7 @@ func implementationRevisionTargetProjection(result *Result, byAddress map[string
 	}
 	toolchainRef := resolveResourceRef(target, refString(effective["toolchain"]), "go_toolchain")
 	toolchain := byAddress[toolchainRef]
-	resolvedTarget, err := resolveGoVerificationTarget(result, targets, target)
+	resolvedTarget, err := resolveGoVerificationTarget(result, targets, target, nil)
 	if err != nil {
 		return nil, []Diagnostic{{Code: "SCN6122", Severity: "error", Message: err.Error(), Address: target.Address}}
 	}
