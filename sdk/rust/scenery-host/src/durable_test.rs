@@ -180,7 +180,7 @@ async fn execute_next_returns_immediately_when_stop_is_cancelled() -> Result<()>
         Value::Null,
         Default::default(),
         "control".into(),
-        None,
+        crate::host::Mode::Production,
         (
             CancellationToken::new(),
             crate::assistant::Gateway::new(None, None, &[])?,

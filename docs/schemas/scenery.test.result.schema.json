@@ -17,7 +17,7 @@
       "const": "scenery.test.result"
     },
     "schema_revision": {
-      "const": "sha256:4528f02466b4289cce33722ec47b25b3be80418ae7e63b90af9958cf748acf99"
+      "const": "sha256:c7c11072a2ceb3fafbd1ddc7637cd24726a4e16168856dd4f028f0e6d7b860e8"
     },
     "ok": {
       "type": "boolean"
@@ -69,6 +69,27 @@
           },
           "output": {
             "type": "string"
+          },
+          "database": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "template",
+              "clone_ms"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "template": {
+                "type": "string"
+              },
+              "clone_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         }
       }
@@ -76,6 +97,44 @@
     "duration_ms": {
       "type": "integer",
       "minimum": 0
+    },
+    "database_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "template_hit",
+        "setup_ms"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "template_hit": {
+          "type": "boolean"
+        },
+        "setup_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "test_host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "startup_ms"
+      ],
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "startup_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   }
 }

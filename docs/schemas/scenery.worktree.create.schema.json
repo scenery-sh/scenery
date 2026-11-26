@@ -18,7 +18,7 @@
       "const": "scenery.worktree.create"
     },
     "schema_revision": {
-      "const": "sha256:1b1722d0e78a288534309bcd8181fc6866bb8de8e6faef8df6bdf4e259e046cf"
+      "const": "sha256:e7bd934a2ad675a247e3ed5cc11dafb569e2ab7d4ec7180bdeddc55a4a77f49f"
     },
     "ok": {
       "type": "boolean"
@@ -57,6 +57,35 @@
               "copy"
             ]
           }
+        }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "template",
+        "template_hit",
+        "cloned",
+        "clone_ms"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "template": {
+          "type": "string"
+        },
+        "template_hit": {
+          "type": "boolean"
+        },
+        "cloned": {
+          "type": "boolean"
+        },
+        "clone_ms": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

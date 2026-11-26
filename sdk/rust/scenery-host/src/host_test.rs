@@ -175,7 +175,7 @@ async fn mcp_call_binding_over_durable_execution_attempts_durable_dispatch() {
         Value::Null,
         Default::default(),
         "control".into(),
-        None,
+        crate::host::Mode::Production,
         (
             CancellationToken::new(),
             crate::assistant::Gateway::new(None, None, &[]).unwrap(),

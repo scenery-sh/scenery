@@ -41,6 +41,7 @@ mod schedule_slots;
 mod storage;
 mod supervisor;
 mod telemetry;
+mod test_mode;
 mod transport;
 mod values;
 
@@ -77,6 +78,10 @@ fn main() {
 
 fn bootstrap() -> Result<()> {
     let mut args = std::env::args_os().skip(1).peekable();
+    if args.peek().is_some_and(|argument| argument == "--test") {
+        args.next();
+        return test_mode::run_from_args(args);
+    }
     let input = if args.peek().is_some_and(|argument| argument == "--dev") {
         args.next();
         let directory = args
@@ -302,7 +307,9 @@ async fn run(mut input: Input) -> Result<()> {
         input.snapshot,
         export,
         control.token().into(),
-        watcher.as_ref().map(dev::WatcherLoop::status),
+        watcher
+            .as_ref()
+            .map_or(host::Mode::Production, |w| host::Mode::Development(w.status())),
         (stop.clone(), assistants),
         publication.clone(),
     )?);

@@ -25,6 +25,7 @@ type worktreeOptions struct {
 	Name             string
 	AppRoot          string
 	From             string
+	PrepareDB        bool
 	JSON             bool
 	Yes              bool
 	ExpectedRevision string
@@ -46,8 +47,9 @@ type worktreeCreateResult struct {
 	From        string `json:"from,omitempty"`
 	NextCommand string `json:"next_command"`
 	// Inputs lists the declared Git-ignored inputs the new checkout received.
-	Inputs  []worktreePreparedInput `json:"inputs,omitempty"`
-	Message string                  `json:"message,omitempty"`
+	Inputs   []worktreePreparedInput   `json:"inputs,omitempty"`
+	Database *worktreePreparedDatabase `json:"database,omitempty"`
+	Message  string                    `json:"message,omitempty"`
 }
 
 type worktreeListResult struct {
@@ -97,6 +99,7 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 	flags := newCLIFlagSet("worktree")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.From, "from", "", "")
+	flags.BoolVar(&opts.PrepareDB, "prepare-db", false, "")
 	flags.BoolVar(&opts.Yes, "yes", false, "")
 	flags.StringVar(&opts.ExpectedRevision, "expect-revision", "", "")
 	registerJSONOutput(flags, &opts.JSON)
@@ -136,6 +139,9 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 	if opts.Command != "upgrade" && (opts.Yes || opts.ExpectedRevision != "") {
 		return worktreeOptions{}, usageErrorf("--yes and --expect-revision belong only to scenery worktree upgrade")
 	}
+	if opts.Command != "create" && opts.PrepareDB {
+		return worktreeOptions{}, usageErrorf("--prepare-db belongs only to scenery worktree create")
+	}
 	return opts, nil
 }
 
@@ -173,6 +179,11 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 			if result.Inputs, err = prepareWorktreeInputs(ctx, created, appRoot, cfg, gitIgnores); err != nil {
 				return err
 			}
+			if opts.PrepareDB {
+				if result.Database, err = prepareWorktreeDatabase(ctx, created, cfg); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if opts.JSON {
@@ -181,6 +192,9 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 	_, _ = fmt.Fprintf(stdout, "created worktree %s at %s\n", name, target)
 	for _, input := range result.Inputs {
 		_, _ = fmt.Fprintf(stdout, "received %s\n", input.Path)
+	}
+	if result.Database != nil {
+		_, _ = fmt.Fprintf(stdout, "database %s cloned from %s in %dms\n", result.Database.Name, result.Database.Template, result.Database.CloneMS)
 	}
 	_, _ = fmt.Fprintf(stdout, "next: %s\n", result.NextCommand)
 	return nil
