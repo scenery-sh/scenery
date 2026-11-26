@@ -1,0 +1,117 @@
+package "guard" {
+  rust_contract {
+    crate = "guard"
+  }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+input "assets" { type = resource_ref("data_source") }
+
+service "guard" {
+  runtime = "rust"
+  implementation {
+    constructor = "new_service"
+  }
+  dependency "assets" { instance = var.assets }
+}
+
+record "validate_input" {
+  field "target_url" { type = string }
+  field "custom_slug" { type = optional(string) }
+}
+
+record "validate_result" {
+  field "slug" { type = string }
+  field "normalized_url" { type = string }
+  field "host" { type = string }
+}
+
+operation "validate_and_slug" {
+  service = service.guard
+  input   = record.validate_input
+  handler { method = "ValidateAndSlug" }
+  result "ok" { type = record.validate_result }
+  error "invalid_url" { type = std.type.problem }
+}
+
+execution "validate_direct" {
+  operation = operation.validate_and_slug
+  mode      = "direct"
+  timeout   = "5s"
+}
+
+binding "validate_internal" {
+  operation      = operation.validate_and_slug
+  execution      = execution.validate_direct
+  protocol       = "internal"
+  exposure       = "application"
+  delivery       = "call"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+export "validate_internal" { value = binding.validate_internal }
+
+record "qr_input" {
+  field "slug" { type = string }
+}
+
+operation "qr_svg" {
+  service = service.guard
+  input   = record.qr_input
+  handler { method = "QrSvg" }
+  result "ok" { type = bytes }
+  error "invalid_slug" { type = std.type.problem }
+}
+
+execution "qr_direct" {
+  operation = operation.qr_svg
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "qr_http" {
+  gateway        = var.gateway
+  operation      = operation.qr_svg
+  execution      = execution.qr_direct
+  protocol       = "http"
+  delivery       = "stream"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/links/{slug}/qr"
+    codec_profile = std.codec.http_json_v1
+
+    path_parameter "slug" {
+      to = operation.qr_svg.input.slug
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "bytes"
+        from  = result.ok
+      }
+    }
+
+    response "invalid_slug" {
+      when   = error.invalid_slug
+      status = 400
+      body {
+        codec = "problem_json"
+        from  = error.invalid_slug
+      }
+    }
+  }
+}
+
+export "qr_svg" { value = operation.qr_svg }

@@ -1,0 +1,154 @@
+package "analytics" {
+  python_contract {
+    entry = "service.py"
+  }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+input "assets" { type = resource_ref("data_source") }
+input "jobs" {
+  type     = resource_ref("execution_engine")
+  phase    = "deployment"
+  requires = ["execution.durable/v1"]
+}
+input "link_clicked" { type = resource_ref("event") }
+input "links_snapshot" { type = resource_ref("binding") }
+
+service "analytics" {
+  runtime = "python"
+  implementation {
+    constructor = "new_service"
+  }
+  dependency "assets" { instance = var.assets }
+  client "links_snapshot" { binding = var.links_snapshot }
+}
+
+record "click_event_input" {
+  field "click_id" { type = string }
+  field "slug" { type = string }
+  field "target_url" { type = string }
+  field "clicked_at" { type = string }
+}
+
+operation "record_click" {
+  service = service.analytics
+  input   = record.click_event_input
+  handler { method = "record_click" }
+  result "ok" { type = string }
+  idempotency {
+    mode = "keyed"
+    key  = [input.click_id]
+  }
+}
+
+execution "record_click_durable" {
+  operation     = operation.record_click
+  mode          = "durable"
+  engine        = var.jobs
+  external_name = "shortlink.record_click"
+  revision      = 1
+  timeout       = "10s"
+  lease         = "5s"
+  attempts      = 3
+  retry {
+    strategy = "exponential"
+    initial  = "250ms"
+    factor   = 2
+    maximum  = "2s"
+  }
+  retention {
+    success = "1d"
+    failure = "1w"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+subscription "on_link_clicked" {
+  event = var.link_clicked
+  invoke {
+    operation     = operation.record_click
+    execution     = execution.record_click_durable
+    authorization = std.authorization.application
+    pipeline      = std.pipeline.empty
+  }
+}
+
+record "stats_summary" {
+  field "total_links" { type = int64 }
+  field "total_clicks" { type = int64 }
+  field "avg_clicks_per_link" { type = decimal }
+  field "top_slug" { type = optional(string) }
+  field "last_rollup_at" { type = optional(string) }
+}
+
+operation "rollup_stats" {
+  service = service.analytics
+  input   = std.type.unit
+  handler { method = "rollup_stats" }
+  result "ok" { type = record.stats_summary }
+}
+
+execution "rollup_stats_direct" {
+  operation = operation.rollup_stats
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+schedule "analytics_rollup" {
+  trigger {
+    every = "1m"
+  }
+  invoke {
+    operation     = operation.rollup_stats
+    execution     = execution.rollup_stats_direct
+    identity      = std.workload_identity.scheduler
+    authorization = std.authorization.scheduled
+    pipeline      = std.pipeline.empty
+    input         = {}
+  }
+  overlap = "skip"
+}
+
+operation "get_stats" {
+  service = service.analytics
+  input   = std.type.unit
+  handler { method = "get_stats" }
+  result "ok" { type = record.stats_summary }
+}
+
+execution "get_stats_direct" {
+  operation = operation.get_stats
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "get_stats_http" {
+  gateway        = var.gateway
+  operation      = operation.get_stats
+  execution      = execution.get_stats_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/stats"
+    codec_profile = std.codec.http_json_v1
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}
+
+export "get_stats" { value = operation.get_stats }

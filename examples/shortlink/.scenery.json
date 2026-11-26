@@ -1,0 +1,42 @@
+{
+  "name": "shortlink",
+  "id": "shortlink-example",
+  "auth": {
+    "enabled": true,
+    "auto_bootstrap_database": true,
+    "dev_bootstrap": {
+      "enabled": true,
+      "default_user_email": "demo@shortlink.local"
+    }
+  },
+  "storage": {
+    "default": "assets",
+    "stores": {
+      "assets": {
+        "kind": "local",
+        "access": "private",
+        "tenant_scoped": false,
+        "max_object_bytes": 1048576
+      }
+    }
+  },
+  "frontends": {
+    "web": {
+      "root": "web",
+      "adapter": "vite",
+      "mode": "static"
+    }
+  },
+  "envs": {
+    "local": {
+      "default": true
+    },
+    "preview": {
+      "frontends": {
+        "web": {
+          "serve": "production"
+        }
+      }
+    }
+  }
+}

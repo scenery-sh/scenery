@@ -1,0 +1,305 @@
+package "links" {
+  go_contract {
+    import_path = "example.com/shortlink/links"
+  }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+input "database" { type = resource_ref("data_source") }
+input "session" { type = resource_ref("authentication") }
+input "allow_url" { type = resource_ref("authorization") }
+input "guard" { type = resource_ref("binding") }
+
+record "link_created_event" {
+  field "slug" { type = string }
+  field "target_url" { type = string }
+  field "created_by" { type = string }
+}
+
+event "link_created" {
+  payload       = record.link_created_event
+  external_name = "shortlink.link_created"
+  idempotency {
+    mode = "keyed"
+    key  = [payload.slug]
+  }
+}
+
+record "link_clicked_event" {
+  field "click_id" { type = string }
+  field "slug" { type = string }
+  field "target_url" { type = string }
+  field "clicked_at" { type = string }
+}
+
+event "link_clicked" {
+  payload       = record.link_clicked_event
+  external_name = "shortlink.link_clicked"
+  idempotency {
+    mode = "keyed"
+    key  = [payload.click_id]
+  }
+}
+
+export "link_created" { value = event.link_created }
+export "link_clicked" { value = event.link_clicked }
+
+service "links" {
+  runtime = "go"
+  implementation {
+    constructor = "NewService"
+  }
+  dependency "database" { instance = var.database }
+  client "guard" { binding = var.guard }
+  publisher "created" { event = event.link_created }
+  publisher "clicked" { event = event.link_clicked }
+}
+
+record "link_item" {
+  field "slug" { type = string }
+  field "target_url" { type = string }
+  field "host" { type = string }
+  field "title" { type = optional(string) }
+  field "clicks" { type = int64 }
+  field "created_at" { type = string }
+  field "enriched_at" { type = optional(string) }
+}
+
+record "create_link_input" {
+  field "target_url" { type = string }
+  field "custom_slug" { type = optional(string) }
+}
+
+operation "create_link" {
+  service = service.links
+  input   = record.create_link_input
+  handler { method = "CreateLink" }
+  result "created" { type = record.link_item }
+  error "invalid_url" { type = std.type.problem }
+  error "slug_taken" { type = std.type.problem }
+}
+
+execution "create_link_direct" {
+  operation = operation.create_link
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "create_link_http" {
+  gateway        = var.gateway
+  operation      = operation.create_link
+  execution      = execution.create_link_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = var.allow_url
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/links"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.create_link.input
+    }
+
+    response "created" {
+      when   = result.created
+      status = 201
+      body {
+        codec = "json"
+        from  = result.created
+      }
+    }
+
+    response "invalid_url" {
+      when   = error.invalid_url
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.invalid_url
+      }
+    }
+
+    response "slug_taken" {
+      when   = error.slug_taken
+      status = 409
+      body {
+        codec = "problem_json"
+        from  = error.slug_taken
+      }
+    }
+  }
+}
+
+record "list_links_result" {
+  field "items" { type = list(record.link_item) }
+}
+
+operation "list_links" {
+  service = service.links
+  input   = std.type.unit
+  handler { method = "ListLinks" }
+  result "ok" { type = record.list_links_result }
+}
+
+execution "list_links_direct" {
+  operation = operation.list_links
+  mode      = "direct"
+  timeout   = "5s"
+}
+
+binding "list_links_http" {
+  gateway        = var.gateway
+  operation      = operation.list_links
+  execution      = execution.list_links_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/links"
+    codec_profile = std.codec.http_json_v1
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}
+
+binding "snapshot_internal" {
+  operation      = operation.list_links
+  execution      = execution.list_links_direct
+  protocol       = "internal"
+  exposure       = "application"
+  delivery       = "call"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+export "snapshot_internal" { value = binding.snapshot_internal }
+
+record "slug_input" {
+  field "slug" { type = string }
+}
+
+operation "resolve_link" {
+  service = service.links
+  input   = record.slug_input
+  handler { method = "ResolveLink" }
+  result "ok" { type = string }
+  error "not_found" { type = std.type.problem }
+}
+
+execution "resolve_link_direct" {
+  operation = operation.resolve_link
+  mode      = "direct"
+  timeout   = "5s"
+}
+
+binding "resolve_link_http" {
+  gateway        = var.gateway
+  operation      = operation.resolve_link
+  execution      = execution.resolve_link_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/r/{slug}"
+    codec_profile = std.codec.http_json_v1
+
+    path_parameter "slug" {
+      to = operation.resolve_link.input.slug
+    }
+
+    response "redirect" {
+      when   = result.ok
+      status = 302
+      header "location" {
+        from = result.ok
+      }
+    }
+
+    response "not_found" {
+      when   = error.not_found
+      status = 404
+      body {
+        codec = "problem_json"
+        from  = error.not_found
+      }
+    }
+  }
+}
+
+operation "delete_link" {
+  service = service.links
+  input   = record.slug_input
+  handler { method = "DeleteLink" }
+  result "deleted" { type = std.type.unit }
+  error "not_found" { type = std.type.problem }
+}
+
+execution "delete_link_direct" {
+  operation = operation.delete_link
+  mode      = "direct"
+  timeout   = "5s"
+}
+
+binding "delete_link_http" {
+  gateway        = var.gateway
+  operation      = operation.delete_link
+  execution      = execution.delete_link_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "DELETE"
+    path          = "/links/{slug}"
+    codec_profile = std.codec.http_json_v1
+
+    path_parameter "slug" {
+      to = operation.delete_link.input.slug
+    }
+
+    response "deleted" {
+      when   = result.deleted
+      status = 204
+    }
+
+    response "not_found" {
+      when   = error.not_found
+      status = 404
+      body {
+        codec = "problem_json"
+        from  = error.not_found
+      }
+    }
+  }
+}
+
+export "create_link" { value = operation.create_link }
+export "list_links" { value = operation.list_links }
+export "resolve_link" { value = operation.resolve_link }
+export "delete_link" { value = operation.delete_link }
