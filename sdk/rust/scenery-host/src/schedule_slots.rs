@@ -96,15 +96,49 @@ impl Slots {
             _ => "running",
         };
         if overlap == "replace" {
-            client
-                .execute(
-                    &format!(
-                        "UPDATE scenery.schedule_slots SET state = 'replaced', lease_until = NULL, updated_at = now()
-                         WHERE service = $1 AND schedule = $2 AND state = 'running' AND slot_at < {SLOT}"
-                    ),
-                    &[&key.service, &key.schedule, &slot],
-                )
-                .await?;
+            for _ in 0..8 {
+                client
+                    .execute(
+                        &format!(
+                            "UPDATE scenery.schedule_slots SET state = 'replaced', lease_until = NULL, updated_at = now()
+                             WHERE service = $1 AND schedule = $2 AND state = 'running' AND slot_at < {SLOT}"
+                        ),
+                        &[&key.service, &key.schedule, &slot],
+                    )
+                    .await?;
+                let inserted = client
+                    .query_opt(
+                        &format!(
+                            "INSERT INTO scenery.schedule_slots (service, schedule, slot_at, state, owner, lease_until)
+                             VALUES ($1, $2, {SLOT}, 'running', $4, now() + $5::bigint * interval '1 millisecond')
+                             ON CONFLICT DO NOTHING RETURNING 1"
+                        ),
+                        &[&key.service, &key.schedule, &slot, &self.owner, &self.lease_ms()],
+                    )
+                    .await?
+                    .is_some();
+                if inserted {
+                    return Ok(Some(Run { slot, leased: true }));
+                }
+                // Stop if this slot already exists or a newer slot is already running;
+                // otherwise an older slot raced into 'running' and we retry replacing it.
+                let superseded = client
+                    .query_opt(
+                        &format!(
+                            "SELECT 1 FROM scenery.schedule_slots
+                             WHERE service = $1 AND schedule = $2
+                               AND (slot_at = {SLOT} OR (state = 'running' AND slot_at >= {SLOT}))
+                             LIMIT 1"
+                        ),
+                        &[&key.service, &key.schedule, &slot],
+                    )
+                    .await?
+                    .is_some();
+                if superseded {
+                    return Ok(None);
+                }
+            }
+            return Ok(None);
         }
         let inserted = client
             .query_opt(
@@ -243,14 +277,15 @@ impl Slots {
     }
 }
 
-/// Deletes the slots of `services` older than a day, keeping only a run
-/// whose lease is still valid. No replica claims a slot that old again.
+/// Deletes finished or expired slots of `services` older than a day, keeping
+/// queued slots (whose lifetime belongs to `catchup`) and runs whose lease is
+/// still valid. No replica claims a slot that old again.
 pub(crate) async fn prune(client: &Client, services: &[String]) -> Result<u64> {
     Ok(client
         .execute(
             "DELETE FROM scenery.schedule_slots
              WHERE service = ANY($1::text[]) AND slot_at < now() - interval '1 day'
-               AND (state <> 'running' OR lease_until < now())",
+               AND ((state NOT IN ('running', 'queued')) OR (state = 'running' AND lease_until < now()))",
             &[&services],
         )
         .await?)
