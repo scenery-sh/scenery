@@ -1,0 +1,128 @@
+package "preview" {
+  js_contract {
+    entry = "service.ts"
+  }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+input "database" { type = resource_ref("data_source") }
+input "jobs" {
+  type     = resource_ref("execution_engine")
+  phase    = "deployment"
+  requires = ["execution.durable/v1"]
+}
+input "link_created" { type = resource_ref("event") }
+
+service "preview" {
+  runtime = "ts"
+  implementation {
+    constructor = "newService"
+  }
+  lifecycle { stop = "Stop" }
+  dependency "database" { instance = var.database }
+}
+
+record "enrich_input" {
+  field "slug" { type = string }
+  field "target_url" { type = string }
+  field "created_by" { type = string }
+}
+
+record "enrich_result" {
+  field "slug" { type = string }
+  field "title" { type = string }
+}
+
+operation "enrich_link" {
+  service = service.preview
+  input   = record.enrich_input
+  handler { method = "EnrichLink" }
+  result "ok" { type = record.enrich_result }
+  idempotency {
+    mode = "keyed"
+    key  = [input.slug]
+  }
+}
+
+execution "enrich_durable" {
+  operation     = operation.enrich_link
+  mode          = "durable"
+  engine        = var.jobs
+  external_name = "shortlink.enrich_link"
+  revision      = 1
+  timeout       = "10s"
+  lease         = "5s"
+  attempts      = 3
+  retry {
+    strategy = "exponential"
+    initial  = "250ms"
+    factor   = 2
+    maximum  = "2s"
+  }
+  retention {
+    success = "1d"
+    failure = "1w"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+subscription "on_link_created" {
+  event = var.link_created
+  invoke {
+    operation     = operation.enrich_link
+    execution     = execution.enrich_durable
+    authorization = std.authorization.application
+    pipeline      = std.pipeline.empty
+  }
+}
+
+record "click_event" {
+  field "click_id" { type = string }
+  field "slug" { type = string }
+  field "target_url" { type = string }
+  field "clicked_at" { type = string }
+}
+
+operation "live_clicks" {
+  service = service.preview
+  input   = std.type.unit
+  handler { method = "LiveClicks" }
+  result "event" { type = record.click_event }
+}
+
+execution "live_clicks_direct" {
+  operation = operation.live_clicks
+  mode      = "direct"
+  timeout   = "5m"
+}
+
+binding "live_clicks_http" {
+  gateway        = var.gateway
+  operation      = operation.live_clicks
+  execution      = execution.live_clicks_direct
+  protocol       = "http"
+  delivery       = "stream_out"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/events/live"
+    codec_profile = std.codec.http_json_v1
+
+    response "event" {
+      when   = result.event
+      status = 200
+      body {
+        codec = "sse"
+        from  = result.event
+      }
+    }
+  }
+}
+
+export "live_clicks" { value = operation.live_clicks }

@@ -1,0 +1,191 @@
+application "shortlink" {}
+
+workspace {
+  managed_generated_roots = [
+    "guard/scenerycontract",
+    "links/scenerycontract",
+    "preview/scenerycontract",
+    "analytics/scenerycontract",
+    "internal/scenerygen",
+    "web/generated",
+  ]
+}
+
+go_module "application" {
+  root        = "."
+  import_path = "example.com/shortlink"
+}
+
+go_toolchain "application" {
+  version = "1.27.0"
+}
+
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+go_target "production" {
+  role      = "artifact"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+rust_workspace "application" {
+  root = "guard"
+}
+
+rust_toolchain "application" {
+  version = "1.99.1"
+}
+
+rust_target "development" {
+  role      = "development"
+  workspace = rust_workspace.application
+  toolchain = rust_toolchain.application
+}
+
+rust_target "production" {
+  role      = "artifact"
+  workspace = rust_workspace.application
+  toolchain = rust_toolchain.application
+}
+
+js_workspace "application" {
+  root = "."
+}
+
+js_toolchain "application" {
+  version = "1.3.14"
+}
+
+js_target "development" {
+  role      = "development"
+  workspace = js_workspace.application
+  toolchain = js_toolchain.application
+}
+
+js_target "production" {
+  role      = "artifact"
+  workspace = js_workspace.application
+  toolchain = js_toolchain.application
+}
+
+python_workspace "application" {
+  root = "."
+}
+
+python_toolchain "application" {
+  version = "3.14.6"
+}
+
+python_target "development" {
+  role      = "development"
+  workspace = python_workspace.application
+  toolchain = python_toolchain.application
+}
+
+python_target "production" {
+  role      = "artifact"
+  workspace = python_workspace.application
+  toolchain = python_toolchain.application
+}
+
+http_gateway "public_api" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+provider "postgres" { source = "registry.scenery.dev/core/postgres" }
+provider "durable" { source = "registry.scenery.dev/core/durable" }
+provider "storage" { source = "registry.scenery.dev/core/storage" }
+
+data_source "shortlink" {
+  provider             = provider.postgres
+  lifecycle            = "managed"
+  require_capabilities = ["sql.query/v1", "sql.transaction/v1"]
+  config               = { database = "shortlink" }
+}
+
+data_source "assets" {
+  provider             = provider.storage
+  lifecycle            = "managed"
+  require_capabilities = ["object.read/v1", "object.write/v1", "object.delete/v1"]
+  config               = { bucket = "assets" }
+}
+
+execution_engine "jobs" {
+  provider             = provider.durable
+  lifecycle            = "managed"
+  require_capabilities = ["execution.durable/v1"]
+}
+
+authentication "session" {
+  provider = std.provider.standard_auth
+  scheme   = "session"
+}
+
+authorization "allow_url" {
+  principal = std.type.authenticated_principal
+  strategy  = "deny_unless_allowed"
+  rule "allow" { allow = true }
+  rule "deny_blocked_host" { deny = input.target_url == "https://blocked.example" }
+}
+
+module "guard" {
+  source = "./guard"
+  inputs = {
+    gateway = http_gateway.public_api
+    assets  = data_source.assets
+  }
+}
+
+module "links" {
+  source = "./links"
+  inputs = {
+    gateway   = http_gateway.public_api
+    database  = data_source.shortlink
+    session   = authentication.session
+    allow_url = authorization.allow_url
+    guard     = module.guard.validate_internal
+  }
+}
+
+module "preview" {
+  source = "./preview"
+  inputs = {
+    gateway      = http_gateway.public_api
+    database     = data_source.shortlink
+    jobs         = execution_engine.jobs
+    link_created = module.links.link_created
+  }
+}
+
+module "analytics" {
+  source = "./analytics"
+  inputs = {
+    gateway        = http_gateway.public_api
+    assets         = data_source.assets
+    jobs           = execution_engine.jobs
+    link_clicked   = module.links.link_clicked
+    links_snapshot = module.links.snapshot_internal
+  }
+}
+
+typescript_client "public_api" {
+  gateways    = [http_gateway.public_api]
+  package     = "@example/shortlink-client"
+  module      = "esm"
+  runtime     = "fetch"
+  output_root = "web/generated"
+}

@@ -1,0 +1,13 @@
+.scenery/
+/internal/scenerygen/
+/guard/scenerycontract/
+/guard/target/
+/links/scenerycontract/
+/preview/scenerycontract/
+/analytics/scenerycontract/
+/web/generated/
+/web/dist/
+/web/node_modules/
+__pycache__/
+.venv/
+.DS_Store
