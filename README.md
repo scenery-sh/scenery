@@ -13,7 +13,7 @@
   &nbsp;·&nbsp;
   <a href="#built-for-software-factories"><b>Software factories</b></a>
   &nbsp;·&nbsp;
-  <a href="docs/index.md"><b>Docs</b></a>
+  <a href="docs/spec/SPEC.md"><b>Spec</b></a>
 </p>
 
 <p align="center">
@@ -24,364 +24,134 @@
   <img alt="Status: active development" src="https://img.shields.io/badge/status-active_development-F59E0B?style=flat-square">
 </p>
 
-**Scenery is a runtime, toolchain and agent harness for Go backends.**
-Describe *what your app is* (its APIs, background jobs, data and auth) in small
-`.scn` files, and write *what it does* in plain Go. Scenery generates the glue,
-runs the whole app and its frontends with one command, and shows you, and your
-AI agents, exactly what is happening inside.
-
-Scenery is used in production today. It is open source and runs on your own
-machine. It is not a hosted service, and not an AI app generator: it runs
-*your* code. If it does not fit your needs, [fork it](#make-it-yours).
-
-## Why Scenery?
-
-Shipping a feature usually means shipping its plumbing too. Scenery turns the
-plumbing into a declaration, so your time goes into the product.
-
-| | Without Scenery | With Scenery |
-|:-:|---|---|
-| 🔌 | Hand-written routers, request parsing and JSON codecs | Declare an operation and its route; the handler receives typed input |
-| 🧬 | Frontend types drift away from the backend API | A typed TypeScript client is generated from the same declaration |
-| 🧰 | Scripts to start Postgres, workers and frontend servers | `scenery up` starts and supervises all of it |
-| 🔍 | Logs in one tool, traces in another, if anywhere | Logs, traces and metrics collected for every run and queried from one CLI |
-| 🤖 | AI agents guess how the project is wired | Agents read the same app graph as JSON |
-| 🪙 | Agents spend context choosing tools and discovering checks | Agents inspect the app graph and change-specific validation requirements |
-| 🏭 | Parallel branches fight over one database and one port | Every Git worktree runs its own isolated copy of the app |
-| 🍴 | A framework that does not fit locks you in | Plain Go under Apache 2.0: fork it and change what you need |
+**Scenery is a runtime, toolchain, and agent harness for Go backends.**
+Describe *what your app is* (APIs, durable jobs, data, auth, schedules) in small
+`.scn` files and write *what it does* in plain Go. Scenery generates the typed
+contracts and TypeScript clients, runs the whole app and its frontends with one
+command, and exposes machine-readable state and telemetry for humans and AI
+agents.
 
 ## How it works
 
 <p align="center">
-  <img src="docs/assets/readme/how-it-works.svg" alt="You write .scn declarations (what exists), Go handlers (what it does) and .scenery.json (how it runs). Scenery compiles one typed app graph, generates Go and TypeScript code, and runs one supervised runtime. You get typed HTTP APIs, durable jobs and schedules, PostgreSQL and storage, auth with users and tenants, TypeScript clients, logs, traces and metrics, and a JSON CLI for AI agents." width="100%">
+  <img src="docs/assets/readme/how-it-works.svg" alt="Declare .scn files, write Go handlers, run scenery up." width="100%">
 </p>
 
-Here is the whole loop for a tiny `echo` endpoint, adapted from the
-[`testdata/apps/basic`](testdata/apps/basic) app.
-
-**1️⃣ Declare what exists.**
-[`service/package.scn`](testdata/apps/basic/service/package.scn) names the
-operation, its input and result records, and the HTTP route that calls it:
+**1. Declare what exists** in [`testdata/apps/basic/service/package.scn`](testdata/apps/basic/service/package.scn):
 
 ```hcl
 operation "echo" {
   service = service.service
   input   = record.echo_input
-
-  handler {
-    method = "Echo"
-  }
-
-  result "ok" {
-    type = record.echo_result
-  }
+  handler { method = "Echo" }
+  result "ok" { type = record.echo_result }
 }
 
 binding "echo_http" {
   operation = operation.echo
   protocol  = "http"
-
-  # ...plus execution, auth policy and JSON mapping (see the full file)
-
-  http {
-    method = "POST"
-    path   = "/echo"
-  }
+  http { method = "POST"; path = "/echo" }
 }
 ```
 
-**2️⃣ Write what it does.** Scenery turns the declaration into a typed Go
-package, `scenerycontract`. You implement the constructor and handler it asks
-for:
+**2. Write the handler in Go** against the generated `scenerycontract` package:
 
 ```go
-package service
-
-import (
-	"context"
-
-	contract "example.com/basicapp/service/scenerycontract" // generated
-)
-
-type Service struct{}
-
-func NewService(context.Context, contract.ServiceConstructorInput) (*Service, error) {
-	return &Service{}, nil
-}
-
 func (*Service) Echo(_ context.Context, in contract.EchoInput) (contract.EchoOutcome, error) {
 	return contract.EchoOk{Value: contract.EchoResult{Message: "echo:" + in.Message}}, nil
 }
 ```
 
-`scenery up`, `build` and `test` keep the generated package current. After a
-fresh checkout, run `scenery generate --target contracts` once so your editor
-and plain `go` commands can see it.
+**3. Run the whole app** with `scenery up`:
 
-**3️⃣ Run it.** `scenery up` builds the app, starts it and keeps watching your
-files:
-
-```console
-$ scenery up
-  …
-  ✔ Generating boilerplate code (196ms)
-  ✔ Analyzing service topology (0ms)
-  ✔ Starting Victoria observability stack (229ms)
-  ✔ Compiling application source code (731ms)
-  …
-
-  scenery development server running
-
-  ➜ API:           http://localhost:4624/api/
-  ➜ Frontend root: http://localhost:4624/
+```sh
+scenery up
+curl --json '{"message":"hi"}' http://localhost:4624/api/echo
+# {"message":"echo:hi"}
 ```
-
-```console
-$ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
-{"message":"echo:hi"}
-```
-
-Your port will differ; `scenery ps` lists the URLs of every running app.
 
 ## What you get
 
-Scenery covers about 95% of what a typical production app needs, out of the
-box. The rest is plain Go: your handlers can call any library or service.
-
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <b>⚡ Typed HTTP APIs</b><br>
-      Declare operations, records and routes once. Handlers receive validated,
-      typed input and return typed results.
-    </td>
-    <td width="33%" valign="top">
-      <b>⏱️ Durable jobs and schedules</b><br>
-      Retries, timeouts, leases and idempotency keys sit next to the
-      operation, together with schedules and events.
-    </td>
-    <td width="33%" valign="top">
-      <b>🐘 Managed PostgreSQL</b><br>
-      A local database in Docker, checksum-bound SQL migrations
-      (<code>scenery db migrate</code>), seeds and portable snapshots.
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <b>🔐 Auth built in</b><br>
-      Email sign-up and login, sessions, organizations and invites. Every route
-      declares whether it is public or protected.
-    </td>
-    <td valign="top">
-      <b>📦 Object storage</b><br>
-      Store files from Go with <code>scenery.sh/storage</code>: tenant scoping,
-      conditional writes and inspection from the CLI.
-    </td>
-    <td valign="top">
-      <b>🧩 Generated TypeScript client</b><br>
-      <code>scenery generate</code> writes a typed fetch client that matches
-      your API, with optional generated React pages. Your product UI stays yours.
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <b>🔭 First-class telemetry</b><br>
-      Requests, database queries and HTTP calls are traced automatically.
-      You and your agents query logs, traces and metrics with
-      <code>scenery logs</code>, <code>traces</code> and <code>metrics</code>.
-    </td>
-    <td valign="top">
-      <b>🔁 Live rebuilds</b><br>
-      One process per service. An edit rebuilds and replaces only the services
-      it touched, while the rest keep serving.
-    </td>
-    <td valign="top">
-      <b>🤖 Ready for AI agents</b><br>
-      Machine-readable JSON from the CLI, stable <code>SCN</code> diagnostic
-      codes and an installable agent skill.
-    </td>
-  </tr>
-</table>
-
-**Also included:** a development runtime RPC with a generated `dev-runtime.ts`
-client for building your own dev tools, branded dev domains, declared AI
-assistants over MCP, and app-local code tasks.
+- **Typed HTTP APIs** — declared records, validated input, typed outcomes, and neutral end-user surfaces.
+- **Durable jobs, schedules & events** — retries, timeouts, leases, and idempotency keys declared next to operations.
+- **Managed PostgreSQL & object storage** — Docker Postgres per worktree, checksummed migrations (`scenery db migrate`), snapshots, and tenant-scoped `scenery.sh/storage`.
+- **Built-in auth & connections** — sessions, organizations, invites, and encrypted OAuth2/OIDC user connections.
+- **Generated TypeScript client** — exact wire types (`bigint`, `decimal`, optional/nullable) plus optional React pages.
+- **First-class telemetry** — logs, traces, and metrics queryable as JSON via `scenery logs`, `traces`, and `metrics`.
+- **Process-per-service live rebuilds** — edits rebuild and swap only touched services while unaffected services keep serving.
 
 ## One command, the whole app
 
 <p align="center">
-  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up starts Go services as one process per service, background jobs, schedules and events, managed PostgreSQL in Docker, frontend dev servers behind one router, the observability stack for logs, traces and metrics, and live rebuilds that restart only the services that changed." width="100%">
+  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up supervises services, Postgres, frontends, and observability." width="100%">
 </p>
 
-| Command | What it does |
+| Command | Purpose |
 |---|---|
-| `scenery up` | Build, start and watch the app with its database and frontends |
-| `scenery ps` | List running apps and their URLs |
-| `scenery logs --follow` | Stream the app's logs |
-| `scenery check` | Validate declarations and generated Go contracts |
-| `scenery generate` | Regenerate TypeScript clients and other configured outputs |
+| `scenery up` | Build, start, and watch the app, database, and frontends |
+| `scenery ps` | List running apps and URLs |
+| `scenery logs --follow` | Stream application logs |
+| `scenery check` | Validate `.scn` declarations and Go contracts |
+| `scenery generate` | Regenerate Go contracts, TypeScript clients, and SQLC outputs |
 | `scenery down` | Stop the app |
-| `scenery doctor` | Check that your machine and app are ready |
+| `scenery doctor` | Verify host and app prerequisites |
+
+Discover exact command grammar with `scenery help <command> -o json`.
 
 ## Built for AI agents
 
-Scenery works as the harness your agents run in. Declarations define what
-exists, generated contracts let the Go compiler check every handler against
-them, and the CLI tells an agent which checks its change needs. Agents stop
-deciding which router, queue or migration tool to use, and stop re-reading
-their own code to see whether it fits: Scenery sets up the rails, and they
-work inside them.
+Every command supports `-o json` (or `-o jsonl` for streams) with exact schema
+revisions, producer identity, and stable `SCNxxxx` diagnostics:
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <b>🪙 Focused agent context</b><br>
-      Agents load the relevant contracts and checks through scoped inspection.
-      Recorded workflow evaluations are linked in the documentation index.
-    </td>
-    <td width="33%" valign="top">
-      <b>🛤️ Rails, not guesswork</b><br>
-      <code>scenery check</code> catches drift before anything runs, with
-      stable <code>SCN</code> diagnostic codes an agent can act on.
-    </td>
-    <td width="33%" valign="top">
-      <b>🔭 Telemetry agents can read</b><br>
-      An agent reads the logs and traces of the request it just made, as JSON,
-      instead of adding print statements and running it again.
-    </td>
-  </tr>
-</table>
-
-Agents see what you see. The CLI answers in JSON (`-o json`, or `-o jsonl` for
-streams) with exact revisions, producer identity and stable `SCNxxxx`
-diagnostic codes, so an agent can find an endpoint, check a change and debug a
-failure without guessing how the project is wired.
-
-| Your agent wants to... | It runs |
-|---|---|
-| understand the app | `scenery inspect app -o json` |
-| find an endpoint | `scenery inspect routes -o json` |
-| check a change | `scenery check -o json` |
-| read what just happened | `scenery logs -o jsonl --limit 200` |
-| see why a request failed | `scenery traces list --status error -o json` |
-| run the checks that matter | `scenery validate changed --base main -o json` |
-| prove the change and keep the evidence | `scenery harness -o json --write` |
-
-For the `echo` app above, `scenery inspect routes -o json` returns (abridged):
-
-```json
-{
-  "kind": "scenery.cli",
-  "ok": true,
-  "data": {
-    "kind": "scenery.inspect.routes",
-    "routes": [
-      {
-        "id": "service.Echo",
-        "file": "service/package.scn",
-        "access": "public",
-        "path": "/echo",
-        "methods": ["POST"]
-      }
-    ]
-  },
-  "diagnostics": []
-}
+```sh
+scenery inspect app -o json
+scenery inspect routes -o json
+scenery check -o json
+scenery logs -o jsonl --limit 200
+scenery traces list --status error -o json
+scenery validate changed --base main -o json
+scenery harness -o json --write
 ```
 
-Teach your agent the workflow with the installable [skill](SKILL.md):
+Install the agent skill ([SKILL.md](SKILL.md)):
 
 ```sh
 npx skills add https://github.com/scenery-sh/scenery
 ```
 
-You do not need an AI agent to use Scenery. Everything works just as well by
-hand.
-
 ## Built for software factories
 
-Run one agent or hundreds of them at the same time, each in its own Git
-worktree. Every worktree gets a complete, separate copy of the running app:
-its own URL, PostgreSQL database, object storage, logs, traces and metrics.
-Nothing is shared by accident, so parallel agents never collide on ports, data
-or telemetry.
-
 <p align="center">
-  <img src="docs/assets/readme/worktrees.svg" alt="Many Git worktrees, such as main, agent/checkout-v2 and agent/fix-refunds, run side by side on one machine. Every worktree gets its own localhost URL, its own PostgreSQL database, its own object storage, and its own logs, traces and metrics." width="100%">
+  <img src="docs/assets/readme/worktrees.svg" alt="Isolated Git worktrees running side by side." width="100%">
 </p>
 
+Each Git worktree runs a fully isolated copy of the app with its own URL,
+PostgreSQL database, object storage, and telemetry:
+
 ```sh
-scenery worktree create new-checkout   # new branch in ../myapp-new-checkout
+scenery worktree create new-checkout
 cd ../myapp-new-checkout
-scenery up --detach                    # a second, fully separate copy of the app
-scenery ps                             # every copy and its URL
+scenery up --detach
+scenery ps
 ```
-
-The footprint stays small: each copy is a handful of native processes plus,
-when the app uses SQL, one small PostgreSQL container. Stopping a worktree
-never touches another one, and removing a checkout keeps its data until you
-prune it explicitly. It feels like magic, and it is just Git.
-
-## Make it yours
-
-Scenery is plain Go under the Apache 2.0 license, built on the standard
-library with a short list of dependencies. When it does not do what you need,
-fork it and change it. Then point your app at your fork: Scenery builds your
-app and a matching CLI from exactly that source.
-
-```sh
-scenery framework use --source ../my-scenery -o json
-```
-
-The selection is a frozen snapshot of your fork, local to your machine: run
-the command again after you change the fork, and keep the rewritten `go.mod`
-replacement out of your commits.
 
 ## Quick start
 
-> [!IMPORTANT]
-> Scenery is used in production today, and it is still under active
-> development. Its app format and CLI evolve together, so upgrades can require
-> changes to your app. There are no prebuilt releases yet: install from
-> source.
-
-You need **Go 1.27+**. Apps that use managed PostgreSQL also need **Docker**.
+Requires **Go 1.27+** (and **Docker** for managed PostgreSQL).
 
 ```sh
 git clone https://github.com/scenery-sh/scenery.git
 cd scenery
-go install ./cmd/scenery   # install the CLI
-scenery doctor             # check your machine
+go install ./cmd/scenery
+scenery doctor
 ```
 
-Make sure your Go bin directory is on your `PATH`. Then pick a path:
+Explore [examples/webhook-inbox/README.md](examples/webhook-inbox/README.md),
+or read [docs/spec/SPEC.md](docs/spec/SPEC.md),
+[ARCHITECTURE.md](ARCHITECTURE.md), and [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- 🧪 **Explore an example.** The [webhook inbox](examples/webhook-inbox/README.md)
-  accepts an event, processes it in a background job, stores the result and
-  serves it through an authenticated API.
-- 🛠️ **Build your own app.** Follow the
-  [app development cookbook](docs/app-development-cookbook.md). Pin
-  `scenery.sh` in your app's `go.mod`, then run `scenery framework use -o json`
-  to prepare the matching CLI.
-- ⬆️ **Upgrade safely.** Installing a new Scenery never migrates your app or
-  its data. When an update changes only retained metadata, preview the explicit
-  [same-root upgrade](docs/runbooks/worktree-state-upgrade.md) with
-  `scenery worktree upgrade -o json`.
-
-## Learn more
-
-| Read | For |
-|---|---|
-| 📚 [Documentation index](docs/index.md) | Everything, organized |
-| 🍳 [App development cookbook](docs/app-development-cookbook.md) | Recipes for APIs, jobs, data, auth, storage and frontends |
-| 📐 [Scenery specification](docs/spec/SPEC.md) | The `.scn` language and application contract |
-| 🧾 [CLI and runtime reference](docs/local-contract.md) | Exact commands, JSON output and artifacts |
-| 🤖 [Agent guide](docs/agent-guide.md) | Agent workflows and client-app integration |
-| 🏗️ [Architecture](ARCHITECTURE.md) | How Scenery itself is organized |
-| 🤝 [Contributing](CONTRIBUTING.md) | Working on Scenery |
-
-Report vulnerabilities privately using the [security policy](SECURITY.md).
-Scenery is licensed under [Apache 2.0](LICENSE).
+Report vulnerabilities privately via [SECURITY.md](SECURITY.md).
+Licensed under [Apache 2.0](LICENSE).
 
 <p align="center">
   <img src="docs/assets/readme/mark.svg" width="40" alt="Scenery logo">

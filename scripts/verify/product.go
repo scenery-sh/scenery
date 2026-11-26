@@ -72,28 +72,6 @@ func productFailure(err error, output []byte) error {
 	return err
 }
 
-func runSceneryInspect(args []string, stdout io.Writer) error {
-	root := ""
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == "--repo-root" {
-			root = args[i+1]
-		}
-	}
-	root, err := discoverSceneryRepoRoot(root)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return runProduct(ctx, root, stdout, append([]string{"inspect"}, args...)...)
-}
-
-func buildInspectDocsResponse(repoRoot string) (inspectDocsResponse, error) {
-	var result inspectDocsResponse
-	err := readProductJSON(repoRoot, &result, "inspect", "docs", "--repo-root", repoRoot, "--all", "-o", "json")
-	return result, err
-}
-
 func decodeCLIJSON(encoded []byte, target any) error {
 	return machine.DecodeData[graph.Diagnostic](encoded, currentMachineSpecRevision(), target)
 }

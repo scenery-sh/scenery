@@ -50,7 +50,7 @@ func addHarnessChangedAreaValidation(report *harnessreport.ChangedAreaReport, co
 		if harnessCLIJSONContractPath(file.Path, file.Category) {
 			classes[ValidationCLIJSONContract] = true
 		}
-		if file.Category == "docs" || file.Category == "exec-plan" {
+		if file.Category == "docs" {
 			continue
 		}
 		if strings.HasPrefix(file.Path, "internal/compiler/") ||
@@ -70,7 +70,7 @@ func addHarnessChangedAreaValidation(report *harnessreport.ChangedAreaReport, co
 	if classes[ValidationCLIJSONContract] {
 		commands["go test ./cmd/scenery"] = true
 		commands[ValidationQuickCommand] = true
-		docs["docs/local-contract.md"] = true
+		docs["ARCHITECTURE.md"] = true
 	}
 	if classes[ValidationCompilerGenerator] {
 		for _, command := range FixtureRegenerationCommands {
@@ -101,7 +101,7 @@ func harnessDocumentationOnlyChange(files []harnessreport.ChangedFile) bool {
 		return false
 	}
 	for _, file := range files {
-		if file.Category != "docs" && file.Category != "exec-plan" {
+		if file.Category != "docs" {
 			return false
 		}
 	}
@@ -111,8 +111,6 @@ func harnessDocumentationOnlyChange(files []harnessreport.ChangedFile) bool {
 func harnessCLIJSONContractPath(path, category string) bool {
 	return category == "cli" ||
 		category == "schema" ||
-		path == "docs/local-contract.md" ||
-		path == "docs/knowledge.json" ||
 		strings.HasPrefix(path, "internal/machine/")
 }
 

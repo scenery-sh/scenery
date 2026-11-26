@@ -41,7 +41,6 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.inspect.routes":            "sha256:000c440270d6bfe7bde83bbba963e0a4614aa830b284c4fca8424e82c1ca5bd0",
 	"scenery.inspect.endpoints":         "sha256:af1066b46918c1a19a1e24c22e7316c35a406a6d8cfdd04c49e1a1623a797d13",
 	"scenery.inspect.durable":           "sha256:2e767f9bda8f938a8ef91a1c386f509dd1aafd7ae032d6e56ed14e79fca35c56",
-	"scenery.inspect.docs":              "sha256:c716c136182c39d5e115f1565467d6e5a440b83ee3d67b669d8bc3301db636bf",
 	"scenery.inspect.paths":             "sha256:608b88133556842c287301f9d5dc62e97e76afec107695192b272d2fd6896d38",
 	"scenery.inspect.metrics":           "sha256:6af4d264dbb1fd08f82a3b69eac6114dd400100145476bae5f8cdd2fb8f337bd",
 	"scenery.inspect.traces":            "sha256:af813a0069ad6f07983cf15ba3c67300dd6952d41a4af67450ef45c3321723be",

@@ -69,13 +69,8 @@ func buildHarnessAgentContextSummary(resp harnessSelfResponse, contextPack harne
 	for _, plan := range contextPack.RelevantActiveExecPlans {
 		summary.ActivePlans = append(summary.ActivePlans, plan.Path)
 	}
-	agents := buildInspectDocsAgents(resp.Repo.Root)
-	for _, file := range contextPack.DirtyFiles {
-		for _, scope := range agents.Scopes {
-			if scope.Scope == "." || file.Path == scope.Scope || strings.HasPrefix(file.Path, scope.Scope+"/") {
-				summary.AgentScopes = append(summary.AgentScopes, scope.Path)
-			}
-		}
+	if len(contextPack.DirtyFiles) > 0 && pathExists(filepath.Join(resp.Repo.Root, "AGENTS.md")) {
+		summary.AgentScopes = append(summary.AgentScopes, "AGENTS.md")
 	}
 	summary.AgentScopes = appendUniqueSorted(nil, summary.AgentScopes...)
 	commands := appendUniqueSorted(nil, contextPack.ChangedAreaRecommendedCommands...)

@@ -64,7 +64,7 @@ func ignoreParse[T any](parse func([]string) (T, error)) func([]string) error {
 	return func(args []string) error { _, err := parse(args); return err }
 }
 
-var inspectOnlyFlags = []string{"all", "for-path", "frontend", "implementation", "include-text", "repo-root", "review-due", "severity", "stats", "tag", "top", "verify-generation"}
+var inspectOnlyFlags = []string{"frontend", "implementation", "repo-root", "severity", "stats", "top", "verify-generation"}
 
 func observabilityList(subject string) func([]string) error {
 	return func(args []string) error {
@@ -95,7 +95,7 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		"storage":   {ignoreParse(parseStorageArgs)},
 		"task":      {ignoreParse(parseTaskArgs)},
 		"worker":    {ignoreParse(parseWorkerArgs)},
-		"inspect":   {func(args []string) error { _, err := parseInspectArgs(append([]string{"docs"}, args...)); return err }},
+		"inspect":   {func(args []string) error { _, err := parseInspectArgs(append([]string{"harness"}, args...)); return err }},
 		"harness":   {ignoreParse(parseHarnessArgs)},
 	}
 	entries := map[string]helpCommandEntry{}
@@ -116,7 +116,7 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 			// with guidance toward those commands, and the traces/metrics lists
 			// share its parser and reject its inspect-only flags.
 			if name == "o" ||
-				command == "inspect" && slices.Contains([]string{"limit", "since", "service", "endpoint", "trace-id", "min-duration-ms", "slowest"}, name) ||
+				command == "inspect" && slices.Contains([]string{"limit", "since", "service", "endpoint", "trace-id", "status", "min-duration-ms", "slowest"}, name) ||
 				(command == "traces" || command == "metrics") && slices.Contains(inspectOnlyFlags, name) {
 				continue
 			}

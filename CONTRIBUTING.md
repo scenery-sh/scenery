@@ -1,13 +1,12 @@
-# Contributing To scenery
+# Contributing to scenery
 
-Thanks for helping improve scenery. Keep changes small, explicit, and easy to validate.
+Keep changes small, explicit, and easy to validate.
 
 ## Setup
 
 Requirements:
-
 - Go 1.27+
-- Bun for generated TypeScript, UI catalog, and full self-harness validation
+- Bun (for generated TypeScript, `ui/` catalog checks, and UI probes)
 
 Build a checkout-local CLI from the repo root:
 
@@ -18,47 +17,24 @@ go build -o .scenery/harness/bin/scenery ./cmd/scenery
 
 ## Development Loop
 
-Read [AGENTS.md](AGENTS.md) and the child instructions for the area you change.
-Use [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight)
-before UI or full self-harness validation.
-
-After editing, refresh the validation selection:
+Read [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md). After
+editing, run the verifier and complete its changed-area command union:
 
 ```sh
 go run ./scripts/verify --quick --summary --write
-cat .scenery/harness/agent-context.json
+cat .scenery/harness/agent-context-summary.json
 ```
 
-Run the exact `changed_area.recommended_commands` union and any additional
-child-scope checks. [The validation matrix](AGENTS.md#validation-matrix)
-defines the required proof, including the release loop for runtime changes.
-Go changes require affected-package tests and `go test ./...`; retain the Go
-test cache unless measuring fresh execution or investigating nondeterminism.
-Rebuild the local CLI after source changes; worktrees share the installed CLI.
-
-For catalog changes, follow [ui/AGENTS.md](ui/AGENTS.md). `ui/` is embedded
-source, not a standalone Bun app; its checker and fixture commands run from
-the repository root.
+Run `go test ./...`, `golangci-lint run ./...`, and full `go run ./scripts/verify
+--summary --write` when source/runtime contracts change. Keep Go's test cache
+enabled unless investigating nondeterminism or measuring fresh timings.
 
 ## Pull Requests
 
-Before opening a pull request:
-
-- run the relevant tests and mention the commands in the PR
-- update docs when user-facing behavior changes
-- add or update tests at stable boundaries
-- keep dependencies minimal and justify new dependencies clearly
-- avoid committing local artifacts such as `.DS_Store`, `.scenery/`, logs, databases, generated cache directories, or frontend `dist/` directories
-
-Good test boundaries include parser validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
-
-## Code Style
-
-- Prefer the Go standard library unless an external dependency has a clear payoff.
-- Keep public packages small and user-facing.
-- Keep parser-derived app semantics in the app model before codegen or runtime wiring.
-- Use deterministic generated artifacts.
-- Prefer plain, boring Go over reflection when the parser already knows the shape.
+- Prefer the Go standard library; justify any new direct dependency.
+- Keep public packages small and end-user HTTP surfaces free of `"scenery"`.
+- Update `docs/schemas/` and tests whenever CLI/JSON contracts change.
+- Never commit `.scenery/`, `.DS_Store`, `.env*`, `node_modules`, or coverage.
 
 ## Security
 

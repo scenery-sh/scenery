@@ -126,15 +126,15 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 	}
 	switch step.Name {
 	case "toolchain preflight":
-		return "docs/harness-engineering.md"
-	case "knowledge contract", "inspect docs":
-		return "docs/knowledge.json"
+		return "AGENTS.md"
+	case "knowledge contract":
+		return "AGENTS.md"
 	case "changed area oracle":
 		return ".scenery/harness/changed-area-latest.json"
 	case "architecture checks":
-		return "docs/harness-engineering.md"
+		return "ARCHITECTURE.md"
 	case "contract drift checks":
-		return "docs/local-contract.md"
+		return "ARCHITECTURE.md"
 	case "go tests":
 		return ".scenery/harness/test-timing-latest.json"
 	case "fixture matrix":
@@ -202,79 +202,22 @@ func harnessRelPath(repoRoot, path string) string {
 }
 
 func buildHarnessAgentDocsFreshness(repoRoot string) harnessAgentDocsFreshness {
-	resp, err := buildInspectDocsResponse(repoRoot)
-	if err != nil {
-		return harnessAgentDocsFreshness{
-			Kind:           inspectDocsKind,
-			SchemaRevision: newCLIPayloadIdentity(inspectDocsKind).SchemaRevision,
-			Error:          err.Error(),
-		}
-	}
+	knowledge := buildHarnessSelfKnowledge(repoRoot)
 	state := harnessAgentDocsFreshness{
-		Kind:           resp.Kind,
-		SchemaRevision: resp.SchemaRevision,
-		DocumentCount:  resp.Summary.DocumentCount,
-		MissingCount:   resp.Summary.MissingCount,
-		ReviewDueCount: resp.Summary.ReviewDueCount,
-		StaleCount:     resp.Summary.StaleCount,
+		DocumentCount: len(knowledge.Entrypoints),
 	}
-	for _, doc := range resp.Documents {
-		if !doc.Exists {
-			state.MissingDocuments = append(state.MissingDocuments, doc.Path)
-		}
-		if doc.ReviewDue {
-			state.ReviewDueDocs = append(state.ReviewDueDocs, doc.Path)
-		}
-		if doc.Stale {
-			state.StaleDocs = append(state.StaleDocs, doc.Path)
+	for _, item := range knowledge.Entrypoints {
+		if !item.Exists {
+			state.MissingCount++
+			state.MissingDocuments = append(state.MissingDocuments, item.Path)
 		}
 	}
 	sort.Strings(state.MissingDocuments)
-	sort.Strings(state.ReviewDueDocs)
-	sort.Strings(state.StaleDocs)
 	return state
 }
 
-func buildHarnessAgentRelevantExecPlans(repoRoot string, changedArea *harnessChangedAreaReport) []harnessAgentExecPlan {
-	if changedArea == nil {
-		return []harnessAgentExecPlan{}
-	}
-	relevant := map[string]string{}
-	for _, path := range changedArea.RelevantDocs {
-		if strings.HasPrefix(path, "docs/plans/") && strings.HasSuffix(path, ".md") {
-			relevant[path] = "changed-area relevant doc"
-		}
-	}
-	for _, file := range changedArea.ChangedFiles {
-		if strings.HasPrefix(file.Path, "docs/plans/") && strings.HasSuffix(file.Path, ".md") {
-			relevant[file.Path] = "changed ExecPlan"
-		}
-	}
-	if len(relevant) == 0 {
-		return []harnessAgentExecPlan{}
-	}
-	index, err := readDocsKnowledgeIndex(repoRoot)
-	if err != nil {
-		return []harnessAgentExecPlan{}
-	}
-	plans := []harnessAgentExecPlan{}
-	for _, doc := range index.Documents {
-		reason, ok := relevant[doc.Path]
-		if !ok || doc.Status != "active" {
-			continue
-		}
-		plans = append(plans, harnessAgentExecPlan{
-			Path:    doc.Path,
-			Title:   doc.Title,
-			Owner:   doc.Owner,
-			Summary: doc.Summary,
-			Reason:  reason,
-		})
-	}
-	sort.Slice(plans, func(i, j int) bool {
-		return plans[i].Path < plans[j].Path
-	})
-	return plans
+func buildHarnessAgentRelevantExecPlans(_ string, _ *harnessChangedAreaReport) []harnessAgentExecPlan {
+	return []harnessAgentExecPlan{}
 }
 
 func buildHarnessAgentFailedArtifacts(repoRoot string, failures []harnessAgentFailingStep) []harnessAgentFailedArtifact {

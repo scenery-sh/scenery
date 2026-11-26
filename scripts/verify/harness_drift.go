@@ -218,10 +218,6 @@ func buildHarnessEnvVarReport(repoRoot string, diagnostics []checkDiagnostic) (h
 		})
 		return report, diagnostics
 	}
-	documentedText := readOptionalText(filepath.Join(repoRoot, "docs", "environment.md")) + "\n" +
-		readOptionalText(filepath.Join(repoRoot, "docs", "local-contract.md")) + "\n" +
-		readOptionalText(filepath.Join(repoRoot, "SKILL.md")) + "\n" +
-		readOptionalText(filepath.Join(repoRoot, "AGENTS.md"))
 	scan := envpolicy.Scan(envpolicy.ScanOptions{
 		RepoRoot: repoRoot,
 		SkipDir:  architectureSkipDir,
@@ -232,8 +228,8 @@ func buildHarnessEnvVarReport(repoRoot string, diagnostics []checkDiagnostic) (h
 			continue
 		}
 		scope := envpolicy.EffectiveScope(refs, name)
-		documented := strings.Contains(documentedText, name)
-		finding := harnessEnvFinding(name, scope, documented, refs, registry)
+		_, registered := registry.Find(name)
+		finding := harnessEnvFinding(name, scope, registered, refs, registry)
 		report.Variables = append(report.Variables, finding)
 		for _, violation := range finding.Violations {
 			diagnostics = append(diagnostics, checkDiagnostic{
@@ -242,20 +238,6 @@ func buildHarnessEnvVarReport(repoRoot string, diagnostics []checkDiagnostic) (h
 				File:            envFindingDiagnosticFile(repoRoot, finding),
 				Message:         violation,
 				SuggestedAction: envFindingSuggestedAction(finding),
-			})
-		}
-	}
-	for _, variable := range registry.Variables {
-		if variable.Scope == "test_only" || variable.Direction == "internal" || variable.Stability == "code_constant" {
-			continue
-		}
-		if len(variable.Docs) == 0 {
-			diagnostics = append(diagnostics, checkDiagnostic{
-				Stage:           "contract drift checks",
-				Severity:        "error",
-				File:            filepath.ToSlash(registryPath),
-				Message:         "registered environment variable is missing docs: " + variable.Name,
-				SuggestedAction: "Add docs/environment.md to the registry docs list and document the variable, or mark it internal/test-only.",
 			})
 		}
 	}
@@ -346,7 +328,7 @@ func envFindingSuggestedAction(finding harnessEnvVarFinding) string {
 	if finding.Scope == "runtime" && finding.Stability == "test_only" {
 		return "Remove the test-only env from production code or replace it with a supported runtime configuration surface."
 	}
-	return "Update docs/environment.registry.json and docs/environment.md together, or change the code to use an approved configuration surface."
+	return "Update docs/environment.registry.json, or change the code to use an approved configuration surface."
 }
 
 func appendDirectOSEnvDiagnostics(repoRoot string, diagnostics []checkDiagnostic) []checkDiagnostic {
@@ -841,9 +823,6 @@ func harnessStepEffects(step harnessStep) []string {
 		set["external-binary"] = true
 		set["filesystem-write"] = true
 		set["tempdir"] = true
-	case harnessInspectDocsGoPackageProbeName:
-		set["external-binary"] = true
-		set["filesystem-read"] = true
 	case "parallel worktree runtimes":
 		set["loopback-network"] = true
 		set["ports"] = true
@@ -871,7 +850,7 @@ func harnessStepEffects(step harnessStep) []string {
 		set["path-binary"] = true
 	case "toolchain preflight":
 		set["external-binary"] = true
-	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "inspect docs", "architecture checks":
+	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "architecture checks":
 		set["filesystem-read"] = true
 	}
 	return sortedStringSet(set)

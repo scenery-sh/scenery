@@ -51,16 +51,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 	if versionErr != nil {
 		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{Stage: "schema validation", Severity: "error", Message: "prepared product version: " + versionErr.Error()})
 	}
-	var inspectDocsPayload map[string]any
-	inspectDocsErr := read(&inspectDocsPayload, "inspect", "docs", "--repo-root", repoRoot, "--all", "-o", "json")
-	if inspectDocsErr != nil {
-		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
-			Stage:           "schema validation",
-			Severity:        "error",
-			Message:         "failed to build inspect docs JSON for schema validation: " + inspectDocsErr.Error(),
-			SuggestedAction: "Run `scenery inspect docs --all -o json` and fix the command before relying on schema validation.",
-		})
-	}
 	environmentRegistryPayload, environmentRegistryErr := harnessJSONFilePayload(filepath.Join(repoRoot, "docs", "environment.registry.json"))
 	if environmentRegistryErr != nil {
 		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
@@ -69,16 +59,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			File:            filepath.ToSlash(filepath.Join(repoRoot, "docs", "environment.registry.json")),
 			Message:         "failed to load environment registry JSON for schema validation: " + environmentRegistryErr.Error(),
 			SuggestedAction: "Fix docs/environment.registry.json so it can be validated.",
-		})
-	}
-	docsKnowledgePayload, docsKnowledgeErr := harnessJSONFilePayload(filepath.Join(repoRoot, "docs", "knowledge.json"))
-	if docsKnowledgeErr != nil {
-		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
-			Stage:           "schema validation",
-			Severity:        "error",
-			File:            filepath.ToSlash(filepath.Join(repoRoot, "docs", "knowledge.json")),
-			Message:         "failed to load docs knowledge index JSON for schema validation: " + docsKnowledgeErr.Error(),
-			SuggestedAction: "Fix docs/knowledge.json so it can be validated.",
 		})
 	}
 	var inspectHarnessPayload any
@@ -172,7 +152,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			Overview feature.Overview `json:"overview"`
 		}{newCLIPayloadIdentity("scenery.feature"), true, "list", feature.Overview{RepoRoot: repoRoot, Main: "main", Features: []feature.Row{}, Candidates: []feature.Candidate{}}})},
 		{name: "feature.policy", schemaRel: "docs/schemas/scenery.feature.policy.schema.json", payload: featurePolicy},
-		{name: "docs.index", schemaRel: "docs/schemas/scenery.docs.index.schema.json", payload: docsKnowledgePayload},
 		{name: "cli", schemaRel: "docs/schemas/scenery.cli.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.schema.json", map[string]any{
 			"kind": machine.EnvelopeKind, "schema_revision": machine.EnvelopeSchemaRevision, "spec_revision": currentMachineSpecRevision(), "producer": cliProducer(), "ok": true,
 			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": nil, "deployment_revision": nil,
@@ -252,7 +231,6 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			DB:    &snapshotManifestDB{Database: "app_main", Source: "managed", DumpFile: "db/database.postgres.dump", DumpFormat: "pg_custom", Schemas: []snapshotManifestSchema{{Service: "api", Schema: "api"}}},
 			Files: []snapshotManifestFile{{Path: "db/database.postgres.dump", Bytes: 128, SHA256: digest}},
 		}},
-		{name: "inspect.docs", schemaRel: "docs/schemas/scenery.inspect.docs.schema.json", payload: inspectDocsPayload},
 		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.schema.json", payload: inspectHarnessPayload},
 		{name: "telemetry", schemaRel: "docs/schemas/scenery.telemetry.schema.json", payload: telemetryResponse{
 			cliPayloadIdentity: newCLIPayloadIdentity(cliTelemetryPayloadKind),

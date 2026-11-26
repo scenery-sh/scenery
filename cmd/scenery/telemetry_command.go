@@ -511,6 +511,16 @@ func telemetrySetContains(set map[string]struct{}, value string) bool {
 	return ok
 }
 
+func stringSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value != "" {
+			set[value] = struct{}{}
+		}
+	}
+	return set
+}
+
 func sortedUniqueStrings(values []string) []string {
 	set := stringSet(values)
 	result := make([]string, 0, len(set))

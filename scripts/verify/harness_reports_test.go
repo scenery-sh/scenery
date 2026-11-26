@@ -111,7 +111,6 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		"scenery.harness.self.schema.json",
 		"scenery.harness.test_timing.schema.json",
 		"scenery.help.schema.json",
-		"scenery.inspect.docs.schema.json",
 		"scenery.inspect.harness.schema.json",
 		"scenery.snapshot.load.schema.json",
 		"scenery.snapshot.manifest.schema.json",
@@ -153,10 +152,10 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		reads++
 		return json.Unmarshal([]byte(`{}`), target)
 	})
-	if reads != 4 {
-		t.Fatalf("product schema reads = %d, want 4", reads)
+	if reads != 3 {
+		t.Fatalf("product schema reads = %d, want 3", reads)
 	}
-	if len(report.Validated) != 28 {
+	if len(report.Validated) != 26 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {
@@ -172,8 +171,8 @@ func TestWriteHarnessSelfRepoWritesOnlyRequestedSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matches) != 2 {
-		t.Fatalf("fixture schemas = %v, want docs index plus requested help schema", matches)
+	if len(matches) != 1 {
+		t.Fatalf("fixture schemas = %v, want only requested help schema", matches)
 	}
 }
 
