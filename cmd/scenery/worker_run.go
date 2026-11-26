@@ -470,6 +470,9 @@ func (process *workerProcess) stop() {
 		return
 	}
 	_ = devprocess.TerminateTreePID(process.cmd.Process.Pid)
+	if process.done == nil {
+		return
+	}
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	select {

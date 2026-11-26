@@ -284,6 +284,7 @@ func TestWorkerWatcherReconcilesUnconfirmedGenerationsWithoutLeakingProcesses(t 
 	var currentGen uint64 = 1
 	putMode := "fail" // "fail", "ok", "commit_and_fail"
 	getOK := false
+	conflictFence7 := false
 	var retired []string
 
 	dir, client := newTestWorkerControl(t, func(w http.ResponseWriter, r *http.Request) {
@@ -319,8 +320,16 @@ func TestWorkerWatcherReconcilesUnconfirmedGenerationsWithoutLeakingProcesses(t 
 			}
 			w.WriteHeader(http.StatusInternalServerError)
 		case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
+			gen := strings.TrimPrefix(r.URL.Path, "/__scenery/process/v1/generations/")
 			mu.Lock()
-			retired = append(retired, strings.TrimPrefix(r.URL.Path, "/__scenery/process/v1/generations/"))
+			retired = append(retired, gen)
+			if conflictFence7 && gen == "7" {
+				conflictFence7 = false
+				currentGen = 7
+				mu.Unlock()
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
 			mu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -372,10 +381,11 @@ func TestWorkerWatcherReconcilesUnconfirmedGenerationsWithoutLeakingProcesses(t 
 		t.Fatalf("ongoing outage spawned duplicate workers: startCalls=%d, unconfirmed=%d", startCalls, len(watch.unconfirmed))
 	}
 
-	// Host recovers still reporting generation 1 -> P2 is rejected & stopped, P3 publishes Gen 3, Gen 1 retires.
+	// Host recovers still reporting generation 1 -> Gen 2 is fenced via DELETE /generations/2 before P2 stops, P3 publishes Gen 3, Gen 1 retires.
 	mu.Lock()
 	getOK = true
 	putMode = "ok"
+	retired = nil
 	mu.Unlock()
 	if err := watch.replace(context.Background(), bundle2, nil); err != nil {
 		t.Fatalf("replace after recovery (rejected candidate) = %v", err)
@@ -383,6 +393,12 @@ func TestWorkerWatcherReconcilesUnconfirmedGenerationsWithoutLeakingProcesses(t 
 	watch.retirements.Wait()
 	if startCalls != 2 || watch.generation != 3 {
 		t.Fatalf("after recovery = (startCalls=%d, gen=%d), want (2, 3)", startCalls, watch.generation)
+	}
+	mu.Lock()
+	retiredAfterCase1 := slices.Clone(retired)
+	mu.Unlock()
+	if !slices.Contains(retiredAfterCase1, "2") {
+		t.Fatalf("rejected candidate Gen 2 was not fenced before stopping workers: retired=%v", retiredAfterCase1)
 	}
 	p3 := spawned[1]
 	select {
@@ -458,6 +474,262 @@ func TestWorkerWatcherReconcilesUnconfirmedGenerationsWithoutLeakingProcesses(t 
 	}
 	if watch.sequence < 6 {
 		t.Fatalf("watch.sequence = %d, want >= 6 so next generation advances past Host", watch.sequence)
+	}
+
+	// Case 4: Late PUT wins race against DELETE fence (GET initially sees stale 6, DELETE returns 409 because Gen 7 committed).
+	mu.Lock()
+	putMode = "fail"
+	getOK = true
+	conflictFence7 = true
+	mu.Unlock()
+	if err := watch.replace(context.Background(), bundle2, nil); err != nil {
+		t.Fatalf("replace when late PUT wins fence race = %v", err)
+	}
+	watch.retirements.Wait()
+	p7 := spawned[4]
+	if watch.generation != 7 || watch.active["a"] != p7 || len(watch.unconfirmed) != 0 {
+		t.Fatalf("after winning fence race = (gen=%d, active=%p, unconfirmed=%d), want (7, %p, 0)", watch.generation, watch.active["a"], len(watch.unconfirmed), p7)
+	}
+	select {
+	case <-p7.done:
+		t.Fatal("adopted winner P7 was erroneously stopped")
+	default:
+	}
+	select {
+	case <-p4.done:
+	default:
+		t.Fatal("previous Gen 4 P4 was not retired after adopting Gen 7")
+	}
+
+	// Case 5: Empty unconfirmed + Host reports higher current > pubSeq -> sequence must still advance past Host.
+	mu.Lock()
+	putMode = "fail"
+	getOK = true
+	currentGen = 12
+	mu.Unlock()
+	if err := watch.replace(context.Background(), bundle3, nil); err == nil {
+		t.Fatal("replace behind Host current generation must fail")
+	}
+	watch.retirements.Wait()
+	p8 := spawned[5]
+	select {
+	case <-p8.done:
+	default:
+		t.Fatal("superseded Gen 8 worker P8 was not stopped")
+	}
+	if watch.sequence < 12 {
+		t.Fatalf("watch.sequence = %d after current>pubSeq with empty unconfirmed, want >= 12", watch.sequence)
+	}
+}
+
+func TestWorkerWatcherRecoversNonDevRestartAfterOutage(t *testing.T) {
+	var mu sync.Mutex
+	var currentGen uint64 = 1
+	putOK := false
+	getOK := false
+	getFailed := make(chan struct{}, 16)
+	published3 := make(chan struct{}, 1)
+
+	dir, client := newTestWorkerControl(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodGet:
+			mu.Lock()
+			ok := getOK
+			current := currentGen
+			mu.Unlock()
+			if !ok {
+				w.WriteHeader(http.StatusInternalServerError)
+				select {
+				case getFailed <- struct{}{}:
+				default:
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"current": current})
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodPut:
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			ok := putOK
+			gen, _ := body["generation"].(float64)
+			if ok {
+				currentGen = uint64(gen)
+			}
+			mu.Unlock()
+			if !ok {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			if uint64(gen) == 3 {
+				select {
+				case published3 <- struct{}{}:
+				default:
+				}
+			}
+		case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	identity := workerProcessIdentity{ContractRevision: "c1", ImplementationRevision: "i1", BuildInputDigest: "b1", Target: "go"}
+	bundle := workerBundle{
+		ContractRevision: "c1",
+		Programs:         []workerProgram{{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:1", Identity: identity}},
+	}
+	p1 := newTestDummyWorkerProcess(dir, 301, bundle.Programs[0])
+	unconfirmedSpawned := make(chan *workerProcess, 1)
+	var spawned []*workerProcess
+	watch := &workerWatcher{
+		token: "tok", client: client, bundle: bundle, active: map[string]*workerProcess{"a": p1},
+		all: []*workerProcess{p1}, generation: 1, sequence: 1,
+		retireDrainTimeout: 5 * time.Millisecond, retireForceInterval: 5 * time.Millisecond, retryDelay: 10 * time.Millisecond,
+		startWorker: func(_ context.Context, _, _, _ string, program workerProgram) (*workerProcess, error) {
+			mu.Lock()
+			pid := 310 + len(spawned)
+			proc := newTestDummyWorkerProcess(dir, pid, program)
+			spawned = append(spawned, proc)
+			mu.Unlock()
+			if pid == 310 {
+				unconfirmedSpawned <- proc
+			}
+			return proc, nil
+		},
+	}
+
+	hostDone := make(chan error, 1)
+	runDone := make(chan error, 1)
+	go func() { runDone <- watch.run(context.Background(), hostDone) }()
+
+	// Worker P1 exits during a control outage -> watcher spawns P2 into unconfirmed and retries on timer.
+	p1.closeDone()
+	var p2 *workerProcess
+	select {
+	case p2 = <-unconfirmedSpawned:
+	case <-time.After(time.Second):
+		hostDone <- nil
+		t.Fatal("non-dev watcher did not spawn replacement P2 after P1 exit")
+	}
+	// Wait for initial GET failure + at least one timer retry failure so Gen 2 is guaranteed in unconfirmed.
+	for range 2 {
+		select {
+		case <-getFailed:
+		case <-time.After(time.Second):
+			hostDone <- nil
+			t.Fatal("non-dev watcher did not fail GET /generations as expected during outage")
+		}
+	}
+
+	// Host control recovers with no new exit events -> retry timer must reconcile Gen 2, stop P2, start P3, and publish Gen 3.
+	mu.Lock()
+	getOK = true
+	putOK = true
+	mu.Unlock()
+	select {
+	case <-published3:
+	case <-time.After(time.Second):
+		hostDone <- nil
+		t.Fatal("non-dev watcher did not retry and publish replacement generation 3 after outage")
+	}
+
+	hostDone <- nil
+	if err := <-runDone; err != nil {
+		t.Fatalf("watcher.run = %v, want nil", err)
+	}
+	select {
+	case <-p2.done:
+	default:
+		t.Fatal("rejected unconfirmed worker P2 was not stopped after retry recovery")
+	}
+	if watch.generation != 3 || len(watch.unconfirmed) != 0 {
+		t.Fatalf("final watcher state = (gen=%d, unconfirmed=%d), want (3, 0)", watch.generation, len(watch.unconfirmed))
+	}
+}
+
+func TestWorkerWatcherOnAdoptUpdatesDevStateAndClearsFailedAttempt(t *testing.T) {
+	var mu sync.Mutex
+	var currentGen uint64 = 1
+	getOK := false
+
+	dir, client := newTestWorkerControl(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodGet:
+			mu.Lock()
+			ok := getOK
+			current := currentGen
+			mu.Unlock()
+			if !ok {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"current": current})
+		case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodPut:
+			mu.Lock()
+			currentGen = 2
+			mu.Unlock()
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	inputsA := workerInputs{"a.go": {Digest: [32]byte{1}, Mode: 0o644}}
+	inputsB := workerInputs{"a.go": {Digest: [32]byte{2}, Mode: 0o644}}
+	identity := workerProcessIdentity{ContractRevision: "c1", ImplementationRevision: "i1", BuildInputDigest: "b1", Target: "go"}
+	bundle1 := workerBundle{ContractRevision: "c1", Programs: []workerProgram{{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:1", Identity: identity}}}
+	bundle2 := workerBundle{ContractRevision: "c1", Programs: []workerProgram{{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:2", Identity: identity}}}
+
+	p1 := newTestDummyWorkerProcess(dir, 401, bundle1.Programs[0])
+	control := &workerDevControl{}
+	dev := &workerDevelopment{applied: inputsA}
+	watch := &workerWatcher{
+		token: "tok", client: client, dev: dev, devControl: control,
+		bundle: bundle1, active: map[string]*workerProcess{"a": p1}, all: []*workerProcess{p1},
+		generation: 1, sequence: 1, retireDrainTimeout: 5 * time.Millisecond, retireForceInterval: 5 * time.Millisecond,
+		startWorker: func(_ context.Context, _, _, _ string, program workerProgram) (*workerProcess, error) {
+			return newTestDummyWorkerProcess(dir, 402, program), nil
+		},
+	}
+	watch.generations.add(1, watch.active)
+
+	err := watch.replaceWithAdopt(context.Background(), bundle2, nil, func(context.Context) {
+		watch.dev.applied = inputsB
+		timing := workerRebuildTiming{Generation: watch.generation}
+		watch.devControl.publish(inputsB, watch.bundle, watch.generation, &timing)
+	})
+	if err == nil {
+		t.Fatal("replaceWithAdopt during commit_and_fail outage must return error")
+	}
+	control.failure(inputsB, &devBuildFailure{Stderr: "outage"}, &workerRebuildTiming{})
+
+	mu.Lock()
+	getOK = true
+	mu.Unlock()
+	if err := watch.reconcileUnconfirmed(context.Background()); err != nil {
+		t.Fatalf("reconcileUnconfirmed(adopt) = %v", err)
+	}
+	watch.retirements.Wait()
+	if !maps.Equal(watch.dev.applied, inputsB) {
+		t.Fatalf("watch.dev.applied was not updated on adoption: %+v", watch.dev.applied)
+	}
+	control.mu.RLock()
+	serving := control.serving
+	attempt := control.attempt
+	control.mu.RUnlock()
+	if attempt != nil {
+		t.Fatalf("control.attempt was not cleared on adoption: %+v", attempt)
+	}
+	if serving == nil || serving.Generation != 2 || serving.SourceSnapshotDigest != workerSourceDigest(inputsB) {
+		t.Fatalf("control.serving = %+v, want generation 2 with digest for inputsB", serving)
 	}
 }
 

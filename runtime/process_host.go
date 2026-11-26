@@ -153,6 +153,7 @@ type processHost struct {
 	mu          sync.RWMutex
 	current     *processHostGeneration
 	generations map[uint64]*processHostGeneration
+	fenced      uint64
 
 	// closing ends held admissions when the host stops. quiescing refuses the
 	// authority changes of a host the supervisor is replacing, so the state it
@@ -614,7 +615,7 @@ func (h *processHost) servePublish(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "malformed generation manifest", http.StatusBadRequest)
 		return
 	}
-	if err := h.publish(manifest); err != nil {
+	if err := h.publishContext(req.Context(), manifest); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -622,6 +623,10 @@ func (h *processHost) servePublish(w http.ResponseWriter, req *http.Request) {
 }
 
 func (h *processHost) publish(manifest processGenerationManifest) error {
+	return h.publishContext(context.Background(), manifest)
+}
+
+func (h *processHost) publishContext(ctx context.Context, manifest processGenerationManifest) error {
 	if manifest.ContractRevision != h.contract {
 		return fmt.Errorf("generation %d contract revision %q differs from the host's %q", manifest.Generation, manifest.ContractRevision, h.contract)
 	}
@@ -640,7 +645,10 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.current != nil && manifest.Generation <= h.current.number || manifest.Generation == 0 {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("generation %d publish canceled: %w", manifest.Generation, err)
+	}
+	if manifest.Generation == 0 || manifest.Generation <= h.fenced || (h.current != nil && manifest.Generation <= h.current.number) {
 		return fmt.Errorf("generation %d does not follow the published generation", manifest.Generation)
 	}
 	generation := &processHostGeneration{observation: manifest.Observation, telemetry: h.telemetry, number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings), retired: make(chan struct{})}
@@ -689,6 +697,7 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	}
 	h.generations[generation.number] = generation
 	h.current = generation
+	h.fenced = max(h.fenced, generation.number)
 	generation.lifetime, generation.cancel = context.WithCancel(context.Background())
 	if h.durable != nil {
 		h.durable.StartBackground()
@@ -716,6 +725,9 @@ func (h *processHost) removeGeneration(number uint64, force bool) (int, string) 
 	generation := h.generations[number]
 	switch {
 	case generation == nil:
+		if number > 0 {
+			h.fenced = max(h.fenced, number)
+		}
 		if h.current != nil && number > 0 && number < h.current.number {
 			return http.StatusNoContent, ""
 		}
@@ -726,6 +738,7 @@ func (h *processHost) removeGeneration(number uint64, force bool) (int, string) 
 		return http.StatusConflict, fmt.Sprintf("generation has %d requests in flight", generation.inFlight.Load())
 	}
 	delete(h.generations, number)
+	h.fenced = max(h.fenced, number)
 	if generation.cancel != nil {
 		generation.cancel()
 	}

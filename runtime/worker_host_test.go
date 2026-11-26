@@ -604,3 +604,50 @@ func TestProcessHostPublishScopesWorkerAndHostConfigPerGeneration(t *testing.T) 
 		t.Fatalf("publicConfiguration(gen2) = (%+v, %v), want rev-2/v2", pub2, err)
 	}
 }
+
+func TestProcessHostRetireFencesUnpublishedGenerationAndRejectsCanceledPublish(t *testing.T) {
+	host := &processHost{
+		name:        "fence-app",
+		contract:    "contract",
+		required:    []string{"svc"},
+		routes:      newRouteTable(),
+		closing:     make(chan struct{}),
+		generations: map[uint64]*processHostGeneration{},
+	}
+	manifest := func(gen uint64) processGenerationManifest {
+		return processGenerationManifest{
+			Generation:       gen,
+			ContractRevision: "contract",
+			Identity:         processInstanceIdentity{ContractRevision: "contract", ImplementationRevision: "impl", BuildInputDigest: "digest", GoTarget: "worker"},
+			Processes: map[string]processGenerationInstance{
+				"svc": {
+					Network: "unix", Address: "/tmp/fence-svc.sock", Protocol: "h2c", PID: 123,
+					Identity: processInstanceIdentity{ContractRevision: "contract", ImplementationRevision: "impl-1", BuildInputDigest: "digest-1", GoTarget: "development"},
+				},
+			},
+		}
+	}
+	if err := host.publishContext(context.Background(), manifest(1)); err != nil {
+		t.Fatalf("publishContext(gen 1) = %v", err)
+	}
+	if status, _ := host.retire(2, false); status != http.StatusNotFound {
+		t.Fatalf("retire(unpublished gen 2) = %d, want 404", status)
+	}
+	if err := host.publishContext(context.Background(), manifest(2)); err == nil {
+		t.Fatal("publishContext(gen 2 after retire fence) unexpectedly succeeded")
+	}
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := host.publishContext(canceledCtx, manifest(3)); err == nil {
+		t.Fatal("publishContext(canceled ctx) unexpectedly succeeded")
+	}
+	if status := host.status(); status.Current != 1 {
+		t.Fatalf("host.status().Current = %d after fenced/canceled publishes, want 1", status.Current)
+	}
+	if err := host.publishContext(context.Background(), manifest(3)); err != nil {
+		t.Fatalf("publishContext(gen 3) = %v", err)
+	}
+	if status := host.status(); status.Current != 3 {
+		t.Fatalf("host.status().Current = %d, want 3", status.Current)
+	}
+}

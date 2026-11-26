@@ -25,6 +25,7 @@ type unconfirmedWorkerGeneration struct {
 	bundle    workerBundle
 	processes map[string]*workerProcess
 	started   []*workerProcess
+	onAdopt   func(ctx context.Context)
 }
 
 type workerWatcher struct {
@@ -45,6 +46,14 @@ type workerWatcher struct {
 	startWorker                             func(ctx context.Context, directory, capabilities, number string, program workerProgram) (*workerProcess, error)
 	lastConfigError                         string
 	retireDrainTimeout, retireForceInterval time.Duration
+	retryDelay                              time.Duration
+}
+
+func (watch *workerWatcher) restartRetryDelay() time.Duration {
+	if watch.retryDelay > 0 {
+		return watch.retryDelay
+	}
+	return time.Second
 }
 
 func (watch *workerWatcher) launchWorker(ctx context.Context, id string, program workerProgram) (*workerProcess, error) {
@@ -60,7 +69,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 		cancelRun()
 		watch.retirements.Wait()
 		stopWorkers(watch.all)
-		if watch.dev != nil {
+		if watch.dev != nil && watch.dev.watch != nil {
 			pruneJSWorkersByPaths(watch.dev.watch.root, nil)
 		}
 	}()
@@ -127,9 +136,16 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 	retry := time.NewTimer(time.Hour)
 	defer retry.Stop()
 	retry.Stop()
+	retryArmed := false
+	armRetry := func() {
+		if !retryArmed {
+			retry.Reset(watch.restartRetryDelay())
+			retryArmed = true
+		}
+	}
 	pending := make(map[string]struct{})
 	var detected time.Time
-	var reconcile, retryCandidate bool
+	var reconcile, retryCandidate, pendingSourceSync bool
 	schedule := func() {
 		if detected.IsZero() {
 			detected = time.Now()
@@ -145,9 +161,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 		case event, ok := <-events:
 			if !ok {
 				events = nil
-				continue
-			}
-			if watch.dev.watch.eventRelevant(event.Name) {
+			} else if watch.dev.watch.eventRelevant(event.Name) {
 				pending[event.Name] = struct{}{}
 				schedule()
 			}
@@ -158,9 +172,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 			reconcile = true
 			schedule()
 		case <-reconciliation:
-			if len(watch.unconfirmed) > 0 && watch.reconcileUnconfirmed(runCtx) == nil && watch.dev != nil && !maps.Equal(seen, watch.dev.applied) {
-				retryCandidate = true
-			}
+			_ = watch.reconcileUnconfirmed(runCtx)
 			reconcile = true
 			schedule()
 		case <-configTicks:
@@ -172,30 +184,47 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 			reconcile, detected = false, time.Time{}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "application inputs could not be read: %v\n", err)
-				continue
-			}
-			if maps.Equal(current, seen) && !retryCandidate {
-				continue
-			}
-			seen, retryCandidate = current, false
-			if applied, err := watch.refresh(runCtx, current, observed); err != nil {
-				fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
-				if errors.Is(err, errWorkerInputsChanged) {
-					// The next candidate must include edits even if their
-					// notifications were dropped or have not arrived yet.
-					reconcile, retryCandidate = true, true
-					schedule()
-				}
-			} else if applied != nil {
-				seen = applied
-				if startConfigWatch() || configTicks != nil {
-					checkConfig()
+			} else if !maps.Equal(current, seen) || retryCandidate {
+				seen, retryCandidate = current, false
+				if applied, err := watch.refresh(runCtx, current, observed); err != nil {
+					fmt.Fprintf(os.Stderr, "application update failed: %v\n", err)
+					if len(watch.unconfirmed) > 0 {
+						pendingSourceSync = true
+					}
+					if errors.Is(err, errWorkerInputsChanged) {
+						// The next candidate must include edits even if their
+						// notifications were dropped or have not arrived yet.
+						reconcile, retryCandidate = true, true
+						schedule()
+					}
+				} else if applied != nil {
+					pendingSourceSync = false
+					seen = applied
+					if startConfigWatch() || configTicks != nil {
+						checkConfig()
+					}
 				}
 			}
 		case <-watch.exits:
-			watch.restartStopped(runCtx, retry)
+			watch.restartStopped(runCtx, armRetry)
 		case <-retry.C:
-			watch.restartStopped(runCtx, retry)
+			retryArmed = false
+			if err := watch.reconcileUnconfirmed(runCtx); err != nil {
+				armRetry()
+			} else {
+				watch.restartStopped(runCtx, armRetry)
+			}
+		}
+		if len(watch.unconfirmed) > 0 {
+			armRetry()
+		} else if pendingSourceSync && watch.dev != nil {
+			pendingSourceSync = false
+			if !maps.Equal(seen, watch.dev.applied) {
+				reconcile, retryCandidate = true, true
+				schedule()
+			} else if startConfigWatch() || configTicks != nil {
+				checkConfig()
+			}
 		}
 	}
 }
@@ -213,16 +242,16 @@ func (watch *workerWatcher) observeExit(ctx context.Context, process *workerProc
 	}()
 }
 
-func (watch *workerWatcher) restartStopped(ctx context.Context, retry *time.Timer) {
+func (watch *workerWatcher) restartStopped(ctx context.Context, armRetry func()) {
 	if err := watch.reconcileUnconfirmed(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
-		retry.Reset(time.Second)
+		armRetry()
 		return
 	}
 	if watch.noteStoppedWorkers() {
 		if err := watch.replace(ctx, watch.bundle, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "worker restart failed: %v\n", err)
-			retry.Reset(time.Second)
+			armRetry()
 		} else if watch.devControl != nil {
 			watch.devControl.publish(watch.dev.applied, watch.bundle, watch.generation, nil)
 		}
@@ -375,8 +404,25 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	slices.Sort(timing.Rebuilt)
 	slices.Sort(timing.RebuiltModules)
 	slices.Sort(timing.SkippedModules)
+	adoptTimingBase := timing
 	readyStarted := time.Now()
-	err = watch.replace(ctx, bundle, func() error {
+	commitRefreshCandidate := func(adoptCtx context.Context, adoptTiming *workerRebuildTiming) {
+		if dbChanged {
+			candidate.dbSetupFingerprint = dbSetup.Fingerprint
+		}
+		candidate.applied = appliedCurrent
+		candidate.ensureAssistantCompiled().Store(candidate.compiled)
+		if edit.declarations && candidate.assistantState != nil {
+			reconcileWorkerAssistants(adoptCtx, candidate.assistantState, candidate.compiled, candidate.watch.root)
+		}
+		*watch.dev = candidate
+		if adoptTiming != nil && watch.devControl != nil {
+			adoptTiming.Generation = watch.generation
+			adoptTiming.TotalMS = workerMilliseconds(time.Since(detected))
+			watch.devControl.publish(appliedCurrent, watch.bundle, watch.generation, adoptTiming)
+		}
+	}
+	err = watch.replaceWithAdopt(ctx, bundle, func() error {
 		if err := candidate.verify(appliedCurrent); err != nil {
 			return err
 		}
@@ -384,20 +430,16 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 			return candidate.applyVerifiedDatabaseSetup(ctx, dbSetup)
 		}
 		return nil
+	}, func(adoptCtx context.Context) {
+		adoptTiming := adoptTimingBase
+		adoptTiming.ReadyMS = workerMilliseconds(time.Since(readyStarted))
+		commitRefreshCandidate(adoptCtx, &adoptTiming)
 	})
 	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
 	if err != nil {
 		return nil, err
 	}
-	if dbChanged {
-		candidate.dbSetupFingerprint = dbSetup.Fingerprint
-	}
-	candidate.applied = appliedCurrent
-	candidate.ensureAssistantCompiled().Store(candidate.compiled)
-	if edit.declarations && candidate.assistantState != nil {
-		reconcileWorkerAssistants(ctx, candidate.assistantState, candidate.compiled, candidate.watch.root)
-	}
-	*watch.dev = candidate
+	commitRefreshCandidate(ctx, nil)
 	return appliedCurrent, nil
 }
 
@@ -510,6 +552,10 @@ func (watch *workerWatcher) applyConfigurationChange(ctx context.Context) bool {
 }
 
 func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, verify func() error) error {
+	return watch.replaceWithAdopt(ctx, bundle, verify, nil)
+}
+
+func (watch *workerWatcher) replaceWithAdopt(ctx context.Context, bundle workerBundle, verify func() error, onAdopt func(context.Context)) error {
 	if watch.generation != 0 && len(watch.active) > 0 {
 		watch.generations.add(watch.generation, watch.active)
 	}
@@ -564,29 +610,60 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 	}
 	watch.all = append(watch.all, started...)
 	if err := publishWorkerGeneration(ctx, watch.client, watch.token, bundle, next, pubSeq); err != nil {
-		current, statusErr := watch.currentGeneration(ctx)
-		if statusErr != nil {
+		recordUnconfirmed := func(cause error) error {
 			watch.generations.add(pubSeq, next)
 			watch.unconfirmed = append(watch.unconfirmed, unconfirmedWorkerGeneration{
-				number: pubSeq, bundle: bundle, processes: next, started: started,
+				number: pubSeq, bundle: bundle, processes: next, started: started, onAdopt: onAdopt,
 			})
-			return errors.Join(err, statusErr)
+			return cause
 		}
-		if current != pubSeq {
-			watch.settleUnconfirmed(ctx, current)
-			if current < pubSeq {
+		current, statusErr := watch.currentGeneration(ctx)
+		if statusErr != nil {
+			return recordUnconfirmed(errors.Join(err, statusErr))
+		}
+		watch.sequence = max(watch.sequence, current)
+		switch {
+		case current > pubSeq:
+			_ = watch.settleUnconfirmed(ctx, current)
+			watch.generations.add(pubSeq, next)
+			watch.startRetire(ctx, pubSeq)
+			return err
+		case current < pubSeq:
+			fenceErr := watch.fenceGeneration(ctx, pubSeq)
+			if fenceErr == nil {
+				_ = watch.settleUnconfirmed(ctx, current)
 				stopWorkers(started)
 				watch.pruneStoppedWorkers()
-			} else {
-				watch.generations.add(pubSeq, next)
-				watch.startRetire(ctx, pubSeq)
+				return err
 			}
-			return err
+			latest, latestErr := watch.currentGeneration(ctx)
+			if latestErr == nil {
+				watch.sequence = max(watch.sequence, latest)
+				switch {
+				case latest == pubSeq:
+					_ = watch.settleUnconfirmed(ctx, pubSeq)
+					watch.commitGeneration(ctx, pubSeq, bundle, next, started, false)
+					return nil
+				case latest > pubSeq:
+					_ = watch.settleUnconfirmed(ctx, latest)
+					watch.generations.add(pubSeq, next)
+					watch.startRetire(ctx, pubSeq)
+					return err
+				}
+			}
+			return recordUnconfirmed(errors.Join(err, fenceErr))
 		}
 	}
-	watch.settleUnconfirmed(ctx, pubSeq)
+	_ = watch.settleUnconfirmed(ctx, pubSeq)
 	watch.commitGeneration(ctx, pubSeq, bundle, next, started, false)
 	return nil
+}
+
+func (watch *workerWatcher) fenceGeneration(ctx context.Context, generation uint64) error {
+	fenceCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	path := "/__scenery/process/v1/generations/" + strconv.FormatUint(generation, 10)
+	return workerControlRetireGeneration(fenceCtx, watch.client, watch.token, path)
 }
 
 func (watch *workerWatcher) reconcileUnconfirmed(ctx context.Context) error {
@@ -597,36 +674,72 @@ func (watch *workerWatcher) reconcileUnconfirmed(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("confirm active generation: %w", err)
 	}
-	watch.settleUnconfirmed(ctx, current)
-	return nil
+	return watch.settleUnconfirmed(ctx, current)
 }
 
-func (watch *workerWatcher) settleUnconfirmed(ctx context.Context, current uint64) {
-	if len(watch.unconfirmed) == 0 {
-		return
-	}
+func (watch *workerWatcher) settleUnconfirmed(ctx context.Context, current uint64) error {
 	watch.sequence = max(watch.sequence, current)
+	if len(watch.unconfirmed) == 0 {
+		return nil
+	}
 	pending := watch.unconfirmed
 	watch.unconfirmed = nil
-	adopted := false
+	var remaining []unconfirmedWorkerGeneration
+	var firstErr error
+	var adoptCallbacks []func(context.Context)
+	adoptedWithoutCallback := false
 	for _, candidate := range pending {
 		switch {
 		case candidate.number > current:
+			if fenceErr := watch.fenceGeneration(ctx, candidate.number); fenceErr != nil {
+				latest, statusErr := watch.currentGeneration(ctx)
+				if statusErr == nil {
+					watch.sequence = max(watch.sequence, latest)
+					current = max(current, latest)
+					if latest == candidate.number && candidate.number > watch.generation {
+						watch.commitGeneration(ctx, candidate.number, candidate.bundle, candidate.processes, candidate.started, true)
+						if candidate.onAdopt != nil {
+							adoptCallbacks = append(adoptCallbacks, candidate.onAdopt)
+						} else {
+							adoptedWithoutCallback = true
+						}
+						continue
+					}
+					if latest > candidate.number && candidate.number != watch.generation {
+						watch.startRetire(ctx, candidate.number)
+						continue
+					}
+				}
+				remaining = append(remaining, candidate)
+				if firstErr == nil {
+					firstErr = fenceErr
+				}
+				continue
+			}
 			stopWorkers(watch.generations.remove(candidate.number))
 		case candidate.number == current && candidate.number > watch.generation:
 			watch.commitGeneration(ctx, candidate.number, candidate.bundle, candidate.processes, candidate.started, true)
-			adopted = true
+			if candidate.onAdopt != nil {
+				adoptCallbacks = append(adoptCallbacks, candidate.onAdopt)
+			} else {
+				adoptedWithoutCallback = true
+			}
 		case candidate.number != watch.generation:
 			watch.startRetire(ctx, candidate.number)
 		}
 	}
+	watch.unconfirmed = remaining
 	watch.pruneStoppedWorkers()
-	if watch.dev != nil {
+	if watch.dev != nil && watch.dev.watch != nil {
 		pruneJSWorkersByPaths(watch.dev.watch.root, watch.generations.binaries())
 	}
-	if adopted && watch.devControl != nil && watch.dev != nil {
+	for _, cb := range adoptCallbacks {
+		cb(ctx)
+	}
+	if adoptedWithoutCallback && watch.devControl != nil && watch.dev != nil {
 		watch.devControl.publish(watch.dev.applied, watch.bundle, watch.generation, nil)
 	}
+	return firstErr
 }
 
 func (watch *workerWatcher) commitGeneration(ctx context.Context, number uint64, bundle workerBundle, next map[string]*workerProcess, started []*workerProcess, alreadyTracked bool) {
@@ -647,7 +760,7 @@ func (watch *workerWatcher) commitGeneration(ctx context.Context, number uint64,
 	if previous != 0 && previous != number {
 		watch.startRetire(ctx, previous)
 	}
-	if watch.dev != nil {
+	if watch.dev != nil && watch.dev.watch != nil {
 		pruneJSWorkersByPaths(watch.dev.watch.root, watch.generations.binaries())
 	}
 	watch.pruneStoppedWorkers()
