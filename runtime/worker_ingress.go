@@ -4,6 +4,27 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+)
+
+var (
+	workerIdentityHeaders = map[string]string{
+		processGenerationHeader:                           "X-App-Generation",
+		http.CanonicalHeaderKey(processIdentityPIDHeader): "X-App-Host-Pid",
+		processIdentityContractHdr:                        "X-App-Contract-Revision",
+		processIdentityImplHeader:                         "X-App-Implementation-Revision",
+		processIdentityTargetHeader:                       "X-App-Target",
+		processIdentityBuildHeader:                        "X-App-Build-Digest",
+		http.CanonicalHeaderKey(processServiceIDHeader):   "X-App-Worker-Pid",
+		processServiceImplementationHeader:                "X-App-Worker-Revision",
+	}
+	productionHiddenIdentityHeaders = func() map[string]bool {
+		hidden := make(map[string]bool, len(workerIdentityHeaders))
+		for _, neutral := range workerIdentityHeaders {
+			hidden[http.CanonicalHeaderKey(neutral)] = true
+		}
+		return hidden
+	}()
 )
 
 type workerIngressWriter struct {
@@ -14,21 +35,31 @@ type workerIngressWriter struct {
 
 type workerIngressRequestBody struct {
 	io.ReadCloser
-	request *http.Request
+	mu       sync.Mutex
+	scrubbed bool
+	request  *http.Request
 }
 
 func (b *workerIngressRequestBody) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	n, err := b.ReadCloser.Read(p)
-	if len(b.request.Trailer) > 0 {
+	if err != nil && !b.scrubbed {
 		scrubInboundSceneryHeaders(b.request.Trailer)
+		if err == io.EOF {
+			b.scrubbed = true
+		}
 	}
 	return n, err
 }
 
 func (b *workerIngressRequestBody) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	err := b.ReadCloser.Close()
-	if len(b.request.Trailer) > 0 {
+	if !b.scrubbed {
 		scrubInboundSceneryHeaders(b.request.Trailer)
+		b.scrubbed = true
 	}
 	return err
 }
@@ -40,7 +71,12 @@ func neutralWorkerIngress(next http.Handler, development bool) http.Handler {
 		scrubInboundSceneryHeaders(request.Header)
 		scrubInboundSceneryTrailerHeader(request.Header)
 		scrubInboundSceneryHeaders(request.Trailer)
-		if request.Body != nil && request.Body != http.NoBody {
+		if len(request.TransferEncoding) > 0 && request.Trailer == nil {
+			// Share a pre-initialized map across req.WithContext clones so
+			// unannounced chunked trailers scrubbed here stay visible downstream.
+			request.Trailer = make(http.Header)
+		}
+		if request.Body != nil && request.Body != http.NoBody && request.ProtoMajor < 2 {
 			request.Body = &workerIngressRequestBody{ReadCloser: request.Body, request: request}
 		}
 		writer := &workerIngressWriter{ResponseWriter: w, hideIdentity: !development}
@@ -111,30 +147,6 @@ func (w *workerIngressWriter) neutralize() {
 	w.started = true
 }
 
-func workerIdentityHeaderNames() map[string]string {
-	return map[string]string{
-		processGenerationHeader:                           "X-App-Generation",
-		http.CanonicalHeaderKey(processIdentityPIDHeader): "X-App-Host-Pid",
-		processIdentityContractHdr:                        "X-App-Contract-Revision",
-		processIdentityImplHeader:                         "X-App-Implementation-Revision",
-		processIdentityTargetHeader:                       "X-App-Target",
-		processIdentityBuildHeader:                        "X-App-Build-Digest",
-		http.CanonicalHeaderKey(processServiceIDHeader):   "X-App-Worker-Pid",
-		processServiceImplementationHeader:                "X-App-Worker-Revision",
-	}
-}
-
-func hiddenIdentityHeaders(names map[string]string, hideIdentity bool) map[string]bool {
-	hidden := make(map[string]bool, len(names))
-	if !hideIdentity {
-		return hidden
-	}
-	for _, neutral := range names {
-		hidden[http.CanonicalHeaderKey(neutral)] = true
-	}
-	return hidden
-}
-
 func isHeaderNameListField(canonical string) bool {
 	return canonical == "Access-Control-Expose-Headers" || canonical == "Trailer"
 }
@@ -182,8 +194,11 @@ func cutTrailerPrefix(name string) (string, bool) {
 
 func (w *workerIngressWriter) scrubHeadersAndTrailers() {
 	headers := w.Header()
-	names := workerIdentityHeaderNames()
-	hidden := hiddenIdentityHeaders(names, w.hideIdentity)
+	names := workerIdentityHeaders
+	var hidden map[string]bool
+	if w.hideIdentity {
+		hidden = productionHiddenIdentityHeaders
+	}
 	type headerRewrite struct {
 		key    string
 		values []string

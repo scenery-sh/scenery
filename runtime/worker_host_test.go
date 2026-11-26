@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,7 +45,7 @@ func TestWorkerHostForwardsIngressRequestToGoWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	directory, err := os.MkdirTemp("", "abi-")
+	directory, err := os.MkdirTemp("/tmp", "abi-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +113,7 @@ func assertNoSceneryOrAppIdentityLeak(t *testing.T, sets ...http.Header) {
 	}
 }
 
-func sendRawChunkedPOST(t *testing.T, addr, rawHTTP string) *http.Response {
+func sendRawChunkedPOST(t *testing.T, addr, rawHTTP string) (*http.Response, []byte) {
 	t.Helper()
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -125,7 +127,12 @@ func sendRawChunkedPOST(t *testing.T, addr, rawHTTP string) *http.Response {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return resp
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp, body
 }
 
 func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
@@ -320,49 +327,85 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	}
 	assertNoSceneryOrAppIdentityLeak(t, resp.Header, resp.Trailer)
 
-	// Direct ingress server (without req.WithContext cloning nil request.Trailer) exercises
-	// Go's mergeSetHeader(&rr.Trailer, ...) replacing an initially nil request.Trailer map.
-	directObserved := make(chan http.Header, 4)
-	directSrv := httptest.NewServer(neutralWorkerIngress(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Query().Get("close_unread") == "1" {
-			_ = req.Body.Close()
-		} else {
-			_, _ = io.ReadAll(req.Body)
-		}
-		directObserved <- req.Trailer.Clone()
-		w.WriteHeader(http.StatusOK)
-	}), false))
-	defer directSrv.Close()
-
-	// Case 3: unannounced chunked trailers without Trailer header (request.Trailer starts nil).
-	rawResp := sendRawChunkedPOST(t, directSrv.Listener.Addr().String(),
-		"POST /?read=1 HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"+
+	// Case 3: unannounced chunked trailers without Trailer header through host.serveIngress
+	// (where req.WithContext shallow-copies request after ingress initializes Trailer map).
+	rawResp, rawBody := sendRawChunkedPOST(t, srv.Listener.Addr().String(),
+		"POST /api/ping HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"+
 			"2\r\nhi\r\n0\r\nX-Scenery-Unannounced: forged\r\nX-Client-Unannounced: ok\r\n\r\n")
-	_, err = io.ReadAll(rawResp.Body)
-	_ = rawResp.Body.Close()
-	if err != nil {
-		t.Fatal(err)
+	if string(rawBody) != "pong" {
+		t.Fatalf("unannounced wire response body = %q, want pong", rawBody)
 	}
-	directTrailers := <-directObserved
-	if directTrailers.Get("X-Scenery-Unannounced") != "" || directTrailers.Get("X-Client-Unannounced") != "ok" {
-		t.Fatalf("unannounced inbound trailers = %+v, want X-Scenery-Unannounced stripped and X-Client-Unannounced=ok", directTrailers)
+	obs = <-observedInbound
+	if obs.trailers.Get("X-Scenery-Unannounced") != "" || obs.trailers.Get("X-Client-Unannounced") != "ok" {
+		t.Fatalf("unannounced inbound trailers = %+v, want X-Scenery-Unannounced stripped and X-Client-Unannounced=ok", obs.trailers)
 	}
 	assertNoSceneryOrAppIdentityLeak(t, rawResp.Header, rawResp.Trailer)
 
-	// Case 4: handler closes chunked body without calling Read when request.Trailer starts nil.
-	closeResp := sendRawChunkedPOST(t, directSrv.Listener.Addr().String(),
-		"POST /?close_unread=1 HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"+
+	// Case 4: handler closes chunked body without calling Read when no Trailer header was sent.
+	closeResp, closeBody := sendRawChunkedPOST(t, srv.Listener.Addr().String(),
+		"POST /api/ping?close_unread=1 HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"+
 			"2\r\nhi\r\n0\r\nX-Scenery-Close: forged\r\nX-Client-Close: ok\r\n\r\n")
-	_, err = io.ReadAll(closeResp.Body)
-	_ = closeResp.Body.Close()
+	if string(closeBody) != "pong" {
+		t.Fatalf("close_unread wire response body = %q, want pong", closeBody)
+	}
+	obs = <-observedInbound
+	if obs.trailers.Get("X-Scenery-Close") != "" || obs.trailers.Get("X-Client-Close") != "ok" {
+		t.Fatalf("close_unread inbound trailers = %+v, want X-Scenery-Close stripped and X-Client-Close=ok", obs.trailers)
+	}
+	assertNoSceneryOrAppIdentityLeak(t, closeResp.Header, closeResp.Trailer)
+
+	// Case 5: concurrent Read in Proxy Transport vs Close in ReverseProxy defer on early upstream response.
+	upstreamSawReq := make(chan struct{}, 20)
+	earlyUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case upstreamSawReq <- struct{}{}:
+		default:
+		}
+		w.Header().Set("Connection", "close")
+		w.Header().Set("X-Scenery-Debug", "upstream-leak")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer earlyUpstream.Close()
+	targetURL, err := url.Parse(earlyUpstream.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	directTrailers = <-directObserved
-	if directTrailers.Get("X-Scenery-Close") != "" || directTrailers.Get("X-Client-Close") != "ok" {
-		t.Fatalf("close_unread inbound trailers = %+v, want X-Scenery-Close stripped and X-Client-Close=ok", directTrailers)
+	proxySrv := httptest.NewServer(neutralWorkerIngress(httputil.NewSingleHostReverseProxy(targetURL), false))
+	defer proxySrv.Close()
+	proxyClient := proxySrv.Client()
+	for i := range 20 {
+		pr, pw := io.Pipe()
+		proxyReq, reqErr := http.NewRequest(http.MethodPost, proxySrv.URL+"/proxy", pr)
+		if reqErr != nil {
+			t.Fatal(reqErr)
+		}
+		proxyReq.ContentLength = -1
+		proxyReq.Trailer = http.Header{
+			"X-Scenery-Internal": {"forged"},
+			"X-Client-Trailer":   {"ok"},
+		}
+		writeDone := make(chan struct{})
+		go func() {
+			defer close(writeDone)
+			_, _ = io.WriteString(pw, "chunk1-")
+			<-upstreamSawReq
+			_, _ = io.WriteString(pw, "chunk2")
+			_ = pw.Close()
+		}()
+		proxyResp, doErr := proxyClient.Do(proxyReq)
+		if doErr != nil {
+			_ = pw.CloseWithError(doErr)
+			<-writeDone
+			t.Fatalf("iteration %d: %v", i, doErr)
+		}
+		_, _ = io.ReadAll(proxyResp.Body)
+		_ = proxyResp.Body.Close()
+		<-writeDone
+		if proxyResp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("iteration %d: status=%d, want 401", i, proxyResp.StatusCode)
+		}
+		assertNoSceneryOrAppIdentityLeak(t, proxyResp.Header, proxyResp.Trailer)
 	}
-	assertNoSceneryOrAppIdentityLeak(t, closeResp.Header, closeResp.Trailer)
 
 	// Outbound list-valued trailers (pre-announced post-body Access-Control-Expose-Headers, TrailerPrefix list values, and empty removal).
 	for _, tc := range []struct {
@@ -683,7 +726,7 @@ func TestMainWorkerProcessHostValidatesAndAppliesRuntimeRole(t *testing.T) {
 	}
 	defer func() { _ = occupied.Close() }()
 
-	sockDir, err := os.MkdirTemp("", "worker-role-")
+	sockDir, err := os.MkdirTemp("/tmp", "wr-")
 	if err != nil {
 		t.Fatal(err)
 	}
