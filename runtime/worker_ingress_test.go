@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -541,4 +542,204 @@ func TestWorkerIngressNeutralizesHijackedWebSocketUpgrade(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeHijackWriter struct {
+	header http.Header
+	conn   net.Conn
+}
+
+func (w *fakeHijackWriter) Header() http.Header         { return w.header }
+func (w *fakeHijackWriter) WriteHeader(int)             {}
+func (w *fakeHijackWriter) Write(p []byte) (int, error) { return len(p), nil }
+func (w *fakeHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return w.conn, bufio.NewReadWriter(bufio.NewReader(w.conn), bufio.NewWriter(w.conn)), nil
+}
+
+type blockingWriteSpyConn struct {
+	net.Conn
+	entered chan struct{}
+}
+
+func (c *blockingWriteSpyConn) Write(p []byte) (int, error) {
+	select {
+	case c.entered <- struct{}{}:
+	default:
+	}
+	return c.Conn.Write(p)
+}
+
+type halfCloseRecordConn struct {
+	net.Conn
+	mu               sync.Mutex
+	written          bytes.Buffer
+	closeWriteCalled bool
+}
+
+func (c *halfCloseRecordConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.written.Write(p)
+}
+
+func (c *halfCloseRecordConn) CloseWrite() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closeWriteCalled = true
+	return nil
+}
+
+func (c *halfCloseRecordConn) Close() error { return nil }
+
+func hijackThroughIngress(t *testing.T, conn net.Conn) net.Conn {
+	t.Helper()
+	var hijacked net.Conn
+	handler := neutralWorkerIngress(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		c, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("Hijack() error = %v", err)
+			return
+		}
+		hijacked = c
+	}), false)
+	rec := &fakeHijackWriter{header: make(http.Header), conn: conn}
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ws", nil))
+	if hijacked == nil {
+		t.Fatal("Hijack returned nil conn")
+	}
+	return hijacked
+}
+
+func TestWorkerIngressHijackedConnCloseUnblocksWriteAndHalfClose(t *testing.T) {
+	t.Run("close unblocks blocked passthrough write", func(t *testing.T) {
+		serverConn, clientConn := net.Pipe()
+		t.Cleanup(func() { _ = clientConn.Close() })
+		entered := make(chan struct{}, 2)
+		hijacked := hijackThroughIngress(t, &blockingWriteSpyConn{Conn: serverConn, entered: entered})
+
+		readErr := make(chan error, 1)
+		go func() {
+			br := bufio.NewReader(clientConn)
+			if _, err := br.ReadString('\n'); err != nil {
+				readErr <- err
+				return
+			}
+			_, err := br.ReadString('\n')
+			readErr <- err
+		}()
+		if _, err := hijacked.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n\r\n")); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-readErr:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out reading 101 header")
+		}
+		select {
+		case <-entered:
+		default:
+		}
+
+		writeErrCh := make(chan error, 1)
+		go func() {
+			_, err := hijacked.Write([]byte("blocked-frame"))
+			writeErrCh <- err
+		}()
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("writer never reached underlying Write")
+		}
+		closeDone := make(chan error, 1)
+		go func() {
+			closeDone <- hijacked.Close()
+		}()
+		select {
+		case err := <-closeDone:
+			if err != nil {
+				t.Fatalf("Close() = %v", err)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("Close() blocked behind passthrough Write")
+		}
+		select {
+		case err := <-writeErrCh:
+			if err == nil {
+				t.Fatal("blocked passthrough Write returned nil after Close")
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("passthrough Write remained blocked after Close")
+		}
+	})
+
+	t.Run("close unblocks blocked header write", func(t *testing.T) {
+		serverConn, clientConn := net.Pipe()
+		t.Cleanup(func() { _ = clientConn.Close() })
+		entered := make(chan struct{}, 1)
+		hijacked := hijackThroughIngress(t, &blockingWriteSpyConn{Conn: serverConn, entered: entered})
+
+		writeErrCh := make(chan error, 1)
+		go func() {
+			_, err := hijacked.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n\r\n"))
+			writeErrCh <- err
+		}()
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("writer never reached header write")
+		}
+		closeDone := make(chan error, 1)
+		go func() {
+			closeDone <- hijacked.Close()
+		}()
+		select {
+		case err := <-closeDone:
+			if err != nil {
+				t.Fatalf("Close() = %v", err)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("Close() blocked behind header Write")
+		}
+		select {
+		case err := <-writeErrCh:
+			if err == nil {
+				t.Fatal("blocked header Write returned nil after Close")
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("header Write remained blocked after Close")
+		}
+	})
+
+	t.Run("CloseWrite still invokes underlying CloseWrite on truncated header", func(t *testing.T) {
+		serverConn, peerConn := net.Pipe()
+		t.Cleanup(func() {
+			_ = serverConn.Close()
+			_ = peerConn.Close()
+		})
+		recConn := &halfCloseRecordConn{Conn: serverConn}
+		hijacked := hijackThroughIngress(t, recConn)
+		halfCloser, ok := hijacked.(interface{ CloseWrite() error })
+		if !ok {
+			t.Fatalf("hijacked %T does not preserve CloseWrite", hijacked)
+		}
+		if _, err := hijacked.Write([]byte("HTTP/1.1 101 Switching")); err != nil {
+			t.Fatal(err)
+		}
+		if err := halfCloser.CloseWrite(); err == nil {
+			t.Fatal("CloseWrite() = nil on truncated header, want error")
+		}
+		recConn.mu.Lock()
+		called := recConn.closeWriteCalled
+		written := recConn.written.Len()
+		recConn.mu.Unlock()
+		if !called {
+			t.Fatal("underlying CloseWrite was not called")
+		}
+		if written != 0 {
+			t.Fatalf("truncated header wrote %d bytes to conn, want 0", written)
+		}
+	})
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -133,9 +134,9 @@ func (w *workerIngressWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	w.started = true
 	wrapped := &workerIngressHijackedConn{
 		Conn:         conn,
-		passthrough:  alreadyStarted,
 		hideIdentity: w.hideIdentity,
 	}
+	wrapped.passthrough.Store(alreadyStarted)
 	var out net.Conn = wrapped
 	if halfCloser, ok := conn.(interface{ CloseWrite() error }); ok {
 		out = &workerIngressHijackedHalfCloseConn{
@@ -153,8 +154,8 @@ const maxHijackedResponseHeaderBytes = 64 << 10
 
 type workerIngressHijackedConn struct {
 	net.Conn
+	passthrough  atomic.Bool
 	mu           sync.Mutex
-	passthrough  bool
 	hideIdentity bool
 	buf          bytes.Buffer
 }
@@ -165,32 +166,28 @@ type workerIngressHijackedHalfCloseConn struct {
 }
 
 func (c *workerIngressHijackedHalfCloseConn) CloseWrite() error {
-	if err := c.flushUnfinishedHeader(); err != nil {
-		return err
-	}
-	return c.halfCloser.CloseWrite()
+	hdrErr := c.discardUnfinishedHeader()
+	closeErr := c.halfCloser.CloseWrite()
+	return errors.Join(hdrErr, closeErr)
 }
 
 func (c *workerIngressHijackedConn) Close() error {
-	_ = c.flushUnfinishedHeader()
+	_ = c.discardUnfinishedHeader()
 	return c.Conn.Close()
 }
 
-func (c *workerIngressHijackedConn) flushUnfinishedHeader() error {
+func (c *workerIngressHijackedConn) discardUnfinishedHeader() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.passthrough || c.buf.Len() == 0 {
-		c.passthrough = true
-		return nil
-	}
-	// Never flush an incomplete HTTP/ response header block un-scrubbed.
-	data := c.buf.Bytes()
+	// Any non-"HTTP/" prefix already flushed in consumeHeaderBytes; what stays is
+	// an incomplete HTTP/ header block that must never be forwarded un-scrubbed.
+	hadIncomplete := !c.passthrough.Load() && c.buf.Len() > 0
 	c.buf.Reset()
-	c.passthrough = true
-	if bytes.HasPrefix(data, []byte("HTTP/")) {
+	c.passthrough.Store(true)
+	if hadIncomplete {
 		return errors.New("http: truncated hijacked response header")
 	}
-	return writeAllConn(c.Conn, data)
+	return nil
 }
 
 func writeAllConn(w io.Writer, data []byte) error {
@@ -221,61 +218,72 @@ func findHTTPHeaderEnd(data []byte) (sepIdx, sepLen int, ok bool) {
 }
 
 func (c *workerIngressHijackedConn) Write(p []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.passthrough {
+	if c.passthrough.Load() {
 		return c.Conn.Write(p)
 	}
+	toWrite, err := c.consumeHeaderBytes(p)
+	if err != nil {
+		return 0, err
+	}
+	if len(toWrite) > 0 {
+		if err := writeAllConn(c.Conn, toWrite); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
+func (c *workerIngressHijackedConn) consumeHeaderBytes(p []byte) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.passthrough.Load() {
+		return p, nil
+	}
 	c.buf.Write(p)
+	var out bytes.Buffer
 	for {
 		data := c.buf.Bytes()
 		if len(data) == 0 {
-			return len(p), nil
+			return out.Bytes(), nil
 		}
 		if (len(data) < 5 && !strings.HasPrefix("HTTP/", string(data))) ||
 			(len(data) >= 5 && !bytes.HasPrefix(data, []byte("HTTP/"))) {
-			c.passthrough = true
+			out.Write(data)
 			c.buf.Reset()
-			if err := writeAllConn(c.Conn, data); err != nil {
-				return 0, err
-			}
-			return len(p), nil
+			c.passthrough.Store(true)
+			return out.Bytes(), nil
 		}
-		_, sepLen, ok := findHTTPHeaderEnd(data)
+		sepIdx, sepLen, ok := findHTTPHeaderEnd(data)
 		if !ok {
 			if len(data) > maxHijackedResponseHeaderBytes {
 				c.buf.Reset()
-				c.passthrough = true
-				return 0, errors.New("http: hijacked response header too large")
+				c.passthrough.Store(true)
+				return nil, errors.New("http: hijacked response header too large")
 			}
-			return len(p), nil
+			return out.Bytes(), nil
 		}
-		headerEnd := bytes.Index(data, []byte("\r\n\r\n"))
-		if sepLen == 2 {
-			headerEnd = bytes.Index(data, []byte("\n\n"))
-		}
-		headerEnd += sepLen
+		headerEnd := sepIdx + sepLen
 		rest := bytes.Clone(data[headerEnd:])
 		tp := textproto.NewReader(bufio.NewReader(bytes.NewReader(data[:headerEnd])))
 		statusLine, err := tp.ReadLine()
 		if err != nil {
 			c.buf.Reset()
-			c.passthrough = true
-			return 0, err
+			c.passthrough.Store(true)
+			return nil, err
 		}
 		mimeHdr, err := tp.ReadMIMEHeader()
 		if err != nil {
 			c.buf.Reset()
-			c.passthrough = true
-			return 0, err
+			c.passthrough.Store(true)
+			return nil, err
 		}
 		proto, afterProto, hasProto := strings.Cut(statusLine, " ")
 		codeStr, _, _ := strings.Cut(afterProto, " ")
 		code, codeErr := strconv.Atoi(codeStr)
-		if !hasProto || codeErr != nil {
+		if !hasProto || codeErr != nil || !strings.HasPrefix(proto, "HTTP/") || strings.Contains(strings.ToLower(proto), "scenery") {
 			c.buf.Reset()
-			c.passthrough = true
-			return 0, errors.New("http: invalid hijacked response status line")
+			c.passthrough.Store(true)
+			return nil, errors.New("http: invalid hijacked response status line")
 		}
 		if strings.Contains(strings.ToLower(statusLine), "scenery") {
 			if reason := http.StatusText(code); reason != "" {
@@ -287,32 +295,23 @@ func (c *workerIngressHijackedConn) Write(p []byte) (int, error) {
 		headers := http.Header(mimeHdr)
 		scrubResponseHeaderMap(headers, c.hideIdentity)
 
-		var out bytes.Buffer
 		out.WriteString(statusLine)
 		out.WriteString("\r\n")
 		if err := headers.Write(&out); err != nil {
 			c.buf.Reset()
-			c.passthrough = true
-			return 0, err
+			c.passthrough.Store(true)
+			return nil, err
 		}
 		out.WriteString("\r\n")
 		if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
-			if err := writeAllConn(c.Conn, out.Bytes()); err != nil {
-				c.buf.Reset()
-				c.passthrough = true
-				return 0, err
-			}
 			c.buf.Reset()
 			c.buf.Write(rest)
 			continue
 		}
 		out.Write(rest)
 		c.buf.Reset()
-		c.passthrough = true
-		if err := writeAllConn(c.Conn, out.Bytes()); err != nil {
-			return 0, err
-		}
-		return len(p), nil
+		c.passthrough.Store(true)
+		return out.Bytes(), nil
 	}
 }
 
