@@ -38,6 +38,7 @@ pub(crate) struct Sink {
     root_hash: String,
     sender: Option<mpsc::Sender<Value>>,
     victoria: Option<mpsc::Sender<(String, Value)>>,
+    exporter: Option<crate::otlp::Flush>,
     report_dir: PathBuf,
     reports: ReportIdentity,
     working_directory: String,
@@ -62,7 +63,7 @@ impl Sink {
         app: &str,
         development: bool,
         filters: &Observability,
-        victoria: crate::otlp::Endpoints,
+        export: crate::otlp::Export,
         reports: &ReportIdentity,
     ) -> Result<Self> {
         let session = env::var("SCENERY_SESSION_ID").unwrap_or_default();
@@ -91,6 +92,7 @@ impl Sink {
             .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".scenery")))
             .unwrap_or_else(|| PathBuf::from("."))
             .join("reports");
+        let (victoria, exporter) = crate::otlp::start(export)?.unzip();
         Ok(Self {
             app: app.into(),
             development,
@@ -99,7 +101,8 @@ impl Sink {
             session,
             root_hash,
             sender,
-            victoria: crate::otlp::start(victoria)?,
+            victoria,
+            exporter,
             report_dir,
             reports: reports.clone(),
             working_directory: env::current_dir()
@@ -107,6 +110,19 @@ impl Sink {
                 .unwrap_or_default(),
             recent: development.then(|| Mutex::new(Recent::default())),
         })
+    }
+
+    /// Whether any consumer takes request records: the development report
+    /// receiver, the development history, or an OTLP exporter.
+    fn records(&self) -> bool {
+        self.sender.is_some() || self.recent.is_some() || self.victoria.is_some()
+    }
+
+    /// Delivers the records still queued for export, waiting at most `limit`.
+    pub(crate) async fn flush(&self, limit: Duration) {
+        if let Some(exporter) = &self.exporter {
+            exporter.finish(limit).await;
+        }
     }
 
     fn retain(&self, kind: &str, mut value: Value) {
@@ -347,7 +363,7 @@ impl Sink {
         code: &str,
         attrs: Map<String, Value>,
     ) {
-        if self.sender.is_none() && self.recent.is_none() {
+        if !self.records() {
             return;
         }
         let at = OffsetDateTime::now_utc();
@@ -384,9 +400,7 @@ impl Sink {
     }
 
     pub(crate) fn started(&self, call: &Call, service: &Service, operation: &str) {
-        if !self.logs_enabled(call, service, operation)
-            || self.recent.is_none() && self.sender.is_none()
-        {
+        if !self.logs_enabled(call, service, operation) || !self.records() {
             return;
         }
         self.report("log", "log_event", json!({
@@ -631,6 +645,7 @@ mod tests {
             root_hash: "root".into(),
             sender,
             victoria: None,
+            exporter: None,
             report_dir: directory.join("reports"),
             reports: ReportIdentity {
                 schema_revision: "sha256:fixture".into(),

@@ -378,7 +378,7 @@ impl Host {
     pub(crate) fn new(
         bundle: Bundle,
         configuration: Value,
-        victoria: crate::otlp::Endpoints,
+        export: crate::otlp::Export,
         control_token: String,
         dev_status: Option<Arc<crate::dev::Status>>,
         lifetime: (CancellationToken, crate::assistant::Gateway),
@@ -398,7 +398,7 @@ impl Host {
             &app,
             development,
             &bundle.host.observability,
-            victoria,
+            export,
             &bundle.reports,
         )?;
         Ok(Self {

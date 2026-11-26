@@ -181,3 +181,11 @@ falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
   preconditions against the current version first; user metadata travels as
   one `x-amz-meta-metadata` value (the backend's metadata limit applies).
   Listing entries omit `content_type` and `sha256`; a read returns both.
+- **Telemetry.** A development Host exports to its worktree's loopback
+  Victoria. A production Host exports OTLP/HTTP protobuf to
+  `OTEL_EXPORTER_OTLP_ENDPOINT` with `/v1/traces`, `/v1/logs`, and
+  `/v1/metrics` appended, or to the per-signal
+  `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` as given, sending the URL-encoded
+  `OTEL_EXPORTER_OTLP_HEADERS`. URLs must be http or https without
+  credentials. Delivery is queued and drops records when the queue is full;
+  stopping flushes the queue within 5 seconds.

@@ -260,7 +260,9 @@ async fn run(mut input: Input) -> Result<()> {
     )?;
     let mut resources = None;
     let mut startup = None;
-    let mut victoria = otlp::Endpoints::new();
+    // A development host exports to its worktree's Victoria; a production
+    // host to the collector the standard OTLP variables name, if any.
+    let mut export = None;
     let mut watcher = if let Some((mut config, owned)) = input.dev.take() {
         resources = Some(owned);
         let endpoint = dev::write_endpoint(
@@ -270,7 +272,7 @@ async fn run(mut input: Input) -> Result<()> {
         )?;
         resources.as_mut().expect("development resources").endpoint = Some(endpoint);
         startup = config.startup.take().zip(config.telemetry_path.clone());
-        victoria = std::mem::take(&mut config.victoria);
+        export = Some(otlp::Export::local(std::mem::take(&mut config.victoria))?);
         Some(dev::WatcherLoop::start(config)?)
     } else {
         None
@@ -288,10 +290,14 @@ async fn run(mut input: Input) -> Result<()> {
                 .collect::<Result<_>>()?,
         }
     };
+    let export = match export {
+        Some(export) => export,
+        None => otlp::Export::from_env(&|name: &str| std::env::var_os(name))?,
+    };
     let host = Arc::new(Host::new(
         input.bundle,
         input.snapshot,
-        victoria,
+        export,
         control.token().into(),
         watcher.as_ref().map(dev::WatcherLoop::status),
         (stop.clone(), assistants),
@@ -395,9 +401,14 @@ async fn run(mut input: Input) -> Result<()> {
         supervisor.await??;
     }
     servers.shutdown().await;
+    // Spans and logs of the last requests and of the shutdown itself still
+    // reach the collector, within a bound that cannot delay termination.
+    host.telemetry.flush(TELEMETRY_FLUSH_TIMEOUT).await;
     signals.abort();
     result
 }
+
+const TELEMETRY_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 struct DevResources {
     directory: PathBuf,
