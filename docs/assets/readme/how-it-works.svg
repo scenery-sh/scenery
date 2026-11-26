@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">How Scenery works</title>
-  <desc id="desc">You write .scn declarations (what exists), Go handlers (what it does) and .scenery.json (how it runs). Scenery compiles one typed app graph, generates Go and TypeScript code, and runs one supervised runtime. You get typed HTTP APIs, durable jobs and schedules, PostgreSQL and storage, auth with users and tenants, TypeScript clients, logs, traces and metrics, and a JSON CLI for AI agents.</desc>
+  <desc id="desc">You write .scn declarations (what exists), polyglot workers in Go, Rust, TypeScript/JavaScript, or Python (what it does) and .scenery.json (how it runs). Scenery compiles one typed app graph, generates worker contracts and TypeScript clients, and runs one Rust application host with native workers. You get typed HTTP, SSE and OpenAPI, durable jobs, schedules and domain events, PostgreSQL and storage, auth with users and tenants, TypeScript clients and Vite UI, logs, traces and metrics, and a JSON CLI for AI agents.</desc>
   <style>
     .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
@@ -119,10 +119,10 @@
   <g>
     <rect x="40" y="256" width="340" height="136" rx="18" fill="#111836" stroke="#27305C"/>
     <rect x="62" y="280" width="64" height="64" rx="16" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-opacity="0.55"/>
-    <text x="94" y="319" text-anchor="middle" class="mono" font-size="19" font-weight="700" fill="#22D3EE">Go</text>
+    <text x="94" y="319" text-anchor="middle" class="mono" font-size="19" font-weight="700" fill="#22D3EE">fn()</text>
     <text x="146" y="308" class="sans" font-size="23" font-weight="700" fill="#F5F7FF">What it does</text>
-    <text x="146" y="338" class="mono" font-size="16" fill="#22D3EE">*.go</text>
-    <text x="146" y="366" class="sans" font-size="16" fill="#A9B2D6">Plain, typed Go handlers</text>
+    <text x="146" y="338" class="mono" font-size="16" fill="#22D3EE">Go · Rust · TS · Py</text>
+    <text x="146" y="366" class="sans" font-size="16" fill="#A9B2D6">Typed polyglot workers</text>
   </g>
   <g>
     <rect x="40" y="416" width="340" height="136" rx="18" fill="#111836" stroke="#27305C"/>
@@ -149,24 +149,24 @@
     <circle cx="496" cy="374" r="16" fill="url(#accent)"/>
     <text x="496" y="380" text-anchor="middle" class="sans" font-size="16" font-weight="800" fill="#0A0F26">2</text>
     <text x="526" y="381" class="sans" font-size="21" font-weight="700" fill="#F5F7FF">Generate</text>
-    <text x="526" y="406" class="sans" font-size="15" fill="#A9B2D6">Go + TypeScript code</text>
+    <text x="526" y="406" class="sans" font-size="15" fill="#A9B2D6">contracts &amp; TS clients</text>
     <circle cx="496" cy="470" r="16" fill="url(#accent)"/>
     <text x="496" y="476" text-anchor="middle" class="sans" font-size="16" font-weight="800" fill="#0A0F26">3</text>
     <text x="526" y="477" class="sans" font-size="21" font-weight="700" fill="#F5F7FF">Run</text>
-    <text x="526" y="502" class="sans" font-size="15" fill="#A9B2D6">one supervised runtime</text>
+    <text x="526" y="502" class="sans" font-size="15" fill="#A9B2D6">one Rust host + workers</text>
   </g>
 
   <g>
     <rect x="820" y="98" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
     <circle cx="852" cy="126" r="18" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-opacity="0.55"/>
     <text x="852" y="131.0" text-anchor="middle" class="mono" font-size="13" font-weight="700" fill="#22D3EE">&lt;/&gt;</text>
-    <text x="884" y="132" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">Typed HTTP APIs</text>
+    <text x="884" y="132" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">HTTP, SSE &amp; OpenAPI</text>
   </g>
   <g>
     <rect x="820" y="164" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
     <circle cx="852" cy="192" r="18" fill="#A78BFA" fill-opacity="0.14" stroke="#A78BFA" stroke-opacity="0.55"/>
     <circle cx="852" cy="192.0" r="8" stroke="#A78BFA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M852 187.5 V192.0 L855.5 194.0" stroke="#A78BFA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="884" y="198" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">Durable jobs &amp; schedules</text>
+    <text x="884" y="198" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">Jobs, schedules &amp; events</text>
   </g>
   <g>
     <rect x="820" y="230" width="340" height="56" rx="16" fill="#111836" stroke="#27305C"/>
@@ -199,5 +199,5 @@
     <text x="884" y="528" class="sans" font-size="18" font-weight="600" fill="#F5F7FF">JSON CLI for AI agents</text>
   </g>
 
-  <text x="600" y="606" text-anchor="middle" class="sans" font-size="16" fill="#7C86B2">Save a .scn or .go file: Scenery updates the generated Go contracts, rebuilds only what changed, and keeps serving.</text>
+  <text x="600" y="606" text-anchor="middle" class="sans" font-size="16" fill="#7C86B2">Save a .scn or worker file: Scenery updates generated contracts, hot-swaps only touched workers, and keeps serving.</text>
 </svg>

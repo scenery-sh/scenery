@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
   <title id="title">One command runs the whole app</title>
-  <desc id="desc">scenery up starts Go services as one process per service, background jobs, schedules and events, managed PostgreSQL in Docker, frontend dev servers behind one router, the observability stack for logs, traces and metrics, and live rebuilds that restart only the services that changed. scenery ps, scenery logs --follow and scenery down inspect and stop it.</desc>
+  <desc id="desc">scenery up starts the Rust application host and polyglot workers in Go, Rust, TypeScript/JavaScript, and Python, background jobs, schedules and domain events, managed PostgreSQL in Docker, frontend dev servers behind one router, the observability stack for logs, traces and metrics, and live rebuilds that hot-swap only the workers that changed. scenery ps, scenery logs --follow and scenery down inspect and stop it.</desc>
   <style>
     .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
@@ -110,9 +110,9 @@
   <g>
     <rect x="40" y="40" width="280" height="92" rx="18" fill="#111836" stroke="#27305C"/>
     <circle cx="82" cy="86" r="22" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-opacity="0.55"/>
-    <text x="82" y="91.0" text-anchor="middle" class="sans" font-size="14" font-weight="800" fill="#22D3EE">Go</text>
-    <text x="118" y="81" class="sans" font-size="19" font-weight="700" fill="#F5F7FF">Go services</text>
-    <text x="118" y="105" class="sans" font-size="15" fill="#A9B2D6">a process per service</text>
+    <path d="M82 78.5 L90 82.5 L82 86.5 L74 82.5 Z M74 86.5 L82 90.5 L90 86.5 M74 90.5 L82 94.5 L90 90.5" stroke="#22D3EE" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="118" y="81" class="sans" font-size="19" font-weight="700" fill="#F5F7FF">Polyglot workers</text>
+    <text x="118" y="105" class="sans" font-size="15" fill="#A9B2D6">Go, Rust, TS, Python</text>
   </g>
   <g>
     <rect x="40" y="214" width="280" height="92" rx="18" fill="#111836" stroke="#27305C"/>
@@ -147,6 +147,6 @@
     <circle cx="922" cy="434" r="22" fill="#FBBF24" fill-opacity="0.14" stroke="#FBBF24" stroke-opacity="0.55"/>
     <path d="M929 431.0 A7.5 7.5 0 1 0 929.5 436.0" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M929.5 426.0 V431.5 H924" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="958" y="429" class="sans" font-size="19" font-weight="700" fill="#F5F7FF">Live rebuilds</text>
-    <text x="958" y="453" class="sans" font-size="15" fill="#A9B2D6">only changed services</text>
+    <text x="958" y="453" class="sans" font-size="15" fill="#A9B2D6">only changed workers</text>
   </g>
 </svg>

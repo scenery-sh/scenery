@@ -1,13 +1,15 @@
 <p align="center">
-  <img src="docs/assets/readme/hero.svg" alt="Scenery. Declare your app. Write the logic in Go. Scenery runs the rest." width="100%">
+  <img src="docs/assets/readme/hero.svg" alt="Scenery. Polyglot application microkernel, toolchain, and agent harness." width="100%">
 </p>
 
 <p align="center">
-  <a href="#quick-start"><b>Quick start</b></a>
+  <a href="#architecture"><b>Architecture</b></a>
   &nbsp;·&nbsp;
   <a href="#how-it-works"><b>How it works</b></a>
   &nbsp;·&nbsp;
   <a href="#what-you-get"><b>What you get</b></a>
+  &nbsp;·&nbsp;
+  <a href="#deploy"><b>Deploy</b></a>
   &nbsp;·&nbsp;
   <a href="#built-for-ai-agents"><b>AI agents</b></a>
   &nbsp;·&nbsp;
@@ -17,109 +19,187 @@
 </p>
 
 <p align="center">
-  <a href="go.mod"><img alt="Go 1.27+" src="https://img.shields.io/badge/Go-1.27%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
+  <img alt="Runtimes: Go · Rust · TS/JS · Python" src="https://img.shields.io/badge/runtimes-Go_%C2%B7_Rust_%C2%B7_TS%2FJS_%C2%B7_Python-00ADD8?style=flat-square">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-8B5CF6?style=flat-square"></a>
-  <img alt="Runs on your machine" src="https://img.shields.io/badge/runs_on-your_machine-22D3EE?style=flat-square">
+  <img alt="Host: Rust scenery-host" src="https://img.shields.io/badge/host-Rust_scenery--host-F97316?style=flat-square">
   <img alt="Used in production" src="https://img.shields.io/badge/used_in-production-22C55E?style=flat-square">
   <img alt="Status: active development" src="https://img.shields.io/badge/status-active_development-F59E0B?style=flat-square">
 </p>
 
-**Scenery is a runtime, toolchain, and agent harness for Go, Rust, JavaScript/TypeScript, and Python backends.**
-Describe *what your app is* (APIs, durable jobs, data, auth, schedules) in small
-`.scn` files and write *what it does* in plain Go. Scenery generates the typed
-contracts and TypeScript clients, runs the whole app and its frontends with one
-command, and exposes machine-readable state and telemetry for humans and AI
-agents.
+**Scenery is a polyglot application microkernel, toolchain, and agent harness.**
+Describe *what your app is* (APIs, durable jobs, domain events, data, auth,
+schedules) in small `.scn` files and write *what it does* in **Go, Rust,
+TypeScript/JavaScript, or Python**. One Rust application host (`scenery-host`)
+owns public ingress, auth, policy, durable execution, events, storage, and
+telemetry, while your services run underneath as long-lived, contract-attested
+native workers.
+
+## Architecture
+
+Scenery is **not** a VM hypervisor and **not** a cold-start FaaS/Lambda
+runtime. It is an **application host** with a strict capability boundary:
+
+```text
+                       .scn + .scenery.json
+                                │
+                                ▼
+       ┌────────────────────────────────────────────────────────┐
+       │             scenery-host (Rust application host)       │
+       │  • Same-origin ingress: /api/* → services, / → Vite    │
+       │  • Contract codecs, validation, SSE, OpenAPI 3.1.1     │
+       │  • Auth, sessions, OIDC, secrets, policy evaluation    │
+       │  • Durable jobs, schedules, transactional event bus    │
+       │  • Storage (local / S3), OTLP telemetry, MCP           │
+       └──────┬─────────────┬─────────────┬─────────────┬───────┘
+              │  Worker ABI v1 (HTTP/2 over private Unix sockets)
+      ┌───────▼──┐   ┌──────▼───┐   ┌─────▼────┐   ┌────▼─────┐
+      │    Go    │   │   Rust   │   │ TS / JS  │   │  Python  │
+      │  worker  │   │  worker  │   │  (Bun)   │   │   (uv)   │
+      └───────┬──┘   └──────┬───┘   └─────┬────┘   └────┬─────┘
+              └─────────────┴──────┬──────┴─────────────┘
+                            native PostgreSQL
+```
+
+- **Capability boundary, not a VM sandbox** — `scenery-host` keeps
+  `Authorization`, `Cookie`, secrets, and policy enforcement at the host
+  boundary. Workers authenticate over private Unix domain sockets with
+  per-instance bearer tokens and opaque `X-Worker-Scope` headers; they cannot
+  forge principals, tenants, or generations and reach other services, storage,
+  events, and OAuth tokens only through scoped `/host/v1/*` capabilities (see
+  [Worker ABI v1](docs/spec/WORKER-ABI.md)).
+- **Long-lived native workers, not cold-start functions** — Each service runs
+  as a warm OS process with native database pools (`pgx`, `sqlx`, etc.),
+  supports binary streaming and typed SSE (`stream_out`), and hot-swaps
+  independently with graceful drain when code changes.
+- **Same topology in dev and production** — Local `scenery up` and production
+  `scenery build` / `--oci` bundles execute the exact same manifest-driven
+  `scenery-host` + worker processes + static frontend bundle.
 
 ## How it works
 
 <p align="center">
-  <img src="docs/assets/readme/how-it-works.svg" alt="Declare .scn files, write Go handlers, run scenery up." width="100%">
+  <img src="docs/assets/readme/how-it-works.svg" alt="Declare .scn files, implement typed workers, run scenery up." width="100%">
 </p>
 
-**1. Declare what exists** in [`testdata/apps/basic/service/package.scn`](testdata/apps/basic/service/package.scn):
+**1. Declare what exists** in `package.scn` (one canonical graph for every language):
 
 ```hcl
-operation "echo" {
-  service = service.service
-  input   = record.echo_input
-  handler { method = "Echo" }
-  result "ok" { type = record.echo_result }
+service "pricing" {
+  runtime = "rust" # or "go", "ts", "js", "python"
+  implementation { constructor = "NewService" }
 }
 
-binding "echo_http" {
-  operation = operation.echo
+operation "quote" {
+  service = service.pricing
+  input   = record.quote_input
+  handler { method = "Quote" }
+  result "ok" { type = record.quote_result }
+}
+
+binding "quote_http" {
+  operation = operation.quote
   protocol  = "http"
-  http { method = "POST"; path = "/echo" }
+  http { method = "POST"; path = "/quote" }
 }
 ```
 
-**2. Write the handler in Go** against the generated `scenerycontract` package:
+**2. Implement the service** in the language that fits each module against its
+generated `scenerycontract` (see [`testdata/apps/polyglot`](testdata/apps/polyglot)
+for a full Go + Rust + TypeScript + Python + React app):
 
 ```go
-func (*Service) Echo(_ context.Context, in contract.EchoInput) (contract.EchoOutcome, error) {
-	return contract.EchoOk{Value: contract.EchoResult{Message: "echo:" + in.Message}}, nil
+// Go worker
+func (*Service) Quote(_ context.Context, in contract.QuoteInput) (contract.QuoteOutcome, error) {
+	return contract.QuoteOk{Value: contract.QuoteResult{Amount: in.Amount}}, nil
 }
+```
+
+```rust
+// Rust worker
+impl PricingService for Service {
+    async fn quote(&self, _ctx: sdk::Context, input: QuoteInput) -> sdk::Result<QuoteOutcome> {
+        Ok(QuoteOutcome::Ok(QuoteResult { amount: input.amount }))
+    }
+}
+```
+
+Scaffold a new module in any supported runtime with one command:
+
+```sh
+scenery add module billing --runtime rust -o json
+# --runtime go | rust | ts | js | python
 ```
 
 **3. Run the whole app** with `scenery up`:
 
 ```sh
 scenery up
-curl --json '{"message":"hi"}' http://localhost:4624/api/echo
-# {"message":"echo:hi"}
+curl --json '{"amount":42}' http://localhost:4624/api/quote
 ```
 
 ## What you get
 
-- **Typed HTTP APIs** — declared records, validated input, typed outcomes, and neutral end-user surfaces.
-- **Durable jobs, schedules & events** — retries, timeouts, leases, and idempotency keys declared next to operations.
-- **Managed PostgreSQL & object storage** — Docker Postgres per worktree, checksummed migrations (`scenery db migrate`), snapshots, and tenant-scoped `scenery.sh/storage`.
-- **Built-in auth & connections** — sessions, organizations, invites, and encrypted OAuth2/OIDC user connections.
-- **Generated TypeScript client** — exact wire types (`bigint`, `decimal`, optional/nullable) plus optional React pages.
-- **First-class telemetry** — logs, traces, and metrics queryable as JSON via `scenery logs`, `traces`, and `metrics`.
-- **One Rust application host** — every app, in development and production, runs on `scenery-host`; edits rebuild and swap only touched workers while unaffected workers keep serving.
+- **Polyglot services in one bundle** — Mix Go, Rust, JS/TS (Bun), and Python
+  (`uv` zipapp) services behind one `.scn` contract. Swapping a service's
+  runtime preserves its contract revision.
+- **Typed HTTP, streaming & OpenAPI 3.1.1** — Declared records, exact wire
+  codecs (`bigint`, `decimal`, `optional`/`nullable`), binary streams, typed
+  SSE (`stream_out`), neutral end-user HTTP surfaces, and deterministic
+  brand-neutral OpenAPI 3.1.1 export.
+- **Durable jobs, schedules & domain events** — Transactional PostgreSQL domain
+  event bus (`event` / `publisher` / `subscription`) with durable fan-out
+  across languages, retries, timeouts, leases, revisioned inputs, and
+  idempotency keys.
+- **Managed PostgreSQL & S3-compatible storage** — Docker Postgres per
+  worktree, checksummed migrations (`scenery db migrate`), PostgreSQL template
+  branching for fast isolated tests, snapshots, and tenant-scoped local or
+  S3/R2/MinIO/GCS object storage.
+- **Built-in auth, connections & MCP** — Sessions, organizations, invites,
+  encrypted OAuth2/OIDC user connections, and provider-neutral MCP servers &
+  supervised assistants.
+- **Same-origin frontends & TypeScript clients** — Vite dev proxy with HMR,
+  static production asset serving from `scenery-host`, exact TypeScript `fetch`
+  clients, and optional React pages (`@scenery/ui`).
+- **First-class telemetry** — Local logs, traces, and metrics queryable as JSON
+  via `scenery logs`, `traces`, and `metrics`, plus production OTLP/HTTP export.
+- **Per-worker live rebuilds** — Edits rebuild and hot-swap only touched
+  workers with generation pinning and graceful drain while unaffected workers
+  keep serving.
 
 ## One command, the whole app
 
 <p align="center">
-  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up supervises services, Postgres, frontends, and observability." width="100%">
+  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up supervises scenery-host, polyglot workers, Postgres, frontends, and observability." width="100%">
 </p>
 
 | Command | Purpose |
 |---|---|
-| `scenery up` | Build, start, and watch the app, database, and frontends |
-| `scenery ps` | List running apps and URLs |
-| `scenery context --for <target> -o json` | Read a module briefing by module, service, route, or source file |
-| `scenery test [<module>...] -o json` | Refresh contracts and run native module tests |
-| `scenery call <target> -o json` | Invoke the current local runtime and retrieve its logs and spans |
-| `scenery db query --service <module> '<sql>' -o json` | Run one statement in the module's PostgreSQL schema, bind repeatable `--param` values, cap returned rows with `--limit`, and bound the statement with `--timeout` |
-| `scenery durable run <target> -o json` | Run a durable execution or schedule in the worker development Host and collect its result, logs, and spans. Use `--wait=false` to return after dispatch |
-| `scenery add module <name> --runtime <go\|rust\|ts\|js\|python> -o json` | Scaffold a module and starter test, generate contracts, and check the application |
-| `scenery build [--oci <image>]` | Build the deployable Host bundle, or a Linux container image of it |
+| `scenery up` | Build, start, and watch `scenery-host`, workers, Postgres, and frontends |
+| `scenery ps` | List running apps and URLs (`--wait -o json` waits for the current source revision) |
+| `scenery context --for <target> -o json` | Read a structured briefing by module, service, route, or source file |
+| `scenery test [<module>...] -o json` | Refresh contracts and run native module tests (with PostgreSQL template branching) |
+| `scenery call <target> -o json` | Invoke the current local runtime and return its result, logs, and spans |
+| `scenery replay <token> [--emit-test] -o json` | Deterministically replay an `SCN9xxx` failure report and optionally emit a regression test |
+| `scenery db query --service <module> '<sql>' -o json` | Run one parameterized statement in the module's PostgreSQL schema (`--param`, `--limit`, `--timeout`) |
+| `scenery durable run <target> -o json` | Run a durable execution or schedule in the dev Host and collect its result, logs, and spans (`--wait=false` for async dispatch) |
+| `scenery add module <name> --runtime <go\|rust\|ts\|js\|python> -o json` | Scaffold a module and starter test, generate contracts, and check the app |
+| `scenery build [--oci <image>]` | Build a self-contained Host bundle or a distroless Linux OCI container image |
+| `scenery openapi` | Emit a brand-neutral OpenAPI 3.1.1 document for declared HTTP gateways |
 | `scenery logs --follow` | Stream application logs |
-| `scenery check` | Validate `.scn` declarations and Go contracts |
-| `scenery generate` | Regenerate Go contracts, TypeScript clients, and SQLC outputs |
+| `scenery check` | Validate `.scn` declarations and worker contracts across runtimes |
+| `scenery generate` | Regenerate worker contracts, TypeScript clients, OpenAPI, and SQLC outputs |
 | `scenery down` | Stop the app |
 | `scenery doctor` | Verify host and app prerequisites |
 
 Discover exact command grammar with `scenery help <command> -o json`.
-`scenery ps --wait -o json` waits for the captured source revision and reports
-compiler failures as soon as the supervisor records them.
-
-`durable run` accepts a qualified operation or execution name, a durable
-`external_name`, or a schedule name. JSON uses `execution_kind` for the
-declared target type. Direct schedules run in the current Host generation.
-
-`add module` reports the generated roots and the application check outcome.
-If generation or checking fails, the scaffold stays available for correction.
 
 ## Deploy
 
 `scenery build` writes a self-contained bundle that runs on any host of the
-same platform; `scenery build --oci <image>` builds a Linux image of it for
-Docker, Kubernetes, Fly, or a VM (`--platform linux/arm64`, or
-`--oci-context <dir>` to hand the reproducible Dockerfile context to CI):
+same platform; `scenery build --oci <image>` builds a distroless Linux image
+(`gcr.io/distroless/cc-debian12`) for Docker, Kubernetes, Fly, or a VM
+(`--platform linux/amd64|linux/arm64`, or `--oci-context <dir>` to hand the
+reproducible Dockerfile context to CI):
 
 ```sh
 scenery build --oci registry.example.com/shop:1.4.0
@@ -131,21 +211,26 @@ docker run -p 4000:4000 \
   registry.example.com/shop:1.4.0
 ```
 
-The configuration snapshot can reference injected secrets as
-`{"$env": "STRIPE_KEY"}`; object stores can be S3, R2, MinIO, or GCS buckets;
-and replicas sharing `DATABASE_URL` run every schedule slot once. See
-[the production host contract](docs/spec/SPEC.md#8-production-host).
+Configuration snapshots reference injected secrets as `{"$env": "STRIPE_KEY"}`;
+object stores support local disks or S3, R2, MinIO, and GCS buckets (SigV4);
+and replicas sharing `DATABASE_URL` claim schedule slots in PostgreSQL so each
+slot runs once. See [the production host contract](docs/spec/SPEC.md#8-production-host).
 
 ## Built for AI agents
 
 Every command supports `-o json` (or `-o jsonl` for streams) with exact schema
-revisions, producer identity, and stable `SCNxxxx` diagnostics:
+revisions, producer identity, and stable `SCNxxxx` diagnostics. Agents can read
+module context, call live endpoints or durable jobs with inline traces, query
+module schemas, and verify changes without scraping unstructured logs:
 
 ```sh
 scenery context --for <module> -o json
 scenery inspect routes -o json
 scenery check -o json
-scenery logs -o jsonl --limit 200
+scenery call <target> -o json
+scenery replay <report-token> --emit-test -o json
+scenery durable run <target> -o json
+scenery test -o json
 scenery traces list --status error -o json
 scenery validate changed --base main -o json
 scenery harness -o json --write
@@ -164,7 +249,8 @@ npx skills add https://github.com/scenery-sh/scenery
 </p>
 
 Each Git worktree runs a fully isolated copy of the app with its own URL,
-PostgreSQL database, object storage, and telemetry:
+PostgreSQL database, object storage, and telemetry — letting multiple agents or
+branches run and verify in parallel on one machine:
 
 ```sh
 scenery worktree create new-checkout
@@ -175,7 +261,8 @@ scenery ps
 
 ## Quick start
 
-Requires **Go 1.27+** (and **Docker** for managed PostgreSQL).
+Building the Scenery CLI from source requires **Go 1.27+** (plus **Docker** for
+managed PostgreSQL, and the toolchains for whichever service runtimes you use).
 
 ```sh
 git clone https://github.com/scenery-sh/scenery.git
@@ -184,8 +271,10 @@ go install ./cmd/scenery
 scenery doctor
 ```
 
-Explore [examples/webhook-inbox/README.md](examples/webhook-inbox/README.md),
-or read [docs/spec/SPEC.md](docs/spec/SPEC.md),
+Explore [examples/webhook-inbox/README.md](examples/webhook-inbox/README.md) and
+[testdata/apps/polyglot](testdata/apps/polyglot), or read
+[docs/spec/SPEC.md](docs/spec/SPEC.md),
+[docs/spec/WORKER-ABI.md](docs/spec/WORKER-ABI.md),
 [ARCHITECTURE.md](ARCHITECTURE.md), and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Report vulnerabilities privately via [SECURITY.md](SECURITY.md).
