@@ -94,16 +94,30 @@ func TestWorkerHostForwardsIngressRequestToGoWorker(t *testing.T) {
 
 func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	routes := newRouteTable()
-	routes.Handle([]string{http.MethodGet}, "/api/ping", func(w http.ResponseWriter, req *http.Request, _ routeParams) {
+	var seenInboundTrailerHeader string
+	var seenInboundTrailers http.Header
+	routes.Handle([]string{http.MethodGet, http.MethodPost}, "/api/ping", func(w http.ResponseWriter, req *http.Request, _ routeParams) {
 		if req.Header.Get("X-Scenery-Cron-Execution") != "" || req.Header.Get("X-Scenery-Generation") != "" {
 			t.Errorf("external X-Scenery-* header passed ingress: %v", req.Header)
+		}
+		seenInboundTrailerHeader = req.Header.Get("Trailer")
+		if req.Method == http.MethodPost {
+			_, _ = io.ReadAll(req.Body)
+			seenInboundTrailers = req.Trailer.Clone()
 		}
 		w.Header().Set("X-App-Generation", "1")
 		w.Header().Set("X-App-Worker-Pid", "99")
 		w.Header().Set("X-App-Worker-Revision", "rev-1")
 		w.Header().Set("X-Scenery-Debug", "leak")
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, X-Scenery-Debug, X-App-Worker-Pid")
+		w.Header().Set("Trailer", "X-Checksum, X-Scenery-Debug, X-App-Worker-Pid")
+		w.Header().Set(http.TrailerPrefix+"X-Scenery-Unannounced", "secret")
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("pong"))
+		w.Header().Set("X-Checksum", "sha256:ok")
+		w.Header().Set("X-Scenery-Debug", "leak-trailer")
+		w.Header().Set("X-App-Worker-Pid", "99")
+		w.Header().Set(http.TrailerPrefix+"X-Scenery-Post", "leak-post")
 	})
 	routes.Handle([]string{http.MethodGet}, "/api/files/mountain-scenery.png", func(w http.ResponseWriter, _ *http.Request, _ routeParams) {
 		w.WriteHeader(http.StatusOK)
@@ -130,9 +144,13 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	pingReq := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
 	pingReq.Header.Set("X-Scenery-Cron-Execution", "forged")
 	pingReq.Header.Set("X-Scenery-Generation", "99")
+	pingReq.Header.Set("Trailer", "X-Client-Trailer, X-Scenery-Internal")
 	handler.ServeHTTP(rec, pingReq)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/api/ping status = %d", rec.Code)
+	}
+	if seenInboundTrailerHeader != "X-Client-Trailer" {
+		t.Fatalf("inbound Trailer header = %q, want X-Client-Trailer", seenInboundTrailerHeader)
 	}
 	for _, forbidden := range []string{"X-App-Generation", "X-App-Worker-Pid", "X-App-Worker-Revision", "X-Scenery-Debug"} {
 		if got := rec.Header().Get(forbidden); got != "" {
@@ -141,6 +159,57 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	}
 	if got := rec.Header().Get("Access-Control-Expose-Headers"); got != "X-Request-Id" {
 		t.Fatalf("Access-Control-Expose-Headers = %q, want X-Request-Id", got)
+	}
+	if got := rec.Header().Get("Trailer"); got != "X-Checksum" {
+		t.Fatalf("Trailer header = %q, want X-Checksum", got)
+	}
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+	wireReq, err := http.NewRequest(http.MethodPost, srv.URL+"/api/ping", strings.NewReader("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wireReq.ContentLength = -1
+	wireReq.Trailer = http.Header{
+		"X-Scenery-Internal": {"forged"},
+		"X-Client-Trailer":   {"ok"},
+	}
+	resp, err := srv.Client().Do(wireReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp.Trailer["X-Checksum"]; !ok || len(resp.Trailer) != 1 {
+		_ = resp.Body.Close()
+		t.Fatalf("announced wire trailers = %+v, want only X-Checksum", resp.Trailer)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil || string(body) != "pong" {
+		t.Fatalf("wire response body = (%q, %v), want pong", body, err)
+	}
+	if seenInboundTrailers.Get("X-Scenery-Internal") != "" || seenInboundTrailers.Get("X-Client-Trailer") != "ok" {
+		t.Fatalf("inbound trailers = %+v, want X-Scenery-Internal stripped and X-Client-Trailer=ok", seenInboundTrailers)
+	}
+	if got := resp.Trailer.Get("X-Checksum"); got != "sha256:ok" {
+		t.Fatalf("wire Trailer X-Checksum = %q, want sha256:ok", got)
+	}
+	for _, forbidden := range []string{"X-Scenery-Debug", "X-Scenery-Unannounced", "X-Scenery-Post", "X-App-Worker-Pid"} {
+		if got := resp.Trailer.Get(forbidden); got != "" {
+			t.Fatalf("wire trailer leaked %s=%q", forbidden, got)
+		}
+	}
+	for _, headerSet := range []http.Header{resp.Header, resp.Trailer} {
+		for k, vs := range headerSet {
+			if strings.Contains(strings.ToLower(k), "scenery") {
+				t.Fatalf("wire header/trailer key leaked scenery: %s=%v", k, vs)
+			}
+			for _, v := range vs {
+				if strings.Contains(strings.ToLower(v), "scenery") {
+					t.Fatalf("wire header/trailer value leaked scenery: %s=%q", k, v)
+				}
+			}
+		}
 	}
 }
 
