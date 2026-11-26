@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"slices"
 	"testing"
 
+	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	workerruntime "scenery.sh/runtime"
 )
@@ -88,4 +91,31 @@ func TestWorkerPlanNamesDurableTasksAndKeepsHTTPAuthorization(t *testing.T) {
 			t.Errorf("%s %s %s authorization = %s, want %s", test.kind, test.protocol, test.strategy, got, test.want)
 		}
 	}
+}
+
+func TestConfigureWorkerFrontendRespectsDisabledEnvFrontend(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "polyglot",
+		Frontends: map[string]app.FrontendConfig{
+			"web": {Root: "web", Adapter: "vite", Mode: "static"},
+		},
+		Envs: map[string]app.EnvConfig{
+			"backend": {
+				Frontends: map[string]app.EnvFrontendConfig{
+					"web": {Serve: "disabled"},
+				},
+			},
+		},
+	}
+	handler, clean, err := configureWorkerFrontend(context.Background(), root, cfg, &compiler.Result{}, "backend")
+	if err != nil {
+		t.Fatalf("configureWorkerFrontend returned error for disabled frontend: %v", err)
+	}
+	if handler != nil {
+		t.Fatalf("configureWorkerFrontend returned non-nil handler %T for disabled frontend", handler)
+	}
+	clean()
 }
