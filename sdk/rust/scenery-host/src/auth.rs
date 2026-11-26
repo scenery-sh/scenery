@@ -48,7 +48,11 @@ impl Authentication {
         let mut dev_email = String::new();
         if let Some(plan) = plan.filter(|plan| plan.enabled) {
             if let Some(encoded) = config["secrets"]["auth.jwt_secret"].as_str() {
-                secret = STANDARD.decode(encoded)?;
+                let decoded = STANDARD.decode(encoded)?;
+                secret = match std::str::from_utf8(&decoded) {
+                    Ok(text) => text.trim().as_bytes().to_vec(),
+                    Err(_) => decoded.trim_ascii().to_vec(),
+                };
             }
             ensure!(
                 development || !secret.is_empty(),
@@ -275,5 +279,39 @@ mod tests {
             ("owner", "example")
         );
         assert!(auth.credentials(&headers, false).is_err());
+    }
+
+    #[test]
+    fn production_rejects_whitespace_jwt_secret_and_trims_valid_secret() {
+        let plan = Auth {
+            bootstrap_sql: String::new(),
+            enabled: true,
+            google_o_auth: crate::plan::GoogleOAuth { enabled: false },
+            dev_bootstrap: crate::plan::Bootstrap {
+                enabled: false,
+                default_user_email: String::new(),
+                default_tenant_id: String::new(),
+            },
+            connections: vec![],
+        };
+        let whitespace = json!({"secrets": {"auth.jwt_secret": STANDARD.encode("  \t\n  ")}});
+        assert!(Authentication::new(Some(&plan), &whitespace, false).is_err());
+        assert!(Authentication::new(Some(&plan), &whitespace, true).is_ok());
+
+        let trailing = json!({"secrets": {"auth.jwt_secret": STANDARD.encode("prod-secret\n")}});
+        let trimmed = json!({"secrets": {"auth.jwt_secret": STANDARD.encode("prod-secret")}});
+        let issuer = Authentication::new(Some(&plan), &trailing, false).unwrap();
+        let verifier = Authentication::new(Some(&plan), &trimmed, false).unwrap();
+        let token = issuer
+            .issue(Claims {
+                user: "user-1".into(),
+                tenant: "tenant-1".into(),
+                ..Claims::default()
+            })
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        let claims = verifier.credentials(&headers, false).unwrap();
+        assert_eq!(claims.user, "user-1");
     }
 }

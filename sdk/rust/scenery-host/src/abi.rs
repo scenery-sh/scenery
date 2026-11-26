@@ -167,6 +167,24 @@ impl Stream {
     pub(crate) fn length(&self) -> u64 {
         self.remaining
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(body: Incoming, remaining: u64) -> Self {
+        let guard = ScopeGuard::test();
+        let cancellation = guard.scope.cancel.clone().cancelled_owned();
+        let retired = CancellationToken::new().cancelled_owned();
+        let deadline = Box::pin(tokio::time::sleep_until(guard.scope.call.deadline));
+        Self {
+            body,
+            pending: Bytes::new(),
+            remaining,
+            finished: false,
+            _scope: guard,
+            cancellation: Box::pin(cancellation),
+            retired: Box::pin(retired),
+            deadline,
+        }
+    }
 }
 
 impl Body for Stream {

@@ -1,6 +1,6 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, Write};
-use std::os::fd::{AsFd, AsRawFd};
+use std::io::{self, PipeWriter, Read, Seek, Write};
+use std::os::fd::{AsFd, AsRawFd, RawFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -101,9 +101,17 @@ pub(crate) struct Program {
     pub(crate) artifact: Option<Arc<tempfile::TempPath>>,
 }
 
+struct WorkerProcess {
+    /// Closed first on teardown so the child observes EOF on `parent_death_fd`
+    /// alongside the group signal.
+    _parent_pipe: Option<PipeWriter>,
+    group: ProcessGroup,
+}
+
 pub(crate) struct Worker {
     pub(crate) program: Program,
-    group: ProcessGroup,
+    pid: u32,
+    lifecycle: std::sync::Mutex<Option<WorkerProcess>>,
     pub(crate) launch: Launch,
     pub(crate) client: Client,
     config: PathBuf,
@@ -128,6 +136,7 @@ impl Worker {
             program.service,
         );
 
+        let (parent_read, parent_write) = io::pipe()?;
         let key = random_hex::<12>()?;
         let config = directory.join(format!("{key}.json"));
         let launch = Launch {
@@ -140,7 +149,7 @@ impl Worker {
                 contract_revision: program.identity.contract_revision.clone(),
                 implementation_revision: program.identity.implementation_revision.clone(),
             },
-            parent_death_fd: None,
+            parent_death_fd: Some(4),
         };
         let startup = program
             .startup
@@ -160,38 +169,56 @@ impl Worker {
                 .context("invalid worker environment")?;
             command.env(key, value);
         }
-        if let Some(inherited) = INHERITED_DESCRIPTORS.get().copied() {
-            // A worker starts with the limit the host itself was given, as
-            // it would under the Go runtime, and not with the raised one.
-            unsafe {
-                command.pre_exec(move || {
-                    if libc::setrlimit(libc::RLIMIT_NOFILE, &inherited) == -1 {
-                        return Err(io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
-            }
-        }
-        if let Some(file) = &startup {
-            let fd = file.as_raw_fd();
+        let inherited = INHERITED_DESCRIPTORS.get().copied();
+        let startup_fd: Option<RawFd> = startup.as_ref().map(AsRawFd::as_raw_fd);
+        let read_fd: RawFd = parent_read.as_raw_fd();
+        if startup.is_some() {
             command.env(CONFIG_SNAPSHOT_FD, "3");
-            // Only syscalls are allowed between fork and exec. dup2 makes
-            // the descriptor inheritable and leaves the parent copy private.
-            unsafe {
-                command.pre_exec(move || {
+        }
+        // Only syscalls are allowed between fork and exec. dup2 makes the
+        // inherited startup config (fd 3) and parent-death pipe (fd 4)
+        // inheritable while leaving the parent's copies private.
+        unsafe {
+            command.pre_exec(move || {
+                if let Some(inherited) = inherited
+                    && libc::setrlimit(libc::RLIMIT_NOFILE, &inherited) == -1
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                let mut death_fd = read_fd;
+                if let Some(fd) = startup_fd {
+                    if death_fd == 3 {
+                        let moved = libc::fcntl(death_fd, libc::F_DUPFD_CLOEXEC, 5);
+                        if moved == -1 {
+                            return Err(io::Error::last_os_error());
+                        }
+                        death_fd = moved;
+                    }
                     let result = if fd == 3 {
-                        libc::fcntl(fd, libc::F_SETFD, 0)
+                        libc::fcntl(3, libc::F_SETFD, 0)
                     } else {
                         libc::dup2(fd, 3)
                     };
                     if result == -1 {
                         return Err(io::Error::last_os_error());
                     }
-                    Ok(())
-                });
-            }
+                }
+                let result = if death_fd == 4 {
+                    libc::fcntl(4, libc::F_SETFD, 0)
+                } else {
+                    libc::dup2(death_fd, 4)
+                };
+                if result == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                if death_fd != read_fd {
+                    libc::close(death_fd);
+                }
+                Ok(())
+            });
         }
         let group = write_launch(&config, &launch).and_then(|()| ProcessGroup::spawn(&mut command));
+        drop(parent_read);
         let group = match group {
             Ok(group) => group,
             Err(error) => {
@@ -199,10 +226,15 @@ impl Worker {
                 return Err(error).with_context(|| format!("launch worker {}", program.service));
             }
         };
+        let pid = group.child.id();
         let client = Client::new(launch.worker_socket.clone(), &launch.token);
         let worker = Self {
             program,
-            group,
+            pid,
+            lifecycle: std::sync::Mutex::new(Some(WorkerProcess {
+                _parent_pipe: Some(parent_write),
+                group,
+            })),
             launch,
             client,
             config,
@@ -258,13 +290,23 @@ impl Worker {
     }
 
     pub(crate) fn exited(&self) -> io::Result<Option<ProcessExit>> {
-        self.group.exited()
+        let guard = self.lifecycle.lock().expect("worker lifecycle");
+        match &*guard {
+            Some(process) => process.group.exited(),
+            None => Ok(Some(ProcessExit {
+                code: None,
+                signal: Some(libc::SIGKILL),
+            })),
+        }
     }
 
     pub(crate) fn signal_shutdown(&self, force: bool) {
-        let _ = self
-            .group
-            .signal(if force { libc::SIGKILL } else { libc::SIGTERM });
+        let guard = self.lifecycle.lock().expect("worker lifecycle");
+        if let Some(process) = &*guard {
+            let _ = process
+                .group
+                .signal(if force { libc::SIGKILL } else { libc::SIGTERM });
+        }
     }
 
     pub(crate) fn record_fault(&self) -> bool {
@@ -272,7 +314,18 @@ impl Worker {
     }
 
     pub(crate) fn pid(&self) -> u32 {
-        self.group.child.id()
+        self.pid
+    }
+
+    pub(crate) fn is_stopped(&self) -> bool {
+        self.lifecycle.lock().expect("worker lifecycle").is_none()
+    }
+
+    pub(crate) fn stop_process(&self) {
+        let process = self.lifecycle.lock().expect("worker lifecycle").take();
+        drop(process);
+        let _ = fs::remove_file(&self.config);
+        let _ = fs::remove_file(&self.launch.worker_socket);
     }
 
     pub(crate) fn still_matches(&self, program: &Program) -> bool {
@@ -289,9 +342,7 @@ impl Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        self.group.stop();
-        let _ = fs::remove_file(&self.config);
-        let _ = fs::remove_file(&self.launch.worker_socket);
+        self.stop_process();
     }
 }
 
@@ -467,11 +518,13 @@ impl Worker {
             parent_death_fd: None,
         };
         let binary = PathBuf::from("/bin/sleep");
+        let group = ProcessGroup::spawn(Command::new(&binary).arg("60"))?;
+        let pid = group.child.id();
         Ok(Self {
             program: Program {
                 service: launch.identity.service.clone(),
                 process: "worker-tools".into(),
-                binary: binary.clone(),
+                binary,
                 digest: String::new(),
                 runtime: "go".into(),
                 identity,
@@ -479,7 +532,11 @@ impl Worker {
                 startup: None,
                 artifact: None,
             },
-            group: ProcessGroup::spawn(Command::new(binary).arg("60"))?,
+            pid,
+            lifecycle: std::sync::Mutex::new(Some(WorkerProcess {
+                _parent_pipe: None,
+                group,
+            })),
             client: Client::new(launch.worker_socket.clone(), &launch.token),
             config: directory.join("worker.json"),
             launch,

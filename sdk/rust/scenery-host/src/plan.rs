@@ -575,15 +575,106 @@ impl Artifact {
     }
 }
 
+#[derive(Deserialize)]
+struct DatabaseRegistry {
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    schemas: Vec<DatabaseSchemaEntry>,
+}
+
+#[derive(Deserialize)]
+struct DatabaseSchemaEntry {
+    #[serde(default)]
+    service: String,
+    #[serde(default)]
+    schema: String,
+    #[serde(default)]
+    url: String,
+}
+
+fn decode_database_registry(raw: &str) -> Result<Option<DatabaseRegistry>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let registry: DatabaseRegistry =
+        serde_json::from_str(trimmed).context("invalid SCENERY_DATABASE_JSON")?;
+    for entry in &registry.schemas {
+        ensure!(
+            !entry.service.trim().is_empty() && !entry.url.trim().is_empty(),
+            "postgres registry contains an incomplete schema"
+        );
+    }
+    Ok(Some(registry))
+}
+
+pub(crate) fn resolve_app_database_url() -> Result<String> {
+    resolve_app_database_url_from(|key| std::env::var(key).ok())
+}
+
+fn resolve_app_database_url_from(lookup: impl Fn(&str) -> Option<String>) -> Result<String> {
+    if let Some(url) = lookup("DATABASE_URL")
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(url);
+    }
+    if let Some(raw) = lookup("SCENERY_DATABASE_JSON")
+        && let Some(registry) = decode_database_registry(&raw)?
+    {
+        let url = registry.url.trim();
+        if !url.is_empty() {
+            return Ok(url.to_owned());
+        }
+        if let Some(entry) = registry
+            .schemas
+            .iter()
+            .find(|entry| entry.service.trim() == "scenery" || entry.schema.trim() == "scenery")
+        {
+            return Ok(entry.url.trim().to_owned());
+        }
+    }
+    anyhow::bail!("database is unavailable")
+}
+
 fn service_database(schema: &str) -> Result<String> {
+    resolve_service_database_url_from(schema, |key| std::env::var(key).ok())
+}
+
+fn resolve_service_database_url_from(
+    schema: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<String> {
     let schema_key = schema.to_ascii_uppercase();
     let key = format!("{schema_key}_DATABASE_URL");
-    if let Ok(value) = std::env::var(key)
-        && !value.is_empty()
+    if let Some(value) = lookup(&key)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
     {
         return Ok(value);
     }
-    let base = std::env::var("DATABASE_URL").context("worker database is unavailable")?;
+    let registry = lookup("SCENERY_DATABASE_JSON")
+        .map(|raw| decode_database_registry(&raw))
+        .transpose()?
+        .flatten();
+    if let Some(registry) = &registry
+        && let Some(entry) = registry
+            .schemas
+            .iter()
+            .find(|entry| entry.schema.trim() == schema || entry.service.trim() == schema)
+    {
+        return Ok(entry.url.trim().to_owned());
+    }
+    let base = lookup("DATABASE_URL")
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            registry
+                .map(|item| item.url.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        })
+        .context("worker database is unavailable")?;
     let mut url = url::Url::parse(&base).context("invalid worker database URL")?;
     let query: Vec<_> = url
         .query_pairs()
@@ -603,12 +694,27 @@ fn service_database(schema: &str) -> Result<String> {
 }
 
 fn production_worker_env(key: &str, runtime: &str) -> bool {
+    if matches!(
+        key,
+        "SCENERY_ROLE"
+            | "SCENERY_LISTEN_NETWORK"
+            | "SCENERY_LISTEN_ADDR"
+            | "SCENERY_PROCESS_LINK"
+            | "SCENERY_CONFIG_SNAPSHOT_FD"
+            | "SCENERY_STORAGE_CONFIG"
+    ) || key.starts_with("SCENERY_ASSISTANT_")
+        || key.starts_with("SCENERY_MCP_")
+    {
+        return false;
+    }
+    if runtime != "go"
+        && (matches!(key, "DATABASE_URL" | "SCENERY_DATABASE_JSON")
+            || key.ends_with("_DATABASE_URL")
+            || key.starts_with("SCENERY_DEV_REPORT_"))
+    {
+        return false;
+    }
     match key {
-        "SCENERY_LISTEN_NETWORK"
-        | "SCENERY_LISTEN_ADDR"
-        | "SCENERY_PROCESS_LINK"
-        | "SCENERY_CONFIG_SNAPSHOT_FD"
-        | "SCENERY_STORAGE_CONFIG" => false,
         "DATABASE_URL" | "SCENERY_DATABASE_JSON" => runtime == "go",
         "PATH"
         | "HOME"
@@ -648,5 +754,81 @@ fn production_worker_env(key: &str, runtime: &str) -> bool {
         | "GOTRACEBACK"
         | "GOCOVERDIR" => true,
         _ => key.starts_with("LC_") || key.starts_with("SCENERY_"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn resolves_database_urls_from_scenery_database_json_without_database_url() {
+        let registry = json!({
+            "database": "app",
+            "url": "postgres://user:pass@127.0.0.1:5432/app?sslmode=disable",
+            "schemas": [
+                {"service": "orders", "schema": "orders", "url": "postgres://user:pass@127.0.0.1:5432/app?search_path=orders,scenery&sslmode=disable"}
+            ]
+        })
+        .to_string();
+        let env = HashMap::from([("SCENERY_DATABASE_JSON", registry)]);
+        let lookup = |key: &str| env.get(key).cloned();
+        assert_eq!(
+            resolve_app_database_url_from(lookup).unwrap(),
+            "postgres://user:pass@127.0.0.1:5432/app?sslmode=disable"
+        );
+        assert_eq!(
+            resolve_service_database_url_from("orders", lookup).unwrap(),
+            "postgres://user:pass@127.0.0.1:5432/app?search_path=orders,scenery&sslmode=disable"
+        );
+        assert_eq!(
+            resolve_service_database_url_from("billing", lookup).unwrap(),
+            "postgres://user:pass@127.0.0.1:5432/app?sslmode=disable&search_path=billing%2Cscenery"
+        );
+
+        let incomplete = HashMap::from([(
+            "SCENERY_DATABASE_JSON",
+            r#"{"url":"postgres://db/app","schemas":[{"service":"orders","schema":"orders","url":""}]}"#.to_owned(),
+        )]);
+        assert!(resolve_app_database_url_from(|key| incomplete.get(key).cloned()).is_err());
+    }
+
+    #[test]
+    fn production_worker_env_strips_host_only_and_non_go_secrets() {
+        for forbidden in [
+            "SCENERY_ROLE",
+            "SCENERY_LISTEN_NETWORK",
+            "SCENERY_LISTEN_ADDR",
+            "SCENERY_PROCESS_LINK",
+            "SCENERY_CONFIG_SNAPSHOT_FD",
+            "SCENERY_STORAGE_CONFIG",
+            "SCENERY_ASSISTANT_RUNTIME_CONFIG",
+            "SCENERY_ASSISTANT_TOKEN_KEY",
+            "SCENERY_ASSISTANT_TOKEN_KEY_FILE",
+            "SCENERY_MCP_BRIDGE_SECRET",
+        ] {
+            for runtime in ["go", "rust", "ts", "js"] {
+                assert!(
+                    !production_worker_env(forbidden, runtime),
+                    "{forbidden} leaked to {runtime}"
+                );
+            }
+        }
+        assert!(production_worker_env("DATABASE_URL", "go"));
+        assert!(production_worker_env("SCENERY_DATABASE_JSON", "go"));
+        assert!(production_worker_env("SCENERY_DEV_REPORT_URL", "go"));
+        for secret in [
+            "DATABASE_URL",
+            "SCENERY_DATABASE_JSON",
+            "ORDERS_DATABASE_URL",
+            "SCENERY_DEV_REPORT_URL",
+            "SCENERY_DEV_REPORT_TOKEN",
+        ] {
+            assert!(!production_worker_env(secret, "rust"), "{secret}");
+            assert!(!production_worker_env(secret, "ts"), "{secret}");
+        }
+        assert!(production_worker_env("SCENERY_APP_ID", "rust"));
+        assert!(production_worker_env("LC_ALL", "ts"));
     }
 }

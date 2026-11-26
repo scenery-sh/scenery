@@ -28,6 +28,46 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    /// Discovers every `//go:embed` file and pattern declared by the Go builds
+    /// from the live `inputs` snapshot so globbed and cross-package embeds are
+    /// mirrored and tracked before the first rebuild.
+    pub(crate) fn discover_go_embeds(
+        &mut self,
+        root: &Path,
+        inputs: &dev_inputs::Inputs,
+    ) -> Result<()> {
+        for build in &mut self.commands {
+            if build.tool() != "go" {
+                continue;
+            }
+            build.embeds.clear();
+            build.embed_patterns.clear();
+            for path in inputs.keys() {
+                if extension(path) == "go" && go_source(path) && build.in_roots(path) {
+                    let text = match std::fs::read(root.join(path)) {
+                        Ok(text) => text,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                        Err(error) => return Err(error.into()),
+                    };
+                    let source = String::from_utf8_lossy(&text);
+                    let package_dir = path.parent().unwrap_or_else(|| Path::new(""));
+                    for pattern in embed_patterns(&source) {
+                        let joined = join_embed_pattern(package_dir, &pattern);
+                        if !joined.is_empty() && !build.embed_patterns.contains(&joined) {
+                            build.embed_patterns.push(joined);
+                        }
+                    }
+                    for matched in embedded(&source, path, inputs.keys()) {
+                        build.embeds.insert(matched.clone());
+                        self.go_inputs.insert(matched.clone());
+                    }
+                }
+            }
+            build.embeds_discovered = true;
+        }
+        Ok(())
+    }
+
     /// Reports whether the Go workspace mirrors `path`: Go sources, the
     /// files a build embeds, and everything else inside a package directory
     /// or next to an embedded file, where an embed pattern may select it.
@@ -35,10 +75,9 @@ impl Plan {
         go_source(path)
             || self.go_inputs.contains(path)
             || self.beside_embed(path)
-            || self
-                .commands
-                .iter()
-                .any(|build| build.tool() == "go" && build.in_roots(path))
+            || self.commands.iter().any(|build| {
+                build.tool() == "go" && (build.in_roots(path) || build.matches_embed(path))
+            })
     }
 
     /// Reports whether `path` sits in, or below, a directory that already
@@ -82,6 +121,12 @@ pub(crate) struct Build {
     roots: Vec<PathBuf>,
     #[serde(default)]
     owners: Vec<PathBuf>,
+    #[serde(default)]
+    pub embeds: BTreeSet<PathBuf>,
+    #[serde(default)]
+    pub embed_patterns: Vec<String>,
+    #[serde(default)]
+    pub embeds_discovered: bool,
 }
 
 impl Build {
@@ -119,6 +164,14 @@ impl Build {
                     && plan.go_inputs.contains(path))
     }
 
+    fn matches_embed(&self, path: &Path) -> bool {
+        self.embeds.contains(path)
+            || self
+                .embed_patterns
+                .iter()
+                .any(|pattern| path_matches_embed_pattern(pattern, path))
+    }
+
     /// Reports whether a change of `path` requires this build to run again.
     /// `appeared` is set for a file that was added or removed: such a file
     /// can change what an existing `//go:embed` pattern selects even though
@@ -126,9 +179,14 @@ impl Build {
     pub(crate) fn affected(&self, plan: &Plan, path: &Path, appeared: bool) -> bool {
         match self.tool() {
             "go" => {
-                (go_source(path) || plan.go_inputs.contains(path)) && self.in_roots(path)
+                go_source(path) && self.in_roots(path)
                     || appeared && self.in_roots(path)
-                    || self.in_root_embeds(plan, path, appeared)
+                    || !go_source(path)
+                        && !dev_inputs::declaration(path)
+                        && self.matches_embed(path)
+                    || !self.embeds_discovered
+                        && (plan.go_inputs.contains(path) && self.in_roots(path)
+                            || self.in_root_embeds(plan, path, appeared))
                     || matches!(
                         path.to_str(),
                         Some("go.mod" | "go.sum" | "go.work" | "go.work.sum")
@@ -252,7 +310,11 @@ impl Build {
             output == "-o" && target == "{output}",
             "invalid Go build command"
         );
-        let mut list = vec!["list".into(), "-deps".into(), "-json=Dir,EmbedFiles".into()];
+        let mut list = vec![
+            "list".into(),
+            "-deps".into(),
+            "-json=Dir,EmbedFiles,EmbedPatterns".into(),
+        ];
         list.extend(flags.iter().cloned());
         list.push(entry.clone());
         let output = run(
@@ -269,9 +331,12 @@ impl Build {
             dir: PathBuf,
             #[serde(default)]
             embed_files: Vec<PathBuf>,
+            #[serde(default)]
+            embed_patterns: Vec<String>,
         }
         let mut roots = BTreeSet::new();
         let mut embeds = BTreeSet::new();
+        let mut patterns = Vec::new();
         for package in
             serde_json::Deserializer::from_reader(BufReader::new(output)).into_iter::<Dependency>()
         {
@@ -283,6 +348,17 @@ impl Build {
                     relative
                 };
                 roots.insert(relative.to_owned());
+                let pattern_base = if relative == Path::new(".") {
+                    Path::new("")
+                } else {
+                    relative
+                };
+                for pattern in package.embed_patterns {
+                    let joined = join_embed_pattern(pattern_base, &pattern);
+                    if !joined.is_empty() && !patterns.contains(&joined) {
+                        patterns.push(joined);
+                    }
+                }
                 for file in package.embed_files {
                     let path = relative.join(file);
                     // The input scanner records workspace-relative paths.
@@ -295,6 +371,9 @@ impl Build {
             }
         }
         self.roots = roots.into_iter().collect();
+        self.embeds = embeds.clone();
+        self.embed_patterns = patterns;
+        self.embeds_discovered = true;
         Ok(embeds)
     }
 
@@ -367,6 +446,35 @@ pub(crate) fn embedded<'a>(
             })
         })
         .collect()
+}
+
+fn join_embed_pattern(dir: &Path, raw: &str) -> String {
+    let raw = raw
+        .trim()
+        .strip_prefix("all:")
+        .unwrap_or(raw.trim())
+        .trim_start_matches("./");
+    if raw.is_empty() {
+        return String::new();
+    }
+    if dir.as_os_str().is_empty() || dir == Path::new(".") {
+        raw.to_owned()
+    } else {
+        format!("{}/{}", dir.to_string_lossy().trim_end_matches('/'), raw)
+    }
+}
+
+fn path_matches_embed_pattern(pattern: &str, path: &Path) -> bool {
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+        return false;
+    }
+    let mut names = path.iter();
+    pattern.split('/').all(|segment| {
+        names
+            .next()
+            .is_some_and(|name| segment_matches(segment, &name.to_string_lossy()))
+    })
 }
 
 /// Reads the patterns of every `//go:embed` line: bare words and Go string
@@ -705,6 +813,48 @@ mod tests {
         let unrelated = Path::new("docs/guide.md");
         assert!(!plan.go_mirrored(unrelated));
         assert!(!web.affected(&plan, unrelated, true) && !root.affected(&plan, unrelated, true));
+        Ok(())
+    }
+
+    #[test]
+    fn globbed_and_cross_package_go_embeds_trigger_mirroring_and_rebuilds() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root_dir = temp.path().canonicalize()?;
+        std::fs::create_dir_all(root_dir.join("templates/en"))?;
+        std::fs::create_dir_all(root_dir.join("web"))?;
+        std::fs::write(
+            root_dir.join("main.go"),
+            "package main\n//go:embed templates/*/mail.html web/shared.json\nvar assets embed.FS\n",
+        )?;
+        std::fs::write(root_dir.join("templates/en/mail.html"), "hi")?;
+        std::fs::write(root_dir.join("web/shared.json"), "{}")?;
+        std::fs::write(
+            root_dir.join("web/handler.go"),
+            "package web\n//go:embed static.txt\nvar s string\n",
+        )?;
+        std::fs::write(root_dir.join("web/static.txt"), "ok")?;
+
+        let scanner = dev_inputs::Scanner::new(root_dir.clone());
+        let initial = scanner.scan(&[])?;
+        let mut plan: Plan = serde_json::from_value(json!({
+            "commands":[
+                {"process":"root","module":"root","directory":root_dir,"program":"go","args":[],"roots":["."]},
+                {"process":"web","module":"web","directory":root_dir,"program":"go","args":[],"roots":["web"]},
+            ],
+            "programs":[], "source_digest":"", "host_config":{},
+        }))?;
+        plan.discover_go_embeds(&root_dir, &initial)?;
+
+        // Adding a sibling locale under `templates/*/mail.html` matches the discovered glob.
+        let new_locale = Path::new("templates/cs/mail.html");
+        assert!(plan.go_mirrored(new_locale));
+        assert!(plan.commands[0].affected(&plan, new_locale, true));
+        assert!(!plan.commands[1].affected(&plan, new_locale, true));
+
+        // Editing a file inside `web/` embedded only by `root` rebuilds `root`, not `web`.
+        let shared = Path::new("web/shared.json");
+        assert!(plan.commands[0].affected(&plan, shared, false));
+        assert!(!plan.commands[1].affected(&plan, shared, false));
         Ok(())
     }
 }

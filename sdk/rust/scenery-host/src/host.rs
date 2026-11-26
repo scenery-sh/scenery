@@ -175,6 +175,7 @@ pub(crate) struct Call {
     pub parent_span_id: String,
     pub execution_id: Option<String>,
     pub caller: String,
+    pub cron_idempotency_key: Option<String>,
     pub stack: Vec<String>,
     pub cancel: CancellationToken,
     pub deadline: Instant,
@@ -216,6 +217,7 @@ impl Call {
             parent_span_id,
             execution_id: None,
             caller: String::new(),
+            cron_idempotency_key: None,
             stack: Vec::new(),
             deadline: Instant::now() + timeout,
             started: OffsetDateTime::now_utc(),
@@ -314,6 +316,43 @@ impl Drop for ScopeGuard {
     fn drop(&mut self) {
         self.scope.cancel.cancel();
         self.scopes.lock().expect("scope mutex").remove(&self.id);
+    }
+}
+
+#[cfg(test)]
+impl ScopeGuard {
+    pub(crate) fn test() -> Self {
+        let generation = Arc::new(Generation {
+            number: 1,
+            identity: crate::process::BuildIdentity {
+                contract_revision: String::new(),
+                implementation_revision: String::new(),
+                build_input_digest: String::new(),
+                go_target: String::new(),
+            },
+            workers: std::collections::BTreeMap::new(),
+            retired: CancellationToken::new(),
+        });
+        let call = Call::new(
+            generation,
+            &HeaderMap::new(),
+            "GET",
+            "/",
+            Duration::from_secs(30),
+        )
+        .expect("test call");
+        Self {
+            scopes: Arc::new(Mutex::new(HashMap::new())),
+            id: "test".into(),
+            scope: Arc::new(Scope {
+                call,
+                service: String::new(),
+                operation: String::new(),
+                endpoint: String::new(),
+                token: String::new(),
+                cancel: CancellationToken::new(),
+            }),
+        }
     }
 }
 
@@ -520,15 +559,20 @@ impl Host {
         Self::authorize(call, &binding.policy, &input)?;
         let mut child = call.descend(&binding.address, Some(&binding.policy))?;
         child.caller.clone_from(&binding.address);
-        if binding.delivery == "enqueue" || binding.delivery == "wait" {
+        if binding.delivery == "enqueue"
+            || binding.delivery == "wait"
+            || (binding.mcp && service.durable.contains_key(&binding.execution))
+        {
             let plan = service
                 .durable
                 .get(&binding.execution)
                 .ok_or_else(|| Fault::internal("execution is not declared"))?;
-            return self
-                .engine
-                .dispatch(&child, plan, &binding.delivery, &input)
-                .await;
+            let delivery = if binding.delivery == "wait" {
+                "wait"
+            } else {
+                "enqueue"
+            };
+            return self.engine.dispatch(&child, plan, delivery, &input).await;
         }
         self.invoke(
             &child,
@@ -669,6 +713,13 @@ impl Host {
         };
         if head {
             *reply.body_mut() = body(Bytes::new());
+        } else if storage && reply.status().is_success() {
+            let inner = std::mem::replace(reply.body_mut(), body(Bytes::new()));
+            *reply.body_mut() = crate::transport::ScopedBody::boxed(
+                inner,
+                scope.cancel.clone(),
+                scope.call.deadline,
+            );
         }
         reply
     }
@@ -750,10 +801,12 @@ impl Host {
                 crate::storage::serve(request, scope, service).await
             }
             (Method::POST, "/host/v1/connections/token") => {
+                let bad_request =
+                    || Fault::new(400, "invalid_argument", "invalid connection request");
                 let raw = read(request.into_body(), 8 << 10)
                     .await
-                    .map_err(|_| Fault::invalid())?;
-                let input = serde_json::from_slice(&raw).map_err(|_| Fault::invalid())?;
+                    .map_err(|_| bad_request())?;
+                let input = serde_json::from_slice(&raw).map_err(|_| bad_request())?;
                 let token = crate::connections::token(self, scope, input).await?;
                 let mut reply = json_reply(StatusCode::OK, &json!({"token": token}));
                 header(reply.headers_mut(), "cache-control", "no-store");
@@ -897,127 +950,22 @@ fn worker_invocation_metadata(
             metadata[member.as_str()] = value.clone();
         }
     }
+    if metadata.get("api").is_none() {
+        metadata["api"] = json!({
+            "exposed": false,
+            "auth_required": call.principal_id().is_some(),
+        });
+    }
+    if let Some(key) = call
+        .cron_idempotency_key
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        metadata["cron_idempotency_key"] = json!(key);
+    }
     metadata
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bindings_answer_admission_failures_with_their_declared_outcomes() {
-        let policy: Policy = serde_json::from_value(json!({
-            "BindingAddress":"api", "AuthorizationStrategy":"deny_unless_allowed",
-            "AuthorizationRules":[], "TotalInvocationTimeoutNanos":0, "MaxRequestHeaderBytes":0,
-            "CORS":"none", "AllowedOrigins":[],
-            "TransportStatuses":{"admission.unauthenticated":499, "admission.forbidden":404},
-        }))
-        .unwrap();
-        let unauthenticated =
-            || Fault::new(401, "unauthenticated", "invalid or missing authentication");
-        for (fault, status, code) in [
-            (unauthenticated(), 499, "admission.unauthenticated"),
-            (Fault::forbidden(), 404, "admission.forbidden"),
-            (Fault::invalid(), 400, "transport.invalid_request"),
-        ] {
-            let message = fault.message;
-            let (answered, problem) = fault.problem(Some(&policy));
-            assert_eq!(answered, status);
-            // Generated clients select the failure branch by this code.
-            assert_eq!(problem, json!({"code": code, "message": message}));
-        }
-        // Without a mapping the outcome keeps the status of the fault.
-        let plain = Policy {
-            transport_statuses: Default::default(),
-            ..policy
-        };
-        let (status, problem) = unauthenticated().problem(Some(&plain));
-        assert_eq!(status, 401);
-        assert_eq!(problem["code"], "admission.unauthenticated");
-        // Host capabilities are no binding and keep the internal code.
-        let (status, problem) = Fault::forbidden().problem(None);
-        assert_eq!(status, 403);
-        assert_eq!(problem["code"], "permission_denied");
-    }
-
-    #[test]
-    fn control_calls_forward_only_a_real_invocation_credential() {
-        let forwarded = |invocation: Option<&'static str>| {
-            let mut headers = HeaderMap::new();
-            headers.insert("authorization", HeaderValue::from_static("Bearer control"));
-            if let Some(value) = invocation {
-                headers.insert(
-                    "x-app-invocation-authorization",
-                    HeaderValue::from_static(value),
-                );
-            }
-            forward_invocation_authorization(&mut headers);
-            assert!(!headers.contains_key("x-app-invocation-authorization"));
-            headers.get("authorization").cloned()
-        };
-        assert_eq!(forwarded(Some("Bearer user")).unwrap(), "Bearer user");
-        // `scenery call` without `--as` used to send the header empty,
-        // which turned every internal binding call into a 401.
-        assert_eq!(forwarded(Some("")), None);
-        assert_eq!(forwarded(Some("  ")), None);
-        assert_eq!(forwarded(None), None);
-    }
-
-    #[tokio::test]
-    async fn production_worker_metadata_respects_declared_log_filters() {
-        let sink = telemetry::Sink::new(
-            "inbox",
-            false,
-            &crate::plan::Observability {
-                logs: crate::plan::EndpointFilter {
-                    include_endpoints: vec![],
-                    exclude_endpoints: vec!["orders.Mute".into()],
-                },
-                tracing: Default::default(),
-            },
-            Default::default(),
-            &crate::plan::ReportIdentity {
-                schema_revision: "sha256:fixture".into(),
-                producer_version: "v1.0.0".into(),
-            },
-        )
-        .unwrap();
-        let generation = Arc::new(Generation {
-            number: 1,
-            identity: crate::process::BuildIdentity {
-                contract_revision: String::new(),
-                implementation_revision: String::new(),
-                build_input_digest: String::new(),
-                go_target: String::new(),
-            },
-            workers: Default::default(),
-            retired: CancellationToken::new(),
-        });
-        let call = Call::new(
-            generation,
-            &HeaderMap::new(),
-            "POST",
-            "/orders",
-            Duration::from_secs(5),
-        )
-        .unwrap();
-        let service = Service {
-            address: "app/service/orders".into(),
-            module: "orders".into(),
-            name: "orders".into(),
-            process: "orders".into(),
-            runtime: "go".into(),
-            operations: Default::default(),
-            clients: Default::default(),
-            bindings: vec![],
-            durable: Default::default(),
-            schedules: vec![],
-            stores: Default::default(),
-        };
-        let enabled =
-            worker_invocation_metadata(&sink, &call, &service, "app/binding/create", "sync");
-        assert_eq!(enabled["logs_enabled"], true);
-        let muted = worker_invocation_metadata(&sink, &call, &service, "app/binding/mute", "sync");
-        assert_eq!(muted["logs_enabled"], false);
-    }
-}
+#[path = "host_test.rs"]
+mod tests;

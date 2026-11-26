@@ -7,9 +7,11 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"syscall"
+	"time"
 
 	"scenery.sh/internal/app"
 	cp "scenery.sh/internal/clientprojection"
@@ -141,9 +143,14 @@ func startWorkerVite(ctx context.Context, frontend workerFrontend) (*workerFront
 	if err != nil {
 		return nil, 0, clean, err
 	}
-	process := exec.Command(program, append(args, "--strictPort")...)
+	cli, err := os.Executable()
+	if err != nil {
+		return nil, 0, clean, err
+	}
+	wrapperArgs := append([]string{"worker-frontend", frontend.Root, program}, append(args, "--strictPort")...)
+	process := exec.Command(cli, wrapperArgs...)
 	process.Dir, process.Stdout, process.Stderr = frontend.Root, os.Stderr, os.Stderr
-	devprocess.ConfigureChild(process)
+	devprocess.ConfigureDetachedChild(process)
 	if err := process.Start(); err != nil {
 		return nil, 0, clean, err
 	}
@@ -163,4 +170,46 @@ func startWorkerVite(ctx context.Context, frontend workerFrontend) (*workerFront
 	}
 	frontend.Upstream = address
 	return &frontend, process.Process.Pid, clean, nil
+}
+
+// runWorkerFrontend supervises Vite inside a detached process group without
+// Linux PR_SET_PDEATHSIG so execve handoffs cannot abort Vite while still
+// reaping Vite if the parent exits abruptly.
+func runWorkerFrontend(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("invalid worker frontend arguments")
+	}
+	root, program, programArgs := args[0], args[1], args[2:]
+	parent := os.Getppid()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT)
+	defer stop()
+	go watchWorkerAssistantParent(ctx, parent, stop)
+
+	cmd := exec.Command(program, programArgs...)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = root, os.Stderr, os.Stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.C:
+			_ = cmd.Process.Kill()
+			<-done
+		}
+		if pgid, err := syscall.Getpgid(0); err == nil && pgid > 1 {
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+		return nil
+	}
 }

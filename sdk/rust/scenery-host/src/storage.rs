@@ -59,8 +59,22 @@ pub(crate) async fn serve(
             "unsupported storage method",
         ));
     }
+    let recursive = match query.get("recursive") {
+        None => false,
+        Some(values) if values.len() == 1 && matches!(values[0].as_str(), "1" | "true") => true,
+        Some(_) => return Err(Fault::invalid()),
+    };
+    if recursive && action != "delete" {
+        return Err(Fault::invalid());
+    }
     let key = if action == "list" {
         None
+    } else if recursive {
+        if query.contains_key("key") {
+            Some(one("key").ok_or_else(Fault::invalid)?)
+        } else {
+            Some("")
+        }
     } else {
         Some(
             one("key")
@@ -68,9 +82,6 @@ pub(crate) async fn serve(
                 .ok_or_else(Fault::invalid)?,
         )
     };
-    if query.contains_key("recursive") {
-        return Err(Fault::invalid());
-    }
     let configuration = config().map_err(Fault::internal)?;
     let store = configuration["stores"]
         .get(name)
@@ -95,6 +106,7 @@ pub(crate) async fn serve(
                 name,
                 tenant,
                 key,
+                recursive,
                 query: &query,
             },
         )
@@ -113,7 +125,7 @@ pub(crate) async fn serve(
     let namespace = namespace_binding(&configuration["namespace"]).map_err(Fault::internal)?;
     let name = utf8_percent_encode(name, PATH_COMPONENT);
     let mut path = format!("/v1/stores/{name}");
-    if let Some(key) = key {
+    if let Some(key) = key.filter(|key| !key.is_empty()) {
         path.push_str(&format!(
             "/objects/{}",
             utf8_percent_encode(key, PATH_COMPONENT)
@@ -124,7 +136,15 @@ pub(crate) async fn serve(
             query
                 .iter()
                 .filter(|(key, _)| !matches!(key.as_str(), "store" | "key"))
-                .flat_map(|(key, values)| values.iter().map(move |value| (key, value))),
+                .flat_map(|(key, values)| {
+                    values.iter().map(move |value| {
+                        if key == "recursive" && value == "true" {
+                            (key.as_str(), "1")
+                        } else {
+                            (key.as_str(), value.as_str())
+                        }
+                    })
+                }),
         )
         .finish();
     if !options.is_empty() {

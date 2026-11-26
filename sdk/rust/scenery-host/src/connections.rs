@@ -122,7 +122,8 @@ pub(crate) async fn token(
         .filter(|id| valid_uuid(id))
         .ok_or_else(Fault::forbidden)?;
     let provider = provider(host, &request.provider)?;
-    let required = normalize_scopes(request.scopes).ok_or_else(Fault::invalid)?;
+    let required = normalize_scopes(request.scopes)
+        .ok_or_else(|| Fault::new(400, "invalid_argument", "invalid connection request"))?;
     if !required
         .iter()
         .all(|scope| provider.allowed_scopes.contains(scope))

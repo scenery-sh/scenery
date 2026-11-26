@@ -335,7 +335,8 @@ fn worker_request(
         if matches!(
             name.as_str(),
             "authorization" | "proxy-authorization" | "cookie" | "host"
-        ) {
+        ) || name.as_str().starts_with("x-scenery-")
+        {
             continue;
         }
         let values: Vec<_> = headers
@@ -350,6 +351,10 @@ fn worker_request(
         "path": percent_decode_str(path).decode_utf8_lossy(),
         "path_params": path_params,
         "headers": forwarded,
+        "api": {
+            "exposed": true,
+            "auth_required": route.access == "auth",
+        },
     })
 }
 
@@ -524,20 +529,71 @@ fn attest(mut response: Reply, generation: &Generation, worker: Option<(u32, Str
         header(headers, "x-app-worker-pid", &pid.to_string());
         header(headers, "x-app-worker-revision", &revision);
     }
-    let rejected: Vec<_> = headers
-        .iter()
-        .filter(|(key, value)| {
-            key.as_str().contains("scenery")
-                || value
-                    .to_str()
-                    .is_ok_and(|value| value.to_ascii_lowercase().contains("scenery"))
-        })
-        .map(|(key, _)| key.clone())
-        .collect();
-    for key in rejected {
-        headers.remove(key);
+    for name in [
+        "connection",
+        "vary",
+        "trailer",
+        "access-control-allow-headers",
+        "access-control-expose-headers",
+    ] {
+        scrub_header_list(headers, name);
+    }
+    let keys: Vec<_> = headers.keys().cloned().collect();
+    for key in keys {
+        if contains_scenery_bytes(key.as_str().as_bytes()) {
+            headers.remove(&key);
+            continue;
+        }
+        let has_scenery = headers
+            .get_all(&key)
+            .iter()
+            .any(|value| contains_scenery_bytes(value.as_bytes()));
+        if has_scenery {
+            let kept: Vec<_> = headers
+                .get_all(&key)
+                .iter()
+                .filter(|value| !contains_scenery_bytes(value.as_bytes()))
+                .cloned()
+                .collect();
+            headers.remove(&key);
+            for value in kept {
+                headers.append(key.clone(), value);
+            }
+        }
     }
     response
+}
+
+fn contains_scenery_bytes(bytes: &[u8]) -> bool {
+    bytes
+        .windows(b"scenery".len())
+        .any(|window| window.eq_ignore_ascii_case(b"scenery"))
+}
+
+fn scrub_header_list(headers: &mut HeaderMap, name: &'static str) {
+    let values: Vec<_> = headers.get_all(name).iter().cloned().collect();
+    if values.is_empty() {
+        return;
+    }
+    headers.remove(name);
+    for value in values {
+        let Ok(text) = std::str::from_utf8(value.as_bytes()) else {
+            if !contains_scenery_bytes(value.as_bytes()) {
+                headers.append(name, value);
+            }
+            continue;
+        };
+        let kept: Vec<_> = text
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty() && !contains_scenery_bytes(item.as_bytes()))
+            .collect();
+        if !kept.is_empty()
+            && let Ok(filtered) = HeaderValue::from_str(&kept.join(", "))
+        {
+            headers.append(name, filtered);
+        }
+    }
 }
 
 pub(crate) fn timeout(policy: &Policy) -> Duration {
@@ -785,7 +841,13 @@ mod tests {
         headers.insert("x-correlation-id", HeaderValue::from_static("corr-1"));
         headers.append("accept-language", HeaderValue::from_static("cs"));
         headers.append("accept-language", HeaderValue::from_static("en"));
-        for consumed in ["authorization", "proxy-authorization", "cookie", "host"] {
+        for consumed in [
+            "authorization",
+            "proxy-authorization",
+            "cookie",
+            "host",
+            "x-scenery-internal",
+        ] {
             headers.insert(consumed, HeaderValue::from_static("secret"));
         }
         // Go workers read this shape in `runtime/worker_go.go`.
@@ -795,7 +857,43 @@ mod tests {
                 "method": "PUT", "path": "/orders/42/lines/a b",
                 "path_params": [{"name":"order","value":"42"}, {"name":"line","value":"a%20b"}],
                 "headers": {"accept-language":["cs","en"], "x-correlation-id":["corr-1"]},
+                "api": {"exposed": true, "auth_required": true},
             })
+        );
+    }
+
+    #[test]
+    fn attest_scrubs_header_lists_and_individual_values() {
+        let generation = Generation {
+            number: 1,
+            identity: crate::process::BuildIdentity {
+                contract_revision: "c".into(),
+                implementation_revision: "i".into(),
+                build_input_digest: "d".into(),
+                go_target: "worker".into(),
+            },
+            workers: Default::default(),
+            retired: CancellationToken::new(),
+        };
+        let mut reply = empty(StatusCode::OK);
+        let headers = reply.headers_mut();
+        headers.append(
+            "vary",
+            HeaderValue::from_static("Origin, X-Scenery-Internal"),
+        );
+        headers.append("set-cookie", HeaderValue::from_static("app_session=ok"));
+        headers.append("set-cookie", HeaderValue::from_static("scenery_leak=bad"));
+        headers.append("x-scenery-secret", HeaderValue::from_static("hidden"));
+        let cleaned = attest(reply, &generation, None);
+        assert_eq!(cleaned.headers()["vary"], "Origin");
+        assert!(!cleaned.headers().contains_key("x-scenery-secret"));
+        assert_eq!(
+            cleaned
+                .headers()
+                .get_all("set-cookie")
+                .iter()
+                .collect::<Vec<_>>(),
+            ["app_session=ok"]
         );
     }
 

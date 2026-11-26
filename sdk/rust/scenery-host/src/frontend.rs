@@ -305,12 +305,20 @@ async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result
         .headers()
         .contains_key("upgrade")
         .then(|| hyper::upgrade::on(&mut request));
+    let is_websocket = request
+        .headers()
+        .get("upgrade")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("websocket"));
     if upgrade.is_none() {
         strip_hop_headers(request.headers_mut());
+    } else if is_websocket {
+        request.headers_mut().remove("sec-websocket-extensions");
     }
     let original_host = request.headers().get("host").cloned();
     let peer = request.extensions().get::<std::net::IpAddr>().copied();
     let headers = request.headers_mut();
+    strip_scenery_headers(headers);
     headers.remove("forwarded");
     headers.remove("x-forwarded-for");
     headers.remove("x-forwarded-host");
@@ -324,13 +332,22 @@ async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result
     header(headers, "x-forwarded-proto", "http");
     let mut response = crate::frontend_dev::send(request).await?;
     if response.status() == StatusCode::SWITCHING_PROTOCOLS {
+        if is_websocket {
+            response.headers_mut().remove("sec-websocket-extensions");
+        }
         if let Some(client) = upgrade {
             let target = hyper::upgrade::on(&mut response);
             tokio::spawn(async move {
                 if let (Ok(client), Ok(target)) = tokio::join!(client, target) {
-                    let _ =
-                        copy_bidirectional(&mut TokioIo::new(client), &mut TokioIo::new(target))
-                            .await;
+                    if is_websocket {
+                        proxy_ws_frames(client, target).await;
+                    } else {
+                        let _ = copy_bidirectional(
+                            &mut TokioIo::new(client),
+                            &mut TokioIo::new(target),
+                        )
+                        .await;
+                    }
                 }
             });
         }
@@ -338,6 +355,124 @@ async fn proxy(upstream: &str, mut request: Request<Incoming>) -> anyhow::Result
         strip_hop_headers(response.headers_mut());
     }
     crate::frontend_dev::response(response).await
+}
+
+fn strip_scenery_headers(headers: &mut hyper::HeaderMap) {
+    let names: Vec<_> = headers
+        .keys()
+        .filter(|name| name.as_str().starts_with("x-scenery-"))
+        .cloned()
+        .collect();
+    for name in names {
+        headers.remove(name);
+    }
+}
+
+async fn proxy_ws_frames(client: hyper::upgrade::Upgraded, target: hyper::upgrade::Upgraded) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut client_read, mut client_write) = tokio::io::split(TokioIo::new(client));
+    let (mut target_read, mut target_write) = tokio::io::split(TokioIo::new(target));
+    let client_to_target = tokio::io::copy(&mut client_read, &mut target_write);
+    let target_to_client = async {
+        loop {
+            let mut head = [0u8; 2];
+            if target_read.read_exact(&mut head).await.is_err() {
+                break;
+            }
+            let fin = head[0] & 0x80 != 0;
+            let rsv = head[0] & 0x70;
+            let opcode = head[0] & 0x0f;
+            let masked = head[1] & 0x80 != 0;
+            let mut ext = [0u8; 8];
+            let ext_len = match head[1] & 0x7f {
+                126 => {
+                    if target_read.read_exact(&mut ext[..2]).await.is_err() {
+                        break;
+                    }
+                    2
+                }
+                127 => {
+                    if target_read.read_exact(&mut ext).await.is_err() {
+                        break;
+                    }
+                    8
+                }
+                _ => 0,
+            };
+            let payload_len = match ext_len {
+                2 => u16::from_be_bytes([ext[0], ext[1]]) as u64,
+                8 => u64::from_be_bytes(ext),
+                _ => (head[1] & 0x7f) as u64,
+            };
+            let mut mask = [0u8; 4];
+            if masked && target_read.read_exact(&mut mask).await.is_err() {
+                break;
+            }
+            if !masked
+                && fin
+                && rsv == 0
+                && opcode == 0x01
+                && payload_len <= crate::frontend_dev::TEXT_LIMIT as u64
+            {
+                let mut payload = vec![0u8; payload_len as usize];
+                if target_read.read_exact(&mut payload).await.is_err() {
+                    break;
+                }
+                let rewritten = match std::str::from_utf8(&payload)
+                    .map(crate::frontend_dev::rewrite_hmr_text)
+                {
+                    Ok(std::borrow::Cow::Owned(text)) => text.into_bytes(),
+                    _ => payload,
+                };
+                if write_ws_unmasked_frame(&mut client_write, head[0], &rewritten)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            } else {
+                if client_write.write_all(&head).await.is_err()
+                    || (ext_len > 0 && client_write.write_all(&ext[..ext_len]).await.is_err())
+                    || (masked && client_write.write_all(&mask).await.is_err())
+                {
+                    break;
+                }
+                let mut limited = (&mut target_read).take(payload_len);
+                if tokio::io::copy(&mut limited, &mut client_write)
+                    .await
+                    .is_err()
+                    || client_write.flush().await.is_err()
+                {
+                    break;
+                }
+            }
+        }
+    };
+    let _ = tokio::join!(client_to_target, target_to_client);
+}
+
+async fn write_ws_unmasked_frame<W: tokio::io::AsyncWrite + Unpin>(
+    writer: &mut W,
+    first_byte: u8,
+    payload: &[u8],
+) -> io::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    writer.write_all(&[first_byte]).await?;
+    match payload.len() {
+        0..=125 => writer.write_all(&[payload.len() as u8]).await?,
+        126..=65535 => {
+            writer.write_all(&[126]).await?;
+            writer
+                .write_all(&(payload.len() as u16).to_be_bytes())
+                .await?;
+        }
+        len => {
+            writer.write_all(&[127]).await?;
+            writer.write_all(&(len as u64).to_be_bytes()).await?;
+        }
+    }
+    writer.write_all(payload).await?;
+    writer.flush().await
 }
 
 fn strip_hop_headers(headers: &mut hyper::HeaderMap) {

@@ -256,7 +256,7 @@ impl Supervisor {
         }
         let now = Instant::now();
         let active = self.publication.borrow().clone();
-        retire_workers(
+        let stopped_workers = retire_workers(
             self.retired
                 .values()
                 .map(|retired| (&*retired.generation, now >= retired.deadline)),
@@ -265,14 +265,27 @@ impl Supervisor {
                 .chain(self.pending.iter().map(|pending| &pending.generation))
                 .map(|generation| &**generation),
         );
-        self.retired.retain(|_, retired| {
-            if Arc::strong_count(&retired.generation) == 1 {
-                let generation = retired.generation.clone();
-                tokio::task::spawn_blocking(move || drop(generation));
-                return false;
+        let expired_keys: Vec<u64> = self
+            .retired
+            .iter()
+            .filter_map(|(&number, retired)| {
+                (Arc::strong_count(&retired.generation) == 1).then_some(number)
+            })
+            .collect();
+        let mut expired_generations = Vec::with_capacity(expired_keys.len());
+        for key in expired_keys {
+            if let Some(retired) = self.retired.remove(&key) {
+                expired_generations.push(retired.generation);
             }
-            true
-        });
+        }
+        if !stopped_workers.is_empty() || !expired_generations.is_empty() {
+            tokio::task::spawn_blocking(move || {
+                for worker in stopped_workers {
+                    worker.stop_process();
+                }
+                drop(expired_generations);
+            });
+        }
     }
 
     fn status(&self) -> Status {
@@ -354,7 +367,7 @@ impl Supervisor {
 fn retire_workers<'a>(
     retired: impl Iterator<Item = (&'a Generation, bool)> + Clone,
     serving: impl Iterator<Item = &'a Generation>,
-) {
+) -> Vec<Arc<Worker>> {
     let in_use: Vec<*const Worker> = serving
         .chain(
             retired
@@ -364,14 +377,19 @@ fn retire_workers<'a>(
         )
         .flat_map(|generation| generation.workers.values().map(Arc::as_ptr))
         .collect();
+    let mut stopped = Vec::new();
     for (generation, _) in retired.filter(|(_, drained)| *drained) {
         generation.retired.cancel();
         for worker in generation.workers.values() {
             if !in_use.contains(&Arc::as_ptr(worker)) {
                 worker.retired.cancel();
+                if !worker.is_stopped() && !stopped.iter().any(|item| Arc::ptr_eq(item, worker)) {
+                    stopped.push(worker.clone());
+                }
             }
         }
     }
+    stopped
 }
 
 #[derive(Clone)]
@@ -786,6 +804,59 @@ mod tests {
         );
         assert!(billing.retired.is_cancelled());
         assert!(!rebuilt.retired.is_cancelled() && !replaced.retired.is_cancelled());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn maintaining_retired_generations_stops_replaced_workers_while_an_old_generation_stays_held()
+    -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let worker = || Worker::test_worker(directory.path()).map(Arc::new);
+        let (orders, billing, rebuilt) = (worker()?, worker()?, worker()?);
+        let first = Arc::new(generation(1, &[("orders", &orders), ("billing", &billing)]));
+        let second = Arc::new(generation(2, &[("orders", &orders), ("billing", &rebuilt)]));
+        let held_generation = first.clone();
+
+        let (publication, _) = watch::channel(Some(second));
+        let mut supervisor = Supervisor {
+            directory: directory.path().to_path_buf(),
+            publication,
+            revision: "contract".into(),
+            expected: BTreeMap::new(),
+            sequence: 2,
+            order: vec!["orders".into(), "billing".into()],
+            pending: None,
+            retired: BTreeMap::from([(
+                1,
+                Retired {
+                    generation: first,
+                    deadline: Instant::now() - Duration::from_secs(1),
+                },
+            )]),
+            faults: VecDeque::new(),
+            fault_sequence: 0,
+        };
+
+        supervisor.maintain();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !billing.is_stopped() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+
+        assert!(billing.retired.is_cancelled());
+        assert!(billing.exited()?.is_some());
+        assert!(!orders.is_stopped() && !rebuilt.is_stopped());
+        assert!(!orders.retired.is_cancelled() && orders.exited()?.is_none());
+        assert!(supervisor.retired.contains_key(&1));
+
+        drop(held_generation);
+        supervisor.maintain();
+        assert!(supervisor.retired.is_empty());
+
+        orders.stop_process();
+        rebuilt.stop_process();
         Ok(())
     }
 }

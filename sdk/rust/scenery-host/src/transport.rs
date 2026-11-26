@@ -143,6 +143,91 @@ pub(crate) async fn read_response(
     Ok(bytes)
 }
 
+pub(crate) struct ScopedBody {
+    state: std::sync::Arc<std::sync::Mutex<ScopedBodyState>>,
+    watch: tokio::task::JoinHandle<()>,
+}
+
+struct ScopedBodyState {
+    inner: Option<crate::host::Body>,
+    waker: Option<std::task::Waker>,
+    ended: bool,
+}
+
+impl ScopedBody {
+    pub(crate) fn boxed(
+        inner: crate::host::Body,
+        cancel: tokio_util::sync::CancellationToken,
+        deadline: tokio::time::Instant,
+    ) -> crate::host::Body {
+        let state = std::sync::Arc::new(std::sync::Mutex::new(ScopedBodyState {
+            inner: Some(inner),
+            waker: None,
+            ended: false,
+        }));
+        let watcher = state.clone();
+        let watch = tokio::spawn(async move {
+            crate::abi::cancelled(cancel, deadline).await;
+            let (dropped, waker) = {
+                let mut state = watcher.lock().expect("scoped body");
+                state.ended = true;
+                (state.inner.take(), state.waker.take())
+            };
+            drop(dropped);
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        });
+        BodyExt::boxed_unsync(Self { state, watch })
+    }
+}
+
+impl Drop for ScopedBody {
+    fn drop(&mut self) {
+        self.watch.abort();
+        let dropped = self.state.lock().expect("scoped body").inner.take();
+        drop(dropped);
+    }
+}
+
+impl hyper::body::Body for ScopedBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, std::io::Error>>> {
+        let mut guard = self.state.lock().expect("scoped body");
+        if guard.ended {
+            return std::task::Poll::Ready(Some(Err(std::io::Error::other(
+                "capability scope ended",
+            ))));
+        }
+        if guard.inner.is_none() {
+            return std::task::Poll::Ready(None);
+        }
+        guard.waker = Some(cx.waker().clone());
+        let inner = guard.inner.as_mut().expect("checked body");
+        let result = std::pin::Pin::new(inner).poll_frame(cx);
+        if matches!(result, std::task::Poll::Ready(None | Some(Err(_)))) {
+            let dropped = guard.inner.take();
+            drop(guard);
+            drop(dropped);
+        }
+        result
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.state
+            .lock()
+            .expect("scoped body")
+            .inner
+            .as_ref()
+            .map_or_else(hyper::body::SizeHint::default, hyper::body::Body::size_hint)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

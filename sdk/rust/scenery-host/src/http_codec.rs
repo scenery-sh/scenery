@@ -624,12 +624,18 @@ pub(crate) fn encode_response(
             if plan.options.max_bytes > 0 && stream.length() > plan.options.max_bytes {
                 return Err(Fault::internal("response stream exceeds body limit"));
             }
-            header(
-                response.headers_mut(),
-                "content-length",
-                &stream.length().to_string(),
-            );
-            *response.body_mut() = stream.boxed_unsync();
+            let length = usize::try_from(stream.length()).unwrap_or(usize::MAX);
+            if negotiate_gzip(plan, request, &mut response, length)? {
+                header(response.headers_mut(), "content-encoding", "gzip");
+                *response.body_mut() = GzipStream::new(stream).boxed_unsync();
+            } else {
+                header(
+                    response.headers_mut(),
+                    "content-length",
+                    &stream.length().to_string(),
+                );
+                *response.body_mut() = stream.boxed_unsync();
+            }
         } else {
             let selected = selection(&outcome.payload, &plan.body)?
                 .ok_or_else(|| Fault::internal("response body is missing"))?;
@@ -648,32 +654,11 @@ pub(crate) fn encode_response(
             if plan.options.max_bytes > 0 && data.len() as u64 > plan.options.max_bytes {
                 return Err(Fault::internal("response body exceeds declared limit"));
             }
-            let encoding = request.get("accept-encoding");
-            let (identity_match, identity_weight) = preference(encoding, "identity", false);
-            let identity = identity_match == 0 || identity_weight > 0.0;
-            if plan
-                .options
-                .compression_algorithms
-                .iter()
-                .any(|algo| algo == "gzip")
-            {
-                response
-                    .headers_mut()
-                    .append("vary", HeaderValue::from_static("Accept-Encoding"));
-                let (rank, weight) = preference(encoding, "gzip", false);
-                if rank > 0
-                    && weight > 0.0
-                    && (!identity || data.len() >= plan.options.compression_threshold)
-                {
-                    let mut compressor = GzEncoder::new(Vec::new(), Compression::default());
-                    compressor.write_all(&data).map_err(Fault::internal)?;
-                    data = compressor.finish().map_err(Fault::internal)?;
-                    header(response.headers_mut(), "content-encoding", "gzip");
-                } else if !identity {
-                    return Err(not_acceptable());
-                }
-            } else if !identity {
-                return Err(not_acceptable());
+            if negotiate_gzip(plan, request, &mut response, data.len())? {
+                let mut compressor = GzEncoder::new(Vec::new(), Compression::default());
+                compressor.write_all(&data).map_err(Fault::internal)?;
+                data = compressor.finish().map_err(Fault::internal)?;
+                header(response.headers_mut(), "content-encoding", "gzip");
             }
             header(
                 response.headers_mut(),
@@ -783,162 +768,148 @@ fn wire_text(value: &Value) -> String {
         .unwrap_or_else(|| values::encode(value))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn mapping(source: &str, ty: &str) -> Mapping {
-        serde_json::from_value(json!({
-            "Source": source, "Name": "rest", "Target": "rest", "Type": ty,
-            "Encoding": "", "Optional": ty.starts_with("optional("), "EnumValues": [],
-        }))
-        .unwrap()
-    }
-
-    /// Decodes a captured path value the way `decode_request` maps it.
-    fn mapped(source: &str, ty: &str, captured: &str) -> Result<Option<Value>> {
-        let mapping = mapping(source, ty);
-        let values = path_values(&BTreeMap::from([("rest", captured)]), &mapping)?;
-        if values.is_empty() && mapping.optional {
-            return Ok(None);
+fn negotiate_gzip(
+    plan: &ResponsePlan,
+    request: &HeaderMap,
+    response: &mut Reply,
+    payload_len: usize,
+) -> Result<bool, Fault> {
+    let not_acceptable = || {
+        Fault::new(
+            406,
+            "transport.not_acceptable",
+            "no acceptable response representation",
+        )
+    };
+    let encoding = request.get("accept-encoding");
+    let (identity_match, identity_weight) = preference(encoding, "identity", false);
+    let identity = identity_match == 0 || identity_weight > 0.0;
+    if plan
+        .options
+        .compression_algorithms
+        .iter()
+        .any(|algo| algo == "gzip")
+    {
+        response
+            .headers_mut()
+            .append("vary", HeaderValue::from_static("Accept-Encoding"));
+        let (rank, weight) = preference(encoding, "gzip", false);
+        if rank > 0
+            && weight > 0.0
+            && (!identity || payload_len >= plan.options.compression_threshold)
+        {
+            return Ok(true);
+        } else if !identity {
+            return Err(not_acceptable());
         }
-        mapped_json(&mapping, values).map(Some)
+    } else if !identity {
+        return Err(not_acceptable());
     }
+    Ok(false)
+}
 
-    #[test]
-    fn path_tails_join_their_segments_and_map_the_empty_capture_by_type() {
-        // A `string` tail used to answer 400 for anything but one segment.
-        assert_eq!(
-            mapped("path_tail", "string", "a/b").unwrap(),
-            Some(json!("a/b"))
-        );
-        assert_eq!(mapped("path_tail", "string", "").unwrap(), Some(json!("")));
-        assert_eq!(
-            mapped("path_tail", "string", "a").unwrap(),
-            Some(json!("a"))
-        );
-        assert_eq!(
-            mapped("path_tail", "relative_path", "docs/a%20b.txt").unwrap(),
-            Some(json!("docs/a b.txt"))
-        );
-        assert!(mapped("path_tail", "relative_path", "").is_err());
-        assert_eq!(
-            mapped("path_tail", "optional(relative_path)", "").unwrap(),
-            None
-        );
-        for hazard in [
-            "a//b",
-            "a/./b",
-            "a/../b",
-            "a/%2e%2e/b",
-            "a/b%2Fc",
-            "a/b%5Cc",
-            "a\\b",
-            "a/%00",
-            // Decoding once more would produce a dot segment or a separator.
-            "a/%252e%252e/b",
-            "a/b%252Fc",
-            "a/%zz",
-        ] {
-            assert!(
-                mapped("path_tail", "string", hazard).is_err(),
-                "accepted {hazard}"
-            );
+struct GzipStream<B> {
+    inner: B,
+    encoder: Option<GzEncoder<Vec<u8>>>,
+    pending_trailers: Option<hyper::body::Frame<Bytes>>,
+    finished: bool,
+}
+
+impl<B> GzipStream<B> {
+    fn new(inner: B) -> Self {
+        Self {
+            inner,
+            encoder: Some(GzEncoder::new(Vec::new(), Compression::default())),
+            pending_trailers: None,
+            finished: false,
         }
-        // A percent sign that decodes no further is ordinary content.
-        assert_eq!(
-            mapped("path_tail", "string", "50%25/off").unwrap(),
-            Some(json!("50%/off"))
-        );
-    }
-
-    #[test]
-    fn path_parameters_are_one_safe_segment() {
-        assert_eq!(
-            mapped("path", "string", "a%20b").unwrap(),
-            Some(json!("a b"))
-        );
-        for hazard in [".", "..", "%2E%2E", "a%2Fb", "a%5Cb", "%00"] {
-            assert!(
-                mapped("path", "string", hazard).is_err(),
-                "accepted {hazard}"
-            );
-        }
-    }
-
-    #[test]
-    fn framework_json_routes_require_the_json_media_type() {
-        let status = |content_type: Option<&'static str>| {
-            let mut headers = HeaderMap::new();
-            if let Some(value) = content_type {
-                headers.insert("content-type", HeaderValue::from_static(value));
-            }
-            require_json(&headers)
-                .err()
-                .map(|fault| fault.status.as_u16())
-        };
-        assert_eq!(status(Some("application/json")), None);
-        assert_eq!(status(Some("application/json; charset=UTF-8")), None);
-        // What a cross-site form can send without a preflight is refused,
-        // so it cannot plant a session in the victim's browser.
-        assert_eq!(status(Some("text/plain")), Some(415));
-        assert_eq!(status(Some("application/x-www-form-urlencoded")), Some(415));
-        assert_eq!(status(Some("multipart/form-data; boundary=x")), Some(415));
-        assert_eq!(status(None), Some(415));
-        assert_eq!(status(Some("application/json; charset=latin1")), Some(400));
-        assert_eq!(status(Some("not a media type")), Some(400));
-    }
-
-    #[tokio::test]
-    async fn response_projects_exact_header_numbers_and_cookie_defaults() {
-        let plan = serde_json::from_value(json!({
-            "Status": 200, "Codec": "json", "Media": ["application/json"],
-            "Body": {"Path": ["data"], "Optional": false, "DefaultEmpty": false},
-            "Stream": false,
-            "Options": {"MaxBytes": 1024, "CompressionAlgorithms": [], "CompressionThreshold": 0},
-            "Headers": [
-                {"Name": "X-Ids", "Encoding": "repeated", "Value": {"Path": ["data","ids"],"Optional": false,"DefaultEmpty":false}},
-                {"Name":"X-Json","Encoding":"json","Value":{"Path":["data"],"Optional":false,"DefaultEmpty":false}},
-                {"Name":"X-Missing","Encoding":"repeated","Value":{"Path":["absent"],"Optional":true,"DefaultEmpty":false}}
-            ],
-            "Cookies": [{
-                "Cookie": {"Name":"quote","Path":"","Domain":"","MaxAge":0,"Expires":"","Secure":true,"HTTPOnly":true,"SameSite":2},
-                "Value": {"Path":["cookie"],"Optional":false,"DefaultEmpty":false}
-            }]
-        })).unwrap();
-        let outcome = Outcome {
-            kind: "result".into(),
-            name: "ok".into(),
-            payload: values::parse(
-                br#"{"cookie":"two words","data":{"ids":[9007199254740993,2]}}"#,
-            )
-            .unwrap(),
-            stream: None,
-            worker: None,
-        };
-        let response = encode_response(&plan, outcome, &HeaderMap::new())
-            .unwrap_or_else(|fault| panic!("encoding returned {}", fault.code));
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers()["x-json"],
-            r#"{"ids":[9007199254740993,2]}"#
-        );
-        assert_eq!(
-            response
-                .headers()
-                .get_all("x-ids")
-                .iter()
-                .collect::<Vec<_>>(),
-            ["9007199254740993", "2"]
-        );
-        assert!(!response.headers().contains_key("x-missing"));
-        assert_eq!(
-            response.headers()["set-cookie"],
-            "quote=two%20words; Path=/; HttpOnly; Secure; SameSite=Lax"
-        );
-        assert_eq!(
-            response.into_body().collect().await.unwrap().to_bytes(),
-            r#"{"ids":[9007199254740993,2]}"#
-        );
     }
 }
+
+impl<B: hyper::body::Body<Data = Bytes> + Unpin> hyper::body::Body for GzipStream<B>
+where
+    B::Error: Into<std::io::Error>,
+{
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<std::io::Result<hyper::body::Frame<Bytes>>>> {
+        let this = self.get_mut();
+        if let Some(trailers) = this.pending_trailers.take() {
+            this.finished = true;
+            return std::task::Poll::Ready(Some(Ok(trailers)));
+        }
+        if this.finished {
+            return std::task::Poll::Ready(None);
+        }
+        loop {
+            match std::pin::Pin::new(&mut this.inner).poll_frame(cx) {
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+                std::task::Poll::Ready(Some(Ok(frame))) => {
+                    if let Some(data) = frame.data_ref() {
+                        if data.is_empty() {
+                            continue;
+                        }
+                        let Some(encoder) = this.encoder.as_mut() else {
+                            this.finished = true;
+                            return std::task::Poll::Ready(None);
+                        };
+                        if let Err(error) = encoder.write_all(data) {
+                            this.finished = true;
+                            return std::task::Poll::Ready(Some(Err(error)));
+                        }
+                        let out = std::mem::take(encoder.get_mut());
+                        if !out.is_empty() {
+                            return std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(
+                                Bytes::from(out),
+                            ))));
+                        }
+                    } else if frame.is_trailers() {
+                        if let Some(encoder) = this.encoder.take() {
+                            match encoder.finish() {
+                                Ok(out) if !out.is_empty() => {
+                                    this.pending_trailers = Some(frame);
+                                    return std::task::Poll::Ready(Some(Ok(
+                                        hyper::body::Frame::data(Bytes::from(out)),
+                                    )));
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    this.finished = true;
+                                    return std::task::Poll::Ready(Some(Err(error)));
+                                }
+                            }
+                        }
+                        this.finished = true;
+                        return std::task::Poll::Ready(Some(Ok(frame)));
+                    }
+                }
+                std::task::Poll::Ready(Some(Err(error))) => {
+                    this.finished = true;
+                    this.encoder = None;
+                    return std::task::Poll::Ready(Some(Err(error.into())));
+                }
+                std::task::Poll::Ready(None) => {
+                    this.finished = true;
+                    let Some(encoder) = this.encoder.take() else {
+                        return std::task::Poll::Ready(None);
+                    };
+                    return match encoder.finish() {
+                        Ok(out) if !out.is_empty() => std::task::Poll::Ready(Some(Ok(
+                            hyper::body::Frame::data(Bytes::from(out)),
+                        ))),
+                        Ok(_) => std::task::Poll::Ready(None),
+                        Err(error) => std::task::Poll::Ready(Some(Err(error))),
+                    };
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "http_codec_test.rs"]
+mod tests;

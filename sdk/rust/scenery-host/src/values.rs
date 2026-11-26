@@ -149,6 +149,7 @@ fn normalize_value(
                 "wrong tuple length"
             );
             length(items.len(), rules.min_items, rules.max_items)?;
+            length(items.len(), rules.min_length, rules.max_length)?;
             let mut normalized = Vec::with_capacity(items.len());
             let mut unique = BTreeSet::new();
             for (index, item) in items.into_iter().enumerate() {
@@ -173,6 +174,7 @@ fn normalize_value(
                 bail!("expected object")
             };
             length(fields.len(), rules.min_items, rules.max_items)?;
+            length(fields.len(), rules.min_length, rules.max_length)?;
             let ty = first()?;
             let mut output = Map::new();
             for (key, value) in fields {
@@ -558,16 +560,38 @@ mod tests {
             "Request".into(),
             Shape {
                 kind: "record".into(),
-                fields: vec![Field {
-                    name: "limits".into(),
-                    ty: "map(int32)".into(),
-                    default: None,
-                    constraints: Constraints {
-                        min_items: Some(1),
-                        max_items: Some(2),
-                        ..Constraints::default()
+                fields: vec![
+                    Field {
+                        name: "limits".into(),
+                        ty: "map(int32)".into(),
+                        default: None,
+                        constraints: Constraints {
+                            min_items: Some(1),
+                            max_items: Some(2),
+                            ..Constraints::default()
+                        },
                     },
-                }],
+                    Field {
+                        name: "tags".into(),
+                        ty: "optional(list(string))".into(),
+                        default: None,
+                        constraints: Constraints {
+                            min_length: Some(1),
+                            max_length: Some(2),
+                            ..Constraints::default()
+                        },
+                    },
+                    Field {
+                        name: "labels".into(),
+                        ty: "optional(map(string))".into(),
+                        default: None,
+                        constraints: Constraints {
+                            min_length: Some(1),
+                            max_length: Some(2),
+                            ..Constraints::default()
+                        },
+                    },
+                ],
                 unknown_fields: "reject".into(),
                 open: false,
                 values: vec![],
@@ -583,6 +607,36 @@ mod tests {
         ] {
             assert_eq!(
                 normalize(&types, "Request", serde_json::json!({"limits":input})).is_ok(),
+                ok
+            );
+        }
+        for (tags, ok) in [
+            (serde_json::json!([]), false),
+            (serde_json::json!(["a"]), true),
+            (serde_json::json!(["a", "b", "c"]), false),
+        ] {
+            assert_eq!(
+                normalize(
+                    &types,
+                    "Request",
+                    serde_json::json!({"limits":{"a":1},"tags":tags})
+                )
+                .is_ok(),
+                ok
+            );
+        }
+        for (labels, ok) in [
+            (serde_json::json!({}), false),
+            (serde_json::json!({"k":"v"}), true),
+            (serde_json::json!({"a":"1","b":"2","c":"3"}), false),
+        ] {
+            assert_eq!(
+                normalize(
+                    &types,
+                    "Request",
+                    serde_json::json!({"limits":{"a":1},"labels":labels})
+                )
+                .is_ok(),
                 ok
             );
         }

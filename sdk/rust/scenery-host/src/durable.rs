@@ -79,6 +79,7 @@ impl Engine {
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tokio::select! {
+                        biased;
                         () = stop.cancelled() => break,
                         _ = tick.tick() => {
                             if let Err(error) = host.engine.purge(&retention_services).await {
@@ -138,6 +139,7 @@ impl Engine {
             "principal": caller,
             "workload": call.workload,
             "tenant_id": call.principal.as_ref().map(|claims| &claims.tenant),
+            "cron_idempotency_key": call.cron_idempotency_key,
         });
         if !dedupe.is_empty() {
             client.execute(
@@ -336,7 +338,8 @@ impl Engine {
             let execution_id = format!("run_{}", random_hex::<16>().map_err(Fault::internal)?);
             call.method = "SCHEDULE".into();
             call.execution_id = Some(execution_id.clone());
-            let mut reply = json!({"job_id": execution_id, "target": address, "module": service.module,
+            call.cron_idempotency_key = Some(execution_id);
+            let mut reply = json!({"job_id": call.execution_id, "target": address, "module": service.module,
                 "execution_kind": "schedule", "attempts": 1, "input": input, "trace_id": call.trace_id, "timed_out": false});
             if !command.wait {
                 reply["state"] = json!("queued");
@@ -381,6 +384,13 @@ impl Engine {
             }
             return Ok(json_reply(StatusCode::OK, &reply));
         };
+        if schedule.is_some() {
+            call.method = "SCHEDULE".into();
+            call.cron_idempotency_key = Some(format!(
+                "run_{}",
+                random_hex::<16>().map_err(Fault::internal)?
+            ));
+        }
         let mut job = self
             .enqueue(&call, plan, &input)
             .await
@@ -461,7 +471,7 @@ impl Job {
 }
 
 pub(crate) async fn connect() -> Result<(Client, tokio::task::JoinHandle<()>)> {
-    let address = std::env::var("DATABASE_URL").context("database is unavailable")?;
+    let address = crate::plan::resolve_app_database_url()?;
     let mut url = url::Url::parse(&address).context("invalid database URL")?;
     let parameters: Vec<_> = url
         .query_pairs()
@@ -674,6 +684,7 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
     idle.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
+            biased;
             () = stop.cancelled() => break,
             _ = idle.tick() => {}
         }
@@ -683,6 +694,7 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
                 plan.registration.external_name
             );
             tokio::select! {
+                biased;
                 () = stop.cancelled() => break,
                 () = sleep(Duration::from_secs(1)) => {}
             }
@@ -696,6 +708,9 @@ async fn execute_next(
     plan: &Durable,
     stop: &CancellationToken,
 ) -> Result<bool> {
+    if stop.is_cancelled() {
+        return Ok(false);
+    }
     let Some(generation) = host.generation() else {
         return Ok(false);
     };
@@ -715,6 +730,9 @@ async fn execute_next(
            SELECT service,id,attempt,'job.lease_expired' FROM expired",
         &[&reg.service, &reg.external_name],
     ).await?;
+    if stop.is_cancelled() {
+        return Ok(false);
+    }
     let row = client.query_opt(
         "WITH candidate AS (
             SELECT j.id, t.default_lease_ms, t.default_timeout_ms FROM scenery.durable_jobs j
@@ -745,7 +763,11 @@ async fn execute_next(
     if let Some(parent) = job.memo["traceparent"].as_str() {
         crate::host::header(&mut headers, "traceparent", parent);
     }
-    let duration = Duration::from_nanos(reg.default_timeout);
+    let duration = if reg.default_timeout == 0 {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_nanos(reg.default_timeout)
+    };
     let mut call = Call::new(
         generation,
         &headers,
@@ -759,6 +781,10 @@ async fn execute_next(
         .as_str()
         .unwrap_or_default()
         .into();
+    call.cron_idempotency_key = job.memo["cron_idempotency_key"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
     if job.memo["workload"].is_object()
         && job.memo["principal"] == "workload:std.workload_identity.scheduler"
     {

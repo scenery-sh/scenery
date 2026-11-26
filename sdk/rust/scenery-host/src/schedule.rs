@@ -94,7 +94,9 @@ async fn invoke(host: &Host, service: &Service, schedule: &Schedule) -> Result<(
     )
     .map_err(Fault::internal)?;
     set_workload(&mut call, schedule);
-    call.execution_id = Some(random_hex::<16>().map_err(Fault::internal)?);
+    let execution_id = random_hex::<16>().map_err(Fault::internal)?;
+    call.execution_id = Some(execution_id.clone());
+    call.cron_idempotency_key = Some(execution_id);
     let operation = &service.operations[&schedule.operation];
     let input = values::normalize(&host.bundle.types, &operation.input, schedule.input.clone())
         .map_err(Fault::internal)?;

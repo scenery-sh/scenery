@@ -16,7 +16,7 @@ use crate::host::{Reply, body};
 const VITE_FS: &str = "/@fs/";
 const ASSET_PATH: &str = "/@files/";
 const ESCAPE: &str = "~";
-const TEXT_LIMIT: usize = 32 << 20;
+pub(crate) const TEXT_LIMIT: usize = 32 << 20;
 
 /// How long an unused connection to the development server is kept. Node
 /// closes an idle connection after five seconds; staying well below that
@@ -25,6 +25,8 @@ const IDLE: Duration = Duration::from_secs(2);
 
 static ASSET: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"/@fs/[^"'\x60<>\s\\)?,;#]+"#).expect("Vite filesystem URL"));
+static SCENERY_WORD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)scenery").expect("scenery pattern"));
 
 /// Connections to the development server, kept alive between requests. A
 /// page load asks it for a thousand modules or more, and a connection for
@@ -63,6 +65,20 @@ fn rewrite(source: &str) -> Cow<'_, str> {
             .join("/");
         format!("{ASSET_PATH}{encoded}")
     })
+}
+
+fn scrub_scenery(source: &str) -> Cow<'_, str> {
+    SCENERY_WORD.replace_all(source, "application")
+}
+
+pub(crate) fn rewrite_hmr_text(source: &str) -> Cow<'_, str> {
+    match rewrite(source) {
+        Cow::Borrowed(text) => scrub_scenery(text),
+        Cow::Owned(text) => match scrub_scenery(&text) {
+            Cow::Borrowed(_) => Cow::Owned(text),
+            Cow::Owned(cleaned) => Cow::Owned(cleaned),
+        },
+    }
 }
 
 /// The address of `uri` on the development server at `upstream`.
@@ -120,18 +136,24 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
         .get("content-type")
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| {
-            matches!(
-                value.split(';').next().unwrap_or(""),
-                "text/html"
-                    | "text/css"
-                    | "text/javascript"
-                    | "application/javascript"
-                    | "application/json"
-            )
+            let media = value
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            media.starts_with("text/")
+                || matches!(
+                    media.as_str(),
+                    "application/javascript"
+                        | "application/x-javascript"
+                        | "application/json"
+                        | "image/svg+xml"
+                )
+                || media.ends_with("+json")
         });
     let (mut parts, payload) = upstream.into_parts();
     if !textual
-        || !parts.status.is_success()
         || parts.headers.contains_key("content-encoding")
         || parts.headers.contains_key("content-range")
     {
@@ -141,7 +163,14 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
         ));
     }
     let bytes = crate::transport::read(payload, TEXT_LIMIT).await?;
-    let output = match std::str::from_utf8(&bytes).map(rewrite) {
+    let transformed = std::str::from_utf8(&bytes).map(|text| {
+        if parts.status.is_success() {
+            rewrite(text)
+        } else {
+            rewrite_hmr_text(text)
+        }
+    });
+    let output = match transformed {
         Ok(Cow::Owned(output)) => {
             parts.headers.remove("content-length");
             Bytes::from(output)
@@ -301,7 +330,160 @@ mod tests {
         let mut echo = [0; 4];
         tokio::io::AsyncReadExt::read_exact(&mut socket, &mut echo).await?;
         assert_eq!(&echo, b"ping");
+
+        // Error overlays, SVG/+json responses, and WebSocket HMR text frames are rewritten and scrubbed.
+        let mut svg_req =
+            crate::transport::read_response(get("/asset.svg").send().await?, 4096).await;
+        let _ = &mut svg_req;
         vite.abort();
+        proxy.abort();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rewrites_errors_svg_problem_json_and_websocket_hmr_frames() -> anyhow::Result<()> {
+        use hyper::service::service_fn;
+        use hyper::{Method, StatusCode};
+        use hyper_util::rt::TokioIo;
+        use std::convert::Infallible;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let upstream = TcpListener::bind("127.0.0.1:0").await?;
+        let upstream_address = upstream.local_addr()?.to_string();
+        let host = TcpListener::bind("127.0.0.1:0").await?;
+        let front_address = host.local_addr()?;
+        let front = crate::plan::Frontend {
+            root: "/unused".into(),
+            reserved: vec!["/api".into()],
+            upstream: Some(upstream_address),
+        };
+        let upstream_task = tokio::spawn(async move {
+            while let Ok((socket, _)) = upstream.accept().await {
+                tokio::spawn(async move {
+                    let service = service_fn(|request: Request<Incoming>| async move {
+                        assert!(
+                            request
+                                .headers()
+                                .keys()
+                                .all(|k| !k.as_str().starts_with("x-scenery-"))
+                        );
+                        let upgrade = request
+                            .headers()
+                            .get("upgrade")
+                            .and_then(|v| v.to_str().ok())
+                            .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+                        if upgrade {
+                            assert!(!request.headers().contains_key("sec-websocket-extensions"));
+                            let upgrade = hyper::upgrade::on(request);
+                            tokio::spawn(async move {
+                                let upgraded = upgrade.await.unwrap();
+                                let mut io = TokioIo::new(upgraded);
+                                let payload = br#"{"type":"error","err":{"file":"/@fs/repo/.scenery/src/App.tsx","message":"Scenery error"}}"#;
+                                let mut frame = vec![0x81, 126];
+                                frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+                                frame.extend_from_slice(payload);
+                                io.write_all(&frame).await.unwrap();
+                                io.flush().await.unwrap();
+                                let _ = io.shutdown().await;
+                            });
+                            let mut response =
+                                crate::transport::response(StatusCode::SWITCHING_PROTOCOLS, "");
+                            crate::host::header(response.headers_mut(), "connection", "upgrade");
+                            crate::host::header(response.headers_mut(), "upgrade", "websocket");
+                            return Ok::<_, Infallible>(response);
+                        }
+                        let (status, media, content) = match request.uri().path() {
+                            "/error" => (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "application/problem+json",
+                                r#"{"detail":"Scenery fault at /@fs/repo/.scenery/x.ts"}"#,
+                            ),
+                            "/icon.svg" => (
+                                StatusCode::OK,
+                                "image/svg+xml",
+                                r#"<svg><use href="/@fs/repo/.scenery/sprite.svg#a"/></svg>"#,
+                            ),
+                            path => panic!("unexpected path {path}"),
+                        };
+                        let mut response = crate::transport::response(status, content);
+                        crate::host::header(response.headers_mut(), "content-type", media);
+                        Ok::<_, Infallible>(response)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(socket), service)
+                        .with_upgrades()
+                        .await;
+                });
+            }
+        });
+        let proxy = tokio::spawn(async move {
+            let front = std::sync::Arc::new(front);
+            while let Ok((socket, _)) = host.accept().await {
+                let front = front.clone();
+                tokio::spawn(async move {
+                    let service = service_fn(|request: Request<Incoming>| async {
+                        assert_eq!(*request.method(), Method::GET);
+                        Ok::<_, Infallible>(crate::frontend::serve(Some(&front), request).await)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(socket), service)
+                        .with_upgrades()
+                        .await;
+                });
+            }
+        });
+
+        let http = reqwest::Client::new();
+        let error_resp = http
+            .get(format!("http://{front_address}/error"))
+            .header("x-scenery-secret", "leak")
+            .send()
+            .await?;
+        assert_eq!(error_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let error_text = error_resp.text().await?;
+        assert!(!forbidden(&error_text), "{error_text}");
+        assert!(error_text.contains("/@files/"));
+        assert!(error_text.contains("application fault"));
+
+        let svg_text = http
+            .get(format!("http://{front_address}/icon.svg"))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        assert!(!forbidden(&svg_text), "{svg_text}");
+        assert!(svg_text.contains("/@files/"));
+
+        let ws_resp = http
+            .get(format!("http://{front_address}/hmr-ws"))
+            .header("connection", "upgrade")
+            .header("upgrade", "websocket")
+            .header("sec-websocket-extensions", "permessage-deflate")
+            .send()
+            .await?;
+        assert_eq!(ws_resp.status(), StatusCode::SWITCHING_PROTOCOLS);
+        let mut ws = ws_resp.upgrade().await?;
+        let mut head = [0u8; 2];
+        ws.read_exact(&mut head).await?;
+        assert_eq!(head[0], 0x81);
+        let len = match head[1] & 0x7f {
+            126 => {
+                let mut ext = [0u8; 2];
+                ws.read_exact(&mut ext).await?;
+                u16::from_be_bytes(ext) as usize
+            }
+            n => n as usize,
+        };
+        let mut payload = vec![0u8; len];
+        ws.read_exact(&mut payload).await?;
+        let text = std::str::from_utf8(&payload)?;
+        assert!(!forbidden(text), "{text}");
+        assert!(text.contains("/@files/"));
+        assert!(text.contains("application error"));
+
+        upstream_task.abort();
         proxy.abort();
         Ok(())
     }

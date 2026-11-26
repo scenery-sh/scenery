@@ -233,6 +233,8 @@ fn inherited_snapshot() -> Result<Value> {
 async fn run(mut input: Input) -> Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
+    let mut hangup = signal(SignalKind::hangup())?;
+    let mut quit = signal(SignalKind::quit())?;
     let development = input.dev.is_some();
     let stop = CancellationToken::new();
     let stop_signal = stop.clone();
@@ -240,6 +242,8 @@ async fn run(mut input: Input) -> Result<()> {
         tokio::select! {
             _ = terminate.recv() => {}
             _ = interrupt.recv() => {}
+            _ = hangup.recv() => {}
+            _ = quit.recv() => {}
         }
         stop_signal.cancel();
     });
@@ -298,7 +302,7 @@ async fn run(mut input: Input) -> Result<()> {
     let mut resources = None;
     let mut startup = None;
     let mut victoria = otlp::Endpoints::new();
-    let watcher = if let Some((mut config, owned)) = input.dev.take() {
+    let mut watcher = if let Some((mut config, owned)) = input.dev.take() {
         resources = Some(owned);
         let endpoint = dev::write_endpoint(
             &config,
@@ -365,14 +369,17 @@ async fn run(mut input: Input) -> Result<()> {
         result = control.publish_initial(plan) => result?,
         () = stop.cancelled() => return Ok(()),
     }
-    let rebuild =
-        watcher.map(|watcher| tokio::spawn(watcher.run(directory.clone(), publisher, revision)));
     let shutdown = private_stop.clone();
     let mut supervisor = tokio::spawn(control.serve(async move { shutdown.cancelled().await }));
+    let mut rebuild = None;
     let result = async {
         tokio::select! {
             result = publication.wait_for(Option::is_some) => { result?; }
             () = stop.cancelled() => return Ok(()),
+        }
+        if let Some(mut watcher) = watcher.take() {
+            watcher.reconcile_startup(directory, &publisher, &revision).await;
+            rebuild = Some(tokio::spawn(watcher.run(directory.clone(), publisher, revision)));
         }
         // No public socket is bound until the entire initial process set has
         // attested and the supervisor has committed its build identity.
@@ -471,16 +478,38 @@ fn inherit_fd(fd: RawFd) -> Result<OwnedFd> {
 impl Drop for DevResources {
     fn drop(&mut self) {
         if self.assistants > 0 {
-            // The supervisor terminates and reaps its helper process groups.
+            // Signal the assistant supervisor group and bound its exit wait
+            // before forced cleanup so an unresponsive helper cannot orphan
+            // the frontend or leak locks.
             unsafe {
+                libc::kill(-self.assistants, libc::SIGTERM);
                 libc::kill(self.assistants, libc::SIGTERM);
-                loop {
-                    if libc::waitpid(self.assistants, std::ptr::null_mut(), 0) >= 0
-                        || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-                    {
-                        break;
-                    }
+            }
+            let deadline = std::time::Instant::now() + DRAIN_TIMEOUT;
+            loop {
+                let waited =
+                    unsafe { libc::waitpid(self.assistants, std::ptr::null_mut(), libc::WNOHANG) };
+                if waited == self.assistants {
+                    break;
                 }
+                if waited == -1 {
+                    if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    break;
+                }
+                if std::time::Instant::now() >= deadline {
+                    unsafe {
+                        libc::kill(-self.assistants, libc::SIGKILL);
+                        libc::kill(self.assistants, libc::SIGKILL);
+                        while libc::waitpid(self.assistants, std::ptr::null_mut(), 0) == -1
+                            && std::io::Error::last_os_error().kind()
+                                == std::io::ErrorKind::Interrupted
+                        {}
+                    }
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
         }
         if self.frontend > 0 {
@@ -488,7 +517,10 @@ impl Drop for DevResources {
             // unreaped until its group has been stopped.
             unsafe {
                 libc::kill(-self.frontend, libc::SIGKILL);
-                libc::waitpid(self.frontend, std::ptr::null_mut(), 0);
+                while libc::waitpid(self.frontend, std::ptr::null_mut(), 0) == -1
+                    && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+                {
+                }
             }
         }
         if let Some(endpoint) = &self.endpoint {
@@ -604,28 +636,41 @@ impl PublicListener {
             .as_str()
         {
             "" | "tcp" => Ok(Self::Tcp(TcpListener::bind(address).await?)),
-            "unix" => {
-                let path = PathBuf::from(address);
-                ensure!(
-                    path.is_absolute(),
-                    "Unix listener requires an absolute socket path"
-                );
-                let parent = path.parent().context("missing Unix listener directory")?;
-                std::fs::create_dir_all(parent)?;
-                let listener = UnixListener::bind(&path)?;
-                let metadata = std::fs::symlink_metadata(&path)?;
-                ensure!(
-                    metadata.file_type().is_socket(),
-                    "Unix listener path changed"
-                );
-                Ok(Self::Unix {
-                    listener,
-                    path,
-                    identity: (metadata.dev(), metadata.ino()),
-                })
-            }
+            "unix" => Self::bind_unix(std::path::Path::new(address)),
             _ => anyhow::bail!("unsupported listener network"),
         }
+    }
+
+    fn bind_unix(path: &std::path::Path) -> Result<Self> {
+        let path = path.to_path_buf();
+        ensure!(
+            path.is_absolute(),
+            "Unix listener requires an absolute socket path"
+        );
+        let parent = path.parent().context("missing Unix listener directory")?;
+        std::fs::create_dir_all(parent)?;
+        match std::fs::symlink_metadata(&path) {
+            Ok(existing) => {
+                ensure!(
+                    existing.file_type().is_socket(),
+                    "Unix listener path exists and is not a socket"
+                );
+                std::fs::remove_file(&path)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let listener = UnixListener::bind(&path)?;
+        let metadata = std::fs::symlink_metadata(&path)?;
+        ensure!(
+            metadata.file_type().is_socket(),
+            "Unix listener path changed"
+        );
+        Ok(Self::Unix {
+            listener,
+            path,
+            identity: (metadata.dev(), metadata.ino()),
+        })
     }
 
     fn address(&self) -> Result<String> {
@@ -700,7 +745,13 @@ async fn serve_public(
                                 response.headers(),
                                 timeouts.idle,
                             );
-                            Ok::<_, Infallible>(response)
+                            Ok::<_, Infallible>(response.map(|body| {
+                                http_timeout::ResponseBodyGuard::new(
+                                    body,
+                                    deadlines,
+                                    timeouts.idle,
+                                )
+                            }))
                         }
                     });
                     let mut builder = hyper::server::conn::http1::Builder::new();
@@ -723,4 +774,30 @@ async fn serve_public(
     }
     while connections.join_next().await.is_some() {}
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unix_listener_replaces_stale_socket_and_refuses_regular_file() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let sock = dir.path().join("public.sock");
+        let _first = std::os::unix::net::UnixListener::bind(&sock)?;
+        drop(_first);
+        assert!(sock.exists());
+
+        // Binding via UnixListener directly refuses an unlinked stale socket,
+        // whereas PublicListener::bind("unix") clears a stale socket cleanly.
+        let bound = PublicListener::bind_unix(&sock)?;
+        drop(bound);
+        assert!(!sock.exists());
+
+        let regular = dir.path().join("not-a-socket");
+        std::fs::write(&regular, b"keep me")?;
+        assert!(PublicListener::bind_unix(&regular).is_err());
+        assert_eq!(std::fs::read(&regular)?, b"keep me");
+        Ok(())
+    }
 }

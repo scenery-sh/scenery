@@ -37,7 +37,7 @@ func startWorkerAssistants(ctx context.Context, cli, root, environment, director
 	command := exec.Command(cli, "worker-assistants", root, environment, directory, state)
 	command.Dir, command.Stdout, command.Stderr = root, os.Stderr, os.Stderr
 	command.Env = envpolicy.Environ()
-	devprocess.ConfigureChild(command)
+	devprocess.ConfigureDetachedChild(command)
 	if err := command.Start(); err != nil {
 		return workerAssistantProcess{}, func() {}, err
 	}
@@ -131,7 +131,7 @@ func runWorkerAssistants(args []string) error {
 }
 
 func watchWorkerAssistantParent(ctx context.Context, parent int, stop context.CancelFunc) {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		if parent <= 1 || os.Getppid() != parent {

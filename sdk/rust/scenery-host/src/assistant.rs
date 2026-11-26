@@ -23,6 +23,8 @@ const CONTROL_HEADER: &str = "x-scenery-assistant-control-token";
 const CONTROL_LIMIT: usize = 16 << 20;
 const MAX_CONVERSATIONS: usize = 256;
 const MAX_RUNS: usize = 4096;
+const RUN_IDLE_EVICT: Duration = Duration::from_secs(30);
+const RUN_SWEEP_TTL: Duration = Duration::from_secs(900);
 
 #[derive(Deserialize)]
 pub(crate) struct Plan {
@@ -180,6 +182,7 @@ pub(crate) struct Run {
     pub principal: Option<auth::Claims>,
     pub traceparent: Option<String>,
     started: Instant,
+    last_active: Instant,
 }
 
 #[derive(Default)]
@@ -308,16 +311,26 @@ impl Gateway {
     }
 
     pub(crate) fn run(&self, key: &RunKey) -> Option<Run> {
-        self.state
+        let mut state = self.state.lock().expect("assistant state");
+        let run = state.runs.get_mut(key).filter(|run| {
+            !run.generation.retired.is_cancelled()
+                && run.last_active.elapsed() < RUN_SWEEP_TTL
+                && run.started.elapsed() < Duration::from_secs(3600)
+        })?;
+        run.last_active = Instant::now();
+        Some(run.clone())
+    }
+
+    pub(crate) fn touch(&self, key: &RunKey) {
+        if let Some(run) = self
+            .state
             .lock()
             .expect("assistant state")
             .runs
-            .get(key)
-            .filter(|run| {
-                !run.generation.retired.is_cancelled()
-                    && run.started.elapsed() < Duration::from_secs(3600)
-            })
-            .cloned()
+            .get_mut(key)
+        {
+            run.last_active = Instant::now();
+        }
     }
 
     fn finish(&self, key: &RunKey) {
@@ -334,13 +347,18 @@ impl Gateway {
 
     fn sweep(&self) {
         let mut state = self.state.lock().expect("assistant state");
+        Self::sweep_locked(&mut state);
+    }
+
+    fn sweep_locked(state: &mut State) {
         state.runs.retain(|_, run| {
             !run.generation.retired.is_cancelled()
+                && run.last_active.elapsed() < RUN_SWEEP_TTL
                 && run.started.elapsed() < Duration::from_secs(3600)
         });
         let State {
             runs, approvals, ..
-        } = &mut *state;
+        } = state;
         approvals.retain(|(key, _), _| runs.contains_key(key));
     }
 
@@ -564,18 +582,48 @@ impl Gateway {
         {
             let mut state = self.state.lock().expect("assistant state");
             if state.runs.len() >= MAX_RUNS {
-                return Err(Error::Unavailable);
+                Self::sweep_locked(&mut state);
+                while state.runs.len() >= MAX_RUNS {
+                    let Some(evicted) = state
+                        .runs
+                        .iter()
+                        .filter(|(_, existing)| existing.last_active.elapsed() >= RUN_IDLE_EVICT)
+                        .min_by_key(|(_, existing)| existing.last_active)
+                        .map(|(key, _)| key.clone())
+                    else {
+                        return Err(Error::Unavailable);
+                    };
+                    state.runs.remove(&evicted);
+                    state.approvals.retain(|(key, _), _| key != &evicted);
+                }
             }
+            let now = Instant::now();
             state.runs.insert(
                 run_key.clone(),
                 Run {
                     generation: call.generation.clone(),
                     principal: call.principal.clone(),
                     traceparent: Some(format!("00-{}-{}-01", call.trace_id, call.span_id)),
-                    started: Instant::now(),
+                    started: now,
+                    last_active: now,
                 },
             );
         }
+        struct PendingRun<'a> {
+            gateway: &'a Gateway,
+            key: Option<RunKey>,
+        }
+        impl Drop for PendingRun<'_> {
+            fn drop(&mut self) {
+                if let Some(key) = self.key.take() {
+                    self.gateway.finish(&key);
+                }
+            }
+        }
+        let mut pending = PendingRun {
+            gateway: self,
+            key: Some(run_key),
+        };
         let response = control
             .field("run_id", json!(run))
             .field("message", json!(message))
@@ -592,14 +640,9 @@ impl Gateway {
                     return Err(Error::Internal);
                 }
                 Ok(result)
-            });
-        match response {
-            Ok(response) => Ok((run, digest, response)),
-            Err(error) => {
-                self.finish(&run_key);
-                Err(error)
-            }
-        }
+            })?;
+        pending.key = None;
+        Ok((run, digest, response))
     }
 
     fn remember_continuation(&self, id: &str, continuation: String) {
@@ -646,6 +689,9 @@ impl Gateway {
         )?;
         {
             let mut state = self.state.lock().expect("assistant state");
+            if let Some(active) = state.runs.get_mut(&key.0) {
+                active.last_active = Instant::now();
+            }
             let pending = state
                 .approvals
                 .get_mut(&key)

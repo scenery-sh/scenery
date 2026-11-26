@@ -165,3 +165,50 @@ async fn postgres_guards_revisions_and_releases_leases() -> Result<()> {
         .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn execute_next_returns_immediately_when_stop_is_cancelled() -> Result<()> {
+    let (_sender, receiver) = tokio::sync::watch::channel(None);
+    let bundle: crate::plan::Bundle = serde_json::from_value(json!({
+        "version": 1, "contract_revision": "contract", "programs": [],
+        "reports": {"schema_revision": "sha256:fixture", "producer_version": "test"},
+        "host": {"Name": "test", "Workers": []}, "types": {},
+        "host_config_keys": [],
+    }))?;
+    let host = Host::new(
+        bundle,
+        Value::Null,
+        Default::default(),
+        "control".into(),
+        None,
+        (
+            CancellationToken::new(),
+            crate::assistant::Gateway::new(None, None, &[])?,
+        ),
+        receiver,
+    )?;
+    let service: Service = serde_json::from_value(json!({
+        "Address": "orders/service/orders", "Module": "orders", "Name": "orders",
+        "Process": "worker-orders", "Runtime": "go",
+        "Operations": {}, "Clients": {}, "Bindings": [], "Durable": {},
+        "Schedules": [], "Stores": {},
+    }))?;
+    let plan: Durable = serde_json::from_value(json!({
+        "Operation": "orders/operation/ship",
+        "Registration": {
+            "Address": "orders/execution/ship", "EngineAddress": "orders/engine/main",
+            "ExternalName": "ship", "Service": "orders", "Revision": 1,
+            "DefaultTimeout": 0, "DefaultLease": 30_000_000_000_u64,
+            "MaxAttempts": 3, "RetryInitial": 1_000_000_000, "RetryMax": 2_000_000_000,
+            "RetryBackoff": 2.0, "RetryJitter": 0.0, "SuccessRetention": 0, "FailureRetention": 0,
+            "MaxConcurrency": 1, "DeduplicationRetention": 0, "DeduplicationConflict": "return_existing"
+        },
+        "Dedupe": [], "Concurrency": []
+    }))?;
+    let stop = CancellationToken::new();
+    stop.cancel();
+    // Even without DATABASE_URL or a published generation, a cancelled stop
+    // token must exit before touching Postgres.
+    assert!(!execute_next(&host, &service, &plan, &stop).await?);
+    Ok(())
+}

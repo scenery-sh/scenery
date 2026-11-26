@@ -21,6 +21,8 @@ use crate::host::{Call, Scope, stamp};
 use crate::plan::{EndpointFilter, Observability, ReportIdentity, Service};
 use crate::process::random_hex;
 
+const MAX_FAILURE_REPORTS: usize = 200;
+
 /// Connection strings and links never reach a stored failure cause.
 static URLS: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)(postgres(?:ql)?|https?)://[^\s]+").expect("valid URL pattern")
@@ -28,6 +30,7 @@ static URLS: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 pub(crate) struct Sink {
     app: String,
+    development: bool,
     logs: Filter,
     tracing: Filter,
     session: String,
@@ -87,6 +90,7 @@ impl Sink {
             .join("reports");
         Ok(Self {
             app: app.into(),
+            development,
             logs: Filter::new(&filters.logs),
             tracing: Filter::new(&filters.tracing),
             session,
@@ -130,6 +134,9 @@ impl Sink {
     fn report(&self, kind: &str, key: &str, value: Value) {
         self.retain(kind, value.clone());
         self.export(kind, &value);
+        if kind == "log" && !self.development && self.sender.is_none() {
+            emit_production_stderr(&value);
+        }
         if let Some(sender) = &self.sender {
             let envelope = json!({
                 "type": kind, "app_id": self.app, "session_id": self.session,
@@ -221,7 +228,33 @@ impl Sink {
         let cause = URLS.replace_all(cause, "[redacted URL]");
         let timestamp = stamp(OffsetDateTime::now_utc());
         let failure = json!({"report_token": token, "code": "SCN9000", "cause": cause, "timestamp": timestamp});
-        let _ = self.save_failure(&failure, std::process::id().into());
+        if self.development {
+            let _ = self.save_failure(&failure, std::process::id().into());
+        } else if let Some(sender) = &self.sender {
+            let envelope = json!({
+                "type": "internal-failure",
+                "app_id": self.app,
+                "session_id": self.session,
+                "reporter_pid": std::process::id(),
+                "internal_failure": failure,
+            });
+            let _ = sender.try_send(envelope);
+        } else {
+            let record = json!({
+                "app_id": self.app,
+                "session_id": self.session,
+                "timestamp": timestamp,
+                "level": "error",
+                "message": format!("internal failure ({token}): {cause}"),
+                "attrs": {
+                    "code": "SCN9000",
+                    "report_token": token,
+                    "origin": "runtime",
+                },
+            });
+            self.export("log", &record);
+            emit_production_stderr(&record);
+        }
         Some(token)
     }
 
@@ -253,12 +286,24 @@ impl Sink {
             .mode(0o700)
             .recursive(true)
             .create(&self.report_dir)?;
-        let mut file = std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(self.report_dir.join(format!("{token}.json")))?;
-        file.write_all(&serde_json::to_vec(&record)?)?;
+        let final_path = self.report_dir.join(format!("{token}.json"));
+        let temporary_path = self.report_dir.join(format!("{token}.json.tmp"));
+        let write_result = (|| -> Result<()> {
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(&temporary_path)?;
+            file.write_all(&serde_json::to_vec(&record)?)?;
+            file.sync_all()?;
+            std::fs::rename(&temporary_path, &final_path)?;
+            Ok(())
+        })();
+        if let Err(error) = write_result {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        let _ = prune_failure_reports(&self.report_dir);
         Ok(())
     }
 
@@ -518,9 +563,64 @@ async fn send_reports(mut receiver: mpsc::Receiver<Value>, endpoint: Url, token:
     }
 }
 
+fn emit_production_stderr(value: &Value) {
+    let mut line = crate::values::encode(value);
+    line.push('\n');
+    let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
+}
+
+fn prune_failure_reports(directory: &std::path::Path) -> Result<()> {
+    let mut retained = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.file_type().is_file() {
+            continue;
+        }
+        let modified = metadata
+            .modified()
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        retained.push((modified, path));
+    }
+    retained.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+    for (_, path) in retained.into_iter().skip(MAX_FAILURE_REPORTS) {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_sink(
+        directory: &std::path::Path,
+        development: bool,
+        sender: Option<mpsc::Sender<Value>>,
+    ) -> Sink {
+        Sink {
+            app: "inbox".into(),
+            development,
+            logs: Filter::new(&EndpointFilter::default()),
+            tracing: Filter::new(&EndpointFilter::default()),
+            session: "session".into(),
+            sender,
+            victoria: None,
+            report_dir: directory.join("reports"),
+            reports: ReportIdentity {
+                schema_revision: "sha256:fixture".into(),
+                producer_version: "v1.2.3".into(),
+            },
+            working_directory: "/srv/app".into(),
+            recent: None,
+        }
+    }
 
     #[test]
     fn filters_use_the_go_binding_name_and_request_path() {
@@ -538,21 +638,7 @@ mod tests {
     #[test]
     fn failure_reports_match_the_cli_report_schema() -> Result<()> {
         let directory = tempfile::tempdir()?;
-        let sink = Sink {
-            app: "inbox".into(),
-            logs: Filter::new(&EndpointFilter::default()),
-            tracing: Filter::new(&EndpointFilter::default()),
-            session: "session".into(),
-            sender: None,
-            victoria: None,
-            report_dir: directory.path().join("reports"),
-            reports: ReportIdentity {
-                schema_revision: "sha256:fixture".into(),
-                producer_version: "v1.2.3".into(),
-            },
-            working_directory: "/srv/app".into(),
-            recent: None,
-        };
+        let sink = test_sink(directory.path(), true, None);
         let token = sink
             .failure("connect postgres://user:secret@db/app failed")
             .unwrap();
@@ -582,6 +668,52 @@ mod tests {
         assert_eq!(report["cause"], "connect [redacted URL] failed");
         assert!(report["arguments"].as_array().is_some_and(Vec::is_empty));
         assert!(report["reporter_pid"].is_u64() && report["recorded_at"].is_string());
+        Ok(())
+    }
+
+    #[test]
+    fn failure_reports_avoid_disk_in_production_forward_to_dev_sender_and_prune_in_dev()
+    -> Result<()> {
+        let prod_dir = tempfile::tempdir()?;
+        let prod = test_sink(prod_dir.path(), false, None);
+        let prod_token = prod
+            .failure("postgres://user:pw@db/app unreachable")
+            .unwrap();
+        assert!(prod_token.starts_with("rpt_"));
+        assert!(!prod_dir.path().join("reports").exists());
+
+        let forwarded_dir = tempfile::tempdir()?;
+        let (tx, mut rx) = mpsc::channel(4);
+        let child = test_sink(forwarded_dir.path(), false, Some(tx));
+        let forwarded_token = child.failure("boom").unwrap();
+        assert!(!forwarded_dir.path().join("reports").exists());
+        let envelope = rx.try_recv()?;
+        assert_eq!(envelope["type"], "internal-failure");
+        assert_eq!(
+            envelope["internal_failure"]["report_token"],
+            forwarded_token
+        );
+
+        let dev_dir = tempfile::tempdir()?;
+        let reports_dir = dev_dir.path().join("reports");
+        std::fs::create_dir_all(&reports_dir)?;
+        for index in 0..205u64 {
+            let file_path = reports_dir.join(format!("rpt_{index:016}.json"));
+            let file = std::fs::File::create(&file_path)?;
+            let timestamp = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(index + 1);
+            file.set_modified(timestamp)?;
+        }
+        let dev = test_sink(dev_dir.path(), true, None);
+        let dev_token = dev.failure("dev panic").unwrap();
+        let entries: Vec<String> = std::fs::read_dir(&reports_dir)?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(entries.len(), MAX_FAILURE_REPORTS);
+        assert!(entries.contains(&format!("{dev_token}.json")));
+        assert!(!entries.contains(&"rpt_0000000000000000.json".to_owned()));
+        assert!(!entries.contains(&"rpt_0000000000000005.json".to_owned()));
+        assert!(entries.contains(&"rpt_0000000000000006.json".to_owned()));
         Ok(())
     }
 }

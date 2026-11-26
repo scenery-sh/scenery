@@ -8,8 +8,8 @@ use url::Url;
 
 use crate::auth_sessions::{display_name, sign_in};
 use crate::browser_auth::{
-    AuthResult, Browser, config_url, email, external_origin_with_api, has_forwarded_origin,
-    prefix_with_api, random, safe_redirect, token_hash, Route,
+    AuthResult, Browser, Route, config_url, email, external_origin_with_api, has_forwarded_origin,
+    prefix_with_api, random, safe_redirect, token_hash,
 };
 use crate::connections::{limited, valid_audience, verify_id_token};
 use crate::host::{Fault, Reply, empty, header};
@@ -417,6 +417,29 @@ mod tests {
         assert_eq!(
             direct_callback,
             "https://api.example.test/api/auth/google/callback"
+        );
+
+        // Proxy prefix overrides the internal /api mount when present.
+        let mut mounted = hyper::HeaderMap::new();
+        mounted.insert("x-forwarded-host", "edge.example.test".parse()?);
+        mounted.insert("x-forwarded-proto", "https".parse()?);
+        mounted.insert("x-forwarded-prefix", "/edge/api".parse()?);
+        let (_mounted_api, mounted_app, mounted_callback) = resolved_urls(
+            false,
+            &mounted,
+            "internal.local",
+            "/api",
+            Some(&api),
+            Some(&app),
+        );
+        assert_eq!(mounted_app, "https://edge.example.test");
+        assert_eq!(
+            mounted_callback,
+            "https://edge.example.test/edge/api/auth/google/callback"
+        );
+        assert_eq!(
+            prefix_with_api("/api", &hyper::HeaderMap::new(), Some(&api)),
+            "/api"
         );
         Ok(())
     }

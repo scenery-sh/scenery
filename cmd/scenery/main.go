@@ -34,6 +34,7 @@ func main() {
 		internal := map[string]func([]string) error{
 			"worker-refresh-plan": refreshWorkerRebuildPlan,
 			"worker-assistants":   runWorkerAssistants,
+			"worker-frontend":     runWorkerFrontend,
 		}
 		if command := internal[os.Args[1]]; command != nil {
 			if err := command(os.Args[2:]); err != nil {

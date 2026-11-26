@@ -188,6 +188,9 @@ pub(crate) struct WatcherLoop {
     status: Arc<Status>,
     scanner: Arc<Scanner>,
     active: Inputs,
+    /// Set once `worker-refresh-plan` rewrites the shared build mirrors until
+    /// a refreshed generation commits or the mirrors are explicitly restored.
+    declarations_dirty: bool,
     /// What each build mirror last received. The Go workspace and the Rust
     /// snapshot are synchronized at different times, so one shared record
     /// would mark files as copied into a mirror that never got them.
@@ -197,7 +200,7 @@ pub(crate) struct WatcherLoop {
 }
 
 impl WatcherLoop {
-    pub(crate) fn start(config: Development) -> Result<Self> {
+    pub(crate) fn start(mut config: Development) -> Result<Self> {
         let (update, _) = watch::channel(Snapshot::default());
         let scanner = Arc::new(Scanner::new(config.root.clone()));
         let status = Arc::new(Status {
@@ -233,6 +236,7 @@ impl WatcherLoop {
             dev_inputs::digest(&active) == config.rebuild.source_digest,
             "application changed during startup; run it again to build the latest sources"
         );
+        config.rebuild.discover_go_embeds(&config.root, &active)?;
         Ok(Self {
             programs: config.rebuild.programs.clone(),
             config,
@@ -240,6 +244,7 @@ impl WatcherLoop {
             scanner,
             _watcher: watcher,
             active: active.clone(),
+            declarations_dirty: false,
             go_materialized: active.clone(),
             rust_materialized: active,
             events,
@@ -251,11 +256,31 @@ impl WatcherLoop {
     }
 
     pub(crate) fn initial(&self, revision: String) -> LaunchPlan {
-        self.publish(dev_inputs::digest(&self.active), None);
         LaunchPlan {
             contract_revision: revision,
             programs: self.programs.clone(),
         }
+    }
+
+    /// Reconciles edits that landed while generation 1 workers were booting
+    /// before declaring readiness or publishing the initial snapshot digest.
+    pub(crate) async fn reconcile_startup(
+        &mut self,
+        directory: &Path,
+        publisher: &Publisher,
+        revision: &str,
+    ) {
+        let scanner = self.scanner.clone();
+        let ignore = self.config.rebuild.generated.clone();
+        if let Ok(Ok(inputs)) = tokio::task::spawn_blocking(move || scanner.scan(&ignore)).await
+            && inputs != self.active
+        {
+            let _ = self
+                .process_change(directory, publisher, revision, inputs, Instant::now())
+                .await;
+            return;
+        }
+        self.publish(dev_inputs::digest(&self.active), None);
     }
 
     fn publish(&self, digest: String, timing: Option<Value>) {
@@ -298,24 +323,54 @@ impl WatcherLoop {
                     continue;
                 }
             };
-            if inputs == seen {
+            if inputs == seen && !self.declarations_dirty {
                 continue;
             }
             seen = inputs.clone();
-            let digest = dev_inputs::digest(&inputs);
-            if inputs == self.active {
-                self.publish(digest, None);
-                continue;
+            if self
+                .process_change(&directory, &publisher, &revision, inputs, detected)
+                .await
+            {
+                seen = self.active.clone();
             }
-            let paths: Vec<Change> = dev_inputs::changed(&self.active, &inputs)
-                .into_iter()
-                .map(|path| {
-                    let appeared = self.active.contains_key(&path) != inputs.contains_key(&path);
-                    (path, appeared)
-                })
-                .collect();
-            let rebuild_started = Instant::now();
-            let declarations = paths.iter().any(|(path, _)| {
+        }
+    }
+
+    /// Processes a changed snapshot; returns `true` if a concurrent edit
+    /// superseded publication so the caller resets `seen` to `self.active`.
+    async fn process_change(
+        &mut self,
+        directory: &Path,
+        publisher: &Publisher,
+        revision: &str,
+        inputs: Inputs,
+        detected: Instant,
+    ) -> bool {
+        let digest = dev_inputs::digest(&inputs);
+        if inputs == self.active {
+            if self.declarations_dirty
+                && let Err(error) = self.restore_mirrors(directory, revision, &inputs).await
+            {
+                let failure = diagnostic(&self.config, String::new(), &format!("{error:#}"));
+                self.status.update.send_modify(|status| {
+                    status.failure = Some((digest, failure));
+                });
+                eprintln!("application mirror recovery failed: {error:#}");
+                return false;
+            }
+            self.publish(digest, None);
+            return false;
+        }
+        let paths: Vec<Change> = dev_inputs::changed(&self.active, &inputs)
+            .into_iter()
+            .map(|path| {
+                let appeared = self.active.contains_key(&path) != inputs.contains_key(&path);
+                (path, appeared)
+            })
+            .collect();
+        let rebuild_started = Instant::now();
+        let declarations = self.declarations_dirty
+            || paths.iter().any(|(path, _)| {
                 dev_inputs::declaration(path)
                     || self
                         .config
@@ -324,113 +379,155 @@ impl WatcherLoop {
                         .as_ref()
                         .is_some_and(|set| set.contains_key(path))
             });
-            let mut module = String::new();
-            let mut times = [0.0, 0.0, 0.0, 0.0];
-            let result = self
-                .refresh(
-                    &directory,
-                    &publisher,
-                    &revision,
-                    &inputs,
-                    &paths,
-                    declarations,
-                    &mut module,
-                    &mut times,
-                )
-                .await;
-            if times[0] == 0.0 {
-                times[0] = ms(rebuild_started.elapsed());
-            }
-            if declarations && times[3] == 0.0 {
-                times[3] = times[0];
-            }
-            let (generation, rebuilt, failure) = match result {
-                Ok(Some((generation, rebuilt))) => (generation, rebuilt, None),
-                Ok(None) => {
-                    seen = self.active.clone();
-                    continue;
-                }
-                Err(error) => (
-                    publisher.generation(),
-                    BTreeSet::new(),
-                    Some(format!("{error:#}")),
-                ),
-            };
-            let skipped = self
-                .config
-                .rebuild
-                .commands
-                .iter()
-                .map(|build| &build.module)
-                .filter(|module| !rebuilt.contains(*module))
-                .collect::<BTreeSet<_>>();
-            let programs = self
-                .programs
-                .iter()
-                .filter(|program| {
-                    self.config.rebuild.commands.iter().any(|build| {
-                        build.process == program.process && rebuilt.contains(&build.module)
-                    })
+        let mut module = String::new();
+        let mut times = [0.0, 0.0, 0.0, 0.0];
+        let result = self
+            .refresh(
+                directory,
+                publisher,
+                revision,
+                &inputs,
+                &paths,
+                declarations,
+                &mut module,
+                &mut times,
+            )
+            .await;
+        if times[0] == 0.0 {
+            times[0] = ms(rebuild_started.elapsed());
+        }
+        if declarations && times[3] == 0.0 {
+            times[3] = times[0];
+        }
+        let (generation, rebuilt, failure) = match result {
+            Ok(Some((generation, rebuilt))) => (generation, rebuilt, None),
+            Ok(None) => return true,
+            Err(error) => (
+                publisher.generation(),
+                BTreeSet::new(),
+                Some(format!("{error:#}")),
+            ),
+        };
+        let skipped = self
+            .config
+            .rebuild
+            .commands
+            .iter()
+            .map(|build| &build.module)
+            .filter(|module| !rebuilt.contains(*module))
+            .collect::<BTreeSet<_>>();
+        let programs = self
+            .programs
+            .iter()
+            .filter(|program| {
+                self.config.rebuild.commands.iter().any(|build| {
+                    build.process == program.process && rebuilt.contains(&build.module)
                 })
-                .collect::<Vec<_>>();
-            let rebuilt_services = programs.iter().map(|p| &p.service).collect::<Vec<_>>();
-            let links = programs
-                .iter()
-                .filter(|p| p.runtime == "go")
-                .map(|p| &p.service)
-                .collect::<Vec<_>>();
-            let rust = programs
-                .iter()
-                .filter(|p| p.runtime == "rust")
-                .map(|p| p.service.split("/service/").next().unwrap_or(""))
-                .collect::<Vec<_>>();
-            let js = programs
-                .iter()
-                .filter(|p| matches!(p.runtime.as_str(), "js" | "ts"))
-                .map(|p| &p.service)
-                .collect::<Vec<_>>();
-            let elapsed = ms(detected.elapsed());
-            let mut timing = json!({
-                "generation":generation, "declarations":declarations, "go":times[1] > 0.0 || declarations && self.config.rebuild.go_workspace.is_some(),
-                "rebuilt":rebuilt_services, "go_links":links, "cargo":rust, "js":js, "rebuilt_modules":rebuilt, "skipped_modules":skipped, "skipped":skipped.len(),
-                "detect_ms":ms(rebuild_started - detected), "compile_ms":times[0],
-                "link_ms":times[1], "ready_ms":times[2], "contract_ms":times[3],
-                "go_ms":times[1], "js_ms":0.0, "cargo_ms":0.0, "total_ms":elapsed,
-                "trigger_kind":if declarations { "contract_or_config" } else { "body_only" },
+            })
+            .collect::<Vec<_>>();
+        let rebuilt_services = programs.iter().map(|p| &p.service).collect::<Vec<_>>();
+        let links = programs
+            .iter()
+            .filter(|p| p.runtime == "go")
+            .map(|p| &p.service)
+            .collect::<Vec<_>>();
+        let rust = programs
+            .iter()
+            .filter(|p| p.runtime == "rust")
+            .map(|p| p.service.split("/service/").next().unwrap_or(""))
+            .collect::<Vec<_>>();
+        let js = programs
+            .iter()
+            .filter(|p| matches!(p.runtime.as_str(), "js" | "ts"))
+            .map(|p| &p.service)
+            .collect::<Vec<_>>();
+        let elapsed = ms(detected.elapsed());
+        let mut timing = json!({
+            "generation":generation, "declarations":declarations, "go":times[1] > 0.0 || declarations && self.config.rebuild.go_workspace.is_some(),
+            "rebuilt":rebuilt_services, "go_links":links, "cargo":rust, "js":js, "rebuilt_modules":rebuilt, "skipped_modules":skipped, "skipped":skipped.len(),
+            "detect_ms":ms(rebuild_started - detected), "compile_ms":times[0],
+            "link_ms":times[1], "ready_ms":times[2], "contract_ms":times[3],
+            "go_ms":times[1], "js_ms":0.0, "cargo_ms":0.0, "total_ms":elapsed,
+            "trigger_kind":if declarations { "contract_or_config" } else { "body_only" },
+        });
+        let ok = failure.is_none();
+        if failure.is_none() {
+            timing["edit_to_ready_ms"] = json!(elapsed);
+        }
+        if let Some(error) = failure {
+            let failure = diagnostic(&self.config, module, &error);
+            self.status.update.send_modify(|status| {
+                status.failure = Some((digest, failure));
+                status.timing = Some(timing.clone());
             });
-            let ok = failure.is_none();
-            if failure.is_none() {
-                timing["edit_to_ready_ms"] = json!(elapsed);
+            eprintln!("application update failed: {error}");
+        } else {
+            self.active = inputs;
+            self.publish(digest, Some(timing.clone()));
+        }
+        eprintln!("worker rebuild {timing}");
+        if let Some(path) = self
+            .config
+            .telemetry_path
+            .as_deref()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
+            timing["ok"] = json!(ok);
+            if !ok {
+                timing["error_code"] = json!("SCN8003");
             }
-            if let Some(error) = failure {
-                let failure = diagnostic(&self.config, module, &error);
-                self.status.update.send_modify(|status| {
-                    status.failure = Some((digest, failure));
-                    status.timing = Some(timing.clone());
-                });
-                eprintln!("application update failed: {error}");
-            } else {
-                self.active = inputs;
-                self.publish(digest, Some(timing.clone()));
-            }
-            eprintln!("worker rebuild {timing}");
-            if let Some(path) = self
-                .config
-                .telemetry_path
-                .as_deref()
-                .filter(|path| !path.as_os_str().is_empty())
-            {
-                timing["ok"] = json!(ok);
-                if !ok {
-                    timing["error_code"] = json!("SCN8003");
-                }
-                let event = json!({"at":stamp(time::OffsetDateTime::now_utc()), "app":self.config.app,
+            let event = json!({"at":stamp(time::OffsetDateTime::now_utc()), "app":self.config.app,
                     "kind":"rebuild", "generation":generation, "rebuild":timing});
-                if let Err(error) = journal(path, &event).await {
-                    eprintln!("could not record rebuild telemetry: {error:#}");
-                }
+            if let Err(error) = journal(path, &event).await {
+                eprintln!("could not record rebuild telemetry: {error:#}");
             }
         }
+        false
+    }
+
+    async fn restore_mirrors(
+        &mut self,
+        directory: &Path,
+        revision: &str,
+        inputs: &Inputs,
+    ) -> Result<()> {
+        let mut plan = self.load_refresh_plan(directory, revision).await?;
+        plan.discover_go_embeds(&self.config.root, inputs)?;
+        ensure!(
+            plan.host_config == self.config.rebuild.host_config,
+            "application configuration changed; restart the application to load its new configuration"
+        );
+        ensure!(
+            dev_inputs::digest(inputs) == plan.source_digest,
+            "application changed while restoring build mirrors"
+        );
+        self.go_materialized = inputs.clone();
+        self.rust_materialized = inputs.clone();
+        *self.status.ignore.write().expect("generated roots") = plan.generated.clone();
+        self.config.rebuild = plan;
+        self.declarations_dirty = false;
+        Ok(())
+    }
+
+    async fn load_refresh_plan(&mut self, directory: &Path, revision: &str) -> Result<Plan> {
+        self.declarations_dirty = true;
+        let staging = tempfile::tempdir_in(directory)?;
+        let file = staging.path().join("rebuild.json");
+        dev_build::run(
+            &self.config.cli,
+            &[
+                "worker-refresh-plan".into(),
+                self.config.root.display().to_string(),
+                revision.into(),
+                self.config.environment.clone(),
+                file.display().to_string(),
+            ],
+            &self.config.root,
+            Some(&self.config.cli_environment),
+            staging.path(),
+        )
+        .await?;
+        Ok(serde_json::from_reader(fs::File::open(file)?)?)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -447,23 +544,8 @@ impl WatcherLoop {
     ) -> Result<Option<(u64, BTreeSet<String>)>> {
         let begin = Instant::now();
         let plan = if declarations {
-            let staging = tempfile::tempdir_in(directory)?;
-            let file = staging.path().join("rebuild.json");
-            dev_build::run(
-                &self.config.cli,
-                &[
-                    "worker-refresh-plan".into(),
-                    self.config.root.display().to_string(),
-                    revision.into(),
-                    self.config.environment.clone(),
-                    file.display().to_string(),
-                ],
-                &self.config.root,
-                Some(&self.config.cli_environment),
-                staging.path(),
-            )
-            .await?;
-            let plan: Plan = serde_json::from_reader(fs::File::open(file)?)?;
+            let mut plan = self.load_refresh_plan(directory, revision).await?;
+            plan.discover_go_embeds(&self.config.root, inputs)?;
             ensure!(
                 plan.host_config == self.config.rebuild.host_config,
                 "application configuration changed; restart the application to load its new configuration"
@@ -606,6 +688,7 @@ impl WatcherLoop {
         if let Some(plan) = plan {
             *self.status.ignore.write().expect("generated roots") = plan.generated.clone();
             self.config.rebuild = plan;
+            self.declarations_dirty = false;
         }
         for (index, command, embeds) in go_dependencies {
             self.config.rebuild.commands[index] = command;
@@ -761,184 +844,5 @@ pub(crate) fn shutdown(stop: CancellationToken) -> Reply {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use http_body_util::BodyExt;
-
-    #[test]
-    fn each_mirror_receives_what_it_missed_since_its_own_last_sync() -> Result<()> {
-        let temp = tempfile::tempdir()?;
-        let base = temp.path().canonicalize()?;
-        let (root, go, rust) = (base.join("app"), base.join("go"), base.join("rust"));
-        for directory in [&root, &go, &rust] {
-            fs::create_dir(directory)?;
-        }
-        let write = |name: &str, content: &str| fs::write(root.join(name), content);
-        let read = |mirror: &Path, name: &str| fs::read_to_string(mirror.join(name));
-        write("a.rs", "fn a() {}")?;
-        write("b.rs", "fn b() {}")?;
-        write("README.md", "first")?;
-        let scanner = Scanner::new(root.clone());
-        let rust_source = |path: &Path| dev_inputs::extension(path) == "rs";
-        let any = |_: &Path| true;
-        let (mut go_held, mut rust_held) = (Inputs::new(), Inputs::new());
-        let started = scanner.scan(&[])?;
-        materialize(&root, &go, &mut go_held, &started, any)?;
-        materialize(&root, &rust, &mut rust_held, &started, rust_source)?;
-
-        // A syntax error reaches the Rust snapshot and fails its build.
-        write("a.rs", "fn a( {}")?;
-        let broken = scanner.scan(&[])?;
-        materialize(&root, &go, &mut go_held, &broken, any)?;
-        materialize(&root, &rust, &mut rust_held, &broken, rust_source)?;
-        assert_eq!(read(&rust, "a.rs")?, "fn a( {}");
-
-        // The error is undone together with an edit that no Cargo build
-        // reads: this refresh skips the Rust snapshot.
-        write("a.rs", "fn a() {}")?;
-        write("README.md", "second")?;
-        let reverted = scanner.scan(&[])?;
-        materialize(&root, &go, &mut go_held, &reverted, any)?;
-        assert_eq!(read(&rust, "a.rs")?, "fn a( {}");
-
-        // The next Rust edit must bring the reverted file along. One shared
-        // record had marked it as copied, so Cargo kept compiling the error.
-        write("b.rs", "fn b() -> u8 { 1 }")?;
-        let edited = scanner.scan(&[])?;
-        materialize(&root, &go, &mut go_held, &edited, any)?;
-        materialize(&root, &rust, &mut rust_held, &edited, rust_source)?;
-        for name in ["a.rs", "b.rs"] {
-            assert_eq!(read(&rust, name)?, read(&root, name)?, "{name}");
-        }
-        assert!(!rust.join("README.md").exists());
-        for name in ["a.rs", "b.rs", "README.md"] {
-            assert_eq!(read(&go, name)?, read(&root, name)?, "{name}");
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn a_new_embed_of_an_unchanged_file_builds_on_the_first_rebuild() -> Result<()> {
-        let temp = tempfile::tempdir()?;
-        let base = temp.path().canonicalize()?;
-        let (root, workspace, artifacts) =
-            (base.join("app"), base.join("go"), base.join("artifacts"));
-        let write = |name: &str, content: &str| {
-            let path = root.join(name);
-            fs::create_dir_all(path.parent().expect("file parent"))?;
-            fs::write(path, content)
-        };
-        write("go.mod", "module example.test/app\n\ngo 1.23\n")?;
-        write("worker/main.go", "package main\n\nfunc main() {}\n")?;
-        write("worker/assets/config.json", "{}\n")?;
-        fs::create_dir(&artifacts)?;
-        let scanner = Scanner::new(root.clone());
-        let started = scanner.scan(&[])?;
-        // The CLI's workspace has the Go sources and the files they embed
-        // at startup, while the loop records the whole snapshot as held.
-        for name in ["go.mod", "worker/main.go"] {
-            dev_inputs::sync(
-                &root,
-                &workspace,
-                Path::new(name),
-                started.get(Path::new(name)),
-            )?;
-        }
-        let mut held = started;
-        let plan: Plan = serde_json::from_value(json!({
-            "commands":[{
-                "process":"worker", "module":"worker", "directory":workspace, "program":"go",
-                "args":["build","-o","{output}","./worker"], "roots":["worker"],
-            }],
-            "programs":[], "source_digest":"", "host_config":{}, "go_workspace":workspace,
-        }))?;
-        let program: Program = serde_json::from_value(json!({
-            "service":"app/service/worker","process":"worker","binary":"","digest":"","runtime":"go",
-            "identity":{"contract_revision":"contract","implementation_revision":"","build_input_digest":"","go_target":"test"},
-            "environment":[],
-        }))?;
-
-        write(
-            "worker/main.go",
-            "package main\n\nimport _ \"embed\"\n\n//go:embed assets/config.json\nvar config []byte\n\nfunc main() { println(len(config)) }\n",
-        )?;
-        let edited = scanner.scan(&[])?;
-        materialize_go(&root, &workspace, &mut held, &edited, &plan)?;
-        // Without the embedded file the build fails on its pattern.
-        plan.commands[0]
-            .compile(&root, &artifacts, &program, "embed")
-            .await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn wait_scans_again_only_when_a_file_event_or_publication_arrives() -> Result<()> {
-        let root = tempfile::tempdir()?;
-        fs::write(root.path().join("worker.go"), "package worker")?;
-        let scanner = Arc::new(Scanner::new(root.path().into()));
-        let digest = dev_inputs::digest(&scanner.scan(&[])?);
-        let status = Arc::new(Status {
-            scanner: scanner.clone(),
-            ignore: RwLock::new(Vec::new()),
-            events: watch::channel(0).0,
-            schema: "fixture".into(),
-            update: watch::channel(Snapshot::default()).0,
-        });
-        let publication = watch::channel(None).1;
-        let waiting = tokio::spawn({
-            let status = status.clone();
-            async move {
-                let reply = status.reply(Some("timeout_ms=30000"), &publication).await?;
-                let body = reply.into_body().collect().await?.to_bytes();
-                Ok::<Value, anyhow::Error>(serde_json::from_slice(&body)?)
-            }
-        });
-        // The edit is announced like the file watcher announces it. The
-        // waiting request must notice it at once, not on its next timer.
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        fs::write(root.path().join("worker.go"), "package edited")?;
-        let announced = Instant::now();
-        status.events.send_modify(|count| *count += 1);
-        let reply = waiting.await??;
-        assert!(announced.elapsed() < Duration::from_millis(500));
-        assert_eq!(reply["outcome"], "superseded");
-        assert_eq!(reply["target_source_snapshot_digest"], digest);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn wait_returns_only_the_failure_for_the_requested_source() -> Result<()> {
-        let root = tempfile::tempdir()?;
-        let file = root.path().join("worker.go");
-        fs::write(&file, "bad source")?;
-        let scanner = Arc::new(Scanner::new(root.path().into()));
-        let (update, _) = watch::channel(Snapshot {
-            failure: Some((
-                dev_inputs::digest(&scanner.scan(&[])?),
-                json!({"module":"worker","file":"worker.go","line":1,"column":2,"stderr":"unexpected token"}),
-            )),
-            ..Snapshot::default()
-        });
-        let status = Status {
-            scanner,
-            ignore: RwLock::new(Vec::new()),
-            events: watch::channel(0).0,
-            schema: "fixture".into(),
-            update,
-        };
-        let publication = watch::channel(None).1;
-        let start = Instant::now();
-        let failed = status.reply(Some("timeout_ms=30000"), &publication).await?;
-        let failed: Value =
-            serde_json::from_slice(&failed.into_body().collect().await?.to_bytes())?;
-        assert_eq!(failed["outcome"], "failed");
-        assert_eq!(failed["build_failure"]["file"], "worker.go");
-        assert!(start.elapsed() < Duration::from_secs(1));
-        fs::write(file, "new source")?;
-        let next = status.reply(None, &publication).await?;
-        let next: Value = serde_json::from_slice(&next.into_body().collect().await?.to_bytes())?;
-        assert_eq!(next["outcome"], "building");
-        assert!(next.get("build_failure").is_none());
-        Ok(())
-    }
-}
+#[path = "dev_test.rs"]
+mod tests;

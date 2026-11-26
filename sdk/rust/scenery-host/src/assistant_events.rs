@@ -224,6 +224,12 @@ impl EventStream {
             &self.claims.conversation_digest,
             &event.run_id,
         );
+        if !matches!(
+            event.typ.as_str(),
+            "run.completed" | "run.cancelled" | "run.failed"
+        ) {
+            self.host.assistants.touch(&run);
+        }
         let capability = &event.capability_name;
         let (typ, data) = match event.typ.as_str() {
             "run.started" => ("run.started", json!({"state":"started"})),
@@ -482,6 +488,8 @@ fn redact_json(value: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn redacts_signatures_across_events_without_removing_word_fragments() {
@@ -492,5 +500,214 @@ mod tests {
             let output = state.write(&input[..i]) + &state.write(&input[i..]) + &state.flush();
             assert_eq!(output, expected, "split at {i}");
         }
+    }
+
+    fn test_plan() -> Plan {
+        serde_json::from_value(json!({
+            "address": "app/assistant/tools",
+            "path": "/assistants/tools",
+            "mcp_server": "app/mcp_server/tools",
+            "authentication": "auth",
+            "session_access": "initiator",
+            "runtime_revision": "runtime",
+            "capability_revision": "capabilities",
+            "policy": {
+                "BindingAddress": "app/binding/tool",
+                "AuthorizationStrategy": "public",
+                "AuthorizationRules": [],
+                "TotalInvocationTimeoutNanos": 0,
+                "MaxRequestHeaderBytes": 0,
+                "CORS": "none",
+                "AllowedOrigins": [],
+                "TransportStatuses": {}
+            }
+        }))
+        .unwrap()
+    }
+
+    fn test_gateway(dir: &Path, control_address: &str, plan: &Plan) -> anyhow::Result<Gateway> {
+        let runtime = dir.join("descriptors.json");
+        let key = dir.join("key");
+        let descriptor = json!({"assistants":[{
+            "assistant_address": plan.address,
+            "control_address": control_address,
+            "control_token": "private",
+            "runtime_revision": "runtime",
+            "capability_revision": "capabilities"
+        }]});
+        std::fs::write(&runtime, descriptor.to_string())?;
+        std::fs::set_permissions(&runtime, Permissions::from_mode(0o600))?;
+        std::fs::write(&key, "0123456789abcdef0123456789abcdef")?;
+        std::fs::set_permissions(&key, Permissions::from_mode(0o600))?;
+        Gateway::new(Some(&runtime), Some(&key), std::slice::from_ref(plan))
+    }
+
+    fn test_call(generation: Arc<Generation>) -> anyhow::Result<Call> {
+        let mut call = Call::new(
+            generation,
+            &hyper::HeaderMap::new(),
+            "POST",
+            "/assistants/tools/v1/conversations",
+            Duration::from_secs(5),
+        )?;
+        call.principal = Some(auth::Claims {
+            user: "user-one".into(),
+            ..Default::default()
+        });
+        Ok(call)
+    }
+
+    #[tokio::test]
+    async fn pending_run_guard_and_idle_eviction_prevent_run_table_leaks() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let respond_immediately = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server = tokio::spawn({
+            let respond_immediately = respond_immediately.clone();
+            async move {
+                loop {
+                    let Ok((socket, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let respond_immediately = respond_immediately.clone();
+                    tokio::spawn(async move {
+                        let service = hyper::service::service_fn(move |request| {
+                            let respond_immediately = respond_immediately.clone();
+                            async move {
+                                if !respond_immediately.load(std::sync::atomic::Ordering::Relaxed) {
+                                    std::future::pending::<()>().await;
+                                }
+                                let body = crate::transport::read(request.into_body(), 16 << 10)
+                                    .await
+                                    .unwrap();
+                                let input: Value = serde_json::from_slice(&body).unwrap();
+                                Ok::<_, std::convert::Infallible>(crate::transport::response(
+                                    StatusCode::OK,
+                                    json!({
+                                        "kind": "scenery.assistant.control.response",
+                                        "schema_revision": "sha256:8b0cefb8d74e4097e7c058205e55b26675c671e2922b9df8fcd8a86403390e4d",
+                                        "type": "conversation.created",
+                                        "request_id": input["request_id"],
+                                        "assistant_address": "app/assistant/tools",
+                                        "runtime_revision": "runtime",
+                                        "capability_revision": "capabilities",
+                                        "private_session_id": "private-session",
+                                        "continuation_token": "private-continuation",
+                                        "run_id": input["run_id"]
+                                    })
+                                    .to_string(),
+                                ))
+                            }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(hyper_util::rt::TokioIo::new(socket), service)
+                            .await;
+                    });
+                }
+            }
+        });
+
+        let plan = test_plan();
+        let gateway = test_gateway(dir.path(), &format!("http://{address}"), &plan)?;
+        let generation = Arc::new(Generation {
+            number: 1,
+            identity: crate::process::BuildIdentity {
+                contract_revision: "contract".into(),
+                implementation_revision: String::new(),
+                build_input_digest: String::new(),
+                go_target: "worker".into(),
+            },
+            workers: BTreeMap::new(),
+            retired: CancellationToken::new(),
+        });
+        let call = test_call(generation.clone())?;
+
+        // Dropping an in-flight `start` future must remove the pre-inserted run.
+        let timed_out = tokio::time::timeout(
+            Duration::from_millis(25),
+            gateway.start(&plan, &call, None, "hello".into()),
+        )
+        .await;
+        assert!(timed_out.is_err());
+        assert!(gateway.state.lock().unwrap().runs.is_empty());
+
+        // When MAX_RUNS are all active (< 30s), new starts return 503 Unavailable.
+        respond_immediately.store(true, std::sync::atomic::Ordering::Relaxed);
+        let now = Instant::now();
+        {
+            let mut state = gateway.state.lock().unwrap();
+            for index in 0..MAX_RUNS {
+                state.runs.insert(
+                    RunKey::new(
+                        &plan.address,
+                        "user-one",
+                        "conv",
+                        &format!("run_{index:04}"),
+                    ),
+                    Run {
+                        generation: generation.clone(),
+                        principal: call.principal.clone(),
+                        traceparent: None,
+                        started: now,
+                        last_active: now,
+                    },
+                );
+            }
+        }
+        assert!(matches!(
+            gateway.start(&plan, &call, None, "hello".into()).await,
+            Err(Error::Unavailable)
+        ));
+
+        // Making the oldest run idle >= 30s allows eviction alongside its pending approval.
+        let oldest = RunKey::new(&plan.address, "user-one", "conv", "run_0000");
+        {
+            let mut state = gateway.state.lock().unwrap();
+            state.runs.get_mut(&oldest).unwrap().last_active = now - Duration::from_secs(35);
+            state.approvals.insert(
+                (oldest.clone(), "apr_1".into()),
+                PendingApproval {
+                    token: "tok".into(),
+                    capability: "write".into(),
+                    input: None,
+                    local_tool: false,
+                    decision: Decision::Pending,
+                },
+            );
+        }
+        assert!(
+            gateway
+                .start(&plan, &call, None, "hello".into())
+                .await
+                .is_ok()
+        );
+        {
+            let state = gateway.state.lock().unwrap();
+            assert_eq!(state.runs.len(), MAX_RUNS);
+            assert!(!state.runs.contains_key(&oldest));
+            assert!(state.approvals.is_empty());
+        }
+
+        // Making one entry exceed 900s sweeps it during `start` without needing eviction.
+        let expired = RunKey::new(&plan.address, "user-one", "conv", "run_0001");
+        gateway
+            .state
+            .lock()
+            .unwrap()
+            .runs
+            .get_mut(&expired)
+            .unwrap()
+            .last_active = now - Duration::from_secs(905);
+        assert!(
+            gateway
+                .start(&plan, &call, None, "hello".into())
+                .await
+                .is_ok()
+        );
+        assert!(!gateway.state.lock().unwrap().runs.contains_key(&expired));
+
+        server.abort();
+        Ok(())
     }
 }

@@ -546,10 +546,19 @@ pub(crate) fn external_origin_with_api(
     };
     url::Url::parse(&format!("{scheme}://{authority}"))
         .ok()
-        .filter(|url| {
-            url.path() == "/" && url.username().is_empty() && url.password().is_none()
-        })
+        .filter(|url| url.path() == "/" && url.username().is_empty() && url.password().is_none())
         .map_or_else(String::new, |url| url.origin().ascii_serialization())
+}
+
+fn normalize_prefix(raw: &str) -> Option<String> {
+    let prefix = raw.trim_matches('/');
+    if prefix.is_empty()
+        || prefix.contains([';', '\\', '?', '#'])
+        || prefix.to_ascii_lowercase().contains("scenery")
+    {
+        return None;
+    }
+    Some(format!("/{prefix}"))
 }
 
 pub(crate) fn prefix_with_api(
@@ -557,25 +566,16 @@ pub(crate) fn prefix_with_api(
     headers: &HeaderMap,
     configured: Option<&url::Url>,
 ) -> String {
-    if !mount.is_empty() {
-        return mount.into();
-    }
     let forwarded = header_value(headers, "x-forwarded-prefix");
-    let configured = configured.map_or("", url::Url::path);
-    let prefix = if forwarded.is_empty() {
-        configured
-    } else {
-        forwarded
-    };
-    let prefix = prefix.trim_matches('/');
-    if prefix.is_empty()
-        || prefix.contains([';', '\\', '?', '#'])
-        || prefix.to_ascii_lowercase().contains("scenery")
-    {
-        String::new()
-    } else {
-        format!("/{prefix}")
+    if !forwarded.is_empty() {
+        return normalize_prefix(forwarded).unwrap_or_default();
     }
+    if !mount.is_empty() {
+        return normalize_prefix(mount).unwrap_or_default();
+    }
+    configured
+        .and_then(|url| normalize_prefix(url.path()))
+        .unwrap_or_default()
 }
 
 pub(crate) fn config_url(name: &str) -> anyhow::Result<Option<url::Url>> {

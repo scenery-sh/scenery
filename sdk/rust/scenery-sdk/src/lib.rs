@@ -148,8 +148,19 @@ impl Context {
 
     async fn read_capability(&self, request: Request<Body>) -> Result<Bytes> {
         let response = self.host.send(request).await?;
-        if response.status() != StatusCode::OK {
-            return Err(format!("capability returned HTTP {}", response.status().as_u16()).into());
+        let status = response.status();
+        if status != StatusCode::OK {
+            if let Ok(collected) = Limited::new(response.into_body(), MAX_METADATA)
+                .collect()
+                .await
+                && let Ok(parsed) =
+                    serde_json::from_slice::<serde_json::Value>(&collected.to_bytes())
+                && let (Some(code), Some(message)) =
+                    (parsed["code"].as_str(), parsed["message"].as_str())
+            {
+                return Err(format!("{code}: {message}").into());
+            }
+            return Err(format!("capability returned HTTP {}", status.as_u16()).into());
         }
         Ok(Limited::new(response.into_body(), MAX_METADATA)
             .collect()

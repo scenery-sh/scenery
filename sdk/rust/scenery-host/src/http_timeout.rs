@@ -70,7 +70,7 @@ impl DeadlineControl {
             let now = Instant::now();
             state.request_started = now;
             state.read_deadline = Some(now + read_timeout);
-            state.write_deadline = None;
+            state.write_deadline = Some(now + write_timeout);
             state.pending_write_timeout = write_timeout;
             state.body_finished = false;
             state.idle_timeout = None;
@@ -85,7 +85,7 @@ impl DeadlineControl {
     }
 
     pub(crate) fn apply_policy(&self, policy: &Policy) {
-        let read_waker = {
+        let (read_waker, write_waker) = {
             let mut state = self.state.lock().expect("deadline lock");
             if state.upgraded {
                 return;
@@ -93,10 +93,17 @@ impl DeadlineControl {
             if !state.body_finished {
                 state.read_deadline = Some(state.request_started + policy.read_timeout());
             }
-            state.pending_write_timeout = policy.write_timeout();
-            state.read_waker.take()
+            let write_timeout = policy.write_timeout();
+            state.pending_write_timeout = write_timeout;
+            if state.idle_timeout.is_none() {
+                state.write_deadline = Some(state.request_started + write_timeout);
+            }
+            (state.read_waker.take(), state.write_waker.take())
         };
         if let Some(waker) = read_waker {
+            waker.wake();
+        }
+        if let Some(waker) = write_waker {
             waker.wake();
         }
     }
@@ -150,7 +157,9 @@ impl DeadlineControl {
                     state.write_deadline = None;
                 } else {
                     let now = Instant::now();
-                    state.write_deadline = Some(now + state.pending_write_timeout);
+                    if state.write_deadline.is_none() {
+                        state.write_deadline = Some(now + state.pending_write_timeout);
+                    }
                     state.read_deadline = Some(now + idle_timeout);
                     state.idle_timeout = Some(idle_timeout);
                 }
@@ -175,6 +184,33 @@ impl DeadlineControl {
         let now = Instant::now();
         state.write_deadline = Some(now + state.pending_write_timeout);
         state.read_deadline = Some(now + idle);
+    }
+
+    pub(crate) fn response_finished(&self, idle: Duration) {
+        let (read_waker, write_waker) = {
+            let mut state = self.state.lock().expect("deadline lock");
+            if state.upgraded {
+                return;
+            }
+            state.read_deadline = Some(Instant::now() + idle);
+            state.write_deadline = None;
+            state.idle_timeout = None;
+            (state.read_waker.take(), state.write_waker.take())
+        };
+        if let Some(waker) = read_waker {
+            waker.wake();
+        }
+        if let Some(waker) = write_waker {
+            waker.wake();
+        }
+    }
+
+    fn write_expired(&self) -> bool {
+        self.state
+            .lock()
+            .expect("deadline lock")
+            .write_deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
     fn read_deadline_and_register(&self, waker: &Waker) -> Option<Instant> {
@@ -283,6 +319,12 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for DeadlineStream<S> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.as_mut().get_mut();
+        if this.control.write_expired() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "http write timeout",
+            )));
+        }
         match Pin::new(&mut this.inner).poll_write(cx, buf) {
             Poll::Ready(result) => {
                 if matches!(result, Ok(written) if written > 0) {
@@ -305,6 +347,12 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for DeadlineStream<S> {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.as_mut().get_mut();
+        if this.control.write_expired() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "http write timeout",
+            )));
+        }
         match Pin::new(&mut this.inner).poll_flush(cx) {
             Poll::Ready(result) => Poll::Ready(result),
             Poll::Pending => poll_deadline(
@@ -319,6 +367,62 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for DeadlineStream<S> {
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+pub(crate) struct ResponseBodyGuard<B> {
+    inner: B,
+    control: Arc<DeadlineControl>,
+    idle: Duration,
+    finished: bool,
+}
+
+impl<B> ResponseBodyGuard<B> {
+    pub(crate) fn new(inner: B, control: Arc<DeadlineControl>, idle: Duration) -> Self {
+        Self {
+            inner,
+            control,
+            idle,
+            finished: false,
+        }
+    }
+
+    fn finish(&mut self) {
+        if !self.finished {
+            self.finished = true;
+            self.control.response_finished(self.idle);
+        }
+    }
+}
+
+impl<B> Drop for ResponseBodyGuard<B> {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+impl<B: hyper::body::Body + Unpin> hyper::body::Body for ResponseBodyGuard<B> {
+    type Data = B::Data;
+    type Error = B::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        let result = Pin::new(&mut this.inner).poll_frame(cx);
+        if matches!(result, Poll::Ready(None | Some(Err(_)))) {
+            this.finish();
+        }
+        result
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.inner.size_hint()
     }
 }
 
@@ -645,5 +749,99 @@ mod tests {
         );
         assert!(control.write_deadline().is_none());
         assert!(control.read_deadline().is_none());
+    }
+
+    #[tokio::test]
+    async fn stalled_handler_exceeding_write_timeout_fails_before_writing_headers() {
+        let timeouts = HttpTimeouts {
+            header_read: Duration::from_secs(2),
+            read: Duration::from_secs(2),
+            write: Duration::from_millis(80),
+            idle: Duration::from_secs(2),
+        };
+        let (server_io, mut client_io) = tokio::io::duplex(4096);
+        let (stream, control) = DeadlineStream::new(server_io, timeouts);
+        let server = tokio::spawn(async move {
+            let service = service_fn(move |_request: Request<Incoming>| {
+                let control = control.clone();
+                control.begin_request(timeouts.read, timeouts.write);
+                async move {
+                    control.request_body_finished();
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let response = Response::new(Full::new(Bytes::from_static(b"ok")));
+                    control.begin_response(response.status(), response.headers(), timeouts.idle);
+                    Ok::<_, Infallible>(response)
+                }
+            });
+            hyper::server::conn::http1::Builder::new()
+                .timer(hyper_util::rt::TokioTimer::new())
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+        });
+
+        client_io
+            .write_all(b"GET /stalled HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        let mut reply = Vec::new();
+        let outcome = client_io.read_to_end(&mut reply).await;
+        assert!(outcome.is_err() || reply.is_empty());
+        assert!(!reply.windows(6).any(|window| window == b"200 OK"));
+        assert!(server.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn sse_response_completion_rearms_idle_read_deadline_on_keep_alive() {
+        let timeouts = HttpTimeouts {
+            header_read: Duration::from_secs(2),
+            read: Duration::from_secs(2),
+            write: Duration::from_secs(2),
+            idle: Duration::from_millis(80),
+        };
+        let (server_io, mut client_io) = tokio::io::duplex(4096);
+        let (stream, control) = DeadlineStream::new(server_io, timeouts);
+        let server = tokio::spawn(async move {
+            let service = service_fn(move |_request: Request<Incoming>| {
+                let control = control.clone();
+                control.begin_request(timeouts.read, timeouts.write);
+                async move {
+                    let mut response =
+                        Response::new(Full::new(Bytes::from_static(b"data: done\n\n")));
+                    response.headers_mut().insert(
+                        "content-type",
+                        HeaderValue::from_static("text/event-stream"),
+                    );
+                    control.begin_response(response.status(), response.headers(), timeouts.idle);
+                    Ok::<_, Infallible>(
+                        response.map(|body| ResponseBodyGuard::new(body, control, timeouts.idle)),
+                    )
+                }
+            });
+            hyper::server::conn::http1::Builder::new()
+                .timer(hyper_util::rt::TokioTimer::new())
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+        });
+
+        client_io
+            .write_all(b"GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buffer = [0u8; 256];
+        let mut received = Vec::new();
+        while !received
+            .windows(12)
+            .any(|window| window == b"data: done\n\n")
+        {
+            let n = client_io.read(&mut buffer).await.unwrap();
+            assert!(n > 0, "unexpected EOF before SSE payload arrived");
+            received.extend_from_slice(&buffer[..n]);
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), server)
+                .await
+                .is_ok(),
+            "idle keep-alive connection after SSE did not time out"
+        );
     }
 }

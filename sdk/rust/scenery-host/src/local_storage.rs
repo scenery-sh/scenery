@@ -35,6 +35,7 @@ pub(crate) struct Selection<'a> {
     pub name: &'a str,
     pub tenant: &'a str,
     pub key: Option<&'a str>,
+    pub recursive: bool,
     pub query: &'a BTreeMap<String, Vec<String>>,
 }
 
@@ -48,11 +49,12 @@ pub(crate) async fn serve(
         name,
         tenant,
         key,
+        recursive,
         query,
     } = selection;
     if tenant.len() > 256
         || tenant.chars().any(char::is_control)
-        || key.is_some_and(|key| !path_valid(key, false))
+        || key.is_some_and(|key| !path_valid(key, recursive))
     {
         return Err(Fault::invalid());
     }
@@ -122,6 +124,7 @@ pub(crate) async fn serve(
             )
             .await
         }
+        Method::DELETE if recursive => delete_prefix(request.headers(), &partition, key).await,
         Method::DELETE => {
             let _lock = owner.lock(true).await.map_err(Fault::internal)?;
             let current = partition
@@ -787,32 +790,75 @@ async fn list(
     Ok(json_reply(StatusCode::OK, &result))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use hyper::header::HeaderValue;
-
-    #[test]
-    fn metadata_and_references_are_limited_by_their_stored_encoding() {
-        let headers = |note: &str| {
-            let raw = format!(r#"{{"note":"{note}"}}"#);
-            let mut headers = HeaderMap::new();
-            let value = HeaderValue::from_str(&values::base64url(raw.as_bytes())).unwrap();
-            headers.insert("x-storage-metadata", value);
-            headers
-        };
-        let stored = user_metadata(&headers(&"a".repeat(11_000))).ok().flatten();
-        assert_eq!(stored.unwrap()["note"].as_str().map(str::len), Some(11_000));
-        // 11 KiB on the wire, 66 KiB once every `<` is stored as `\u003c`.
-        let escaping = "<".repeat(11_000);
-        let Err(fault) = user_metadata(&headers(&escaping)) else {
-            panic!("metadata beyond the stored limit was accepted");
-        };
-        assert_eq!(fault.status, StatusCode::BAD_REQUEST);
-        // Such a reference could be published but never read again.
-        let reference = json!({"object": {"metadata": {"note": escaping}}});
-        assert!(values::encode(&reference).len() > RECORD_LIMIT);
-        assert!(encode_reference(&reference).is_err());
-        assert!(encode_reference(&json!({"object": {"metadata": {"note": "a"}}})).is_ok());
+async fn delete_prefix(
+    headers: &HeaderMap,
+    partition: &Partition<'_>,
+    prefix: &str,
+) -> Result<Reply, Fault> {
+    if headers.contains_key("if-match") || headers.contains_key("if-none-match") {
+        return Err(Fault::invalid());
     }
+    let owner = partition.owner;
+    let _lock = owner.lock(true).await.map_err(Fault::internal)?;
+    let refs_dir = match directory(
+        &owner.generation,
+        &Path::new("refs").join(&partition.path),
+        false,
+    ) {
+        Ok(dir) => dir,
+        Err(error) if missing(&error) => return Ok(empty(StatusCode::NO_CONTENT)),
+        Err(error) => return Err(Fault::internal(error)),
+    };
+    let mut shards = BTreeMap::new();
+    let mut matches = Vec::new();
+    let mut seen = 0;
+    for shard in Dir::read_from(&refs_dir).map_err(Fault::internal)? {
+        let shard = shard.map_err(Fault::internal)?;
+        let shard_name = shard.file_name().to_str().map_err(Fault::internal)?;
+        if matches!(shard_name, "." | "..") {
+            continue;
+        }
+        let shard_dir =
+            directory(&refs_dir, Path::new(shard_name), false).map_err(Fault::internal)?;
+        for item in Dir::read_from(&shard_dir).map_err(Fault::internal)? {
+            let item = item.map_err(Fault::internal)?;
+            let item_name = item.file_name().to_str().map_err(Fault::internal)?;
+            if matches!(item_name, "." | "..") {
+                continue;
+            }
+            let value = record(&shard_dir, Path::new(item_name)).map_err(Fault::internal)?;
+            partition.check_reference(&value).map_err(Fault::internal)?;
+            let key = value["object"]["key"]
+                .as_str()
+                .expect("validated key")
+                .to_owned();
+            if key.starts_with(prefix) {
+                matches.push((key, shard_name.to_owned(), item_name.to_owned()));
+            }
+            seen += 1;
+            if seen % 64 == 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+        shards.insert(shard_name.to_owned(), shard_dir);
+    }
+    matches.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    let mut touched = BTreeSet::new();
+    for (_, shard_name, item_name) in matches {
+        let shard_dir = &shards[&shard_name];
+        fs::unlinkat(shard_dir, item_name.as_str(), AtFlags::empty()).map_err(Fault::internal)?;
+        touched.insert(shard_name);
+    }
+    for shard_name in touched {
+        shards[&shard_name].sync_all().map_err(Fault::internal)?;
+    }
+    Ok(empty(StatusCode::NO_CONTENT))
 }
+
+#[cfg(test)]
+#[path = "local_storage_test.rs"]
+mod tests;
