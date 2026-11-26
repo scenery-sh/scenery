@@ -567,10 +567,10 @@ impl Host {
                 .durable
                 .get(&binding.execution)
                 .ok_or_else(|| Fault::internal("execution is not declared"))?;
-            let delivery = if binding.delivery == "wait" {
-                "wait"
-            } else {
+            let delivery = if binding.delivery == "enqueue" {
                 "enqueue"
+            } else {
+                "wait"
             };
             return self.engine.dispatch(&child, plan, delivery, &input).await;
         }

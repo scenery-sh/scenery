@@ -739,19 +739,24 @@ async fn serve_public(
                             request.extensions_mut().insert(peer);
                         }
                         async move {
-                            let response = gateway::public(&host, request).await;
+                            let response = tokio::select! {
+                                response = gateway::public(&host, request) => response,
+                                () = deadlines.wait_write_expired() => {
+                                    return Err(std::io::Error::new(
+                                        std::io::ErrorKind::TimedOut,
+                                        "http write timeout",
+                                    ));
+                                }
+                            };
                             deadlines.begin_response(
                                 response.status(),
                                 response.headers(),
                                 timeouts.idle,
                             );
-                            Ok::<_, Infallible>(response.map(|body| {
-                                http_timeout::ResponseBodyGuard::new(
-                                    body,
-                                    deadlines,
-                                    timeouts.idle,
-                                )
-                            }))
+                            Ok::<_, std::io::Error>(
+                                response
+                                    .map(|body| http_timeout::ResponseBodyGuard::new(body, deadlines)),
+                            )
                         }
                     });
                     let mut builder = hyper::server::conn::http1::Builder::new();

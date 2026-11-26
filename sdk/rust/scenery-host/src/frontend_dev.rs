@@ -142,15 +142,16 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
                 .unwrap_or("")
                 .trim()
                 .to_ascii_lowercase();
-            media.starts_with("text/")
-                || matches!(
-                    media.as_str(),
-                    "application/javascript"
-                        | "application/x-javascript"
-                        | "application/json"
-                        | "image/svg+xml"
-                )
-                || media.ends_with("+json")
+            media != "text/event-stream"
+                && (media.starts_with("text/")
+                    || matches!(
+                        media.as_str(),
+                        "application/javascript"
+                            | "application/x-javascript"
+                            | "application/json"
+                            | "image/svg+xml"
+                    )
+                    || media.ends_with("+json"))
         });
     let (mut parts, payload) = upstream.into_parts();
     if !textual
@@ -163,14 +164,7 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
         ));
     }
     let bytes = crate::transport::read(payload, TEXT_LIMIT).await?;
-    let transformed = std::str::from_utf8(&bytes).map(|text| {
-        if parts.status.is_success() {
-            rewrite(text)
-        } else {
-            rewrite_hmr_text(text)
-        }
-    });
-    let output = match transformed {
+    let output = match std::str::from_utf8(&bytes).map(rewrite_hmr_text) {
         Ok(Cow::Owned(output)) => {
             parts.headers.remove("content-length");
             Bytes::from(output)
@@ -330,11 +324,6 @@ mod tests {
         let mut echo = [0; 4];
         tokio::io::AsyncReadExt::read_exact(&mut socket, &mut echo).await?;
         assert_eq!(&echo, b"ping");
-
-        // Error overlays, SVG/+json responses, and WebSocket HMR text frames are rewritten and scrubbed.
-        let mut svg_req =
-            crate::transport::read_response(get("/asset.svg").send().await?, 4096).await;
-        let _ = &mut svg_req;
         vite.abort();
         proxy.abort();
         Ok(())
@@ -358,57 +347,86 @@ mod tests {
             reserved: vec!["/api".into()],
             upstream: Some(upstream_address),
         };
+        let (ws_closed_tx, ws_closed_rx) = tokio::sync::oneshot::channel::<()>();
+        let ws_closed_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(ws_closed_tx)));
         let upstream_task = tokio::spawn(async move {
             while let Ok((socket, _)) = upstream.accept().await {
+                let ws_closed_tx = ws_closed_tx.clone();
                 tokio::spawn(async move {
-                    let service = service_fn(|request: Request<Incoming>| async move {
-                        assert!(
-                            request
+                    let service = service_fn(move |request: Request<Incoming>| {
+                        let ws_closed_tx = ws_closed_tx.clone();
+                        async move {
+                            assert!(
+                                request
+                                    .headers()
+                                    .keys()
+                                    .all(|k| !k.as_str().starts_with("x-scenery-"))
+                            );
+                            let upgrade = request
                                 .headers()
-                                .keys()
-                                .all(|k| !k.as_str().starts_with("x-scenery-"))
-                        );
-                        let upgrade = request
-                            .headers()
-                            .get("upgrade")
-                            .and_then(|v| v.to_str().ok())
-                            .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
-                        if upgrade {
-                            assert!(!request.headers().contains_key("sec-websocket-extensions"));
-                            let upgrade = hyper::upgrade::on(request);
-                            tokio::spawn(async move {
-                                let upgraded = upgrade.await.unwrap();
-                                let mut io = TokioIo::new(upgraded);
-                                let payload = br#"{"type":"error","err":{"file":"/@fs/repo/.scenery/src/App.tsx","message":"Scenery error"}}"#;
-                                let mut frame = vec![0x81, 126];
-                                frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-                                frame.extend_from_slice(payload);
-                                io.write_all(&frame).await.unwrap();
-                                io.flush().await.unwrap();
-                                let _ = io.shutdown().await;
-                            });
-                            let mut response =
-                                crate::transport::response(StatusCode::SWITCHING_PROTOCOLS, "");
-                            crate::host::header(response.headers_mut(), "connection", "upgrade");
-                            crate::host::header(response.headers_mut(), "upgrade", "websocket");
-                            return Ok::<_, Infallible>(response);
+                                .get("upgrade")
+                                .and_then(|v| v.to_str().ok())
+                                .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+                            if upgrade {
+                                assert!(
+                                    !request.headers().contains_key("sec-websocket-extensions")
+                                );
+                                let upgrade = hyper::upgrade::on(request);
+                                tokio::spawn(async move {
+                                    let upgraded = upgrade.await.unwrap();
+                                    let mut io = TokioIo::new(upgraded);
+                                    // Send fragmented text frame interleaved with ping before closing.
+                                    let part1 = br#"{"type":"error","err":{"file":"/@fs/repo/.sce"#;
+                                    let part2 = br#"nery/src/App.tsx","message":"Scenery error"}}"#;
+                                    let mut f1 = vec![0x01, part1.len() as u8];
+                                    f1.extend_from_slice(part1);
+                                    let ping = [0x89, 0x00];
+                                    let mut f2 = vec![0x80, part2.len() as u8];
+                                    f2.extend_from_slice(part2);
+                                    io.write_all(&f1).await.unwrap();
+                                    io.write_all(&ping).await.unwrap();
+                                    io.write_all(&f2).await.unwrap();
+                                    io.flush().await.unwrap();
+                                    // Wait for client half-close EOF via proxy shutdown.
+                                    let mut drain = [0u8; 8];
+                                    while io.read(&mut drain).await.unwrap_or(0) > 0 {}
+                                    if let Some(tx) = ws_closed_tx.lock().unwrap().take() {
+                                        let _ = tx.send(());
+                                    }
+                                });
+                                let mut response =
+                                    crate::transport::response(StatusCode::SWITCHING_PROTOCOLS, "");
+                                crate::host::header(
+                                    response.headers_mut(),
+                                    "connection",
+                                    "upgrade",
+                                );
+                                crate::host::header(response.headers_mut(), "upgrade", "websocket");
+                                return Ok::<_, Infallible>(response);
+                            }
+                            let (status, media, content) = match request.uri().path() {
+                                "/error" => (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    "application/problem+json",
+                                    r#"{"detail":"Scenery fault at /@fs/repo/.scenery/x.ts"}"#,
+                                ),
+                                "/ok-problem" => (
+                                    StatusCode::OK,
+                                    "application/problem+json",
+                                    r#"{"detail":"Scenery fault"}"#,
+                                ),
+                                "/icon.svg" => (
+                                    StatusCode::OK,
+                                    "image/svg+xml",
+                                    r#"<svg><title>Scenery</title><use href="/@fs/repo/.scenery/sprite.svg#a"/></svg>"#,
+                                ),
+                                "/events" => (StatusCode::OK, "text/event-stream", "data: ok\n\n"),
+                                path => panic!("unexpected path {path}"),
+                            };
+                            let mut response = crate::transport::response(status, content);
+                            crate::host::header(response.headers_mut(), "content-type", media);
+                            Ok::<_, Infallible>(response)
                         }
-                        let (status, media, content) = match request.uri().path() {
-                            "/error" => (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                "application/problem+json",
-                                r#"{"detail":"Scenery fault at /@fs/repo/.scenery/x.ts"}"#,
-                            ),
-                            "/icon.svg" => (
-                                StatusCode::OK,
-                                "image/svg+xml",
-                                r#"<svg><use href="/@fs/repo/.scenery/sprite.svg#a"/></svg>"#,
-                            ),
-                            path => panic!("unexpected path {path}"),
-                        };
-                        let mut response = crate::transport::response(status, content);
-                        crate::host::header(response.headers_mut(), "content-type", media);
-                        Ok::<_, Infallible>(response)
                     });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(TokioIo::new(socket), service)
@@ -446,6 +464,16 @@ mod tests {
         assert!(error_text.contains("/@files/"));
         assert!(error_text.contains("application fault"));
 
+        let ok_problem = http
+            .get(format!("http://{front_address}/ok-problem"))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        assert!(!forbidden(&ok_problem), "{ok_problem}");
+        assert!(ok_problem.contains("application fault"));
+
         let svg_text = http
             .get(format!("http://{front_address}/icon.svg"))
             .send()
@@ -455,6 +483,14 @@ mod tests {
             .await?;
         assert!(!forbidden(&svg_text), "{svg_text}");
         assert!(svg_text.contains("/@files/"));
+        assert!(svg_text.contains("<title>application</title>"));
+
+        let sse_resp = http
+            .get(format!("http://{front_address}/events"))
+            .send()
+            .await?
+            .error_for_status()?;
+        assert_eq!(sse_resp.text().await?, "data: ok\n\n");
 
         let ws_resp = http
             .get(format!("http://{front_address}/hmr-ws"))
@@ -465,6 +501,11 @@ mod tests {
             .await?;
         assert_eq!(ws_resp.status(), StatusCode::SWITCHING_PROTOCOLS);
         let mut ws = ws_resp.upgrade().await?;
+        // First expect interleaved ping control frame.
+        let mut ping = [0u8; 2];
+        ws.read_exact(&mut ping).await?;
+        assert_eq!(ping, [0x89, 0x00]);
+        // Then expect reassembled and scrubbed 0x81 text frame.
         let mut head = [0u8; 2];
         ws.read_exact(&mut head).await?;
         assert_eq!(head[0], 0x81);
@@ -482,6 +523,9 @@ mod tests {
         assert!(!forbidden(text), "{text}");
         assert!(text.contains("/@files/"));
         assert!(text.contains("application error"));
+
+        drop(ws);
+        tokio::time::timeout(Duration::from_secs(1), ws_closed_rx).await??;
 
         upstream_task.abort();
         proxy.abort();

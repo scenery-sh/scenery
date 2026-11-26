@@ -252,6 +252,17 @@ impl Policy {
             crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT
         }
     }
+
+    pub(crate) fn pre_response_write_timeout(&self) -> std::time::Duration {
+        if self.write_timeout_nanos > 0 {
+            std::time::Duration::from_nanos(self.write_timeout_nanos)
+        } else {
+            crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT.max(
+                std::time::Duration::from_nanos(self.total_invocation_timeout_nanos)
+                    .saturating_add(std::time::Duration::from_secs(5)),
+            )
+        }
+    }
 }
 
 impl HostPlan {
@@ -753,7 +764,11 @@ fn production_worker_env(key: &str, runtime: &str) -> bool {
         | "GOGC"
         | "GOTRACEBACK"
         | "GOCOVERDIR" => true,
-        _ => key.starts_with("LC_") || key.starts_with("SCENERY_"),
+        _ => {
+            key.starts_with("LC_")
+                || key.starts_with("SCENERY_")
+                || (runtime == "go" && key.ends_with("_DATABASE_URL"))
+        }
     }
 }
 
@@ -817,6 +832,7 @@ mod tests {
         }
         assert!(production_worker_env("DATABASE_URL", "go"));
         assert!(production_worker_env("SCENERY_DATABASE_JSON", "go"));
+        assert!(production_worker_env("ORDERS_DATABASE_URL", "go"));
         assert!(production_worker_env("SCENERY_DEV_REPORT_URL", "go"));
         for secret in [
             "DATABASE_URL",

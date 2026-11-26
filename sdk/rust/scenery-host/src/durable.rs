@@ -671,7 +671,8 @@ async fn register(client: &impl GenericClient, reg: &Registration) -> Result<()>
             success_retention_ms=excluded.success_retention_ms, failure_retention_ms=excluded.failure_retention_ms,
             enabled=true,updated_at=now()",
         &[&reg.service, &reg.external_name, &(reg.revision as i32), &reg.address,
-            &((reg.default_timeout / 1_000_000) as i32), &((reg.default_lease / 1_000_000) as i32),
+            &(effective_timeout(reg).as_millis().min(i32::MAX as u128) as i32),
+            &(effective_lease(reg).as_millis().min(i32::MAX as u128) as i32),
             &reg.max_attempts, &reg.max_concurrency, &ms(reg.deduplication_retention),
             &reg.deduplication_conflict, &(ms(reg.retry_initial) as i32), &(ms(reg.retry_max) as i32),
             &reg.retry_backoff, &reg.retry_jitter, &ms(reg.success_retention), &ms(reg.failure_retention)],
@@ -702,6 +703,24 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
     }
 }
 
+pub(super) fn effective_timeout(reg: &Registration) -> Duration {
+    if reg.default_timeout == 0 {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_nanos(reg.default_timeout)
+    }
+}
+
+pub(super) fn effective_lease(reg: &Registration) -> Duration {
+    let timeout = effective_timeout(reg);
+    let lease = if reg.default_lease == 0 {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_nanos(reg.default_lease)
+    };
+    lease.min(timeout)
+}
+
 async fn execute_next(
     host: &Host,
     service: &Service,
@@ -716,7 +735,7 @@ async fn execute_next(
     };
     let client = host.engine.connection().await?;
     let reg = &plan.registration;
-    let lease = random_hex::<16>()?;
+    let lease_id = random_hex::<16>()?;
     let owner = std::process::id().to_string();
     client.execute(
         "WITH expired AS (
@@ -755,7 +774,7 @@ async fn execute_next(
             INSERT INTO scenery.durable_job_events(service,job_id,attempt,event_type,payload_blob)
             SELECT $1,id,attempt,'job.leased','{}'::bytea FROM leased
          ) SELECT * FROM leased",
-        &[&reg.service, &reg.external_name, &lease, &owner, &(reg.revision as i32)],
+        &[&reg.service, &reg.external_name, &lease_id, &owner, &(reg.revision as i32)],
     ).await?;
     let Some(row) = row else { return Ok(false) };
     let job = Job::from_row(&row);
@@ -763,17 +782,12 @@ async fn execute_next(
     if let Some(parent) = job.memo["traceparent"].as_str() {
         crate::host::header(&mut headers, "traceparent", parent);
     }
-    let duration = if reg.default_timeout == 0 {
-        Duration::from_secs(30)
-    } else {
-        Duration::from_nanos(reg.default_timeout)
-    };
     let mut call = Call::new(
         generation,
         &headers,
         "DURABLE",
         &reg.external_name,
-        duration,
+        effective_timeout(reg),
     )?;
     call.invocation_id.clone_from(&job.id);
     call.execution_id = Some(job.id.clone());
@@ -814,7 +828,12 @@ async fn execute_next(
         Ok(outcome)
     };
     tokio::pin!(execute);
-    let mut heartbeat = interval(Duration::from_nanos((reg.default_lease / 3).max(1_000_000)));
+    let lease = effective_lease(reg);
+    let mut heartbeat = interval(Duration::from_nanos(
+        u64::try_from(lease.as_nanos() / 3)
+            .unwrap_or(u64::MAX)
+            .max(1_000_000),
+    ));
     heartbeat.tick().await;
     // A stopping host stops claiming work, but a running execution keeps its
     // lease for the drain window: most handlers finish within it.
@@ -828,7 +847,7 @@ async fn execute_next(
             result = &mut execute => break result,
             () = &mut drained => {
                 call.cancel.cancel();
-                release(&client, reg, &job.id, &lease).await?;
+                release(&client, reg, &job.id, &lease_id).await?;
                 return Ok(true);
             }
             _ = heartbeat.tick() => {
@@ -836,7 +855,7 @@ async fn execute_next(
                     "UPDATE scenery.durable_jobs SET lease_until=LEAST(timeout_at,now() + ($4::bigint * interval '1 millisecond'))
                      WHERE service=$1 AND id=$2 AND lease_id=$3 AND state='running'
                        AND lease_until > now() AND timeout_at > now()",
-                    &[&reg.service, &job.id, &lease, &((reg.default_lease / 1_000_000) as i64)],
+                    &[&reg.service, &job.id, &lease_id, &(lease.as_millis().min(i64::MAX as u128) as i64)],
                 ).await?;
                 if updated == 0 {
                     call.cancel.cancel();
@@ -869,7 +888,7 @@ async fn execute_next(
          ) INSERT INTO scenery.durable_job_events(service,job_id,attempt,event_type,payload_blob)
            SELECT service,id,attempt,CASE WHEN state='queued' THEN 'job.retry_scheduled' ELSE 'job.' || state END,COALESCE($4,$5)
            FROM completed",
-        &[&reg.service, &job.id, &lease, &output, &error, &delay],
+        &[&reg.service, &job.id, &lease_id, &output, &error, &delay],
     ).await?;
     Ok(true)
 }

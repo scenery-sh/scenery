@@ -212,3 +212,50 @@ async fn execute_next_returns_immediately_when_stop_is_cancelled() -> Result<()>
     assert!(!execute_next(&host, &service, &plan, &stop).await?);
     Ok(())
 }
+
+#[test]
+fn effective_timeout_and_lease_normalize_zero_and_clamp_lease_to_timeout() {
+    let make = |timeout: u64, lease: u64| Registration {
+        address: "orders/execution/ship".into(),
+        engine_address: "orders/engine/main".into(),
+        external_name: "ship".into(),
+        service: "orders".into(),
+        revision: 1,
+        default_timeout: timeout,
+        default_lease: lease,
+        max_attempts: 3,
+        retry_initial: 1_000_000_000,
+        retry_max: 2_000_000_000,
+        retry_backoff: 2.0,
+        retry_jitter: 0.0,
+        success_retention: 0,
+        failure_retention: 0,
+        max_concurrency: 1,
+        deduplication_retention: 0,
+        deduplication_conflict: "return_existing".into(),
+    };
+
+    let zero_both = make(0, 0);
+    assert_eq!(effective_timeout(&zero_both), Duration::from_secs(60));
+    assert_eq!(effective_lease(&zero_both), Duration::from_secs(60));
+
+    let zero_timeout_positive_lease = make(0, 5_000_000_000);
+    assert_eq!(
+        effective_timeout(&zero_timeout_positive_lease),
+        Duration::from_secs(60)
+    );
+    assert_eq!(
+        effective_lease(&zero_timeout_positive_lease),
+        Duration::from_secs(5)
+    );
+
+    let lease_exceeding_timeout = make(10_000_000_000, 90_000_000_000);
+    assert_eq!(
+        effective_timeout(&lease_exceeding_timeout),
+        Duration::from_secs(10)
+    );
+    assert_eq!(
+        effective_lease(&lease_exceeding_timeout),
+        Duration::from_secs(10)
+    );
+}

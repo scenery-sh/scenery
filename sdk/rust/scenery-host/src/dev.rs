@@ -323,7 +323,7 @@ impl WatcherLoop {
                     continue;
                 }
             };
-            if inputs == seen && !self.declarations_dirty {
+            if self.should_skip_scan(&inputs, &seen) {
                 continue;
             }
             seen = inputs.clone();
@@ -334,6 +334,12 @@ impl WatcherLoop {
                 seen = self.active.clone();
             }
         }
+    }
+
+    /// Unchanged broken declarations retry only when a new file edit lands;
+    /// `inputs == self.active` retries mirror restoration in case restoring failed.
+    pub(super) fn should_skip_scan(&self, inputs: &Inputs, seen: &Inputs) -> bool {
+        inputs == seen && !(self.declarations_dirty && inputs == &self.active)
     }
 
     /// Processes a changed snapshot; returns `true` if a concurrent edit

@@ -372,8 +372,12 @@ async fn proxy_ws_frames(client: hyper::upgrade::Upgraded, target: hyper::upgrad
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (mut client_read, mut client_write) = tokio::io::split(TokioIo::new(client));
     let (mut target_read, mut target_write) = tokio::io::split(TokioIo::new(target));
-    let client_to_target = tokio::io::copy(&mut client_read, &mut target_write);
+    let client_to_target = async {
+        let _ = tokio::io::copy(&mut client_read, &mut target_write).await;
+        let _ = target_write.shutdown().await;
+    };
     let target_to_client = async {
+        let mut fragment: Option<Vec<u8>> = None;
         loop {
             let mut head = [0u8; 2];
             if target_read.read_exact(&mut head).await.is_err() {
@@ -408,47 +412,160 @@ async fn proxy_ws_frames(client: hyper::upgrade::Upgraded, target: hyper::upgrad
             if masked && target_read.read_exact(&mut mask).await.is_err() {
                 break;
             }
+            if opcode >= 0x08 {
+                if write_raw_ws_frame(
+                    &mut target_read,
+                    &mut client_write,
+                    head,
+                    &ext[..ext_len],
+                    masked.then_some(mask),
+                    payload_len,
+                )
+                .await
+                .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
             if !masked
-                && fin
                 && rsv == 0
                 && opcode == 0x01
                 && payload_len <= crate::frontend_dev::TEXT_LIMIT as u64
             {
+                if let Some(partial) = fragment.take()
+                    && write_ws_unmasked_frame(&mut client_write, 0x01, &partial)
+                        .await
+                        .is_err()
+                {
+                    break;
+                }
                 let mut payload = vec![0u8; payload_len as usize];
                 if target_read.read_exact(&mut payload).await.is_err() {
                     break;
                 }
-                let rewritten = match std::str::from_utf8(&payload)
-                    .map(crate::frontend_dev::rewrite_hmr_text)
-                {
-                    Ok(std::borrow::Cow::Owned(text)) => text.into_bytes(),
-                    _ => payload,
-                };
-                if write_ws_unmasked_frame(&mut client_write, head[0], &rewritten)
+                if !fin {
+                    fragment = Some(payload);
+                    continue;
+                }
+                if write_rewritten_ws_text(&mut client_write, &payload)
                     .await
                     .is_err()
                 {
                     break;
+                }
+            } else if !masked
+                && rsv == 0
+                && opcode == 0x00
+                && let Some(mut accumulated) = fragment.take()
+            {
+                let remaining = (crate::frontend_dev::TEXT_LIMIT as u64)
+                    .saturating_sub(accumulated.len() as u64);
+                if payload_len <= remaining {
+                    let mut chunk = vec![0u8; payload_len as usize];
+                    if target_read.read_exact(&mut chunk).await.is_err() {
+                        break;
+                    }
+                    accumulated.extend_from_slice(&chunk);
+                    if !fin {
+                        fragment = Some(accumulated);
+                        continue;
+                    }
+                    if write_rewritten_ws_text(&mut client_write, &accumulated)
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                } else {
+                    if write_ws_unmasked_frame(&mut client_write, 0x01, &accumulated)
+                        .await
+                        .is_err()
+                        || write_raw_ws_frame(
+                            &mut target_read,
+                            &mut client_write,
+                            head,
+                            &ext[..ext_len],
+                            None,
+                            payload_len,
+                        )
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             } else {
-                if client_write.write_all(&head).await.is_err()
-                    || (ext_len > 0 && client_write.write_all(&ext[..ext_len]).await.is_err())
-                    || (masked && client_write.write_all(&mask).await.is_err())
+                if let Some(partial) = fragment.take()
+                    && write_ws_unmasked_frame(&mut client_write, 0x01, &partial)
+                        .await
+                        .is_err()
                 {
                     break;
                 }
-                let mut limited = (&mut target_read).take(payload_len);
-                if tokio::io::copy(&mut limited, &mut client_write)
-                    .await
-                    .is_err()
-                    || client_write.flush().await.is_err()
+                if write_raw_ws_frame(
+                    &mut target_read,
+                    &mut client_write,
+                    head,
+                    &ext[..ext_len],
+                    masked.then_some(mask),
+                    payload_len,
+                )
+                .await
+                .is_err()
                 {
                     break;
                 }
             }
         }
+        if let Some(partial) = fragment.take() {
+            let _ = write_ws_unmasked_frame(&mut client_write, 0x01, &partial).await;
+        }
+        let _ = client_write.shutdown().await;
     };
-    let _ = tokio::join!(client_to_target, target_to_client);
+    tokio::pin!(client_to_target);
+    tokio::pin!(target_to_client);
+    tokio::select! {
+        () = &mut client_to_target => {
+            let _ = tokio::time::timeout(Duration::from_secs(2), &mut target_to_client).await;
+        }
+        () = &mut target_to_client => {
+            let _ = tokio::time::timeout(Duration::from_secs(2), &mut client_to_target).await;
+        }
+    }
+}
+
+async fn write_rewritten_ws_text<W: tokio::io::AsyncWrite + Unpin>(
+    writer: &mut W,
+    payload: &[u8],
+) -> io::Result<()> {
+    match std::str::from_utf8(payload).map(crate::frontend_dev::rewrite_hmr_text) {
+        Ok(std::borrow::Cow::Owned(text)) => {
+            write_ws_unmasked_frame(writer, 0x81, text.as_bytes()).await
+        }
+        _ => write_ws_unmasked_frame(writer, 0x81, payload).await,
+    }
+}
+
+async fn write_raw_ws_frame<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    reader: &mut R,
+    writer: &mut W,
+    head: [u8; 2],
+    ext: &[u8],
+    mask: Option<[u8; 4]>,
+    payload_len: u64,
+) -> io::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    writer.write_all(&head).await?;
+    if !ext.is_empty() {
+        writer.write_all(ext).await?;
+    }
+    if let Some(mask) = mask {
+        writer.write_all(&mask).await?;
+    }
+    let mut limited = reader.take(payload_len);
+    tokio::io::copy(&mut limited, writer).await?;
+    writer.flush().await
 }
 
 async fn write_ws_unmasked_frame<W: tokio::io::AsyncWrite + Unpin>(

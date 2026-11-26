@@ -13,6 +13,64 @@ use unicode_normalization::UnicodeNormalization;
 
 use super::*;
 
+#[derive(Debug)]
+pub(crate) enum Error {
+    Invalid,
+    Unauthorized,
+    Forbidden,
+    NotFound,
+    Conflict,
+    Cancelled,
+    Unavailable,
+    Internal,
+}
+
+impl Error {
+    pub(crate) fn reply(self) -> Reply {
+        let (status, code, message) = match self {
+            Self::Invalid => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "invalid assistant request",
+            ),
+            Self::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "assistant authentication required",
+            ),
+            Self::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "assistant request forbidden",
+            ),
+            Self::NotFound => (
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "assistant resource not found",
+            ),
+            Self::Conflict => (
+                StatusCode::CONFLICT,
+                "conflict",
+                "assistant approval is no longer pending",
+            ),
+            Self::Cancelled => (StatusCode::CONFLICT, "cancelled", "assistant run cancelled"),
+            Self::Unavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "assistant runtime unavailable",
+            ),
+            Self::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "assistant request failed",
+            ),
+        };
+        let mut reply = json_reply(status, &json!({"code":code,"message":message}));
+        header(reply.headers_mut(), "cache-control", "no-store");
+        reply
+    }
+}
+
 const MAX_EVENT: usize = 1 << 20;
 
 pub(super) async fn stream(
@@ -660,7 +718,7 @@ mod tests {
             Err(Error::Unavailable)
         ));
 
-        // Making the oldest run idle >= 30s allows eviction alongside its pending approval.
+        // An active pending approval shields an idle run from 30s eviction until resolved.
         let oldest = RunKey::new(&plan.address, "user-one", "conv", "run_0000");
         {
             let mut state = gateway.state.lock().unwrap();
@@ -675,6 +733,18 @@ mod tests {
                     decision: Decision::Pending,
                 },
             );
+        }
+        assert!(matches!(
+            gateway.start(&plan, &call, None, "hello".into()).await,
+            Err(Error::Unavailable)
+        ));
+        {
+            let mut state = gateway.state.lock().unwrap();
+            state
+                .approvals
+                .get_mut(&(oldest.clone(), "apr_1".into()))
+                .unwrap()
+                .decision = Decision::Denied;
         }
         assert!(
             gateway
@@ -706,6 +776,34 @@ mod tests {
                 .is_ok()
         );
         assert!(!gateway.state.lock().unwrap().runs.contains_key(&expired));
+
+        // A run with a pending approval must survive the 900s idle sweep and eviction.
+        let pending_key = RunKey::new(&plan.address, "user-one", "conv", "run_pending");
+        {
+            let mut state = gateway.state.lock().unwrap();
+            state.runs.insert(
+                pending_key.clone(),
+                Run {
+                    generation: generation.clone(),
+                    principal: call.principal.clone(),
+                    traceparent: None,
+                    started: now,
+                    last_active: now - Duration::from_secs(1200),
+                },
+            );
+            state.approvals.insert(
+                (pending_key.clone(), "apr_pending".into()),
+                PendingApproval {
+                    token: "tok".into(),
+                    capability: "write".into(),
+                    input: None,
+                    local_tool: false,
+                    decision: Decision::Pending,
+                },
+            );
+        }
+        gateway.sweep();
+        assert!(gateway.run(&pending_key).is_some());
 
         server.abort();
         Ok(())

@@ -108,7 +108,7 @@ async fn a_new_embed_of_an_unchanged_file_builds_on_the_first_rebuild() -> Resul
 
 #[tokio::test]
 async fn failed_declaration_rebuild_keeps_declarations_dirty_until_restored() -> Result<()> {
-    let temp = tempfile::tempdir()?;
+    let temp = tempfile::Builder::new().prefix("dev-").tempdir_in("/tmp")?;
     let base = temp.path().canonicalize()?;
     let root = base.join("app");
     let state = base.join("state");
@@ -187,10 +187,13 @@ async fn failed_declaration_rebuild_keeps_declarations_dirty_until_restored() ->
     // rejects due to mismatched `host_config`/`source_digest` or failed compile.
     fs::write(root.join("Cargo.toml"), "[package]\nbroken syntax")?;
     let broken = watcher.scanner.scan(&[])?;
+    let broken_copy = broken.clone();
     let _ = watcher
         .process_change(&state, &publisher, "c", broken, Instant::now())
         .await;
     assert!(watcher.declarations_dirty);
+    assert!(watcher.should_skip_scan(&broken_copy, &broken_copy));
+    assert!(!watcher.should_skip_scan(&initial, &initial));
     assert_eq!(
         fs::read_to_string(&mirror_toml)?,
         "[package]\nbroken syntax"

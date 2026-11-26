@@ -312,10 +312,14 @@ impl Gateway {
 
     pub(crate) fn run(&self, key: &RunKey) -> Option<Run> {
         let mut state = self.state.lock().expect("assistant state");
-        let run = state.runs.get_mut(key).filter(|run| {
+        let State {
+            runs, approvals, ..
+        } = &mut *state;
+        let run = runs.get_mut(key).filter(|run| {
             !run.generation.retired.is_cancelled()
-                && run.last_active.elapsed() < RUN_SWEEP_TTL
                 && run.started.elapsed() < Duration::from_secs(3600)
+                && (has_active_approval(approvals, key)
+                    || run.last_active.elapsed() < RUN_SWEEP_TTL)
         })?;
         run.last_active = Instant::now();
         Some(run.clone())
@@ -351,14 +355,15 @@ impl Gateway {
     }
 
     fn sweep_locked(state: &mut State) {
-        state.runs.retain(|_, run| {
-            !run.generation.retired.is_cancelled()
-                && run.last_active.elapsed() < RUN_SWEEP_TTL
-                && run.started.elapsed() < Duration::from_secs(3600)
-        });
         let State {
             runs, approvals, ..
         } = state;
+        runs.retain(|key, run| {
+            !run.generation.retired.is_cancelled()
+                && run.started.elapsed() < Duration::from_secs(3600)
+                && (has_active_approval(approvals, key)
+                    || run.last_active.elapsed() < RUN_SWEEP_TTL)
+        });
         approvals.retain(|(key, _), _| runs.contains_key(key));
     }
 
@@ -584,17 +589,22 @@ impl Gateway {
             if state.runs.len() >= MAX_RUNS {
                 Self::sweep_locked(&mut state);
                 while state.runs.len() >= MAX_RUNS {
-                    let Some(evicted) = state
-                        .runs
+                    let State {
+                        runs, approvals, ..
+                    } = &mut *state;
+                    let Some(evicted) = runs
                         .iter()
-                        .filter(|(_, existing)| existing.last_active.elapsed() >= RUN_IDLE_EVICT)
+                        .filter(|(key, existing)| {
+                            !has_active_approval(approvals, key)
+                                && existing.last_active.elapsed() >= RUN_IDLE_EVICT
+                        })
                         .min_by_key(|(_, existing)| existing.last_active)
                         .map(|(key, _)| key.clone())
                     else {
                         return Err(Error::Unavailable);
                     };
-                    state.runs.remove(&evicted);
-                    state.approvals.retain(|(key, _), _| key != &evicted);
+                    runs.remove(&evicted);
+                    approvals.retain(|(key, _), _| key != &evicted);
                 }
             }
             let now = Instant::now();
@@ -927,63 +937,16 @@ fn public(value: Value) -> Reply {
     reply
 }
 
-#[derive(Debug)]
-pub(crate) enum Error {
-    Invalid,
-    Unauthorized,
-    Forbidden,
-    NotFound,
-    Conflict,
-    Cancelled,
-    Unavailable,
-    Internal,
+fn has_active_approval(
+    approvals: &HashMap<(RunKey, String), PendingApproval>,
+    key: &RunKey,
+) -> bool {
+    approvals.iter().any(|((run, _), pending)| {
+        run == key && matches!(pending.decision, Decision::Pending | Decision::Approved)
+    })
 }
 
-impl Error {
-    pub(crate) fn reply(self) -> Reply {
-        let (status, code, message) = match self {
-            Self::Invalid => (
-                StatusCode::BAD_REQUEST,
-                "invalid_request",
-                "invalid assistant request",
-            ),
-            Self::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                "assistant authentication required",
-            ),
-            Self::Forbidden => (
-                StatusCode::FORBIDDEN,
-                "forbidden",
-                "assistant request forbidden",
-            ),
-            Self::NotFound => (
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "assistant resource not found",
-            ),
-            Self::Conflict => (
-                StatusCode::CONFLICT,
-                "conflict",
-                "assistant approval is no longer pending",
-            ),
-            Self::Cancelled => (StatusCode::CONFLICT, "cancelled", "assistant run cancelled"),
-            Self::Unavailable => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "unavailable",
-                "assistant runtime unavailable",
-            ),
-            Self::Internal => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal",
-                "assistant request failed",
-            ),
-        };
-        let mut reply = json_reply(status, &json!({"code":code,"message":message}));
-        header(reply.headers_mut(), "cache-control", "no-store");
-        reply
-    }
-}
+pub(crate) use events::Error;
 
 #[path = "assistant_events.rs"]
 mod events;

@@ -31,9 +31,11 @@ struct DeadlineState {
     read_waker: Option<Waker>,
     write_waker: Option<Waker>,
     pending_write_timeout: Duration,
+    connection_idle: Duration,
     /// Set once the request body has been consumed: the read deadline
     /// bounds the upload, not the handler that runs after it.
     body_finished: bool,
+    response_body_ended: bool,
     /// The inactivity allowance of the response in flight, if it has one.
     idle_timeout: Option<Duration>,
     upgraded: bool,
@@ -41,6 +43,7 @@ struct DeadlineState {
 
 pub(crate) struct DeadlineControl {
     state: Mutex<DeadlineState>,
+    notify: tokio::sync::Notify,
 }
 
 impl DeadlineControl {
@@ -54,10 +57,13 @@ impl DeadlineControl {
                 read_waker: None,
                 write_waker: None,
                 pending_write_timeout: timeouts.write,
+                connection_idle: timeouts.idle,
                 body_finished: false,
+                response_body_ended: false,
                 idle_timeout: None,
                 upgraded: false,
             }),
+            notify: tokio::sync::Notify::new(),
         }
     }
 
@@ -73,6 +79,7 @@ impl DeadlineControl {
             state.write_deadline = Some(now + write_timeout);
             state.pending_write_timeout = write_timeout;
             state.body_finished = false;
+            state.response_body_ended = false;
             state.idle_timeout = None;
             (state.read_waker.take(), state.write_waker.take())
         };
@@ -82,6 +89,7 @@ impl DeadlineControl {
         if let Some(waker) = write_waker {
             waker.wake();
         }
+        self.notify.notify_waiters();
     }
 
     pub(crate) fn apply_policy(&self, policy: &Policy) {
@@ -93,10 +101,10 @@ impl DeadlineControl {
             if !state.body_finished {
                 state.read_deadline = Some(state.request_started + policy.read_timeout());
             }
-            let write_timeout = policy.write_timeout();
-            state.pending_write_timeout = write_timeout;
+            state.pending_write_timeout = policy.write_timeout();
             if state.idle_timeout.is_none() {
-                state.write_deadline = Some(state.request_started + write_timeout);
+                state.write_deadline =
+                    Some(state.request_started + policy.pre_response_write_timeout());
             }
             (state.read_waker.take(), state.write_waker.take())
         };
@@ -106,6 +114,7 @@ impl DeadlineControl {
         if let Some(waker) = write_waker {
             waker.wake();
         }
+        self.notify.notify_waiters();
     }
 
     /// Disarms the read deadline once the request body is consumed. The
@@ -134,10 +143,19 @@ impl DeadlineControl {
     ) {
         let (read_waker, write_waker) = {
             let mut state = self.state.lock().expect("deadline lock");
-            if status == StatusCode::SWITCHING_PROTOCOLS {
+            state.connection_idle = idle_timeout;
+            if state
+                .write_deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+            {
+                // Keep the already-expired write deadline armed so `poll_write`
+                // aborts instead of flushing late headers or SSE/101 streams.
+                (state.read_waker.take(), state.write_waker.take())
+            } else if status == StatusCode::SWITCHING_PROTOCOLS {
                 state.upgraded = true;
                 state.read_deadline = None;
                 state.write_deadline = None;
+                state.response_body_ended = false;
                 (state.read_waker.take(), state.write_waker.take())
             } else if state.upgraded {
                 return;
@@ -172,6 +190,30 @@ impl DeadlineControl {
         if let Some(waker) = write_waker {
             waker.wake();
         }
+        self.notify.notify_waiters();
+    }
+
+    pub(crate) async fn wait_write_expired(&self) {
+        loop {
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let deadline = self.state.lock().expect("deadline lock").write_deadline;
+            match deadline {
+                Some(target) if Instant::now() >= target => return,
+                Some(target) => {
+                    tokio::select! {
+                        () = tokio::time::sleep_until(target) => {
+                            if self.write_expired() {
+                                return;
+                            }
+                        }
+                        () = &mut notified => {}
+                    }
+                }
+                None => notified.await,
+            }
+        }
     }
 
     /// Moves the response deadlines forward after the client accepted
@@ -186,22 +228,46 @@ impl DeadlineControl {
         state.read_deadline = Some(now + idle);
     }
 
-    pub(crate) fn response_finished(&self, idle: Duration) {
-        let (read_waker, write_waker) = {
+    fn response_body_finished(&self) {
+        let read_waker = {
             let mut state = self.state.lock().expect("deadline lock");
             if state.upgraded {
                 return;
             }
-            state.read_deadline = Some(Instant::now() + idle);
-            state.write_deadline = None;
-            state.idle_timeout = None;
-            (state.read_waker.take(), state.write_waker.take())
+            state.response_body_ended = true;
+            if state.write_deadline.is_none() {
+                state.read_deadline = Some(Instant::now() + state.connection_idle);
+                state.read_waker.take()
+            } else {
+                None
+            }
+        };
+        if let Some(waker) = read_waker {
+            waker.wake();
+        }
+    }
+
+    fn on_response_flushed(&self) {
+        let (read_waker, write_waker, changed) = {
+            let mut state = self.state.lock().expect("deadline lock");
+            if state.response_body_ended && !state.upgraded {
+                state.response_body_ended = false;
+                state.write_deadline = None;
+                state.idle_timeout = None;
+                state.read_deadline = Some(Instant::now() + state.connection_idle);
+                (state.read_waker.take(), state.write_waker.take(), true)
+            } else {
+                (None, None, false)
+            }
         };
         if let Some(waker) = read_waker {
             waker.wake();
         }
         if let Some(waker) = write_waker {
             waker.wake();
+        }
+        if changed {
+            self.notify.notify_waiters();
         }
     }
 
@@ -354,7 +420,12 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for DeadlineStream<S> {
             )));
         }
         match Pin::new(&mut this.inner).poll_flush(cx) {
-            Poll::Ready(result) => Poll::Ready(result),
+            Poll::Ready(result) => {
+                if result.is_ok() {
+                    this.control.on_response_flushed();
+                }
+                Poll::Ready(result)
+            }
             Poll::Pending => poll_deadline(
                 this.control.write_deadline_and_register(cx.waker()),
                 &mut this.write_sleep,
@@ -373,16 +444,14 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for DeadlineStream<S> {
 pub(crate) struct ResponseBodyGuard<B> {
     inner: B,
     control: Arc<DeadlineControl>,
-    idle: Duration,
     finished: bool,
 }
 
 impl<B> ResponseBodyGuard<B> {
-    pub(crate) fn new(inner: B, control: Arc<DeadlineControl>, idle: Duration) -> Self {
+    pub(crate) fn new(inner: B, control: Arc<DeadlineControl>) -> Self {
         Self {
             inner,
             control,
-            idle,
             finished: false,
         }
     }
@@ -390,7 +459,7 @@ impl<B> ResponseBodyGuard<B> {
     fn finish(&mut self) {
         if !self.finished {
             self.finished = true;
-            self.control.response_finished(self.idle);
+            self.control.response_body_finished();
         }
     }
 }
@@ -427,421 +496,5 @@ impl<B: hyper::body::Body + Unpin> hyper::body::Body for ResponseBodyGuard<B> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::convert::Infallible;
-
-    use bytes::Bytes;
-    use http_body_util::{BodyExt, Full};
-    use hyper::body::Incoming;
-    use hyper::header::HeaderValue;
-    use hyper::service::service_fn;
-    use hyper::{Request, Response, StatusCode};
-    use hyper_util::rt::TokioIo;
-    use serde_json::json;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    use super::*;
-
-    #[tokio::test]
-    async fn slow_request_body_trickle_times_out_at_read_deadline() {
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(2),
-            read: Duration::from_millis(90),
-            write: Duration::from_secs(2),
-            idle: Duration::from_secs(5),
-        };
-        let (server_io, mut client_io) = tokio::io::duplex(1024);
-        let (stream, control) = DeadlineStream::new(server_io, timeouts);
-        let server = tokio::spawn(async move {
-            let service = service_fn(move |request: Request<Incoming>| {
-                let control = control.clone();
-                control.begin_request(timeouts.read, timeouts.write);
-                async move {
-                    let result = request.into_body().collect().await;
-                    let status = if result.is_ok() {
-                        StatusCode::OK
-                    } else {
-                        StatusCode::REQUEST_TIMEOUT
-                    };
-                    let response = Response::builder()
-                        .status(status)
-                        .body(Full::new(Bytes::new()))
-                        .unwrap();
-                    control.begin_response(response.status(), response.headers(), timeouts.idle);
-                    Ok::<_, Infallible>(response)
-                }
-            });
-            let mut builder = hyper::server::conn::http1::Builder::new();
-            builder
-                .timer(hyper_util::rt::TokioTimer::new())
-                .header_read_timeout(timeouts.header_read);
-            let _ = builder
-                .serve_connection(TokioIo::new(stream), service)
-                .await;
-        });
-
-        client_io
-            .write_all(b"POST /auth/login/email HTTP/1.1\r\nHost: localhost\r\nContent-Length: 512\r\n\r\n")
-            .await
-            .unwrap();
-        let started = Instant::now();
-        let mut trickle_failed = false;
-        for _ in 0..20 {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            if client_io.write_all(b"a").await.is_err() {
-                trickle_failed = true;
-                break;
-            }
-        }
-        let elapsed = started.elapsed();
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), server)
-                .await
-                .is_ok(),
-            "server task must terminate after read timeout"
-        );
-        assert!(
-            trickle_failed || elapsed < Duration::from_millis(500),
-            "trickled request body must be aborted promptly (elapsed={elapsed:?})"
-        );
-    }
-
-    #[tokio::test]
-    async fn declared_route_read_timeout_overrides_long_invocation_timeout() {
-        let policy: Policy = serde_json::from_value(json!({
-            "BindingAddress": "slow/binding",
-            "AuthorizationStrategy": "public",
-            "AuthorizationRules": [],
-            "TotalInvocationTimeoutNanos": 2_400_000_000_000u64,
-            "ReadTimeoutNanos": 80_000_000u64,
-            "WriteTimeoutNanos": 500_000_000u64,
-            "IdleTimeoutNanos": 5_000_000_000u64,
-            "MaxRequestHeaderBytes": 0,
-            "CORS": "none",
-            "AllowedOrigins": [],
-            "TransportStatuses": {},
-        }))
-        .unwrap();
-        assert_eq!(policy.read_timeout(), Duration::from_millis(80));
-        assert_eq!(policy.write_timeout(), Duration::from_millis(500));
-
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(2),
-            read: Duration::from_secs(30),
-            write: Duration::from_secs(30),
-            idle: Duration::from_secs(5),
-        };
-        let (server_io, mut client_io) = tokio::io::duplex(1024);
-        let (stream, control) = DeadlineStream::new(server_io, timeouts);
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let server = tokio::spawn(async move {
-            let tx = Arc::new(Mutex::new(Some(tx)));
-            let service = service_fn(move |request: Request<Incoming>| {
-                let control = control.clone();
-                let policy = policy.clone();
-                let tx = tx.clone();
-                control.begin_request(timeouts.read, timeouts.write);
-                async move {
-                    control.apply_policy(&policy);
-                    let err = request.into_body().collect().await.is_err();
-                    if let Some(sender) = tx.lock().unwrap().take() {
-                        let _ = sender.send(err);
-                    }
-                    Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
-                }
-            });
-            let _ = hyper::server::conn::http1::Builder::new()
-                .timer(hyper_util::rt::TokioTimer::new())
-                .serve_connection(TokioIo::new(stream), service)
-                .await;
-        });
-
-        client_io
-            .write_all(
-                b"POST /api/upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n",
-            )
-            .await
-            .unwrap();
-        let failed = tokio::time::timeout(Duration::from_millis(500), rx)
-            .await
-            .expect("route read timeout should fire quickly")
-            .unwrap();
-        assert!(failed);
-        drop(client_io);
-        let _ = server.await;
-    }
-
-    #[tokio::test]
-    async fn slow_response_reader_times_out_at_write_deadline() {
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(2),
-            read: Duration::from_secs(2),
-            write: Duration::from_millis(90),
-            idle: Duration::from_secs(5),
-        };
-        // Small duplex buffer forces write backpressure when the client stops draining.
-        let (server_io, mut client_io) = tokio::io::duplex(256);
-        let (stream, control) = DeadlineStream::new(server_io, timeouts);
-        let server = tokio::spawn(async move {
-            let service = service_fn(move |_request: Request<Incoming>| {
-                let control = control.clone();
-                control.begin_request(timeouts.read, timeouts.write);
-                async move {
-                    let payload = Bytes::from(vec![b'x'; 64 * 1024]);
-                    let response = Response::new(Full::new(payload));
-                    control.begin_response(response.status(), response.headers(), timeouts.idle);
-                    Ok::<_, Infallible>(response)
-                }
-            });
-            let _ = hyper::server::conn::http1::Builder::new()
-                .timer(hyper_util::rt::TokioTimer::new())
-                .serve_connection(TokioIo::new(stream), service)
-                .await;
-        });
-
-        client_io
-            .write_all(b"GET /api/download HTTP/1.1\r\nHost: localhost\r\n\r\n")
-            .await
-            .unwrap();
-        let mut head = [0u8; 32];
-        let _ = client_io.read(&mut head).await.unwrap();
-        // Client intentionally stops reading; server write deadline must abort the connection.
-        assert!(
-            tokio::time::timeout(Duration::from_millis(600), server)
-                .await
-                .is_ok(),
-            "server connection must close when response write timeout expires"
-        );
-    }
-
-    #[tokio::test]
-    async fn handler_outlives_the_read_timeout_once_the_body_is_read() {
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(2),
-            read: Duration::from_millis(80),
-            write: Duration::from_secs(2),
-            idle: Duration::from_secs(5),
-        };
-        let (server_io, mut client_io) = tokio::io::duplex(1024);
-        let (stream, control) = DeadlineStream::new(server_io, timeouts);
-        let server = tokio::spawn(async move {
-            let service = service_fn(move |mut request: Request<Incoming>| {
-                let control = control.clone();
-                control.begin_request(timeouts.read, timeouts.write);
-                request.extensions_mut().insert(control.clone());
-                async move {
-                    let body = crate::transport::read_request(request, 64).await.unwrap();
-                    // The invocation runs far longer than the read timeout.
-                    tokio::time::sleep(Duration::from_millis(400)).await;
-                    let response = Response::new(Full::new(body));
-                    control.begin_response(response.status(), response.headers(), timeouts.idle);
-                    Ok::<_, Infallible>(response)
-                }
-            });
-            hyper::server::conn::http1::Builder::new()
-                .timer(hyper_util::rt::TokioTimer::new())
-                .serve_connection(TokioIo::new(stream), service)
-                .await
-        });
-        client_io
-            .write_all(b"POST /slow HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok")
-            .await
-            .unwrap();
-        let mut reply = Vec::new();
-        client_io.read_to_end(&mut reply).await.unwrap();
-        let reply = String::from_utf8(reply).unwrap();
-        assert!(reply.starts_with("HTTP/1.1 200 OK"), "{reply}");
-        assert!(reply.ends_with("ok"), "{reply}");
-        assert!(server.await.unwrap().is_ok());
-    }
-
-    #[tokio::test]
-    async fn slow_but_live_download_outlasts_the_write_and_idle_timeouts() {
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(2),
-            read: Duration::from_secs(2),
-            write: Duration::from_millis(120),
-            idle: Duration::from_millis(120),
-        };
-        let (server_io, mut client_io) = tokio::io::duplex(256);
-        let (stream, control) = DeadlineStream::new(server_io, timeouts);
-        let server = tokio::spawn(async move {
-            let service = service_fn(move |_request: Request<Incoming>| {
-                let control = control.clone();
-                control.begin_request(timeouts.read, timeouts.write);
-                async move {
-                    control.request_body_finished();
-                    let response = Response::new(Full::new(Bytes::from(vec![b'x'; 4096])));
-                    control.begin_response(response.status(), response.headers(), timeouts.idle);
-                    Ok::<_, Infallible>(response)
-                }
-            });
-            hyper::server::conn::http1::Builder::new()
-                .timer(hyper_util::rt::TokioTimer::new())
-                .serve_connection(TokioIo::new(stream), service)
-                .await
-        });
-        client_io
-            .write_all(b"GET /download HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-            .await
-            .unwrap();
-        // The client drains 256 bytes every 30 ms: about half a second for
-        // the body, four times either timeout, but never idle for one.
-        let mut received = 0;
-        let mut chunk = [0u8; 256];
-        loop {
-            tokio::time::sleep(Duration::from_millis(30)).await;
-            let read = client_io.read(&mut chunk).await.unwrap();
-            if read == 0 {
-                break;
-            }
-            received += read;
-        }
-        assert!(received > 4096, "download was cut after {received} bytes");
-        assert!(server.await.unwrap().is_ok());
-    }
-
-    #[test]
-    fn websocket_upgrade_and_sse_disable_write_deadline() {
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(10),
-            read: Duration::from_secs(30),
-            write: Duration::from_secs(30),
-            idle: Duration::from_secs(120),
-        };
-        let control = DeadlineControl::new(timeouts);
-        let mut sse_headers = HeaderMap::new();
-        sse_headers.insert(
-            "content-type",
-            HeaderValue::from_static("text/event-stream; charset=utf-8"),
-        );
-        control.begin_request(timeouts.read, timeouts.write);
-        control.begin_response(StatusCode::OK, &sse_headers, timeouts.idle);
-        assert!(control.write_deadline().is_none());
-        assert!(control.read_deadline().is_none());
-
-        // The generated client reads assistant events as NDJSON.
-        let mut ndjson_headers = HeaderMap::new();
-        ndjson_headers.insert(
-            "content-type",
-            HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
-        );
-        control.begin_request(timeouts.read, timeouts.write);
-        control.begin_response(StatusCode::OK, &ndjson_headers, timeouts.idle);
-        assert!(control.write_deadline().is_none());
-        assert!(control.read_deadline().is_none());
-
-        // An ordinary response is bounded, and reading its request body
-        // ends the read deadline until that response begins.
-        control.begin_request(timeouts.read, timeouts.write);
-        assert!(control.read_deadline().is_some());
-        control.request_body_finished();
-        assert!(control.read_deadline().is_none());
-        control.begin_response(StatusCode::OK, &HeaderMap::new(), timeouts.idle);
-        assert!(control.write_deadline().is_some());
-        assert!(control.read_deadline().is_some());
-
-        control.begin_request(timeouts.read, timeouts.write);
-        control.begin_response(
-            StatusCode::SWITCHING_PROTOCOLS,
-            &HeaderMap::new(),
-            timeouts.idle,
-        );
-        assert!(control.write_deadline().is_none());
-        assert!(control.read_deadline().is_none());
-    }
-
-    #[tokio::test]
-    async fn stalled_handler_exceeding_write_timeout_fails_before_writing_headers() {
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(2),
-            read: Duration::from_secs(2),
-            write: Duration::from_millis(80),
-            idle: Duration::from_secs(2),
-        };
-        let (server_io, mut client_io) = tokio::io::duplex(4096);
-        let (stream, control) = DeadlineStream::new(server_io, timeouts);
-        let server = tokio::spawn(async move {
-            let service = service_fn(move |_request: Request<Incoming>| {
-                let control = control.clone();
-                control.begin_request(timeouts.read, timeouts.write);
-                async move {
-                    control.request_body_finished();
-                    tokio::time::sleep(Duration::from_millis(200)).await;
-                    let response = Response::new(Full::new(Bytes::from_static(b"ok")));
-                    control.begin_response(response.status(), response.headers(), timeouts.idle);
-                    Ok::<_, Infallible>(response)
-                }
-            });
-            hyper::server::conn::http1::Builder::new()
-                .timer(hyper_util::rt::TokioTimer::new())
-                .serve_connection(TokioIo::new(stream), service)
-                .await
-        });
-
-        client_io
-            .write_all(b"GET /stalled HTTP/1.1\r\nHost: localhost\r\n\r\n")
-            .await
-            .unwrap();
-        let mut reply = Vec::new();
-        let outcome = client_io.read_to_end(&mut reply).await;
-        assert!(outcome.is_err() || reply.is_empty());
-        assert!(!reply.windows(6).any(|window| window == b"200 OK"));
-        assert!(server.await.unwrap().is_err());
-    }
-
-    #[tokio::test]
-    async fn sse_response_completion_rearms_idle_read_deadline_on_keep_alive() {
-        let timeouts = HttpTimeouts {
-            header_read: Duration::from_secs(2),
-            read: Duration::from_secs(2),
-            write: Duration::from_secs(2),
-            idle: Duration::from_millis(80),
-        };
-        let (server_io, mut client_io) = tokio::io::duplex(4096);
-        let (stream, control) = DeadlineStream::new(server_io, timeouts);
-        let server = tokio::spawn(async move {
-            let service = service_fn(move |_request: Request<Incoming>| {
-                let control = control.clone();
-                control.begin_request(timeouts.read, timeouts.write);
-                async move {
-                    let mut response =
-                        Response::new(Full::new(Bytes::from_static(b"data: done\n\n")));
-                    response.headers_mut().insert(
-                        "content-type",
-                        HeaderValue::from_static("text/event-stream"),
-                    );
-                    control.begin_response(response.status(), response.headers(), timeouts.idle);
-                    Ok::<_, Infallible>(
-                        response.map(|body| ResponseBodyGuard::new(body, control, timeouts.idle)),
-                    )
-                }
-            });
-            hyper::server::conn::http1::Builder::new()
-                .timer(hyper_util::rt::TokioTimer::new())
-                .serve_connection(TokioIo::new(stream), service)
-                .await
-        });
-
-        client_io
-            .write_all(b"GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n")
-            .await
-            .unwrap();
-        let mut buffer = [0u8; 256];
-        let mut received = Vec::new();
-        while !received
-            .windows(12)
-            .any(|window| window == b"data: done\n\n")
-        {
-            let n = client_io.read(&mut buffer).await.unwrap();
-            assert!(n > 0, "unexpected EOF before SSE payload arrived");
-            received.extend_from_slice(&buffer[..n]);
-        }
-        assert!(
-            tokio::time::timeout(Duration::from_millis(500), server)
-                .await
-                .is_ok(),
-            "idle keep-alive connection after SSE did not time out"
-        );
-    }
-}
+#[path = "http_timeout_test.rs"]
+mod tests;
