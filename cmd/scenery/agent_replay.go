@@ -130,12 +130,15 @@ func executeLiveReplay(ctx context.Context, out io.Writer, root string, report f
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	bearer, err := connection.mint(ctx, agentCallOptions{
-		principal: inv.Principal,
-		tenant:    inv.TenantID,
-	})
-	if err != nil {
-		return err
+	var bearer string
+	if !strings.HasPrefix(inv.Principal, "workload:") {
+		bearer, err = connection.mint(ctx, agentCallOptions{
+			principal: inv.Principal,
+			tenant:    inv.TenantID,
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	started := time.Now()
@@ -143,18 +146,43 @@ func executeLiveReplay(ctx context.Context, out io.Writer, root string, report f
 		return executeDurableReplay(ctx, out, root, connection, bearer, report, res, started, opts.jsonOutput)
 	}
 
-	response, isHTTP, err := invokeReplayTarget(ctx, connection, inv, bearer, state.Serving.Generation)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = response.Body.Close() }()
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, (8<<20)+1))
-	if err != nil {
-		return err
-	}
-	if len(body) > 8<<20 {
-		return fmt.Errorf("failed_precondition: replay response exceeds 8 MiB")
+	var (
+		response             *http.Response
+		isHTTP               bool
+		body                 []byte
+		isGenerationConflict bool
+	)
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			state, err = connection.waitForSource(ctx, root, true)
+			if err != nil {
+				return err
+			}
+			if !state.OK {
+				res.Status = "changed_error"
+				res.SourceWait = &state
+				return printAgentReplay(out, opts.jsonOutput, res)
+			}
+		}
+		started = time.Now()
+		response, isHTTP, err = invokeReplayTarget(ctx, connection, inv, bearer, state.Serving.Generation)
+		if err != nil {
+			return err
+		}
+		body, err = io.ReadAll(io.LimitReader(response.Body, (8<<20)+1))
+		_ = response.Body.Close()
+		if err != nil {
+			return err
+		}
+		if len(body) > 8<<20 {
+			return fmt.Errorf("failed_precondition: replay response exceeds 8 MiB")
+		}
+		isGenerationConflict = response.StatusCode == http.StatusConflict &&
+			len(body) == 0 &&
+			uint64Header(response.Header, "X-App-Generation") == 0
+		if !isGenerationConflict {
+			break
+		}
 	}
 
 	res.DurationMS = time.Since(started).Milliseconds()
@@ -191,7 +219,8 @@ func executeLiveReplay(ctx context.Context, out io.Writer, root string, report f
 	res.FailureReport = callRes.FailureReport
 
 	internalFailed := response.StatusCode >= 500 || newToken != "" || problem.Code == "system.internal"
-	transportOrAdmissionRejected := response.StatusCode == http.StatusNotFound ||
+	transportOrAdmissionRejected := isGenerationConflict ||
+		response.StatusCode == http.StatusNotFound ||
 		strings.HasPrefix(problem.Code, "transport.") ||
 		strings.HasPrefix(problem.Code, "admission.")
 	if !internalFailed && !transportOrAdmissionRejected {
@@ -236,7 +265,7 @@ func invokeReplayTarget(ctx context.Context, connection agentCallConnection, inv
 	}
 	for name, vals := range inv.Headers {
 		lower := strings.ToLower(name)
-		if lower == "accept-encoding" || lower == "content-length" || lower == "transfer-encoding" || lower == "connection" || strings.HasPrefix(lower, "x-forwarded-") {
+		if lower == "accept-encoding" || lower == "content-encoding" || lower == "content-length" || lower == "transfer-encoding" || lower == "connection" || strings.HasPrefix(lower, "x-forwarded-") {
 			continue
 		}
 		for _, v := range vals {

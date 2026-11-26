@@ -55,6 +55,12 @@ type Problem = contract.Problem
 
 type Invocation = runtimeapi.Invocation
 
+type StandaloneInvocation = contract.StandaloneInvocation
+
+func WithStandaloneInvocation(ctx context.Context, opts StandaloneInvocation) context.Context {
+	return contract.WithStandaloneInvocation(ctx, opts)
+}
+
 func InvocationFromContext(ctx context.Context) (Invocation, bool) {
 	return contract.InvocationFromContext(ctx)
 }

@@ -80,7 +80,7 @@ func EmitWorkerEvent(ctx context.Context, invocation any, publisher string, payl
 func currentWorkerInvocation(ctx context.Context, invocation any) bool {
 	current, currentOK := runtimeapi.InvocationFromContext(ctx)
 	token, ok := invocation.(runtimeapi.Invocation)
-	return ok && token.Valid() && currentOK && runtimeapi.SameInvocation(token, current)
+	return ok && token.Valid() && !token.Standalone() && currentOK && !current.Standalone() && runtimeapi.SameInvocation(token, current)
 }
 
 func workerCapabilityOutput(data []byte) ([]byte, error) {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -228,7 +230,7 @@ binding "ping" {
 		wantExt  string
 		contains []string
 	}{
-		{"gomod", "go", "_test.go", []string{"NewService"}},
+		{"gomod", "go", "_test.go", []string{"NewService", "scenery.WithStandaloneInvocation"}},
 		{"rustmod", "rust", ".rs", []string{"sdk::Context::with_principal"}},
 		{"tsmod", "ts", ".test.ts", []string{`from "bun:test"`, "standaloneContext("}},
 		{"jsmod", "js", ".test.js", []string{`from "bun:test"`, "standaloneContext("}},
@@ -426,5 +428,52 @@ schedule "nightly" {
 	})
 	if explicit != "house/schedule/nightly" {
 		t.Fatalf("resolveDurableReplayTarget(explicit target) = %q, want house/schedule/nightly", explicit)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestInvokeReplayTargetStripsContentEncoding(t *testing.T) {
+	var seen *http.Request
+	conn := agentCallConnection{
+		controlToken: "ctl-secret",
+		client: &http.Client{
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				seen = r.Clone(r.Context())
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"X-App-Generation": []string{"2"}},
+					Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+				}, nil
+			}),
+		},
+	}
+	resp, isHTTP, err := invokeReplayTarget(context.Background(), conn, &devreport.ReplayInvocation{
+		HTTPMethod: "POST",
+		HTTPPath:   "/api/quote",
+		HTTPBody:   []byte(`{"amount":10}`),
+		Headers: map[string][]string{
+			"Content-Encoding": {"gzip"},
+			"Content-Type":     {"application/json"},
+			"X-Custom":         {"kept"},
+		},
+	}, "Bearer usr-tok", 2)
+	if err != nil {
+		t.Fatalf("invokeReplayTarget: %v", err)
+	}
+	_ = resp.Body.Close()
+	if !isHTTP || seen == nil {
+		t.Fatalf("expected captured HTTP replay request")
+	}
+	if got := seen.Header.Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding was not stripped: %q", got)
+	}
+	if got := seen.Header.Get("X-Custom"); got != "kept" {
+		t.Fatalf("X-Custom = %q, want kept", got)
+	}
+	if got := seen.Header.Get("X-App-Invocation-Authorization"); got != "Bearer usr-tok" {
+		t.Fatalf("X-App-Invocation-Authorization = %q", got)
 	}
 }

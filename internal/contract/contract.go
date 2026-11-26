@@ -100,6 +100,33 @@ type Problem struct {
 
 type Invocation = runtimeapi.Invocation
 
+// StandaloneInvocation configures an offline Invocation for unit and regression tests.
+type StandaloneInvocation struct {
+	ID          string
+	Principal   string
+	TenantID    string
+	ExecutionID string
+	Binding     string
+}
+
+// WithStandaloneInvocation attaches an offline Invocation to ctx for unit and
+// regression tests. Standalone invocations satisfy InvocationFromContext while
+// remaining ineligible for live runtime capability calls.
+func WithStandaloneInvocation(ctx context.Context, opts StandaloneInvocation) context.Context {
+	id := opts.ID
+	if id == "" {
+		id = "standalone"
+	}
+	return runtimeapi.WithInvocation(ctx, runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{
+		ID:            id,
+		Principal:     opts.Principal,
+		TenantID:      opts.TenantID,
+		ExecutionID:   opts.ExecutionID,
+		CallerBinding: opts.Binding,
+		Standalone:    true,
+	}))
+}
+
 func InvocationFromContext(ctx context.Context) (Invocation, bool) {
 	return runtimeapi.InvocationFromContext(ctx)
 }

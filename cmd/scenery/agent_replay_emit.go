@@ -258,6 +258,10 @@ fn replay_%s() -> sdk::Result<()> {
 		if streaming {
 			callAssign = "outcome, _, err :="
 		}
+		execID := ""
+		if inv.Mode == "durable" {
+			execID = report.ReportToken
+		}
 		rel := filepath.ToSlash(filepath.Join(mod.Directory, "replay_"+shortToken+"_test.go"))
 		src := fmt.Sprintf(`// Regression test generated from %s (%s).
 package %s
@@ -266,6 +270,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"scenery.sh"
 	contract %q
 )
 
@@ -274,11 +279,18 @@ func TestReplay_%s(t *testing.T) {
 	if err := json.Unmarshal([]byte(%s), &input); err != nil {
 		t.Fatalf("decode captured replay input: %%v", err)
 	}
-	service, err := %s(t.Context(), contract.%sConstructorInput{})
+	ctx := scenery.WithStandaloneInvocation(t.Context(), scenery.StandaloneInvocation{
+		ID:          %q,
+		Principal:   %q,
+		TenantID:    %q,
+		ExecutionID: %q,
+		Binding:     %q,
+	})
+	service, err := %s(ctx, contract.%sConstructorInput{})
 	if err != nil {
 		t.Fatalf("construct service: %%v", err)
 	}
-	%s service.%s(t.Context(), input)
+	%s service.%s(ctx, input)
 	if err != nil {
 		t.Fatalf("replay failed: %%v", err)
 	}
@@ -286,6 +298,7 @@ func TestReplay_%s(t *testing.T) {
 }
 `, report.ReportToken, inv.Operation, pkgName, importPath+"/scenerycontract",
 			strings.ToUpper(shortToken), opGoName, strconv.Quote(rawInput),
+			report.ReportToken, inv.Principal, inv.TenantID, execID, inv.Binding,
 			constructor, svcGoName, callAssign, method, checkOutcome)
 		return rel, src, nil
 
