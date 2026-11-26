@@ -7,7 +7,8 @@ declare const process: { readonly argv: readonly string[] };
 
 const baseUrl = process.argv[2] as URLString;
 const eventId = process.argv[3] ?? "acceptance-1";
-if (!baseUrl) throw new Error("Usage: bun client/verify.ts <base-url> [event-id]");
+const providedToken = process.argv[4];
+if (!baseUrl) throw new Error("Usage: bun client/verify.ts <base-url> [event-id] [bearer-token]");
 
 function require(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -20,15 +21,20 @@ const invalid = new PublicApiClient({ baseUrl, authentication: { authorization: 
 const invalidResult = await invalid.status({ eventId });
 require(invalidResult.kind === "failure" && invalidResult.name === "unauthenticated", "invalid bearer must reject");
 
-// Standard local bootstrap exercises normal JWT verification, not a custom auth stub.
-// It does not prove production signup, email delivery, refresh, or tenant isolation.
-const sessionResponse = await fetch(`${baseUrl}/users/dev-bootstrap`, {
-  method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-});
-require(sessionResponse.ok, "local session bootstrap failed");
-const session: unknown = await sessionResponse.json();
-require(typeof session === "object" && session !== null && "token" in session && typeof session.token === "string", "missing token");
-const client = new PublicApiClient({ baseUrl, authentication: { authorization: `Bearer ${session.token}` } });
+// Use an explicitly provided Bearer token against standalone production Host
+// bundles (where /users/dev-bootstrap is disabled), or fall back to local dev
+// bootstrap against `scenery up`.
+let token = providedToken;
+if (!token) {
+  const sessionResponse = await fetch(`${baseUrl}/users/dev-bootstrap`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+  });
+  require(sessionResponse.ok, "local session bootstrap failed");
+  const session: unknown = await sessionResponse.json();
+  require(typeof session === "object" && session !== null && "token" in session && typeof session.token === "string", "missing token");
+  token = session.token;
+}
+const client = new PublicApiClient({ baseUrl, authentication: { authorization: `Bearer ${token}` } });
 const status = await client.status({ eventId });
 require(status.kind === "result" && status.name === "processed", "processed result missing");
 require(status.value.payload === "hello durable", "original payload was overwritten");

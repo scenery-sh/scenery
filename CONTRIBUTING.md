@@ -5,8 +5,11 @@ Keep changes small, explicit, and easy to validate.
 ## Setup
 
 Requirements:
-- Go 1.27+
-- Bun (for generated TypeScript, `ui/` catalog checks, and UI probes)
+- Go 1.27+ and `golangci-lint`
+- Rust (`rustup` with toolchain `1.99.1`, for building `sdk/rust/scenery-kernel` and Rust workers)
+- Bun (for JS/TS workers, generated TypeScript, `ui/` catalog checks, and UI probes)
+- `uv` (for Python workers and `python-only` / `polyglot` checks)
+- Docker (for managed PostgreSQL, runtime probes, and `scenery build --oci`)
 
 Build a checkout-local CLI from the repo root:
 
@@ -26,8 +29,9 @@ cat .scenery/harness/agent-context-summary.json
 ```
 
 Run `go test ./...`, `golangci-lint run ./...`, and full `go run ./scripts/verify
---summary --write` when source/runtime contracts change. Keep Go's test cache
-enabled unless investigating nondeterminism or measuring fresh timings.
+--summary --write` when source/runtime contracts change (plus `cargo test --locked`
+under `sdk/rust/scenery-kernel` or `sdk/rust/scenery-sdk` for Rust Host/SDK changes).
+Keep Go's test cache enabled unless investigating nondeterminism or measuring fresh timings.
 
 ## Pull Requests
 

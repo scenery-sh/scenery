@@ -1,6 +1,6 @@
 # Webhook Inbox
 
-A small independent Scenery application, with no ONLV dependency or UI:
+A small independent Scenery application, with no UI or external app dependencies:
 
 - `POST /events` persists a durable job and returns its admission receipt (`202`).
 - A background worker stores the original payload and its SHA-256 digest in
@@ -28,13 +28,16 @@ tools/typescript/node_modules/.bin/tsc -p examples/webhook-inbox/client/tsconfig
 ```
 
 The script copies ordinary app source to a new temporary directory, points its
-Go module at this checkout, regenerates/checks/builds, and starts disposable
-PostgreSQL with ordinary durability settings. It admits a job with no worker,
-restarts the API, checks that the job is still queued, starts a separate worker,
-then exercises the typed client with missing, invalid, and valid credentials.
-It also checks malformed input and duplicate delivery. Processes and the owned
-container/database are removed on exit; the printed directory retains proof
-logs and the standalone copy. No installed CLI or shared agent is modified.
+Go module at this checkout, regenerates/checks/builds a standalone Host bundle
+(`scenery-kernel` + `manifest.json` + `services/`), and starts disposable
+PostgreSQL with ordinary durability settings. It launches `scenery-kernel` with a
+runtime configuration snapshot (`{"$env": ...}` secret reference for
+`auth.jwt_secret`), admits and processes a durable job, restarts the Host to
+confirm durable state persists, then exercises the typed client with missing,
+invalid, and valid bearer credentials. It also checks malformed input and
+duplicate delivery. Processes and the owned container/database are removed on
+exit; the printed directory retains proof logs and the standalone copy. No
+installed CLI or shared agent is modified.
 
 ## Develop A Standalone Copy
 
@@ -51,21 +54,23 @@ scenery provider lock --check -o json
 scenery generate -o json
 scenery check -o json
 go test ./...
-scenery build --target development --output ./bin/webhook -o json
+scenery build --development --output ./dist/webhook -o json
 ```
 
 `generate` prepares ordinary Go contracts inside this module together with the
 client. Use `generate --target contracts` for Go-only bootstrap; a fresh checkout
 needs it before raw Go tooling. The exact output roots are ignored, and no
 editor module or `go.work` is generated. Use the standalone copy to prove
-independent module/dependency resolution.
+independent module/dependency resolution. `scenery build` writes a self-contained
+Host bundle (`./dist/webhook/scenery-kernel`, `manifest.json`, and `services/`).
 
 For the usual managed development loop, run `scenery up --detach --wait ready`;
 local development needs no configured values (`scenery config show` lists them).
 The declared `inbox` service and `database.apply.command` provide the managed
-database/schema path. The explicit split-process proof instead supplies its own
-`DATABASE_URL`, creates the service schema, runs `go run ./cmd/schema`, and uses
-the existing `SCENERY_ROLE=api` / `SCENERY_ROLE=worker` runtime controls.
+database/schema path. To run the built bundle directly against an external
+database, supply `DATABASE_URL`, create the `inbox` schema, run `go run ./cmd/schema`,
+and start `./dist/webhook/scenery-kernel --listen 127.0.0.1:4000` (see
+[the production host contract](../../docs/spec/SPEC.md#8-production-host)).
 
 Regenerate the fetch client after contract changes:
 

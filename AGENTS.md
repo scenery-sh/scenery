@@ -8,6 +8,7 @@ task-scoped.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): package boundaries and hard invariants.
 - [docs/spec/SPEC.md](docs/spec/SPEC.md): `.scn` language, types, and runtime contracts.
+- [docs/spec/WORKER-ABI.md](docs/spec/WORKER-ABI.md): Host-to-worker HTTP/2 UDS protocol and capabilities.
 - [SKILL.md](SKILL.md): workflow for agents working inside Scenery apps.
 - Machine contracts: `docs/schemas/*.schema.json`, `docs/environment.registry.json`, and `scenery help <command> -o json`.
 
@@ -29,7 +30,7 @@ unresolved scope choices or missing authorization.
 - Prefer Go's standard library and a small public surface; justify new direct dependencies (allowlisted in `scripts/verify/harness_arch.go`).
 - End-user HTTP surfaces must not contain "scenery" (case-insensitive): URLs, headers, cookies, response bodies, errors, and generated browser code/assets. Developer/operator tools and source packages may retain the name.
 - Keep one rolling specification, compiler, runtime, and machine protocol. Remove obsolete spellings without compatibility aliases, old decoders, or fallback paths. Preserve `app.scn`, `package.scn`, `.scenery.json`, `scenery.sh/...`.
-- Declare service, operation, binding, durable-work, schedule, data, page, renderer, and middleware identities in `.scn`; domain UI stays in app-owned slots. Changed persisted input with retained durable `external_name` needs a new `revision`.
+- Declare service, operation, binding, durable-work, schedule, event, subscription, data, page, renderer, and middleware identities in `.scn`; domain UI stays in app-owned slots. Changed persisted input with retained durable `external_name` needs a new `revision`.
 - Change JSON/model contracts together with `docs/schemas/`, tests, and harness expectations. Use the checked diagnostic catalog (`SCN8xxx` request failures; `SCN9xxx` internal failures expose sanitized messages and opaque report tokens only).
 - Keep module sources in the non-symlink workspace and generated output beneath declared managed roots as one atomic artifact-set transaction. Never commit `.scenery/`, Victoria state, `node_modules`, coverage, `.DS_Store`, or `.env*`.
 - Non-generated source over 1,000 lines warns; over 2,500 fails. Keep `AGENTS.md` lean (<2,500 words).
@@ -38,7 +39,7 @@ unresolved scope choices or missing authorization.
 
 - Documentation-only edits: `go run ./scripts/verify --quick --summary --write`.
 - Source / contract / runtime edits: run `go run ./scripts/verify --summary --write` (or `--quick` for scoped development checks, full before completion/landing), read `.scenery/harness/agent-context-summary.json`, and complete the `changed_area.recommended_commands` union.
-- Always run `golangci-lint run ./...` for Go changes; suppress only narrowly justified intentional violations.
+- Always run `golangci-lint run ./...` for Go changes; suppress only narrowly justified intentional violations. Run `cargo test --locked` in `sdk/rust/scenery-kernel` or `sdk/rust/scenery-sdk` for Rust Host/SDK changes.
 - Keep Go's test cache enabled (`-count=1` / `--fresh-tests` only for explicit fresh measurement or nondeterminism investigation). Every exact top-level Go test root must stay below 100ms p95; put process/service/network/OS proof in named integration probes (`--probe <id>`).
 - UI catalog or generator changes require `tools/typescript/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json` and regenerating committed fixtures.
 - Release certification uses `scripts/release-gate.sh`.

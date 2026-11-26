@@ -209,4 +209,7 @@ revisions. Runtime credentials stay in the private descriptor file.
 
 The manifest's `reports` member carries the schema revision and producer
 version of `scenery.failure.report`. The Host stamps them on every failure
-report it records, so `scenery report` reads those like the CLI's own.
+report it records and attaches sanitized invocation metadata (up to 256 KiB,
+scrubbing auth, cookie, and secret headers) so `scenery inspect report <token> -o json`
+reads Host reports like the CLI's own and `scenery replay <token> [--emit-test]`
+can deterministically reproduce the failure or emit a regression test.

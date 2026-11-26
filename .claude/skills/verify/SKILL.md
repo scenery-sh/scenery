@@ -9,27 +9,29 @@ Use the narrowest real surface touched by the diff. Do not substitute unit tests
 
 ## Standard-auth HTTP changes
 
-There is no tracked standard-auth fixture. For cookie/session behavior, use a disposable live app:
+Standard authentication is owned by the Rust application host (`sdk/rust/scenery-kernel`).
+Run the automated host proof against a disposable managed PostgreSQL database:
 
-1. Confirm the managed `scenery-postgres` container is running and read its user/password/host port from `docker inspect` without printing secrets.
-2. Create a disposable database with `docker exec scenery-postgres psql`.
-3. Create a temporary Go module outside the repo with:
-   - `require scenery.sh v0.0.0`
-   - `replace scenery.sh => <repo-root>`
-   - a `main` that calls `auth.RegisterStandard(auth.StandardConfig{Enabled: true, AutoBootstrapDatabase: true})` and `runtime.Main(runtime.AppConfig{Name: "auth-verify", ListenAddr: <free-loopback-address>})`.
-4. Run `go mod tidy` in the temporary module, then launch it with disposable `DATABASE_URL`, `JWT_SECRET`, and an empty `AUTH_COOKIE_DOMAIN`.
-5. Drive the public HTTP surface:
+```sh
+go run ./scripts/verify --probe auth --summary --write
+```
+
+For manual live HTTP observation of cookie/session behavior, start a disposable Scenery app outside the repo with standard auth enabled (`authentication "standard" { provider = std.provider.standard_auth; scheme = "session" }` in `app.scn`, `"auth": {"enabled": true, "auto_bootstrap_database": true}` in `.scenery.json`) using `.scenery/harness/bin/scenery up`:
+
+1. Confirm Docker is available so managed PostgreSQL starts cleanly, or pass a disposable `DATABASE_URL` with an empty schema.
+2. Start the disposable app with `.scenery/harness/bin/scenery up --detach --wait ready -o json` (or build a bundle with `.scenery/harness/bin/scenery build --development` and run `<bundle>/scenery-kernel`).
+3. Drive the public HTTP surface:
    - `POST /auth/signup/email`, then `POST /auth/email-verification/confirm` using the local `dev_verification_token`.
-   - Capture the issued refresh cookie. A local runtime names it `app_refresh_<host>_<port>` after its listen address; deployed runtimes use `app_refresh`.
-   - Exercise `/auth/refresh` with valid, missing, empty, malformed, and invalid refresh cookie headers under that name, and confirm a canonical `app_refresh` cookie is ignored locally.
-   - Exercise `/auth/logout` with the valid token and capture the `Set-Cookie` field value.
-6. Stop the app, terminate remaining database connections, drop the disposable database, and remove the temporary module.
+   - Capture the issued refresh cookie. A local runtime names it `app_refresh_<authority>` (normalized host/port) from its listen authority; deployed runtimes use `app_refresh`.
+   - Exercise `POST /auth/refresh` with valid, missing, empty, malformed, and invalid refresh cookie headers under that name, and confirm a canonical `app_refresh` cookie is ignored locally.
+   - Exercise `POST /auth/logout` with the valid token and capture the `Set-Cookie` field value.
+4. Stop the app (`scenery down --all`) and remove the disposable directory.
 
 Expected observations are:
 
 - confirmation and every successful refresh issue only the runtime's refresh cookie name;
-- missing, empty, or malformed cookies return `refresh session is missing`;
-- an invalid current token returns `refresh session is invalid`;
+- missing or empty cookies return `refresh session is missing`;
+- malformed or invalid tokens return `refresh session is invalid`;
 - logout returns `{"ok":true}` with one clearing header under the same name.
 
-If the managed Postgres container is unavailable, report verification as blocked rather than replacing this flow with tests.
+If Docker / managed PostgreSQL is unavailable, report verification as blocked rather than replacing this flow with unit tests.

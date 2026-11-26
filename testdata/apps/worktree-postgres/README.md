@@ -30,6 +30,5 @@ never run global Docker prune or delete another worktree's ownership record.
 This fixture is not a performance ceiling or proof of isolation for external
 DSNs. A18 resource measurement runs only on explicit request through
 `go run ./scripts/verify --benchmark worktree-cost --summary --write`.
-The original measurement evidence and limitations remain recorded in
-`docs/plans/0167-worktree-runtime-postgres.md`; current invocation policy is in
-`docs/harness-engineering.md`.
+Probe scenarios and invocation rules live in `scripts/verify/harness_self_worktree_runtime.go`
+and [AGENTS.md](../../../AGENTS.md).

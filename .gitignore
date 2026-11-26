@@ -24,4 +24,5 @@ coverage.out
 *.db
 .playwright-*/
 .scenery/
+.scratch/
 .codex-tmp/

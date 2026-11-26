@@ -16,7 +16,7 @@ We will acknowledge reports as soon as possible and coordinate disclosure with t
 
 ## Scope
 
-Security issues in the scenery CLI, generated runtime, local proxy, dashboard, client generation, and repository release artifacts are in scope.
+Security issues in the scenery CLI, application host (`scenery-kernel`), Worker ABI and language SDKs (Go, Rust, JS/TS, Python), local proxy, development runtime RPC, contract/client/OpenAPI generation, and repository release artifacts are in scope.
 
 Issues in third-party services or applications built with scenery may be out of scope unless they demonstrate a vulnerability in scenery itself.
 

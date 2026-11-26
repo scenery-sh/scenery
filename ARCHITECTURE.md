@@ -15,8 +15,8 @@ independent runtime config in `.scenery.json`.
 
 Every application runs on the Rust `scenery-kernel`. It owns public ingress,
 binding policy, standard auth, scoped worker capabilities, durable execution,
-schedules, assistants, MCP, and worker supervision. It binds public ingress
-after publishing an attested generation. In development `scenery up` keeps the
+schedules, domain events, assistants, MCP, and worker supervision. It binds
+public ingress after publishing an attested generation. In development `scenery up` keeps the
 worktree platform (agent session, port lease, local router, edge domains,
 Victoria, `/runtime` RPC, frontends, desktop shells, assistant helpers): it
 builds the initial bundle, starts the Host as a supervised child on the
@@ -127,13 +127,17 @@ behind the development gateway or supply static assets to the production bundle.
   `go build` linking of per-service Go workers.
 
 ### Runtime, Capabilities & Local Platform
-- `sdk/rust/scenery-kernel`: the only application host, in development and
-  production (see above). Its production surface is `config` (arguments,
-  snapshot, `$env` references), `s3_storage` (SigV4), `otlp`, and
-  `schedule_slots` (PostgreSQL slot claims and leases).
-- `runtime` (`scenery.sh/runtime`): the Go Worker ABI adapter linked into each
-  generated Go worker: operation registration, worker-binding calls, request
-  context and auth reads, SQL bindings, tracing, and telemetry to the Host.
+- `sdk/rust/scenery-kernel`: the only application host, in development, test
+  (`test_mode`), and production (see above). It also owns `events` (domain event
+  bus), `http_sse` (typed SSE `stream_out`), `replay` (`SCN9xxx` invocation
+  capture), and its production surface (`config`, `s3_storage` SigV4, `otlp`,
+  `schedule_slots` PostgreSQL slot claims and leases).
+- Thin worker SDKs: `runtime` (`scenery.sh/runtime`) for Go workers,
+  `sdk/rust/scenery-sdk` (with `scenery-wire`) for Rust workers,
+  `sdk/js/scenery-sdk` for JS/TS workers, and `sdk/python/scenery_sdk` for
+  Python workers: operation registration, worker-binding calls, domain event
+  publishers, request context and auth reads, SQL bindings, tracing, and
+  telemetry to the Host.
 - Public SDK packages: `scenery.sh`, `auth`, `db`, `datasource`, `errs`,
   `object`, `storage` (canonical local filesystem object store).
 - `internal/connectionapi`: the provider-neutral user connection contract the
@@ -145,10 +149,14 @@ behind the development gateway or supply static assets to the production bundle.
   `internal/postgresdb`, `internal/postgresname`, `internal/storagefs`,
   `internal/snapshotarchive`, `internal/stateupgrade`: worktree ownership,
   process supervision, managed Caddy edge, Tauri 2 desktop integration,
-  PostgreSQL migrations, leased object storage, and portable snapshots.
+  PostgreSQL migrations and template database branching, leased object storage,
+  and portable snapshots.
 - `internal/inspect`, `internal/uireport`: machine-readable app/build/route
   inspection and read-only frontend UI adherence scanning.
-- `cmd/scenery/build_oci.go`, `internal/rustbuild`, `internal/jsbuild`:
-  Linux image contexts (`scenery build --oci`), the Host's and Rust workers'
-  Cargo sources, and Bun compile targets.
-- `testdata/`: fixture apps and golden generated outputs.
+- `cmd/scenery/build_oci.go`, `internal/rustbuild`, `internal/jsbuild`,
+  `internal/pythonbuild`: Linux image contexts (`scenery build --oci`), the
+  Host's and Rust workers' Cargo sources, Bun compile targets, and `uv`-managed
+  Python zipapp builds.
+- `testdata/`: fixture apps (`basic`, `multiservice`, `polyglot`, `rust-only`,
+  `ts-only`, `python-only`, `storage-basic`, `worktree-postgres`) and golden
+  generated outputs.

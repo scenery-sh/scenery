@@ -30,7 +30,8 @@ with `scenery help <command> -o json`.
 | Query a service's PostgreSQL schema | `scenery db query --service <module> '<sql>' --param <value> -o json` |
 | Trigger a durable execution or schedule | `scenery durable run <target> --input '<json>' -o json` |
 | Add a module with a starter test | `scenery add module <name> --runtime go\|rust\|ts\|js\|python -o json` |
-| Regenerate clients / UI | `scenery generate -o json` |
+| Regenerate contracts, clients, OpenAPI, or SQLC | `scenery generate -o json`, `scenery openapi -o json`, `scenery generate openapi --output <path> --check -o json`, `scenery generate sqlc -o json` |
+| Configure environments & secrets | `scenery config show -o json`, `scenery config set <key> --env <env> -o json` |
 | Package for deployment | `scenery build -o json`, `scenery build --oci <image> [--platform linux/amd64\|linux/arm64] [--oci-context <dir>] -o json` |
 | Assistants | `scenery assistant status <name> -o json` |
 | Databases, migrations, storage | `scenery db migrate`, `scenery inspect storage -o json`, `scenery snapshot save/load` |
@@ -38,8 +39,9 @@ with `scenery help <command> -o json`.
 | Worktrees & features | `scenery worktree create [--prepare-db]`, `scenery worktree list/remove`, `scenery feature list/land -o json` |
 
 See [examples/webhook-inbox/README.md](examples/webhook-inbox/README.md) for a
-complete working app and [docs/spec/SPEC.md](docs/spec/SPEC.md) for `.scn`
-language rules.
+complete working app, [docs/spec/SPEC.md](docs/spec/SPEC.md) for `.scn`
+language rules, and [docs/spec/WORKER-ABI.md](docs/spec/WORKER-ABI.md) for the
+Host/worker protocol.
 
 ## Ownership & Safety Rules
 
@@ -55,8 +57,9 @@ language rules.
   the app-local replacement out of commits.
 - **Prefer JSON output (`-o json` / `-o jsonl`).** Branch on stable `SCNxxxx`
   diagnostic codes. `SCN9xxx` internal failures withhold cause details; inspect
-  them via `scenery inspect report <report-token> -o json`. A local
-  `scenery call -o json` includes the matching report, logs, and spans when available.
+  them via `scenery inspect report <report-token> -o json` and reproduce or turn
+  them into regression tests with `scenery replay <report-token> [--emit-test] -o json`.
+  A local `scenery call -o json` includes the matching report, logs, and spans when available.
 - **Protect retained data.** Databases and object storage belong to their
   verified canonical worktree. Branch switches and worktree removal never
   authorize deleting data; reclaim orphaned state only via `scenery prune

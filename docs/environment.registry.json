@@ -10,13 +10,17 @@
       "category": "telemetry",
       "stability": "internal",
       "secret": false,
-      "allowed_in": ["code", "docs", "tests"],
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
       "owner": "scenery verifier / telemetry",
-      "rationale": "Explicit descendant telemetry attribution independent of producer version and agent home. Verifier/release lanes set verification/release; unmarked invocations remain unknown. Plan 0215 explains why process propagation needs this marker.",
+      "rationale": "Explicit descendant telemetry attribution independent of producer version and agent home. Verifier/release lanes set verification/release; unmarked invocations remain unknown.",
       "preferred_surface": "Automatically injected by the verification lane; optional development attribution for a command process",
       "replacement": "",
       "sunset": "",
-      "docs": ["docs/environment.md"]
+      "docs": []
     },
     {
       "name": "CI",
@@ -75,7 +79,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/SPEC.md"
       ]
     },
     {
@@ -95,9 +99,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "NO_COLOR",
@@ -157,7 +159,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/SPEC.md"
       ]
     },
     {
@@ -179,7 +181,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/SPEC.md"
       ]
     },
     {
@@ -201,7 +203,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/SPEC.md"
       ]
     },
     {
@@ -241,9 +243,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_AGENT_ROUTER_ADDR",
@@ -263,9 +263,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_AGENT_SOCKET",
@@ -285,9 +283,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_ASSISTANT_CONTROL_ADDR",
@@ -307,9 +303,7 @@
       "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_ASSISTANT_CONTROL_TOKEN",
@@ -329,9 +323,7 @@
       "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_ASSISTANT_ID",
@@ -351,9 +343,7 @@
       "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_ASSISTANT_RUNTIME_CONFIG",
@@ -374,7 +364,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/WORKER-ABI.md"
       ]
     },
     {
@@ -392,11 +382,11 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Operator-supplied stable 32-byte framework token key, accepted in raw, hex, or base64 form for assistant continuation handles; never log or expose it.",
-      "preferred_surface": "app-root `.env` or process environment through the existing secret mechanism",
+      "preferred_surface": "process environment or runtime secret injection (never commit secret files)",
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/WORKER-ABI.md"
       ]
     },
     {
@@ -414,11 +404,11 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Operator-supplied path to a private mode-0600 file containing the stable framework token key; the supervisor may inject the resolved path into the app child, but never expose the file or contents.",
-      "preferred_surface": "app-root `.env` or process environment through the existing secret mechanism",
+      "preferred_surface": "process environment or runtime secret injection pointing to a private mode-0600 file",
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/WORKER-ABI.md"
       ]
     },
     {
@@ -439,9 +429,7 @@
       "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_MCP_BRIDGE_SECRET",
@@ -461,9 +449,7 @@
       "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_MCP_URL",
@@ -483,9 +469,7 @@
       "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_RUNTIME_REVISION",
@@ -505,9 +489,7 @@
       "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_API_BASE_URL",
@@ -527,9 +509,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_APP_ID",
@@ -549,9 +529,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_APP_ROOT",
@@ -571,9 +549,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_APP_ROOT_HASH",
@@ -593,9 +569,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_BASE_APP_ID",
@@ -615,9 +589,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_BIN",
@@ -637,9 +609,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_BRANCH",
@@ -659,9 +629,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_CORS_ALLOW_ORIGINS",
@@ -681,9 +649,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_CACHE_DIR",
@@ -699,13 +665,11 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Overrides build/dashboard cache root. This does not change agent home",
+      "rationale": "Overrides build and development cache root. This does not change agent home.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_DASHBOARD_ADDR",
@@ -721,13 +685,11 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Dashboard client backend address; ordinary development sets it from the acquired worktree owner rather than a parent override",
+      "rationale": "Development runtime RPC backend address; ordinary development sets it from the acquired worktree owner rather than a parent override.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_DETACHED_CHILD",
@@ -747,9 +709,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_OBSERVABILITY_BACKEND",
@@ -769,9 +729,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_REPORT_TOKEN",
@@ -787,13 +745,11 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Token used by the app child to report logs/traces to the dev dashboard",
+      "rationale": "Token used by the app child to report logs and traces to the development supervisor.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_REPORT_URL",
@@ -809,13 +765,11 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Dev dashboard report endpoint",
+      "rationale": "Development supervisor report endpoint.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_SUPERVISOR",
@@ -835,9 +789,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_SUPERVISOR_PID",
@@ -857,9 +809,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_VICTORIA",
@@ -879,9 +829,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DEV_VICTORIA_DOWNLOAD",
@@ -901,9 +849,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_ENV",
@@ -923,9 +869,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_FRONTEND_",
@@ -945,9 +889,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_INTEGRATION_",
@@ -966,9 +908,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_LISTEN_ADDR",
@@ -989,7 +929,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/SPEC.md"
       ]
     },
     {
@@ -1010,9 +950,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_LOG_FORMAT",
@@ -1032,9 +970,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "*_DATABASE_URL",
@@ -1054,9 +990,7 @@
       "preferred_surface": "compiled data_source bindings and framework SQL requirements",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_DATABASE_JSON",
@@ -1076,9 +1010,7 @@
       "preferred_surface": "compiled data_source bindings and framework SQL requirements",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_PARENT_MONITOR",
@@ -1098,9 +1030,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_PARENT_MONITOR_PID",
@@ -1120,9 +1050,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_PUBLIC_APP_URL",
@@ -1142,9 +1070,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_PUBLIC_BASE_URL",
@@ -1164,9 +1090,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT",
@@ -1186,9 +1110,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_RELEASE_GATE_LOG_DIR",
@@ -1208,9 +1130,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_ROLE",
@@ -1226,13 +1146,11 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Generated binary role: `all`, `api`, or `worker`",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "rationale": "Retired process role variable explicitly stripped from worker environments by scenery-kernel and the development supervisor.",
+      "preferred_surface": "scenery-kernel runs HTTP ingress, durable execution, and schedules together; do not set SCENERY_ROLE",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_PROCESS_LINK",
@@ -1252,9 +1170,7 @@
       "preferred_surface": "internal development supervisor wiring; not user configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_RUNTIME_APP_ID",
@@ -1274,9 +1190,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_RUNTIME_ENV",
@@ -1296,9 +1210,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_SESSION_ID",
@@ -1318,9 +1230,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_STORAGE_CONFIG",
@@ -1341,7 +1251,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/SPEC.md"
       ]
     },
     {
@@ -1361,9 +1271,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_TEST_DATABASE_URL",
@@ -1382,9 +1290,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_TOOLCHAIN_DIR",
@@ -1404,9 +1310,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_TOOLCHAIN_DOWNLOAD",
@@ -1426,9 +1330,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_LOGS",
@@ -1448,9 +1350,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_LOGS_BIN",
@@ -1470,9 +1370,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_LOGS_ENDPOINT",
@@ -1492,9 +1390,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_LOGS_URL",
@@ -1514,9 +1410,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_LOGS_VERSION",
@@ -1536,9 +1430,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_METRICS",
@@ -1558,9 +1450,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_METRICS_BIN",
@@ -1580,9 +1470,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_METRICS_ENDPOINT",
@@ -1602,9 +1490,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_METRICS_URL",
@@ -1624,9 +1510,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_METRICS_VERSION",
@@ -1646,9 +1530,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_TRACES",
@@ -1668,9 +1550,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_TRACES_BIN",
@@ -1690,9 +1570,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_TRACES_ENDPOINT",
@@ -1712,9 +1590,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_TRACES_URL",
@@ -1734,9 +1610,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_VICTORIA_TRACES_VERSION",
@@ -1756,9 +1630,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_WORKTREE",
@@ -1778,9 +1650,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "TERM",
@@ -1819,9 +1689,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "VITE_SCENERY_",
@@ -1841,9 +1709,7 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
+      "docs": []
     },
     {
       "name": "SCENERY_CONFIG_SNAPSHOT_FD",
@@ -1864,7 +1730,7 @@
       "replacement": "",
       "sunset": "",
       "docs": [
-        "docs/environment.md"
+        "docs/spec/SPEC.md"
       ]
     },
     {

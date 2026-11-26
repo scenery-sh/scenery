@@ -9,15 +9,18 @@ language and runtime contract.
 - `.scenery.json`: app root marker and independent runtime configuration (`envs`,
   `frontends`, `build`, `watch`, `validation`). `framework_version` can select
   an exact prebuilt framework version without a `go.mod`.
-- `app.scn`: root application declarations (`workspace`, `go_module`,
-  `go_toolchain`, `go_target`, `rust_workspace`, `rust_toolchain`,
-  `rust_target`, `application`, `http_gateway`, `provider`,
-  `data_source`, `execution_engine`, `authentication`, `module`,
-  `typescript_client`, `mcp_server`, `assistant`).
+- `app.scn`: root application declarations (`workspace`, `application`,
+  `go_module`, `go_toolchain`, `go_target`, `rust_workspace`, `rust_toolchain`,
+  `rust_target`, `js_workspace`, `js_toolchain`, `js_target`,
+  `python_workspace`, `python_toolchain`, `python_target`, `http_gateway`,
+  `authentication`, `authorization`, `pipeline`, `provider`, `data_source`,
+  `execution_engine`, `secret_store`, `secret`, `module`, `typescript_client`,
+  `mcp_server`, `assistant`).
 - `<module>/package.scn`: package-local declarations (`package`, `input`,
-  `export`, `service`, `record`, `enum`, `union`, `operation`, `execution`,
-  `binding`, `schedule`, `event`, `subscription`, `page`, `renderer`,
-  `authorization`, `pipeline`).
+  `export`, nested `module`, `service`, `record`, `enum`, `union`,
+  `operation`, `execution`, `binding`, `schedule`, `event`, `subscription`,
+  `page`, `renderer`, `react_component`, `status_map`, `form_dialog`,
+  `table_page`, `split_page`, `content_page`, `workspace_page`, `detail_page`).
 - `app.lock.scn`: locked external provider/module integrity digests.
 
 `.scn` uses a deterministic HCL-like syntax compiled into a typed,
@@ -26,8 +29,8 @@ must stay inside the workspace with no symlinks. Go comments and `init()`
 register nothing.
 
 Every application runs on the Rust application host (`scenery-kernel`) over
-Worker ABI v1, whatever languages its services use. Go, Rust, JavaScript, and
-TypeScript services are workers of one host bundle.
+Worker ABI v1, whatever languages its services use. Go, Rust,
+JavaScript/TypeScript, and Python services are workers of one host bundle.
 
 ## 2. Core Kernel
 
@@ -39,9 +42,10 @@ operation + binding + execution + policy
   named `result` variants (`outcomes`), optional `error` variants, optional
   `idempotency { mode = "keyed"; key = [...] }`, and `handler { method = ... }`.
 - **binding**: exposes an operation via `protocol = "http"` (on an
-  `http_gateway`) or `protocol = "internal"` (`visibility = "application" |
-  "package"`). Direct execution supports `call`, HTTP `stream` (exact-length
-  byte body), and HTTP `stream_out` (typed Server-Sent Events via
+  `http_gateway`), `protocol = "internal"` (`visibility = "application" |
+  "package"`), or `protocol = "mcp"` (for `mcp_server` capabilities and
+  `assistant` surfaces). Direct execution supports `call`, HTTP `stream`
+  (exact-length byte body), and HTTP `stream_out` (typed Server-Sent Events via
   `codec = "sse"` on a single `result.*` response, with pre-stream `error.*`
   and admission/transport failures using standard HTTP codecs). Durable
   execution supports `enqueue` and `wait`.
@@ -101,7 +105,8 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
 
 - Generated package `<module>/scenerycontract` exports typed input structs,
   sealed outcome interfaces/structs, constructor input (dependencies, declared
-  `service.client` handles, config), and internal client wrappers.
+  `service.client` and `service.publisher` handles, config), and internal client
+  wrappers.
 - Service constructor: `func New<Service>(context.Context, contract.<Service>ConstructorInput) (*Service, error)`.
 - Operation handler: `func (*Service) <Method>(context.Context, contract.<Op>Input) (contract.<Op>Outcome, error)`.
 - `internal/parse` verifies constructor and handler signatures against the
@@ -175,7 +180,8 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   documents correlated with each gateway's `openapi_revision`.
 - Errors use checked diagnostic codes: `SCN8xxx` for request/client failures;
   `SCN9xxx` for internal failures (sanitized message + opaque report token
-  inspectable via `scenery inspect report <token> -o json`).
+  inspectable via `scenery inspect report <token> -o json` and replayable via
+  `scenery replay <token> [--emit-test] -o json`).
 
 ## 6. Generated TypeScript Clients & UI
 
@@ -187,11 +193,11 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   are published atomically via `internal/workspacetx`.
 - A frontend can declare `adapter = "vite"` and `mode = "static"` in
   `.scenery.json`. `scenery up` proxies Vite with same-origin HMR and APIs.
-  The environment's `serve = "production"` setting and a production worker
+  The environment's `serve = "production"` setting and a production host
   bundle serve the built tree through the same static handler.
-  An application with worker services serves only that root frontend, at its
-  own origin: `scenery up` rejects any other frontend the environment serves
-  instead of starting without it.
+  An application serves only that root frontend, at its own origin: `scenery up`
+  rejects any other frontend the environment serves instead of starting without
+  it.
 
 ## 7. Revisions & Machine Envelopes
 
