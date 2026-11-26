@@ -887,7 +887,17 @@ func contractNegotiationHeaders(request *http.Request) (accept, acceptEncoding s
 	if request == nil {
 		return "", ""
 	}
-	return strings.Join(request.Header.Values("Accept"), ", "), strings.Join(request.Header.Values("Accept-Encoding"), ", ")
+	return joinNegotiationHeaders(request.Header.Values("Accept")), joinNegotiationHeaders(request.Header.Values("Accept-Encoding"))
+}
+
+func joinNegotiationHeaders(values []string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func finishContractRepresentation(status int, mediaType, acceptEncoding string, body []byte, options ContractResponseOptions) (ContractHTTPResponse, error) {

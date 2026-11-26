@@ -55,6 +55,18 @@ pub(crate) fn under(path: &Path, root: &Path) -> bool {
     root == Path::new(".") || path.starts_with(root)
 }
 
+fn is_local_relative(path: &Path) -> bool {
+    !path.as_os_str().is_empty()
+        && path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+}
+
+fn has_node_modules(path: &Path) -> bool {
+    path.components()
+        .any(|part| part.as_os_str() == "node_modules")
+}
+
 /// What `lstat` reports about a file. An unchanged stamp vouches for the
 /// digest computed under it, as the Git index does for its entries.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -120,6 +132,55 @@ impl Scanner {
             .contains(path)
     }
 
+    pub(crate) fn has_explicit_file(&self, generated: &[PathBuf], relative: &Path) -> bool {
+        let Ok(canonical_root) = self.root.canonicalize() else {
+            return false;
+        };
+        self.resolve_explicit_file(&canonical_root, generated, relative)
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    fn resolve_explicit_file(
+        &self,
+        canonical_root: &Path,
+        generated: &[PathBuf],
+        relative: &Path,
+    ) -> Result<Option<(PathBuf, fs::Metadata)>> {
+        if !is_local_relative(relative) || always_ignored(relative, generated) {
+            return Ok(None);
+        }
+        let resolved = match fs::canonicalize(self.root.join(relative)) {
+            Ok(resolved) => resolved,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let Ok(resolved_rel) = resolved.strip_prefix(canonical_root) else {
+            return Ok(None);
+        };
+        let allowed = resolved_rel == relative
+            || (has_node_modules(relative)
+                && has_node_modules(resolved_rel)
+                && !always_ignored(resolved_rel, generated));
+        if !allowed {
+            return Ok(None);
+        }
+        match fs::symlink_metadata(&resolved) {
+            Ok(info) if info.is_file() => Ok(Some((resolved, info))),
+            Ok(_) => Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// The number of files read so far.
     #[cfg(test)]
     pub(crate) fn hashed(&self) -> usize {
@@ -139,6 +200,28 @@ impl Scanner {
         generated: &[PathBuf],
         explicit: &BTreeSet<PathBuf>,
     ) -> Result<Inputs> {
+        let (first, _) = self.scan_pair(generated, explicit, None)?;
+        Ok(first)
+    }
+
+    /// Scans the application once and projects both `first` and `second` explicit
+    /// dependency sets against that single directory walk.
+    pub(crate) fn scan_transition(
+        &self,
+        generated: &[PathBuf],
+        first: &BTreeSet<PathBuf>,
+        second: &BTreeSet<PathBuf>,
+    ) -> Result<(Inputs, Inputs)> {
+        let (first_inputs, second_inputs) = self.scan_pair(generated, first, Some(second))?;
+        Ok((first_inputs, second_inputs.unwrap_or_default()))
+    }
+
+    fn scan_pair(
+        &self,
+        generated: &[PathBuf],
+        first: &BTreeSet<PathBuf>,
+        second: Option<&BTreeSet<PathBuf>>,
+    ) -> Result<(Inputs, Option<Inputs>)> {
         let mut cache = self.cache.lock().expect("input cache");
         let mut walk = Walk {
             scanner: self,
@@ -152,22 +235,36 @@ impl Scanner {
                 .unwrap_or(SystemTime::UNIX_EPOCH),
         };
         walk.entry(Path::new(""), &mut Vec::new(), None)?;
-        for relative in explicit {
-            if always_ignored(relative, generated) || walk.inputs.contains_key(relative) {
+        let canonical_root = self.root.canonicalize()?;
+        let mut second_inputs = second.map(|_| walk.inputs.clone());
+        let extras: Box<dyn Iterator<Item = &PathBuf>> = match second {
+            Some(second) => Box::new(first.union(second)),
+            None => Box::new(first.iter()),
+        };
+        for relative in extras {
+            if walk.inputs.contains_key(relative) {
                 continue;
             }
-            let path = self.root.join(relative);
-            let info = match fs::symlink_metadata(&path) {
-                Ok(info) if info.is_file() => info,
-                Ok(_) => continue,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error.into()),
+            let Some((resolved, info)) =
+                self.resolve_explicit_file(&canonical_root, generated, relative)?
+            else {
+                continue;
             };
-            walk.record_file(relative, &path, &info)?;
+            let Some(input) = walk.compute_input(relative, &resolved, &info)? else {
+                continue;
+            };
+            if first.contains(relative) {
+                walk.inputs.insert(relative.into(), input.clone());
+            }
+            if let (Some(second_set), Some(second_map)) = (second, second_inputs.as_mut())
+                && second_set.contains(relative)
+            {
+                second_map.insert(relative.into(), input);
+            }
         }
         let (next, inputs) = (walk.next, walk.inputs);
         *cache = next;
-        Ok(inputs)
+        Ok((inputs, second_inputs))
     }
 }
 
@@ -237,6 +334,18 @@ impl Walk<'_> {
     }
 
     fn record_file(&mut self, relative: &Path, path: &Path, info: &fs::Metadata) -> Result<()> {
+        if let Some(input) = self.compute_input(relative, path, info)? {
+            self.inputs.insert(relative.into(), input);
+        }
+        Ok(())
+    }
+
+    fn compute_input(
+        &mut self,
+        relative: &Path,
+        path: &Path,
+        info: &fs::Metadata,
+    ) -> Result<Option<Input>> {
         let stamp = Stamp {
             device: info.dev(),
             inode: info.ino(),
@@ -252,7 +361,7 @@ impl Walk<'_> {
                     self.scanner.hashed.fetch_add(1, Ordering::Relaxed);
                     digest
                 }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
                 Err(error) => return Err(error.into()),
             },
         };
@@ -270,14 +379,10 @@ impl Walk<'_> {
                 racy,
             },
         );
-        self.inputs.insert(
-            relative.into(),
-            Input {
-                digest,
-                mode: info.permissions().mode() & 0o777,
-            },
-        );
-        Ok(())
+        Ok(Some(Input {
+            digest,
+            mode: info.permissions().mode() & 0o777,
+        }))
     }
 }
 
@@ -581,6 +686,10 @@ mod tests {
             ("svc/index.ts", "import './dist/vendor.ts';"),
             ("svc/dist/vendor.ts", "export const v = 1;"),
             ("svc/dist/tsconfig.json", "{}"),
+            (
+                "node_modules/.store/linked/index.js",
+                "module.exports = 'linked-v1';",
+            ),
             ("node_modules/pkg/index.js", "module.exports = 1;"),
             ("node_modules/pkg/package.json", "{}"),
             ("node_modules/pkg/.env.local", "SECRET=1"),
@@ -588,6 +697,15 @@ mod tests {
             let path = root.path().join(rel);
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(path, body)?;
+        }
+        #[cfg(unix)]
+        {
+            fs::create_dir_all(root.path().join("node_modules/linked"))?;
+            std::os::unix::fs::symlink(
+                "../.store/linked/index.js",
+                root.path().join("node_modules/linked/index.js"),
+            )?;
+            std::os::unix::fs::symlink("../index.ts", root.path().join("svc/dist/escape.ts"))?;
         }
         assert!(!declaration(Path::new("node_modules/pkg/package.json")));
         assert!(!declaration(Path::new("svc/dist/tsconfig.json")));
@@ -597,6 +715,8 @@ mod tests {
         assert_eq!(scanner.scan(&[])?.len(), 1);
         scanner.set_explicit(BTreeSet::from([
             PathBuf::from("svc/dist/vendor.ts"),
+            PathBuf::from("svc/dist/escape.ts"),
+            PathBuf::from("node_modules/linked/index.js"),
             PathBuf::from("node_modules/pkg/index.js"),
             PathBuf::from("node_modules/pkg/.env.local"),
         ]));
@@ -605,18 +725,30 @@ mod tests {
         assert_eq!(
             keys,
             [
+                PathBuf::from("node_modules/linked/index.js"),
                 PathBuf::from("node_modules/pkg/index.js"),
                 PathBuf::from("svc/dist/vendor.ts"),
                 PathBuf::from("svc/index.ts"),
             ]
         );
+        assert!(scanner.has_explicit_file(&[], Path::new("node_modules/linked/index.js")));
+        assert!(!scanner.has_explicit_file(&[], Path::new("svc/dist/escape.ts")));
         fs::write(
             root.path().join("svc/dist/vendor.ts"),
             "export const v = 2;",
         )?;
+        fs::write(
+            root.path().join("node_modules/.store/linked/index.js"),
+            "module.exports = 'linked-v2';",
+        )?;
+        let mut updates = changed(&with_explicit, &scanner.scan(&[])?);
+        updates.sort();
         assert_eq!(
-            changed(&with_explicit, &scanner.scan(&[])?),
-            [Path::new("svc/dist/vendor.ts")]
+            updates,
+            [
+                PathBuf::from("node_modules/linked/index.js"),
+                PathBuf::from("svc/dist/vendor.ts"),
+            ]
         );
         Ok(())
     }

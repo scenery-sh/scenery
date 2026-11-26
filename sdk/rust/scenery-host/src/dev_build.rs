@@ -672,9 +672,15 @@ fn verify_imports(
         .as_object()
         .filter(|inputs| !inputs.is_empty())
         .context("Bun did not report its worker inputs")?;
-    let dependency = |path: &Path| {
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    fn relative_to<'a>(path: &'a Path, root: &Path, canonical_root: &Path) -> Option<&'a Path> {
         path.strip_prefix(root)
-            .is_ok_and(|relative| relative.iter().any(|part| part == "node_modules"))
+            .or_else(|_| path.strip_prefix(canonical_root))
+            .ok()
+    }
+    let dependency = |path: &Path| {
+        relative_to(path, root, &canonical_root)
+            .is_some_and(|relative| relative.iter().any(|part| part == "node_modules"))
     };
     let mut tracked = BTreeSet::new();
     for path in inputs.keys() {
@@ -706,7 +712,7 @@ fn verify_imports(
             "JavaScript worker imports must stay in its module or installed workspace dependencies: {}",
             path.display()
         );
-        if let Ok(rel) = path.strip_prefix(root)
+        if let Some(rel) = relative_to(&path, root, &canonical_root)
             && !dev_inputs::always_ignored(rel, generated)
         {
             tracked.insert(rel.to_owned());

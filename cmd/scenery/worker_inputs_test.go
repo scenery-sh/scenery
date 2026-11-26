@@ -54,12 +54,13 @@ func TestWorkerInputScopeMatchesTheHostFixture(t *testing.T) {
 func TestWorkerInputScopeAddExplicitTracksIgnoredBundledFilesOnlyWhenSafe(t *testing.T) {
 	root := t.TempDir()
 	for name, content := range map[string]string{
-		"svc/index.ts":                "import './dist/vendor.ts';",
-		"svc/dist/vendor.ts":          "export const v = 1;",
-		"node_modules/pkg/index.js":   "export const p = 2;",
-		"svc/scenerycontract/main.ts": "export {}",
-		".scenery/secret.txt":         "no",
-		".env.local":                  "SECRET=1",
+		"svc/index.ts":                        "import './dist/vendor.ts';",
+		"svc/dist/vendor.ts":                  "export const v = 1;",
+		"node_modules/.store/linked/index.js": "module.exports = 'linked';",
+		"node_modules/pkg/index.js":           "export const p = 2;",
+		"svc/scenerycontract/main.ts":         "export {}",
+		".scenery/secret.txt":                 "no",
+		".env.local":                          "SECRET=1",
 	} {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -69,6 +70,15 @@ func TestWorkerInputScopeAddExplicitTracksIgnoredBundledFilesOnlyWhenSafe(t *tes
 			t.Fatal(err)
 		}
 	}
+	if err := os.MkdirAll(filepath.Join(root, "node_modules", "linked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../.store/linked/index.js", filepath.Join(root, "node_modules", "linked", "index.js")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../index.ts", filepath.Join(root, "svc", "dist", "escape.ts")); err != nil {
+		t.Fatal(err)
+	}
 	scope := &workerInputScope{root: root}
 	inputs, err := scope.capture()
 	if err != nil {
@@ -76,6 +86,8 @@ func TestWorkerInputScopeAddExplicitTracksIgnoredBundledFilesOnlyWhenSafe(t *tes
 	}
 	if err := scope.addExplicit(inputs, []string{
 		"svc/dist/vendor.ts",
+		"svc/dist/escape.ts",
+		"node_modules/linked/index.js",
 		"node_modules/pkg/index.js",
 		"svc/scenerycontract/main.ts",
 		".scenery/secret.txt",
@@ -84,7 +96,7 @@ func TestWorkerInputScopeAddExplicitTracksIgnoredBundledFilesOnlyWhenSafe(t *tes
 	}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"node_modules/pkg/index.js", "svc/dist/vendor.ts", "svc/index.ts"}
+	want := []string{"node_modules/linked/index.js", "node_modules/pkg/index.js", "svc/dist/vendor.ts", "svc/index.ts"}
 	if got := slices.Sorted(maps.Keys(inputs)); !slices.Equal(got, want) {
 		t.Fatalf("inputs = %q, want %q", got, want)
 	}

@@ -889,7 +889,7 @@ async fn chunked_empty_body_on_bodyless_route_does_not_kill_long_handler() {
 async fn unread_chunked_body_preserves_full_idle_timeout_on_keep_alive() {
     let timeouts = HttpTimeouts {
         header_read: Duration::from_millis(80),
-        read: Duration::from_millis(500),
+        read: Duration::from_millis(40),
         write: Duration::from_millis(500),
         idle: Duration::from_millis(450),
     };
@@ -903,9 +903,13 @@ async fn unread_chunked_body_preserves_full_idle_timeout_on_keep_alive() {
             if !had_body {
                 control.request_body_finished();
             }
+            let slow = request.uri().path() == "/slow-unauth";
             async move {
                 let status = if had_body {
-                    // Drop unread Incoming without draining it manually (as on 401/404).
+                    if slow {
+                        // Simulate async auth outliving `read` before rejecting unread body.
+                        tokio::time::sleep(Duration::from_millis(70)).await;
+                    }
                     drop(request);
                     StatusCode::UNAUTHORIZED
                 } else {
@@ -923,28 +927,28 @@ async fn unread_chunked_body_preserves_full_idle_timeout_on_keep_alive() {
             .await
     });
 
-    client_io
-        .write_all(
-            b"POST /unauth HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
-        )
-        .await
-        .unwrap();
-    let mut buf = [0u8; 256];
-    let mut reply = Vec::new();
-    while !reply.ends_with(b"ok") {
-        let n = client_io.read(&mut buf).await.unwrap();
-        assert!(n > 0, "unexpected EOF on first 401 reply");
-        reply.extend_from_slice(&buf[..n]);
+    for path in ["/unauth", "/slow-unauth"] {
+        let req = format!(
+            "POST {path} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+        );
+        client_io.write_all(req.as_bytes()).await.unwrap();
+        let mut buf = [0u8; 256];
+        let mut reply = Vec::new();
+        while !reply.ends_with(b"ok") {
+            let n = client_io.read(&mut buf).await.unwrap();
+            assert!(n > 0, "unexpected EOF on {path} 401 reply");
+            reply.extend_from_slice(&buf[..n]);
+        }
+        assert!(reply.starts_with(b"HTTP/1.1 401 Unauthorized"), "{path}");
+        // Pause longer than header_read (80ms) but shorter than idle (450ms).
+        tokio::time::sleep(Duration::from_millis(180)).await;
     }
-    assert!(reply.starts_with(b"HTTP/1.1 401 Unauthorized"));
 
-    // Pause longer than header_read (80ms) but shorter than idle (450ms).
-    tokio::time::sleep(Duration::from_millis(180)).await;
     client_io
         .write_all(b"GET /next HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
         .await
         .unwrap();
-    reply.clear();
+    let mut reply = Vec::new();
     client_io.read_to_end(&mut reply).await.unwrap();
     let text = String::from_utf8(reply).unwrap();
     assert!(

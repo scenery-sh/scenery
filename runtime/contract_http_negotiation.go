@@ -14,6 +14,18 @@ import (
 	"scenery.sh/internal/machine"
 )
 
+func parseContractQuality(raw string) (float64, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || strings.ContainsAny(trimmed, "xXpP_") {
+		return 0, fmt.Errorf("invalid quality")
+	}
+	parsed, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 || parsed > 1 {
+		return 0, fmt.Errorf("invalid quality")
+	}
+	return parsed, nil
+}
+
 func negotiateContractEncoding(header string, supported []string) (string, error) {
 	gzipAllowed := false
 	for _, encoding := range supported {
@@ -39,8 +51,8 @@ func negotiateContractEncoding(header string, supported []string) (string, error
 				if !ok || !strings.EqualFold(strings.TrimSpace(key), "q") {
 					return "", fmt.Errorf("invalid Accept-Encoding parameter")
 				}
-				parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-				if err != nil || math.IsNaN(parsed) || parsed < 0 || parsed > 1 {
+				parsed, err := parseContractQuality(value)
+				if err != nil {
 					return "", fmt.Errorf("invalid Accept-Encoding quality")
 				}
 				q = parsed
@@ -109,8 +121,8 @@ func negotiateContractMediaRanges(accept string, produced []string) (string, err
 		}
 		quality := 1.0
 		if rawQuality, ok := params["q"]; ok {
-			quality, err = strconv.ParseFloat(rawQuality, 64)
-			if err != nil || math.IsNaN(quality) || quality < 0 || quality > 1 {
+			quality, err = parseContractQuality(rawQuality)
+			if err != nil {
 				return "", fmt.Errorf("invalid Accept quality")
 			}
 		}

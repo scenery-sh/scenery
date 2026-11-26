@@ -25,11 +25,7 @@ func EncodeContractByteStreamWithOptions(request *http.Request, status int, stre
 	if options.MaxBytes > 0 && owned.Size > options.MaxBytes {
 		return ContractHTTPResponse{}, &ContractTransportError{Outcome: "system.internal", Status: http.StatusInternalServerError, Message: "response exceeds binding limit"}
 	}
-	accept, acceptEncoding := "", ""
-	if request != nil {
-		accept = request.Header.Get("Accept")
-		acceptEncoding = request.Header.Get("Accept-Encoding")
-	}
+	accept, acceptEncoding := contractNegotiationHeaders(request)
 	mediaType, negotiateErr := negotiateContractMedia(accept, produced)
 	if negotiateErr != nil {
 		return ContractHTTPResponse{}, &ContractTransportError{Outcome: "transport.not_acceptable", Status: http.StatusNotAcceptable, Message: negotiateErr.Error(), Cause: negotiateErr}
