@@ -153,7 +153,7 @@
     <circle cx="496" cy="470" r="16" fill="url(#accent)"/>
     <text x="496" y="476" text-anchor="middle" class="sans" font-size="16" font-weight="800" fill="#0A0F26">3</text>
     <text x="526" y="477" class="sans" font-size="21" font-weight="700" fill="#F5F7FF">Run</text>
-    <text x="526" y="502" class="sans" font-size="15" fill="#A9B2D6">one Rust host + workers</text>
+    <text x="526" y="502" class="sans" font-size="15" fill="#A9B2D6">one Rust kernel + workers</text>
   </g>
 
   <g>

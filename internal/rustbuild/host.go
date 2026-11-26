@@ -48,7 +48,7 @@ func Host(ctx context.Context) (string, error) {
 		return "", err
 	}
 	root := filepath.Join(cache, fmt.Sprintf("%x", hash.Sum(nil)))
-	executable := filepath.Join(root, "scenery-host")
+	executable := filepath.Join(root, "scenery-kernel")
 	if info, err := os.Stat(executable); err == nil && info.Mode().IsRegular() && info.Mode()&0o100 != 0 {
 		return executable, nil
 	}
@@ -66,12 +66,12 @@ func Host(ctx context.Context) (string, error) {
 	}
 	target := filepath.Join(cache, "target")
 	command := exec.CommandContext(ctx, "cargo", "+"+HostToolchain, "build", "--locked", "--release",
-		"--manifest-path", filepath.Join(sources, "scenery-host", "Cargo.toml"), "--target-dir", target)
-	command.Dir = filepath.Join(sources, "scenery-host")
+		"--manifest-path", filepath.Join(sources, "scenery-kernel", "Cargo.toml"), "--target-dir", target)
+	command.Dir = filepath.Join(sources, "scenery-kernel")
 	if output, err := command.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build worker Host: %w\n%s", err, output)
 	}
-	binary, err := os.Open(filepath.Join(target, "release", "scenery-host"))
+	binary, err := os.Open(filepath.Join(target, "release", "scenery-kernel"))
 	if err != nil {
 		return "", err
 	}
@@ -95,7 +95,7 @@ func Host(ctx context.Context) (string, error) {
 }
 
 // ExportHostSources writes the Host's Cargo sources beneath root:
-// `scenery-host/` and the `scenery-sdk/scenery-wire/` crate it depends on.
+// `scenery-kernel/` and the `scenery-sdk/scenery-wire/` crate it depends on.
 func ExportHostSources(root string) error {
 	return materializeHostSources(root)
 }

@@ -25,7 +25,7 @@ import (
 const (
 	detachedDevChildEnv       = "SCENERY_DEV_DETACHED_CHILD"
 	detachedDevStartupTimeout = 30 * time.Second
-	// A cold first-time release build of scenery-host on a 2-vCPU machine can
+	// A cold first-time release build of scenery-kernel on a 2-vCPU machine can
 	// take ~2.5 minutes before the supervisor reaches ready.
 	detachedDevReadyTimeout = 5 * time.Minute
 	detachedDevWaitReady    = "ready"

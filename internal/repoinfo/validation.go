@@ -68,7 +68,7 @@ func addHarnessChangedAreaValidation(report *harnessreport.ChangedAreaReport, co
 		}
 		switch file.Path {
 		case "internal/compiler/domain_events_validate.go", "internal/generate/generate_publishers.go", "cmd/scenery/worker_plan_events.go",
-			"sdk/rust/scenery-host/src/events.rs", "scripts/verify/harness_self_domain_events.go":
+			"sdk/rust/scenery-kernel/src/events.rs", "scripts/verify/harness_self_domain_events.go":
 			commands["go run ./scripts/verify --probe domain-events --summary --write"] = true
 		}
 		if harnessReleaseSensitivePath(file.Path, file.Category) {

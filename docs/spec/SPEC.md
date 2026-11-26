@@ -25,7 +25,7 @@ content-revisioned graph (source, effective, and expanded views). Source files
 must stay inside the workspace with no symlinks. Go comments and `init()`
 register nothing.
 
-Every application runs on the Rust application host (`scenery-host`) over
+Every application runs on the Rust application host (`scenery-kernel`) over
 Worker ABI v1, whatever languages its services use. Go, Rust, JavaScript, and
 TypeScript services are workers of one host bundle.
 
@@ -207,7 +207,7 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
 ## 8. Production Host
 
 `scenery build` writes a bundle that starts as
-`<bundle>/scenery-host --listen <host:port> [--config <file>]`. `--listen`
+`<bundle>/scenery-kernel --listen <host:port> [--config <file>]`. `--listen`
 falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
 `127.0.0.1:4000`; a container binds `0.0.0.0:4000`.
 
@@ -255,6 +255,6 @@ falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
   builder stage compiles the Host and Rust services, installs pinned Linux
   CPython interpreters and packages Python workers via `uv`, and seals their
   digests into the manifest. The `gcr.io/distroless/cc-debian12` runtime stage
-  runs `/app/scenery-host --listen 0.0.0.0:4000` as user 65532. `--oci-context
+  runs `/app/scenery-kernel --listen 0.0.0.0:4000` as user 65532. `--oci-context
   <dir>` writes the reproducible context instead of building it with Docker
   Buildx.

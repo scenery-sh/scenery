@@ -48,7 +48,7 @@ func runHarnessAssistantProductionProbeStepWithCheck(ctx context.Context, repoRo
 func runHarnessAssistantProductionProbeCheck(parent context.Context, repoRoot string) (map[string]any, []checkDiagnostic, error) {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
-	manifest := filepath.Join(repoRoot, "sdk", "rust", "scenery-host", "Cargo.toml")
+	manifest := filepath.Join(repoRoot, "sdk", "rust", "scenery-kernel", "Cargo.toml")
 	command := exec.CommandContext(ctx, "cargo", "+"+harnessRustToolchain, "test", "--locked", "--manifest-path", manifest, "assistant_test::")
 	command.Dir = repoRoot
 	output, err := command.CombinedOutput()

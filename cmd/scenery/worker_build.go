@@ -411,7 +411,7 @@ func writeWorkerBundle(ctx context.Context, bundle workerBundle, destination str
 	if err != nil {
 		return err
 	}
-	if err := copyWorkerExecutable(host, filepath.Join(staging, "scenery-host")); err != nil {
+	if err := copyWorkerExecutable(host, filepath.Join(staging, "scenery-kernel")); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(bundle, "", "  ")
@@ -454,7 +454,7 @@ func workerBundleDestinationExists(destination string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, name := range []string{"manifest.json", "scenery-host"} {
+	for _, name := range []string{"manifest.json", "scenery-kernel"} {
 		if entry, err := os.Lstat(filepath.Join(destination, name)); !info.IsDir() || err != nil || !entry.Mode().IsRegular() {
 			return false, preconditionErrorf("bundle destination %s exists and is not an application bundle", destination)
 		}
