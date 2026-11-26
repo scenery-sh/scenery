@@ -89,9 +89,11 @@ type processGenerationManifest struct {
 	ContractRevision string                   `json:"contract_revision"`
 	// Identity is the build identity of the generation: the runtime bundle of
 	// the development target the generation's processes were built from.
-	Identity  processInstanceIdentity              `json:"identity"`
-	Processes map[string]processGenerationInstance `json:"processes"`
-	Bindings  map[string]string                    `json:"bindings"`
+	Identity     processInstanceIdentity              `json:"identity"`
+	Processes    map[string]processGenerationInstance `json:"processes"`
+	Bindings     map[string]string                    `json:"bindings"`
+	HostConfig   *ConfigSnapshot                      `json:"host_config,omitempty"`
+	WorkerConfig map[string]*ConfigSnapshot           `json:"worker_config"`
 }
 
 type processGenerationInstance struct {
@@ -167,6 +169,8 @@ type processHostGeneration struct {
 	identity      processInstanceIdentity
 	instances     map[string]*processHostInstance
 	bindings      map[string]string
+	hostConfig    *ConfigSnapshot
+	workerConfig  map[string]*ConfigSnapshot
 	inFlight      atomic.Int64
 	// retired is closed when the generation is removed, which ends the
 	// admissions and conversation run scopes that hold it.
@@ -670,6 +674,18 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 			instance = newProcessHostInstance(name, spec)
 		}
 		generation.instances[name] = instance
+	}
+	if manifest.HostConfig != nil {
+		if err := updateWorkerHostConfig(manifest.HostConfig); err != nil {
+			return err
+		}
+		generation.hostConfig = manifest.HostConfig
+	}
+	if h.workers != nil && manifest.WorkerConfig != nil {
+		generation.workerConfig = maps.Clone(manifest.WorkerConfig)
+		h.workers.configMu.Lock()
+		h.workers.config = maps.Clone(manifest.WorkerConfig)
+		h.workers.configMu.Unlock()
 	}
 	h.generations[generation.number] = generation
 	h.current = generation

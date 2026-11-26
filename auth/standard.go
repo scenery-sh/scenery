@@ -72,6 +72,7 @@ func RegisterStandard(config StandardConfig) error {
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = config
 	standardAuthState.mu.Unlock()
+	appsdk.RegisterConfigReloadHook("auth.standard", ReloadStandardSecrets)
 
 	host.RegisterAuthHandler(appsdk.AuthHandler{
 		Service: "auth",
@@ -132,31 +133,44 @@ var (
 	}
 )
 
+// ReloadStandardSecrets refreshes standard authentication secrets and runtime
+// URLs from the active configuration snapshot when standard auth is enabled.
+func ReloadStandardSecrets() error {
+	if !currentStandardConfig().Enabled {
+		return nil
+	}
+	return applyStandardSecrets()
+}
+
 // applyStandardSecrets loads auth.* configuration. The public URLs are
 // runtime-managed capabilities the supervisor supplies, not configuration.
 func applyStandardSecrets() error {
+	var next standardSecrets
 	jwt, _, err := configuredAuthSecret("auth.jwt_secret")
 	if err != nil {
 		return err
 	}
-	secrets.JWTSecret = strings.TrimSpace(string(jwt))
-	if secrets.JWTSecret == "" && isLocalRuntime() {
-		secrets.JWTSecret = "scenery-local-development-secret"
+	next.JWTSecret = strings.TrimSpace(string(jwt))
+	if next.JWTSecret == "" && isLocalRuntime() {
+		next.JWTSecret = "scenery-local-development-secret"
 	}
 	clientSecret, _, err := configuredAuthSecret("auth.google_client_secret")
 	if err != nil {
 		return err
 	}
-	secrets.GoogleOAuthClientSecret = strings.TrimSpace(string(clientSecret))
-	for key, target := range map[string]*string{"auth.google_client_id": &secrets.GoogleOAuthClientID, "auth.cookie_domain": &secrets.AuthCookieDomain} {
+	next.GoogleOAuthClientSecret = strings.TrimSpace(string(clientSecret))
+	for key, target := range map[string]*string{"auth.google_client_id": &next.GoogleOAuthClientID, "auth.cookie_domain": &next.AuthCookieDomain} {
 		value, _, err := configuredAuthString(key)
 		if err != nil {
 			return err
 		}
 		*target = strings.TrimSpace(value)
 	}
-	secrets.PublicAppURL = strings.TrimSpace(envpolicy.Get("SCENERY_PUBLIC_APP_URL"))
-	secrets.APIBaseURL = strings.TrimSpace(envpolicy.Get("SCENERY_API_BASE_URL"))
+	next.PublicAppURL = strings.TrimSpace(envpolicy.Get("SCENERY_PUBLIC_APP_URL"))
+	next.APIBaseURL = strings.TrimSpace(envpolicy.Get("SCENERY_API_BASE_URL"))
+	secretsMu.Lock()
+	secrets = next
+	secretsMu.Unlock()
 	return nil
 }
 

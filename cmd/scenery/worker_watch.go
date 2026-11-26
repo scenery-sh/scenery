@@ -62,20 +62,39 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 			stopConfigTicker()
 		}
 	}()
+	checkConfig := func() {
+		info, err := os.Stat(configPath)
+		if err != nil {
+			info = nil
+		}
+		if sameConfigFile(lastConfigInfo, info) {
+			return
+		}
+		lastConfigInfo = info
+		watch.applyConfigurationChange(ctx)
+	}
+	startConfigWatch := func() bool {
+		if configTicks != nil || watch.dev == nil || watch.bundle.config == nil {
+			return false
+		}
+		path, ok := workerDevConfigFile(watch.dev.watch.root, watch.dev.envName)
+		if !ok {
+			return false
+		}
+		configPath = path
+		configTicker := time.NewTicker(devConfigPollInterval)
+		stopConfigTicker = configTicker.Stop
+		configTicks = configTicker.C
+		return true
+	}
 	var seen workerInputs
 	if watch.dev != nil {
 		events, watchErrors = watch.dev.watch.fs.Events, watch.dev.watch.fs.Errors
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		reconciliation, seen = ticker.C, watch.dev.applied
-		if watch.bundle.config != nil {
-			if path, ok := workerDevConfigFile(watch.dev.watch.root, watch.dev.envName); ok {
-				configPath = path
-				lastConfigInfo, _ = os.Stat(configPath)
-				configTicker := time.NewTicker(devConfigPollInterval)
-				stopConfigTicker = configTicker.Stop
-				configTicks = configTicker.C
-			}
+		if startConfigWatch() {
+			checkConfig()
 		}
 	}
 	debounce := time.NewTimer(time.Hour)
@@ -118,15 +137,7 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 			reconcile = true
 			schedule()
 		case <-configTicks:
-			info, err := os.Stat(configPath)
-			if err != nil {
-				info = nil
-			}
-			if sameConfigFile(lastConfigInfo, info) {
-				continue
-			}
-			lastConfigInfo = info
-			watch.applyConfigurationChange(ctx)
+			checkConfig()
 		case <-debounce.C:
 			current, err := watch.dev.watch.capture(seen, pending, reconcile, true)
 			observed := detected
@@ -150,14 +161,8 @@ func (watch *workerWatcher) run(ctx context.Context, hostDone <-chan error) erro
 				}
 			} else if applied != nil {
 				seen = applied
-				if configTicks == nil && watch.bundle.config != nil {
-					if path, ok := workerDevConfigFile(watch.dev.watch.root, watch.dev.envName); ok {
-						configPath = path
-						lastConfigInfo, _ = os.Stat(configPath)
-						configTicker := time.NewTicker(devConfigPollInterval)
-						stopConfigTicker = configTicker.Stop
-						configTicks = configTicker.C
-					}
+				if startConfigWatch() || configTicks != nil {
+					checkConfig()
 				}
 			}
 		case <-watch.exits:
@@ -314,11 +319,10 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 			return nil, err
 		}
 	}
-	dbFingerprint, err := candidate.verifyDatabaseSetup(ctx)
+	dbSetup, dbChanged, err := candidate.checkPendingMigrations(ctx)
 	if err != nil {
 		return nil, err
 	}
-	candidate.dbSetupFingerprint = dbFingerprint
 	for _, program := range bundle.Programs {
 		module, _, _ := strings.Cut(program.Service, "/service/")
 		if workerStillMatches(watch.active[program.Process], program) {
@@ -333,21 +337,41 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	slices.Sort(timing.RebuiltModules)
 	slices.Sort(timing.SkippedModules)
 	readyStarted := time.Now()
-	prevHostConfig := watch.bundle.hostConfigSnapshot()
-	prevWorkerConfig := watch.bundle.Host.WorkerConfig
-	if bundle.config != nil {
-		workerruntime.UpdateWorkerDevelopmentConfig(bundle.hostConfigSnapshot(), bundle.Host.WorkerConfig)
-	}
-	err = watch.replace(ctx, bundle, func() error { return candidate.verify(appliedCurrent) })
+	err = watch.replace(ctx, bundle, func() error {
+		if err := candidate.verify(appliedCurrent); err != nil {
+			return err
+		}
+		if dbChanged {
+			return candidate.applyVerifiedDatabaseSetup(ctx, dbSetup)
+		}
+		return nil
+	})
 	timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
 	if err != nil {
-		if bundle.config != nil {
-			workerruntime.UpdateWorkerDevelopmentConfig(prevHostConfig, prevWorkerConfig)
-		}
 		return nil, err
+	}
+	if dbChanged {
+		candidate.dbSetupFingerprint = dbSetup.Fingerprint
 	}
 	candidate.applied = appliedCurrent
 	candidate.ensureAssistantCompiled().Store(candidate.compiled)
+	if edit.declarations && candidate.assistants != nil && candidate.assistantDefs != nil {
+		nextDefs := assistantDefinitionsFromResult(candidate.compiled, candidate.watch.root)
+		var prevDefs []assistantDefinition
+		if loaded := candidate.assistantDefs.Load(); loaded != nil {
+			prevDefs = *loaded
+		}
+		if !slices.Equal(prevDefs, nextDefs) {
+			if err := candidate.assistants.Reconcile(ctx, candidate.compiled); err != nil {
+				fmt.Fprintf(os.Stderr, "assistant reconcile failed: %v\n", err)
+			} else if candidate.assistantConfigPath != "" {
+				if err := workerruntime.WriteAssistantRuntimeConfig(candidate.assistantConfigPath, candidate.assistants.RuntimeConfig()); err != nil {
+					fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
+				}
+			}
+			candidate.assistantDefs.Store(&nextDefs)
+		}
+	}
 	*watch.dev = candidate
 	return appliedCurrent, nil
 }
@@ -361,6 +385,24 @@ func (watch *workerWatcher) applyConfigurationChange(ctx context.Context) {
 		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
 		return
 	}
+	env, err := cfg.ResolveEnv(watch.dev.envName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
+		return
+	}
+	store, err := devConfigStore(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
+		return
+	}
+	document, err := devConfigDocument(store, cfg, env)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration reload failed: %v\n", err)
+		return
+	}
+	if document.Revision == watch.bundle.config.Revision {
+		return
+	}
 	nextBundle := watch.bundle
 	nextBundle.Programs = slices.Clone(watch.bundle.Programs)
 	if err := nextBundle.resolveDevelopmentConfig(ctx, watch.dev.compiled, cfg, watch.dev.envName); err != nil {
@@ -371,11 +413,7 @@ func (watch *workerWatcher) applyConfigurationChange(ctx context.Context) {
 	if watch.bundle.config != nil && nextBundle.config != nil && nextBundle.config.Revision == watch.bundle.config.Revision {
 		return
 	}
-	prevHostConfig := watch.bundle.hostConfigSnapshot()
-	prevWorkerConfig := watch.bundle.Host.WorkerConfig
-	workerruntime.UpdateWorkerDevelopmentConfig(nextBundle.hostConfigSnapshot(), nextBundle.Host.WorkerConfig)
 	if err := watch.replace(ctx, nextBundle, nil); err != nil {
-		workerruntime.UpdateWorkerDevelopmentConfig(prevHostConfig, prevWorkerConfig)
 		fmt.Fprintf(os.Stderr, "configuration apply failed: %v\n", err)
 		return
 	}
@@ -416,7 +454,7 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 			return err
 		}
 	}
-	if len(started) == 0 && len(next) == len(watch.active) {
+	if len(started) == 0 && len(next) == len(watch.active) && workerBundleDigest(bundle) == workerBundleDigest(watch.bundle) {
 		watch.bundle = bundle
 		return nil
 	}
@@ -532,10 +570,14 @@ func workerControlRetireGeneration(ctx context.Context, client *http.Client, tok
 }
 
 func (watch *workerWatcher) retire(ctx context.Context, generation uint64) {
+	watch.retireWith(ctx, generation, 5*time.Second, 200*time.Millisecond)
+}
+
+func (watch *workerWatcher) retireWith(ctx context.Context, generation uint64, drainTimeout, forceRetryInterval time.Duration) {
 	path := "/__scenery/process/v1/generations/" + strconv.FormatUint(generation, 10)
-	drain, cancel := context.WithTimeout(ctx, 5*time.Second)
+	drain, cancel := context.WithTimeout(ctx, drainTimeout)
 	defer cancel()
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(min(50*time.Millisecond, max(time.Millisecond, drainTimeout/2)))
 	defer ticker.Stop()
 	for {
 		if err := workerControlRetireGeneration(drain, watch.client, watch.token, path); err == nil {
@@ -544,12 +586,25 @@ func (watch *workerWatcher) retire(ctx context.Context, generation uint64) {
 		}
 		select {
 		case <-drain.Done():
-			force, cancelForce := context.WithTimeout(ctx, time.Second)
-			defer cancelForce()
-			if err := workerControlRetireGeneration(force, watch.client, watch.token, path+"?force=true"); err == nil {
-				stopWorkers(watch.generations.remove(generation))
+			if ctx.Err() != nil {
+				return
 			}
-			return
+			forceTicker := time.NewTicker(forceRetryInterval)
+			defer forceTicker.Stop()
+			for {
+				forceCtx, cancelForce := context.WithTimeout(ctx, time.Second)
+				err := workerControlRetireGeneration(forceCtx, watch.client, watch.token, path+"?force=true")
+				cancelForce()
+				if err == nil {
+					stopWorkers(watch.generations.remove(generation))
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-forceTicker.C:
+				}
+			}
 		case <-ticker.C:
 		}
 	}

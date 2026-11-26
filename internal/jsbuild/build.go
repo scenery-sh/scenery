@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,9 @@ type Service struct {
 	Name    string
 	Runtime string
 }
+
+// ErrSourcesChanged reports that a worker source or dependency changed during bundling.
+var ErrSourcesChanged = errors.New("JavaScript worker sources changed during build")
 
 type Artifact struct {
 	Path         string
@@ -62,16 +66,12 @@ func BuildWithVerify(ctx context.Context, root string, service Service, check bo
 			return Artifact{}, err
 		}
 		if prior.CacheHit {
+			if verify != nil {
+				if err := verify(prior.Dependencies); err != nil {
+					return Artifact{}, err
+				}
+			}
 			return prior, nil
-		}
-	}
-	buildStarted := time.Now()
-	var before string
-	if !check {
-		var err error
-		before, err = buildFingerprint(root, service, nil)
-		if err != nil {
-			return Artifact{}, err
 		}
 	}
 	bun, err := exec.LookPath("bun")
@@ -85,16 +85,39 @@ func BuildWithVerify(ctx context.Context, root string, service Service, check bo
 	if strings.TrimSpace(string(version)) != service.Version {
 		return Artifact{}, fmt.Errorf("service %s requires Bun %s, found %s", service.Name, service.Version, strings.TrimSpace(string(version)))
 	}
-	staging, err := os.MkdirTemp(privateRoot, "build-")
-	if err != nil {
-		return Artifact{}, err
-	}
-	defer func() { _ = os.RemoveAll(staging) }()
 	directory := filepath.Join(root, service.Directory)
 	entry := filepath.Join(directory, "scenerycontract", "main.ts")
+	for attempt := range 2 {
+		buildStarted := time.Now()
+		var before []moduleInputDigest
+		if !check {
+			before, err = captureModuleInputs(root, service)
+			if err != nil {
+				return Artifact{}, err
+			}
+		}
+		artifact, depDigests, retryNewDep, err := buildJSWorkerAttempt(ctx, root, privateRoot, cache, directory, entry, bun, service, check, before, priorDepDigests, buildStarted, verify)
+		if err != nil {
+			return Artifact{}, err
+		}
+		if retryNewDep && attempt == 0 {
+			priorDepDigests = depDigests
+			continue
+		}
+		return artifact, nil
+	}
+	return Artifact{}, fmt.Errorf("JavaScript worker dependencies kept changing during build: %w", ErrSourcesChanged)
+}
+
+func buildJSWorkerAttempt(ctx context.Context, root, privateRoot, cache, directory, entry, bun string, service Service, check bool, before []moduleInputDigest, priorDepDigests map[string]string, buildStarted time.Time, verify func([]string) error) (Artifact, map[string]string, bool, error) {
+	staging, err := os.MkdirTemp(privateRoot, "build-")
+	if err != nil {
+		return Artifact{}, nil, false, err
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
 	if check {
 		if err := checkTypeScript(ctx, root, directory, staging, entry); err != nil {
-			return Artifact{}, err
+			return Artifact{}, nil, false, err
 		}
 	}
 	output := filepath.Join(staging, "worker")
@@ -106,44 +129,47 @@ func BuildWithVerify(ctx context.Context, root string, service Service, check bo
 	command := exec.CommandContext(ctx, bun, append(args, entry)...)
 	command.Dir = staging
 	if logs, err := command.CombinedOutput(); err != nil {
-		return Artifact{}, fmt.Errorf("bundle %s: %w\n%s", service.Name, err, logs)
+		return Artifact{}, nil, false, fmt.Errorf("bundle %s: %w\n%s", service.Name, err, logs)
 	}
 	inputs, err := verifyImports(root, directory, staging, metadata)
 	if err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
 	if check {
-		return Artifact{}, nil
+		return Artifact{}, nil, false, nil
 	}
 
-	after, err := buildFingerprint(root, service, nil)
+	after, err := captureModuleInputs(root, service)
 	if err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
-	if before != after {
-		return Artifact{}, fmt.Errorf("JavaScript worker sources changed during build")
+	if !slices.Equal(before, after) {
+		return Artifact{}, nil, false, fmt.Errorf("%w", ErrSourcesChanged)
 	}
 	dependencies := cacheDependencies(root, directory, inputs)
-	cacheable, err := verifyBuildCachePublish(root, priorDepDigests, dependencies, buildStarted, verify)
+	depDigests, retryNewDep, cacheable, err := verifyBuildDependencies(root, priorDepDigests, dependencies, buildStarted, verify)
 	if err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
-	fingerprint, err := buildFingerprint(root, service, dependencies)
+	if retryNewDep {
+		return Artifact{}, depDigests, true, nil
+	}
+	fingerprint, err := buildFingerprintFromDigests(root, service, after, dependencies, depDigests)
 	if err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
 	digest, err := fileDigest(output)
 	if err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
 	destination := filepath.Join(privateRoot, "worker-"+digest)
 	record, err := json.Marshal(buildCacheEntry{Inputs: fingerprint, Executable: digest, Dependencies: dependencies})
 	if err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
 	recordPath := filepath.Join(staging, "build.json")
 	if err := os.WriteFile(recordPath, record, 0o600); err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
 	if err := withCacheLock(privateRoot, func() error {
 		if cacheable {
@@ -153,34 +179,48 @@ func BuildWithVerify(ctx context.Context, root string, service Service, check bo
 		}
 		return os.Rename(output, destination)
 	}); err != nil {
-		return Artifact{}, err
+		return Artifact{}, nil, false, err
 	}
-	return Artifact{Path: destination, Digest: "sha256:" + digest, Dependencies: dependencies}, nil
+	return Artifact{Path: destination, Digest: "sha256:" + digest, Dependencies: dependencies}, depDigests, false, nil
 }
 
 func verifyBuildCachePublish(root string, priorDepDigests map[string]string, dependencies []string, buildStarted time.Time, verify func([]string) error) (bool, error) {
-	for _, dep := range dependencies {
-		if prevDigest, ok := priorDepDigests[dep]; ok {
-			currentDigest, err := fileDigest(filepath.Join(root, dep))
-			if err != nil || currentDigest != prevDigest {
-				return false, fmt.Errorf("JavaScript worker dependency %s changed during build", dep)
-			}
-		}
-	}
+	_, _, cacheable, err := verifyBuildDependencies(root, priorDepDigests, dependencies, buildStarted, verify)
+	return cacheable, err
+}
+
+func verifyBuildDependencies(root string, priorDepDigests map[string]string, dependencies []string, buildStarted time.Time, verify func([]string) error) (map[string]string, bool, bool, error) {
 	if verify != nil {
 		if err := verify(dependencies); err != nil {
-			return false, err
+			return nil, false, false, err
 		}
 	}
+	depDigests := make(map[string]string, len(dependencies))
+	for _, dep := range dependencies {
+		currentDigest, err := fileDigest(filepath.Join(root, dep))
+		if _, hadPrior := priorDepDigests[dep]; hadPrior {
+			if err != nil || currentDigest != priorDepDigests[dep] {
+				return nil, false, false, fmt.Errorf("JavaScript worker dependency %s changed during build: %w", dep, ErrSourcesChanged)
+			}
+		} else if err != nil {
+			return nil, false, false, err
+		}
+		depDigests[dep] = currentDigest
+	}
 	cacheable := true
+	retryNewDep := false
 	for _, dep := range dependencies {
 		info, err := os.Lstat(filepath.Join(root, dep))
 		if err != nil || !info.ModTime().Before(buildStarted) {
 			cacheable = false
-			break
+		}
+		if err == nil && !info.ModTime().Before(buildStarted) {
+			if _, hadPrior := priorDepDigests[dep]; !hadPrior {
+				retryNewDep = true
+			}
 		}
 	}
-	return cacheable, nil
+	return depDigests, retryNewDep, cacheable, nil
 }
 
 func checkTypeScript(ctx context.Context, root, module, staging, entry string) error {

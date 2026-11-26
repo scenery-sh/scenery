@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -238,15 +239,21 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	}
 	var assistants *assistantSupervisor
 	var assistantConfigPath string
-	var assistantDefinitions []assistantDefinition
+	var assistantDefs *atomic.Pointer[[]assistantDefinition]
 	var initialAssistantDigests map[string]string
 	var assistantWG sync.WaitGroup
 	if dev != nil && len(bundle.Host.Assistants) > 0 {
+		var assistantDefinitions []assistantDefinition
 		var restoreAssistantEnv func()
 		assistants, assistantConfigPath, assistantDefinitions, initialAssistantDigests, restoreAssistantEnv, err = prepareWorkerDevAssistants(ctx, dev, directory)
 		if err != nil {
 			return err
 		}
+		assistantDefs = &atomic.Pointer[[]assistantDefinition]{}
+		assistantDefs.Store(&assistantDefinitions)
+		dev.assistants = assistants
+		dev.assistantConfigPath = assistantConfigPath
+		dev.assistantDefs = assistantDefs
 		defer func() {
 			assistantWG.Wait()
 			_ = assistants.Close()
@@ -303,7 +310,7 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 				return err
 			}
 			assistantWG.Go(func() {
-				superviseWorkerAssistantSources(ctx, assistants, assistantConfigPath, assistantDefinitions, initialAssistantDigests)
+				superviseWorkerAssistantSources(ctx, assistants, assistantConfigPath, assistantDefs, initialAssistantDigests)
 			})
 		}
 		devControl.publish(dev.applied, bundle, 1, nil)
@@ -458,10 +465,19 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 		instances[program.Process] = instance
 	}
 	digest := workerBundleDigest(bundle)
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"generation": number, "contract_revision": bundle.ContractRevision, "processes": instances,
 		"identity": workerProcessIdentity{ContractRevision: bundle.ContractRevision, ImplementationRevision: digest, BuildInputDigest: digest, Target: "worker"},
-	})
+	}
+	if bundle.Host.DevelopmentCall {
+		if hostConfig := bundle.hostConfigSnapshot(); hostConfig != nil {
+			payload["host_config"] = hostConfig
+		}
+	}
+	if bundle.Host.WorkerConfig != nil {
+		payload["worker_config"] = bundle.Host.WorkerConfig
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
@@ -470,6 +486,9 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 
 func workerBundleDigest(bundle workerBundle) string {
 	aggregate := sha256.New()
+	if bundle.config != nil {
+		_, _ = io.WriteString(aggregate, bundle.config.Revision)
+	}
 	_, _ = io.WriteString(aggregate, workerConfigIdentity(bundle.hostConfigSnapshot()))
 	for _, program := range bundle.Programs {
 		_, _ = io.WriteString(aggregate, program.Digest)
@@ -697,20 +716,21 @@ func workerAssistantSourceDigest(sourceRoot string) (string, error) {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantSupervisor, runtimeConfigPath string, definitions []assistantDefinition, initialDigests map[string]string) {
-	if supervisor == nil || len(definitions) == 0 {
+func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantSupervisor, runtimeConfigPath string, defsPtr *atomic.Pointer[[]assistantDefinition], initialDigests map[string]string) {
+	if supervisor == nil || defsPtr == nil {
 		return
 	}
-	digests := make(map[string]string, len(definitions))
-	for _, definition := range definitions {
-		if initial, ok := initialDigests[definition.SourceRoot]; ok {
-			digests[definition.SourceRoot] = initial
-			continue
-		}
-		digests[definition.SourceRoot], _ = workerAssistantSourceDigest(definition.SourceRoot)
+	digests := make(map[string]string, len(initialDigests))
+	for source, initial := range initialDigests {
+		digests[source] = initial
 	}
 	lastErrors := make(map[string]string)
 	scan := func() {
+		loaded := defsPtr.Load()
+		if loaded == nil {
+			return
+		}
+		definitions := *loaded
 		var changed []string
 		for _, definition := range definitions {
 			source := definition.SourceRoot
@@ -726,7 +746,12 @@ func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantS
 				continue
 			}
 			delete(lastErrors, source)
-			if digests[source] == digest {
+			previous, tracked := digests[source]
+			if !tracked {
+				digests[source] = digest
+				continue
+			}
+			if previous == digest {
 				continue
 			}
 			digests[source] = digest

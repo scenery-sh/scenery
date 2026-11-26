@@ -176,6 +176,10 @@ func TestProjectedGoClientReservesAllGeneratedOperationIdentifiers(t *testing.T)
 		}},
 		{Address: "consumer/record/echo_client_input", Kind: "scenery.record", Name: "echo_client_input", Module: "consumer"},
 		{Address: "consumer/record/projected_echo_client_ok", Kind: "scenery.record", Name: "projected_echo_client_ok", Module: "consumer"},
+		{Address: "consumer/operation/pricing_client", Kind: "scenery.operation", Name: "pricing_client", Module: "consumer", Spec: map[string]any{
+			"service": map[string]any{"$ref": "service.consumer"}, "input": "string",
+			"result": []any{map[string]any{"name": "ok", "type": "string"}},
+		}},
 		{Address: "provider/service/provider", Kind: "scenery.service", Name: "provider", Module: "provider"},
 		{Address: "provider/operation/echo", Kind: "scenery.operation", Name: "echo", Module: "provider", Spec: map[string]any{
 			"service": map[string]any{"$ref": "service.provider"}, "input": "string",
@@ -248,7 +252,7 @@ func TestProjectedGoClientReservesAllGeneratedOperationIdentifiers(t *testing.T)
 	if !strings.Contains(contractSrc, "Projected2EchoClientInput") || !strings.Contains(contractSrc, "Projected2EchoClientOk") {
 		t.Fatalf("expected Projected2EchoClient symbols:\n%s", contractSrc)
 	}
-	if !strings.Contains(contractSrc, "ProjectedPricingClientResultVariantOutcome") || !strings.Contains(typesSrc, "type PricingClientOutcome struct") {
+	if !strings.Contains(contractSrc, "ProjectedPricingClientResultVariantOutcome") || !strings.Contains(typesSrc, "type EmbeddedPricingClientOutcome struct") {
 		t.Fatalf("expected disambiguated pricing embedded type + variant wrapper:\nCONTRACT:\n%s\nTYPES:\n%s", contractSrc, typesSrc)
 	}
 }

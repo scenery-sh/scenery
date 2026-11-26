@@ -72,6 +72,9 @@ func (failure *workerJSBuildError) Unwrap() error { return failure.err }
 func (build *workerJSBuild) run(ctx context.Context, root string, check bool, verify func(dependencies []string) error) (workerProgram, bool, error) {
 	artifact, err := jsbuild.BuildWithVerify(ctx, root, build.service, check, verify)
 	if err != nil {
+		if errors.Is(err, jsbuild.ErrSourcesChanged) {
+			err = fmt.Errorf("%w: %w", errWorkerInputsChanged, err)
+		}
 		return workerProgram{}, false, &workerJSBuildError{service: build.program.Service, err: err}
 	}
 	if !check {

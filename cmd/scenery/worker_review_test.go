@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
@@ -19,6 +23,7 @@ import (
 	"scenery.sh/internal/jsbuild"
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/storageconfig"
+	"scenery.sh/internal/workerabi"
 	workerruntime "scenery.sh/runtime"
 	publicstorage "scenery.sh/storage"
 )
@@ -730,18 +735,142 @@ func TestWorkerVerifyDatabaseSetupSkipsUnchangedAndBlocksPendingMigration(t *tes
 		},
 	}
 
-	gotFP, err := dev.verifyDatabaseSetup(context.Background())
-	if err != nil || gotFP != initialSetup.Fingerprint || called != 0 {
-		t.Fatalf("verifyDatabaseSetup(unchanged) = (%q, %v), called=%d", gotFP, err, called)
+	gotSetup, dbChanged, err := dev.checkPendingMigrations(context.Background())
+	if err != nil || dbChanged || gotSetup.Fingerprint != initialSetup.Fingerprint && dbChanged || called != 0 {
+		t.Fatalf("checkPendingMigrations(unchanged) = (%+v, %v, %v), called=%d", gotSetup, dbChanged, err, called)
 	}
 
 	writeWatchFile(t, root, filepath.Join("db", "migrations", "0002_add_col.sql"), "ALTER TABLE items ADD COLUMN name text;\n")
-	_, err = dev.verifyDatabaseSetup(context.Background())
+	_, _, err = dev.checkPendingMigrations(context.Background())
 	var pendingErr *pendingMigrationError
 	if !errors.As(err, &pendingErr) || cliExitCode(err) != 3 {
-		t.Fatalf("verifyDatabaseSetup(pending) = %v (exit %d), want *pendingMigrationError exit 3", err, cliExitCode(err))
+		t.Fatalf("checkPendingMigrations(pending) = %v (exit %d), want *pendingMigrationError exit 3", err, cliExitCode(err))
 	}
 	if called != 1 || !observedStatusOnly {
 		t.Fatalf("dbSetupApply called=%d, statusOnly=%v; want 1, true", called, observedStatusOnly)
+	}
+	if applyErr := dev.applyVerifiedDatabaseSetup(context.Background(), gotSetup); !errors.As(applyErr, &pendingErr) {
+		t.Fatalf("applyVerifiedDatabaseSetup = %v, want *pendingMigrationError from stub", applyErr)
+	}
+	if called != 2 || observedStatusOnly {
+		t.Fatalf("dbSetupApply after verify = (%d, statusOnly=%v), want (2, false)", called, observedStatusOnly)
+	}
+}
+
+func TestWorkerWatcherRepublishesGenerationOnHostOnlyConfigChangeAndForcedRetire(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wrev-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	// 1. Host-only or revision-only config change publishes a new generation without restarting matching workers,
+	// and retires previous generations across transient forced-retire failures.
+	controlSock := filepath.Join(dir, "control.sock")
+	listener, err := net.Listen("unix", controlSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var published []map[string]any
+	var forcedAttempts int
+	server := &http.Server{
+		Protocols:         workerabi.Protocols(),
+		ReadHeaderTimeout: time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer tok" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			switch {
+			case r.URL.Path == "/__scenery/process/v1/generations" && r.Method == http.MethodPut:
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				mu.Lock()
+				published = append(published, body)
+				mu.Unlock()
+				w.WriteHeader(http.StatusNoContent)
+			case strings.HasPrefix(r.URL.Path, "/__scenery/process/v1/generations/") && r.Method == http.MethodDelete:
+				if r.URL.Query().Get("force") != "true" {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
+				mu.Lock()
+				forcedAttempts++
+				attempt := forcedAttempts
+				mu.Unlock()
+				if attempt == 1 {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}),
+	}
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Close() }()
+
+	identity := workerProcessIdentity{ContractRevision: "c1", ImplementationRevision: "i1", BuildInputDigest: "b1", Target: "go"}
+	workerCfg := &workerruntime.ConfigSnapshot{Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "local", Revision: "rev-1", Consumer: "mod/service/a", Values: map[string]json.RawMessage{}, Secrets: map[string][]byte{}}
+	hostCfg1 := &workerruntime.ConfigSnapshot{Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "local", Revision: "rev-1", Consumer: "$host", Values: map[string]json.RawMessage{"public.flag": json.RawMessage(`false`)}, Public: []string{"public.flag"}, Secrets: map[string][]byte{}}
+	hostCfg2 := &workerruntime.ConfigSnapshot{Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "local", Revision: "rev-2", Consumer: "$host", Values: map[string]json.RawMessage{"public.flag": json.RawMessage(`false`)}, Public: []string{"public.flag"}, Secrets: map[string][]byte{}}
+
+	cmd := exec.Command("true")
+	cmd.Process = &os.Process{Pid: os.Getpid()}
+	aliveProc := &workerProcess{
+		program: workerProgram{Service: "mod/service/a", Process: "a", Runtime: "go", Digest: "sha256:1", Identity: identity, config: workerCfg},
+		cmd:     cmd,
+		socket:  filepath.Join(dir, "w1.sock"),
+		token:   strings.Repeat("a", 32),
+		done:    make(chan struct{}),
+	}
+	bundle1 := workerBundle{
+		ContractRevision: "c1",
+		Host:             workerruntime.ProcessHostConfig{DevelopmentCall: true, WorkerConfig: map[string]*workerruntime.ConfigSnapshot{"mod/service/a": workerCfg}},
+		Programs:         []workerProgram{aliveProc.program},
+		HostConfigKeys:   []string{"public.flag"},
+		config:           hostCfg1,
+	}
+	bundle2 := bundle1
+	bundle2.config = hostCfg2
+
+	client := workerControlClient(controlSock)
+	defer client.CloseIdleConnections()
+	watch := &workerWatcher{
+		token:      "tok",
+		client:     client,
+		bundle:     bundle1,
+		active:     map[string]*workerProcess{"a": aliveProc},
+		generation: 1,
+		sequence:   1,
+	}
+	watch.generations.add(1, watch.active)
+	if err := watch.replace(context.Background(), bundle2, nil); err != nil {
+		t.Fatalf("watch.replace(host revision bump) = %v", err)
+	}
+	watch.retireWith(context.Background(), 1, 10*time.Millisecond, 5*time.Millisecond)
+	watch.retirements.Wait()
+	if watch.generation != 2 || watch.active["a"] != aliveProc {
+		t.Fatalf("watch state after host-only change = (gen=%d, active=%p), want gen=2 and reused process", watch.generation, watch.active["a"])
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if forcedAttempts < 2 {
+		t.Fatalf("forced retire attempts = %d, want >= 2 after transient 500", forcedAttempts)
+	}
+	if len(published) != 1 {
+		t.Fatalf("published generation count = %d, want 1", len(published))
+	}
+	if gen, _ := published[0]["generation"].(float64); gen != 2 {
+		t.Fatalf("published generation = %v, want 2", published[0]["generation"])
+	}
+	hostPayload, _ := published[0]["host_config"].(map[string]any)
+	if hostPayload == nil || hostPayload["revision"] != "rev-2" {
+		t.Fatalf("published host_config = %#v, want revision rev-2", published[0]["host_config"])
 	}
 }

@@ -379,7 +379,9 @@ func TestExecuteTypedEndpointMapsContextCanceledTo499WithoutSystemError(t *testi
 			return nil, ClassifyContractDurableWaitError(fmt.Errorf("wait: %w", context.Canceled), 0, 0)
 		},
 	}
-	_, status, _, err := executeTypedEndpoint(ep, t.Context(), nil, nil)
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, status, _, err := executeTypedEndpoint(ep, canceledCtx, nil, nil)
 	if status != 499 || !errors.Is(err, context.Canceled) {
 		t.Fatalf("executeTypedEndpoint(canceled) = status %d, err %v; want 499 + context.Canceled", status, err)
 	}
@@ -388,6 +390,14 @@ func TestExecuteTypedEndpointMapsContextCanceledTo499WithoutSystemError(t *testi
 	}
 	if typed, ok := errs.As(err); !ok || typed.Code != errs.Canceled {
 		t.Fatalf("canceled wait code = %v, want errs.Canceled", err)
+	}
+
+	_, activeStatus, _, activeErr := executeTypedEndpoint(ep, t.Context(), nil, nil)
+	if activeStatus != http.StatusInternalServerError {
+		t.Fatalf("executeTypedEndpoint(active ctx, downstream canceled) = status %d, err %v; want 500", activeStatus, activeErr)
+	}
+	if typed, ok := errs.As(activeErr); ok && typed.Code == errs.Canceled {
+		t.Fatalf("active request context must not classify downstream context.Canceled as errs.Canceled: %v", activeErr)
 	}
 }
 
@@ -495,5 +505,102 @@ func TestMainWorkerProcessHostValidatesAndAppliesRuntimeRole(t *testing.T) {
 	}
 	if status, reason := host.retire(1, false); status != http.StatusNoContent {
 		t.Fatalf("retire(already retired generation 1) = %d (%q), want 204", status, reason)
+	}
+}
+
+func TestProcessHostPublishScopesWorkerAndHostConfigPerGeneration(t *testing.T) {
+	defer replaceGlobalRegistryForTest()()
+	prevSnapshot, _ := LoadConfigSnapshot()
+	t.Cleanup(func() { UpdateWorkerHostConfig(prevSnapshot) })
+
+	const serviceAddr, processName = "mod/service/svc", "svc"
+	host := &processHost{
+		name:        "cfg-app",
+		contract:    "contract",
+		required:    []string{processName},
+		routes:      newRouteTable(),
+		closing:     make(chan struct{}),
+		generations: map[uint64]*processHostGeneration{},
+		workers: &workerHost{
+			services: map[string]WorkerServicePlan{serviceAddr: {Address: serviceAddr, Process: processName, Module: "mod", Name: "svc"}},
+			config:   map[string]*ConfigSnapshot{},
+		},
+	}
+	host.workers.host = host
+	instanceSpec := processGenerationInstance{
+		Network: "unix", Address: "/tmp/worker-config-test.sock", Protocol: "h2c", PID: 123,
+		WorkerService: serviceAddr, WorkerToken: strings.Repeat("w", 32),
+		Identity: processInstanceIdentity{
+			ContractRevision: "contract", ImplementationRevision: "impl-1", BuildInputDigest: "digest-1", GoTarget: "worker",
+		},
+	}
+	hostSnap1 := &ConfigSnapshot{Kind: ConfigSnapshotKind, AppID: "cfg-app", Environment: "local", Revision: "rev-1", Consumer: "$host", Values: map[string]json.RawMessage{"p": json.RawMessage(`"v1"`)}, Public: []string{"p"}, Secrets: map[string][]byte{}}
+	workerSnap1 := &ConfigSnapshot{Kind: ConfigSnapshotKind, AppID: "cfg-app", Environment: "local", Revision: "rev-1", Consumer: serviceAddr, Values: map[string]json.RawMessage{"k": json.RawMessage(`"one"`)}, Secrets: map[string][]byte{}}
+	hostSnap2 := &ConfigSnapshot{Kind: ConfigSnapshotKind, AppID: "cfg-app", Environment: "local", Revision: "rev-2", Consumer: "$host", Values: map[string]json.RawMessage{"p": json.RawMessage(`"v2"`)}, Public: []string{"p"}, Secrets: map[string][]byte{}}
+	workerSnap2 := &ConfigSnapshot{Kind: ConfigSnapshotKind, AppID: "cfg-app", Environment: "local", Revision: "rev-2", Consumer: serviceAddr, Values: map[string]json.RawMessage{"k": json.RawMessage(`"two"`)}, Secrets: map[string][]byte{}}
+
+	manifestFor := func(gen uint64, procs map[string]processGenerationInstance, hostCfg, workerCfg *ConfigSnapshot) processGenerationManifest {
+		return processGenerationManifest{
+			Generation:       gen,
+			ContractRevision: "contract",
+			Identity:         processInstanceIdentity{ContractRevision: "contract", ImplementationRevision: "impl", BuildInputDigest: "digest", GoTarget: "worker"},
+			Processes:        procs,
+			HostConfig:       hostCfg,
+			WorkerConfig:     map[string]*ConfigSnapshot{serviceAddr: workerCfg},
+		}
+	}
+
+	if err := host.publish(manifestFor(1, map[string]processGenerationInstance{processName: instanceSpec}, hostSnap1, workerSnap1)); err != nil {
+		t.Fatalf("publish(gen 1) = %v", err)
+	}
+	readCapabilityRevision := func(gen *processHostGeneration) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "http://host"+workerabi.CapabilityPrefix+"config/snapshot", nil)
+		req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, gen))
+		rec := httptest.NewRecorder()
+		host.workers.serveCapability(serviceAddr, rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("serveCapability(config/snapshot) = %d (%s)", rec.Code, rec.Body.String())
+		}
+		var snap ConfigSnapshot
+		if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+			t.Fatal(err)
+		}
+		return snap.Revision
+	}
+
+	if err := host.publish(manifestFor(2, map[string]processGenerationInstance{}, hostSnap2, workerSnap2)); err == nil {
+		t.Fatal("publish(gen 2 missing required process) unexpectedly succeeded")
+	}
+	if loaded, err := LoadConfigSnapshot(); err != nil || loaded == nil || loaded.Revision != "rev-1" {
+		t.Fatalf("failed publish mutated host snapshot: (%+v, %v)", loaded, err)
+	}
+	gen1 := host.acquire(1)
+	defer gen1.inFlight.Add(-1)
+	if rev := readCapabilityRevision(gen1); rev != "rev-1" {
+		t.Fatalf("gen1 capability revision after failed publish = %q, want rev-1", rev)
+	}
+
+	if err := host.publish(manifestFor(2, map[string]processGenerationInstance{processName: instanceSpec}, hostSnap2, workerSnap2)); err != nil {
+		t.Fatalf("publish(gen 2) = %v", err)
+	}
+	if loaded, err := LoadConfigSnapshot(); err != nil || loaded == nil || loaded.Revision != "rev-2" {
+		t.Fatalf("host snapshot after gen 2 publish = (%+v, %v), want rev-2", loaded, err)
+	}
+	gen2 := host.acquire(2)
+	defer gen2.inFlight.Add(-1)
+	if rev := readCapabilityRevision(gen1); rev != "rev-1" {
+		t.Fatalf("draining gen1 capability revision after gen 2 publish = %q, want rev-1", rev)
+	}
+	if rev := readCapabilityRevision(gen2); rev != "rev-2" {
+		t.Fatalf("gen2 capability revision = %q, want rev-2", rev)
+	}
+	pub1, err := publicConfiguration(context.WithValue(t.Context(), processHostGenerationKey{}, gen1))
+	if err != nil || pub1.Revision != "rev-1" || string(pub1.Values["p"]) != `"v1"` {
+		t.Fatalf("publicConfiguration(gen1) = (%+v, %v), want rev-1/v1", pub1, err)
+	}
+	pub2, err := publicConfiguration(context.WithValue(t.Context(), processHostGenerationKey{}, gen2))
+	if err != nil || pub2.Revision != "rev-2" || string(pub2.Values["p"]) != `"v2"` {
+		t.Fatalf("publicConfiguration(gen2) = (%+v, %v), want rev-2/v2", pub2, err)
 	}
 }

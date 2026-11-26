@@ -223,7 +223,7 @@ type publicConfigResponse struct {
 
 func (s *server) registerPublicConfiguration() {
 	registerRoute(s.public, PublicConfigPath, []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
-		document, err := publicConfiguration()
+		document, err := publicConfiguration(req.Context())
 		if err != nil {
 			errs.HTTPError(w, errs.B().Code(errs.Unavailable).Msg("public configuration is unavailable").Err())
 			return

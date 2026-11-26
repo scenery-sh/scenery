@@ -26,33 +26,42 @@ func serviceGoClients(idx *resourceIndex, service Resource) ([]goClientBinding, 
 	return byService[service.Address], nil
 }
 
-func reserveGeneratedTypeResource(used map[string]bool, res Resource) {
+func generatedTypeResourceSymbols(res Resource) []string {
 	name := goName(res.Name)
 	switch res.Kind {
 	case "scenery.record":
-		used[name] = true
+		return []string{name}
 	case "scenery.enum":
-		used[name] = true
+		symbols := []string{name}
 		for _, value := range namedChildren(res.Spec, "value") {
-			used[name+goName(stringValue(value["name"]))] = true
+			symbols = append(symbols, name+goName(stringValue(value["name"])))
 		}
+		return symbols
 	case "scenery.union":
-		used[name] = true
-		used["Marshal"+name+"JSON"] = true
-		used["Unmarshal"+name+"JSON"] = true
-		used["marshal"+name+"Variant"] = true
+		symbols := []string{
+			name,
+			"Marshal" + name + "JSON",
+			"Unmarshal" + name + "JSON",
+			"marshal" + name + "Variant",
+		}
 		for _, variant := range namedChildren(res.Spec, "variant") {
-			used[name+goName(stringValue(variant["name"]))] = true
+			symbols = append(symbols, name+goName(stringValue(variant["name"])))
 		}
 		if res.Spec["open"] == true {
-			used[name+"Unknown"] = true
+			symbols = append(symbols, name+"Unknown")
 		}
+		return symbols
+	}
+	return nil
+}
+
+func reserveGeneratedTypeResource(used map[string]bool, res Resource) {
+	for _, symbol := range generatedTypeResourceSymbols(res) {
+		used[symbol] = true
 	}
 }
 
-func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]goClientBinding, error) {
-	byAddress := idx.byAddress
-	module := targetService.Module
+func moduleReservedPackageSymbols(localResources []Resource) map[string]bool {
 	used := map[string]bool{
 		"PackageIdentity":                 true,
 		"PackageContractABIRevision":      true,
@@ -61,24 +70,13 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 		"RuntimeABIRange":                 true,
 		"unmarshalGeneratedContractValue": true,
 	}
-	reserveService := func(res Resource) {
-		name := goName(res.Name)
-		used[name] = true
-		for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {
-			used[name+suffix] = true
-		}
-	}
-	var services []Resource
-	seenTarget := false
-	localResources := idx.moduleResources(module)
 	for _, res := range localResources {
 		name := goName(res.Name)
 		switch res.Kind {
 		case "scenery.service":
-			reserveService(res)
-			services = append(services, res)
-			if res.Address == targetService.Address {
-				seenTarget = true
+			used[name] = true
+			for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {
+				used[name+suffix] = true
 			}
 		case "scenery.record", "scenery.enum", "scenery.union":
 			reserveGeneratedTypeResource(used, res)
@@ -88,9 +86,35 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 			}
 		}
 	}
+	return used
+}
+
+func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]goClientBinding, error) {
+	byAddress := idx.byAddress
+	module := targetService.Module
+	localResources := idx.moduleResources(module)
+	used := moduleReservedPackageSymbols(localResources)
+	reserveService := func(res Resource) {
+		name := goName(res.Name)
+		used[name] = true
+		for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {
+			used[name+suffix] = true
+		}
+	}
+	var services []Resource
+	seenTarget := false
+	for _, res := range localResources {
+		if res.Kind == "scenery.service" {
+			services = append(services, res)
+			if res.Address == targetService.Address {
+				seenTarget = true
+			}
+		}
+	}
 	if !seenTarget && targetService.Address != "" {
 		reserveService(targetService)
 		services = append(services, targetService)
+		sort.Slice(services, func(i, j int) bool { return services[i].Address < services[j].Address })
 	}
 	byService := make(map[string][]goClientBinding, len(services))
 	var rawProjectedOps []Resource

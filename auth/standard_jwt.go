@@ -4,19 +4,30 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// secrets is populated when the standard auth module is registered.
-var secrets struct {
+type standardSecrets struct {
 	JWTSecret               string
 	GoogleOAuthClientID     string
 	GoogleOAuthClientSecret string
 	PublicAppURL            string
 	APIBaseURL              string
 	AuthCookieDomain        string
+}
+
+var secretsMu sync.RWMutex
+
+// secrets is populated when the standard auth module is registered.
+var secrets standardSecrets
+
+func currentStandardSecrets() standardSecrets {
+	secretsMu.RLock()
+	defer secretsMu.RUnlock()
+	return secrets
 }
 
 // AuthUserID is the unique identifier for a standard-auth user.
@@ -142,7 +153,8 @@ func requireActiveAuthSession(ctx context.Context, svc *Service, data *AuthData)
 
 // ValidateToken parses and validates a signed user JWT.
 func ValidateToken(token string) (*AuthData, error) {
-	if strings.TrimSpace(secrets.JWTSecret) == "" {
+	current := currentStandardSecrets()
+	if strings.TrimSpace(current.JWTSecret) == "" {
 		return nil, fmt.Errorf("JWTSecret is not configured")
 	}
 	claims := &accessTokenClaims{}
@@ -153,7 +165,7 @@ func ValidateToken(token string) (*AuthData, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 			}
-			return []byte(secrets.JWTSecret), nil
+			return []byte(current.JWTSecret), nil
 		},
 		jwt.WithExpirationRequired(),
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
@@ -211,7 +223,8 @@ func GenerateAccessToken(options AccessTokenOptions) (string, error) {
 	if expiresIn == 0 {
 		expiresIn = defaultAccessTokenTTL
 	}
-	if strings.TrimSpace(secrets.JWTSecret) == "" {
+	current := currentStandardSecrets()
+	if strings.TrimSpace(current.JWTSecret) == "" {
 		return "", fmt.Errorf("JWTSecret is not configured")
 	}
 
@@ -235,7 +248,7 @@ func GenerateAccessToken(options AccessTokenOptions) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secrets.JWTSecret))
+	return token.SignedString([]byte(current.JWTSecret))
 }
 
 // GenerateToken generates a signed JWT token for a user and tenant.

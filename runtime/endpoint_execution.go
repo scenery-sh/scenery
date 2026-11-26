@@ -18,7 +18,7 @@ func executeTypedEndpoint(ep *Endpoint, ctx context.Context, pathArgs []any, pay
 	status := errs.HTTPStatus(err)
 	if transportStatus, ok := contractTransportHTTPStatus(err); ok {
 		status = transportStatus
-	} else if _, hasCode := errs.As(err); !hasCode && errors.Is(err, context.Canceled) {
+	} else if _, hasCode := errs.As(err); !hasCode && errors.Is(ctx.Err(), context.Canceled) && errors.Is(err, context.Canceled) {
 		err = errs.B().Code(errs.Canceled).Cause(err).Msg("request canceled").Err()
 		status = errs.HTTPStatus(err)
 	}

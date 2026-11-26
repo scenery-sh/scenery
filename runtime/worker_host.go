@@ -410,9 +410,14 @@ func (workers *workerHost) serveCapability(service string, w http.ResponseWriter
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		workers.configMu.RLock()
-		snapshot := workers.config[service]
-		workers.configMu.RUnlock()
+		var snapshot *ConfigSnapshot
+		if generation, _ := request.Context().Value(processHostGenerationKey{}).(*processHostGeneration); generation != nil && generation.workerConfig != nil {
+			snapshot = generation.workerConfig[service]
+		} else {
+			workers.configMu.RLock()
+			snapshot = workers.config[service]
+			workers.configMu.RUnlock()
+		}
 		if snapshot == nil {
 			http.NotFound(w, request)
 			return

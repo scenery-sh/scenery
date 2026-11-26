@@ -18,17 +18,20 @@ import (
 )
 
 type workerDevelopment struct {
-	watch              *workerInputWatch
-	applied            workerInputs
-	compiled           *compiler.Result
-	assistantCompiled  *atomic.Pointer[compiler.Result]
-	envName            string
-	dbSetupFingerprint string
-	dbSetupApply       func(ctx context.Context, setup devDatabaseSetup, statusOnly bool) error
-	declarations       map[string]bool
-	goWorkspace        *build.Result
-	rust               workerRustDevelopment
-	js                 []workerJSBuild
+	watch               *workerInputWatch
+	applied             workerInputs
+	compiled            *compiler.Result
+	assistantCompiled   *atomic.Pointer[compiler.Result]
+	assistants          *assistantSupervisor
+	assistantConfigPath string
+	assistantDefs       *atomic.Pointer[[]assistantDefinition]
+	envName             string
+	dbSetupFingerprint  string
+	dbSetupApply        func(ctx context.Context, setup devDatabaseSetup, statusOnly bool) error
+	declarations        map[string]bool
+	goWorkspace         *build.Result
+	rust                workerRustDevelopment
+	js                  []workerJSBuild
 }
 
 func (dev *workerDevelopment) ensureAssistantCompiled() *atomic.Pointer[compiler.Result] {

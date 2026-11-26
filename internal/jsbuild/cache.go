@@ -56,9 +56,13 @@ func snapshotCacheDependencies(root, path string) map[string]string {
 	return digests
 }
 
-func buildFingerprint(root string, service Service, dependencies []string) (string, error) {
-	hash := sha256.New()
-	_, _ = fmt.Fprintf(hash, "bun-worker/v1\n%q\n", service)
+type moduleInputDigest struct {
+	path   string
+	digest string
+}
+
+func captureModuleInputs(root string, service Service) ([]moduleInputDigest, error) {
+	var inputs []moduleInputDigest
 	add := func(path string) error {
 		if !filepath.IsLocal(path) {
 			return fmt.Errorf("JavaScript build input is outside the application")
@@ -67,7 +71,7 @@ func buildFingerprint(root string, service Service, dependencies []string) (stri
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(hash, "%q %s\n", path, digest)
+		inputs = append(inputs, moduleInputDigest{path: path, digest: digest})
 		return nil
 	}
 	module := filepath.Join(root, service.Directory)
@@ -91,22 +95,48 @@ func buildFingerprint(root string, service Service, dependencies []string) (stri
 		return add(rel)
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for dir := filepath.Clean(service.Directory); dir != service.Workspace; {
 		dir = filepath.Dir(dir)
 		for _, name := range []string{"package.json", "bun.lock", "bun.lockb", "package-lock.json", "tsconfig.json"} {
 			if err := add(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
-				return "", err
+				return nil, err
 			}
 		}
 	}
+	return inputs, nil
+}
+
+func buildFingerprintFromDigests(root string, service Service, moduleInputs []moduleInputDigest, dependencies []string, depDigests map[string]string) (string, error) {
+	hash := sha256.New()
+	_, _ = fmt.Fprintf(hash, "bun-worker/v1\n%q\n", service)
+	for _, entry := range moduleInputs {
+		_, _ = fmt.Fprintf(hash, "%q %s\n", entry.path, entry.digest)
+	}
 	for _, path := range dependencies {
-		if err := add(path); err != nil {
-			return "", err
+		if !filepath.IsLocal(path) {
+			return "", fmt.Errorf("JavaScript build input is outside the application")
 		}
+		digest, ok := depDigests[path]
+		if !ok {
+			var err error
+			digest, err = fileDigest(filepath.Join(root, path))
+			if err != nil {
+				return "", err
+			}
+		}
+		_, _ = fmt.Fprintf(hash, "%q %s\n", path, digest)
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func buildFingerprint(root string, service Service, dependencies []string) (string, error) {
+	moduleInputs, err := captureModuleInputs(root, service)
+	if err != nil {
+		return "", err
+	}
+	return buildFingerprintFromDigests(root, service, moduleInputs, dependencies, nil)
 }
 
 // skipModuleDir reports the module directories the fingerprint walk skips.
