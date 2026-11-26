@@ -295,13 +295,20 @@ func pruneOldTemplates(ctx context.Context, conn *sql.Conn, prefix, keepCurrent 
 			kept++
 			continue
 		}
+		createKey := "scenery.template." + name
+		var createLock bool
+		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, createKey).Scan(&createLock); err != nil || !createLock {
+			continue
+		}
 		useKey := "scenery.template.use." + name
 		var pruneLock bool
 		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, useKey).Scan(&pruneLock); err != nil || !pruneLock {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, createKey)
 			continue
 		}
 		_ = dropUnsealedOrStaleTemplate(ctx, conn, name)
 		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, useKey)
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, createKey)
 	}
 	return nil
 }
