@@ -33,6 +33,7 @@ mod otlp;
 mod plan;
 mod policy;
 mod process;
+mod s3_storage;
 mod schedule;
 mod storage;
 mod supervisor;
@@ -115,6 +116,7 @@ fn bootstrap() -> Result<()> {
         let arguments = config::Arguments::parse(args)?;
         let lookup = |name: &str| std::env::var_os(name);
         let snapshot = config::load_snapshot(arguments.config.as_deref(), &lookup)?;
+        storage::validate(&lookup)?;
         let root = std::env::current_exe()?
             .parent()
             .context("invalid bundle path")?

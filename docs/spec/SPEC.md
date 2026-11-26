@@ -168,3 +168,16 @@ falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
   substitutes the variable's text, or its bytes for an entry of `secrets`.
   An unreadable or malformed snapshot or an unset variable stops the Host
   before any worker starts.
+- **Storage.** `SCENERY_STORAGE_CONFIG` stores have `kind` `local`, `proxy`,
+  or `s3`. An `s3` store names `region` and `bucket`, optionally `endpoint`
+  (an http or https origin; default `https://s3.<region>.amazonaws.com`),
+  `prefix`, `path_style` (default true with an `endpoint`), and
+  `access_key_id`, `secret_access_key`, `session_token`, which fall back to
+  the standard `AWS_*` variables and accept `{"$env": "NAME"}`. Requests are
+  signed with AWS Signature Version 4. Objects live under
+  `<prefix><store>/shared/` or, tenant-scoped,
+  `<prefix><store>/tenants/<base64url(tenant)>/`. Writes upload a signed
+  payload digest and honor `If-Match` and `If-None-Match: *`; deletes check
+  preconditions against the current version first; user metadata travels as
+  one `x-amz-meta-metadata` value (the backend's metadata limit applies).
+  Listing entries omit `content_type` and `sha256`; a read returns both.

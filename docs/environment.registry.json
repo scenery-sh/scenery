@@ -1336,7 +1336,7 @@
         "tests"
       ],
       "owner": "scenery runtime / storage",
-      "rationale": "Strict current storage runtime artifact. Managed descriptors bind canonical worktree ownership and incarnation; explicit headless local roots remain external and cannot gain managed purge authority. Carries store policy and validated local/proxy capability metadata, never raw credentials.",
+      "rationale": "Strict current storage runtime artifact, inline JSON or a file path. Managed descriptors bind canonical worktree ownership and incarnation; explicit headless local roots remain external and cannot gain managed purge authority. Carries store policy and local, proxy or s3 backend metadata; S3 credentials are {\"$env\": \"NAME\"} references resolved by scenery-host, never stored values.",
       "preferred_surface": ".scenery.json storage declarations plus scenery.sh/storage",
       "replacement": "",
       "sunset": "",
@@ -1883,6 +1883,72 @@
       "owner": "scenery runtime / host",
       "rationale": "Path of the runtime configuration snapshot a production scenery-host reads when started without --config, for container and service-manager deployments. Values and secrets may be {\"$env\": \"NAME\"} references resolved at startup; a missing variable stops the host.",
       "preferred_surface": "scenery-host --config <path>",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "AWS_ACCESS_KEY_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.services.storage",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Access key of an S3-compatible store (kind s3) whose storage configuration names no access_key_id.",
+      "preferred_surface": "access_key_id in SCENERY_STORAGE_CONFIG, usually an {\"$env\": \"NAME\"} reference",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "AWS_SECRET_ACCESS_KEY",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.services.storage",
+      "stability": "stable",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Secret key of an S3-compatible store (kind s3) whose storage configuration names no access_key_id.",
+      "preferred_surface": "secret_access_key in SCENERY_STORAGE_CONFIG, usually an {\"$env\": \"NAME\"} reference",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
+    },
+    {
+      "name": "AWS_SESSION_TOKEN",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.services.storage",
+      "stability": "stable",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Optional temporary session token of an S3-compatible store (kind s3) whose storage configuration names no access_key_id.",
+      "preferred_surface": "session_token in SCENERY_STORAGE_CONFIG",
       "replacement": "",
       "sunset": "",
       "docs": [
