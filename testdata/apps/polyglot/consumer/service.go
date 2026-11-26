@@ -6,15 +6,17 @@ import (
 
 	contract "example.test/polyglot/consumer/scenerycontract"
 	"scenery.sh"
+	"scenery.sh/errs"
 )
 
 type Service struct {
+	accepted   contract.AcceptedEventPublisher
 	quote      contract.QuoteInternalClient
 	typescript contract.TypescriptInternalClient
 }
 
 func NewService(_ context.Context, input contract.ConsumerConstructorInput) (*Service, error) {
-	return &Service{quote: input.Clients.Quote, typescript: input.Clients.Typescript}, nil
+	return &Service{accepted: input.Publishers.Accepted, quote: input.Clients.Quote, typescript: input.Clients.Typescript}, nil
 }
 
 func (s *Service) Delegate(ctx context.Context, input contract.DelegateInput) (contract.DelegateOutcome, error) {
@@ -54,4 +56,17 @@ func (s *Service) Delegate(ctx context.Context, input contract.DelegateInput) (c
 	default:
 		return nil, fmt.Errorf("quote returned %T", reply)
 	}
+}
+
+func (s *Service) PublishOrder(ctx context.Context, input contract.PublishOrderInput) (contract.PublishOrderOutcome, error) {
+	receipt, err := s.accepted.Emit(ctx, input)
+	if errs.Code(err) == errs.PermissionDenied {
+		return contract.PublishOrderDenied{Problem: scenery.Problem{Code: "order_denied", Message: "Order was denied."}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return contract.PublishOrderOk{Value: contract.PublishResult{
+		EventId: receipt.EventID, Event: receipt.Event, Deliveries: int32(receipt.Deliveries), Deduplicated: receipt.Deduplicated,
+	}}, nil
 }

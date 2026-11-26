@@ -87,7 +87,13 @@ func TestGoWorkerRestoresAPIIdempotencyPayloadAndCapabilityErrors(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Protocols: workerabi.Protocols(), ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := &http.Server{Protocols: workerabi.Protocols(), ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == workerabi.CapabilityPrefix+"events/emit" {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"code":"system.internal","message":"contract implementation failure"}`))
+			return
+		}
 		errs.HTTPError(w, errs.B().Code(errs.PermissionDenied).Msg("reauth needed").Err())
 	})}
 	go func() { _ = server.Serve(listener) }()
@@ -99,6 +105,11 @@ func TestGoWorkerRestoresAPIIdempotencyPayloadAndCapabilityErrors(t *testing.T) 
 	_, err = callWorkerCapability(ctx, http.MethodPost, "connections/token", map[string]any{"provider": "google"})
 	if errs.Code(err) != errs.PermissionDenied {
 		t.Fatalf("capability error = %v (code %s), want permission_denied", err, errs.Code(err))
+	}
+	_, err = callWorkerCapability(ctx, http.MethodPost, "events/emit", map[string]any{"publisher": "accepted", "payload": map[string]any{}})
+	wireErr, ok := errs.As(err)
+	if !ok || wireErr.Code != errs.Unavailable || wireErr.Meta["delivery"] != workerabi.Unknown {
+		t.Fatalf("500 system.internal capability error = %#v, want unavailable with delivery=unknown", err)
 	}
 }
 

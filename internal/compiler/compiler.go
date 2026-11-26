@@ -32,8 +32,8 @@ var rootResourceKinds = map[string]bool{
 var packageResourceKinds = map[string]bool{
 	"service": true, "record": true, "enum": true, "union": true,
 	"operation": true, "execution": true, "binding": true,
-	"schedule": true,
-	"page":     true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "workspace_page": true, "detail_page": true,
+	"schedule": true, "event": true, "subscription": true,
+	"page": true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "workspace_page": true, "detail_page": true,
 }
 
 func Compile(root string) (*Result, error) {

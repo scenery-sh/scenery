@@ -35,6 +35,8 @@ pub(crate) struct HostPlan {
     pub name: String,
     pub workers: Vec<Service>,
     #[serde(default)]
+    pub events: Vec<crate::events::Event>,
+    #[serde(default)]
     pub observability: Observability,
     #[serde(rename = "MCPServers", default)]
     pub mcp_servers: BTreeMap<String, crate::mcp::Manifest>,
@@ -118,6 +120,8 @@ pub(crate) struct Service {
     pub runtime: String,
     pub operations: BTreeMap<String, Operation>,
     pub clients: BTreeMap<String, Client>,
+    #[serde(default)]
+    pub publishers: BTreeMap<String, String>,
     #[serde(deserialize_with = "nullable")]
     pub bindings: Vec<Binding>,
     pub durable: BTreeMap<String, Durable>,
@@ -489,6 +493,7 @@ impl Bundle {
         for assistant in &self.host.assistants {
             assistant.verify(&self.host.mcp_servers)?;
         }
+        crate::events::verify_events(&self.host.events, &self.host.workers)?;
 
         let mut names = std::collections::BTreeSet::new();
         for program in &self.programs {

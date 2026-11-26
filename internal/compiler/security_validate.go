@@ -57,7 +57,7 @@ func validateBindingAuthorizationTypes(resources map[string]Resource, binding Re
 			"deadline": "2026-01-01T00:00:00Z", "caller_binding": binding.Address, "execution_id": "execution",
 			"deployment": "app/deployment/default", "locale": "en",
 		},
-		"input": authorizationTypeSample(operation.Spec["input"], operation.Module, resources, map[string]bool{}),
+		"input": authorizationTypeSample(operation.Spec["input"], operation.Module, resources, map[string]bool{}, binding.Kind == "scenery.subscription"),
 	}
 	var diagnostics []Diagnostic
 	for _, rule := range orderedChildren(authorization.Spec, "rule") {
@@ -79,7 +79,7 @@ func validateBindingAuthorizationTypes(resources map[string]Resource, binding Re
 	return diagnostics
 }
 
-func authorizationTypeSample(value any, module string, resources map[string]Resource, seen map[string]bool) any {
+func authorizationTypeSample(value any, module string, resources map[string]Resource, seen map[string]bool, wire bool) any {
 	reference := refOrString(value)
 	if reference != "" {
 		switch reference {
@@ -113,7 +113,11 @@ func authorizationTypeSample(value any, module string, resources map[string]Reso
 		case "scenery.record":
 			result := map[string]any{}
 			for _, field := range namedChildren(resource.Spec, "field") {
-				result[stringValue(field["name"])] = authorizationTypeSample(field["type"], resource.Module, resources, seen)
+				name := stringValue(field["name"])
+				if wire {
+					name = wireName(field, name)
+				}
+				result[name] = authorizationTypeSample(field["type"], resource.Module, resources, seen, wire)
 			}
 			return result
 		case "scenery.enum":
@@ -130,7 +134,7 @@ func authorizationTypeSample(value any, module string, resources map[string]Reso
 		name := raw[:open]
 		arguments := splitTypeArguments(raw[open+1 : len(raw)-1])
 		if len(arguments) > 0 {
-			inner := authorizationTypeSample(map[string]any{"$ref": arguments[0]}, module, resources, seen)
+			inner := authorizationTypeSample(map[string]any{"$ref": arguments[0]}, module, resources, seen, wire)
 			switch name {
 			case "optional", "nullable":
 				return inner
@@ -141,7 +145,7 @@ func authorizationTypeSample(value any, module string, resources map[string]Reso
 			case "tuple":
 				result := make([]any, len(arguments))
 				for index, argument := range arguments {
-					result[index] = authorizationTypeSample(map[string]any{"$ref": argument}, module, resources, seen)
+					result[index] = authorizationTypeSample(map[string]any{"$ref": argument}, module, resources, seen, wire)
 				}
 				return result
 			}

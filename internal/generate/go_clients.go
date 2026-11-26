@@ -74,6 +74,13 @@ func moduleReservedPackageSymbols(localResources []Resource) map[string]bool {
 		name := goName(res.Name)
 		switch res.Kind {
 		case "scenery.service":
+			if publishers := namedChildren(res.Spec, "publisher"); len(publishers) > 0 {
+				used["EventReceipt"], used[name+"Publishers"] = true, true
+				for _, publisher := range publishers {
+					prefix := goName(stringValue(publisher["name"]))
+					used[prefix+"EventPublisher"], used[prefix+"EventPayload"] = true, true
+				}
+			}
 			used[name] = true
 			for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {
 				used[name+suffix] = true

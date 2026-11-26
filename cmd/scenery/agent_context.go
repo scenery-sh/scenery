@@ -159,10 +159,13 @@ func printAgentContext(out io.Writer, data map[string]any, module agentModule) e
 	for _, route := range data["routes"].([]agentRoute) {
 		fmt.Fprintf(&briefing, "%s %s -> %s\n", route.Method, route.Path, route.Operation)
 	}
-	for _, key := range []string{"internal_bindings", "durable_executions", "schedules"} {
+	for _, key := range []string{"internal_bindings", "durable_executions", "schedules", "events", "subscriptions"} {
 		for _, resource := range data[key].([]agentResource) {
 			fmt.Fprintln(&briefing, resource.Address)
 		}
+	}
+	for _, publisher := range data["publishers"].([]map[string]string) {
+		fmt.Fprintf(&briefing, "Publisher %s %s -> %s\n", publisher["service"], publisher["name"], publisher["event"])
 	}
 	fmt.Fprintf(&briefing, "Commands:\n  %s\n", strings.Join(data["commands"].([]string), "\n  "))
 	_, err := io.WriteString(out, briefing.String())
@@ -183,6 +186,10 @@ func (g agentGraph) contextModule(target string, modules []agentModule) (agentMo
 		switch resource.Kind {
 		case "scenery.service":
 			if target == resource.Address || target == resource.Name {
+				resourceModules[resource.Module] = true
+			}
+		case "scenery.event", "scenery.subscription":
+			if target == resource.Address {
 				resourceModules[resource.Module] = true
 			}
 		case "scenery.binding":
@@ -255,6 +262,9 @@ func (g agentGraph) contextData(module agentModule, options appconfig.FrameworkO
 	durable, schedules, policies, types := []agentResource{}, []agentResource{}, []agentResource{}, []agentResource{}
 	routes := []agentRoute{}
 	clients := []map[string]string{}
+	publishers := []map[string]string{}
+	referencedEvents := map[string]bool{}
+	events, subscriptions := []agentResource{}, []agentResource{}
 	auth := map[string]bool{}
 	commands := []string{"scenery test " + module.Name + " -o json", "scenery check -o json"}
 	for _, resource := range g.Manifest.Resources {
@@ -265,6 +275,11 @@ func (g agentGraph) contextData(module agentModule, options appconfig.FrameworkO
 		switch resource.Kind {
 		case "scenery.service":
 			services = append(services, agentResourceBrief(resource))
+			for _, publisher := range cp.NamedChildren(resource.Spec, "publisher") {
+				event := workerReference(resource, publisher["event"], "event")
+				referencedEvents[event] = true
+				publishers = append(publishers, map[string]string{"service": resource.Address, "name": inspectString(publisher["name"]), "event": event})
+			}
 			for _, client := range cp.NamedChildren(resource.Spec, "client") {
 				binding := g.resources[workerReference(resource, client["binding"], "binding")]
 				operation := g.ref(binding, "operation", "operation")
@@ -292,8 +307,27 @@ func (g agentGraph) contextData(module agentModule, options appconfig.FrameworkO
 			}
 		case "scenery.record", "scenery.alias", "scenery.enum", "scenery.union", "scenery.scalar":
 			types = append(types, agentResourceBrief(resource))
+		case "scenery.event":
+			referencedEvents[resource.Address] = true
+		case "scenery.subscription":
+			referencedEvents[workerReference(resource, resource.Spec["event"], "event")] = true
+			invoke, _ := resource.Spec["invoke"].(map[string]any)
+			auth[workerReference(resource, invoke["authorization"], "authorization")] = true
 		case "scenery.schedule":
 			schedules = append(schedules, agentResourceBrief(resource))
+		}
+	}
+	for _, resource := range g.Manifest.Resources {
+		switch resource.Kind {
+		case "scenery.event":
+			if referencedEvents[resource.Address] {
+				events = append(events, agentResourceBrief(resource))
+			}
+		case "scenery.subscription":
+			event := workerReference(resource, resource.Spec["event"], "event")
+			if referencedEvents[event] {
+				subscriptions = append(subscriptions, agentResourceBrief(resource))
+			}
 		}
 	}
 	for _, resource := range inspectProjectionResources(g.Result) {
@@ -322,6 +356,7 @@ func (g agentGraph) contextData(module agentModule, options appconfig.FrameworkO
 		"module": module.Name, "directory": filepath.Join(g.Root, module.Directory), "runtime": module.Runtime,
 		"sources": sources, "generated_contract_root": filepath.Join(g.Root, module.Directory, "scenerycontract"),
 		"services": services, "operations": operations, "types": types, "routes": routes, "internal_bindings": bindings, "durable_executions": durable, "schedules": schedules,
+		"events": events, "publishers": publishers, "subscriptions": subscriptions,
 		"dependencies": map[string]any{"clients": clients, "sql": sql, "config_inputs": inputs, "auth_policies": policies},
 		"commands":     commands,
 	}), nil

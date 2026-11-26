@@ -49,6 +49,7 @@ type Set[T any] = contract.Set[T]
 type SecretRef = contract.SecretRef
 
 type ExecutionReceipt = runtimeapi.ExecutionReceipt
+type EventReceipt = contract.EventReceipt
 
 type Problem = contract.Problem
 

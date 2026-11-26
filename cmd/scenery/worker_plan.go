@@ -60,6 +60,12 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerplan.WorkerService
 				Binding: binding, Enqueue: cp.StringValue(projection.resources[binding].Spec["delivery"]) == "enqueue",
 			}
 		}
+		for _, publisher := range cp.NamedChildren(resource.Spec, "publisher") {
+			if service.Publishers == nil {
+				service.Publishers = make(map[string]string)
+			}
+			service.Publishers[cp.StringValue(publisher["name"])] = workerReference(resource, publisher["event"], "event")
+		}
 		service.Runtime = firstNonEmpty(cp.StringValue(resource.Spec["runtime"]), "go")
 		projection.services[resource.Address] = service
 	}

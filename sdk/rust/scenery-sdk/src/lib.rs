@@ -17,8 +17,9 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use scenery_wire::{
     BindingCallRef, BindingReply, CAPABILITY_PREFIX, CONTRACT_HEADER, ConnectionTokenReply,
-    ConnectionTokenRequest, EVENTS_MEDIA_TYPE, IMPLEMENTATION_HEADER, INVOKE_PATH,
-    InvocationOutcome, MAX_METADATA, READY_PATH, RawEvent, SCOPE_HEADER, STREAM_MEDIA_TYPE,
+    ConnectionTokenRequest, Delivery, EVENTS_MEDIA_TYPE, EventEmitCallRef, IMPLEMENTATION_HEADER,
+    INVOKE_PATH, InvocationOutcome, MAX_METADATA, READY_PATH, RawEvent, SCOPE_HEADER,
+    STREAM_MEDIA_TYPE,
     STREAM_SIZE_HEADER,
 };
 use serde::Serialize;
@@ -35,7 +36,7 @@ pub use storage::{StorageRead, StorageWriteOptions};
 
 pub use scenery_wire::{
     BindingFailure, ConfigSnapshot, ContractBytes, Decimal, DispatchReceipt, Duration, Error,
-    Float32, Float64, Identity, Int64, Invocation, InvocationContext, Launch, Result,
+    EventReceipt, Float32, Float64, Identity, Int64, Invocation, InvocationContext, Launch, Result,
     TelemetryRecord, Timestamp, UInt64, Unit, decode_outcome, encode_outcome, present, put_field,
     record_object, serde, serde_json, take_field, take_optional_field, unknown_fields,
 };
@@ -234,6 +235,49 @@ impl Context {
         Ok(serde_json::from_str(reply.get())?)
     }
 
+    pub async fn emit_event<T: Serialize + ?Sized>(
+        &self,
+        publisher: &str,
+        payload: &T,
+    ) -> Result<EventReceipt> {
+        let input = serde_json::to_vec(&EventEmitCallRef { publisher, payload })?;
+        if input.len() > MAX_METADATA {
+            return Err(unavailable_failure(
+                Delivery::NotSent,
+                "capability exceeds metadata limit",
+            )
+            .into());
+        }
+        let mut request = self.worker_request(Method::POST, "events/emit", full(input))?;
+        request
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let response = self
+            .host
+            .send_classified(request)
+            .await
+            .map_err(|(delivery, err)| unavailable_failure(delivery, err.to_string()))?;
+        let status = response.status();
+        let raw = Limited::new(response.into_body(), MAX_METADATA)
+            .collect()
+            .await
+            .map_err(|err| unavailable_failure(Delivery::Unknown, err.to_string()))?
+            .to_bytes();
+        if status != StatusCode::OK {
+            return Err(event_emit_failure(status, &raw).into());
+        }
+        let reply: BindingReply = serde_json::from_slice(&raw)
+            .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event capability response"))?;
+        match (reply.output, reply.error) {
+            (Some(output), None) => serde_json::from_str(output.get())
+                .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event receipt").into()),
+            (None, Some(error)) => Err(error.into()),
+            _ => Err(
+                unavailable_failure(Delivery::Unknown, "invalid event capability response").into(),
+            ),
+        }
+    }
+
     async fn call_binding<T: Serialize + ?Sized>(
         &self,
         path: &str,
@@ -243,12 +287,7 @@ impl Context {
         let raw = self
             .capability(path, serde_json::to_vec(&BindingCallRef { client, input })?)
             .await?;
-        let reply: BindingReply = serde_json::from_slice(&raw)?;
-        match (reply.output, reply.error) {
-            (Some(output), None) => Ok(output),
-            (None, Some(error)) => Err(error.into()),
-            _ => Err("invalid binding response".into()),
-        }
+        binding_output(&raw)
     }
 
     pub async fn capability(&self, path: &str, input: Vec<u8>) -> Result<Bytes> {
@@ -291,6 +330,15 @@ impl Context {
     }
 }
 
+fn binding_output(raw: &[u8]) -> Result<Box<RawValue>> {
+    let reply: BindingReply = serde_json::from_slice(raw)?;
+    match (reply.output, reply.error) {
+        (Some(output), None) => Ok(output),
+        (None, Some(error)) => Err(error.into()),
+        _ => Err("invalid binding response".into()),
+    }
+}
+
 type Sender = hyper::client::conn::http2::SendRequest<Body>;
 
 #[derive(Clone)]
@@ -302,22 +350,48 @@ struct Host {
 
 impl Host {
     async fn send(&self, request: Request<Body>) -> Result<Response<Incoming>> {
+        self.send_classified(request)
+            .await
+            .map_err(|(_, error)| error)
+    }
+
+    async fn send_classified(
+        &self,
+        request: Request<Body>,
+    ) -> std::result::Result<Response<Incoming>, (Delivery, Error)> {
         let mut guard = self.sender.lock().await;
         if guard.as_ref().is_none_or(Sender::is_closed) {
-            let socket = UnixStream::connect(&*self.socket).await?;
+            let socket = UnixStream::connect(&*self.socket)
+                .await
+                .map_err(|err| (Delivery::NotSent, err.into()))?;
             let (sender, connection) =
                 hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(socket))
-                    .await?;
+                    .await
+                    .map_err(|err| (Delivery::NotSent, err.into()))?;
             tokio::spawn(connection);
             *guard = Some(sender);
         }
         let mut sender = guard
             .as_ref()
-            .ok_or("host connection is unavailable")?
+            .ok_or_else(|| (Delivery::NotSent, "host connection is unavailable".into()))?
             .clone();
         drop(guard);
-        sender.ready().await?;
-        Ok(sender.send_request(request).await?)
+        sender
+            .ready()
+            .await
+            .map_err(|err| (Delivery::NotSent, err.into()))?;
+        sender
+            .send_request(request)
+            .await
+            .map_err(|err| (Delivery::Unknown, err.into()))
+    }
+}
+
+fn unavailable_failure(delivery: Delivery, message: impl Into<String>) -> BindingFailure {
+    BindingFailure {
+        code: Some("unavailable".into()),
+        message: message.into(),
+        meta: Some(serde_json::json!({ "delivery": delivery })),
     }
 }
 
@@ -638,6 +712,39 @@ impl futures_core::Stream for FramedEventStream {
     }
 }
 
+fn event_emit_failure(status: StatusCode, raw: &[u8]) -> BindingFailure {
+    let delivery = if status.is_client_error() {
+        Delivery::NotSent
+    } else {
+        Delivery::Unknown
+    };
+    let mut failure = match serde_json::from_slice::<BindingFailure>(raw) {
+        Ok(mut error) => {
+            if status.is_server_error() && error.code.as_deref() != Some("deadline_exceeded") {
+                error.code = Some("unavailable".into());
+            }
+            error
+        }
+        Err(_) => BindingFailure {
+            code: Some("unavailable".into()),
+            message: format!("capability returned HTTP {}", status.as_u16()),
+            meta: None,
+        },
+    };
+    let meta = failure
+        .meta
+        .get_or_insert_with(|| serde_json::Value::Object(Default::default()));
+    if let Some(object) = meta.as_object_mut()
+        && !object.contains_key("delivery")
+    {
+        object.insert(
+            "delivery".into(),
+            serde_json::to_value(delivery).unwrap_or(serde_json::Value::Null),
+        );
+    }
+    failure
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -806,5 +913,52 @@ mod tests {
             .await?
         })
         .unwrap();
+    }
+
+    #[test]
+    fn event_emit_failure_attaches_delivery_and_normalizes_server_errors() {
+        let forbidden = event_emit_failure(
+            StatusCode::FORBIDDEN,
+            br#"{"code":"permission_denied","message":"denied"}"#,
+        );
+        assert_eq!(forbidden.code.as_deref(), Some("permission_denied"));
+        assert_eq!(
+            forbidden.meta.as_ref().and_then(|m| m["delivery"].as_str()),
+            Some("not_sent")
+        );
+
+        let internal = event_emit_failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            br#"{"code":"system.internal","message":"contract implementation failure"}"#,
+        );
+        assert_eq!(internal.code.as_deref(), Some("unavailable"));
+        assert_eq!(
+            internal.meta.as_ref().and_then(|m| m["delivery"].as_str()),
+            Some("unknown")
+        );
+
+        let check_not_sent = |payload: String| {
+            let err = run(async move {
+                let (_tx, canceled) = watch::channel(());
+                let ctx = Context {
+                    invocation: InvocationContext {
+                        invocation_id: "inv".into(), scope: "scope".into(), generation: 1,
+                        contract_revision: "rev".into(), principal: None, tenant_id: None,
+                        traceparent: None, deadline: None, locale: None, execution_id: None, metadata: None,
+                    },
+                    host: Host { socket: Arc::new(PathBuf::from("/nonexistent")), token: Arc::from("token"), sender: Arc::new(Mutex::new(None)) },
+                    canceled,
+                };
+                ctx.emit_event("accepted", &payload).await.map(|_| ())
+            })
+            .unwrap_err();
+            let failure = err.downcast_ref::<BindingFailure>().expect("binding failure");
+            assert_eq!(failure.code.as_deref(), Some("unavailable"));
+            assert_eq!(failure.meta.as_ref().and_then(|m| m["delivery"].as_str()), Some("not_sent"));
+        };
+        check_not_sent("x".repeat(MAX_METADATA + 1));
+        check_not_sent("small".into());
+        let bad_reply = unavailable_failure(Delivery::Unknown, "invalid event receipt");
+        assert_eq!(bad_reply.meta.as_ref().and_then(|m| m["delivery"].as_str()), Some("unknown"));
     }
 }

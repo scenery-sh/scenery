@@ -165,6 +165,29 @@ export class Host {
         }
         return reply.output;
       },
+      async eventEmit(publisher, payload) {
+        const body = '{"publisher":' + JSON.stringify(publisher) + ',"payload":' + payload + '}';
+        if (Buffer.byteLength(body) > MAX_METADATA) {
+          throw new CapabilityError("event metadata exceeds the limit", "not_sent");
+        }
+        const raw = await read("POST", "events/emit", 200, body, media);
+        let reply;
+        try {
+          reply = JSON.parse(raw);
+        } catch {
+          throw new CapabilityError("invalid host event reply", "unknown");
+        }
+        if (reply?.error && !Object.hasOwn(reply, "output")) {
+          throw new CapabilityError(reply.error.message, undefined, reply.error);
+        }
+        const receipt = reply?.output;
+        if (!reply || Object.keys(reply).length !== 1 || typeof receipt?.event_id !== "string" || typeof receipt.event !== "string" ||
+            !Number.isInteger(receipt.deliveries) || receipt.deliveries < 0 ||
+            receipt.deliveries > 0xffffffff || typeof receipt.deduplicated !== "boolean") {
+          throw new CapabilityError("invalid host event receipt", "unknown");
+        }
+        return receipt;
+      },
       configSnapshot: async () => parse(await read("GET", "config/snapshot", 200)),
       async connectionToken(provider, scopes) {
         return (await post("connections/token", { provider, scopes })).token;

@@ -32,22 +32,8 @@ func verifyPolyglotTests(ctx context.Context, repo string) (map[string]any, erro
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(root) }()
-	const fixture = "testdata/apps/polyglot"
-	files, err := runHarnessGit(ctx, repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", fixture)
-	if err != nil {
-		return nil, err
-	}
 	app := filepath.Join(root, "app")
-	for path := range strings.SplitSeq(files, "\x00") {
-		relative, ok := strings.CutPrefix(path, fixture+"/")
-		if !ok || !filepath.IsLocal(relative) {
-			continue
-		}
-		if err := copyHarnessFile(filepath.Join(repo, path), filepath.Join(app, relative), 0o600); err != nil {
-			return nil, err
-		}
-	}
-	if err := harnessReplaceInFile(filepath.Join(app, "go.mod"), "=> ../../..", "=> "+repo); err != nil {
+	if err := copyHarnessPolyglotFixture(ctx, repo, app); err != nil {
 		return nil, err
 	}
 	output, err := runHarnessAppCLI(ctx, repo, app, filepath.Join(root, "agent"), "test", "-o", "json")
@@ -82,4 +68,25 @@ func verifyPolyglotTests(ctx context.Context, repo string) (map[string]any, erro
 		return nil, fmt.Errorf("unexpected passing native test modules: %v", modules)
 	}
 	return map[string]any{"modules": result.Modules}, nil
+}
+
+func copyHarnessPolyglotFixture(ctx context.Context, repo, app string) error {
+	const fixture = "testdata/apps/polyglot"
+	files, err := runHarnessGit(ctx, repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", fixture)
+	if err != nil {
+		return err
+	}
+	for path := range strings.SplitSeq(files, "\x00") {
+		relative, ok := strings.CutPrefix(path, fixture+"/")
+		if !ok || !filepath.IsLocal(relative) {
+			continue
+		}
+		if err := copyHarnessFile(filepath.Join(repo, path), filepath.Join(app, relative), 0o600); err != nil {
+			return err
+		}
+	}
+	if err := harnessReplaceInFile(filepath.Join(app, "go.mod"), "=> ../../..", "=> "+repo); err != nil {
+		return err
+	}
+	return nil
 }

@@ -87,9 +87,12 @@ var (
 		[]string{"constructor"}, nil, nil)
 	serviceDependencySourceSchema = sourceSchema("scenery.service.dependency", 1,
 		[]string{"instance", "requires"}, []string{"instance"}, nil)
-	serviceConfigSourceSchema    = serviceConfigSchema()
-	serviceClientSourceSchema    = sourceSchema("scenery.service.client", 1, []string{"binding"}, []string{"binding"}, nil)
-	serviceLifecycleSourceSchema = sourceSchema("scenery.service.lifecycle", 0, []string{"start", "stop"}, nil, nil)
+	serviceConfigSourceSchema      = serviceConfigSchema()
+	servicePublisherSourceSchema   = sourceSchema("scenery.service.publisher", 1, []string{"event"}, []string{"event"}, nil)
+	eventIdempotencySourceSchema   = sourceSchema("scenery.event.idempotency", 0, []string{"mode", "key"}, []string{"mode"}, nil)
+	subscriptionInvokeSourceSchema = sourceSchema("scenery.subscription.invoke", 0, []string{"operation", "execution", "authorization", "pipeline"}, []string{"operation", "execution", "authorization", "pipeline"}, nil)
+	serviceClientSourceSchema      = sourceSchema("scenery.service.client", 1, []string{"binding"}, []string{"binding"}, nil)
+	serviceLifecycleSourceSchema   = sourceSchema("scenery.service.lifecycle", 0, []string{"start", "stop"}, nil, nil)
 
 	recordFieldSourceSchema = sourceSchema("scenery.record.field", 1,
 		[]string{"type", "wire_name", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "immutable", "deprecated", "replacement", "description", "examples"}, []string{"type"}, nil)
@@ -232,13 +235,15 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"authorization":     {"rule": ordered(authorizationRuleSourceSchema)},
 	"pipeline":          {"step": ordered(pipelineStepSourceSchema)},
 	"typescript_client": {"retry": singleton(typescriptRetrySourceSchema), "react": singleton(typescriptReactSourceSchema)},
-	"service":           {"implementation": singleton(serviceImplementationSourceSchema), "dependency": repeated(serviceDependencySourceSchema), "config": singleton(serviceConfigSourceSchema), "client": repeated(serviceClientSourceSchema), "lifecycle": singleton(serviceLifecycleSourceSchema)},
+	"service":           {"implementation": singleton(serviceImplementationSourceSchema), "dependency": repeated(serviceDependencySourceSchema), "config": singleton(serviceConfigSourceSchema), "client": repeated(serviceClientSourceSchema), "publisher": repeated(servicePublisherSourceSchema), "lifecycle": singleton(serviceLifecycleSourceSchema)},
 	"record":            {"field": repeated(recordFieldSourceSchema)},
 	"enum":              {"value": repeated(enumValueSourceSchema)},
 	"union":             {"variant": repeated(unionVariantSourceSchema)},
 	"operation":         {"handler": singleton(operationHandlerSourceSchema), "result": repeated(operationOutcomeSourceSchema), "error": repeated(operationOutcomeSourceSchema), "idempotency": singleton(operationIdempotencySourceSchema)},
 	"execution":         {"retry": singleton(executionRetrySourceSchema), "concurrency": singleton(executionConcurrencySourceSchema), "retention": singleton(executionRetentionSourceSchema), "deduplication": singleton(executionDeduplicationSourceSchema)},
 	"binding":           {"http": singleton(httpSourceSchema), "internal": singleton(internalSourceSchema), "mcp": singleton(mcpBindingSourceSchema)},
+	"event":             {"idempotency": singleton(eventIdempotencySourceSchema)},
+	"subscription":      {"invoke": singleton(subscriptionInvokeSourceSchema)},
 	"schedule":          {"trigger": singleton(scheduleTriggerSourceSchema), "invoke": singleton(scheduleInvokeSourceSchema), "catchup": singleton(scheduleCatchupSourceSchema)},
 	"page":              {"action": repeated(pageActionSourceSchema), "param": repeated(pageParamSourceSchema)},
 	"status_map":        {"status": repeated(statusMapStatusSourceSchema)},

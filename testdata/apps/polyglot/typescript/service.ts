@@ -1,7 +1,7 @@
 import { connectDatabase } from "./database.mjs";
 import { type Constructor, type TsQuoteResult, stream } from "./scenerycontract/index.js";
 
-export const newService: Constructor = ({ clients, databases, config }) => {
+export const newService: Constructor = ({ clients, publishers, databases, config }) => {
   if (!databases.database) throw new Error("missing native database URL");
   const database = connectDatabase(databases.database);
   return {
@@ -54,6 +54,13 @@ export const newService: Constructor = ({ clients, databases, config }) => {
     Download() {
       const bytes = new Uint8Array(64 * 1024).fill(0x54);
       return stream({ kind: "result" as const, name: "ok" as const, value: new Uint8Array() }, [bytes], bytes.length);
+    },
+    async ReceiveOrder(context, input) {
+      if (input.amount !== 9007199254740993n) throw new Error("incorrect event amount");
+      await publishers.marker.emit(context, { id: input.key, amount: input.amount });
+      const trace = context.invocation.traceparent?.split("-")[1];
+      if (!trace) throw new Error("missing event trace");
+      return { kind: "result", name: "ok", value: trace };
     },
     async Settle(context) {
       if (context.mode !== "durable" || context.invocation.execution_id === undefined) {

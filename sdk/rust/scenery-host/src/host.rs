@@ -176,6 +176,7 @@ pub(crate) struct Call {
     pub execution_id: Option<String>,
     pub caller: String,
     pub cron_idempotency_key: Option<String>,
+    pub event_depth: u32,
     pub stack: Vec<String>,
     pub cancel: CancellationToken,
     pub deadline: Instant,
@@ -218,6 +219,7 @@ impl Call {
             execution_id: None,
             caller: String::new(),
             cron_idempotency_key: None,
+            event_depth: 0,
             stack: Vec::new(),
             deadline: Instant::now() + timeout,
             started: OffsetDateTime::now_utc(),
@@ -227,7 +229,15 @@ impl Call {
         })
     }
 
-    fn descend(&self, address: &str, policy: Option<&Policy>) -> Result<Self, Fault> {
+    pub(crate) fn child_span(&self) -> Result<Self, Fault> {
+        let mut child = self.clone();
+        child.parent_span_id.clone_from(&self.span_id);
+        child.span_id = random_hex::<8>().map_err(Fault::internal)?;
+        child.cancel = self.cancel.child_token();
+        Ok(child)
+    }
+
+    pub(crate) fn descend(&self, address: &str, policy: Option<&Policy>) -> Result<Self, Fault> {
         if self.stack.len() >= 32 || self.stack.iter().any(|ancestor| ancestor == address) {
             return Err(Fault::new(
                 409,
@@ -519,7 +529,7 @@ impl Host {
         }
         let principal = call.principal_value();
         let mut context = json!({"caller_binding": policy.binding_address, "method": call.method, "path": call.path});
-        if let Some(tenant) = principal.get("tenant_id") {
+        if let Some(tenant) = principal.get("tenant_id").or_else(|| principal.get("TenantID")).filter(|v| v.as_str().is_none_or(|s| !s.is_empty())) {
             context["tenant_id"] = tenant.clone();
         }
         let variables = json!({"principal": principal, "context": context, "input": input});
@@ -746,6 +756,9 @@ impl Host {
     ) -> Result<Reply, Fault> {
         let path = request.uri().path();
         match (request.method().clone(), path) {
+            (Method::POST, "/host/v1/events/emit") => {
+                crate::events::emit(self, scope, service, request.into_body()).await
+            }
             (Method::POST, "/host/v1/binding/invoke" | "/host/v1/durable/enqueue") => {
                 let enqueue = path.ends_with("/enqueue");
                 let input = read(request.into_body(), MAX_METADATA)

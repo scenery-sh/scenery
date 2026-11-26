@@ -2,18 +2,21 @@ use std::io::Cursor;
 use std::time::Duration;
 
 use scenerycontract::{
-    DownloadInput, DownloadOutcome, NativeClient, NativeClientOutcome, PricingConstructorInput,
-    PricingService, QuoteInput, QuoteOutcome, QuoteResult, SettleInput, SettleOutcome,
+    DownloadInput, DownloadOutcome, MarkerPublisher, NativeClient, NativeClientOutcome,
+    NativeDeliveredOrder, PricingConstructorInput, PricingService, QuoteInput, QuoteOutcome,
+    QuoteResult, ReceiveOrderInput, ReceiveOrderOutcome, SettleInput, SettleOutcome,
     TypescriptClient, TypescriptClientInput, TypescriptClientOutcome, sdk,
 };
 
 pub struct Service {
+    marker: MarkerPublisher,
     native: NativeClient,
     typescript: TypescriptClient,
 }
 
 pub fn new_service(input: PricingConstructorInput) -> sdk::Result<Service> {
     Ok(Service {
+        marker: input.publishers.marker,
         native: input.native,
         typescript: input.typescript,
     })
@@ -120,6 +123,31 @@ impl PricingService for Service {
             sdk::sleep(Duration::from_millis(delay.clamp(1, 5_000) as u64)).await;
         }
         Ok(SettleOutcome::Ok(sdk::Unit {}))
+    }
+    async fn receive_order(
+        &self,
+        ctx: sdk::Context,
+        input: ReceiveOrderInput,
+    ) -> sdk::Result<ReceiveOrderOutcome> {
+        if input.amount.0 != 9007199254740993 {
+            return Err("incorrect event amount".into());
+        }
+        self.marker
+            .emit(
+                &ctx,
+                NativeDeliveredOrder {
+                    id: input.id,
+                    amount: input.amount,
+                },
+            )
+            .await?;
+        let trace_id = ctx
+            .invocation
+            .traceparent
+            .as_deref()
+            .and_then(|parent| parent.split('-').nth(1))
+            .ok_or("missing event trace")?;
+        Ok(ReceiveOrderOutcome::Ok(trace_id.to_owned()))
     }
 }
 

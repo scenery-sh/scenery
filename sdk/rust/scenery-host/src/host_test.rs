@@ -110,6 +110,7 @@ async fn production_worker_metadata_respects_declared_log_filters_and_api_cron()
         process: "orders".into(),
         runtime: "go".into(),
         operations: Default::default(),
+        publishers: Default::default(),
         clients: Default::default(),
         bindings: vec![],
         durable: Default::default(),

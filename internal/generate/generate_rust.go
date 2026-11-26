@@ -138,6 +138,7 @@ func renderRustContract(module rustSourceModule, idx *resourceIndex) (string, er
 		}
 	}
 	clients := make(map[string][]goClientBinding)
+	publishers := make(map[string][]eventPublisher)
 	for _, service := range module.services {
 		var err error
 		clients[service.Address], err = serviceGoClients(idx, service)
@@ -146,6 +147,10 @@ func renderRustContract(module rustSourceModule, idx *resourceIndex) (string, er
 		}
 		for _, client := range clients[service.Address] {
 			collect(client.Operation)
+		}
+		publishers[service.Address] = serviceEventPublishers(idx.byAddress, service)
+		for _, publisher := range publishers[service.Address] {
+			collect(publisher.Event)
 		}
 	}
 	for changed := true; changed; {
@@ -169,7 +174,7 @@ func renderRustContract(module rustSourceModule, idx *resourceIndex) (string, er
 		}
 	}
 	for _, service := range module.services {
-		if err := projection.renderService(&source, service, operations[service.Address], clients[service.Address], resourceValues(idx.byAddress)); err != nil {
+		if err := projection.renderService(&source, service, operations[service.Address], clients[service.Address], publishers[service.Address], resourceValues(idx.byAddress)); err != nil {
 			return "", err
 		}
 	}

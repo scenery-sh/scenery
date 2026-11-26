@@ -212,6 +212,12 @@ SCN2301|schedule_trigger|A schedule trigger does not define every
 SCN2302|schedule_invoke_shape|A schedule invocation is incomplete
 SCN2303|schedule_invoke_contract|A schedule invocation has inconsistent typed references or input
 SCN2304|schedule_policy|Schedule trigger overlap or catchup policy is invalid
+SCN2310|event_payload|An event payload is not a valid wire type
+SCN2311|event_identity|An event external name is empty or already in use
+SCN2312|event_idempotency|An event idempotency declaration has an invalid mode or key
+SCN2313|event_publisher|A service publisher does not resolve to a declared event
+SCN2314|event_subscription|A subscription must target its module's operation and matching durable execution with a unique event and valid policy
+SCN2315|event_subscription_payload|A subscription operation input differs from the event wire payload
 SCN2401|binding_shape|A binding is missing required operation execution delivery or policy fields
 SCN2402|internal_binding_principal|An internal binding does not inherit its principal
 SCN2403|binding_execution_operation|A binding and its execution select different operations
