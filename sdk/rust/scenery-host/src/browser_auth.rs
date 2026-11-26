@@ -196,9 +196,9 @@ pub(crate) async fn dev_bootstrap(host: &Host, request: Request<Incoming>) -> Re
 
 pub(crate) struct Browser<'a> {
     pub host: &'a Host,
-    headers: &'a HeaderMap,
-    authority: String,
-    mount: &'a str,
+    pub(crate) headers: &'a HeaderMap,
+    pub(crate) authority: String,
+    pub(crate) mount: &'a str,
 }
 
 impl<'a> Browser<'a> {
@@ -258,13 +258,8 @@ impl<'a> Browser<'a> {
     }
 
     pub(crate) fn tls(&self) -> bool {
-        !self.host.development
-            || header_value(self.headers, "x-forwarded-proto").eq_ignore_ascii_case("https")
-            || header_value(self.headers, "origin")
-                .to_ascii_lowercase()
-                .starts_with("https://")
-            || std::env::var("SCENERY_API_BASE_URL")
-                .is_ok_and(|value| value.starts_with("https://"))
+        let configured = config_url("SCENERY_API_BASE_URL").ok().flatten();
+        tls_with_api(self.host.development, self.headers, configured.as_ref())
     }
 
     pub(crate) fn request_hostname_matches(&self, url: &url::Url) -> bool {
@@ -281,45 +276,18 @@ impl<'a> Browser<'a> {
     }
 
     pub(crate) fn external_origin(&self) -> String {
-        let forwarded = header_value(self.headers, "x-forwarded-host");
-        let authority = if forwarded.is_empty() {
-            self.authority.trim()
-        } else {
-            forwarded
-        };
-        let scheme = if self.tls() { "https" } else { "http" };
-        url::Url::parse(&format!("{scheme}://{authority}"))
-            .ok()
-            .filter(|url| {
-                url.path() == "/" && url.username().is_empty() && url.password().is_none()
-            })
-            .map_or_else(String::new, |url| url.origin().ascii_serialization())
+        let configured = config_url("SCENERY_API_BASE_URL").ok().flatten();
+        external_origin_with_api(
+            self.host.development,
+            self.headers,
+            &self.authority,
+            configured.as_ref(),
+        )
     }
 
     pub(crate) fn prefix(&self) -> String {
-        if !self.mount.is_empty() {
-            return self.mount.into();
-        }
-        let forwarded = header_value(self.headers, "x-forwarded-prefix");
-        let configured = std::env::var("SCENERY_API_BASE_URL")
-            .ok()
-            .and_then(|value| url::Url::parse(&value).ok())
-            .map(|url| url.path().to_owned())
-            .unwrap_or_default();
-        let prefix = if forwarded.is_empty() {
-            &configured
-        } else {
-            forwarded
-        };
-        let prefix = prefix.trim_matches('/');
-        if prefix.is_empty()
-            || prefix.contains([';', '\\', '?', '#'])
-            || prefix.to_ascii_lowercase().contains("scenery")
-        {
-            String::new()
-        } else {
-            format!("/{prefix}")
-        }
+        let configured = config_url("SCENERY_API_BASE_URL").ok().flatten();
+        prefix_with_api(self.mount, self.headers, configured.as_ref())
     }
 
     fn cookie_name(&self) -> String {
@@ -534,6 +502,80 @@ pub(crate) async fn consume_once(
         RETURNING COALESCE(user_id::text,''), COALESCE(tenant_id::text,''), normalized_email, metadata",
         &[&purpose,&token_hash(token)]).await.map_err(Fault::internal)?
         .ok_or_else(|| invalid("token is invalid or expired"))
+}
+
+pub(crate) fn tls_with_api(
+    development: bool,
+    headers: &HeaderMap,
+    configured: Option<&url::Url>,
+) -> bool {
+    !development
+        || header_value(headers, "x-forwarded-proto").eq_ignore_ascii_case("https")
+        || header_value(headers, "origin")
+            .to_ascii_lowercase()
+            .starts_with("https://")
+        || configured.is_some_and(|url| url.scheme() == "https")
+}
+
+pub(crate) fn has_forwarded_origin(headers: &HeaderMap) -> bool {
+    !header_value(headers, "x-forwarded-proto").is_empty()
+        || !header_value(headers, "x-forwarded-host").is_empty()
+        || !header_value(headers, "x-forwarded-prefix").is_empty()
+}
+
+pub(crate) fn external_origin_with_api(
+    development: bool,
+    headers: &HeaderMap,
+    authority: &str,
+    configured: Option<&url::Url>,
+) -> String {
+    let forwarded = header_value(headers, "x-forwarded-host");
+    let authority = if forwarded.is_empty() {
+        authority.trim()
+    } else {
+        forwarded
+    };
+    let proto = header_value(headers, "x-forwarded-proto");
+    let scheme = if proto.eq_ignore_ascii_case("http") {
+        "http"
+    } else if proto.eq_ignore_ascii_case("https") || tls_with_api(development, headers, configured)
+    {
+        "https"
+    } else {
+        "http"
+    };
+    url::Url::parse(&format!("{scheme}://{authority}"))
+        .ok()
+        .filter(|url| {
+            url.path() == "/" && url.username().is_empty() && url.password().is_none()
+        })
+        .map_or_else(String::new, |url| url.origin().ascii_serialization())
+}
+
+pub(crate) fn prefix_with_api(
+    mount: &str,
+    headers: &HeaderMap,
+    configured: Option<&url::Url>,
+) -> String {
+    if !mount.is_empty() {
+        return mount.into();
+    }
+    let forwarded = header_value(headers, "x-forwarded-prefix");
+    let configured = configured.map_or("", url::Url::path);
+    let prefix = if forwarded.is_empty() {
+        configured
+    } else {
+        forwarded
+    };
+    let prefix = prefix.trim_matches('/');
+    if prefix.is_empty()
+        || prefix.contains([';', '\\', '?', '#'])
+        || prefix.to_ascii_lowercase().contains("scenery")
+    {
+        String::new()
+    } else {
+        format!("/{prefix}")
+    }
 }
 
 pub(crate) fn config_url(name: &str) -> anyhow::Result<Option<url::Url>> {

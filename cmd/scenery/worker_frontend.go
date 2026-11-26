@@ -99,15 +99,23 @@ func buildWorkerFrontend(ctx context.Context, result *compiler.Result, frontend 
 
 func configureWorkerFrontend(ctx context.Context, root string, cfg app.Config, result *compiler.Result, env string) (*workerFrontend, int, func(), error) {
 	clean := func() {}
-	frontend, err := selectWorkerFrontend(root, cfg, result)
-	if err != nil || frontend == nil {
-		return nil, 0, clean, err
+	frontendName := cfg.RootFrontend()
+	if frontendName == "" || cfg.Frontends[frontendName].Adapter != "vite" {
+		return nil, 0, clean, nil
 	}
 	resolved, err := cfg.ResolveEnv(env)
 	if err != nil {
 		return nil, 0, clean, err
 	}
-	if resolved.Frontends[frontend.Name].Serve == "production" {
+	frontendCfg, ok := resolved.Frontends[frontendName]
+	if !ok {
+		return nil, 0, clean, nil
+	}
+	frontend, err := selectWorkerFrontend(root, cfg, result)
+	if err != nil || frontend == nil {
+		return nil, 0, clean, err
+	}
+	if frontendCfg.Serve == "production" {
 		built, err := buildWorkerFrontend(ctx, result, *frontend)
 		if err != nil {
 			return nil, 0, clean, err

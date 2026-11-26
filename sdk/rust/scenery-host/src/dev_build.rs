@@ -57,6 +57,16 @@ impl Plan {
                 }
             })
     }
+
+    fn in_named_go_roots(&self, path: &Path) -> bool {
+        self.commands.iter().any(|build| {
+            build.tool() == "go"
+                && build
+                    .roots
+                    .iter()
+                    .any(|root| root != Path::new(".") && under(path, root))
+        })
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -94,6 +104,21 @@ impl Build {
         })
     }
 
+    fn has_root_package(&self) -> bool {
+        self.roots.iter().any(|root| root == Path::new("."))
+    }
+
+    /// Reports whether `path` is an embedded input owned by the root package
+    /// outside named subpackage roots.
+    fn in_root_embeds(&self, plan: &Plan, path: &Path, appeared: bool) -> bool {
+        self.has_root_package()
+            && !plan.in_named_go_roots(path)
+            && (appeared && plan.beside_embed(path)
+                || !go_source(path)
+                    && !dev_inputs::declaration(path)
+                    && plan.go_inputs.contains(path))
+    }
+
     /// Reports whether a change of `path` requires this build to run again.
     /// `appeared` is set for a file that was added or removed: such a file
     /// can change what an existing `//go:embed` pattern selects even though
@@ -102,7 +127,8 @@ impl Build {
         match self.tool() {
             "go" => {
                 (go_source(path) || plan.go_inputs.contains(path)) && self.in_roots(path)
-                    || appeared && (self.in_roots(path) || plan.beside_embed(path))
+                    || appeared && self.in_roots(path)
+                    || self.in_root_embeds(plan, path, appeared)
                     || matches!(
                         path.to_str(),
                         Some("go.mod" | "go.sum" | "go.work" | "go.work.sum")
@@ -668,7 +694,13 @@ mod tests {
         let nested = Path::new("templates/mail/welcome.txt");
         assert!(plan.go_mirrored(nested));
         assert!(root.affected(&plan, nested, true));
+        assert!(!web.affected(&plan, nested, true));
         assert!(root.affected(&plan, Path::new("templates/mail/sub/new.txt"), true));
+        // Editing an already-known embedded file outside package roots must
+        // rebuild the root worker without rebuilding unrelated subpackages.
+        let existing = Path::new("templates/mail/hello.txt");
+        assert!(root.affected(&plan, existing, false));
+        assert!(!web.affected(&plan, existing, false));
         // An unrelated file is neither mirrored nor a reason to rebuild.
         let unrelated = Path::new("docs/guide.md");
         assert!(!plan.go_mirrored(unrelated));

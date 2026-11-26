@@ -8,7 +8,8 @@ use url::Url;
 
 use crate::auth_sessions::{display_name, sign_in};
 use crate::browser_auth::{
-    AuthResult, Browser, Route, config_url, email, random, safe_redirect, token_hash,
+    AuthResult, Browser, config_url, email, external_origin_with_api, has_forwarded_origin,
+    prefix_with_api, random, safe_redirect, token_hash, Route,
 };
 use crate::connections::{limited, valid_audience, verify_id_token};
 use crate::host::{Fault, Reply, empty, header};
@@ -34,17 +35,15 @@ pub(crate) async fn serve(
     let secret = browser.secret("auth.google_client_secret");
     let api = config_url("SCENERY_API_BASE_URL").map_err(Fault::internal)?;
     let app = config_url("SCENERY_PUBLIC_APP_URL").map_err(Fault::internal)?;
-    let origin = browser.external_origin();
-    let api_url = api.as_ref().map_or(origin.as_str(), Url::as_str);
-    let app_url = app.as_ref().map_or(origin.as_str(), Url::as_str);
-    let api_url = api_url.trim_end_matches('/');
-    let app_url = app_url.trim_end_matches('/');
+    let (api_url, app_url, callback) = resolved_urls(
+        browser.host.development,
+        browser.headers,
+        &browser.authority,
+        browser.mount,
+        api.as_ref(),
+        app.as_ref(),
+    );
     let fallback = || redirect(&format!("{app_url}/sign-in?error=google_internal"));
-    let callback = if api.is_some() {
-        format!("{api_url}/auth/google/callback")
-    } else {
-        format!("{api_url}{}/auth/google/callback", browser.prefix())
-    };
 
     if matches!(route, Route::GoogleStart) {
         if client.is_empty() || secret.is_empty() || api_url.is_empty() {
@@ -257,6 +256,35 @@ async fn finish(
     Ok(reply)
 }
 
+fn resolved_urls(
+    development: bool,
+    headers: &hyper::HeaderMap,
+    authority: &str,
+    mount: &str,
+    api: Option<&Url>,
+    app: Option<&Url>,
+) -> (String, String, String) {
+    let origin = external_origin_with_api(development, headers, authority, api);
+    let api_url = if !origin.is_empty() {
+        format!("{origin}{}", prefix_with_api(mount, headers, api))
+    } else {
+        api.map(|url| url.as_str().trim_end_matches('/').to_owned())
+            .unwrap_or_default()
+    };
+    let app_url = if has_forwarded_origin(headers) && !origin.is_empty() {
+        origin
+    } else {
+        app.map(|url| url.as_str().trim_end_matches('/').to_owned())
+            .unwrap_or(origin)
+    };
+    let callback = if api_url.is_empty() {
+        String::new()
+    } else {
+        format!("{api_url}/auth/google/callback")
+    };
+    (api_url, app_url, callback)
+}
+
 fn redirect(location: &str) -> AuthResult<Reply> {
     if location.to_ascii_lowercase().contains("scenery")
         || location.contains(['\r', '\n', '\0', '\\'])
@@ -351,6 +379,45 @@ mod tests {
         .map_err(|_| anyhow::anyhow!("build callback redirect"))?;
         assert_eq!(reply.headers()["location"], "https://example.test/profile");
         assert_eq!(safe_redirect("//other.test"), "/");
+        Ok(())
+    }
+
+    #[test]
+    fn forwarded_proxy_origin_overrides_configured_urls() -> Result<()> {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("x-forwarded-proto", "https".parse()?);
+        headers.insert("x-forwarded-prefix", "/api".parse()?);
+        let api = Url::parse("http://localhost:4747/api")?;
+        let app = Url::parse("https://blog.example.test")?;
+        let (_api_url, app_url, callback) = resolved_urls(
+            true,
+            &headers,
+            "local.clean.tech",
+            "",
+            Some(&api),
+            Some(&app),
+        );
+        assert_eq!(
+            callback,
+            "https://local.clean.tech/api/auth/google/callback"
+        );
+        assert_eq!(app_url, "https://local.clean.tech");
+
+        // Unproxied direct requests preserve configured PublicAppURL for split-origin setups.
+        let direct = hyper::HeaderMap::new();
+        let (_api_url, direct_app, direct_callback) = resolved_urls(
+            false,
+            &direct,
+            "api.example.test",
+            "",
+            Some(&api),
+            Some(&app),
+        );
+        assert_eq!(direct_app, "https://blog.example.test");
+        assert_eq!(
+            direct_callback,
+            "https://api.example.test/api/auth/google/callback"
+        );
         Ok(())
     }
 }

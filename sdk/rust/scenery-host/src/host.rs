@@ -579,23 +579,8 @@ impl Host {
             id: scope_id.clone(),
             scope: scope.clone(),
         };
-        let mut metadata = json!({
-            "caller_binding": call.caller, "started": stamp(call.started),
-            "parent_span_id": call.parent_span_id, "module": service.module, "service_name": service.name,
-            "logs_enabled": self.development && self.telemetry.logs_enabled(call, service, &scope.endpoint), "request_type": if mode == "durable" { "durable-call" } else { "api-call" },
-        });
-        if let Some(workload) = &call.workload {
-            metadata["auth_data_kind"] = json!("json");
-            metadata["auth_data"] = workload.clone();
-        } else if let Some(principal) = &call.principal {
-            metadata["auth_data_kind"] = json!("scenery.auth.standard");
-            metadata["auth_data"] = principal.data();
-        }
-        if let Some(request) = call.request.as_deref().and_then(Value::as_object) {
-            for (member, value) in request {
-                metadata[member.as_str()] = value.clone();
-            }
-        }
+        let metadata =
+            worker_invocation_metadata(&self.telemetry, call, service, &scope.endpoint, mode);
         let invocation = Invocation {
             service: service.address.clone(),
             operation: address.into(),
@@ -884,6 +869,37 @@ pub(crate) fn authorized(headers: &HeaderMap, expected: &str) -> bool {
         && supplied.next().is_none()
 }
 
+fn worker_invocation_metadata(
+    telemetry: &telemetry::Sink,
+    call: &Call,
+    service: &Service,
+    endpoint: &str,
+    mode: &str,
+) -> Value {
+    let mut metadata = json!({
+        "caller_binding": call.caller,
+        "started": stamp(call.started),
+        "parent_span_id": call.parent_span_id,
+        "module": service.module,
+        "service_name": service.name,
+        "logs_enabled": telemetry.logs_enabled(call, service, endpoint),
+        "request_type": if mode == "durable" { "durable-call" } else { "api-call" },
+    });
+    if let Some(workload) = &call.workload {
+        metadata["auth_data_kind"] = json!("json");
+        metadata["auth_data"] = workload.clone();
+    } else if let Some(principal) = &call.principal {
+        metadata["auth_data_kind"] = json!("scenery.auth.standard");
+        metadata["auth_data"] = principal.data();
+    }
+    if let Some(request) = call.request.as_deref().and_then(Value::as_object) {
+        for (member, value) in request {
+            metadata[member.as_str()] = value.clone();
+        }
+    }
+    metadata
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -945,5 +961,63 @@ mod tests {
         assert_eq!(forwarded(Some("")), None);
         assert_eq!(forwarded(Some("  ")), None);
         assert_eq!(forwarded(None), None);
+    }
+
+    #[tokio::test]
+    async fn production_worker_metadata_respects_declared_log_filters() {
+        let sink = telemetry::Sink::new(
+            "inbox",
+            false,
+            &crate::plan::Observability {
+                logs: crate::plan::EndpointFilter {
+                    include_endpoints: vec![],
+                    exclude_endpoints: vec!["orders.Mute".into()],
+                },
+                tracing: Default::default(),
+            },
+            Default::default(),
+            &crate::plan::ReportIdentity {
+                schema_revision: "sha256:fixture".into(),
+                producer_version: "v1.0.0".into(),
+            },
+        )
+        .unwrap();
+        let generation = Arc::new(Generation {
+            number: 1,
+            identity: crate::process::BuildIdentity {
+                contract_revision: String::new(),
+                implementation_revision: String::new(),
+                build_input_digest: String::new(),
+                go_target: String::new(),
+            },
+            workers: Default::default(),
+            retired: CancellationToken::new(),
+        });
+        let call = Call::new(
+            generation,
+            &HeaderMap::new(),
+            "POST",
+            "/orders",
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        let service = Service {
+            address: "app/service/orders".into(),
+            module: "orders".into(),
+            name: "orders".into(),
+            process: "orders".into(),
+            runtime: "go".into(),
+            operations: Default::default(),
+            clients: Default::default(),
+            bindings: vec![],
+            durable: Default::default(),
+            schedules: vec![],
+            stores: Default::default(),
+        };
+        let enabled =
+            worker_invocation_metadata(&sink, &call, &service, "app/binding/create", "sync");
+        assert_eq!(enabled["logs_enabled"], true);
+        let muted = worker_invocation_metadata(&sink, &call, &service, "app/binding/mute", "sync");
+        assert_eq!(muted["logs_enabled"], false);
     }
 }

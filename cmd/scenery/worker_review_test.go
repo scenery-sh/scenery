@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	workerruntime "scenery.sh/runtime"
 )
@@ -106,4 +109,31 @@ func TestWorkerBundleCarriesFailureReportIdentity(t *testing.T) {
 	if want := `"reports":{"schema_revision":"` + identity.SchemaRevision + `","producer_version":"`; !strings.Contains(string(encoded), want) {
 		t.Fatalf("bundle manifest %s lacks %s", encoded, want)
 	}
+}
+
+func TestConfigureWorkerFrontendRespectsDisabledEnvFrontend(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "polyglot",
+		Frontends: map[string]app.FrontendConfig{
+			"web": {Root: "web", Adapter: "vite", Mode: "static"},
+		},
+		Envs: map[string]app.EnvConfig{
+			"backend": {
+				Frontends: map[string]app.EnvFrontendConfig{
+					"web": {Serve: "disabled"},
+				},
+			},
+		},
+	}
+	frontend, pid, clean, err := configureWorkerFrontend(context.Background(), root, cfg, &compiler.Result{}, "backend")
+	if err != nil {
+		t.Fatalf("configureWorkerFrontend returned error for disabled frontend: %v", err)
+	}
+	if frontend != nil || pid != 0 {
+		t.Fatalf("configureWorkerFrontend returned (%+v, %d) for disabled frontend", frontend, pid)
+	}
+	clean()
 }
