@@ -25,7 +25,7 @@ pub(crate) async fn decode_request(
     request: Request<Incoming>,
     path: &BTreeMap<&str, &str>,
     plan: &RequestPlan,
-    call: &Call,
+    call: &mut Call,
 ) -> Result<Value, Fault> {
     let mut mapped = Map::new();
     for mapping in &plan.mappings {
@@ -50,7 +50,14 @@ pub(crate) async fn decode_request(
         }
     }
     if let Some(body) = &plan.body {
+        call.has_http_body = true;
         let payload = decode_body(request, body).await?;
+        if matches!(body.codec.as_str(), "json" | "problem_json") {
+            let encoded_payload = values::encode(&payload);
+            if encoded_payload.len() <= 256 << 10 {
+                call.raw_body = Some(encoded_payload);
+            }
+        }
         if !body.target.is_empty() {
             if mapped.insert(body.target.clone(), payload).is_some() {
                 return Err(Fault::invalid());

@@ -192,6 +192,35 @@ pub struct Context {
 }
 
 impl Context {
+    pub fn standalone() -> Self {
+        Self::with_principal(None, None)
+    }
+
+    pub fn with_principal(principal: Option<&str>, tenant_id: Option<&str>) -> Self {
+        let (_tx, canceled) = watch::channel(());
+        Self {
+            invocation: InvocationContext {
+                invocation_id: "standalone".into(),
+                scope: String::new(),
+                generation: 1,
+                contract_revision: String::new(),
+                principal: principal.map(str::to_owned),
+                tenant_id: tenant_id.map(str::to_owned),
+                traceparent: None,
+                deadline: None,
+                locale: None,
+                execution_id: None,
+                metadata: None,
+            },
+            host: Host {
+                socket: Arc::new(PathBuf::new()),
+                token: Arc::from(""),
+                sender: Arc::new(Mutex::new(None)),
+            },
+            canceled,
+        }
+    }
+
     pub async fn canceled(&mut self) {
         let _ = self.canceled.changed().await;
     }

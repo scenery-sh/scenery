@@ -72,6 +72,7 @@ var rootHelpGroups = []helpRootGroup{
 		{Command: "up", Summary: "Start a local dev runtime"},
 		{Command: "ps", Summary: "Show local dev app roots"},
 		{Command: "call", Summary: "Invoke the local dev runtime"},
+		{Command: "replay", Summary: "Replay an internal failure report or emit a regression test"},
 		{Command: "durable", Summary: "Run a durable execution or schedule"},
 		{Command: "logs", Summary: "Read, follow, or query dev logs"},
 		{Command: "down", Summary: "Stop a local dev runtime"},
@@ -133,6 +134,7 @@ var helpReferenceGroups = []helpReferenceGroup{
 	{Name: "Local dev", Commands: []string{
 		"scenery up",
 		"scenery call",
+		"scenery replay",
 		"scenery ps",
 		"scenery logs",
 		"scenery logs query",
@@ -543,6 +545,17 @@ var helpCommands = []helpCommandEntry{
 		RequiredCombinations: []helpRequiredCombination{{When: "--input", ConflictsWith: []string{"--input-file"}}},
 		AppRootRequirement:   "required", SideEffectClass: "local_runtime",
 		OutputSchemas: []helpOutputSchema{{Mode: "invoke", Kind: "scenery.call.result"}}, JSON: true, Stability: "beta",
+	},
+	{
+		Command: "replay", Group: "Local dev", Summary: "Deterministically replay a runtime failure report or emit a runnable regression test.",
+		Usage: []string{
+			"scenery replay <report-token> [--wait] [--app-root <path>] [-o human|json]",
+			"scenery replay <report-token> --emit-test [--output <path>] [--app-root <path>] [-o human|json]",
+		},
+		Flags:                []string{"--emit-test", "--output <path>", "--wait", "--app-root <path>", "-o human|json"},
+		RequiredCombinations: []helpRequiredCombination{{When: "--output", Requires: []string{"--emit-test"}}},
+		AppRootRequirement:   "required", SideEffectClass: "mixed",
+		OutputSchemas: []helpOutputSchema{{Mode: "replay", Kind: replayResultKind}}, JSON: true, Stability: "beta",
 	},
 	{
 		Command: "context", Group: "App resources", Summary: "Read the module behind a module, service, route, or source file.",

@@ -24,7 +24,13 @@ worktree's API backend, and restarts it only for changes the Host cannot apply
 in place. The Host watches source inputs (the files no `.gitignore` excludes),
 rebuilds affected workers, exports telemetry to the worktree's Victoria, and
 invokes the CLI on demand for declaration and build configuration changes. A
-production bundle (`scenery build`) starts directly through `scenery-host`:
+lightweight `scenery-host --test` mode backs `scenery test --with-host`,
+serving ephemeral local capabilities alongside `<50ms` PostgreSQL template
+database clones (`CREATE DATABASE ... TEMPLATE ...`) without colliding with a
+running `scenery up` session. `SCN9xxx` runtime failures record replayable
+invocation metadata so `scenery replay <report-token>` can deterministically
+re-invoke the failing call or emit an offline regression test (`--emit-test`).
+A production bundle (`scenery build`) starts directly through `scenery-host`:
 it reads its configuration snapshot from `--config` with `{"$env": ...}`
 secret references, serves local or S3-compatible object stores, exports OTLP
 to the collector the standard `OTEL_EXPORTER_OTLP_*` variables name, and,

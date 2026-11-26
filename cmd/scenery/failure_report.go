@@ -41,10 +41,11 @@ type failureReport struct {
 	// command, arguments and working directory, and "runtime" for one an
 	// application process of a development session minted and reported,
 	// described by that process, its app and its session.
-	Origin      string `json:"origin"`
-	ReporterPID int    `json:"reporter_pid,omitempty"`
-	AppID       string `json:"app_id,omitempty"`
-	SessionID   string `json:"session_id,omitempty"`
+	Origin      string                      `json:"origin"`
+	ReporterPID int                         `json:"reporter_pid,omitempty"`
+	AppID       string                      `json:"app_id,omitempty"`
+	SessionID   string                      `json:"session_id,omitempty"`
+	Invocation  *devreport.ReplayInvocation `json:"invocation,omitempty"`
 }
 
 // failureReportArguments are the arguments of the running invocation.
@@ -84,6 +85,7 @@ func recordRuntimeFailureReport(report devreport.ReportEnvelope) {
 		ReportToken: failure.ReportToken, Code: failure.Code, RecordedAt: recordedAt.UTC().Format(time.RFC3339Nano),
 		Command: "runtime", Arguments: []string{}, Cause: redact.String(failure.Cause),
 		Origin: "runtime", ReporterPID: report.ReporterPID, AppID: report.AppID, SessionID: report.SessionID,
+		Invocation: failure.Invocation,
 	})
 }
 

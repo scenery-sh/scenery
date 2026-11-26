@@ -21,7 +21,7 @@
       "const": "scenery.failure.report"
     },
     "schema_revision": {
-      "const": "sha256:4d4540496d4ad6467a4d1ff95b00228858e088a6da619310a057ab6ffbd9e273"
+      "const": "sha256:ec51eafe6a9509fb64eb243d8d91b4da4d646b134a7699fbb2dfab9f7b42ab36"
     },
     "report_token": {
       "type": "string",
@@ -66,6 +66,82 @@
     },
     "session_id": {
       "type": "string"
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "runtime",
+        "service",
+        "operation",
+        "mode",
+        "contract_revision",
+        "generation",
+        "trace_id"
+      ],
+      "properties": {
+        "module": {
+          "type": "string"
+        },
+        "runtime": {
+          "enum": [
+            "go",
+            "rust",
+            "ts",
+            "js",
+            "python"
+          ]
+        },
+        "service": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "binding": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "http_method": {
+          "type": "string"
+        },
+        "http_path": {
+          "type": "string"
+        },
+        "http_body": {},
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "principal": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "contract_revision": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "input": {},
+        "input_truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false

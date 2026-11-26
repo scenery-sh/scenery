@@ -111,14 +111,35 @@ type MetricEvent struct {
 	Timestamp    time.Time `json:"timestamp"`
 }
 
+type ReplayInvocation struct {
+	Module           string              `json:"module"`
+	Runtime          string              `json:"runtime"`
+	Service          string              `json:"service"`
+	Operation        string              `json:"operation"`
+	Binding          string              `json:"binding,omitempty"`
+	Mode             string              `json:"mode"`
+	HTTPMethod       string              `json:"http_method,omitempty"`
+	HTTPPath         string              `json:"http_path,omitempty"`
+	HTTPBody         json.RawMessage     `json:"http_body,omitempty"`
+	Headers          map[string][]string `json:"headers,omitempty"`
+	Principal        string              `json:"principal,omitempty"`
+	TenantID         string              `json:"tenant_id,omitempty"`
+	ContractRevision string              `json:"contract_revision"`
+	Generation       uint64              `json:"generation"`
+	TraceID          string              `json:"trace_id"`
+	Input            json.RawMessage     `json:"input,omitempty"`
+	InputTruncated   bool                `json:"input_truncated,omitempty"`
+}
+
 // InternalFailure is the cause behind a report token an application process
 // minted. The token went out in a sanitized answer; the cause goes to the
 // session's supervisor, which keeps it where the developer can read it.
 type InternalFailure struct {
-	ReportToken string    `json:"report_token"`
-	Code        string    `json:"code"`
-	Cause       string    `json:"cause"`
-	Timestamp   time.Time `json:"timestamp"`
+	ReportToken string            `json:"report_token"`
+	Code        string            `json:"code"`
+	Cause       string            `json:"cause"`
+	Timestamp   time.Time         `json:"timestamp"`
+	Invocation  *ReplayInvocation `json:"invocation,omitempty"`
 }
 
 type ReportEnvelope struct {

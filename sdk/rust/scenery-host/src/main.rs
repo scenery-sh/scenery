@@ -35,6 +35,7 @@ mod otlp;
 mod plan;
 mod policy;
 mod process;
+mod replay;
 mod s3_storage;
 mod schedule;
 mod schedule_slots;

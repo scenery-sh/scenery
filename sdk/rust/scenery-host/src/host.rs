@@ -64,7 +64,8 @@ pub(crate) struct Fault {
     pub code: &'static str,
     message: &'static str,
     details: Value,
-    cause: Option<String>,
+    pub cause: Option<String>,
+    pub replay: Option<Box<crate::replay::ReplayInvocation>>,
 }
 
 impl Fault {
@@ -75,6 +76,7 @@ impl Fault {
             message,
             details: Value::Null,
             cause: None,
+            replay: None,
         }
     }
 
@@ -156,7 +158,7 @@ impl Fault {
             "application/problem+json",
         );
         if let Some(cause) = self.cause
-            && let Some(token) = host.telemetry.failure(&cause)
+            && let Some(token) = host.telemetry.failure_with_context(&cause, self.replay.as_deref())
         {
             header(reply.headers_mut(), "x-report-token", &token);
         }
@@ -187,6 +189,9 @@ pub(crate) struct Call {
     /// `method`, `path`, `path_params` and `headers`. Calls made on behalf of
     /// the request inherit it; durable and scheduled work has none.
     pub request: Option<Arc<Value>>,
+    pub raw_uri: Option<String>,
+    pub raw_body: Option<String>,
+    pub has_http_body: bool,
 }
 
 impl Call {
@@ -226,6 +231,9 @@ impl Call {
             method: method.into(),
             path: path.into(),
             request: None,
+            raw_uri: None,
+            raw_body: None,
+            has_http_body: false,
         })
     }
 
@@ -689,26 +697,28 @@ impl Host {
         };
         self.telemetry
             .span(call, service, address, started.elapsed(), code);
-        let mut result = result?;
-        let operation = service
-            .operations
-            .get(address)
-            .ok_or_else(|| Fault::internal("unknown operation"))?;
-        let ty = operation
-            .outcomes
-            .get(&format!("{}.{}", result.kind, result.name))
-            .ok_or_else(|| Fault::internal("worker returned undeclared outcome"))?;
-        if result.events.is_some() {
-            if result.kind != "result" || !result.payload.is_null() {
-                return Err(Fault::internal(
-                    "event stream outcome must be a result with null metadata payload",
-                ));
+        let validated = result.and_then(|mut result| {
+            let operation = service
+                .operations
+                .get(address)
+                .ok_or_else(|| Fault::internal("unknown operation"))?;
+            let ty = operation
+                .outcomes
+                .get(&format!("{}.{}", result.kind, result.name))
+                .ok_or_else(|| Fault::internal("worker returned undeclared outcome"))?;
+            if result.events.is_some() {
+                if result.kind != "result" || !result.payload.is_null() {
+                    return Err(Fault::internal(
+                        "event stream outcome must be a result with null metadata payload",
+                    ));
+                }
+            } else {
+                result.payload = values::normalize(&self.bundle.types, ty, result.payload)
+                    .map_err(Fault::internal)?;
             }
-        } else {
-            result.payload = values::normalize(&self.bundle.types, ty, result.payload)
-                .map_err(Fault::internal)?;
-        }
-        Ok(result)
+            Ok(result)
+        });
+        crate::replay::attach(validated, call, service, address, binding, mode, input)
     }
 
     pub(crate) async fn capability(&self, request: Request<Incoming>) -> Reply {

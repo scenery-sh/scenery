@@ -293,8 +293,20 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		})},
 		{"scenery.test.result", withCLIPayloadIdentity("scenery.test.result", map[string]any{
 			"ok": true, "app_root": "/tmp/app", "duration_ms": 30, "modules": []any{map[string]any{
-				"module": "quote", "directory": "quote", "runtime": "ts", "command": []string{"bun", "test"}, "ok": true, "duration_ms": 20,
+				"module": "quote", "directory": "quote", "runtime": "python", "command": []string{"uv", "run", "--no-project", "python", "-m", "unittest"}, "ok": true, "duration_ms": 20,
+				"database": map[string]any{"name": "scenery_test_quote_1234", "template": "scenery_tpl_app_12345678_1234", "clone_ms": 12},
 			}},
+			"database_template": map[string]any{"name": "scenery_tpl_app_12345678_1234", "template_hit": true, "setup_ms": 4},
+			"test_host":         map[string]any{"url": "http://127.0.0.1:41234", "startup_ms": 28},
+		})},
+		{"scenery.replay.result", withCLIPayloadIdentity("scenery.replay.result", map[string]any{
+			"ok": true, "mode": "live", "report_token": "rpt_" + strings.Repeat("a", 40), "status": "fixed",
+			"original_cause": "division by zero", "invocation": map[string]any{
+				"module": "quote", "runtime": "python", "service": "quote/service/quote", "operation": "quote/op/price",
+				"mode": "direct", "contract_revision": digest, "generation": 1, "trace_id": strings.Repeat("b", 32),
+			},
+			"http_status": 200, "duration_ms": 14, "generation": 1, "trace_id": strings.Repeat("b", 32),
+			"logs": []any{}, "spans": []any{},
 		})},
 		{"scenery.openapi.export", withCLIPayloadIdentity("scenery.openapi.export", map[string]any{
 			"format": "json", "openapi_version": "3.1.1", "checked": false, "changed": []string{},

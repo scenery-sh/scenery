@@ -328,25 +328,28 @@ impl Engine {
                     tokio::select! {
                         () = host.stop.cancelled() => {}
                         output = host.invoke(&call, service, &operation, None, "direct", &input) => {
-                            if !matches!(output, Ok(output) if !output.is_streamed()) {
-                                host.telemetry.failure("scheduled execution failed");
+                            match output {
+                                Ok(output) if !output.is_streamed() => {}
+                                Err(fault) => { host.telemetry.fault_failure(&fault, "scheduled execution failed"); }
+                                _ => { host.telemetry.failure("scheduled execution failed"); }
                             }
                         }
                     }
                 });
                 return Ok(json_reply(StatusCode::OK, &reply));
             }
-            let output = host
-                .invoke(&call, service, operation, None, "direct", &input)
-                .await;
+            let output = host.invoke(&call, service, operation, None, "direct", &input).await;
             match output {
                 Ok(output) if !output.is_streamed() => {
                     reply["state"] = json!("succeeded");
                     reply["output"] = output.json();
                 }
-                _ => {
+                other => {
                     reply["state"] = json!("failed");
-                    let report = host.telemetry.failure("scheduled execution failed");
+                    let report = match other {
+                        Err(fault) => host.telemetry.fault_failure(&fault, "scheduled execution failed"),
+                        _ => host.telemetry.failure("scheduled execution failed"),
+                    };
                     reply["error"] = json!({"code": "SCN9000", "message": "execution failed", "report_token": report});
                 }
             }
@@ -930,7 +933,7 @@ async fn execute_next(
     let (output, error) = match outcome {
         Ok(value) => (Some(values::encode(&value.json()).into_bytes()), None),
         Err(fault) => {
-            let report = host.telemetry.failure(fault.code);
+            let report = host.telemetry.fault_failure(&fault, fault.code);
             (None, Some(values::encode(&json!({"code": "SCN9000", "message": "execution failed", "report_token": report})).into_bytes()))
         }
     };

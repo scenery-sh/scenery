@@ -847,7 +847,7 @@ async fn chunked_empty_body_on_bodyless_route_does_not_kill_long_handler() {
         let service = service_fn(move |mut request: Request<Incoming>| {
             let control = control.clone();
             let request_plan = request_plan.clone();
-            let call = call.clone();
+            let mut call = call.clone();
             control.begin_request(timeouts.read, timeouts.write);
             request.extensions_mut().insert(control.clone());
             async move {
@@ -855,7 +855,7 @@ async fn chunked_empty_body_on_bodyless_route_does_not_kill_long_handler() {
                     request,
                     &std::collections::BTreeMap::new(),
                     &request_plan,
-                    &call,
+                    &mut call,
                 )
                 .await
                 .unwrap_or_else(|fault| panic!("decode_request failed: {}", fault.code));
