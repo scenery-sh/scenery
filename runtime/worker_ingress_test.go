@@ -11,10 +11,10 @@ import (
 	"net/http/httputil"
 	"net/textproto"
 	"net/url"
-	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -770,78 +770,66 @@ func TestWorkerIngressHijackedConnCloseUnblocksWriteAndHalfClose(t *testing.T) {
 	})
 
 	t.Run("concurrent Write waits for 101 header write before passthrough", func(t *testing.T) {
-		serverConn, peerConn := net.Pipe()
-		gated := &gatedFirstWriteConn{
-			Conn:         serverConn,
-			firstEntered: make(chan struct{}),
-			releaseFirst: make(chan struct{}),
-		}
-		var releaseOnce sync.Once
-		release := func() { releaseOnce.Do(func() { close(gated.releaseFirst) }) }
-		t.Cleanup(func() {
-			release()
-			_ = serverConn.Close()
-			_ = peerConn.Close()
-		})
-		hijacked := hijackThroughIngress(t, gated)
-
-		g1Done := make(chan error, 1)
-		go func() {
-			_, err := hijacked.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nX-Scenery-Generation: gen-1\r\n\r\n"))
-			g1Done <- err
-		}()
-		select {
-		case <-gated.firstEntered:
-		case <-time.After(time.Second):
-			t.Fatal("first Write never reached underlying conn")
-		}
-
-		g2Started := make(chan struct{})
-		g2Done := make(chan error, 1)
-		go func() {
-			close(g2Started)
-			_, err := hijacked.Write([]byte("frame-after-101"))
-			g2Done <- err
-		}()
-		select {
-		case <-g2Started:
-		case <-time.After(time.Second):
-			t.Fatal("second Write goroutine never started")
-		}
-		for range 8 {
-			goruntime.Gosched()
-		}
-		select {
-		case err := <-g2Done:
-			t.Fatalf("concurrent Write finished before 101 header write completed: err=%v", err)
-		default:
-		}
-		gated.mu.Lock()
-		writtenBeforeRelease := gated.written.Len()
-		gated.mu.Unlock()
-		if writtenBeforeRelease != 0 {
-			t.Fatalf("wrote %d bytes before 101 header write completed", writtenBeforeRelease)
-		}
-
-		release()
-		for _, ch := range []chan error{g1Done, g2Done} {
-			select {
-			case err := <-ch:
-				if err != nil {
-					t.Fatalf("Write() = %v", err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("timed out waiting for Write")
+		synctest.Test(t, func(t *testing.T) {
+			serverConn, peerConn := net.Pipe()
+			gated := &gatedFirstWriteConn{
+				Conn:         serverConn,
+				firstEntered: make(chan struct{}),
+				releaseFirst: make(chan struct{}),
 			}
-		}
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(gated.releaseFirst) }) }
+			defer func() {
+				release()
+				_ = serverConn.Close()
+				_ = peerConn.Close()
+			}()
+			hijacked := hijackThroughIngress(t, gated)
 
-		gated.mu.Lock()
-		got := gated.written.String()
-		gated.mu.Unlock()
-		want := "HTTP/1.1 101 Switching Protocols\r\n\r\nframe-after-101"
-		if got != want {
-			t.Fatalf("wire bytes = %q, want %q", got, want)
-		}
+			g1Done := make(chan error, 1)
+			go func() {
+				_, err := hijacked.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nX-Scenery-Generation: gen-1\r\n\r\n"))
+				g1Done <- err
+			}()
+			<-gated.firstEntered
+			synctest.Wait()
+
+			g2Done := make(chan error, 1)
+			go func() {
+				_, err := hijacked.Write([]byte("frame-after-101"))
+				g2Done <- err
+			}()
+			synctest.Wait()
+
+			select {
+			case err := <-g2Done:
+				t.Fatalf("concurrent Write finished before 101 header write completed: err=%v", err)
+			default:
+			}
+			gated.mu.Lock()
+			writtenBeforeRelease := gated.written.Len()
+			gated.mu.Unlock()
+			if writtenBeforeRelease != 0 {
+				t.Fatalf("wrote %d bytes before 101 header write completed", writtenBeforeRelease)
+			}
+
+			release()
+			synctest.Wait()
+
+			if err := <-g1Done; err != nil {
+				t.Fatalf("header Write() = %v", err)
+			}
+			if err := <-g2Done; err != nil {
+				t.Fatalf("frame Write() = %v", err)
+			}
+			gated.mu.Lock()
+			got := gated.written.String()
+			gated.mu.Unlock()
+			want := "HTTP/1.1 101 Switching Protocols\r\n\r\nframe-after-101"
+			if got != want {
+				t.Fatalf("wire bytes = %q, want %q", got, want)
+			}
+		})
 	})
 
 	t.Run("malformed header fails closed on subsequent writes", func(t *testing.T) {
@@ -863,6 +851,30 @@ func TestWorkerIngressHijackedConnCloseUnblocksWriteAndHalfClose(t *testing.T) {
 		recConn.mu.Unlock()
 		if written != 0 {
 			t.Fatalf("malformed header wrote %d bytes to conn, want 0", written)
+		}
+	})
+
+	t.Run("oversized complete header in single Write fails closed", func(t *testing.T) {
+		serverConn, peerConn := net.Pipe()
+		t.Cleanup(func() {
+			_ = serverConn.Close()
+			_ = peerConn.Close()
+		})
+		recConn := &halfCloseRecordConn{Conn: serverConn}
+		hijacked := hijackThroughIngress(t, recConn)
+		oversized := "HTTP/1.1 101 Switching Protocols\r\nX-Pad: " +
+			strings.Repeat("a", maxHijackedResponseHeaderBytes) + "\r\n\r\npayload"
+		if _, err := hijacked.Write([]byte(oversized)); err == nil {
+			t.Fatal("oversized complete header Write() = nil, want error")
+		}
+		if _, err := hijacked.Write([]byte("follow-up")); err == nil {
+			t.Fatal("subsequent Write() after oversized header = nil, want error")
+		}
+		recConn.mu.Lock()
+		written := recConn.written.Len()
+		recConn.mu.Unlock()
+		if written != 0 {
+			t.Fatalf("oversized header wrote %d bytes to conn, want 0", written)
 		}
 	})
 }

@@ -134,6 +134,7 @@ func (w *workerIngressWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	w.started = true
 	wrapped := &workerIngressHijackedConn{
 		Conn:         conn,
+		writeGate:    make(chan struct{}, 1),
 		headerDone:   alreadyStarted,
 		hideIdentity: w.hideIdentity,
 	}
@@ -156,9 +157,10 @@ const maxHijackedResponseHeaderBytes = 64 << 10
 type workerIngressHijackedConn struct {
 	net.Conn
 	passthrough  atomic.Bool
-	writeMu      sync.Mutex
+	writeGate    chan struct{}
 	mu           sync.Mutex
 	headerDone   bool
+	headerBytes  int
 	headerErr    error
 	hideIdentity bool
 	buf          bytes.Buffer
@@ -248,27 +250,27 @@ func (c *workerIngressHijackedConn) Write(p []byte) (int, error) {
 	if c.passthrough.Load() {
 		return c.Conn.Write(p)
 	}
-	c.writeMu.Lock()
+	c.writeGate <- struct{}{}
 	if c.passthrough.Load() {
-		c.writeMu.Unlock()
+		<-c.writeGate
 		return c.Conn.Write(p)
 	}
 	toWrite, done, err := c.consumeHeaderBytes(p)
 	if err != nil {
-		c.writeMu.Unlock()
+		<-c.writeGate
 		return 0, err
 	}
 	if len(toWrite) > 0 {
 		if err := writeAllConn(c.Conn, toWrite); err != nil {
 			c.failHeaderWrite(err)
-			c.writeMu.Unlock()
+			<-c.writeGate
 			return 0, err
 		}
 	}
 	if done {
 		c.passthrough.Store(true)
 	}
-	c.writeMu.Unlock()
+	<-c.writeGate
 	return len(p), nil
 }
 
@@ -297,12 +299,15 @@ func (c *workerIngressHijackedConn) consumeHeaderBytes(p []byte) ([]byte, bool, 
 		}
 		sepIdx, sepLen, ok := findHTTPHeaderEnd(data)
 		if !ok {
-			if len(data) > maxHijackedResponseHeaderBytes {
+			if c.headerBytes+len(data) > maxHijackedResponseHeaderBytes {
 				return nil, false, c.failHeaderLocked(errors.New("http: hijacked response header too large"))
 			}
 			return out.Bytes(), false, nil
 		}
 		headerEnd := sepIdx + sepLen
+		if c.headerBytes+headerEnd > maxHijackedResponseHeaderBytes {
+			return nil, false, c.failHeaderLocked(errors.New("http: hijacked response header too large"))
+		}
 		rest := bytes.Clone(data[headerEnd:])
 		tp := textproto.NewReader(bufio.NewReader(bytes.NewReader(data[:headerEnd])))
 		statusLine, err := tp.ReadLine()
@@ -336,6 +341,7 @@ func (c *workerIngressHijackedConn) consumeHeaderBytes(p []byte) ([]byte, bool, 
 		}
 		out.WriteString("\r\n")
 		if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+			c.headerBytes += headerEnd
 			c.buf.Reset()
 			c.buf.Write(rest)
 			continue
