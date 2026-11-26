@@ -41,7 +41,7 @@ func (p *worktreeRuntimeProbe) retainedCompatibility(root string) error {
 					return err
 				}
 				if fault == "engine-major" {
-					record.Postgres.Major = 17
+					record.Postgres.Major = 18
 				} else {
 					record.SchemaRevision = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 				}

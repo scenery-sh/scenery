@@ -96,7 +96,7 @@ func upgradeRetainedWorktree(ctx context.Context, paths localagent.WorktreePaths
 	if err != nil {
 		return result, err
 	}
-	if record.Postgres != nil && record.Postgres.Major != 18 {
+	if record.Postgres != nil && record.Postgres.Major != postgresServerMajor {
 		return result, fmt.Errorf("the retained PostgreSQL major requires an explicit validated engine migration")
 	}
 	storagePath := filepath.Join(paths.Directory, "storage")

@@ -39,7 +39,7 @@ test -f "$proof_root/webhook/manifest.json"
 # Ordinary PostgreSQL durability settings: no fsync-off test shortcut.
 docker run -d --name "$container" -p 127.0.0.1::5432 \
   -e POSTGRES_PASSWORD=local-webhook-proof -e POSTGRES_DB=webhook \
-  postgres:18.4-alpine > "$proof_root/container-id"
+  postgres:19-alpine > "$proof_root/container-id"
 read -r container_id < "$proof_root/container-id"
 [[ "$container_id" =~ ^[0-9a-f]{64}$ ]]
 ready=false

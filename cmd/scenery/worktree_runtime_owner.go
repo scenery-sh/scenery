@@ -159,7 +159,7 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 		return nil, err
 	}
 	if p := record.Postgres; p != nil {
-		if p.Major != 18 || p.Restore != nil || p.Phase == "restoring" || p.Phase == "restore-failed" || p.Phase == "deleting" {
+		if p.Major != postgresServerMajor || p.Restore != nil || p.Phase == "restoring" || p.Phase == "restore-failed" || p.Phase == "deleting" {
 			_ = op.Close()
 			return nil, worktreePostgresPrecondition("retained database requires explicit engine, restore or deletion recovery before application startup")
 		}

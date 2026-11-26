@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	postgresServerImage = "postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20"
+	postgresServerImage = "postgres:19@sha256:4ea94de574c17f0372722806c949757050fbb1cd7648410fe45d6bba275cc00e"
+	postgresServerMajor = 19
 	postgresServerUser  = "scenery"
 )
 

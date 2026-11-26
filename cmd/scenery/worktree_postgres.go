@@ -230,7 +230,7 @@ func (r worktreePostgresResolver) ensureResourceWithOperation(ctx context.Contex
 		key := hex.EncodeToString(instance[:])
 		record.Postgres = &localagent.WorktreePostgres{
 			InstanceID: key, DaemonID: id, DaemonEndpoint: endpoint,
-			Image: postgresServerImage, Major: 18, User: postgresServerUser, Password: password,
+			Image: postgresServerImage, Major: postgresServerMajor, User: postgresServerUser, Password: password,
 			Container: "scenery-pg-" + key, Volume: "scenery-pg-data-" + key, Phase: "pending",
 		}
 		// Credentials and random instance identity are durable before Docker is
@@ -240,7 +240,7 @@ func (r worktreePostgresResolver) ensureResourceWithOperation(ctx context.Contex
 		}
 	}
 	p := record.Postgres
-	if p.Major != 18 {
+	if p.Major != postgresServerMajor {
 		return nil, worktreePostgresPrecondition("the retained PostgreSQL major requires an explicit validated engine migration")
 	}
 	if p.Phase == "deleting" || (!restoreRecovery && (p.Restore != nil || p.Phase == "restoring" || p.Phase == "restore-failed")) {

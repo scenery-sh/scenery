@@ -24,7 +24,7 @@ func (r worktreePostgresResolver) startRetained(ctx context.Context) error {
 		return err
 	}
 	p := record.Postgres
-	if p.Major != 18 {
+	if p.Major != postgresServerMajor {
 		return worktreePostgresPrecondition("the retained PostgreSQL major requires an explicit validated engine migration")
 	}
 	if p.Phase != "ready" || p.SystemID == "" || p.Restore != nil {

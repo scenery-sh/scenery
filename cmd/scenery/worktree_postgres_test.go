@@ -342,3 +342,38 @@ func TestWorktreePostgresLegacyClaimBlocksFreshAllocation(t *testing.T) {
 		t.Fatal("legacy guard created replacement ownership")
 	}
 }
+
+func TestWorktreePostgresMajorVersionCheck(t *testing.T) {
+	r, docker := testWorktreePostgresResolver(t)
+	ready, err := r.ensure(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.Major != postgresServerMajor || ready.Image != postgresServerImage {
+		t.Fatalf("allocated postgres %d (%s), want %d (%s)", ready.Major, ready.Image, postgresServerMajor, postgresServerImage)
+	}
+
+	record, err := r.load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Postgres.Major = postgresServerMajor - 1
+	op, err := r.beginOperation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := op.SaveRecord(record); err != nil {
+		t.Fatal(err)
+	}
+	if err := op.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	docker.writes = 0
+	if _, err := r.ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "explicit validated engine migration") || docker.writes != 0 {
+		t.Fatalf("stale major version was not rejected cleanly: err=%v writes=%d", err, docker.writes)
+	}
+	if err := r.startRetained(context.Background()); err == nil || !strings.Contains(err.Error(), "explicit validated engine migration") || docker.writes != 0 {
+		t.Fatalf("startRetained did not reject stale major version cleanly: err=%v writes=%d", err, docker.writes)
+	}
+}
