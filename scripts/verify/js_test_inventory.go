@@ -22,6 +22,7 @@ type javascriptTestOwner struct {
 func javascriptTestOwners() []javascriptTestOwner {
 	return []javascriptTestOwner{
 		{"internal/generate/testdata/typescript_client_conformance.test.ts", "ui", "client", "tools/typescript dependencies"},
+		{"internal/generate/testdata/assistant_react.test.tsx", "ui", "client", "tools/typescript dependencies"},
 		{"internal/generate/testdata/dev_runtime_client.test.ts", "ui", "client", "tools/typescript dependencies"},
 		{"internal/generate/testdata/query_table_perf.test.tsx", "ui", "table", "tools/typescript dependencies"},
 		{"internal/generate/testdata/query_table_regressions.test.tsx", "ui", "table", "tools/typescript dependencies"},

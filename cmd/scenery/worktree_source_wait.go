@@ -131,14 +131,7 @@ func runWorktreeSourceWait(ctx context.Context, stdout io.Writer, opts statusOpt
 			return err
 		}
 	} else {
-		generation := uint64(0)
-		if result.Serving != nil {
-			generation = result.Serving.Generation
-		}
-		_, _ = fmt.Fprintf(stdout, "%s after %dms (target %s, generation %d, freshness %s)\n", result.Outcome, result.WaitedMS, result.TargetSourceSnapshotDigest, generation, result.SourceFreshness)
-		if result.CompileError != "" {
-			_, _ = fmt.Fprintln(stdout, result.CompileError)
-		}
+		writeSourceWaitText(stdout, result)
 	}
 	if !result.OK {
 		return &silentCLIError{err: fmt.Errorf("source wait ended %s", result.Outcome), code: 3}

@@ -20,7 +20,7 @@ const harnessTestResultsKind = "scenery.harness.test_results"
 func runHarnessBunStep(ctx context.Context, dir, name string, files []string, expected *int, artifacts harnessArtifactContext) harnessStep {
 	return runHarnessJUnitStep(ctx, dir, name, "bun", files, expected, artifacts, func(report string) []string {
 		command := []string{"bun", "test", "--reporter=junit", "--reporter-outfile=" + report}
-		if strings.Contains(strings.Join(files, ";"), "query_table_") {
+		if strings.Contains(strings.Join(files, ";"), "query_table_") || strings.Contains(strings.Join(files, ";"), "assistant_react.test") {
 			command = append(command, "--tsconfig-override="+filepath.Join(dir, "tools", "typescript", "tsconfig.runtime.json"))
 		}
 		return append(command, files...)

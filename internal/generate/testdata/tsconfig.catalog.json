@@ -20,5 +20,5 @@
       "react/jsx-runtime": ["../../../tools/typescript/node_modules/@types/react/jsx-runtime.d.ts"]
     }
   },
-  "include": ["../../../ui/**/*.ts", "../../../ui/**/*.tsx", "catalog_contract_test.tsx"]
+  "include": ["../../../ui/**/*.ts", "../../../ui/**/*.tsx", "catalog_contract_test.tsx", "../../uigen/testdata/assistant/react/assistants.generated.tsx"]
 }
