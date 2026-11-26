@@ -15,7 +15,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"scenery.sh/internal/appconfig"
@@ -35,6 +37,7 @@ type configurationProbe struct {
 	home     string
 	appID    string
 	extraEnv []string
+	seenPIDs map[int]bool
 }
 
 func newConfigurationProbe(ctx context.Context, repo, prefix string) (*configurationProbe, error) {
@@ -46,7 +49,21 @@ func newConfigurationProbe(ctx context.Context, repo, prefix string) (*configura
 	if _, err := rand.Read(suffix); err != nil {
 		return nil, err
 	}
-	return &configurationProbe{ctx: ctx, repo: repo, binary: harnessLocalSceneryBinaryPath(repo), base: base, home: filepath.Join(base, "agent-home"), appID: "cfgprobe-" + hex.EncodeToString(suffix)}, nil
+	return &configurationProbe{
+		ctx:      ctx,
+		repo:     repo,
+		binary:   harnessLocalSceneryBinaryPath(repo),
+		base:     base,
+		home:     filepath.Join(base, "agent-home"),
+		appID:    "cfgprobe-" + hex.EncodeToString(suffix),
+		seenPIDs: map[int]bool{},
+	}, nil
+}
+
+func (p *configurationProbe) recordPID(pid int) {
+	if pid > 0 {
+		p.seenPIDs[pid] = true
+	}
 }
 
 func (p *configurationProbe) env() []string {
@@ -208,7 +225,13 @@ func (p *configurationProbe) up(root string) (configurationRuntime, error) {
 	if err != nil {
 		return configurationRuntime{}, err
 	}
-	return decodeConfigurationRuntime(output)
+	rt, err := decodeConfigurationRuntime(output)
+	if err == nil {
+		for _, process := range rt.processes {
+			p.recordPID(process.PID)
+		}
+	}
+	return rt, err
 }
 
 func decodeConfigurationRuntime(output []byte) (configurationRuntime, error) {
@@ -240,23 +263,39 @@ func decodeConfigurationRuntime(output []byte) (configurationRuntime, error) {
 	return result, nil
 }
 
-// processes lists the live application processes of root by executable.
+// processes lists live application host and worker processes associated with
+// root (executables under <root>/.scenery/ or direct children of tracked host
+// PIDs).
 func (p *configurationProbe) processes(root string) (map[string]configurationProcess, error) {
-	output, err := exec.CommandContext(p.ctx, "ps", "-axo", "pid=,command=").Output()
+	output, err := exec.CommandContext(p.ctx, "ps", "-axo", "pid=,ppid=,command=").Output()
 	if err != nil {
 		return nil, err
 	}
-	sessions := filepath.Join(root, ".scenery", "sessions")
+	sceneryDir := filepath.Join(root, ".scenery") + string(os.PathSeparator)
 	canonical, _ := filepath.EvalSymlinks(root)
+	canonicalDir := ""
+	if canonical != "" {
+		canonicalDir = filepath.Join(canonical, ".scenery") + string(os.PathSeparator)
+	}
 	result := map[string]configurationProcess{}
 	for line := range strings.SplitSeq(string(output), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 2 || (!strings.HasPrefix(fields[1], sessions) && (canonical == "" || !strings.HasPrefix(fields[1], filepath.Join(canonical, ".scenery", "sessions")))) {
+		if len(fields) < 3 {
 			continue
 		}
-		var pid int
-		_, _ = fmt.Sscan(fields[0], &pid)
-		result[filepath.Base(fields[1])+fmt.Sprint("#", pid)] = configurationProcess{PID: pid, Executable: filepath.Base(fields[1])}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		ppid, _ := strconv.Atoi(fields[1])
+		cmd := strings.Join(fields[2:], " ")
+		matchesRoot := strings.Contains(cmd, sceneryDir) || (canonicalDir != "" && strings.Contains(cmd, canonicalDir))
+		if !matchesRoot && !p.seenPIDs[pid] && !p.seenPIDs[ppid] {
+			continue
+		}
+		p.recordPID(pid)
+		exe := filepath.Base(fields[2])
+		result[fmt.Sprintf("%s#%d", exe, pid)] = configurationProcess{PID: pid, Executable: exe}
 	}
 	return result, nil
 }
@@ -288,18 +327,26 @@ func publicBanner(ctx context.Context, socket string) (string, error) {
 	return document.Values["echo.banner"], nil
 }
 
-func echoMessage(ctx context.Context, socket string) (string, error) {
+type configurationEchoResponse struct {
+	Message        string
+	HostPID        int
+	WorkerPID      int
+	BuildDigest    string
+	Implementation string
+}
+
+func echoCall(ctx context.Context, socket string) (configurationEchoResponse, error) {
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://runtime/echo", strings.NewReader(`{"message":"hi"}`))
 	if err != nil {
-		return "", err
+		return configurationEchoResponse{}, err
 	}
 	request.Header.Set("content-type", "application/json")
 	response, err := client.Do(request)
 	if err != nil {
-		return "", err
+		return configurationEchoResponse{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
@@ -307,9 +354,22 @@ func echoMessage(ctx context.Context, socket string) (string, error) {
 		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return "", fmt.Errorf("echo response %q", body)
+		return configurationEchoResponse{}, fmt.Errorf("echo response %q", body)
 	}
-	return decoded.Message, nil
+	hostPID, _ := strconv.Atoi(response.Header.Get("X-App-Host-Pid"))
+	workerPID, _ := strconv.Atoi(response.Header.Get("X-App-Worker-Pid"))
+	return configurationEchoResponse{
+		Message:        decoded.Message,
+		HostPID:        hostPID,
+		WorkerPID:      workerPID,
+		BuildDigest:    response.Header.Get("X-App-Build-Digest"),
+		Implementation: response.Header.Get("X-App-Implementation-Revision"),
+	}, nil
+}
+
+func echoMessage(ctx context.Context, socket string) (string, error) {
+	result, err := echoCall(ctx, socket)
+	return result.Message, err
 }
 
 // waitForEcho polls until echo answers want.
@@ -347,6 +407,11 @@ func (p *configurationProbe) cleanup(summary map[string]any, roots ...string) {
 		_, _ = p.run(root, nil, "down", "-o", "json")
 	}
 	leftover := 0
+	for pid := range p.seenPIDs {
+		if !harnessWaitProcessExit(pid, 10*time.Second) && syscall.Kill(pid, 0) == nil {
+			leftover++
+		}
+	}
 	for _, root := range roots {
 		if processes, err := p.processes(root); err == nil {
 			leftover += len(processes)
@@ -420,10 +485,12 @@ func runHarnessConfigurationProbe(ctx context.Context, repoRoot string) (summary
 		return summary, nil, errors.New("worktrees share one API socket")
 	}
 	summary["shared_value_distinct_runtimes"] = "passed"
-	before, err := p.processes(rootA)
-	if err != nil {
-		return summary, nil, err
+	before, err := echoCall(ctx, a.socket)
+	if err != nil || before.HostPID <= 0 || before.WorkerPID <= 0 || before.BuildDigest == "" {
+		return summary, nil, fmt.Errorf("initial echo identity = %+v, %v", before, err)
 	}
+	p.recordPID(before.HostPID)
+	p.recordPID(before.WorkerPID)
 	logBefore, err := configurationBuildArtifacts(p.home)
 	if err != nil {
 		return summary, nil, err
@@ -436,16 +503,20 @@ func runHarnessConfigurationProbe(ctx context.Context, repoRoot string) (summary
 			return summary, nil, fmt.Errorf("configuration change: %w", err)
 		}
 	}
-	after, err := p.processes(rootA)
-	if err != nil {
-		return summary, nil, err
+	after, err := echoCall(ctx, a.socket)
+	if err != nil || after.HostPID <= 0 || after.WorkerPID <= 0 {
+		return summary, nil, fmt.Errorf("restarted echo identity = %+v, %v", after, err)
 	}
-	restarted, kept, err := compareConfigurationProcesses(before, after)
-	if err != nil {
-		return summary, nil, err
+	p.recordPID(after.HostPID)
+	p.recordPID(after.WorkerPID)
+	if after.HostPID == before.HostPID || after.WorkerPID == before.WorkerPID {
+		return summary, nil, fmt.Errorf("configuration change did not restart host/worker: before=%+v after=%+v", before, after)
 	}
-	if restarted != 1 || kept != len(before)-1 {
-		return summary, nil, fmt.Errorf("configuration change restarted %d and kept %d of %d processes; want exactly the consumer restarted", restarted, kept, len(before))
+	if after.BuildDigest != before.BuildDigest || after.Implementation != before.Implementation {
+		return summary, nil, fmt.Errorf("configuration change altered worker build identity: before=%+v after=%+v", before, after)
+	}
+	if !harnessWaitProcessExit(before.HostPID, 15*time.Second) || !harnessWaitProcessExit(before.WorkerPID, 15*time.Second) {
+		return summary, nil, fmt.Errorf("previous host (%d) or worker (%d) did not exit after configuration restart", before.HostPID, before.WorkerPID)
 	}
 	logAfter, err := configurationBuildArtifacts(p.home)
 	if err != nil {
@@ -454,7 +525,7 @@ func runHarnessConfigurationProbe(ctx context.Context, repoRoot string) (summary
 	if logAfter != logBefore {
 		return summary, nil, fmt.Errorf("a configuration-only change linked %d executables", logAfter-logBefore)
 	}
-	summary["consumer_only_restart_same_executables_no_link"] = "passed"
+	summary["host_restart_same_executables_no_link"] = "passed"
 	// A newer branch's differently typed value and unknown key.
 	store, err := appconfig.OpenStore(p.home, p.appID)
 	if err != nil {
@@ -524,28 +595,6 @@ func configurationBuildArtifacts(home string) (int, error) {
 		count += bytes.Count(data, []byte(`"name":"build.artifact"`))
 	}
 	return count, nil
-}
-
-func compareConfigurationProcesses(before, after map[string]configurationProcess) (restarted, kept int, err error) {
-	pids := map[int]string{}
-	for _, process := range after {
-		pids[process.PID] = process.Executable
-	}
-	executables := map[string]bool{}
-	for _, process := range after {
-		executables[process.Executable] = true
-	}
-	for _, process := range before {
-		if !executables[process.Executable] {
-			return 0, 0, fmt.Errorf("executable %s changed", process.Executable)
-		}
-		if pids[process.PID] == process.Executable {
-			kept++
-		} else {
-			restarted++
-		}
-	}
-	return restarted, kept, nil
 }
 
 func configurationWait(check func() (bool, error)) error {
@@ -634,6 +683,10 @@ func runHarnessConfigurationSecretsProbe(ctx context.Context, repoRoot string) (
 	if err := waitForEcho(ctx, runtimeState.socket, fmt.Sprintf("echo[%d]:hi", len(secret))); err != nil {
 		return summary, diagnostics, fmt.Errorf("secret delivery: %w", err)
 	}
+	if delivered, err := echoCall(ctx, runtimeState.socket); err == nil {
+		p.recordPID(delivered.HostPID)
+		p.recordPID(delivered.WorkerPID)
+	}
 	shown, err := p.run(root, nil, "config", "show", "--env", "local", "-o", "json")
 	if err != nil {
 		return summary, diagnostics, err
@@ -641,12 +694,17 @@ func runHarnessConfigurationSecretsProbe(ctx context.Context, repoRoot string) (
 	if leak := configurationSecretLeak(secret, [][]byte{output, shown}, p.home, root); leak != "" {
 		return summary, diagnostics, fmt.Errorf("secret plaintext leaked into %s", leak)
 	}
-	if processes, err := p.processes(root); err == nil {
-		for _, process := range processes {
-			environment, _ := exec.CommandContext(ctx, "ps", "eww", "-p", fmt.Sprint(process.PID)).Output()
-			if bytes.Contains(environment, []byte(secret)) {
-				return summary, diagnostics, errors.New("secret plaintext is in a process environment")
-			}
+	processes, err := p.processes(root)
+	if err != nil {
+		return summary, diagnostics, err
+	}
+	if len(processes) < 2 {
+		return summary, diagnostics, fmt.Errorf("expected live host and worker processes for secret leak check, found %d", len(processes))
+	}
+	for _, process := range processes {
+		environment, _ := exec.CommandContext(ctx, "ps", "eww", "-p", fmt.Sprint(process.PID)).Output()
+		if bytes.Contains(environment, []byte(secret)) {
+			return summary, diagnostics, errors.New("secret plaintext is in a process environment")
 		}
 	}
 	summary["secret_delivered_without_leak"] = "passed"

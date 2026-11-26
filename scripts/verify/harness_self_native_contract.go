@@ -63,7 +63,9 @@ func (s *harnessNativeContractProbeSegments) run(name string, fn func() error) e
 }
 
 func runHarnessNativeContractApplicationProbeCheckWithArtifacts(parent context.Context, repoRoot string, artifacts harnessArtifactContext) (summary map[string]any, diagnostics []checkDiagnostic, err error) {
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	// Cold compilation of scenery-host on a 2-vCPU CI runner can take ~2 minutes
+	// before the fixture application starts.
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 
 	segments := &harnessNativeContractProbeSegments{}
