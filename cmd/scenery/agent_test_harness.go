@@ -55,8 +55,9 @@ type testDatabaseHarness struct {
 }
 
 func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Config, compiled *compiler.Result, baseEnv []string) (*testDatabaseHarness, error) {
-	if len(compiled.SQLRequirements) == 0 {
-		return nil, nil
+	cfgs, err := resolveSQLSupply(compiled.SQLRequirements, baseEnv, true)
+	if err != nil || len(cfgs) == 0 {
+		return nil, err
 	}
 	var adminURL string
 	canonicalRoot := root
@@ -66,13 +67,11 @@ func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Confi
 		if err := validateAppPostgresURL(externalURL); err != nil {
 			return nil, err
 		}
-		var err error
 		adminURL, err = postgresdb.DatabaseURLWithName(externalURL, "postgres")
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		var err error
 		canonicalRoot, adminURL, stopAfter, err = acquireManagedPostgresHarness(ctx, root, cfg.AppID())
 		if err != nil {
 			return nil, err

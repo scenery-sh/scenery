@@ -246,10 +246,11 @@ func prepareWorktreeDatabase(ctx context.Context, createdRoot string, cfg appcfg
 	if err != nil {
 		return nil, err
 	}
-	if len(contract.SQLRequirements) == 0 {
-		return nil, nil
-	}
 	baseEnv := envpolicy.Environ()
+	cfgs, err := resolveSQLSupply(contract.SQLRequirements, baseEnv, true)
+	if err != nil || len(cfgs) == 0 {
+		return nil, err
+	}
 	var adminURL string
 	canonicalRoot := createdRoot
 	var stopAfter func() error
