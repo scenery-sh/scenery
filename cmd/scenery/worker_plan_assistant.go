@@ -59,15 +59,23 @@ func (p workerPlanProjection) assistant(result *compiler.Result, resource graph.
 	if err != nil {
 		return workerAssistantPlan{}, err
 	}
-	owner := resource
-	owner.Spec = surface
-	policy := p.policy(workerruntime.WorkerServicePlan{Name: resource.Name}, owner, graph.Resource{})
-	policy.GatewayAddress = workerReference(owner, surface["gateway"], "http_gateway")
-	gateway := p.resources[policy.GatewayAddress]
-	policy.CORS = cp.LastRef(workerRefText(gateway.Spec["cors"]))
-	if value, ok := gateway.Spec["cors"].(map[string]any); ok {
-		policy.AllowedOrigins = workerStrings(value["origins"])
+	gatewayAddress := workerReference(resource, surface["gateway"], "http_gateway")
+	gateway, ok := p.resources[gatewayAddress]
+	if !ok || gateway.Kind != "scenery.http-gateway" {
+		return workerAssistantPlan{}, fmt.Errorf("assistant %s references unknown HTTP gateway %q", resource.Address, gatewayAddress)
 	}
+	owner := graph.Resource{
+		Address: resource.Address,
+		Module:  resource.Module,
+		Spec: map[string]any{
+			"protocol":      "http",
+			"gateway":       map[string]any{"$ref": gatewayAddress},
+			"authorization": surface["authorization"],
+			"pipeline":      surface["pipeline"],
+		},
+	}
+	policy := p.policy(workerruntime.WorkerServicePlan{Name: resource.Name}, owner, graph.Resource{})
+	populateWorkerGatewayHTTPPolicy(&policy, gateway, gateway.Spec)
 	return workerAssistantPlan{
 		Address: resource.Address, Path: firstNonEmpty(cp.StringValue(surface["path"]), "/assistants/"+resource.Name),
 		MCPServer: server, Authentication: workerReference(owner, surface["authentication"], "authentication"),

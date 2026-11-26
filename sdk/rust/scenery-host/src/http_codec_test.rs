@@ -234,3 +234,144 @@ async fn streaming_responses_negotiate_gzip_and_reject_unacceptable_encodings() 
     assert_eq!(fault.status, StatusCode::NOT_ACCEPTABLE);
     Ok(())
 }
+
+#[tokio::test]
+async fn request_and_response_media_type_parameters_are_matched() -> Result<()> {
+    let body_plan: crate::plan::BodyPlan = serde_json::from_value(json!({
+        "Codec": "json",
+        "Target": "",
+        "Include": [],
+        "Except": [],
+        "AcceptedMediaTypes": ["application/json; profile=v1"],
+        "SupportedContentEncoding": [],
+        "MaxCompressedBytes": 0,
+        "MaxDecompressedBytes": 0,
+        "MaxMultipartParts": 0,
+        "Fields": [],
+        "MultipartParts": []
+    }))?;
+
+    let mut mismatch = Request::builder()
+        .method("POST")
+        .uri("/")
+        .header(
+            "content-type",
+            "application/json; charset=utf-8; profile=v2",
+        )
+        .body(incoming_bytes(Bytes::from_static(br#"{"ok":true}"#)).await?)?;
+    let Err(fault) = decode_body(mismatch, &body_plan).await else {
+        panic!("mismatched media type parameter must return 415");
+    };
+    assert_eq!(fault.status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+    mismatch = Request::builder()
+        .method("POST")
+        .uri("/")
+        .header(
+            "content-type",
+            "application/json; profile=v1; charset=utf-8",
+        )
+        .body(incoming_bytes(Bytes::from_static(br#"{"ok":true}"#)).await?)?;
+    let decoded = decode_body(mismatch, &body_plan)
+        .await
+        .unwrap_or_else(|fault| panic!("matching parameter failed: {}", fault.code));
+    assert_eq!(decoded["ok"], true);
+
+    let response_plan: ResponsePlan = serde_json::from_value(json!({
+        "Status": 200, "Codec": "json", "Media": ["application/json; profile=v1"],
+        "Body": {"Path": ["data"], "Optional": false, "DefaultEmpty": false},
+        "Stream": false,
+        "Options": {"MaxBytes": 1024, "CompressionAlgorithms": [], "CompressionThreshold": 0},
+        "Headers": [], "Cookies": []
+    }))?;
+    let make_outcome = || Outcome {
+        kind: "result".into(),
+        name: "ok".into(),
+        payload: values::parse(br#"{"data":{"ok":true}}"#).unwrap(),
+        stream: None,
+        worker: None,
+    };
+
+    let mut wrong_accept = HeaderMap::new();
+    wrong_accept.insert(
+        "accept",
+        HeaderValue::from_static("application/json; profile=v2"),
+    );
+    let Err(fault) = encode_response(&response_plan, make_outcome(), &wrong_accept) else {
+        panic!("mismatched Accept parameter must return 406");
+    };
+    assert_eq!(fault.status, StatusCode::NOT_ACCEPTABLE);
+
+    for accept in ["application/json; profile=v1", "application/json"] {
+        let mut headers = HeaderMap::new();
+        headers.insert("accept", HeaderValue::from_static(accept));
+        let reply = encode_response(&response_plan, make_outcome(), &headers)
+            .unwrap_or_else(|fault| panic!("Accept={accept} failed: {}", fault.code));
+        assert_eq!(
+            reply.headers()["content-type"],
+            "application/json; profile=v1"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn gzip_request_body_rejects_trailing_bytes_and_second_member() -> Result<()> {
+    let body_plan: crate::plan::BodyPlan = serde_json::from_value(json!({
+        "Codec": "json",
+        "Target": "",
+        "Include": [],
+        "Except": [],
+        "AcceptedMediaTypes": ["application/json"],
+        "SupportedContentEncoding": ["gzip"],
+        "MaxCompressedBytes": 4096,
+        "MaxDecompressedBytes": 4096,
+        "MaxMultipartParts": 0,
+        "Fields": [],
+        "MultipartParts": []
+    }))?;
+    let gzip_member = |raw: &[u8]| -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(raw).unwrap();
+        encoder.finish().unwrap()
+    };
+    let valid = gzip_member(br#"{"ok":true}"#);
+
+    let ok_req = Request::builder()
+        .method("POST")
+        .uri("/")
+        .header("content-type", "application/json")
+        .header("content-encoding", "gzip")
+        .body(incoming_bytes(Bytes::from(valid.clone())).await?)?;
+    let decoded = decode_body(ok_req, &body_plan)
+        .await
+        .unwrap_or_else(|fault| panic!("valid gzip failed: {}", fault.code));
+    assert_eq!(decoded["ok"], true);
+
+    let mut with_trailing = valid.clone();
+    with_trailing.extend_from_slice(b"trailing");
+    let trailing_req = Request::builder()
+        .method("POST")
+        .uri("/")
+        .header("content-type", "application/json")
+        .header("content-encoding", "gzip")
+        .body(incoming_bytes(Bytes::from(with_trailing)).await?)?;
+    let Err(fault) = decode_body(trailing_req, &body_plan).await else {
+        panic!("gzip payload with trailing bytes was accepted");
+    };
+    assert_eq!(fault.status, StatusCode::BAD_REQUEST);
+
+    let mut two_members = valid;
+    two_members.extend_from_slice(&gzip_member(br#"{"second":true}"#));
+    let multi_req = Request::builder()
+        .method("POST")
+        .uri("/")
+        .header("content-type", "application/json")
+        .header("content-encoding", "gzip")
+        .body(incoming_bytes(Bytes::from(two_members)).await?)?;
+    let Err(fault) = decode_body(multi_req, &body_plan).await else {
+        panic!("multi-member gzip payload was accepted");
+    };
+    assert_eq!(fault.status, StatusCode::BAD_REQUEST);
+    Ok(())
+}

@@ -30,12 +30,20 @@ struct DeadlineState {
     write_deadline: Option<Instant>,
     read_waker: Option<Waker>,
     write_waker: Option<Waker>,
+    header_read: Duration,
     pending_write_timeout: Duration,
     connection_idle: Duration,
+    /// Set between response completion and the first byte of the next HTTP
+    /// request so idle keep-alive waits for `connection_idle` and switches
+    /// back to `header_read` once header bytes arrive.
+    awaiting_next_request: bool,
     /// Set once the request body has been consumed: the read deadline
     /// bounds the upload, not the handler that runs after it.
     body_finished: bool,
     response_body_ended: bool,
+    unflushed_writes: bool,
+    event_stream: bool,
+    upgrade_pending: bool,
     /// The inactivity allowance of the response in flight, if it has one.
     idle_timeout: Option<Duration>,
     upgraded: bool,
@@ -56,10 +64,15 @@ impl DeadlineControl {
                 write_deadline: Some(now + timeouts.write),
                 read_waker: None,
                 write_waker: None,
+                header_read: timeouts.header_read,
                 pending_write_timeout: timeouts.write,
                 connection_idle: timeouts.idle,
+                awaiting_next_request: false,
                 body_finished: false,
                 response_body_ended: false,
+                unflushed_writes: false,
+                event_stream: false,
+                upgrade_pending: false,
                 idle_timeout: None,
                 upgraded: false,
             }),
@@ -78,8 +91,12 @@ impl DeadlineControl {
             state.read_deadline = Some(now + read_timeout);
             state.write_deadline = Some(now + write_timeout);
             state.pending_write_timeout = write_timeout;
+            state.awaiting_next_request = false;
             state.body_finished = false;
             state.response_body_ended = false;
+            state.unflushed_writes = false;
+            state.event_stream = false;
+            state.upgrade_pending = false;
             state.idle_timeout = None;
             (state.read_waker.take(), state.write_waker.take())
         };
@@ -144,24 +161,26 @@ impl DeadlineControl {
         let (read_waker, write_waker) = {
             let mut state = self.state.lock().expect("deadline lock");
             state.connection_idle = idle_timeout;
-            if state
-                .write_deadline
-                .is_some_and(|deadline| Instant::now() >= deadline)
-            {
+            state.awaiting_next_request = false;
+            let now = Instant::now();
+            if state.write_deadline.is_some_and(|deadline| now >= deadline) {
                 // Keep the already-expired write deadline armed so `poll_write`
                 // aborts instead of flushing late headers or SSE/101 streams.
                 (state.read_waker.take(), state.write_waker.take())
             } else if status == StatusCode::SWITCHING_PROTOCOLS {
-                state.upgraded = true;
-                state.read_deadline = None;
-                state.write_deadline = None;
+                state.upgrade_pending = true;
+                state.unflushed_writes = true;
                 state.response_body_ended = false;
+                state.read_deadline = None;
+                if state.write_deadline.is_none() {
+                    state.write_deadline = Some(now + state.pending_write_timeout);
+                }
                 (state.read_waker.take(), state.write_waker.take())
             } else if state.upgraded {
                 return;
             } else {
-                // Event streams stay open across long silences: a client
-                // waits on them for as long as a run or an approval takes.
+                // Event streams stay open across long silences: a client waits
+                // on them across quiet pauses while header/chunk flushes stay bounded.
                 let events = headers
                     .get("content-type")
                     .and_then(|value| value.to_str().ok())
@@ -170,14 +189,16 @@ impl DeadlineControl {
                         media.starts_with("text/event-stream")
                             || media.starts_with("application/x-ndjson")
                     });
+                state.unflushed_writes = true;
+                if state.write_deadline.is_none() {
+                    state.write_deadline = Some(now + state.pending_write_timeout);
+                }
                 if events {
+                    state.event_stream = true;
                     state.read_deadline = None;
-                    state.write_deadline = None;
+                    state.idle_timeout = None;
                 } else {
-                    let now = Instant::now();
-                    if state.write_deadline.is_none() {
-                        state.write_deadline = Some(now + state.pending_write_timeout);
-                    }
+                    state.event_stream = false;
                     state.read_deadline = Some(now + idle_timeout);
                     state.idle_timeout = Some(idle_timeout);
                 }
@@ -216,46 +237,92 @@ impl DeadlineControl {
         }
     }
 
-    /// Moves the response deadlines forward after the client accepted
-    /// bytes. They bound inactivity, so a slow but live download finishes.
-    fn response_progressed(&self) {
-        let mut state = self.state.lock().expect("deadline lock");
-        let Some(idle) = state.idle_timeout else {
-            return;
-        };
-        let now = Instant::now();
-        state.write_deadline = Some(now + state.pending_write_timeout);
-        state.read_deadline = Some(now + idle);
-    }
-
-    fn response_body_finished(&self) {
+    fn on_request_bytes_read(&self) {
         let read_waker = {
             let mut state = self.state.lock().expect("deadline lock");
-            if state.upgraded {
+            if state.upgraded || !state.awaiting_next_request {
                 return;
             }
-            state.response_body_ended = true;
-            if state.write_deadline.is_none() {
-                state.read_deadline = Some(Instant::now() + state.connection_idle);
-                state.read_waker.take()
-            } else {
-                None
-            }
+            state.awaiting_next_request = false;
+            state.read_deadline = Some(Instant::now() + state.header_read);
+            state.read_waker.take()
         };
         if let Some(waker) = read_waker {
             waker.wake();
         }
     }
 
+    /// Moves the response deadlines forward after the client accepted
+    /// bytes. They bound inactivity, so a slow but live download finishes.
+    fn response_progressed(&self) {
+        let mut changed = false;
+        {
+            let mut state = self.state.lock().expect("deadline lock");
+            state.unflushed_writes = true;
+            if let Some(idle) = state.idle_timeout {
+                let now = Instant::now();
+                state.write_deadline = Some(now + state.pending_write_timeout);
+                state.read_deadline = Some(now + idle);
+            } else if (state.event_stream || state.upgrade_pending || state.response_body_ended)
+                && !state.upgraded
+            {
+                changed = state.write_deadline.is_none();
+                state.write_deadline = Some(Instant::now() + state.pending_write_timeout);
+            }
+        }
+        if changed {
+            self.notify.notify_waiters();
+        }
+    }
+
+    fn response_body_finished(&self) {
+        let (read_waker, changed) = {
+            let mut state = self.state.lock().expect("deadline lock");
+            if state.upgraded {
+                return;
+            }
+            state.response_body_ended = true;
+            if !state.unflushed_writes && !state.upgrade_pending {
+                state.idle_timeout = None;
+                state.awaiting_next_request = true;
+                state.read_deadline = Some(Instant::now() + state.connection_idle);
+                (state.read_waker.take(), true)
+            } else {
+                (None, false)
+            }
+        };
+        if let Some(waker) = read_waker {
+            waker.wake();
+        }
+        if changed {
+            self.notify.notify_waiters();
+        }
+    }
+
     fn on_response_flushed(&self) {
         let (read_waker, write_waker, changed) = {
             let mut state = self.state.lock().expect("deadline lock");
-            if state.response_body_ended && !state.upgraded {
+            state.unflushed_writes = false;
+            if state.upgrade_pending {
+                state.upgrade_pending = false;
+                state.upgraded = true;
                 state.response_body_ended = false;
+                state.event_stream = false;
+                state.idle_timeout = None;
+                state.read_deadline = None;
+                state.write_deadline = None;
+                (state.read_waker.take(), state.write_waker.take(), true)
+            } else if state.response_body_ended && !state.upgraded {
+                state.response_body_ended = false;
+                state.event_stream = false;
                 state.write_deadline = None;
                 state.idle_timeout = None;
+                state.awaiting_next_request = true;
                 state.read_deadline = Some(Instant::now() + state.connection_idle);
                 (state.read_waker.take(), state.write_waker.take(), true)
+            } else if state.event_stream && !state.upgraded {
+                let had_deadline = state.write_deadline.take().is_some();
+                (None, state.write_waker.take(), had_deadline)
             } else {
                 (None, None, false)
             }
@@ -286,9 +353,23 @@ impl DeadlineControl {
     }
 
     fn write_deadline_and_register(&self, waker: &Waker) -> Option<Instant> {
-        let mut state = self.state.lock().expect("deadline lock");
-        state.write_waker = Some(waker.clone());
-        state.write_deadline
+        let (deadline, changed) = {
+            let mut state = self.state.lock().expect("deadline lock");
+            state.write_waker = Some(waker.clone());
+            let mut armed_now = false;
+            if state.write_deadline.is_none()
+                && !state.upgraded
+                && (state.event_stream || state.upgrade_pending || state.response_body_ended)
+            {
+                state.write_deadline = Some(Instant::now() + state.pending_write_timeout);
+                armed_now = true;
+            }
+            (state.write_deadline, armed_now)
+        };
+        if changed {
+            self.notify.notify_waiters();
+        }
+        deadline
     }
 
     #[cfg(test)]
@@ -365,8 +446,15 @@ impl<S: AsyncRead + Unpin> AsyncRead for DeadlineStream<S> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.as_mut().get_mut();
+        let before = buf.filled().len();
         match Pin::new(&mut this.inner).poll_read(cx, buf) {
-            Poll::Ready(result) => Poll::Ready(result),
+            Poll::Ready(Ok(())) => {
+                if buf.filled().len() > before {
+                    this.control.on_request_bytes_read();
+                }
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
             Poll::Pending => poll_deadline(
                 this.control.read_deadline_and_register(cx.waker()),
                 &mut this.read_sleep,

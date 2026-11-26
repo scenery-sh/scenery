@@ -671,8 +671,8 @@ async fn register(client: &impl GenericClient, reg: &Registration) -> Result<()>
             success_retention_ms=excluded.success_retention_ms, failure_retention_ms=excluded.failure_retention_ms,
             enabled=true,updated_at=now()",
         &[&reg.service, &reg.external_name, &(reg.revision as i32), &reg.address,
-            &(effective_timeout(reg).as_millis().min(i32::MAX as u128) as i32),
-            &(effective_lease(reg).as_millis().min(i32::MAX as u128) as i32),
+            &effective_timeout_ms(reg),
+            &effective_lease_ms(reg),
             &reg.max_attempts, &reg.max_concurrency, &ms(reg.deduplication_retention),
             &reg.deduplication_conflict, &(ms(reg.retry_initial) as i32), &(ms(reg.retry_max) as i32),
             &reg.retry_backoff, &reg.retry_jitter, &ms(reg.success_retention), &ms(reg.failure_retention)],
@@ -703,22 +703,30 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
     }
 }
 
-pub(super) fn effective_timeout(reg: &Registration) -> Duration {
+pub(super) fn effective_timeout_ms(reg: &Registration) -> i32 {
     if reg.default_timeout == 0 {
-        Duration::from_secs(60)
+        60_000
     } else {
-        Duration::from_nanos(reg.default_timeout)
+        reg.default_timeout.div_ceil(1_000_000).min(i32::MAX as u64) as i32
     }
 }
 
-pub(super) fn effective_lease(reg: &Registration) -> Duration {
-    let timeout = effective_timeout(reg);
-    let lease = if reg.default_lease == 0 {
-        Duration::from_secs(60)
+pub(super) fn effective_lease_ms(reg: &Registration) -> i32 {
+    let timeout_ms = effective_timeout_ms(reg);
+    let lease_ms = if reg.default_lease == 0 {
+        60_000
     } else {
-        Duration::from_nanos(reg.default_lease)
+        reg.default_lease.div_ceil(1_000_000).min(i32::MAX as u64) as i32
     };
-    lease.min(timeout)
+    lease_ms.min(timeout_ms)
+}
+
+pub(super) fn effective_timeout(reg: &Registration) -> Duration {
+    Duration::from_millis(effective_timeout_ms(reg) as u64)
+}
+
+pub(super) fn effective_lease(reg: &Registration) -> Duration {
+    Duration::from_millis(effective_lease_ms(reg) as u64)
 }
 
 async fn execute_next(
@@ -829,6 +837,7 @@ async fn execute_next(
     };
     tokio::pin!(execute);
     let lease = effective_lease(reg);
+    let lease_ms = i64::from(effective_lease_ms(reg));
     let mut heartbeat = interval(Duration::from_nanos(
         u64::try_from(lease.as_nanos() / 3)
             .unwrap_or(u64::MAX)
@@ -855,7 +864,7 @@ async fn execute_next(
                     "UPDATE scenery.durable_jobs SET lease_until=LEAST(timeout_at,now() + ($4::bigint * interval '1 millisecond'))
                      WHERE service=$1 AND id=$2 AND lease_id=$3 AND state='running'
                        AND lease_until > now() AND timeout_at > now()",
-                    &[&reg.service, &job.id, &lease_id, &(lease.as_millis().min(i64::MAX as u128) as i64)],
+                    &[&reg.service, &job.id, &lease_id, &lease_ms],
                 ).await?;
                 if updated == 0 {
                     call.cancel.cancel();

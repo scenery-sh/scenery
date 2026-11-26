@@ -42,9 +42,7 @@ async fn slow_request_body_trickle_times_out_at_read_deadline() {
             }
         });
         let mut builder = hyper::server::conn::http1::Builder::new();
-        builder
-            .timer(hyper_util::rt::TokioTimer::new())
-            .header_read_timeout(timeouts.header_read);
+        builder.timer(hyper_util::rt::TokioTimer::new());
         let _ = builder
             .serve_connection(TokioIo::new(stream), service)
             .await;
@@ -372,6 +370,9 @@ fn websocket_upgrade_and_sse_disable_write_deadline() {
     );
     control.begin_request(timeouts.read, timeouts.write);
     control.begin_response(StatusCode::OK, &sse_headers, timeouts.idle);
+    assert!(control.write_deadline().is_some());
+    assert!(control.read_deadline().is_none());
+    control.on_response_flushed();
     assert!(control.write_deadline().is_none());
     assert!(control.read_deadline().is_none());
 
@@ -382,6 +383,9 @@ fn websocket_upgrade_and_sse_disable_write_deadline() {
     );
     control.begin_request(timeouts.read, timeouts.write);
     control.begin_response(StatusCode::OK, &ndjson_headers, timeouts.idle);
+    assert!(control.write_deadline().is_some());
+    assert!(control.read_deadline().is_none());
+    control.on_response_flushed();
     assert!(control.write_deadline().is_none());
     assert!(control.read_deadline().is_none());
 
@@ -399,6 +403,9 @@ fn websocket_upgrade_and_sse_disable_write_deadline() {
         &HeaderMap::new(),
         timeouts.idle,
     );
+    assert!(control.write_deadline().is_some());
+    assert!(control.read_deadline().is_none());
+    control.on_response_flushed();
     assert!(control.write_deadline().is_none());
     assert!(control.read_deadline().is_none());
 }
@@ -519,4 +526,185 @@ async fn sse_response_completion_rearms_idle_read_deadline_on_keep_alive() {
             .is_ok(),
         "idle keep-alive connection after SSE did not time out"
     );
+}
+
+#[tokio::test]
+async fn keep_alive_idle_outlives_header_read_then_enforces_header_read_on_next_request() {
+    let timeouts = HttpTimeouts {
+        header_read: Duration::from_millis(80),
+        read: Duration::from_secs(2),
+        write: Duration::from_secs(2),
+        idle: Duration::from_millis(450),
+    };
+    let (server_io, mut client_io) = tokio::io::duplex(4096);
+    let (stream, control) = DeadlineStream::new(server_io, timeouts);
+    let server = tokio::spawn(async move {
+        let service = service_fn(move |_request: Request<Incoming>| {
+            let control = control.clone();
+            control.begin_request(timeouts.read, timeouts.write);
+            async move {
+                let mut response = Response::new(Full::new(Bytes::from_static(b"data: ok\n\n")));
+                response.headers_mut().insert(
+                    "content-type",
+                    HeaderValue::from_static("text/event-stream"),
+                );
+                control.begin_response(response.status(), response.headers(), timeouts.idle);
+                Ok::<_, Infallible>(response.map(|body| ResponseBodyGuard::new(body, control)))
+            }
+        });
+        hyper::server::conn::http1::Builder::new()
+            .timer(hyper_util::rt::TokioTimer::new())
+            .serve_connection(TokioIo::new(stream), service)
+            .await
+    });
+
+    client_io
+        .write_all(b"GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buffer = [0u8; 512];
+    let mut received = Vec::new();
+    while !received.windows(10).any(|window| window == b"data: ok\n\n") {
+        let n = client_io.read(&mut buffer).await.unwrap();
+        assert!(n > 0);
+        received.extend_from_slice(&buffer[..n]);
+    }
+
+    // Pause longer than header_read (80ms) but shorter than idle (450ms).
+    tokio::time::sleep(Duration::from_millis(180)).await;
+    client_io
+        .write_all(b"GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .unwrap();
+    received.clear();
+    while !received.windows(10).any(|window| window == b"data: ok\n\n") {
+        let n = client_io.read(&mut buffer).await.unwrap();
+        assert!(n > 0, "keep-alive closed prematurely after header_read");
+        received.extend_from_slice(&buffer[..n]);
+    }
+
+    // Start a partial third request after idle pause: header_read (80ms) must cut it before 450ms idle.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let partial_started = Instant::now();
+    client_io
+        .write_all(b"GET /stall HTTP/1.1\r\nHost: loc")
+        .await
+        .unwrap();
+    let mut tail = Vec::new();
+    let eof = tokio::time::timeout(Duration::from_millis(280), client_io.read_to_end(&mut tail))
+        .await
+        .expect("partial second request headers should time out at header_read");
+    assert!(eof.is_ok());
+    assert!(partial_started.elapsed() < Duration::from_millis(280));
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn sse_stalled_headers_time_out_while_quiet_stream_stays_open() {
+    // Client stops reading before large SSE response headers flush -> write_timeout aborts.
+    let timeouts = HttpTimeouts {
+        header_read: Duration::from_secs(2),
+        read: Duration::from_secs(2),
+        write: Duration::from_millis(80),
+        idle: Duration::from_secs(5),
+    };
+    let (server_io, client_io) = tokio::io::duplex(64);
+    let (stream, control) = DeadlineStream::new(server_io, timeouts);
+    let server = tokio::spawn(async move {
+        let service = service_fn(move |_request: Request<Incoming>| {
+            let control = control.clone();
+            control.begin_request(timeouts.read, timeouts.write);
+            async move {
+                let mut response = Response::new(Full::new(Bytes::from_static(b"data: 1\n\n")));
+                response.headers_mut().insert(
+                    "content-type",
+                    HeaderValue::from_static("text/event-stream"),
+                );
+                response
+                    .headers_mut()
+                    .insert("x-pad", HeaderValue::from_str(&"a".repeat(512)).unwrap());
+                control.begin_response(response.status(), response.headers(), timeouts.idle);
+                Ok::<_, Infallible>(response.map(|body| ResponseBodyGuard::new(body, control)))
+            }
+        });
+        hyper::server::conn::http1::Builder::new()
+            .timer(hyper_util::rt::TokioTimer::new())
+            .serve_connection(TokioIo::new(stream), service)
+            .await
+    });
+    let mut client_io = client_io;
+    client_io
+        .write_all(b"GET /sse HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), server)
+            .await
+            .is_ok(),
+        "stalled SSE header write did not time out"
+    );
+    drop(client_io);
+
+    // Quiet pause between two flushed SSE events outlives write_timeout (80ms).
+    let timeouts = HttpTimeouts {
+        header_read: Duration::from_secs(2),
+        read: Duration::from_secs(2),
+        write: Duration::from_millis(80),
+        idle: Duration::from_millis(80),
+    };
+    let (server_io, mut client_io) = tokio::io::duplex(4096);
+    let (stream, control) = DeadlineStream::new(server_io, timeouts);
+    let (tx, rx) =
+        tokio::sync::mpsc::unbounded_channel::<Result<hyper::body::Frame<Bytes>, io::Error>>();
+    let server = tokio::spawn(async move {
+        let rx = std::sync::Mutex::new(Some(rx));
+        let service = service_fn(move |_request: Request<Incoming>| {
+            let control = control.clone();
+            let mut rx = rx.lock().unwrap().take().unwrap();
+            control.begin_request(timeouts.read, timeouts.write);
+            async move {
+                let body =
+                    http_body_util::StreamBody::new(futures_util::stream::poll_fn(move |cx| {
+                        rx.poll_recv(cx)
+                    }));
+                let mut response = Response::new(body);
+                response.headers_mut().insert(
+                    "content-type",
+                    HeaderValue::from_static("text/event-stream"),
+                );
+                control.begin_response(response.status(), response.headers(), timeouts.idle);
+                Ok::<_, Infallible>(response.map(|body| ResponseBodyGuard::new(body, control)))
+            }
+        });
+        hyper::server::conn::http1::Builder::new()
+            .timer(hyper_util::rt::TokioTimer::new())
+            .serve_connection(TokioIo::new(stream), service)
+            .await
+    });
+
+    client_io
+        .write_all(b"GET /sse HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    tx.send(Ok(hyper::body::Frame::data(Bytes::from_static(
+        b"data: one\n\n",
+    ))))
+    .unwrap();
+    let mut buf = [0u8; 512];
+    let mut seen = Vec::new();
+    while !seen.windows(11).any(|w| w == b"data: one\n\n") {
+        let n = client_io.read(&mut buf).await.unwrap();
+        assert!(n > 0);
+        seen.extend_from_slice(&buf[..n]);
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    tx.send(Ok(hyper::body::Frame::data(Bytes::from_static(
+        b"data: two\n\n",
+    ))))
+    .unwrap();
+    drop(tx);
+    client_io.read_to_end(&mut seen).await.unwrap();
+    let text = String::from_utf8_lossy(&seen);
+    assert!(text.contains("data: two\n\n"), "{text}");
+    assert!(server.await.unwrap().is_ok());
 }

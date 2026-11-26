@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
@@ -5,7 +6,7 @@ use anyhow::{Result, bail, ensure};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
-use flate2::{Compression, read::GzDecoder, write::GzEncoder};
+use flate2::{Compression, bufread::GzDecoder, write::GzEncoder};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::header::{HeaderName, HeaderValue};
@@ -341,11 +342,11 @@ async fn decode_body(
         _ => return Err(Fault::internal("unsupported HTTP body codec")),
     };
     if !(if plan.accepted_media_types.is_empty() {
-        mime.essence_str() == default
+        request_media_matches(&mime, default)
     } else {
         plan.accepted_media_types
             .iter()
-            .any(|value| media_matches(value, mime.essence_str()))
+            .any(|value| request_media_matches(&mime, value))
     }) {
         return Err(unsupported_media());
     }
@@ -359,25 +360,22 @@ async fn decode_body(
     if encoding != "identity" && !plan.supported_content_encoding.contains(&encoding) {
         return Err(Fault::invalid());
     }
-    let compressed = if plan.max_compressed_bytes > 0 {
-        plan.max_compressed_bytes
-    } else {
-        8 << 20
-    };
-    let decompressed = if plan.max_decompressed_bytes > 0 {
-        plan.max_decompressed_bytes
-    } else {
-        16 << 20
-    };
+    let limit = |value, default| if value > 0 { value } else { default };
+    let compressed = limit(plan.max_compressed_bytes, 8 << 20);
+    let decompressed = limit(plan.max_decompressed_bytes, 16 << 20);
     let mut payload = read_request(request, compressed)
         .await
         .map_err(|_| Fault::invalid())?;
     if encoding == "gzip" {
+        let mut reader = payload.as_ref();
         let mut output = Vec::new();
-        GzDecoder::new(payload.as_ref())
+        GzDecoder::new(&mut reader)
             .take(decompressed as u64 + 1)
             .read_to_end(&mut output)
             .map_err(|_| Fault::invalid())?;
+        if !reader.is_empty() {
+            return Err(Fault::invalid());
+        }
         payload = output.into();
     } else if encoding != "identity" {
         return Err(Fault::invalid());
@@ -522,21 +520,124 @@ async fn multipart(
     Ok(Value::Object(fields))
 }
 
-fn media_matches(pattern: &str, media: &str) -> bool {
-    let pattern = pattern.split(';').next().unwrap_or_default().trim();
-    pattern == "*/*"
-        || pattern.eq_ignore_ascii_case(media)
-        || pattern.strip_suffix("/*").is_some_and(|top| {
-            media
-                .split_once('/')
-                .is_some_and(|(value, _)| top.eq_ignore_ascii_case(value))
+fn normalized_media_params(
+    mime: &mime_guess::mime::Mime,
+    ignore_boundary: bool,
+) -> BTreeMap<String, String> {
+    mime.params()
+        .filter_map(|(name, value)| {
+            let key = name.as_str().trim().to_ascii_lowercase();
+            if ignore_boundary && key == "boundary" {
+                return None;
+            }
+            let val = value.as_str().trim();
+            if key == "charset" {
+                let lower = val.to_ascii_lowercase();
+                return (!lower.is_empty() && lower != "utf-8").then_some((key, lower));
+            }
+            Some((key, val.to_owned()))
         })
+        .collect()
 }
 
-fn preference(header: Option<&HeaderValue>, candidate: &str, media: bool) -> (u8, f32) {
+fn type_matches(range: &mime_guess::mime::Mime, target: &mime_guess::mime::Mime) -> Option<u8> {
+    let (major, minor) = (range.type_().as_str(), range.subtype().as_str());
+    if (major == "*" && minor != "*")
+        || (major != "*" && !major.eq_ignore_ascii_case(target.type_().as_str()))
+        || (minor != "*" && !minor.eq_ignore_ascii_case(target.subtype().as_str()))
+    {
+        return None;
+    }
+    Some(if major == "*" {
+        0
+    } else if minor == "*" {
+        1
+    } else {
+        2
+    })
+}
+
+fn media_matches(pattern: &str, media: &str) -> bool {
+    pattern
+        .trim()
+        .parse::<mime_guess::mime::Mime>()
+        .ok()
+        .zip(media.trim().parse::<mime_guess::mime::Mime>().ok())
+        .is_some_and(|(range, target)| type_matches(&range, &target).is_some())
+}
+
+fn request_media_matches(actual: &mime_guess::mime::Mime, pattern: &str) -> bool {
+    let Ok(expected) = pattern.trim().parse::<mime_guess::mime::Mime>() else {
+        return false;
+    };
+    let ignore_boundary = actual
+        .essence_str()
+        .eq_ignore_ascii_case("multipart/form-data");
+    type_matches(&expected, actual).is_some()
+        && normalized_media_params(actual, ignore_boundary)
+            == normalized_media_params(&expected, ignore_boundary)
+}
+
+fn negotiate_media<'a>(headers: &HeaderMap, produced: &'a [String]) -> Option<&'a str> {
+    if produced.is_empty() {
+        return None;
+    }
+    let mut accept_parts = Vec::new();
+    for raw in headers.get_all("accept") {
+        let text = raw.to_str().ok()?.trim();
+        if !text.is_empty() {
+            accept_parts.push(text);
+        }
+    }
+    if accept_parts.is_empty() {
+        return Some(produced[0].as_str());
+    }
+    let parsed_produced: Vec<mime_guess::mime::Mime> = produced
+        .iter()
+        .map(|c| c.parse())
+        .collect::<std::result::Result<_, _>>()
+        .ok()?;
+    let mut best: Option<(&str, f64, u8, usize)> = None;
+    for raw_range in accept_parts.join(",").split(',') {
+        let range = raw_range.trim().parse::<mime_guess::mime::Mime>().ok()?;
+        let weight = match range.get_param("q") {
+            Some(q) => {
+                Some(q.as_str().trim().parse::<f64>().ok()?).filter(|v| (0.0..=1.0).contains(v))?
+            }
+            None => 1.0,
+        };
+        if (range.type_().as_str() == "*" && range.subtype().as_str() != "*") || weight == 0.0 {
+            if range.type_().as_str() == "*" && range.subtype().as_str() != "*" {
+                return None;
+            }
+            continue;
+        }
+        let mut accepted = normalized_media_params(&range, false);
+        accepted.remove("q");
+        for (order, (candidate, target)) in produced.iter().zip(&parsed_produced).enumerate() {
+            let Some(spec) = type_matches(&range, target) else {
+                continue;
+            };
+            let prod_params = normalized_media_params(target, false);
+            if !accepted.iter().all(|(k, v)| prod_params.get(k) == Some(v)) {
+                continue;
+            }
+            let better = best.is_none_or(|(bm, bw, bs, bo)| {
+                (weight, spec, Reverse(order)) > (bw, bs, Reverse(bo))
+                    || ((weight, spec, order) == (bw, bs, bo) && candidate.as_str() < bm)
+            });
+            if better {
+                best = Some((candidate.as_str(), weight, spec, order));
+            }
+        }
+    }
+    best.map(|(candidate, _, _, _)| candidate)
+}
+
+fn preference(header: Option<&HeaderValue>, candidate: &str) -> (u8, f32) {
     let Some(header) = header
-        .and_then(|header| header.to_str().ok())
-        .filter(|header| !header.trim().is_empty())
+        .and_then(|h| h.to_str().ok())
+        .filter(|h| !h.trim().is_empty())
     else {
         return (0, 1.0);
     };
@@ -546,18 +647,15 @@ fn preference(header: Option<&HeaderValue>, candidate: &str, media: bool) -> (u8
         let value = parts.next().unwrap_or_default().trim();
         let rank = if value.eq_ignore_ascii_case(candidate) {
             3
-        } else if media && value != "*/*" && media_matches(value, candidate) {
-            2
-        } else if (media && value == "*/*") || (!media && value == "*") {
+        } else if value == "*" {
             1
         } else {
             continue;
         };
         let weight = parts
             .find_map(|part| part.trim().strip_prefix("q="))
-            .map_or(1.0, |weight| {
-                weight
-                    .parse()
+            .map_or(1.0, |w| {
+                w.parse()
                     .ok()
                     .filter(|v| (0.0..=1.0).contains(v))
                     .unwrap_or_default()
@@ -588,18 +686,19 @@ fn selection(payload: &Value, select: &Selection) -> Result<Option<Value>, Fault
     Ok(Some(value.clone()))
 }
 
+fn not_acceptable() -> Fault {
+    Fault::new(
+        406,
+        "transport.not_acceptable",
+        "no acceptable response representation",
+    )
+}
+
 pub(crate) fn encode_response(
     plan: &ResponsePlan,
     outcome: Outcome,
     request: &HeaderMap,
 ) -> Result<Reply, Fault> {
-    let not_acceptable = || {
-        Fault::new(
-            406,
-            "transport.not_acceptable",
-            "no acceptable response representation",
-        )
-    };
     let status = StatusCode::from_u16(plan.status).map_err(Fault::internal)?;
     let mut response = empty(status);
     if plan.stream != outcome.stream.is_some() {
@@ -608,17 +707,7 @@ pub(crate) fn encode_response(
         ));
     }
     if !plan.codec.is_empty() {
-        let media = plan
-            .media
-            .iter()
-            .enumerate()
-            .filter_map(|(index, candidate)| {
-                let (specificity, weight) = preference(request.get("accept"), candidate, true);
-                (weight > 0.0).then_some((candidate, specificity, weight, index))
-            })
-            .max_by(|a, b| a.2.total_cmp(&b.2).then(a.1.cmp(&b.1)).then(b.3.cmp(&a.3)))
-            .map(|(candidate, _, _, _)| candidate)
-            .ok_or_else(not_acceptable)?;
+        let media = negotiate_media(request, &plan.media).ok_or_else(not_acceptable)?;
         header(response.headers_mut(), "content-type", media);
         if let Some(stream) = outcome.stream {
             if plan.options.max_bytes > 0 && stream.length() > plan.options.max_bytes {
@@ -693,14 +782,13 @@ pub(crate) fn encode_response(
             continue;
         };
         let cookie = &spec.cookie;
-        let text = wire_text(&value);
-        let encoded: String = text
+        let encoded: String = wire_text(&value)
             .bytes()
-            .map(|byte| {
-                if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
-                    char::from(byte).to_string()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                    char::from(b).to_string()
                 } else {
-                    format!("%{byte:02X}")
+                    format!("%{b:02X}")
                 }
             })
             .collect();
@@ -717,23 +805,19 @@ pub(crate) fn encode_response(
             ));
         }
         if !cookie.expires.is_empty() {
-            let expires = time::OffsetDateTime::parse(
-                &cookie.expires,
-                &time::format_description::well_known::Rfc3339,
-            )
-            .map_err(Fault::internal)?
-            .to_offset(time::UtcOffset::UTC);
-            let weekday = expires.weekday().to_string();
-            let month = expires.month().to_string();
+            use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
+            let exp = OffsetDateTime::parse(&cookie.expires, &Rfc3339)
+                .map_err(Fault::internal)?
+                .to_offset(UtcOffset::UTC);
             field.push_str(&format!(
                 "; Expires={}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
-                &weekday[..3],
-                expires.day(),
-                &month[..3],
-                expires.year(),
-                expires.hour(),
-                expires.minute(),
-                expires.second()
+                &exp.weekday().to_string()[..3],
+                exp.day(),
+                &exp.month().to_string()[..3],
+                exp.year(),
+                exp.hour(),
+                exp.minute(),
+                exp.second()
             ));
         }
         if cookie.max_age != 0 {
@@ -745,13 +829,13 @@ pub(crate) fn encode_response(
         if cookie.secure {
             field.push_str("; Secure");
         }
-        if let Some(value) = match cookie.same_site {
+        if let Some(v) = match cookie.same_site {
             2 => Some("Lax"),
             3 => Some("Strict"),
             4 => Some("None"),
             _ => None,
         } {
-            field.push_str(&format!("; SameSite={value}"));
+            field.push_str(&format!("; SameSite={v}"));
         }
         response.headers_mut().append(
             "set-cookie",
@@ -774,15 +858,8 @@ fn negotiate_gzip(
     response: &mut Reply,
     payload_len: usize,
 ) -> Result<bool, Fault> {
-    let not_acceptable = || {
-        Fault::new(
-            406,
-            "transport.not_acceptable",
-            "no acceptable response representation",
-        )
-    };
     let encoding = request.get("accept-encoding");
-    let (identity_match, identity_weight) = preference(encoding, "identity", false);
+    let (identity_match, identity_weight) = preference(encoding, "identity");
     let identity = identity_match == 0 || identity_weight > 0.0;
     if plan
         .options
@@ -793,7 +870,7 @@ fn negotiate_gzip(
         response
             .headers_mut()
             .append("vary", HeaderValue::from_static("Accept-Encoding"));
-        let (rank, weight) = preference(encoding, "gzip", false);
+        let (rank, weight) = preference(encoding, "gzip");
         if rank > 0
             && weight > 0.0
             && (!identity || payload_len >= plan.options.compression_threshold)
@@ -837,73 +914,72 @@ where
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<std::io::Result<hyper::body::Frame<Bytes>>>> {
+        use std::task::Poll::{Pending, Ready};
         let this = self.get_mut();
         if let Some(trailers) = this.pending_trailers.take() {
             this.finished = true;
-            return std::task::Poll::Ready(Some(Ok(trailers)));
+            return Ready(Some(Ok(trailers)));
         }
         if this.finished {
-            return std::task::Poll::Ready(None);
+            return Ready(None);
         }
         loop {
             match std::pin::Pin::new(&mut this.inner).poll_frame(cx) {
-                std::task::Poll::Pending => return std::task::Poll::Pending,
-                std::task::Poll::Ready(Some(Ok(frame))) => {
+                Pending => return Pending,
+                Ready(Some(Ok(frame))) => {
                     if let Some(data) = frame.data_ref() {
                         if data.is_empty() {
                             continue;
                         }
                         let Some(encoder) = this.encoder.as_mut() else {
                             this.finished = true;
-                            return std::task::Poll::Ready(None);
+                            return Ready(None);
                         };
                         if let Err(error) = encoder.write_all(data) {
                             this.finished = true;
-                            return std::task::Poll::Ready(Some(Err(error)));
+                            return Ready(Some(Err(error)));
                         }
                         let out = std::mem::take(encoder.get_mut());
                         if !out.is_empty() {
-                            return std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(
-                                Bytes::from(out),
-                            ))));
+                            return Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(out)))));
                         }
                     } else if frame.is_trailers() {
                         if let Some(encoder) = this.encoder.take() {
                             match encoder.finish() {
                                 Ok(out) if !out.is_empty() => {
                                     this.pending_trailers = Some(frame);
-                                    return std::task::Poll::Ready(Some(Ok(
-                                        hyper::body::Frame::data(Bytes::from(out)),
-                                    )));
+                                    return Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(
+                                        out,
+                                    )))));
                                 }
-                                Ok(_) => {}
                                 Err(error) => {
                                     this.finished = true;
-                                    return std::task::Poll::Ready(Some(Err(error)));
+                                    return Ready(Some(Err(error)));
                                 }
+                                Ok(_) => {}
                             }
                         }
                         this.finished = true;
-                        return std::task::Poll::Ready(Some(Ok(frame)));
+                        return Ready(Some(Ok(frame)));
                     }
                 }
-                std::task::Poll::Ready(Some(Err(error))) => {
+                Ready(Some(Err(error))) => {
                     this.finished = true;
                     this.encoder = None;
-                    return std::task::Poll::Ready(Some(Err(error.into())));
+                    return Ready(Some(Err(error.into())));
                 }
-                std::task::Poll::Ready(None) => {
+                Ready(None) => {
                     this.finished = true;
                     let Some(encoder) = this.encoder.take() else {
-                        return std::task::Poll::Ready(None);
+                        return Ready(None);
                     };
-                    return match encoder.finish() {
-                        Ok(out) if !out.is_empty() => std::task::Poll::Ready(Some(Ok(
-                            hyper::body::Frame::data(Bytes::from(out)),
-                        ))),
-                        Ok(_) => std::task::Poll::Ready(None),
-                        Err(error) => std::task::Poll::Ready(Some(Err(error))),
-                    };
+                    return Ready(match encoder.finish() {
+                        Ok(out) if !out.is_empty() => {
+                            Some(Ok(hyper::body::Frame::data(Bytes::from(out))))
+                        }
+                        Ok(_) => return Ready(None),
+                        Err(error) => Some(Err(error)),
+                    });
                 }
             }
         }

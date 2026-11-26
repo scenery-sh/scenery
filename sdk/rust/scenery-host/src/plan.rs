@@ -289,23 +289,15 @@ impl HostPlan {
                 max_idle = max_idle.max(Duration::from_nanos(policy.idle_timeout_nanos));
             }
         }
-        let read = if max_read.is_zero() {
-            crate::http_timeout::DEFAULT_HTTP_READ_TIMEOUT
-        } else {
-            max_read.min(crate::http_timeout::DEFAULT_HTTP_READ_TIMEOUT)
-        };
-        let write = if max_write.is_zero() {
-            crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT
-        } else {
-            max_write.min(crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT)
-        };
+        let read = max_read.max(crate::http_timeout::DEFAULT_HTTP_READ_TIMEOUT);
+        let write = max_write.max(crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT);
         let idle = if max_idle.is_zero() {
             crate::http_timeout::DEFAULT_HTTP_IDLE_TIMEOUT
         } else {
             max_idle
         };
         crate::http_timeout::HttpTimeouts {
-            header_read: read.min(crate::http_timeout::MAX_HEADER_READ_TIMEOUT),
+            header_read: crate::http_timeout::MAX_HEADER_READ_TIMEOUT,
             read,
             write,
             idle,
@@ -846,5 +838,69 @@ mod tests {
         }
         assert!(production_worker_env("SCENERY_APP_ID", "rust"));
         assert!(production_worker_env("LC_ALL", "ts"));
+    }
+
+    #[test]
+    fn http_timeouts_keep_host_defaults_when_routes_declare_shorter_limits() {
+        let mut short_plan: HostPlan = serde_json::from_value(json!({
+            "Name": "test",
+            "Workers": [{
+                "Address": "app/service/api",
+                "Module": "app",
+                "Name": "api",
+                "Process": "worker-api",
+                "Runtime": "go",
+                "Operations": {},
+                "Clients": {},
+                "Durable": {},
+                "Schedules": [],
+                "Stores": {},
+                "Bindings": [{
+                    "Address": "api/http/fast",
+                    "Operation": "api/op/fast",
+                    "Visibility": "",
+                    "Delivery": "call",
+                    "Execution": "",
+                    "Policy": {
+                        "BindingAddress": "api/http/fast",
+                        "AuthorizationStrategy": "public",
+                        "AuthorizationRules": [],
+                        "TotalInvocationTimeoutNanos": 0,
+                        "ReadTimeoutNanos": 200_000_000u64,
+                        "WriteTimeoutNanos": 500_000_000u64,
+                        "IdleTimeoutNanos": 0,
+                        "MaxRequestHeaderBytes": 0,
+                        "CORS": "none",
+                        "AllowedOrigins": [],
+                        "TransportStatuses": {}
+                    },
+                    "HTTP": {
+                        "Path": "/fast",
+                        "Method": "GET",
+                        "Access": "public",
+                        "Request": {"Mappings": [], "ContextMappings": []},
+                        "Responses": {}
+                    }
+                }]
+            }]
+        }))
+        .unwrap();
+        let short = short_plan.http_timeouts();
+        assert_eq!(
+            short.header_read,
+            crate::http_timeout::MAX_HEADER_READ_TIMEOUT
+        );
+        assert_eq!(short.read, crate::http_timeout::DEFAULT_HTTP_READ_TIMEOUT);
+        assert_eq!(short.write, crate::http_timeout::DEFAULT_HTTP_WRITE_TIMEOUT);
+
+        short_plan.workers[0].bindings[0].policy.read_timeout_nanos = 60_000_000_000;
+        short_plan.workers[0].bindings[0].policy.write_timeout_nanos = 90_000_000_000;
+        let long = short_plan.http_timeouts();
+        assert_eq!(
+            long.header_read,
+            crate::http_timeout::MAX_HEADER_READ_TIMEOUT
+        );
+        assert_eq!(long.read, std::time::Duration::from_secs(60));
+        assert_eq!(long.write, std::time::Duration::from_secs(90));
     }
 }

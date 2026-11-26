@@ -168,6 +168,24 @@ async fn exercise() -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+    let oversized = http
+        .post(format!("{base}{PUBLIC_ROUTE}"))
+        .bearer_auth(&access)
+        .header("x-big", "a".repeat(5000))
+        .json(&json!({"message":{"role":"user","content":"Run a test"}}))
+        .send()
+        .await?;
+    assert_eq!(
+        oversized.status(),
+        StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE
+    );
+    assert!(
+        !oversized
+            .text()
+            .await?
+            .to_ascii_lowercase()
+            .contains("scenery")
+    );
 
     let make_call = |typ: &str, id: Option<u64>, params: Value| {
         let mut body = json!({"jsonrpc":"2.0","method":typ,"params":params});
@@ -447,7 +465,7 @@ fn write_private(path: &std::path::Path, body: &str) -> anyhow::Result<()> {
 
 fn bundle() -> Bundle {
     let policy = json!({"BindingAddress":BINDING,"AuthorizationStrategy":"public","AuthorizationRules":[],
-        "TotalInvocationTimeoutNanos":0,"MaxRequestHeaderBytes":0,"CORS":"none","AllowedOrigins":[],"TransportStatuses":{}});
+        "TotalInvocationTimeoutNanos":0,"MaxRequestHeaderBytes":4096,"CORS":"none","AllowedOrigins":[],"TransportStatuses":{}});
     let capability = |name, approval| {
         json!({
             "name":name,"input_schema":{"type":"object"},"output_schema":{"type":"object"},

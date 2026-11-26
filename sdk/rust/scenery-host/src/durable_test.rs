@@ -258,4 +258,14 @@ fn effective_timeout_and_lease_normalize_zero_and_clamp_lease_to_timeout() {
         effective_lease(&lease_exceeding_timeout),
         Duration::from_secs(10)
     );
+
+    let sub_ms_lease = make(1_000_000_000, 500_000);
+    assert_eq!(effective_lease_ms(&sub_ms_lease), 1);
+    assert_eq!(effective_lease(&sub_ms_lease), Duration::from_millis(1));
+
+    let sub_ms_timeout = make(500_000, 0);
+    assert_eq!(effective_timeout_ms(&sub_ms_timeout), 1);
+    assert_eq!(effective_lease_ms(&sub_ms_timeout), 1);
+    assert_eq!(effective_timeout(&sub_ms_timeout), Duration::from_millis(1));
+    assert_eq!(effective_lease(&sub_ms_timeout), Duration::from_millis(1));
 }

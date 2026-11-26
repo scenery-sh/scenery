@@ -390,6 +390,16 @@ impl Gateway {
         mount: &str,
         generation: Arc<Generation>,
     ) -> Reply {
+        if plan.policy.max_request_header_bytes > 0
+            && request
+                .headers()
+                .iter()
+                .map(|(name, value)| name.as_str().len() + value.as_bytes().len() + 4)
+                .sum::<usize>()
+                > plan.policy.max_request_header_bytes
+        {
+            return Error::HeaderTooLarge.reply();
+        }
         let mut call = match Call::new(
             generation,
             request.headers(),
@@ -697,6 +707,7 @@ impl Gateway {
             principal,
             &claims.conversation_digest,
         )?;
+        let local_tool;
         {
             let mut state = self.state.lock().expect("assistant state");
             if let Some(active) = state.runs.get_mut(&key.0) {
@@ -707,7 +718,8 @@ impl Gateway {
                 .get_mut(&key)
                 .filter(|pending| pending.decision == Decision::Pending)
                 .ok_or(Error::Conflict)?;
-            if allow && pending.local_tool && pending.input.is_none() {
+            local_tool = pending.local_tool;
+            if allow && local_tool && pending.input.is_none() {
                 return Err(Error::Conflict);
             }
             pending.decision = if allow {
@@ -716,6 +728,19 @@ impl Gateway {
                 Decision::Denied
             };
         }
+        struct ApprovalGuard<'a>(&'a Mutex<State>, Option<(RunKey, String)>);
+        impl Drop for ApprovalGuard<'_> {
+            fn drop(&mut self) {
+                if let Some(key) = self.1.take()
+                    && let Ok(mut state) = self.0.lock()
+                    && let Some(pending) = state.approvals.get_mut(&key)
+                    && pending.decision == Decision::Approved
+                {
+                    pending.decision = Decision::Denied;
+                }
+            }
+        }
+        let mut guard = ApprovalGuard(&self.state, allow.then(|| key.clone()));
         let decision = if allow { "allow" } else { "deny" };
         let response = control
             .session(claims)
@@ -731,19 +756,20 @@ impl Gateway {
                     && response.private_session_id == claims.data.private_session_id
                     && response.decision == decision =>
             {
+                if let Some(key) = guard.1.take()
+                    && allow
+                    && !local_tool
+                {
+                    let mut state = self.state.lock().expect("assistant state");
+                    if let Some(pending) = state.approvals.get_mut(&key)
+                        && pending.decision == Decision::Approved
+                    {
+                        pending.decision = Decision::Consumed;
+                    }
+                }
                 Ok(())
             }
-            result => {
-                // The helper may have accepted the resolution before a network
-                // failure. Revoke any unspent permission without allowing replay.
-                let mut state = self.state.lock().expect("assistant state");
-                if let Some(pending) = state.approvals.get_mut(&key)
-                    && pending.decision == Decision::Approved
-                {
-                    pending.decision = Decision::Denied;
-                }
-                Err(result.err().unwrap_or(Error::Internal))
-            }
+            result => Err(result.err().unwrap_or(Error::Internal)),
         }
     }
 
@@ -941,9 +967,9 @@ fn has_active_approval(
     approvals: &HashMap<(RunKey, String), PendingApproval>,
     key: &RunKey,
 ) -> bool {
-    approvals.iter().any(|((run, _), pending)| {
-        run == key && matches!(pending.decision, Decision::Pending | Decision::Approved)
-    })
+    approvals
+        .iter()
+        .any(|((run, _), pending)| run == key && pending.decision == Decision::Pending)
 }
 
 pub(crate) use events::Error;

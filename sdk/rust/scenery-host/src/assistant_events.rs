@@ -16,6 +16,7 @@ use super::*;
 #[derive(Debug)]
 pub(crate) enum Error {
     Invalid,
+    HeaderTooLarge,
     Unauthorized,
     Forbidden,
     NotFound,
@@ -32,6 +33,11 @@ impl Error {
                 StatusCode::BAD_REQUEST,
                 "invalid_request",
                 "invalid assistant request",
+            ),
+            Self::HeaderTooLarge => (
+                StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+                "request_header_too_large",
+                "request headers exceed the declared limit",
             ),
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
@@ -805,7 +811,129 @@ mod tests {
         gateway.sweep();
         assert!(gateway.run(&pending_key).is_some());
 
+        // Transitioning to Approved must not keep a stale run past the 900s idle sweep.
+        {
+            let mut state = gateway.state.lock().unwrap();
+            state.runs.get_mut(&pending_key).unwrap().last_active = now - Duration::from_secs(1200);
+            state
+                .approvals
+                .get_mut(&(pending_key.clone(), "apr_pending".into()))
+                .unwrap()
+                .decision = Decision::Approved;
+        }
+        gateway.sweep();
+        assert!(gateway.run(&pending_key).is_none());
+
         server.abort();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancelling_in_flight_approve_revokes_approved_decision() -> anyhow::Result<()> {
+        let dir = tempfile::Builder::new()
+            .prefix("asst-cancel-")
+            .tempdir_in("/tmp")?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let stalled_server = tokio::spawn(async move {
+            let Ok((socket, _)) = listener.accept().await else {
+                return;
+            };
+            let service = hyper::service::service_fn(|_request| async {
+                std::future::pending::<()>().await;
+                #[allow(unreachable_code)]
+                Ok::<_, std::convert::Infallible>(crate::transport::response(
+                    StatusCode::OK,
+                    String::new(),
+                ))
+            });
+            let _ = hyper::server::conn::http1::Builder::new()
+                .serve_connection(hyper_util::rt::TokioIo::new(socket), service)
+                .await;
+        });
+
+        let plan = test_plan();
+        let gateway = test_gateway(dir.path(), &format!("http://{address}"), &plan)?;
+        let generation = Arc::new(Generation {
+            number: 1,
+            identity: crate::process::BuildIdentity {
+                contract_revision: "contract".into(),
+                implementation_revision: String::new(),
+                build_input_digest: String::new(),
+                go_target: "worker".into(),
+            },
+            workers: BTreeMap::new(),
+            retired: CancellationToken::new(),
+        });
+        let owner = token::owner("user-one");
+        let conv_digest = token::conversation("conv-1");
+        let sealing_key = gateway.key.as_ref().unwrap();
+        let conv_tok = sealing_key
+            .seal(
+                &plan.address,
+                &owner,
+                &conv_digest,
+                token::Conversation {
+                    private_session_id: "private-session".into(),
+                    continuation_token: "cont".into(),
+                },
+            )
+            .unwrap();
+        let apr_tok = sealing_key
+            .seal(
+                &plan.address,
+                &owner,
+                &conv_digest,
+                token::Approval {
+                    run_id: "run_1".into(),
+                    approval_id: "apr_1".into(),
+                    decision_context: "ctx".into(),
+                },
+            )
+            .unwrap();
+        let conv_claims = sealing_key
+            .open::<token::Conversation>(&conv_tok, &plan.address, &owner)
+            .unwrap();
+        let apr_claims = sealing_key
+            .open::<token::Approval>(&apr_tok, &plan.address, &owner)
+            .unwrap();
+        let run_key = RunKey::new(&plan.address, "user-one", &conv_digest, "run_1");
+        let now = Instant::now();
+        {
+            let mut state = gateway.state.lock().unwrap();
+            state.runs.insert(
+                run_key.clone(),
+                Run {
+                    generation,
+                    principal: None,
+                    traceparent: None,
+                    started: now,
+                    last_active: now,
+                },
+            );
+            state.approvals.insert(
+                (run_key.clone(), "apr_1".into()),
+                PendingApproval {
+                    token: apr_tok,
+                    capability: "write".into(),
+                    input: Some(json!({})),
+                    local_tool: true,
+                    decision: Decision::Pending,
+                },
+            );
+        }
+
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(40),
+            gateway.approve(&plan, &conv_claims, "user-one", apr_claims, true),
+        )
+        .await;
+        assert!(outcome.is_err());
+        assert!(
+            gateway.state.lock().unwrap().approvals[&(run_key, "apr_1".into())].decision
+                == Decision::Denied
+        );
+        stalled_server.abort();
         Ok(())
     }
 }

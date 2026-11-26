@@ -760,9 +760,7 @@ async fn serve_public(
                         }
                     });
                     let mut builder = hyper::server::conn::http1::Builder::new();
-                    builder
-                        .timer(hyper_util::rt::TokioTimer::new())
-                        .header_read_timeout(timeouts.header_read);
+                    builder.timer(hyper_util::rt::TokioTimer::new());
                     let connection = builder.serve_connection(TokioIo::new(stream), service).with_upgrades();
                     tokio::pin!(connection);
                     tokio::select! {

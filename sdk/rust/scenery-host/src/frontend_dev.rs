@@ -67,17 +67,25 @@ fn rewrite(source: &str) -> Cow<'_, str> {
     })
 }
 
-fn scrub_scenery(source: &str) -> Cow<'_, str> {
-    SCENERY_WORD.replace_all(source, "application")
-}
-
-pub(crate) fn rewrite_hmr_text(source: &str) -> Cow<'_, str> {
+fn scrub_error_text(source: &str) -> Cow<'_, str> {
     match rewrite(source) {
-        Cow::Borrowed(text) => scrub_scenery(text),
-        Cow::Owned(text) => match scrub_scenery(&text) {
+        Cow::Borrowed(text) => SCENERY_WORD.replace_all(text, "application"),
+        Cow::Owned(text) => match SCENERY_WORD.replace_all(&text, "application") {
             Cow::Borrowed(_) => Cow::Owned(text),
             Cow::Owned(cleaned) => Cow::Owned(cleaned),
         },
+    }
+}
+
+pub(crate) fn rewrite_hmr_text(source: &str) -> Cow<'_, str> {
+    let is_error = match serde_json::from_str::<serde_json::Value>(source) {
+        Ok(value) => value.get("type").and_then(|v| v.as_str()) == Some("error"),
+        Err(_) => true,
+    };
+    if is_error {
+        scrub_error_text(source)
+    } else {
+        rewrite(source)
     }
 }
 
@@ -131,28 +139,32 @@ pub(crate) async fn send(request: Request<Incoming>) -> anyhow::Result<Response<
 
 pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Reply> {
     use http_body_util::BodyExt;
-    let textual = upstream
+    let media = upstream
         .headers()
         .get("content-type")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| {
-            let media = value
+        .map(|value| {
+            value
                 .split(';')
                 .next()
                 .unwrap_or("")
                 .trim()
-                .to_ascii_lowercase();
-            media != "text/event-stream"
-                && (media.starts_with("text/")
-                    || matches!(
-                        media.as_str(),
-                        "application/javascript"
-                            | "application/x-javascript"
-                            | "application/json"
-                            | "image/svg+xml"
-                    )
-                    || media.ends_with("+json"))
+                .to_ascii_lowercase()
         });
+    let textual = media.as_deref().is_some_and(|media| {
+        media != "text/event-stream"
+            && (media.starts_with("text/")
+                || matches!(
+                    media,
+                    "application/javascript"
+                        | "application/x-javascript"
+                        | "application/json"
+                        | "image/svg+xml"
+                )
+                || media.ends_with("+json"))
+    });
+    let is_error =
+        !upstream.status().is_success() || media.as_deref() == Some("application/problem+json");
     let (mut parts, payload) = upstream.into_parts();
     if !textual
         || parts.headers.contains_key("content-encoding")
@@ -164,7 +176,14 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
         ));
     }
     let bytes = crate::transport::read(payload, TEXT_LIMIT).await?;
-    let output = match std::str::from_utf8(&bytes).map(rewrite_hmr_text) {
+    let transformed = std::str::from_utf8(&bytes).map(|text| {
+        if is_error {
+            scrub_error_text(text)
+        } else {
+            rewrite(text)
+        }
+    });
+    let output = match transformed {
         Ok(Cow::Owned(output)) => {
             parts.headers.remove("content-length");
             Bytes::from(output)
@@ -415,6 +434,11 @@ mod tests {
                                     "application/problem+json",
                                     r#"{"detail":"Scenery fault"}"#,
                                 ),
+                                "/module.js" => (
+                                    StatusCode::OK,
+                                    "application/javascript",
+                                    r#"import Logo from "/src/components/SceneryLogo.tsx"; import "/@fs/repo/.scenery/gen/client.ts"; fetch("/api/scenery-report");"#,
+                                ),
                                 "/icon.svg" => (
                                     StatusCode::OK,
                                     "image/svg+xml",
@@ -481,9 +505,34 @@ mod tests {
             .error_for_status()?
             .text()
             .await?;
-        assert!(!forbidden(&svg_text), "{svg_text}");
+        assert!(
+            !svg_text.contains("/@fs/") && !svg_text.contains(".scenery"),
+            "{svg_text}"
+        );
         assert!(svg_text.contains("/@files/"));
-        assert!(svg_text.contains("<title>application</title>"));
+        assert!(svg_text.contains("<title>Scenery</title>"));
+
+        let module_text = http
+            .get(format!("http://{front_address}/module.js"))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        assert!(
+            !module_text.contains("/@fs/") && !module_text.contains(".scenery"),
+            "{module_text}"
+        );
+        assert!(module_text.contains("/src/components/SceneryLogo.tsx"));
+        assert!(module_text.contains("/api/scenery-report"));
+        assert!(module_text.contains("/@files/"));
+
+        assert_eq!(
+            rewrite_hmr_text(
+                r#"{"type":"update","path":"/src/SceneryLogo.tsx","dep":"/@fs/repo/.scenery/x.ts"}"#
+            ),
+            r#"{"type":"update","path":"/src/SceneryLogo.tsx","dep":"/@files/repo/~LnNjZW5lcnk/x.ts"}"#
+        );
 
         let sse_resp = http
             .get(format!("http://{front_address}/events"))
