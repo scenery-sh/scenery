@@ -249,7 +249,7 @@ func scrubWorkerViteSceneryHeaders(headers http.Header) {
 }
 
 func scrubWorkerViteListHeaders(headers http.Header) {
-	for _, listHeader := range []string{"Access-Control-Expose-Headers", "Trailer"} {
+	for _, listHeader := range []string{"Access-Control-Expose-Headers", "Access-Control-Allow-Headers", "Trailer", "Connection", "Vary"} {
 		var allowed []string
 		for name, values := range headers {
 			if !strings.EqualFold(name, listHeader) {
@@ -261,7 +261,16 @@ func scrubWorkerViteListHeaders(headers http.Header) {
 					if token == "" || strings.Contains(strings.ToLower(token), "scenery") {
 						continue
 					}
-					allowed = append(allowed, http.CanonicalHeaderKey(token))
+					switch strings.ToLower(token) {
+					case "*":
+						allowed = append(allowed, "*")
+					case "close":
+						allowed = append(allowed, "close")
+					case "keep-alive":
+						allowed = append(allowed, "keep-alive")
+					default:
+						allowed = append(allowed, http.CanonicalHeaderKey(token))
+					}
 				}
 			}
 			delete(headers, name)

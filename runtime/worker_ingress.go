@@ -2,9 +2,13 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"io"
 	"net"
 	"net/http"
+	"net/textproto"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -120,12 +124,196 @@ func scrubInboundSceneryTrailerHeader(headers http.Header) {
 func (w *workerIngressWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *workerIngressWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	alreadyStarted := w.started
 	w.scrubHeadersAndTrailers()
 	conn, brw, err := http.NewResponseController(w.ResponseWriter).Hijack()
-	if err == nil {
-		w.started = true
+	if err != nil {
+		return nil, nil, err
 	}
-	return conn, brw, err
+	w.started = true
+	wrapped := &workerIngressHijackedConn{
+		Conn:         conn,
+		passthrough:  alreadyStarted,
+		hideIdentity: w.hideIdentity,
+	}
+	var out net.Conn = wrapped
+	if halfCloser, ok := conn.(interface{ CloseWrite() error }); ok {
+		out = &workerIngressHijackedHalfCloseConn{
+			workerIngressHijackedConn: wrapped,
+			halfCloser:                halfCloser,
+		}
+	}
+	if brw != nil && brw.Writer != nil {
+		brw.Writer.Reset(out)
+	}
+	return out, brw, nil
+}
+
+const maxHijackedResponseHeaderBytes = 64 << 10
+
+type workerIngressHijackedConn struct {
+	net.Conn
+	mu           sync.Mutex
+	passthrough  bool
+	hideIdentity bool
+	buf          bytes.Buffer
+}
+
+type workerIngressHijackedHalfCloseConn struct {
+	*workerIngressHijackedConn
+	halfCloser interface{ CloseWrite() error }
+}
+
+func (c *workerIngressHijackedHalfCloseConn) CloseWrite() error {
+	if err := c.flushUnfinishedHeader(); err != nil {
+		return err
+	}
+	return c.halfCloser.CloseWrite()
+}
+
+func (c *workerIngressHijackedConn) Close() error {
+	_ = c.flushUnfinishedHeader()
+	return c.Conn.Close()
+}
+
+func (c *workerIngressHijackedConn) flushUnfinishedHeader() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.passthrough || c.buf.Len() == 0 {
+		c.passthrough = true
+		return nil
+	}
+	// Never flush an incomplete HTTP/ response header block un-scrubbed.
+	data := c.buf.Bytes()
+	c.buf.Reset()
+	c.passthrough = true
+	if bytes.HasPrefix(data, []byte("HTTP/")) {
+		return errors.New("http: truncated hijacked response header")
+	}
+	return writeAllConn(c.Conn, data)
+}
+
+func writeAllConn(w io.Writer, data []byte) error {
+	for len(data) > 0 {
+		n, err := w.Write(data)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		data = data[n:]
+	}
+	return nil
+}
+
+func findHTTPHeaderEnd(data []byte) (sepIdx, sepLen int, ok bool) {
+	crlfIdx := bytes.Index(data, []byte("\r\n\r\n"))
+	lfIdx := bytes.Index(data, []byte("\n\n"))
+	switch {
+	case crlfIdx >= 0 && (lfIdx < 0 || crlfIdx < lfIdx):
+		return crlfIdx, 4, true
+	case lfIdx >= 0:
+		return lfIdx, 2, true
+	default:
+		return 0, 0, false
+	}
+}
+
+func (c *workerIngressHijackedConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.passthrough {
+		return c.Conn.Write(p)
+	}
+	c.buf.Write(p)
+	for {
+		data := c.buf.Bytes()
+		if len(data) == 0 {
+			return len(p), nil
+		}
+		if (len(data) < 5 && !strings.HasPrefix("HTTP/", string(data))) ||
+			(len(data) >= 5 && !bytes.HasPrefix(data, []byte("HTTP/"))) {
+			c.passthrough = true
+			c.buf.Reset()
+			if err := writeAllConn(c.Conn, data); err != nil {
+				return 0, err
+			}
+			return len(p), nil
+		}
+		_, sepLen, ok := findHTTPHeaderEnd(data)
+		if !ok {
+			if len(data) > maxHijackedResponseHeaderBytes {
+				c.buf.Reset()
+				c.passthrough = true
+				return 0, errors.New("http: hijacked response header too large")
+			}
+			return len(p), nil
+		}
+		headerEnd := bytes.Index(data, []byte("\r\n\r\n"))
+		if sepLen == 2 {
+			headerEnd = bytes.Index(data, []byte("\n\n"))
+		}
+		headerEnd += sepLen
+		rest := bytes.Clone(data[headerEnd:])
+		tp := textproto.NewReader(bufio.NewReader(bytes.NewReader(data[:headerEnd])))
+		statusLine, err := tp.ReadLine()
+		if err != nil {
+			c.buf.Reset()
+			c.passthrough = true
+			return 0, err
+		}
+		mimeHdr, err := tp.ReadMIMEHeader()
+		if err != nil {
+			c.buf.Reset()
+			c.passthrough = true
+			return 0, err
+		}
+		proto, afterProto, hasProto := strings.Cut(statusLine, " ")
+		codeStr, _, _ := strings.Cut(afterProto, " ")
+		code, codeErr := strconv.Atoi(codeStr)
+		if !hasProto || codeErr != nil {
+			c.buf.Reset()
+			c.passthrough = true
+			return 0, errors.New("http: invalid hijacked response status line")
+		}
+		if strings.Contains(strings.ToLower(statusLine), "scenery") {
+			if reason := http.StatusText(code); reason != "" {
+				statusLine = proto + " " + codeStr + " " + reason
+			} else {
+				statusLine = proto + " " + codeStr
+			}
+		}
+		headers := http.Header(mimeHdr)
+		scrubResponseHeaderMap(headers, c.hideIdentity)
+
+		var out bytes.Buffer
+		out.WriteString(statusLine)
+		out.WriteString("\r\n")
+		if err := headers.Write(&out); err != nil {
+			c.buf.Reset()
+			c.passthrough = true
+			return 0, err
+		}
+		out.WriteString("\r\n")
+		if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+			if err := writeAllConn(c.Conn, out.Bytes()); err != nil {
+				c.buf.Reset()
+				c.passthrough = true
+				return 0, err
+			}
+			c.buf.Reset()
+			c.buf.Write(rest)
+			continue
+		}
+		out.Write(rest)
+		c.buf.Reset()
+		c.passthrough = true
+		if err := writeAllConn(c.Conn, out.Bytes()); err != nil {
+			return 0, err
+		}
+		return len(p), nil
+	}
 }
 
 func (w *workerIngressWriter) WriteHeader(status int) {
@@ -158,8 +346,34 @@ func (w *workerIngressWriter) neutralize() {
 	w.started = true
 }
 
+var headerNameListFields = [...]string{
+	"Access-Control-Expose-Headers",
+	"Access-Control-Allow-Headers",
+	"Trailer",
+	"Connection",
+	"Vary",
+}
+
 func isHeaderNameListField(canonical string) bool {
-	return canonical == "Access-Control-Expose-Headers" || canonical == "Trailer"
+	for _, field := range headerNameListFields {
+		if canonical == field {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeHeaderListToken(name string) string {
+	switch strings.ToLower(name) {
+	case "*":
+		return "*"
+	case "close":
+		return "close"
+	case "keep-alive":
+		return "keep-alive"
+	default:
+		return http.CanonicalHeaderKey(name)
+	}
 }
 
 func filterHeaderNameList(values []string, names map[string]string, hidden map[string]bool, hideIdentity bool) []string {
@@ -167,15 +381,18 @@ func filterHeaderNameList(values []string, names map[string]string, hidden map[s
 	for _, value := range values {
 		for name := range strings.SplitSeq(value, ",") {
 			name = strings.TrimSpace(name)
-			canonical := http.CanonicalHeaderKey(name)
-			if alias := names[canonical]; alias != "" {
+			if name == "" {
+				continue
+			}
+			canonical := normalizeHeaderListToken(name)
+			if alias := names[http.CanonicalHeaderKey(name)]; alias != "" {
 				if hideIdentity {
 					continue
 				}
 				name = alias
-				canonical = http.CanonicalHeaderKey(name)
+				canonical = normalizeHeaderListToken(name)
 			}
-			if name != "" && !strings.Contains(strings.ToLower(name), "scenery") && !hidden[canonical] {
+			if !strings.Contains(strings.ToLower(name), "scenery") && !hidden[http.CanonicalHeaderKey(name)] && !hidden[canonical] {
 				allowed = append(allowed, canonical)
 			}
 		}
@@ -204,10 +421,13 @@ func cutTrailerPrefix(name string) (string, bool) {
 }
 
 func (w *workerIngressWriter) scrubHeadersAndTrailers() {
-	headers := w.Header()
+	scrubResponseHeaderMap(w.Header(), w.hideIdentity)
+}
+
+func scrubResponseHeaderMap(headers http.Header, hideIdentity bool) {
 	names := workerIdentityHeaders
 	var hidden map[string]bool
-	if w.hideIdentity {
+	if hideIdentity {
 		hidden = productionHiddenIdentityHeaders
 	}
 	type headerRewrite struct {
@@ -220,7 +440,7 @@ func (w *workerIngressWriter) scrubHeadersAndTrailers() {
 		if rawTrailer, isTrailer := cutTrailerPrefix(name); isTrailer {
 			canonical := http.CanonicalHeaderKey(rawTrailer)
 			if alias := names[canonical]; alias != "" {
-				if !w.hideIdentity {
+				if !hideIdentity {
 					rewrites = append(rewrites, headerRewrite{key: http.TrailerPrefix + http.CanonicalHeaderKey(alias), values: values})
 				}
 				delete(headers, name)
@@ -238,7 +458,7 @@ func (w *workerIngressWriter) scrubHeadersAndTrailers() {
 		}
 		canonical := http.CanonicalHeaderKey(name)
 		if strings.Contains(strings.ToLower(name), "scenery") {
-			if !w.hideIdentity {
+			if !hideIdentity {
 				if neutral := names[canonical]; neutral != "" {
 					rewrites = append(rewrites, headerRewrite{key: http.CanonicalHeaderKey(neutral), values: values})
 				}
@@ -251,13 +471,14 @@ func (w *workerIngressWriter) scrubHeadersAndTrailers() {
 		}
 	}
 	for canonical, values := range listTrailerValues {
-		if allowed := filterHeaderNameList(values, names, hidden, w.hideIdentity); len(allowed) > 0 {
+		if allowed := filterHeaderNameList(values, names, hidden, hideIdentity); len(allowed) > 0 {
 			rewrites = append(rewrites, headerRewrite{key: http.TrailerPrefix + canonical, values: []string{strings.Join(allowed, ", ")}})
 		}
 	}
 	for _, rewrite := range rewrites {
 		headers[rewrite.key] = rewrite.values
 	}
-	scrubHeaderNameList(headers, "Access-Control-Expose-Headers", names, hidden, w.hideIdentity)
-	scrubHeaderNameList(headers, "Trailer", names, hidden, w.hideIdentity)
+	for _, field := range headerNameListFields {
+		scrubHeaderNameList(headers, field, names, hidden, hideIdentity)
+	}
 }

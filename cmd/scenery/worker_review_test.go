@@ -801,7 +801,7 @@ func TestWorkerViteHandlerNeutralizesWebSocketUpgrade(t *testing.T) {
 				}
 				observedInboundHeader <- req.Header.Clone()
 				_, _ = io.WriteString(c, "HTTP/1.1 101 Switching Protocols\r\n"+
-					"Connection: Upgrade\r\n"+
+					"Connection: Upgrade, X-Scenery-Debug\r\n"+
 					"Upgrade: websocket\r\n"+
 					"Sec-WebSocket-Accept: ok\r\n"+
 					"X-Scenery-Debug: vite-leak\r\n"+
@@ -857,6 +857,9 @@ func TestWorkerViteHandlerNeutralizesWebSocketUpgrade(t *testing.T) {
 				t.Fatalf("101 header value leaked scenery: %s=%q", k, v)
 			}
 		}
+	}
+	if got := hdr.Get("Connection"); got != "Upgrade" {
+		t.Fatalf("Connection = %q, want Upgrade", got)
 	}
 	if got := hdr.Get("Access-Control-Expose-Headers"); got != "X-Vite-Ok" {
 		t.Fatalf("Access-Control-Expose-Headers = %q, want X-Vite-Ok", got)

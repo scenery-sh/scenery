@@ -444,7 +444,7 @@ func TestWorkerIngressNeutralizesHijackedWebSocketUpgrade(t *testing.T) {
 						break
 					}
 				}
-				_, _ = io.WriteString(c, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: ok\r\n\r\n")
+				_, _ = io.WriteString(c, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade, X-Scenery-Debug\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: ok\r\nX-Scenery-Debug: upstream-101-leak\r\n\r\n")
 				msg, _ := reader.ReadString('\n')
 				if msg == "ping\n" {
 					_, _ = io.WriteString(c, "pong\n")
@@ -453,7 +453,17 @@ func TestWorkerIngressNeutralizesHijackedWebSocketUpgrade(t *testing.T) {
 		}
 	}()
 
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: wsListener.Addr().String()})
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(&url.URL{Scheme: "http", Host: wsListener.Addr().String()})
+		},
+		ModifyResponse: func(response *http.Response) error {
+			response.Header.Set(processIdentityPIDHeader, "42")
+			response.Header.Set(processServiceIDHeader, "43")
+			response.Header.Set("Access-Control-Expose-Headers", "X-Exposed, "+processServiceIDHeader+", X-Scenery-Debug")
+			return nil
+		},
+	}
 	for _, tc := range []struct {
 		name        string
 		development bool
@@ -466,7 +476,6 @@ func TestWorkerIngressNeutralizesHijackedWebSocketUpgrade(t *testing.T) {
 			upstream := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				w.Header().Set(processGenerationHeader, "7")
 				w.Header().Set("X-Scenery-Debug", "rw-leak")
-				w.Header().Set("Access-Control-Expose-Headers", "X-Exposed, X-Scenery-Debug, X-App-Worker-Pid")
 				proxy.ServeHTTP(w, req)
 			})
 			srv := httptest.NewServer(neutralWorkerIngress(upstream, tc.development))
@@ -491,20 +500,36 @@ func TestWorkerIngressNeutralizesHijackedWebSocketUpgrade(t *testing.T) {
 				t.Fatal(hdrErr)
 			}
 			hdr := http.Header(headers)
+			if got := hdr.Get("Connection"); got != "Upgrade" {
+				t.Fatalf("%s Connection = %q, want Upgrade", tc.name, got)
+			}
 			if !tc.development {
 				assertNoSceneryOrAppIdentityLeak(t, hdr)
 				if got := hdr.Get("Access-Control-Expose-Headers"); got != "X-Exposed" {
 					t.Fatalf("prod Access-Control-Expose-Headers = %q, want X-Exposed", got)
 				}
 			} else {
+				for k, vs := range hdr {
+					if strings.Contains(strings.ToLower(k), "scenery") {
+						t.Fatalf("dev 101 key leaked scenery: %s=%v", k, vs)
+					}
+					for _, v := range vs {
+						if strings.Contains(strings.ToLower(v), "scenery") {
+							t.Fatalf("dev 101 value leaked scenery: %s=%q", k, v)
+						}
+					}
+				}
 				if got := hdr.Get("X-App-Generation"); got != tc.wantGen {
 					t.Fatalf("dev X-App-Generation = %q, want %q", got, tc.wantGen)
 				}
-				if got := hdr.Get(processGenerationHeader); got != "" {
-					t.Fatalf("dev leaked %s=%q", processGenerationHeader, got)
+				if got := hdr.Get("X-App-Host-Pid"); got != "42" {
+					t.Fatalf("dev X-App-Host-Pid = %q, want 42", got)
 				}
-				if got := hdr.Get("X-Scenery-Debug"); got != "" {
-					t.Fatalf("dev leaked X-Scenery-Debug=%q", got)
+				if got := hdr.Get("X-App-Worker-Pid"); got != "43" {
+					t.Fatalf("dev X-App-Worker-Pid = %q, want 43", got)
+				}
+				if got := hdr.Get("Access-Control-Expose-Headers"); got != "X-Exposed, X-App-Worker-Pid" {
+					t.Fatalf("dev Access-Control-Expose-Headers = %q, want X-Exposed, X-App-Worker-Pid", got)
 				}
 			}
 			if _, writeErr := io.WriteString(conn, "ping\n"); writeErr != nil {
