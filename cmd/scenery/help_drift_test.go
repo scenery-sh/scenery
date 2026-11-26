@@ -95,8 +95,11 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		"storage":   {ignoreParse(parseStorageArgs)},
 		"task":      {ignoreParse(parseTaskArgs)},
 		"worker":    {ignoreParse(parseWorkerArgs)},
-		"inspect":   {func(args []string) error { _, err := parseInspectArgs(append([]string{"harness"}, args...)); return err }},
-		"harness":   {ignoreParse(parseHarnessArgs)},
+		"inspect": {func(args []string) error {
+			_, err := parseInspectArgs(append([]string{"harness"}, args...))
+			return err
+		}},
+		"harness": {ignoreParse(parseHarnessArgs)},
 	}
 	entries := map[string]helpCommandEntry{}
 	for _, entry := range helpCommandDescriptors(helpCommands) {
