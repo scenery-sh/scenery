@@ -196,6 +196,8 @@ class _H2ConnectionBase:
                 if done:
                     break
             await self._writer.drain()
+        if end_stream:
+            self._stream_send_windows.pop(stream_id, None)
 
     async def send_data(self, stream_id: int, data: bytes, *, end_stream: bool = False) -> None:
         view = memoryview(data)
@@ -203,6 +205,7 @@ class _H2ConnectionBase:
         if len(view) == 0:
             if end_stream:
                 await self._send_raw(_pack_frame(FRAME_DATA, FLAG_END_STREAM, stream_id, b""))
+                self._stream_send_windows.pop(stream_id, None)
             return
         while offset < len(view):
             while True:
@@ -223,6 +226,8 @@ class _H2ConnectionBase:
             self._stream_send_windows[stream_id] -= take
             flags = FLAG_END_STREAM if (end_stream and offset >= len(view)) else 0
             await self._send_raw(_pack_frame(FRAME_DATA, flags, stream_id, chunk))
+        if end_stream:
+            self._stream_send_windows.pop(stream_id, None)
 
     async def send_rst_stream(self, stream_id: int, error_code: int = ERR_CANCEL) -> None:
         self._stream_send_windows.pop(stream_id, None)
@@ -715,15 +720,38 @@ class H2Client:
             else:
                 await conn.send_headers(sid, req_headers, end_stream=False)
                 send_task = asyncio.create_task(_stream_request_body(conn, sid, body))
-            response = await response_fut
-            if send_task is not None and send_task.done() and not send_task.cancelled():
-                exc = send_task.exception()
-                if exc is not None:
-                    raise exc
-            return response
+            if send_task is None:
+                return await response_fut
+            done, _ = await asyncio.wait(
+                {response_fut, send_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if send_task in done:
+                # Propagate body producer failures immediately instead of hanging
+                # on response_fut while the host waits for END_STREAM.
+                send_task.result()
+            if response_fut in done:
+                response = response_fut.result()
+                if not send_task.done():
+                    if response.status >= 400:
+                        send_task.cancel()
+                        try:
+                            await send_task
+                        except BaseException:
+                            pass
+                        conn._stream_send_windows.pop(sid, None)
+                    else:
+                        send_task.add_done_callback(_consume_task_exception)
+                return response
+            return await response_fut
         except BaseException:
             if send_task is not None and not send_task.done():
                 send_task.cancel()
+                try:
+                    await send_task
+                except BaseException:
+                    pass
+            conn._pending_headers.pop(sid, None)
             await conn.send_rst_stream(sid, ERR_CANCEL)
             raise
 
@@ -731,6 +759,11 @@ class H2Client:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+
+def _consume_task_exception(task: asyncio.Task[None]) -> None:
+    if not task.cancelled():
+        task.exception()
 
 
 async def _stream_request_body(

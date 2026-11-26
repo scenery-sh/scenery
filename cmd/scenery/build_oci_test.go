@@ -372,6 +372,39 @@ func TestOCIDockerfileAndContextForPythonWorkers(t *testing.T) {
 	}
 }
 
+func TestAddOCIPythonWorkersPreservesDatabases(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..", "testdata", "apps", "polyglot")
+	compiled, err := compiler.Compile(root)
+	if err != nil || !compiled.Valid() {
+		t.Fatalf("compile polyglot: err=%v diags=%+v", err, compiled.Diagnostics)
+	}
+	bundle := workerBundle{
+		Host: workerHostPlan{
+			Workers: []workerplan.WorkerServicePlan{
+				{Address: "python/service/python", Process: "python"},
+			},
+		},
+	}
+	builds, err := projectPythonBuilds(compiled, bundle, "artifact")
+	if err != nil {
+		t.Fatalf("projectPythonBuilds: %v", err)
+	}
+	if len(builds) != 1 || builds[0].program.Databases["database"] == "" {
+		t.Fatalf("expected Python service database dependency in projected build, got %+v", builds)
+	}
+	if _, _, err := bundle.addOCIPythonWorkers(compiled, builds); err != nil {
+		t.Fatalf("addOCIPythonWorkers: %v", err)
+	}
+	if len(bundle.Programs) != 1 {
+		t.Fatalf("got %d programs, want 1", len(bundle.Programs))
+	}
+	if got, want := bundle.Programs[0].Databases["database"], builds[0].program.Databases["database"]; got != want {
+		t.Fatalf("OCI Python program Databases[database] = %q, want %q", got, want)
+	}
+}
+
 func TestOCIContextInsideAppRootExcludesSelfAndRootSecrets(t *testing.T) {
 	t.Parallel()
 

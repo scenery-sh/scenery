@@ -12,10 +12,10 @@ import (
 // dotenvAllowedFiles only exclude dotenv files from builds, watches and
 // deployed sources; none reads one.
 var dotenvAllowedFiles = map[string]bool{
-	"internal/build/source.go":           true,
+	"internal/build/source.go":             true,
 	"internal/generate/generate_python.go": true,
-	"internal/rustbuild/build.go":        true,
-	"internal/watchignore/inputs.go":     true,
+	"internal/rustbuild/build.go":          true,
+	"internal/watchignore/inputs.go":       true,
 }
 
 var dotenvSourcePattern = regexp.MustCompile(`"\.env(\.[A-Za-z0-9_.-]*)?"|godotenv|joho/|internal/envfile|LoadDotEnv|DotEnvFiles`)

@@ -188,6 +188,23 @@ func invokeGoWorker(ctx context.Context, invocation workerabi.Invocation) (worke
 	defer enterState(state)()
 	if eventOperation != nil {
 		outcome, events, err := eventOperation(ctx, invocation.Input)
+		if events != nil {
+			rawEvents := events
+			events = func(streamCtx context.Context, emit func([]byte, string, string) error) error {
+				// Preserve the enriched invocation context (capabilities, invocation
+				// token, auth, request state) while honoring stream cancellation.
+				producerCtx := ctx
+				if streamCtx != nil && streamCtx != ctx {
+					var cancel context.CancelFunc
+					producerCtx, cancel = context.WithCancel(ctx)
+					defer cancel()
+					stop := context.AfterFunc(streamCtx, cancel)
+					defer stop()
+				}
+				defer enterState(state)()
+				return rawEvents(producerCtx, emit)
+			}
+		}
 		return workerabi.Result{Outcome: outcome, Events: events}, err
 	}
 	outcome, stream, err := operation(ctx, invocation.Input)
