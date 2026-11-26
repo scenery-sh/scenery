@@ -93,17 +93,15 @@ async fn serve_test(directory: PathBuf, launch: TestLaunch, listen: String) -> R
     let mut publication = control.publication().await;
     let assistants = assistant::Gateway::new(None, None, &launch.bundle.host.assistants)?;
     let export = otlp::Export::from_env(&|_| None)?;
-    let mut host_instance = Host::new(
+    let host = Arc::new(Host::new(
         launch.bundle,
         launch.snapshot,
         export,
         control.token().into(),
-        None,
+        crate::host::Mode::Test,
         (stop.clone(), assistants),
         publication.clone(),
-    )?;
-    host_instance.enable_test_harness();
-    let host = Arc::new(host_instance);
+    )?);
     host.engine.prepare(&host).await?;
 
     let control_listener = UnixListener::bind(directory.join("control.sock"))?;
@@ -185,4 +183,60 @@ fn write_ready_file(directory: &Path, address: &str) -> Result<()> {
         .open(directory.join("ready"))?;
     writeln!(marker, "{address}")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use tokio::sync::watch;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::assistant;
+    use crate::host::{Host, Mode};
+    use crate::plan::Bundle;
+
+    #[test]
+    fn test_mode_constructs_auth_with_development_bootstrap_without_jwt_secret() -> anyhow::Result<()>
+    {
+        let (_tx, rx) = watch::channel(None);
+        let bundle: Bundle = serde_json::from_value(json!({
+            "version": 1,
+            "contract_revision": "contract",
+            "programs": [],
+            "reports": {"schema_revision": "sha256:fixture", "producer_version": "test"},
+            "host": {"Name": "test", "Workers": []},
+            "auth": {
+                "Enabled": true,
+                "GoogleOAuth": {"Enabled": false},
+                "Connections": [],
+                "DevBootstrap": {
+                    "Enabled": true,
+                    "DefaultUserEmail": "dev@example.test",
+                    "DefaultTenantID": "tenant-dev"
+                }
+            },
+            "types": {},
+            "host_config_keys": [],
+        }))?;
+        let host = Host::new(
+            bundle,
+            Value::Null,
+            Default::default(),
+            "control".into(),
+            Mode::Test,
+            (
+                CancellationToken::new(),
+                assistant::Gateway::new(None, None, &[])?,
+            ),
+            rx,
+        )?;
+        assert!(host.development);
+        let token = host.auth.issue(crate::auth::Claims {
+            user: "dev-user".into(),
+            tenant: "tenant-dev".into(),
+            ..Default::default()
+        })?;
+        assert!(!token.is_empty());
+        Ok(())
+    }
 }

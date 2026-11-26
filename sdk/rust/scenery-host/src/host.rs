@@ -356,6 +356,12 @@ impl ScopeGuard {
     }
 }
 
+pub(crate) enum Mode {
+    Production,
+    Development(Arc<crate::dev::Status>),
+    Test,
+}
+
 pub(crate) struct Host {
     pub bundle: Bundle,
     pub auth: Authentication,
@@ -380,12 +386,16 @@ impl Host {
         configuration: Value,
         export: crate::otlp::Export,
         control_token: String,
-        dev_status: Option<Arc<crate::dev::Status>>,
+        mode: Mode,
         lifetime: (CancellationToken, crate::assistant::Gateway),
         generation: watch::Receiver<Option<Arc<Generation>>>,
     ) -> Result<Self> {
         let (stop, assistants) = lifetime;
-        let development = dev_status.is_some();
+        let (development, dev_status) = match mode {
+            Mode::Production => (false, None),
+            Mode::Development(status) => (true, Some(status)),
+            Mode::Test => (true, None),
+        };
         let scope = project_snapshot(&configuration, "host", &bundle.host_config_keys);
         let auth = Authentication::new(bundle.auth.as_ref(), &scope, development)?;
         // Telemetry carries the runtime application identity its workers
@@ -421,11 +431,6 @@ impl Host {
             auth_schema: tokio::sync::OnceCell::new(),
             capability_scopes: Scopes::default(),
         })
-    }
-
-    pub(crate) fn enable_test_harness(&mut self) {
-        self.development = true;
-        self.telemetry.enable_development_retention();
     }
 
     pub(crate) fn generation(&self) -> Option<Arc<Generation>> {

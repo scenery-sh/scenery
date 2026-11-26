@@ -354,7 +354,7 @@ fn auth_host(base: &str, issuer_url: &str) -> Result<(Arc<Host>, Arc<Generation>
         }),
         Default::default(),
         "control".into(),
-        None,
+        crate::host::Mode::Production,
         (
             CancellationToken::new(),
             assistant::Gateway::new(None, None, &[])?,

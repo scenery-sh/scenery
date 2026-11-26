@@ -22,6 +22,7 @@ import (
 	"scenery.sh/internal/postgresname"
 	"scenery.sh/internal/rustbuild"
 	"scenery.sh/internal/storageconfig"
+	"scenery.sh/internal/storagefs"
 	workerruntime "scenery.sh/runtime"
 )
 
@@ -70,29 +71,11 @@ func startTestDatabaseHarness(ctx context.Context, root string, cfg appcfg.Confi
 			return nil, err
 		}
 	} else {
-		resolver, err := newWorktreePostgresResolver(ctx, root, cfg.AppID())
+		var err error
+		canonicalRoot, adminURL, stopAfter, err = acquireManagedPostgresHarness(ctx, root, cfg.AppID())
 		if err != nil {
 			return nil, err
 		}
-		canonicalRoot = resolver.paths.AppRoot
-		wasRunning := false
-		if record, loadErr := resolver.load(); loadErr == nil {
-			if _, container, inspErr := resolver.inspect(ctx, record); inspErr == nil && container != nil && container.Running {
-				wasRunning = true
-			}
-		}
-		server, err := resolver.ensure(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !wasRunning {
-			stopAfter = func() error {
-				stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				defer cancel()
-				return resolver.stop(stopCtx)
-			}
-		}
-		adminURL = worktreePostgresURL(server, "postgres")
 	}
 
 	admin, err := openPostgresAdmin(ctx, adminURL)
@@ -200,9 +183,22 @@ func (h *testDatabaseHarness) branchForModule(ctx context.Context, moduleName st
 }
 
 type testHostBuilder struct {
+	root       string
 	executable string
 	bundle     workerBundle
 	cfg        appcfg.Config
+}
+
+func bundleNeedsConfigResolution(cfg appcfg.Config, bundle workerBundle) bool {
+	if len(cfg.Envs) > 0 || len(bundle.HostConfigKeys) > 0 {
+		return true
+	}
+	for _, program := range bundle.Programs {
+		if len(program.ConfigKeys) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func prepareTestHostBuilder(ctx context.Context, root string, cfg appcfg.Config, compiled *compiler.Result) (*testHostBuilder, error) {
@@ -210,8 +206,10 @@ func prepareTestHostBuilder(ctx context.Context, root string, cfg appcfg.Config,
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Name != "" {
-		_ = bundle.resolveDevelopmentConfig(ctx, compiled, cfg, "development")
+	if cfg.Name != "" && bundleNeedsConfigResolution(cfg, bundle) {
+		if err := bundle.resolveDevelopmentConfig(ctx, compiled, cfg, ""); err != nil {
+			return nil, err
+		}
 	}
 	bundle.setWorkerConfig()
 	executable, err := rustbuild.Host(ctx)
@@ -219,6 +217,7 @@ func prepareTestHostBuilder(ctx context.Context, root string, cfg appcfg.Config,
 		return nil, err
 	}
 	return &testHostBuilder{
+		root:       root,
 		executable: executable,
 		bundle:     bundle,
 		cfg:        cfg,
@@ -236,7 +235,7 @@ func (b *testHostBuilder) startInstance(ctx context.Context, baseEnv []string) (
 		_ = os.RemoveAll(runtimeDir)
 		return nil, nil, nil, err
 	}
-	hostEnv, err := withTestStorageEnv(baseEnv, b.cfg, b.bundle, storageDir)
+	hostEnv, err := withTestStorageEnv(ctx, baseEnv, b.root, b.cfg, b.bundle, storageDir)
 	if err != nil {
 		_ = os.RemoveAll(runtimeDir)
 		_ = os.RemoveAll(storageDir)
@@ -338,39 +337,64 @@ func (b *testHostBuilder) startInstance(ctx context.Context, baseEnv []string) (
 	}, outEnv, stop, nil
 }
 
-func withTestStorageEnv(baseEnv []string, cfg appcfg.Config, bundle workerBundle, storageDir string) ([]string, error) {
-	stores := make(map[string]storageconfig.RuntimeStoreConfig)
+func withTestStorageEnv(ctx context.Context, baseEnv []string, appRoot string, cfg appcfg.Config, bundle workerBundle, storageDir string) ([]string, error) {
+	storePolicies := make(map[string]appcfg.StorageStoreConfig, len(cfg.Storage.Stores))
 	for name, store := range cfg.Storage.Stores {
+		storePolicies[name] = store
+	}
+	for _, worker := range bundle.Host.Workers {
+		for _, storeName := range worker.Stores {
+			if _, exists := storePolicies[storeName]; !exists && storeName != "" {
+				storePolicies[storeName] = appcfg.StorageStoreConfig{Kind: "local"}
+			}
+		}
+	}
+	if len(storePolicies) == 0 {
+		return slicesCloneEnv(baseEnv), nil
+	}
+	if err := os.Chmod(storageDir, 0o700); err != nil {
+		return nil, err
+	}
+	canonicalStorageDir, err := filepath.EvalSymlinks(storageDir)
+	if err != nil {
+		return nil, err
+	}
+	canonicalAppRoot := canonicalStorageDir
+	if strings.TrimSpace(appRoot) != "" {
+		if resolved, evalErr := filepath.EvalSymlinks(appRoot); evalErr == nil {
+			canonicalAppRoot = resolved
+		}
+	}
+	namespaceRoot := filepath.Join(canonicalStorageDir, "namespace")
+	binding := storagefs.Binding{
+		AppID:   firstNonEmpty(cfg.AppID(), bundle.Host.Name, "test-app"),
+		AppRoot: canonicalAppRoot,
+		UserID:  os.Getuid(),
+		Managed: false,
+	}
+	namespace, err := storagefs.AllocateExternal(ctx, namespaceRoot, binding)
+	if err != nil {
+		return nil, err
+	}
+	stores := make(map[string]storageconfig.RuntimeStoreConfig, len(storePolicies))
+	for name, store := range storePolicies {
 		stores[name] = storageconfig.RuntimeStoreConfig{
 			Kind:           "local",
-			Root:           filepath.Join(storageDir, name),
+			Root:           namespace.Path,
 			Access:         strings.TrimSpace(store.Access),
 			TenantScoped:   store.TenantScoped,
 			MaxObjectBytes: store.MaxObjectBytes,
 		}
 	}
-	for _, worker := range bundle.Host.Workers {
-		for _, storeName := range worker.Stores {
-			if _, exists := stores[storeName]; !exists && storeName != "" {
-				stores[storeName] = storageconfig.RuntimeStoreConfig{
-					Kind: "local",
-					Root: filepath.Join(storageDir, storeName),
-				}
-			}
-		}
-	}
-	if len(stores) == 0 {
-		return slicesCloneEnv(baseEnv), nil
-	}
-	for _, store := range stores {
-		if err := os.MkdirAll(store.Root, 0o700); err != nil {
-			return nil, err
-		}
-	}
 	runtimeCfg := storageconfig.RuntimeConfig{
 		ArtifactIdentity: storageconfig.NewRuntimeIdentity(),
-		Default:          strings.TrimSpace(cfg.Storage.Default),
-		Stores:           stores,
+		Namespace: &storageconfig.Namespace{
+			Root:        namespace.Path,
+			Binding:     binding,
+			Incarnation: namespace.Incarnation,
+		},
+		Default: strings.TrimSpace(cfg.Storage.Default),
+		Stores:  stores,
 	}
 	if runtimeCfg.Default == "" && len(stores) == 1 {
 		for name := range stores {

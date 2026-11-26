@@ -19,7 +19,7 @@ var ambientSQLSupplyKeys = []string{appDatabaseURLEnv, postgresdb.RegistryEnv}
 // sqlSupplyCommands choose between managed and external SQL supply.
 var sqlSupplyCommands = map[string]bool{
 	"up": true, "worker": true, "db": true, "snapshot": true, "inspect": true,
-	"doctor": true, "down": true, "prune": true,
+	"doctor": true, "down": true, "prune": true, "test": true, "worktree": true,
 }
 
 // runWithConfiguredSQLSupply is the CLI entrypoint: it replaces inherited SQL

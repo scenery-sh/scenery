@@ -121,7 +121,7 @@ async fn exercise() -> anyhow::Result<()> {
         json!({"secrets":{"auth.jwt_secret":STANDARD.encode("test-auth-key")}}),
         Default::default(),
         "unused".into(),
-        None,
+        crate::host::Mode::Production,
         (stop.clone(), assistants),
         rx,
     )?);

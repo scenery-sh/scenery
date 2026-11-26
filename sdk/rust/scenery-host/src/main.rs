@@ -306,7 +306,9 @@ async fn run(mut input: Input) -> Result<()> {
         input.snapshot,
         export,
         control.token().into(),
-        watcher.as_ref().map(dev::WatcherLoop::status),
+        watcher
+            .as_ref()
+            .map_or(host::Mode::Production, |w| host::Mode::Development(w.status())),
         (stop.clone(), assistants),
         publication.clone(),
     )?);
