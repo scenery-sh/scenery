@@ -11,6 +11,7 @@ type goClientBinding struct {
 	Name          string
 	Field         string
 	InterfaceName string
+	OperationName string
 	Projected     bool
 	Binding       Resource
 	Operation     Resource
@@ -46,6 +47,29 @@ func serviceGoClients(idx *resourceIndex, service Resource) ([]goClientBinding, 
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	used := map[string]bool{}
+	for _, res := range idx.moduleResources(service.Module) {
+		switch res.Kind {
+		case "scenery.operation", "scenery.record", "scenery.enum", "scenery.union", "scenery.service":
+			used[goName(res.Name)] = true
+		}
+	}
+	for i := range result {
+		if !result[i].Projected {
+			result[i].OperationName = goName(result[i].Operation.Name)
+			continue
+		}
+		base := result[i].Field + "Client"
+		candidate := base
+		if used[candidate] {
+			candidate = "Projected" + base
+			for suffix := 2; used[candidate]; suffix++ {
+				candidate = fmt.Sprintf("Projected%d%s", suffix, base)
+			}
+		}
+		used[candidate] = true
+		result[i].OperationName = candidate
+	}
 	return result, nil
 }
 
@@ -65,6 +89,9 @@ func moduleContractImportPath(resources []Resource, module string) (string, bool
 }
 
 func (client goClientBinding) operationName() string {
+	if client.OperationName != "" {
+		return client.OperationName
+	}
 	if client.Projected {
 		return client.Field + "Client"
 	}

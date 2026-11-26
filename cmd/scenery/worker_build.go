@@ -96,7 +96,7 @@ func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServi
 // names the go_target of its Go services; empty selects the one with that role.
 func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTarget string, check bool) (workerBundle, error) {
 	var bundle workerBundle
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role)
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role, check)
 	if err != nil {
 		return bundle, err
 	}
@@ -127,7 +127,10 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 	return bundle, nil
 }
 
-func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
+func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string, check bool) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
+	if result == nil || !result.Valid() {
+		return workerBundle{}, nil, nil, fmt.Errorf("application compilation has errors")
+	}
 	plan, err := projectWorkerServices(result.Manifest)
 	if err != nil {
 		return workerBundle{}, nil, nil, err
@@ -136,7 +139,7 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	if err != nil {
 		return workerBundle{}, nil, nil, err
 	}
-	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
+	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", check); err != nil {
 		return workerBundle{}, nil, nil, err
 	}
 	var services []rustbuild.Service

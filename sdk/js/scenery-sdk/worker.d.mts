@@ -20,9 +20,12 @@ export interface ConfigSnapshot {
   readonly secrets: Readonly<Record<string, string>>;
 }
 
+export interface StorageWriteConditions {
+  readonly ifMatch?: string;
+  readonly ifNoneMatch?: boolean;
+}
 export interface StorageConditions {
   readonly ifMatch?: string;
-  readonly ifNoneMatch?: string;
 }
 export type StreamBody = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
 export type Headers = Readonly<Record<string, string | number | readonly string[] | undefined>>;
@@ -46,8 +49,9 @@ export interface Context {
   telemetry(records: readonly TelemetryRecord[]): Promise<void>;
   storageRead(store: string, key: string, options?: StorageConditions): Promise<{ headers: Headers; body: AsyncIterable<Uint8Array> }>;
   storageHead(store: string, key: string): Promise<Headers>;
-  storageWrite(store: string, key: string, body: StreamBody, options?: StorageConditions & { contentType?: string }): Promise<unknown>;
+  storageWrite(store: string, key: string, body: StreamBody, options?: StorageWriteConditions & { contentType?: string }): Promise<unknown>;
   storageDelete(store: string, key: string, options?: StorageConditions): Promise<void>;
+  storageDeletePrefix(store: string, prefix?: string): Promise<void>;
   storageList(store: string, options?: { prefix?: string; cursor?: string; limit?: number }): Promise<unknown>;
 }
 

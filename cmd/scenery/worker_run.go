@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,11 +42,22 @@ type workerLink struct {
 }
 
 type workerProcess struct {
-	program workerProgram
-	cmd     *exec.Cmd
-	done    chan struct{}
-	socket  string
-	token   string
+	program    workerProgram
+	cmd        *exec.Cmd
+	done       chan struct{}
+	parentPipe *os.File
+	pipeOnce   sync.Once
+	socket     string
+	token      string
+}
+
+func (process *workerProcess) closeParentPipe() {
+	if process == nil || process.parentPipe == nil {
+		return
+	}
+	process.pipeOnce.Do(func() {
+		_ = process.parentPipe.Close()
+	})
 }
 
 type workerProcessIdentity struct {
@@ -224,7 +236,8 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	if err := publishWorkerGeneration(ctx, httpClient, token, bundle, processes, 1); err != nil {
 		return err
 	}
-	if devControl != nil {
+	if dev != nil {
+		pruneJSWorkers(dev.watch.root, bundle.Programs)
 		devControl.publish(dev.applied, bundle, 1, nil)
 	}
 	if onReady != nil {
@@ -243,6 +256,24 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	return watcher.run(ctx, hostDone)
 }
 
+func workerProcessEnv(inherited []string, runtime string) []string {
+	env := envWithoutKeys(
+		minimalAppProcessEnv(inherited),
+		"SCENERY_LISTEN_NETWORK",
+		"SCENERY_LISTEN_ADDR",
+		"SCENERY_PROCESS_LINK",
+		workerruntime.ConfigSnapshotFDEnv,
+		storageconfig.RuntimeConfigEnv,
+		workerruntime.AssistantRuntimeConfigEnv,
+		workerruntime.AssistantTokenKeyEnv,
+		workerruntime.AssistantTokenKeyFileEnv,
+	)
+	if runtime != "go" {
+		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv, "SCENERY_DEV_REPORT_URL", "SCENERY_DEV_REPORT_TOKEN")
+	}
+	return env
+}
+
 func startBundleWorker(ctx context.Context, state, capabilities, number string, program workerProgram) (*workerProcess, error) {
 	data, err := os.ReadFile(program.Binary)
 	if err != nil {
@@ -253,42 +284,62 @@ func startBundleWorker(ctx context.Context, state, capabilities, number string, 
 		return nil, fmt.Errorf("worker %s executable digest changed", program.Service)
 	}
 	process := &workerProcess{program: program, socket: filepath.Join(state, "w"+number+".sock"), token: workerRandomToken(), done: make(chan struct{})}
-	env := envWithoutKeys(minimalAppProcessEnv(envpolicy.Environ()), "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR", "SCENERY_PROCESS_LINK", workerruntime.ConfigSnapshotFDEnv, storageconfig.RuntimeConfigEnv)
-	if program.Runtime != "go" {
-		env = envWithoutKeys(env, appDatabaseURLEnv, postgresdb.RegistryEnv)
-	}
-	config := filepath.Join(state, "w"+number+".json")
-	launch := workerabi.Launch{WorkerSocket: process.socket, HostSocket: capabilities, Token: process.token, Identity: process.workerIdentity()}
-	if err := writePrivateWorkerJSON(config, launch); err != nil {
+	env := workerProcessEnv(envpolicy.Environ(), program.Runtime)
+	parentRead, parentWrite, err := os.Pipe()
+	if err != nil {
 		return nil, err
 	}
+	process.parentPipe = parentWrite
+	config := filepath.Join(state, "w"+number+".json")
 	process.cmd = exec.Command(program.Binary, config)
+	devprocess.ConfigureChild(process.cmd)
 	process.cmd.Env = env
 	process.cmd.Stdout, process.cmd.Stderr = os.Stderr, os.Stderr
 	var privateInput *devprocess.PrivateInput
 	if compiler.IsJSRuntime(program.Runtime) {
 		input, err := jsWorkerStartup(program)
 		if err != nil {
+			_ = parentRead.Close()
+			process.closeParentPipe()
 			return nil, err
 		}
 		privateInput = input
 	} else if program.Runtime == "go" && program.config != nil {
 		data, err := json.Marshal(program.config)
 		if err != nil {
+			_ = parentRead.Close()
+			process.closeParentPipe()
 			return nil, err
 		}
 		privateInput = &devprocess.PrivateInput{Env: workerruntime.ConfigSnapshotFDEnv, Data: data}
 	}
 	started, abandon, err := devprocess.AttachPrivateInput(process.cmd, privateInput)
 	if err != nil {
+		_ = parentRead.Close()
+		process.closeParentPipe()
+		return nil, err
+	}
+	process.cmd.ExtraFiles = append(process.cmd.ExtraFiles, parentRead)
+	launch := workerabi.Launch{WorkerSocket: process.socket, HostSocket: capabilities, Token: process.token, Identity: process.workerIdentity(), ParentDeathFD: 2 + len(process.cmd.ExtraFiles)}
+	if err := writePrivateWorkerJSON(config, launch); err != nil {
+		abandon()
+		_ = parentRead.Close()
+		process.closeParentPipe()
 		return nil, err
 	}
 	if err := process.cmd.Start(); err != nil {
 		abandon()
+		_ = parentRead.Close()
+		process.closeParentPipe()
 		return nil, err
 	}
 	started()
-	go func() { _ = process.cmd.Wait(); close(process.done) }()
+	_ = parentRead.Close()
+	go func() {
+		_ = process.cmd.Wait()
+		process.closeParentPipe()
+		close(process.done)
+	}()
 	client := workerabi.NewClient(process.socket, process.token, process.workerIdentity())
 	defer client.Close()
 	if err := waitWorkerReady(ctx, client.Ready); err != nil {
@@ -310,13 +361,14 @@ func (process *workerProcess) stop() {
 		return
 	default:
 	}
-	_ = process.cmd.Process.Signal(syscall.SIGTERM)
+	process.closeParentPipe()
+	_ = devprocess.TerminateTreePID(process.cmd.Process.Pid)
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	select {
 	case <-process.done:
 	case <-timer.C:
-		_ = process.cmd.Process.Kill()
+		_ = devprocess.KillTree(process.cmd)
 		<-process.done
 	}
 }

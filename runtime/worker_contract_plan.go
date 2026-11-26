@@ -24,7 +24,23 @@ type WorkerServicePlan struct {
 	Bindings   []WorkerBindingPlan
 	Durable    map[string]WorkerDurablePlan
 	Schedules  []WorkerSchedulePlan
+	MCPTools   []WorkerMCPToolPlan
 	Stores     map[string]string
+}
+
+type WorkerMCPToolPlan struct {
+	ID               string
+	Name             string
+	AssistantAddress string
+	Binding          string
+	Operation        string
+	Execution        string
+	Delivery         string
+	Policy           ContractHTTPPolicy
+	Limits           MCPToolLimits
+	Effect           MCPToolEffect
+	Approval         string
+	StreamFields     map[string][]string
 }
 
 // WorkerStorageHandler serves an invocation-scoped operation on the resolved
@@ -44,6 +60,7 @@ type WorkerOperationPlan struct {
 type WorkerBindingPlan struct {
 	Address    string
 	Operation  string
+	Protocol   string
 	Policy     ContractHTTPPolicy
 	HTTP       *WorkerHTTPPlan
 	Visibility string

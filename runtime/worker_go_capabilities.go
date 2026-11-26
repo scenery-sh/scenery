@@ -109,6 +109,14 @@ func callWorkerCapability(ctx context.Context, method, path string, input any) (
 		if response.StatusCode >= 400 && response.StatusCode < 500 {
 			delivery = workerabi.NotSent
 		}
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, workerabi.MaxMetadataBytes))
+		if readErr == nil {
+			var wireErr errs.Error
+			if json.Unmarshal(body, &wireErr) == nil && wireErr.Code != "" &&
+				wireErr.Code != errs.Unknown && wireErr.Code != errs.Internal && wireErr.Code != errs.Unavailable {
+				return nil, &wireErr
+			}
+		}
 		return nil, workerUnavailable(delivery, fmt.Errorf("host capability %s returned HTTP %d", path, response.StatusCode))
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, workerabi.MaxMetadataBytes+1))

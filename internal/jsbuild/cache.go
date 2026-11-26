@@ -3,6 +3,7 @@ package jsbuild
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -34,7 +35,7 @@ func readBuildCache(root, path string, service Service) Artifact {
 	if info, err := os.Lstat(destination); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		return Artifact{}
 	}
-	return Artifact{Path: destination, Digest: "sha256:" + record.Executable, CacheHit: true}
+	return Artifact{Path: destination, Digest: "sha256:" + record.Executable, CacheHit: true, Dependencies: slices.Clone(record.Dependencies)}
 }
 
 func buildFingerprint(root string, service Service, dependencies []string) (string, error) {
@@ -132,6 +133,63 @@ func walkedModuleInput(module, path string) bool {
 			continue
 		}
 		if dir = filepath.Join(dir, name); skipModuleDir(module, dir) {
+			return false
+		}
+	}
+	return true
+}
+
+// Prune removes stale compiled worker binaries in .scenery/js that are neither
+// referenced by any cached build entry nor in keep.
+func Prune(root string, keep []string) error {
+	privateRoot := filepath.Join(root, ".scenery", "js")
+	entries, err := os.ReadDir(privateRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	retained := make(map[string]bool, len(keep))
+	for _, path := range keep {
+		if path != "" {
+			retained[filepath.Clean(path)] = true
+		}
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !strings.HasPrefix(name, "build-") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		var record buildCacheEntry
+		if raw, err := os.ReadFile(filepath.Join(privateRoot, name)); err == nil && json.Unmarshal(raw, &record) == nil &&
+			len(record.Executable) == 64 && filepath.IsLocal(record.Executable) {
+			retained[filepath.Join(privateRoot, "worker-"+record.Executable)] = true
+		}
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !isJSWorkerBinaryName(name) {
+			continue
+		}
+		path := filepath.Join(privateRoot, name)
+		if !retained[filepath.Clean(path)] {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func isJSWorkerBinaryName(name string) bool {
+	digest, ok := strings.CutPrefix(name, "worker-")
+	if !ok || len(digest) != 64 {
+		return false
+	}
+	for i := 0; i < len(digest); i++ {
+		c := digest[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}

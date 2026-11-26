@@ -13,8 +13,9 @@ import (
 )
 
 type workerJSBuild struct {
-	service jsbuild.Service
-	program workerProgram
+	service      jsbuild.Service
+	program      workerProgram
+	dependencies []string
 }
 
 func projectJSBuilds(result *compiler.Result, bundle workerBundle, role string) ([]workerJSBuild, error) {
@@ -63,10 +64,13 @@ func (failure *workerJSBuildError) Error() string {
 	return fmt.Sprintf("JavaScript worker %s: %s", failure.service, failure.err)
 }
 
-func (build workerJSBuild) run(ctx context.Context, root string, check bool) (workerProgram, bool, error) {
+func (build *workerJSBuild) run(ctx context.Context, root string, check bool) (workerProgram, bool, error) {
 	artifact, err := jsbuild.Build(ctx, root, build.service, check)
 	if err != nil {
 		return workerProgram{}, false, &workerJSBuildError{service: build.program.Service, err: err}
+	}
+	if !check {
+		build.dependencies = slices.Clone(artifact.Dependencies)
 	}
 	program := build.program
 	program.Binary, program.Digest = artifact.Path, artifact.Digest
@@ -76,6 +80,9 @@ func (build workerJSBuild) run(ctx context.Context, root string, check bool) (wo
 
 func (build workerJSBuild) affected(paths []string) bool {
 	for _, path := range paths {
+		if slices.Contains(build.dependencies, path) {
+			return true
+		}
 		switch filepath.Ext(path) {
 		case ".go", ".rs", ".scn":
 			continue
@@ -93,9 +100,33 @@ func (build workerJSBuild) affected(paths []string) bool {
 	return false
 }
 
+func (dev *workerDevelopment) jsDependencies() []string {
+	var all []string
+	for _, build := range dev.js {
+		all = append(all, build.dependencies...)
+	}
+	slices.Sort(all)
+	return slices.Compact(all)
+}
+
+func pruneJSWorkers(root string, programs []workerProgram) {
+	keep := make([]string, 0, len(programs))
+	for _, program := range programs {
+		if compiler.IsJSRuntime(program.Runtime) && program.Binary != "" {
+			keep = append(keep, program.Binary)
+		}
+	}
+	_ = jsbuild.Prune(root, keep)
+}
+
+func pruneJSWorkersByPaths(root string, binaries []string) {
+	_ = jsbuild.Prune(root, binaries)
+}
+
 func (dev *workerDevelopment) rebuildJS(ctx context.Context, active, next workerBundle, paths []string, declarations bool, timing *workerRebuildTiming) (workerBundle, error) {
 	start := time.Now()
-	for _, build := range dev.js {
+	for index := range dev.js {
+		build := &dev.js[index]
 		index := slices.IndexFunc(active.Programs, func(program workerProgram) bool {
 			return program.Service == build.program.Service && program.Runtime == build.program.Runtime
 		})

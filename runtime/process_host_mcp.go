@@ -48,6 +48,24 @@ type processHostMCPDispatcher struct {
 }
 
 func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract.ToolCallContext, name string, input json.RawMessage) (mcpcontract.ToolOutcome, error) {
+	if d.host.workers != nil {
+		number, err := d.host.runGeneration(call)
+		if err != nil {
+			return mcpcontract.ToolOutcome{}, err
+		}
+		generation := d.host.acquire(number)
+		if generation == nil {
+			message := "application generation is not published"
+			if number != 0 {
+				message = fmt.Sprintf("application generation %d is not dispatchable", number)
+			}
+			return mcpcontract.ToolOutcome{}, &errs.Error{Code: errs.Unavailable, Message: message, Meta: errs.Metadata{"delivery": "not_sent"}}
+		}
+		defer generation.inFlight.Add(-1)
+		ctx = context.WithValue(ctx, processHostGenerationKey{}, generation)
+		ctx = context.WithValue(ctx, processGenerationKey{}, generation.number)
+		return (MCPToolDispatcher{}).CallTool(ctx, call, name, input)
+	}
 	process, err := d.host.mcpToolOwner(strings.TrimSpace(call.AssistantAddress), strings.TrimSpace(name))
 	if err != nil {
 		return mcpcontract.ToolOutcome{}, err

@@ -51,7 +51,7 @@ func (h *processHost) serveWorkerDevCall(w http.ResponseWriter, req *http.Reques
 		return
 	}
 	req.Method, req.URL, req.RequestURI = method, route, route.RequestURI()
-	neutralWorkerIngress(http.HandlerFunc(h.serveIngress)).ServeHTTP(w, req)
+	neutralWorkerIngress(http.HandlerFunc(h.serveIngress), true).ServeHTTP(w, req)
 }
 
 func (h *processHost) serveWorkerDevBinding(w http.ResponseWriter, req *http.Request, address, module string) {

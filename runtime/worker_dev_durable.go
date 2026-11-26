@@ -277,8 +277,12 @@ func (workers *workerHost) runDevDirectSchedule(w http.ResponseWriter, req *http
 	generation.inFlight.Add(1)
 	go func(result devDurableResult) {
 		defer generation.inFlight.Add(-1)
-		ctx, cancel := context.WithTimeout(generation.lifetime, target.schedule.Timeout)
-		defer cancel()
+		ctx := generation.lifetime
+		if target.schedule.Timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, target.schedule.Timeout)
+			defer cancel()
+		}
 		result.Attempts = 1
 		result.Output, _ = workers.executeDevSchedule(ctx, target, generation, &result)
 		finished <- result

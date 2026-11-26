@@ -76,6 +76,18 @@ func prepareWorkerStorage(plans []workerruntime.WorkerServicePlan) (workerruntim
 		}
 		query := request.URL.Query()
 		keys := query["key"]
+		if request.URL.Path == "/host/v1/storage/delete" && storageProxyBool(query.Get("recursive")) {
+			if len(keys) > 1 || request.Header.Get("If-Match") != "" || request.Header.Get("If-None-Match") != "" {
+				http.Error(w, "invalid recursive delete parameters", http.StatusBadRequest)
+				return
+			}
+			prefix := ""
+			if len(keys) == 1 {
+				prefix = keys[0]
+			}
+			handleStorageProxyDeletePrefix(w, request, store, prefix)
+			return
+		}
 		if len(keys) != 1 || query.Has("recursive") {
 			http.Error(w, "invalid storage key or operation", http.StatusBadRequest)
 			return

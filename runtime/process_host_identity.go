@@ -43,6 +43,7 @@ type processHostAttestingWriter struct {
 	http.ResponseWriter
 	generation *processHostGeneration
 	attested   bool
+	suppress   bool
 }
 
 func (w *processHostAttestingWriter) attest() {
@@ -50,6 +51,13 @@ func (w *processHostAttestingWriter) attest() {
 		return
 	}
 	w.attested = true
+	if w.suppress {
+		w.Header().Del(processGenerationHeader)
+		for _, name := range processHostIdentityHeaders {
+			w.Header().Del(name)
+		}
+		return
+	}
 	if w.generation != nil {
 		w.Header().Set(processGenerationHeader, strconv.FormatUint(w.generation.number, 10))
 		attestProcessGeneration(w.Header(), w.generation)

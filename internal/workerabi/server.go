@@ -15,10 +15,11 @@ import (
 )
 
 type Launch struct {
-	WorkerSocket string   `json:"worker_socket"`
-	HostSocket   string   `json:"host_socket"`
-	Token        string   `json:"token"`
-	Identity     Identity `json:"identity"`
+	WorkerSocket  string   `json:"worker_socket"`
+	HostSocket    string   `json:"host_socket"`
+	Token         string   `json:"token"`
+	Identity      Identity `json:"identity"`
+	ParentDeathFD int      `json:"parent_death_fd,omitempty"`
 }
 
 func ReadLaunch(args []string) (Launch, error) {

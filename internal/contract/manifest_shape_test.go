@@ -33,9 +33,10 @@ func TestManifestWireKeepsAbsenceAndNullAcrossSerialization(t *testing.T) {
 }
 
 func TestManifestMapItemCount(t *testing.T) {
-	types := ManifestTypes{"quote/record/Limits": {Kind: "record", Fields: []ManifestField{{
-		Name: "limits", Type: "map(int32)", Constraints: ContractConstraints{MinItems: new(int64(1)), MaxItems: new(int64(2))},
-	}}}}
+	types := ManifestTypes{"quote/record/Limits": {Kind: "record", Fields: []ManifestField{
+		{Name: "limits", Type: "map(int32)", Constraints: ContractConstraints{MinItems: new(int64(1)), MaxItems: new(int64(2))}},
+		{Name: "tags", Type: "optional(list(string))", Constraints: ContractConstraints{MinLength: new(int64(1)), MaxLength: new(int64(2))}},
+	}}}
 	for _, test := range []struct {
 		input string
 		valid bool
@@ -43,6 +44,9 @@ func TestManifestMapItemCount(t *testing.T) {
 		{`{"limits":{}}`, false},
 		{`{"limits":{"a":1}}`, true},
 		{`{"limits":{"a":1,"b":2}}`, true},
+		{`{"limits":{"a":1,"b":2},"tags":[]}`, false},
+		{`{"limits":{"a":1,"b":2},"tags":["one","two"]}`, true},
+		{`{"limits":{"a":1,"b":2},"tags":["one","two","three"]}`, false},
 		{`{"limits":{"a":1,"b":2,"c":"bad"}}`, false},
 	} {
 		t.Run(test.input, func(t *testing.T) {

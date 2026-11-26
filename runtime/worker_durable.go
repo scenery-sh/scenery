@@ -33,7 +33,7 @@ func (workers *workerHost) registerDurable(service WorkerServicePlan, execution 
 	return RegisterContractDurableExecution(registration)
 }
 
-func (workers *workerHost) dispatchDurable(ctx context.Context, plan WorkerDurablePlan, delivery string, input json.RawMessage) (workerabi.Result, error) {
+func (workers *workerHost) dispatchDurable(ctx context.Context, service WorkerServicePlan, plan WorkerDurablePlan, delivery string, input json.RawMessage) (workerabi.Result, error) {
 	options, err := workerDurableOptions(plan, input)
 	if err != nil {
 		return workerabi.Result{}, ContractSystemError(err)
@@ -41,14 +41,25 @@ func (workers *workerHost) dispatchDurable(ctx context.Context, plan WorkerDurab
 	address := plan.Registration.Address
 	if delivery == "wait" {
 		output, err := DispatchAndWaitContractDurableExecutionWithOptions(ctx, address, input, options)
-		return workerabi.Result{Outcome: output}, err
+		if err != nil {
+			return workerabi.Result{}, err
+		}
+		result := workerabi.Result{Outcome: output}
+		operation, ok := service.Operations[plan.Operation]
+		if !ok {
+			return workerabi.Result{}, ContractSystemError(fmt.Errorf("worker durable execution has no declared operation"))
+		}
+		if _, _, err := workers.validateOutcome(operation, &result); err != nil {
+			return workerabi.Result{}, ContractSystemError(err)
+		}
+		return result, nil
+	}
+	if len(plan.Registration.ExternalName) == 0 {
+		return workerabi.Result{}, ContractSystemError(fmt.Errorf("worker durable execution has no external name"))
 	}
 	receipt, err := DispatchContractDurableExecutionWithOptions(ctx, address, input, options)
 	if err != nil {
 		return workerabi.Result{}, contractDurableFailure("dispatch.rejected", err)
-	}
-	if len(plan.Registration.ExternalName) == 0 {
-		return workerabi.Result{}, ContractSystemError(fmt.Errorf("worker durable execution has no external name"))
 	}
 	data, err := json.Marshal(receipt)
 	if err != nil {

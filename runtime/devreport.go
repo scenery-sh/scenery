@@ -523,14 +523,15 @@ func finishRequestTrace(state *requestState, httpStatus int, err error) {
 	}
 	span := state.trace
 	duration := time.Since(span.started)
-	if err == nil && httpStatus >= 400 {
-		err = traceCodedError("http_" + strconv.Itoa(httpStatus))
-	}
 	if span.isRoot && err != nil {
 		logRequestFailure(state, err)
 	}
 	if span.isRoot {
 		logRequestCompleted(state, duration, err)
+	}
+	traceErr := err
+	if traceErr == nil && httpStatus >= 400 {
+		traceErr = traceCodedError("http_" + strconv.Itoa(httpStatus))
 	}
 	reporter := activeReporter()
 	if reporter == nil || !state.traceEnabled {
@@ -549,14 +550,14 @@ func finishRequestTrace(state *requestState, httpStatus int, err error) {
 			Event: map[string]any{
 				"span_end": map[string]any{
 					"duration_nanos": uint64(duration),
-					"status_code":    statusCodeName(err),
+					"status_code":    statusCodeName(traceErr),
 					"request": map[string]any{
 						"service_name":     span.service,
 						"endpoint_name":    span.endpoint,
 						"http_status_code": httpStatus,
 						"uid":              state.auth.UID,
 					},
-					"error": traceError(err),
+					"error": traceError(traceErr),
 				},
 			},
 		},
@@ -567,9 +568,9 @@ func finishRequestTrace(state *requestState, httpStatus int, err error) {
 		SpanID:                span.spanID,
 		Type:                  span.spanType,
 		InvocationCorrelation: invocationCorrelation(state),
-		ErrorCode:             traceErrorCode(err),
+		ErrorCode:             traceErrorCode(traceErr),
 		IsRoot:                span.isRoot,
-		IsError:               err != nil,
+		IsError:               traceErr != nil,
 		StartedAt:             span.started,
 		DurationNanos:         uint64(duration),
 		ServiceName:           span.service,

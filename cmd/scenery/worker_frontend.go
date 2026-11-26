@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/app"
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/staticfrontend"
 )
@@ -146,17 +147,28 @@ func startWorkerVite(ctx context.Context, frontend workerFrontend) (http.Handler
 		return nil, clean, err
 	}
 	command := exec.Command(program, append(args, "--strictPort")...)
+	devprocess.ConfigureChild(command)
 	command.Dir = frontend.Root
 	command.Stdout, command.Stderr = os.Stderr, os.Stderr
-	if err := command.Start(); err != nil {
+	stdinRead, stdinWrite, err := os.Pipe()
+	if err != nil {
 		return nil, clean, err
 	}
-	done := make(chan struct{})
-	go func() { _ = command.Wait(); close(done) }()
-	clean = func() {
-		process := &workerProcess{cmd: command, done: done}
-		process.stop()
+	command.Stdin = stdinRead
+	if err := command.Start(); err != nil {
+		_ = stdinRead.Close()
+		_ = stdinWrite.Close()
+		return nil, clean, err
 	}
+	_ = stdinRead.Close()
+	done := make(chan struct{})
+	viteProcess := &workerProcess{cmd: command, done: done, parentPipe: stdinWrite}
+	go func() {
+		_ = command.Wait()
+		viteProcess.closeParentPipe()
+		close(done)
+	}()
+	clean = viteProcess.stop
 	if err := waitWorkerReady(ctx, func(ctx context.Context) error {
 		connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 		if err != nil {

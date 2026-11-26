@@ -283,7 +283,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	}
 	ingress := http.Handler(http.HandlerFunc(host.serveIngress))
 	if host.workers != nil {
-		ingress = neutralWorkerIngress(ingress)
+		ingress = neutralWorkerIngress(ingress, host.developmentCall)
 	}
 	servers := []*http.Server{
 		{Handler: http.HandlerFunc(host.serveControl), MaxHeaderBytes: processHostMaxHeaderBytes},
@@ -374,6 +374,10 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 }
 
 func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
+	if h.workers != nil && (strings.Contains(strings.ToLower(req.URL.Path), "scenery") || strings.Contains(strings.ToLower(req.URL.RawPath), "scenery")) {
+		http.NotFound(w, req)
+		return
+	}
 	req.Header.Del(processExpectedContractHdr)
 	if h.local != nil {
 		method := req.Method
@@ -388,7 +392,7 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 			// an assistant event stream attests the generation its
 			// conversation's run executes in (see attachAssistantStream).
 			current := h.acquireIngress(req)
-			writer := &processHostAttestingWriter{ResponseWriter: &processHostResponseWriter{ResponseWriter: w, generation: current}, generation: current}
+			writer := &processHostAttestingWriter{ResponseWriter: &processHostResponseWriter{ResponseWriter: w, generation: current}, generation: current, suppress: h.workers != nil && !h.developmentCall}
 			if current != nil {
 				defer current.inFlight.Add(-1)
 				ctx := context.WithValue(req.Context(), processHostGenerationKey{}, current)
@@ -408,7 +412,9 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 	w = &processHostResponseWriter{ResponseWriter: w, generation: generation}
 	// An answer names the application generation that served it, so a check can
 	// bind its evidence to the exact published implementation set.
-	w.Header().Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
+	if h.workers == nil || h.developmentCall {
+		w.Header().Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
+	}
 	req.Header.Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
 	req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, generation))
 	method := req.Method
@@ -426,7 +432,7 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 	if h.fallback == "" {
 		// An application without a native service: the host's own runtime
 		// serves framework routes and answers unmatched requests.
-		h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: generation}, req)
+		h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: generation, suppress: h.workers != nil && !h.developmentCall}, req)
 		return
 	}
 	h.forward(w, req, h.fallback)

@@ -66,6 +66,9 @@ func buildCommand(out io.Writer, args []string) error {
 		return &codedCLIError{err: err, code: 3}
 	}
 	if compiled, compileErr := compiler.Compile(appRoot); compileErr == nil && usesWorkerBundle(compiled) {
+		if !compiled.Valid() {
+			return fmt.Errorf("failed_precondition: validate runtime plan: runtime plan is invalid: %s", firstCompilerDiagnostic(compiled.Diagnostics))
+		}
 		if desktop || verifyGeneration {
 			return usageErrorf("worker bundles do not support desktop or Go generation verification")
 		}
@@ -83,6 +86,7 @@ func buildCommand(out io.Writer, args []string) error {
 		if err != nil {
 			return goTargetSelectionCLIError(err)
 		}
+		pruneJSWorkers(appRoot, bundle.Programs)
 		frontend, err := selectWorkerFrontend(appRoot, cfg, compiled)
 		if err != nil {
 			return err

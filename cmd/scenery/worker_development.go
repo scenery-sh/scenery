@@ -50,6 +50,10 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
+	watch.setExplicit(dev.jsDependencies(), true)
+	if err := watch.scanExplicit(dev.applied, false); err != nil {
+		return nil, workerBundle{}, err
+	}
 	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
 	if err != nil {
 		return nil, workerBundle{}, err
@@ -80,7 +84,7 @@ func (dev *workerDevelopment) prepare(ctx context.Context) (workerBundle, error)
 	if err != nil {
 		return workerBundle{}, err
 	}
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "development")
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "development", false)
 	if err != nil {
 		return workerBundle{}, err
 	}

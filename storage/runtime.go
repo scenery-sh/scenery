@@ -254,14 +254,18 @@ func (s *proxyRuntimeStore) DeletePrefix(ctx context.Context, prefix string) err
 
 func (s *proxyRuntimeStore) newRequest(ctx context.Context, method, key string, query url.Values, body io.Reader) (*http.Request, error) {
 	if s.worker {
-		if query.Has("recursive") {
-			return nil, fmt.Errorf("worker storage supports deleting individual objects")
+		recursive := method == http.MethodDelete && query.Has("recursive")
+		if query.Has("recursive") && !recursive {
+			return nil, fmt.Errorf("worker storage recursive delete requires DELETE")
 		}
 		if query == nil {
 			query = make(url.Values)
 		}
 		query.Set("store", s.name)
 		action := "list"
+		if recursive {
+			action = "delete"
+		}
 		if key != "" {
 			query.Set("key", key)
 			action = map[string]string{http.MethodGet: "read", http.MethodHead: "read", http.MethodPut: "write", http.MethodDelete: "delete"}[method]

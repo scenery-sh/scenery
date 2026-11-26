@@ -64,6 +64,11 @@ func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec Wo
 				return err
 			}
 		}
+		for _, tool := range plan.MCPTools {
+			if err := workers.registerMCPTool(plan, tool); err != nil {
+				return err
+			}
+		}
 	}
 	h.workers = workers
 	return nil
@@ -74,6 +79,9 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 	if !exists || operation.Input == "" || binding.Address == "" {
 		return fmt.Errorf("worker service %s has an incomplete binding %s", plan.Address, binding.Address)
 	}
+	if binding.Protocol == "mcp" {
+		return nil
+	}
 	normalize := func(input []byte) ([]byte, error) { return workers.codec(operation.Input, input) }
 	invoke := func(ctx context.Context, input any) (workerabi.Result, error) {
 		raw, ok := input.(json.RawMessage)
@@ -81,7 +89,7 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 			return workerabi.Result{}, ContractSystemError(fmt.Errorf("worker binding input is not canonical JSON"))
 		}
 		if binding.Delivery == "enqueue" || binding.Delivery == "wait" {
-			return workers.dispatchDurable(ctx, plan.Durable[binding.Execution], binding.Delivery, raw)
+			return workers.dispatchDurable(ctx, plan, plan.Durable[binding.Execution], binding.Delivery, raw)
 		}
 		return workers.invoke(ctx, plan, operation, binding.Operation, binding.Address, "direct", raw)
 	}
@@ -93,14 +101,30 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 			DecodeContractRequest: func(request *http.Request, values map[string]string) (ContractDecodedRequest, error) {
 				return decodeWorkerRequest(request, values, httpPlan.Request, normalize)
 			},
-			Invoke: func(ctx context.Context, _ []any, input any) (any, error) { return invoke(ctx, input) },
+			Invoke: func(ctx context.Context, _ []any, input any) (any, error) {
+				result, err := invoke(ctx, input)
+				if err != nil {
+					if outcome := ContractDurableFailureOutcome(err); outcome != "" {
+						status, message := http.StatusServiceUnavailable, "durable dispatch rejected"
+						if outcome == "dispatch.wait_timeout" {
+							status, message = http.StatusGatewayTimeout, "durable wait timed out"
+						}
+						if configured := binding.Policy.TransportStatuses[outcome]; configured != 0 {
+							status = configured
+						}
+						return nil, &ContractTransportError{Outcome: outcome, Status: status, Message: message, Cause: err}
+					}
+					return nil, err
+				}
+				return result, nil
+			},
 			EncodeContractOutcome: func(request *http.Request, output any) (ContractHTTPResponse, error) {
 				result, ok := output.(workerabi.Result)
 				if !ok {
 					return ContractHTTPResponse{}, ContractSystemError(fmt.Errorf("worker binding has no outcome"))
 				}
 				response, err := encodeWorkerResponse(request, result, httpPlan.Responses)
-				if err == nil && result.ProcessID != 0 {
+				if err == nil && result.ProcessID != 0 && workers.host != nil && workers.host.developmentCall {
 					if response.Headers == nil {
 						response.Headers = make(http.Header)
 					}
@@ -212,10 +236,20 @@ func (workers *workerHost) invoke(ctx context.Context, plan WorkerServicePlan, o
 		extra.LogsEnabled, extra.Module, extra.ServiceName = state.logsEnabled, plan.Module, plan.Name
 		extra.Method, extra.Path = state.request.Method, state.request.Path
 		extra.PathParams, extra.Headers = workerPathParams(state.request.PathParams), workerRequestHeaders(state.request.Headers)
+		if state.request.API != nil {
+			extra.API = &workerAPIDesc{Exposed: state.request.API.Exposed, AuthRequired: state.request.API.AuthRequired}
+		}
+		extra.CronIdempotencyKey = state.request.CronIdempotencyKey
+		if extra.CronIdempotencyKey == "" {
+			extra.CronIdempotencyKey = state.request.Headers.Get(sceneryCronExecutionHeader)
+		}
 		if trace := state.trace; trace != nil {
 			metadata.Traceparent = traceParentForContext(ctx)
 			extra.ParentSpanID = trace.parentSpanID
 		}
+	}
+	if extra.API == nil {
+		extra.API = &workerAPIDesc{Exposed: false, AuthRequired: current.Principal() != ""}
 	}
 	if metadata.Traceparent == "" {
 		extra.TraceID = current.TraceID()
@@ -414,10 +448,127 @@ func (workers *workerHost) serveBindingCapability(plan WorkerServicePlan, w http
 		http.Error(w, "client binding is unavailable", http.StatusForbidden)
 		return
 	}
-	output, err := invokeRegisteredContractBindingJSON(request.Context(), registration, clientPlan.Binding, plan.Module, fields["input"])
-	if err != nil {
+	if output, err := invokeRegisteredContractBindingJSON(request.Context(), registration, clientPlan.Binding, plan.Module, fields["input"]); err != nil {
 		writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Error: newProcessLinkError(err)})
 		return
+	} else {
+		writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Output: output})
 	}
-	writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Output: output})
+}
+
+func (workers *workerHost) registerMCPTool(plan WorkerServicePlan, tool WorkerMCPToolPlan) error {
+	operation, exists := plan.Operations[tool.Operation]
+	if !exists || operation.Input == "" || tool.ID == "" {
+		return fmt.Errorf("worker service %s has an incomplete MCP tool %s", plan.Address, tool.Name)
+	}
+	policy := tool.Policy
+	return RegisterMCPTool(MCPToolRegistration{
+		ID:               tool.ID,
+		Name:             tool.Name,
+		AssistantAddress: tool.AssistantAddress,
+		OperationAddress: tool.Operation,
+		ExecutionAddress: tool.Execution,
+		Policy:           &policy,
+		Limits:           tool.Limits,
+		Effect:           tool.Effect,
+		Approval:         tool.Approval,
+		DecodeInput: func(data []byte) (any, error) {
+			canonical, err := workers.codec(operation.Input, data)
+			return json.RawMessage(canonical), err
+		},
+		EncodeOutput: func(value any) ([]byte, error) {
+			output, ok := value.(json.RawMessage)
+			if !ok {
+				return nil, fmt.Errorf("worker MCP tool has no canonical outcome")
+			}
+			return output, nil
+		},
+		Invoke: func(ctx context.Context, _ MCPToolCallContext, input any) (any, error) {
+			raw, ok := input.(json.RawMessage)
+			if !ok {
+				return nil, ContractSystemError(fmt.Errorf("worker MCP input is not canonical JSON"))
+			}
+			if durable, isDurable := plan.Durable[tool.Execution]; isDurable {
+				mode := "enqueue"
+				if tool.Delivery == "wait" {
+					mode = "wait"
+				}
+				result, err := workers.dispatchDurable(ctx, plan, durable, mode, raw)
+				if err != nil {
+					return nil, err
+				}
+				return result.Outcome, nil
+			}
+			result, err := workers.invoke(ctx, plan, operation, tool.Operation, tool.Binding, "direct", raw)
+			if err != nil {
+				return nil, err
+			}
+			if result.Stream != nil {
+				return bufferWorkerMCPStream(result, tool)
+			}
+			return result.Outcome, nil
+		},
+	})
+}
+
+func bufferWorkerMCPStream(result workerabi.Result, tool WorkerMCPToolPlan) (json.RawMessage, error) {
+	_, maxResult := normalizeMCPToolLimits(tool.Limits)
+	kind, name, payload, err := contract.DecodeContractOutcomeEnvelope(result.Outcome)
+	if err != nil {
+		return nil, ContractSystemError(closeWorkerResult(result, err))
+	}
+	path, ok := tool.StreamFields[kind+"."+name]
+	if !ok {
+		return nil, ContractSystemError(closeWorkerResult(result, fmt.Errorf("worker MCP tool returned an unmapped byte stream")))
+	}
+	buffered, err := BufferContractByteStream(shared.NewByteStream(result.Stream, result.StreamSize), maxResult)
+	if err != nil {
+		return nil, ContractSystemError(err)
+	}
+	updated, err := setWorkerJSONBytesAtPath(payload, path, buffered)
+	if err != nil {
+		return nil, ContractSystemError(err)
+	}
+	outcome, err := contract.EncodeManifestOutcome(kind, name, updated)
+	if err != nil {
+		return nil, ContractSystemError(err)
+	}
+	return outcome, nil
+}
+
+func setWorkerJSONBytesAtPath(payload json.RawMessage, path []string, buffered []byte) (json.RawMessage, error) {
+	encoded, err := json.Marshal(buffered)
+	if err != nil {
+		return nil, err
+	}
+	if len(path) == 0 {
+		if len(payload) != 0 && string(payload) != "null" {
+			var existing []byte
+			if err := json.Unmarshal(payload, &existing); err != nil || len(existing) != 0 {
+				return nil, fmt.Errorf("stream handler returned buffered bytes")
+			}
+		}
+		return encoded, nil
+	}
+	object, err := contract.DecodeJSONObject(payload)
+	if err != nil {
+		return nil, err
+	}
+	key := path[0]
+	if len(path) == 1 {
+		if raw := object[key]; len(raw) != 0 && string(raw) != "null" {
+			var existing []byte
+			if err := json.Unmarshal(raw, &existing); err != nil || len(existing) != 0 {
+				return nil, fmt.Errorf("stream handler returned buffered bytes")
+			}
+		}
+		object[key] = encoded
+	} else {
+		updated, err := setWorkerJSONBytesAtPath(object[key], path[1:], buffered)
+		if err != nil {
+			return nil, err
+		}
+		object[key] = updated
+	}
+	return json.Marshal(object)
 }

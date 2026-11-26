@@ -24,9 +24,10 @@ type Service struct {
 }
 
 type Artifact struct {
-	Path     string
-	Digest   string
-	CacheHit bool
+	Path         string
+	Digest       string
+	CacheHit     bool
+	Dependencies []string
 }
 
 func Build(ctx context.Context, root string, service Service, check bool) (Artifact, error) {
@@ -127,7 +128,7 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 	if err := os.Rename(recordPath, cache); err != nil {
 		return Artifact{}, err
 	}
-	return Artifact{Path: destination, Digest: "sha256:" + digest}, nil
+	return Artifact{Path: destination, Digest: "sha256:" + digest, Dependencies: dependencies}, nil
 }
 
 func checkTypeScript(ctx context.Context, root, module, staging, entry string) error {

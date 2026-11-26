@@ -33,7 +33,7 @@ type workerDevEndpoint struct {
 
 type workerDevControl struct {
 	mu        sync.RWMutex
-	watch     workerInputWatch
+	watch     *workerInputWatch
 	serving   *runtimeServingIdentity
 	attempt   *devBuildAttempt
 	timing    *workerRebuildTiming
@@ -59,16 +59,17 @@ func startWorkerDevControl(dev *workerDevelopment, directory, hostControl, token
 		return nil, nil, err
 	}
 	control := &workerDevControl{
-		watch:     workerInputWatch{root: dev.watch.root, generated: slices.Clone(dev.watch.generated)},
+		watch:     dev.watch,
 		sessionID: workerRandomToken(), appID: dev.compiled.Manifest.Application.Name,
 	}
 	privateMux := http.NewServeMux()
 	privateMux.HandleFunc("GET /status", control.status)
 	privateMux.HandleFunc("GET /trace", control.trace)
 	rpc := &http.Server{Handler: privateMux, ReadHeaderTimeout: 2 * time.Second}
+	reportToken := workerRandomToken()
 	receiver := &http.Server{ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost || req.URL.Path != "/report" ||
-			subtle.ConstantTimeCompare([]byte(req.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
+			subtle.ConstantTimeCompare([]byte(req.Header.Get("Authorization")), []byte("Bearer "+reportToken)) != 1 {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -82,7 +83,7 @@ func startWorkerDevControl(dev *workerDevelopment, directory, hostControl, token
 	}
 	for key, value := range map[string]string{
 		"SCENERY_DEV_REPORT_URL":   "http://" + reports.Addr().String() + "/report",
-		"SCENERY_DEV_REPORT_TOKEN": token, "SCENERY_APP_ID": control.appID, "SCENERY_SESSION_ID": control.sessionID,
+		"SCENERY_DEV_REPORT_TOKEN": reportToken, "SCENERY_APP_ID": control.appID, "SCENERY_SESSION_ID": control.sessionID,
 	} {
 		if err := envpolicy.Set(key, value); err != nil {
 			closeServers()

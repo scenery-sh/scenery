@@ -53,7 +53,7 @@ func TestWorkerSourceWaitMatchesTheFailedRevision(t *testing.T) {
 	writeWatchFile(t, root, "app.scn", "application \"test\" {}")
 	path := filepath.Join("quote", "service.ts")
 	writeWatchFile(t, root, path, "const value = ;")
-	control := workerDevControl{watch: workerInputWatch{root: root}}
+	control := workerDevControl{watch: &workerInputWatch{root: root}}
 	inputs, err := control.watch.capture(nil, nil, true, false)
 	if err != nil {
 		t.Fatal(err)

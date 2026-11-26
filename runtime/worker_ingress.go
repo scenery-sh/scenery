@@ -7,15 +7,16 @@ import (
 
 type workerIngressWriter struct {
 	http.ResponseWriter
-	started bool
+	started      bool
+	hideIdentity bool
 }
 
-func neutralWorkerIngress(next http.Handler) http.Handler {
+func neutralWorkerIngress(next http.Handler, development bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		// Internal generation headers are trusted only after dispatch has
 		// selected a generation. Drop externally supplied spellings.
 		request.Header.Del(processGenerationHeader)
-		next.ServeHTTP(&workerIngressWriter{ResponseWriter: w}, request)
+		next.ServeHTTP(&workerIngressWriter{ResponseWriter: w, hideIdentity: !development}, request)
 	})
 }
 
@@ -55,19 +56,34 @@ func (w *workerIngressWriter) neutralize() {
 		if !strings.Contains(strings.ToLower(name), "scenery") {
 			continue
 		}
-		if neutral := names[name]; neutral != "" {
-			headers[http.CanonicalHeaderKey(neutral)] = values
+		if !w.hideIdentity {
+			if neutral := names[name]; neutral != "" {
+				headers[http.CanonicalHeaderKey(neutral)] = values
+			}
 		}
 		delete(headers, name)
+	}
+	hidden := make(map[string]bool, len(names))
+	if w.hideIdentity {
+		for _, neutral := range names {
+			canonical := http.CanonicalHeaderKey(neutral)
+			hidden[canonical] = true
+			delete(headers, canonical)
+		}
 	}
 	var expose []string
 	for _, value := range headers.Values("Access-Control-Expose-Headers") {
 		for name := range strings.SplitSeq(value, ",") {
 			name = strings.TrimSpace(name)
-			if alias := names[http.CanonicalHeaderKey(name)]; alias != "" {
+			canonical := http.CanonicalHeaderKey(name)
+			if alias := names[canonical]; alias != "" {
+				if w.hideIdentity {
+					continue
+				}
 				name = alias
+				canonical = http.CanonicalHeaderKey(name)
 			}
-			if name != "" && !strings.Contains(strings.ToLower(name), "scenery") {
+			if name != "" && !strings.Contains(strings.ToLower(name), "scenery") && !hidden[canonical] {
 				expose = append(expose, name)
 			}
 		}

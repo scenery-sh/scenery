@@ -102,6 +102,27 @@ func TestLocalAdapterPreservesVersionConditionsAndFullSize(t *testing.T) {
 	}
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestWorkerStoreDeletePrefixSendsRecursiveQuery(t *testing.T) {
+	var seen *http.Request
+	store := NewWorkerStore("files", roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		seen = req
+		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+	}))
+	if err := store.DeletePrefix(context.Background(), "tmp/"); err != nil {
+		t.Fatal(err)
+	}
+	if seen == nil || seen.Method != http.MethodDelete || seen.URL.Path != "/host/v1/storage/delete" {
+		t.Fatalf("unexpected request: %+v", seen)
+	}
+	if q := seen.URL.Query(); q.Get("store") != "files" || q.Get("key") != "tmp/" || q.Get("recursive") != "1" {
+		t.Fatalf("unexpected query: %v", q)
+	}
+}
+
 type recordingStore struct {
 	keys          []string
 	body          string

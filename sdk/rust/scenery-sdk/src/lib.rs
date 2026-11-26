@@ -56,6 +56,8 @@ pub struct Launch {
     pub host_socket: PathBuf,
     pub token: String,
     pub identity: Identity,
+    #[serde(default)]
+    pub parent_death_fd: Option<i32>,
 }
 
 impl Launch {
@@ -310,14 +312,37 @@ pub async fn serve(
 ) -> Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
+    let (mut parent_rx, _keep_parent_tx) = watch_parent_death_fd(launch.parent_death_fd);
+    let mut parent_gone = pin!(parent_rx.wait_for(|&gone| gone));
     let stop = poll_fn(|cx| {
-        if terminate.poll_recv(cx).is_ready() || interrupt.poll_recv(cx).is_ready() {
+        if terminate.poll_recv(cx).is_ready()
+            || interrupt.poll_recv(cx).is_ready()
+            || parent_gone.as_mut().poll(cx).is_ready()
+        {
             Poll::Ready(())
         } else {
             Poll::Pending
         }
     });
     serve_until(launch, handler, stop).await
+}
+
+fn watch_parent_death_fd(fd: Option<i32>) -> (watch::Receiver<bool>, Option<watch::Sender<bool>>) {
+    let (parent_tx, parent_rx) = watch::channel(false);
+    #[cfg(unix)]
+    if let Some(fd) = fd.filter(|&fd| fd >= 3) {
+        use std::io::Read;
+        use std::os::fd::FromRawFd;
+        std::thread::spawn(move || {
+            // SAFETY: Host passes an inherited read pipe descriptor solely to signal parent exit.
+            let mut pipe = unsafe { std::fs::File::from_raw_fd(fd) };
+            let mut buf = [0_u8; 1];
+            let _ = pipe.read(&mut buf);
+            let _ = parent_tx.send(true);
+        });
+        return (parent_rx, None);
+    }
+    (parent_rx, Some(parent_tx))
 }
 
 async fn serve_until(
@@ -648,6 +673,7 @@ mod tests {
                 contract_revision: "contract".into(),
                 implementation_revision: "implementation".into(),
             },
+            parent_death_fd: None,
         };
         let worker = tokio::spawn(async move {
             serve_until(
@@ -706,5 +732,55 @@ mod tests {
         receiver.abort();
         connection.abort();
         Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serve_stops_when_parent_death_pipe_closes() {
+        use std::os::fd::IntoRawFd;
+
+        run(async {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                let directory =
+                    std::env::temp_dir().join(format!("sw-parent-{}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&directory);
+                std::fs::create_dir(&directory)?;
+                struct RemoveTestDirectory(PathBuf);
+                impl Drop for RemoveTestDirectory {
+                    fn drop(&mut self) {
+                        let _ = std::fs::remove_dir_all(&self.0);
+                    }
+                }
+                let _cleanup = RemoveTestDirectory(directory.clone());
+                let worker_socket = directory.join("worker");
+                let (reader, writer) = std::io::pipe()?;
+                let launch = Launch {
+                    worker_socket: worker_socket.clone(),
+                    host_socket: directory.join("host"),
+                    token: "test-token".into(),
+                    identity: Identity {
+                        abi: 1,
+                        service: "example/service/worker".into(),
+                        contract_revision: "contract".into(),
+                        implementation_revision: "implementation".into(),
+                    },
+                    parent_death_fd: Some(reader.into_raw_fd()),
+                };
+                let task = tokio::spawn(async move {
+                    serve(launch, |_, _| {
+                        Box::pin(async { Ok(Output::json(RawValue::from_string("{}".into())?)) })
+                    })
+                    .await
+                });
+                while UnixStream::connect(&worker_socket).await.is_err() {
+                    sleep(Duration::from_millis(1)).await;
+                }
+                drop(writer);
+                task.await??;
+                Ok::<(), Error>(())
+            })
+            .await?
+        })
+        .unwrap();
     }
 }

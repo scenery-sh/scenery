@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -47,6 +48,9 @@ type workerInputWatch struct {
 	generated []string
 	fs        *fsnotify.Watcher
 	addFailed bool
+
+	mu       sync.RWMutex
+	explicit map[string]bool
 }
 
 func openWorkerInputs(root string) (*workerInputWatch, error) {
@@ -55,6 +59,100 @@ func openWorkerInputs(root string) (*workerInputWatch, error) {
 		return nil, err
 	}
 	return &workerInputWatch{root: root, fs: watcher}, nil
+}
+
+func (watch *workerInputWatch) setExplicit(paths []string, register bool) {
+	next := make(map[string]bool, len(paths))
+	dirs := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		clean := filepath.Clean(path)
+		if clean == "." || !filepath.IsLocal(clean) {
+			continue
+		}
+		next[clean] = true
+		dirs[filepath.Dir(filepath.Join(watch.root, clean))] = true
+	}
+	watch.mu.Lock()
+	watch.explicit = next
+	watch.mu.Unlock()
+	if !register || watch.fs == nil {
+		return
+	}
+	for dir := range dirs {
+		_ = watch.fs.Add(dir)
+	}
+}
+
+func (watch *workerInputWatch) explicitList() []string {
+	watch.mu.RLock()
+	defer watch.mu.RUnlock()
+	if len(watch.explicit) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(watch.explicit))
+	for path := range watch.explicit {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+func (watch *workerInputWatch) eventRelevant(path string) bool {
+	if !watch.skip(path) {
+		return true
+	}
+	rel, err := filepath.Rel(watch.root, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return false
+	}
+	clean := filepath.Clean(rel)
+	watch.mu.RLock()
+	defer watch.mu.RUnlock()
+	if watch.explicit[clean] {
+		return true
+	}
+	for exp := range watch.explicit {
+		if pathUnder(clean, exp) {
+			return true
+		}
+	}
+	return false
+}
+
+func (watch *workerInputWatch) scanExplicitFile(rel string, inputs workerInputs, register bool) error {
+	full := filepath.Join(watch.root, rel)
+	if register && watch.fs != nil {
+		_ = watch.fs.Add(filepath.Dir(full))
+	}
+	delete(inputs, rel)
+	info, err := os.Lstat(full)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	data, err := os.ReadFile(full)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	inputs[rel] = workerInput{Digest: sha256.Sum256(data), Mode: info.Mode().Perm()}
+	return nil
+}
+
+func (watch *workerInputWatch) scanExplicit(inputs workerInputs, register bool) error {
+	for _, rel := range watch.explicitList() {
+		if err := watch.scanExplicitFile(rel, inputs, register); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (watch *workerInputWatch) skip(path string) bool {
@@ -149,9 +247,14 @@ func (watch *workerInputWatch) scan(start string, inputs workerInputs, register 
 func (watch *workerInputWatch) capture(previous workerInputs, paths map[string]struct{}, reconcile, register bool) (workerInputs, error) {
 	if reconcile {
 		inputs := make(workerInputs)
-		return inputs, watch.scan(watch.root, inputs, register)
+		if err := watch.scan(watch.root, inputs, register); err != nil {
+			return nil, err
+		}
+		return inputs, watch.scanExplicit(inputs, register)
 	}
 	inputs := maps.Clone(previous)
+	explicit := watch.explicitList()
+	touchedExplicit := make(map[string]bool)
 	for _, path := range slices.Sorted(maps.Keys(paths)) {
 		rel, err := filepath.Rel(watch.root, path)
 		if err != nil || !filepath.IsLocal(rel) {
@@ -161,7 +264,17 @@ func (watch *workerInputWatch) capture(previous workerInputs, paths map[string]s
 		// A removed or renamed directory invalidates its descendants.
 		prefix := rel + string(filepath.Separator)
 		maps.DeleteFunc(inputs, func(name string, _ workerInput) bool { return strings.HasPrefix(name, prefix) })
+		for _, exp := range explicit {
+			if exp == rel || rel == "." || strings.HasPrefix(exp, prefix) {
+				touchedExplicit[exp] = true
+			}
+		}
 		if err := watch.scan(path, inputs, register); err != nil {
+			return nil, err
+		}
+	}
+	for exp := range touchedExplicit {
+		if err := watch.scanExplicitFile(exp, inputs, register); err != nil {
 			return nil, err
 		}
 	}
