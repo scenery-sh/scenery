@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -92,18 +93,64 @@ func TestWorkerHostForwardsIngressRequestToGoWorker(t *testing.T) {
 	}
 }
 
+func assertNoSceneryOrAppIdentityLeak(t *testing.T, sets ...http.Header) {
+	t.Helper()
+	for _, headerSet := range sets {
+		for k, vs := range headerSet {
+			lowerKey := strings.ToLower(k)
+			if strings.Contains(lowerKey, "scenery") || strings.HasPrefix(lowerKey, "x-app-") {
+				t.Fatalf("wire header/trailer key leaked internal identity: %s=%v", k, vs)
+			}
+			for _, v := range vs {
+				lowerVal := strings.ToLower(v)
+				if strings.Contains(lowerVal, "scenery") || strings.Contains(lowerVal, "x-app-") {
+					t.Fatalf("wire header/trailer value leaked internal identity: %s=%q", k, v)
+				}
+			}
+		}
+	}
+}
+
+func sendRawChunkedPOST(t *testing.T, addr, rawHTTP string) *http.Response {
+	t.Helper()
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := io.WriteString(conn, rawHTTP); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodPost})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
 func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
+	type inboundObservation struct {
+		trailerHeader string
+		trailers      http.Header
+	}
 	routes := newRouteTable()
-	var seenInboundTrailerHeader string
-	var seenInboundTrailers http.Header
+	observedInbound := make(chan inboundObservation, 8)
 	routes.Handle([]string{http.MethodGet, http.MethodPost}, "/api/ping", func(w http.ResponseWriter, req *http.Request, _ routeParams) {
 		if req.Header.Get("X-Scenery-Cron-Execution") != "" || req.Header.Get("X-Scenery-Generation") != "" {
 			t.Errorf("external X-Scenery-* header passed ingress: %v", req.Header)
 		}
-		seenInboundTrailerHeader = req.Header.Get("Trailer")
+		var trailers http.Header
 		if req.Method == http.MethodPost {
-			_, _ = io.ReadAll(req.Body)
-			seenInboundTrailers = req.Trailer.Clone()
+			if req.URL.Query().Get("close_unread") == "1" {
+				_ = req.Body.Close()
+			} else {
+				_, _ = io.ReadAll(req.Body)
+			}
+			trailers = req.Trailer.Clone()
+		}
+		observedInbound <- inboundObservation{
+			trailerHeader: req.Header.Get("Trailer"),
+			trailers:      trailers,
 		}
 		w.Header().Set("X-App-Generation", "1")
 		w.Header().Set("X-App-Worker-Pid", "99")
@@ -118,6 +165,27 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 		w.Header().Set("X-Scenery-Debug", "leak-trailer")
 		w.Header().Set("X-App-Worker-Pid", "99")
 		w.Header().Set(http.TrailerPrefix+"X-Scenery-Post", "leak-post")
+	})
+	routes.Handle([]string{http.MethodGet}, "/api/ping-list-trailers", func(w http.ResponseWriter, req *http.Request, _ routeParams) {
+		switch req.URL.Query().Get("mode") {
+		case "announced":
+			w.Header().Set("Trailer", "Access-Control-Expose-Headers, X-Scenery-Debug, X-App-Worker-Pid")
+			w.Header().Set(http.TrailerPrefix+"Trailer", "X-Scenery-Only, X-App-Worker-Pid")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("pong"))
+			w.Header().Set("Access-Control-Expose-Headers", "X-Exposed-After, X-Scenery-Post, X-App-Worker-Pid")
+		case "prefix":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("pong"))
+			_ = http.NewResponseController(w).Flush()
+			w.Header().Set(http.TrailerPrefix+"Access-Control-Expose-Headers", "X-Exposed-Prefix, X-Scenery-Post, X-App-Worker-Pid")
+			w.Header().Set(http.TrailerPrefix+"Trailer", "X-Allowed-Later, X-Scenery-Post, X-App-Worker-Pid")
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("pong"))
+			_ = http.NewResponseController(w).Flush()
+			w.Header().Set(http.TrailerPrefix+"Access-Control-Expose-Headers", "X-Scenery-Only, X-App-Worker-Pid")
+		}
 	})
 	routes.Handle([]string{http.MethodGet}, "/api/files/mountain-scenery.png", func(w http.ResponseWriter, _ *http.Request, _ routeParams) {
 		w.WriteHeader(http.StatusOK)
@@ -149,8 +217,9 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/api/ping status = %d", rec.Code)
 	}
-	if seenInboundTrailerHeader != "X-Client-Trailer" {
-		t.Fatalf("inbound Trailer header = %q, want X-Client-Trailer", seenInboundTrailerHeader)
+	obs := <-observedInbound
+	if obs.trailerHeader != "X-Client-Trailer" {
+		t.Fatalf("inbound Trailer header = %q, want X-Client-Trailer", obs.trailerHeader)
 	}
 	for _, forbidden := range []string{"X-App-Generation", "X-App-Worker-Pid", "X-App-Worker-Revision", "X-Scenery-Debug"} {
 		if got := rec.Header().Get(forbidden); got != "" {
@@ -166,6 +235,8 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
+
+	// Case 1: announced client trailers with both X-Scenery-* and allowed trailer.
 	wireReq, err := http.NewRequest(http.MethodPost, srv.URL+"/api/ping", strings.NewReader("hi"))
 	if err != nil {
 		t.Fatal(err)
@@ -188,8 +259,9 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 	if err != nil || string(body) != "pong" {
 		t.Fatalf("wire response body = (%q, %v), want pong", body, err)
 	}
-	if seenInboundTrailers.Get("X-Scenery-Internal") != "" || seenInboundTrailers.Get("X-Client-Trailer") != "ok" {
-		t.Fatalf("inbound trailers = %+v, want X-Scenery-Internal stripped and X-Client-Trailer=ok", seenInboundTrailers)
+	obs = <-observedInbound
+	if obs.trailers.Get("X-Scenery-Internal") != "" || obs.trailers.Get("X-Client-Trailer") != "ok" {
+		t.Fatalf("inbound trailers = %+v, want X-Scenery-Internal stripped and X-Client-Trailer=ok", obs.trailers)
 	}
 	if got := resp.Trailer.Get("X-Checksum"); got != "sha256:ok" {
 		t.Fatalf("wire Trailer X-Checksum = %q, want sha256:ok", got)
@@ -199,17 +271,129 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 			t.Fatalf("wire trailer leaked %s=%q", forbidden, got)
 		}
 	}
-	for _, headerSet := range []http.Header{resp.Header, resp.Trailer} {
-		for k, vs := range headerSet {
-			if strings.Contains(strings.ToLower(k), "scenery") {
-				t.Fatalf("wire header/trailer key leaked scenery: %s=%v", k, vs)
-			}
-			for _, v := range vs {
-				if strings.Contains(strings.ToLower(v), "scenery") {
-					t.Fatalf("wire header/trailer value leaked scenery: %s=%q", k, v)
-				}
-			}
+	assertNoSceneryOrAppIdentityLeak(t, resp.Header, resp.Trailer)
+
+	// Case 2: announced X-Scenery-* trailer only (request.Trailer becomes empty before Read).
+	onlySceneryReq, err := http.NewRequest(http.MethodPost, srv.URL+"/api/ping", strings.NewReader("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlySceneryReq.ContentLength = -1
+	onlySceneryReq.Trailer = http.Header{"X-Scenery-Internal": {"forged-only"}}
+	resp, err = srv.Client().Do(onlySceneryReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs = <-observedInbound
+	if len(obs.trailers) != 0 {
+		t.Fatalf("inbound trailers when only X-Scenery-* announced = %+v, want empty", obs.trailers)
+	}
+	assertNoSceneryOrAppIdentityLeak(t, resp.Header, resp.Trailer)
+
+	// Case 2b: handler closes body without calling Read when trailers were announced.
+	closeAnnouncedReq, err := http.NewRequest(http.MethodPost, srv.URL+"/api/ping?close_unread=1", strings.NewReader("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeAnnouncedReq.ContentLength = -1
+	closeAnnouncedReq.Trailer = http.Header{
+		"X-Scenery-Close": {"forged"},
+		"X-Client-Close":  {"ok"},
+	}
+	resp, err = srv.Client().Do(closeAnnouncedReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs = <-observedInbound
+	if obs.trailers.Get("X-Scenery-Close") != "" || obs.trailers.Get("X-Client-Close") != "ok" {
+		t.Fatalf("close_unread announced inbound trailers = %+v, want X-Scenery-Close stripped and X-Client-Close=ok", obs.trailers)
+	}
+	assertNoSceneryOrAppIdentityLeak(t, resp.Header, resp.Trailer)
+
+	// Direct ingress server (without req.WithContext cloning nil request.Trailer) exercises
+	// Go's mergeSetHeader(&rr.Trailer, ...) replacing an initially nil request.Trailer map.
+	directObserved := make(chan http.Header, 4)
+	directSrv := httptest.NewServer(neutralWorkerIngress(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Query().Get("close_unread") == "1" {
+			_ = req.Body.Close()
+		} else {
+			_, _ = io.ReadAll(req.Body)
 		}
+		directObserved <- req.Trailer.Clone()
+		w.WriteHeader(http.StatusOK)
+	}), false))
+	defer directSrv.Close()
+
+	// Case 3: unannounced chunked trailers without Trailer header (request.Trailer starts nil).
+	rawResp := sendRawChunkedPOST(t, directSrv.Listener.Addr().String(),
+		"POST /?read=1 HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"+
+			"2\r\nhi\r\n0\r\nX-Scenery-Unannounced: forged\r\nX-Client-Unannounced: ok\r\n\r\n")
+	_, err = io.ReadAll(rawResp.Body)
+	_ = rawResp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	directTrailers := <-directObserved
+	if directTrailers.Get("X-Scenery-Unannounced") != "" || directTrailers.Get("X-Client-Unannounced") != "ok" {
+		t.Fatalf("unannounced inbound trailers = %+v, want X-Scenery-Unannounced stripped and X-Client-Unannounced=ok", directTrailers)
+	}
+	assertNoSceneryOrAppIdentityLeak(t, rawResp.Header, rawResp.Trailer)
+
+	// Case 4: handler closes chunked body without calling Read when request.Trailer starts nil.
+	closeResp := sendRawChunkedPOST(t, directSrv.Listener.Addr().String(),
+		"POST /?close_unread=1 HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"+
+			"2\r\nhi\r\n0\r\nX-Scenery-Close: forged\r\nX-Client-Close: ok\r\n\r\n")
+	_, err = io.ReadAll(closeResp.Body)
+	_ = closeResp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	directTrailers = <-directObserved
+	if directTrailers.Get("X-Scenery-Close") != "" || directTrailers.Get("X-Client-Close") != "ok" {
+		t.Fatalf("close_unread inbound trailers = %+v, want X-Scenery-Close stripped and X-Client-Close=ok", directTrailers)
+	}
+	assertNoSceneryOrAppIdentityLeak(t, closeResp.Header, closeResp.Trailer)
+
+	// Outbound list-valued trailers (pre-announced post-body Access-Control-Expose-Headers, TrailerPrefix list values, and empty removal).
+	for _, tc := range []struct {
+		mode       string
+		wantExpose string
+		wantTrails string
+		wantCount  int
+	}{
+		{mode: "announced", wantExpose: "X-Exposed-After", wantCount: 1},
+		{mode: "prefix", wantExpose: "X-Exposed-Prefix", wantTrails: "X-Allowed-Later", wantCount: 2},
+		{mode: "empty-prefix", wantCount: 0},
+	} {
+		listResp, err := srv.Client().Get(srv.URL + "/api/ping-list-trailers?mode=" + tc.mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = io.ReadAll(listResp.Body)
+		_ = listResp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(listResp.Trailer) != tc.wantCount {
+			t.Fatalf("mode=%s trailer count=%d (%+v), want %d", tc.mode, len(listResp.Trailer), listResp.Trailer, tc.wantCount)
+		}
+		if got := listResp.Trailer.Get("Access-Control-Expose-Headers"); got != tc.wantExpose {
+			t.Fatalf("mode=%s trailer Access-Control-Expose-Headers=%q, want %q", tc.mode, got, tc.wantExpose)
+		}
+		if got := listResp.Trailer.Get("Trailer"); got != tc.wantTrails {
+			t.Fatalf("mode=%s trailer Trailer=%q, want %q", tc.mode, got, tc.wantTrails)
+		}
+		assertNoSceneryOrAppIdentityLeak(t, listResp.Header, listResp.Trailer)
 	}
 }
 

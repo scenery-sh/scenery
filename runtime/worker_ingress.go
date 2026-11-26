@@ -14,15 +14,23 @@ type workerIngressWriter struct {
 
 type workerIngressRequestBody struct {
 	io.ReadCloser
-	trailer http.Header
+	request *http.Request
 }
 
 func (b *workerIngressRequestBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
-	if err != nil {
-		scrubInboundSceneryHeaders(b.trailer)
+	if len(b.request.Trailer) > 0 {
+		scrubInboundSceneryHeaders(b.request.Trailer)
 	}
 	return n, err
+}
+
+func (b *workerIngressRequestBody) Close() error {
+	err := b.ReadCloser.Close()
+	if len(b.request.Trailer) > 0 {
+		scrubInboundSceneryHeaders(b.request.Trailer)
+	}
+	return err
 }
 
 func neutralWorkerIngress(next http.Handler, development bool) http.Handler {
@@ -32,8 +40,8 @@ func neutralWorkerIngress(next http.Handler, development bool) http.Handler {
 		scrubInboundSceneryHeaders(request.Header)
 		scrubInboundSceneryTrailerHeader(request.Header)
 		scrubInboundSceneryHeaders(request.Trailer)
-		if request.Body != nil && len(request.Trailer) > 0 {
-			request.Body = &workerIngressRequestBody{ReadCloser: request.Body, trailer: request.Trailer}
+		if request.Body != nil && request.Body != http.NoBody {
+			request.Body = &workerIngressRequestBody{ReadCloser: request.Body, request: request}
 		}
 		writer := &workerIngressWriter{ResponseWriter: w, hideIdentity: !development}
 		defer writer.scrubHeadersAndTrailers()
@@ -51,16 +59,21 @@ func scrubInboundSceneryHeaders(headers http.Header) {
 
 func scrubInboundSceneryTrailerHeader(headers http.Header) {
 	var allowed []string
-	for _, value := range headers.Values("Trailer") {
-		for name := range strings.SplitSeq(value, ",") {
-			name = strings.TrimSpace(name)
-			if name == "" || strings.HasPrefix(strings.ToLower(name), "x-scenery-") {
-				continue
-			}
-			allowed = append(allowed, http.CanonicalHeaderKey(name))
+	for name, values := range headers {
+		if !strings.EqualFold(name, "Trailer") {
+			continue
 		}
+		for _, value := range values {
+			for item := range strings.SplitSeq(value, ",") {
+				item = strings.TrimSpace(item)
+				if item == "" || strings.HasPrefix(strings.ToLower(item), "x-scenery-") {
+					continue
+				}
+				allowed = append(allowed, http.CanonicalHeaderKey(item))
+			}
+		}
+		delete(headers, name)
 	}
-	headers.Del("Trailer")
 	if len(allowed) > 0 {
 		headers.Set("Trailer", strings.Join(allowed, ", "))
 	}
@@ -122,9 +135,13 @@ func hiddenIdentityHeaders(names map[string]string, hideIdentity bool) map[strin
 	return hidden
 }
 
-func scrubHeaderNameList(headers http.Header, listHeader string, names map[string]string, hidden map[string]bool, hideIdentity bool) {
+func isHeaderNameListField(canonical string) bool {
+	return canonical == "Access-Control-Expose-Headers" || canonical == "Trailer"
+}
+
+func filterHeaderNameList(values []string, names map[string]string, hidden map[string]bool, hideIdentity bool) []string {
 	var allowed []string
-	for _, value := range headers.Values(listHeader) {
+	for _, value := range values {
 		for name := range strings.SplitSeq(value, ",") {
 			name = strings.TrimSpace(name)
 			canonical := http.CanonicalHeaderKey(name)
@@ -140,8 +157,18 @@ func scrubHeaderNameList(headers http.Header, listHeader string, names map[strin
 			}
 		}
 	}
-	headers.Del(listHeader)
-	if len(allowed) > 0 {
+	return allowed
+}
+
+func scrubHeaderNameList(headers http.Header, listHeader string, names map[string]string, hidden map[string]bool, hideIdentity bool) {
+	var values []string
+	for name, existing := range headers {
+		if strings.EqualFold(name, listHeader) {
+			values = append(values, existing...)
+			delete(headers, name)
+		}
+	}
+	if allowed := filterHeaderNameList(values, names, hidden, hideIdentity); len(allowed) > 0 {
 		headers.Set(listHeader, strings.Join(allowed, ", "))
 	}
 }
@@ -162,6 +189,7 @@ func (w *workerIngressWriter) scrubHeadersAndTrailers() {
 		values []string
 	}
 	var rewrites []headerRewrite
+	listTrailerValues := make(map[string][]string)
 	for name, values := range headers {
 		if rawTrailer, isTrailer := cutTrailerPrefix(name); isTrailer {
 			canonical := http.CanonicalHeaderKey(rawTrailer)
@@ -173,6 +201,11 @@ func (w *workerIngressWriter) scrubHeadersAndTrailers() {
 				continue
 			}
 			if strings.Contains(strings.ToLower(rawTrailer), "scenery") || hidden[canonical] {
+				delete(headers, name)
+				continue
+			}
+			if isHeaderNameListField(canonical) {
+				listTrailerValues[canonical] = append(listTrailerValues[canonical], values...)
 				delete(headers, name)
 			}
 			continue
@@ -191,11 +224,14 @@ func (w *workerIngressWriter) scrubHeadersAndTrailers() {
 			delete(headers, name)
 		}
 	}
+	for canonical, values := range listTrailerValues {
+		if allowed := filterHeaderNameList(values, names, hidden, w.hideIdentity); len(allowed) > 0 {
+			rewrites = append(rewrites, headerRewrite{key: http.TrailerPrefix + canonical, values: []string{strings.Join(allowed, ", ")}})
+		}
+	}
 	for _, rewrite := range rewrites {
 		headers[rewrite.key] = rewrite.values
 	}
-	if !w.started {
-		scrubHeaderNameList(headers, "Access-Control-Expose-Headers", names, hidden, w.hideIdentity)
-		scrubHeaderNameList(headers, "Trailer", names, hidden, w.hideIdentity)
-	}
+	scrubHeaderNameList(headers, "Access-Control-Expose-Headers", names, hidden, w.hideIdentity)
+	scrubHeaderNameList(headers, "Trailer", names, hidden, w.hideIdentity)
 }
