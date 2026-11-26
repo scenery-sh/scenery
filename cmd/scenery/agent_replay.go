@@ -140,7 +140,7 @@ func executeLiveReplay(ctx context.Context, out io.Writer, root string, report f
 
 	started := time.Now()
 	if inv.HTTPMethod == "" && inv.Binding == "" {
-		return executeDurableReplay(ctx, out, root, connection, report, res, started, opts.jsonOutput)
+		return executeDurableReplay(ctx, out, root, connection, bearer, report, res, started, opts.jsonOutput)
 	}
 
 	response, isHTTP, err := invokeReplayTarget(ctx, connection, inv, bearer, state.Serving.Generation)
@@ -220,6 +220,7 @@ func invokeReplayTarget(ctx context.Context, connection agentCallConnection, inv
 	} else {
 		values.Set("binding", inv.Binding)
 		values.Set("module", inv.Module)
+		values.Set("replay", "1")
 		if len(inv.Input) > 0 {
 			payload = inv.Input
 		} else {
@@ -253,29 +254,75 @@ func invokeReplayTarget(ctx context.Context, connection agentCallConnection, inv
 	return resp, isHTTP, err
 }
 
+func resolveReplayRefAddress(owner graph.Resource, raw any, defaultKind string) string {
+	refMap, _ := raw.(map[string]any)
+	ref := firstNonEmpty(stringValueFromMap(refMap, "$ref"), fmt.Sprint(raw))
+	if raw == nil {
+		return ""
+	}
+	if _, ok := raw.(string); !ok && refMap == nil {
+		return ""
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.Contains(ref, "/") {
+		return ref
+	}
+	if kind, name, hasDot := strings.Cut(ref, "."); hasDot && kind == defaultKind {
+		return owner.Module + "/" + kind + "/" + name
+	}
+	return ref
+}
+
 func resolveDurableReplayTarget(ctx context.Context, root string, inv *devreport.ReplayInvocation) string {
+	if strings.TrimSpace(inv.Target) != "" {
+		return strings.TrimSpace(inv.Target)
+	}
 	fallback := inv.Module + "." + inv.Operation[strings.LastIndex(inv.Operation, "/")+1:]
 	g, err := loadAgentGraph(ctx, root)
 	if err != nil || g.Manifest == nil {
 		return fallback
 	}
-	for _, r := range g.Manifest.Resources {
-		if r.Kind == "scenery.execution" {
-			ref, _ := r.Spec["operation"].(map[string]any)
-			opAddr := firstNonEmpty(stringValueFromMap(ref, "$ref"), stringValueFromMap(r.Spec, "operation"))
-			if opAddr == inv.Operation && (inv.Mode == "" || stringValueFromMap(r.Spec, "mode") == inv.Mode) {
-				return r.Address
+	findSchedule := func() string {
+		for _, r := range g.Manifest.Resources {
+			if r.Kind != "scenery.schedule" {
+				continue
 			}
-		}
-	}
-	for _, r := range g.Manifest.Resources {
-		if r.Kind == "scenery.schedule" {
-			ref, _ := r.Spec["operation"].(map[string]any)
-			opAddr := firstNonEmpty(stringValueFromMap(ref, "$ref"), stringValueFromMap(r.Spec, "operation"))
+			invoke, _ := r.Spec["invoke"].(map[string]any)
+			opAddr := firstNonEmpty(
+				resolveReplayRefAddress(r, invoke["operation"], "operation"),
+				resolveReplayRefAddress(r, r.Spec["operation"], "operation"),
+			)
 			if opAddr == inv.Operation {
 				return r.Address
 			}
 		}
+		return ""
+	}
+	findDurableExecution := func() string {
+		for _, r := range g.Manifest.Resources {
+			if r.Kind != "scenery.execution" || stringValueFromMap(r.Spec, "mode") != "durable" {
+				continue
+			}
+			if resolveReplayRefAddress(r, r.Spec["operation"], "operation") == inv.Operation {
+				return r.Address
+			}
+		}
+		return ""
+	}
+	if inv.Mode == "durable" {
+		if addr := findDurableExecution(); addr != "" {
+			return addr
+		}
+		if addr := findSchedule(); addr != "" {
+			return addr
+		}
+		return fallback
+	}
+	if addr := findSchedule(); addr != "" {
+		return addr
+	}
+	if addr := findDurableExecution(); addr != "" {
+		return addr
 	}
 	return fallback
 }
@@ -288,7 +335,7 @@ func stringValueFromMap(m map[string]any, key string) string {
 	return s
 }
 
-func executeDurableReplay(ctx context.Context, out io.Writer, root string, connection agentCallConnection, report failureReport, res agentReplayResult, started time.Time, jsonOutput bool) error {
+func executeDurableReplay(ctx context.Context, out io.Writer, root string, connection agentCallConnection, bearer string, report failureReport, res agentReplayResult, started time.Time, jsonOutput bool) error {
 	inv := report.Invocation
 	reqBody, err := json.Marshal(map[string]any{
 		"target":     resolveDurableReplayTarget(ctx, root, inv),
@@ -305,6 +352,9 @@ func executeDurableReplay(ctx context.Context, out io.Writer, root string, conne
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+connection.controlToken)
+	if bearer != "" {
+		req.Header.Set("X-App-Invocation-Authorization", bearer)
+	}
 	resp, err := connection.client.Do(req)
 	if err != nil {
 		return err

@@ -49,7 +49,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.assistant.status":          "sha256:feed0da108c200c5c6af881b2f32b43a1341cd84818ac020f054a84414e686db",
 	"scenery.logs.query":                "sha256:56c91a3d7193c11445dfd09cfc6e98ed3fa4a9c1ac1f4f5042b3ee73d811c9b1",
 	"scenery.metrics.query":             "sha256:a4583fb699388059b33c0f15cc24b547b698a8454521c27cc922ee182383dfae",
-	"scenery.failure.report":            "sha256:ec51eafe6a9509fb64eb243d8d91b4da4d646b134a7699fbb2dfab9f7b42ab36",
+	"scenery.failure.report":            "sha256:c0e2c863f67c3a3a5ff199f90bfb33c3bf294612dd463ab4e9c0110d0595dab7",
 	"scenery.replay.result":             "sha256:1d359b3b37c014841cfa0cb2778ce2cbb58e176d2c6242d1e91b731e80a57989",
 	"scenery.telemetry":                 "sha256:0eb4f93d93cc4c104cc525d2192be376eddbd336160b93a6532daa15c28988f0",
 	"scenery.telemetry.report":          "sha256:802120a0613f56ec27029cda05a305b70a46aa1d39535de57a7f00695daea504",

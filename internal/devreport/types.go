@@ -117,6 +117,7 @@ type ReplayInvocation struct {
 	Service          string              `json:"service"`
 	Operation        string              `json:"operation"`
 	Binding          string              `json:"binding,omitempty"`
+	Target           string              `json:"target,omitempty"`
 	Mode             string              `json:"mode"`
 	HTTPMethod       string              `json:"http_method,omitempty"`
 	HTTPPath         string              `json:"http_path,omitempty"`

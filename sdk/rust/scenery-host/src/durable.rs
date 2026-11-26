@@ -234,6 +234,7 @@ impl Engine {
         host: &Arc<Host>,
         request: Request<Incoming>,
     ) -> Result<Reply, Fault> {
+        let headers = request.headers().clone();
         let raw = transport::read(request.into_body(), scenery_wire::MAX_METADATA)
             .await
             .map_err(|_| Fault::invalid())?;
@@ -284,6 +285,9 @@ impl Engine {
             Duration::from_nanos(command.timeout_ns),
         )
         .map_err(Fault::internal)?;
+        if schedule.is_none() && headers.contains_key("authorization") {
+            host.authenticate(&mut call, &headers, true).await?;
+        }
         let operation = schedule
             .map(|schedule| &schedule.operation)
             .or_else(|| plan.map(|plan| &plan.operation))

@@ -18,6 +18,8 @@ pub(crate) struct ReplayInvocation {
     pub operation: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
     pub mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_method: Option<String>,
@@ -94,12 +96,21 @@ impl ReplayInvocation {
         } else {
             (None, true)
         };
+        let target = if binding.is_none()
+            && matches!(call.method.as_str(), "DURABLE" | "SCHEDULE")
+            && !call.path.is_empty()
+        {
+            Some(call.path.clone())
+        } else {
+            None
+        };
         Self {
             module: service.module.clone(),
             runtime: service.runtime.clone(),
             service: service.address.clone(),
             operation: operation.to_owned(),
             binding: binding.map(str::to_owned),
+            target,
             mode: mode.to_owned(),
             http_method,
             http_path,

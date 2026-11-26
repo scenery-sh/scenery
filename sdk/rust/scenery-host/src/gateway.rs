@@ -464,10 +464,11 @@ pub(crate) async fn dev_binding(
     generation: Arc<Generation>,
     request: Request<Incoming>,
     address: &str,
+    allow_all_bindings: bool,
 ) -> Reply {
     let Some((service, binding)) = host
         .binding(address)
-        .filter(|(_, binding)| binding.http.is_none() && !binding.mcp)
+        .filter(|(_, binding)| allow_all_bindings || (binding.http.is_none() && !binding.mcp))
     else {
         return empty(StatusCode::NOT_FOUND);
     };

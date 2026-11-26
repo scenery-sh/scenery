@@ -226,13 +226,13 @@ binding "ping" {
 		mod      string
 		rt       string
 		wantExt  string
-		contains string
+		contains []string
 	}{
-		{"gomod", "go", "_test.go", "NewService"},
-		{"rustmod", "rust", ".rs", "sdk::Context::with_principal"},
-		{"tsmod", "ts", ".test.ts", `from "bun:test"`},
-		{"jsmod", "js", ".test.js", `from "bun:test"`},
-		{"pymod", "python", ".py", "unittest.IsolatedAsyncioTestCase"},
+		{"gomod", "go", "_test.go", []string{"NewService"}},
+		{"rustmod", "rust", ".rs", []string{"sdk::Context::with_principal"}},
+		{"tsmod", "ts", ".test.ts", []string{`from "bun:test"`, "standaloneContext("}},
+		{"jsmod", "js", ".test.js", []string{`from "bun:test"`, "standaloneContext("}},
+		{"pymod", "python", ".py", []string{"unittest.IsolatedAsyncioTestCase", `mode="direct"`}},
 	}
 
 	g, err := loadAgentGraph(context.Background(), root)
@@ -292,8 +292,10 @@ binding "ping" {
 			if err != nil {
 				t.Fatalf("%s: read emitted test: %v", tc.rt, err)
 			}
-			if !strings.Contains(string(generated), tc.contains) || !strings.Contains(string(generated), "crash") {
-				t.Fatalf("%s: emitted test missing expected content (%q):\n%s", tc.rt, tc.contains, generated)
+			for _, sub := range append(tc.contains, "crash") {
+				if !strings.Contains(string(generated), sub) {
+					t.Fatalf("%s: emitted test missing expected content (%q):\n%s", tc.rt, sub, generated)
+				}
 			}
 			continue
 		}
@@ -312,8 +314,117 @@ binding "ping" {
 		if !strings.HasSuffix(relPath, tc.wantExt) {
 			t.Fatalf("%s: unexpected path %q, want suffix %q", tc.rt, relPath, tc.wantExt)
 		}
-		if !strings.Contains(generated, tc.contains) || !strings.Contains(generated, "crash") {
-			t.Fatalf("%s: rendered test missing expected content (%q):\n%s", tc.rt, tc.contains, generated)
+		for _, sub := range append(tc.contains, "crash") {
+			if !strings.Contains(generated, sub) {
+				t.Fatalf("%s: rendered test missing expected content (%q):\n%s", tc.rt, sub, generated)
+			}
 		}
+	}
+
+	// Verify SQL database URLs are rendered for both Python and JS/TS services.
+	sqlDeps := []sqlDependencyEntry{{name: "database", schema: "orders_db"}}
+	if got := renderPythonTestDatabases(sqlDeps); !strings.Contains(got, "ORDERS_DB_DATABASE_URL") || !strings.Contains(got, `"database"`) {
+		t.Fatalf("unexpected Python database map: %s", got)
+	}
+	if got := renderJSTestDatabases(sqlDeps); !strings.Contains(got, "ORDERS_DB_DATABASE_URL") || !strings.Contains(got, `"database"`) {
+		t.Fatalf("unexpected JS database map: %s", got)
+	}
+}
+
+func TestResolveDurableReplayTargetPrefersScheduleOverDirectExecution(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write(".scenery.json", `{"name":"schedapp","envs":{"local":{"default":true}}}`)
+	write("go.mod", "module example.test/schedapp\n\ngo 1.27.0\n")
+	write("app.scn", `
+application "schedapp" {}
+go_module "app" {
+  root        = "."
+  import_path = "example.test/schedapp"
+}
+go_toolchain "app" { version = "1.27.0" }
+go_target "dev" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.app
+  module    = go_module.app
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+module "house" {
+  source = "./house"
+}
+`)
+	write("house/package.scn", `
+package "house" {
+  go_contract { import_path = "example.test/schedapp/house" }
+}
+service "svc" {
+  runtime = "go"
+  implementation { constructor = "NewService" }
+}
+record "empty" {}
+operation "cleanup" {
+  service = service.svc
+  input   = record.empty
+  handler { method = "Cleanup" }
+  result "ok" { type = record.empty }
+}
+execution "cleanup_direct" {
+  operation = operation.cleanup
+  mode      = "direct"
+  timeout   = "10s"
+}
+schedule "nightly" {
+  trigger { every = "1h" }
+  overlap = "skip"
+  catchup { maximum_age = "10m" }
+  invoke {
+    operation     = operation.cleanup
+    execution     = execution.cleanup_direct
+    identity      = std.workload_identity.scheduler
+    authorization = std.authorization.scheduled
+    pipeline      = std.pipeline.empty
+    input         = {}
+  }
+}
+`)
+	write("house/service.go", "package house\n")
+
+	if _, err := loadAgentGraph(context.Background(), root); err != nil {
+		t.Fatalf("loadAgentGraph: %v", err)
+	}
+
+	got := resolveDurableReplayTarget(context.Background(), root, &devreport.ReplayInvocation{
+		Module:    "house",
+		Runtime:   "go",
+		Service:   "house/service/svc",
+		Operation: "house/operation/cleanup",
+		Mode:      "direct",
+	})
+	if got != "house/schedule/nightly" {
+		t.Fatalf("resolveDurableReplayTarget(direct schedule) = %q, want house/schedule/nightly", got)
+	}
+
+	explicit := resolveDurableReplayTarget(context.Background(), root, &devreport.ReplayInvocation{
+		Module:    "house",
+		Runtime:   "go",
+		Service:   "house/service/svc",
+		Operation: "house/operation/cleanup",
+		Mode:      "direct",
+		Target:    "house/schedule/nightly",
+	})
+	if explicit != "house/schedule/nightly" {
+		t.Fatalf("resolveDurableReplayTarget(explicit target) = %q, want house/schedule/nightly", explicit)
 	}
 }

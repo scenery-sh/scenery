@@ -21,7 +21,7 @@
       "const": "scenery.failure.report"
     },
     "schema_revision": {
-      "const": "sha256:ec51eafe6a9509fb64eb243d8d91b4da4d646b134a7699fbb2dfab9f7b42ab36"
+      "const": "sha256:c0e2c863f67c3a3a5ff199f90bfb33c3bf294612dd463ab4e9c0110d0595dab7"
     },
     "report_token": {
       "type": "string",
@@ -100,6 +100,9 @@
           "type": "string"
         },
         "binding": {
+          "type": "string"
+        },
+        "target": {
           "type": "string"
         },
         "mode": {

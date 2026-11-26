@@ -63,7 +63,8 @@ impl Host {
                     return empty(StatusCode::CONFLICT);
                 }
                 if let Some(address) = get("binding") {
-                    return gateway::dev_binding(self, generation, request, address).await;
+                    let allow_all = get("replay") == Some("1");
+                    return gateway::dev_binding(self, generation, request, address, allow_all).await;
                 }
                 let Some((method, uri)) =
                     get("method").zip(get("path")).and_then(|(method, path)| {

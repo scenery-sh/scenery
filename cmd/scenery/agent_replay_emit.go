@@ -12,8 +12,10 @@ import (
 	"time"
 
 	cp "scenery.sh/internal/clientprojection"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/harnessevidence"
+	"scenery.sh/internal/postgresname"
 )
 
 func emitReplayRegressionTest(ctx context.Context, out io.Writer, root string, report failureReport, opts agentReplayOptions) error {
@@ -120,6 +122,9 @@ func renderReplayTestFile(
 		}
 	}
 
+	sqlDeps := serviceSQLDependencies(g, service)
+	hasPublishers := len(cp.NamedChildren(service.Spec, "publisher")) > 0
+
 	switch mod.Runtime {
 	case "python":
 		pyContract, _ := pkgSpec["python_contract"].(map[string]any)
@@ -134,11 +139,23 @@ func renderReplayTestFile(
 		if inv.TenantID != "" {
 			tenantPy = strconv.Quote(inv.TenantID)
 		}
+		modePy := "direct"
+		if inv.Mode == "durable" {
+			modePy = "durable"
+		}
+		bindingPy := "None"
+		if inv.Binding != "" {
+			bindingPy = strconv.Quote(inv.Binding)
+		}
+		osImport := ""
+		if len(sqlDeps) > 0 {
+			osImport = "import os\n"
+		}
 		rel := filepath.ToSlash(filepath.Join(mod.Directory, "test_replay_"+shortToken+".py"))
 		src := fmt.Sprintf(`# Regression test generated from %s (%s).
 from __future__ import annotations
 
-import unittest
+%simport unittest
 
 from scenerycontract import ConstructorInput, Context, clients, dispatch
 from scenerycontract.sdk.codec import parse_exact_json
@@ -149,16 +166,16 @@ from %s import %s
 class Replay%sTests(unittest.IsolatedAsyncioTestCase):
     async def test_replay_%s(self) -> None:
         raw_input = parse_exact_json(%s)
-        service = await maybe_await(%s(ConstructorInput(clients=clients, config=None, databases={})))
-        ctx = Context.standalone(principal=%s, tenant_id=%s, invocation_id=%q)
+        service = await maybe_await(%s(ConstructorInput(clients=clients, config=None, databases=%s)))
+        ctx = Context.standalone(principal=%s, tenant_id=%s, invocation_id=%q, mode=%q, binding=%s)
         outcome_json, _ = await dispatch(service, %q, raw_input, ctx)
         self.assertTrue(outcome_json)
 
 
 if __name__ == "__main__":
     unittest.main()
-`, report.ReportToken, inv.Operation, entryMod, constructor, strings.ToUpper(shortToken), shortToken,
-			strconv.Quote(rawInput), constructor, principalPy, tenantPy, report.ReportToken, operation.Address)
+`, report.ReportToken, inv.Operation, osImport, entryMod, constructor, strings.ToUpper(shortToken), shortToken,
+			strconv.Quote(rawInput), constructor, renderPythonTestDatabases(sqlDeps), principalPy, tenantPy, report.ReportToken, modePy, bindingPy, operation.Address)
 		return rel, src, nil
 
 	case "ts", "js":
@@ -166,29 +183,39 @@ if __name__ == "__main__":
 		entry := firstNonEmpty(cp.StringValue(jsContract["entry"]), "service."+mod.Runtime)
 		ext := filepath.Ext(entry)
 		entryImport := "./" + strings.TrimSuffix(filepath.ToSlash(entry), ext) + ".js"
-		castCtx := ""
-		if mod.Runtime == "ts" {
-			castCtx = " as never"
+		contractImports := "clients, dispatch, standaloneContext"
+		ctorFields := "clients, config: undefined, databases: " + renderJSTestDatabases(sqlDeps)
+		if hasPublishers {
+			contractImports = "clients, dispatch, publishers, standaloneContext"
+			ctorFields = "clients, publishers, config: undefined, databases: " + renderJSTestDatabases(sqlDeps)
+		}
+		modeJS := "direct"
+		if inv.Mode == "durable" {
+			modeJS = "durable"
 		}
 		rel := filepath.ToSlash(filepath.Join(mod.Directory, "replay_"+shortToken+".test."+mod.Runtime))
 		src := fmt.Sprintf(`// Regression test generated from %s (%s).
 import { expect, test } from "bun:test";
-import { clients, dispatch } from "./scenerycontract/index.js";
+import { %s } from "./scenerycontract/index.js";
 import { parseExactJSON } from "./scenerycontract/codec.js";
 import { %s } from %q;
 
 test("replay %s (%s)", async () => {
   const rawInput = parseExactJSON(%s);
-  const service = await %s({ clients, config: undefined, databases: {} });
-  const ctx = {
-    invocation: { invocationId: %q, principal: %s, tenantId: %s },
-  }%s;
+  const service = await %s({ %s });
+  const ctx = standaloneContext({
+    invocationId: %q,
+    principal: %s,
+    tenantId: %s,
+    mode: %q,
+    binding: %s,
+  });
   const result = await dispatch(service, %q, rawInput, ctx);
   expect(result.outcome).toBeDefined();
 });
-`, report.ReportToken, inv.Operation, constructor, entryImport, report.ReportToken, inv.Operation,
-			strconv.Quote(rawInput), constructor, report.ReportToken,
-			jsOptionalLiteral(inv.Principal), jsOptionalLiteral(inv.TenantID), castCtx, operation.Address)
+`, report.ReportToken, inv.Operation, contractImports, constructor, entryImport, report.ReportToken, inv.Operation,
+			strconv.Quote(rawInput), constructor, ctorFields, report.ReportToken,
+			jsOptionalLiteral(inv.Principal), jsOptionalLiteral(inv.TenantID), modeJS, jsOptionalLiteral(inv.Binding), operation.Address)
 		return rel, src, nil
 
 	case "rust":
@@ -329,6 +356,53 @@ func operationHasStreamingBinding(resources []graph.Resource, operationAddress s
 		}
 	}
 	return false
+}
+
+type sqlDependencyEntry struct {
+	name   string
+	schema string
+}
+
+func serviceSQLDependencies(g agentGraph, service graph.Resource) []sqlDependencyEntry {
+	requires, err := compiler.ServiceGoDependencies(g.resources, service)
+	if err != nil {
+		return nil
+	}
+	var out []sqlDependencyEntry
+	for _, dep := range requires {
+		if dep.Resolver == "sql" {
+			out = append(out, sqlDependencyEntry{name: dep.Name, schema: dep.RuntimeName})
+		}
+	}
+	return out
+}
+
+func renderPythonTestDatabases(deps []sqlDependencyEntry) string {
+	if len(deps) == 0 {
+		return "{}"
+	}
+	var parts []string
+	for _, dep := range deps {
+		envKey := postgresname.ServiceDatabaseURLEnv(dep.schema)
+		fallback := "postgres://localhost/" + dep.schema
+		parts = append(parts, fmt.Sprintf("%s: os.environ.get(%s, %s)",
+			strconv.Quote(dep.name), strconv.Quote(envKey), strconv.Quote(fallback)))
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+func renderJSTestDatabases(deps []sqlDependencyEntry) string {
+	if len(deps) == 0 {
+		return "{}"
+	}
+	var parts []string
+	for _, dep := range deps {
+		envKey := postgresname.ServiceDatabaseURLEnv(dep.schema)
+		fallback := "postgres://localhost/" + dep.schema
+		parts = append(parts, fmt.Sprintf("%s: process.env[%s] ?? %s",
+			strconv.Quote(dep.name), strconv.Quote(envKey), strconv.Quote(fallback)))
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
 func jsOptionalLiteral(value string) string {
