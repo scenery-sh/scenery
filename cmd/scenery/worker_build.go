@@ -167,6 +167,19 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 			bundle.Programs = append(bundle.Programs, program)
 		}
 	}
+	pythonBuilds, err := projectPythonBuilds(result, bundle, role)
+	if err != nil {
+		return bundle, err
+	}
+	for i := range pythonBuilds {
+		program, _, err := (&pythonBuilds[i]).run(ctx, result.Root, check)
+		if err != nil {
+			return bundle, err
+		}
+		if !check {
+			bundle.Programs = append(bundle.Programs, program)
+		}
+	}
 	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
 	if err != nil || check {
 		return bundle, err

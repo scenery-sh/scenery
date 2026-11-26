@@ -17,7 +17,7 @@
       "const": "scenery.test.result"
     },
     "schema_revision": {
-      "const": "sha256:d10e7c5c2090bfdfef132ef89233d788e106d93f000c7c6a3f76c031c669d511"
+      "const": "sha256:4528f02466b4289cce33722ec47b25b3be80418ae7e63b90af9958cf748acf99"
     },
     "ok": {
       "type": "boolean"
@@ -50,7 +50,8 @@
               "go",
               "rust",
               "ts",
-              "js"
+              "js",
+              "python"
             ]
           },
           "command": {

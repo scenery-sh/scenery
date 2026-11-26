@@ -8,7 +8,7 @@ const runtimeNamespace = ["scene", "ry"].join("") as "scene\u0072y";
 export const DEV_RUNTIME_STATUS_KIND = `${runtimeNamespace}.dev-runtime.status` as const;
 export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:55fe0512941b2ce1487c3c5784fb7ff59935abe0ca0055d084d258551a655071";
 export const DEV_RUNTIME_WAIT_KIND = `${runtimeNamespace}.dev-runtime.wait` as const;
-export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:a5cc428e7d4d58de1f60eaba29ba6f572ee99edf46ef6ce70842e227eeda6d4a";
+export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:5af3ad92479f7dba849334ba8175ce38d157da809a999882431f6673676ae427";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime

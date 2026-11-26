@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.openapi.export.schema.json",
+  "title": "scenery.openapi.export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "format",
+    "openapi_version",
+    "checked",
+    "changed",
+    "gateways"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.openapi.export"
+    },
+    "schema_revision": {
+      "const": "sha256:486da0d23e908517d94b431b6a34b5ddb55b6f2d7edc94212d9740851f02ad05"
+    },
+    "format": {
+      "enum": [
+        "json",
+        "yaml"
+      ]
+    },
+    "openapi_version": {
+      "const": "3.1.1"
+    },
+    "checked": {
+      "type": "boolean"
+    },
+    "changed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "gateways": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gateway",
+          "name",
+          "base_path",
+          "openapi_version",
+          "openapi_revision",
+          "http_surface_revision",
+          "operations",
+          "content_digest"
+        ],
+        "properties": {
+          "gateway": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "base_path": {
+            "type": "string"
+          },
+          "openapi_version": {
+            "const": "3.1.1"
+          },
+          "openapi_revision": {
+            "type": "string"
+          },
+          "http_surface_revision": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "output_path": {
+            "type": "string"
+          },
+          "document": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

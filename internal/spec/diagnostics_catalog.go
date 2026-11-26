@@ -338,6 +338,10 @@ SCN6164|js_workspace|A JavaScript workspace root is missing unsafe or ambiguous
 SCN6165|js_toolchain|A Bun toolchain version is not exact semantic version
 SCN6166|js_target|A JavaScript target has an invalid workspace toolchain or role
 SCN6167|js_service_implementation|A JavaScript service has an invalid entry build target or implementation
+SCN6168|python_workspace|A Python workspace root is missing unsafe or ambiguous
+SCN6169|python_toolchain|A Python toolchain version is not exact semantic version
+SCN6170|python_target|A Python target has an invalid workspace toolchain or role
+SCN6171|python_service_implementation|A Python service has an invalid entry build target or implementation
 SCN6202|go_verification|Staged Go target or implementation verification failed
 SCN6204|stale_generated_typescript|Committed generated TypeScript artifacts are stale or invalid
 SCN6207|generated_artifact_transaction|Generated artifact planning overlay or transaction failed

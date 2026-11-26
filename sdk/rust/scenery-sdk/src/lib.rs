@@ -17,8 +17,9 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use scenery_wire::{
     BindingCallRef, BindingReply, CAPABILITY_PREFIX, CONTRACT_HEADER, ConnectionTokenReply,
-    ConnectionTokenRequest, IMPLEMENTATION_HEADER, INVOKE_PATH, InvocationOutcome, MAX_METADATA,
-    READY_PATH, SCOPE_HEADER, STREAM_MEDIA_TYPE, STREAM_SIZE_HEADER,
+    ConnectionTokenRequest, EVENTS_MEDIA_TYPE, IMPLEMENTATION_HEADER, INVOKE_PATH,
+    InvocationOutcome, MAX_METADATA, READY_PATH, RawEvent, SCOPE_HEADER, STREAM_MEDIA_TYPE,
+    STREAM_SIZE_HEADER,
 };
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -47,9 +48,113 @@ pub struct Stream {
     pub size: u64,
 }
 
+/// One typed server-sent event item emitted by a `delivery = "stream_out"` handler.
+#[derive(Clone, Debug)]
+pub struct Event<T> {
+    pub data: T,
+    pub id: Option<String>,
+    pub event: Option<String>,
+}
+
+impl<T> Event<T> {
+    pub fn new(data: T) -> Self {
+        Self {
+            data,
+            id: None,
+            event: None,
+        }
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn event(mut self, event: impl Into<String>) -> Self {
+        self.event = Some(event.into());
+        self
+    }
+}
+
+/// Async sender paired with an [`EventStream`] via [`event_channel`].
+#[derive(Clone)]
+pub struct EventSender<T> {
+    tx: tokio::sync::mpsc::Sender<Result<Event<T>>>,
+}
+
+impl<T> EventSender<T> {
+    pub async fn send(&self, event: Event<T>) -> Result<()> {
+        self.tx
+            .send(Ok(event))
+            .await
+            .map_err(|_| Error::from("event stream closed"))
+    }
+
+    pub async fn send_data(&self, data: T) -> Result<()> {
+        self.send(Event::new(data)).await
+    }
+
+    pub async fn fail(&self, error: Error) -> Result<()> {
+        self.tx
+            .send(Err(error))
+            .await
+            .map_err(|_| Error::from("event stream closed"))
+    }
+
+    pub async fn closed(&self) {
+        self.tx.closed().await;
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+}
+
+/// Typed outbound event stream returned by `delivery = "stream_out"` Rust handlers.
+pub struct EventStream<T> {
+    rx: tokio::sync::mpsc::Receiver<Result<Event<T>>>,
+}
+
+impl<T: Serialize + Send + 'static> EventStream<T> {
+    pub fn into_raw(mut self) -> RawEventStream {
+        RawEventStream {
+            next: Box::new(move |cx| match self.rx.poll_recv(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(None) => Poll::Ready(None),
+                Poll::Ready(Some(Err(err))) => Poll::Ready(Some(Err(err))),
+                Poll::Ready(Some(Ok(ev))) => {
+                    let encoded = serde_json::value::to_raw_value(&ev.data)
+                        .map_err(Error::from)
+                        .map(|data| RawEvent {
+                            data,
+                            id: ev.id,
+                            event: ev.event,
+                        });
+                    Poll::Ready(Some(encoded))
+                }
+            }),
+        }
+    }
+}
+
+/// Creates a bounded channel pairing an [`EventSender`] with an [`EventStream`].
+pub fn event_channel<T>(capacity: usize) -> (EventSender<T>, EventStream<T>) {
+    let (tx, rx) = tokio::sync::mpsc::channel(capacity.max(1));
+    (EventSender { tx }, EventStream { rx })
+}
+
+type RawEventPollFn =
+    Box<dyn FnMut(&mut std::task::Context<'_>) -> Poll<Option<Result<RawEvent>>> + Send>;
+
+/// Type-erased event stream consumed by the worker runtime transport.
+pub struct RawEventStream {
+    next: RawEventPollFn,
+}
+
 pub struct Output {
     pub outcome: Box<RawValue>,
     pub stream: Option<Stream>,
+    pub events: Option<RawEventStream>,
 }
 
 impl Output {
@@ -57,6 +162,23 @@ impl Output {
         Self {
             outcome,
             stream: None,
+            events: None,
+        }
+    }
+
+    pub fn stream(outcome: Box<RawValue>, stream: Option<Stream>) -> Self {
+        Self {
+            outcome,
+            stream,
+            events: None,
+        }
+    }
+
+    pub fn events(outcome: Box<RawValue>, events: Option<RawEventStream>) -> Self {
+        Self {
+            outcome,
+            stream: None,
+            events,
         }
     }
 }
@@ -420,6 +542,22 @@ async fn invoke(
             size.to_string().parse().expect("decimal size"),
         );
         Ok(response)
+    } else if let Some(events) = output.events {
+        let mut prefix = BytesMut::with_capacity(4 + metadata.len());
+        prefix.put_u32(metadata.len() as u32);
+        prefix.extend_from_slice(&metadata);
+        let stream = FramedEventStream {
+            prefix: Some(prefix.freeze()),
+            events,
+            _cancel_on_drop: Some(cancel_on_drop),
+        };
+        let body = StreamBody::new(stream).boxed_unsync();
+        let mut response = Response::new(body);
+        response.headers_mut().insert(
+            CONTENT_TYPE,
+            EVENTS_MEDIA_TYPE.parse().expect("static media type"),
+        );
+        Ok(response)
     } else {
         Ok(json(metadata))
     }
@@ -465,6 +603,38 @@ impl futures_core::Stream for FramedStream {
         Pin::new(&mut self.stream)
             .poll_next(cx)
             .map(|item| item.map(|chunk| chunk.map(Frame::data)))
+    }
+}
+
+struct FramedEventStream {
+    prefix: Option<Bytes>,
+    events: RawEventStream,
+    _cancel_on_drop: Option<watch::Sender<()>>,
+}
+
+impl futures_core::Stream for FramedEventStream {
+    type Item = Result<Frame<Bytes>>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        if let Some(prefix) = self.prefix.take() {
+            return Poll::Ready(Some(Ok(Frame::data(prefix))));
+        }
+        match (self.events.next)(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(Some(Err(err))) => Poll::Ready(Some(Err(err))),
+            Poll::Ready(Some(Ok(raw))) => {
+                let mut line = match serde_json::to_vec(&raw) {
+                    Ok(line) => line,
+                    Err(err) => return Poll::Ready(Some(Err(err.into()))),
+                };
+                line.push(b'\n');
+                Poll::Ready(Some(Ok(Frame::data(Bytes::from(line)))))
+            }
+        }
     }
 }
 

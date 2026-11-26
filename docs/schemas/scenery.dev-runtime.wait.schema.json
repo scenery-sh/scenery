@@ -18,7 +18,7 @@
       "const": "scenery.dev-runtime.wait"
     },
     "schema_revision": {
-      "const": "sha256:a5cc428e7d4d58de1f60eaba29ba6f572ee99edf46ef6ce70842e227eeda6d4a"
+      "const": "sha256:5af3ad92479f7dba849334ba8175ce38d157da809a999882431f6673676ae427"
     },
     "ok": {
       "type": "boolean"
@@ -286,6 +286,12 @@
           }
         },
         "js": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "python": {
           "type": "array",
           "items": {
             "type": "string"

@@ -20,7 +20,7 @@
       "const": "scenery.add.module.result"
     },
     "schema_revision": {
-      "const": "sha256:8a2c549600d635d4a2cbfac7b50220b8bbe65e29686e8c25802aade225733d11"
+      "const": "sha256:f744aabae9ddab0da0bff9fddf2437c817ab4f190e232ae40b088428410994fa"
     },
     "module": {
       "type": "string"
@@ -30,7 +30,8 @@
         "go",
         "rust",
         "ts",
-        "js"
+        "js",
+        "python"
       ]
     },
     "created_files": {

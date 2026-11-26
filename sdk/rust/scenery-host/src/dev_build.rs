@@ -155,6 +155,11 @@ impl Build {
             .unwrap_or("")
     }
 
+    pub(crate) fn is_python(&self) -> bool {
+        let tool = self.tool();
+        tool == "python" || tool.starts_with("python3")
+    }
+
     /// Reports whether `path` lies in one of this build's package
     /// directories. The root package owns only the files directly in it.
     fn in_roots(&self, path: &Path) -> bool {
@@ -229,7 +234,7 @@ impl Build {
                     |owner| self.roots.contains(owner),
                 )
             }
-            "bun" if !matches!(extension(path), "go" | "rs" | "scn") => {
+            "bun" if !matches!(extension(path), "go" | "rs" | "py" | "scn") => {
                 self.dependencies.contains(path)
                     || (!dev_inputs::ignored(path, &plan.generated)
                         && (under(path, &self.directory)
@@ -241,6 +246,21 @@ impl Build {
                                 && path
                                     .parent()
                                     .is_some_and(|dir| self.directory.starts_with(dir)))))
+            }
+            _ if self.is_python()
+                && !matches!(extension(path), "go" | "rs" | "ts" | "js" | "scn")
+                && !python_test_file(path) =>
+            {
+                !dev_inputs::ignored(path, &plan.generated)
+                    && (under(path, &self.directory)
+                        || (dev_inputs::declaration(path)
+                            && self
+                                .workspace
+                                .as_ref()
+                                .is_some_and(|root| under(path, root))
+                            && path
+                                .parent()
+                                .is_some_and(|dir| self.directory.starts_with(dir))))
             }
             _ => false,
         }
@@ -267,8 +287,11 @@ impl Build {
             })
             .collect();
         let cargo = self.tool() == "cargo";
-        let cwd = if self.tool() == "bun" {
+        let module_dir = root.join(&self.directory);
+        let cwd: &Path = if self.tool() == "bun" {
             staging.path()
+        } else if self.is_python() {
+            &module_dir
         } else {
             &self.directory
         };
@@ -419,6 +442,13 @@ impl Build {
             .map(Path::new)
             .context("Cargo build is missing its target directory")
     }
+}
+
+pub(crate) fn python_test_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|v| v.to_str()) else {
+        return false;
+    };
+    (name.starts_with("test_") && name.ends_with(".py")) || name.ends_with("_test.py")
 }
 
 pub(crate) fn go_source(path: &Path) -> bool {

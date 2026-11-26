@@ -16,7 +16,7 @@ import (
 // non-source directories that app-tree walks always skip.
 func SkipDirName(name string) bool {
 	switch name {
-	case ".git", ".scenery", ".claude", "node_modules", "dist", "out":
+	case ".git", ".scenery", ".claude", "node_modules", "dist", "out", ".venv", "__pycache__", ".pytest_cache":
 		return true
 	default:
 		return false

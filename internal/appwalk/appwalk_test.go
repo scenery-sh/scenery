@@ -7,7 +7,7 @@ import (
 )
 
 func TestSkipDirName(t *testing.T) {
-	for _, name := range []string{".git", ".scenery", ".claude", "node_modules", "dist", "out"} {
+	for _, name := range []string{".git", ".scenery", ".claude", "node_modules", "dist", "out", ".venv", "__pycache__", ".pytest_cache"} {
 		if !SkipDirName(name) {
 			t.Errorf("SkipDirName(%q) = false, want true", name)
 		}

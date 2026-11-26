@@ -455,10 +455,15 @@ impl WatcherLoop {
             .filter(|p| matches!(p.runtime.as_str(), "js" | "ts"))
             .map(|p| &p.service)
             .collect::<Vec<_>>();
+        let python = programs
+            .iter()
+            .filter(|p| p.runtime == "python")
+            .map(|p| &p.service)
+            .collect::<Vec<_>>();
         let elapsed = ms(detected.elapsed());
         let mut timing = json!({
             "generation":generation, "declarations":declarations, "go":times[1] > 0.0 || declarations && self.config.rebuild.go_workspace.is_some(),
-            "rebuilt":rebuilt_services, "go_links":links, "cargo":rust, "js":js, "rebuilt_modules":rebuilt, "skipped_modules":skipped, "skipped":skipped.len(),
+            "rebuilt":rebuilt_services, "go_links":links, "cargo":rust, "js":js, "python":python, "rebuilt_modules":rebuilt, "skipped_modules":skipped, "skipped":skipped.len(),
             "detect_ms":ms(rebuild_started - detected), "compile_ms":times[0],
             "link_ms":times[1], "ready_ms":times[2], "contract_ms":times[3],
             "go_ms":times[1], "js_ms":0.0, "cargo_ms":0.0, "total_ms":elapsed,

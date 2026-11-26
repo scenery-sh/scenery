@@ -51,8 +51,8 @@ type generationOperation struct {
 	cachedOnly         bool
 	typescriptOnly     bool
 	goRenderer         artifactRenderer
-	goFiles, tsFiles   []generatedFile
-	rustFiles, jsFiles []generatedFile
+	goFiles, tsFiles                []generatedFile
+	rustFiles, jsFiles, pythonFiles []generatedFile
 	result             GenerateResult
 	updates            []workspacetx.File
 }
@@ -180,6 +180,21 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 			rendered = append(rendered, output)
 			dependencies = append(dependencies, "js.render")
 		}
+		if services := pythonServices(compiled); len(services) > 0 {
+			output := lifecycle.Reference{Name: "python.files", Kind: "artifact_set", Ownership: lifecycle.Managed}
+			nodes = append(nodes, lifecycle.Node{
+				ID: "python.render", Kind: "python_render", Dependencies: []lifecycle.ID{"contract.compile"}, Outputs: []lifecycle.Reference{output},
+				Identity: identity, Cache: lifecycle.Reusable, Effects: []lifecycle.Capability{lifecycle.ReadSource},
+				Action: func(context.Context) error {
+					var err error
+					op.pythonFiles, err = renderPythonContractFiles(compiled, services)
+					return err
+				},
+			})
+			output.Producer = "python.render"
+			rendered = append(rendered, output)
+			dependencies = append(dependencies, "python.render")
+		}
 
 	}
 	targets := typescriptTargets(compiled.Manifest.Resources, op.selector)
@@ -228,7 +243,7 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 		return validateGenerationSnapshot(compiled, owner)
 	}})
 	nodes = append(nodes, lifecycle.Node{ID: "artifacts.compare", Kind: "artifact_validation", Dependencies: append(slices.Clone(dependencies), "source.validate"), Inputs: rendered, Identity: identity, Cache: lifecycle.CurrentValidation, Effects: []lifecycle.Capability{lifecycle.ReadSource}, Outputs: []lifecycle.Reference{{Name: "artifact.changes", Kind: "artifact_set", Ownership: lifecycle.Private}}, Action: func(context.Context) error {
-		files := slices.Concat(op.goFiles, op.rustFiles, op.jsFiles, op.tsFiles)
+		files := slices.Concat(op.goFiles, op.rustFiles, op.jsFiles, op.pythonFiles, op.tsFiles)
 		generated, err := inspectGeneratedFiles(compiled.Root, files)
 		generated.Compilation = compiled
 		op.result = generated
@@ -260,7 +275,7 @@ func (op *generationOperation) plan(owner bool) ([]lifecycle.Node, error) {
 				changed[path] = true
 			}
 			var updates []generatedFile
-			for _, file := range slices.Concat(op.goFiles, op.rustFiles, op.jsFiles, op.tsFiles) {
+			for _, file := range slices.Concat(op.goFiles, op.rustFiles, op.jsFiles, op.pythonFiles, op.tsFiles) {
 				relative, err := filepath.Rel(compiled.Root, file.Path)
 				if err != nil {
 					return err

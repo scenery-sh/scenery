@@ -39,12 +39,15 @@ func TestServiceRuntimeDoesNotChangeContractIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	serviceRevision := ServiceContractRevision(manifest, service, nil)
-	for _, runtime := range []string{"rust", "ts", "js"} {
+	for _, runtime := range []string{"rust", "ts", "js", "python"} {
 		service.Spec["runtime"] = runtime
 		packageSpec := map[string]any{"name": "house"}
-		if runtime == "rust" {
+		switch runtime {
+		case "rust":
 			packageSpec["rust_contract"] = map[string]any{"crate": "house"}
-		} else {
+		case "python":
+			packageSpec["python_contract"] = map[string]any{"entry": "house.py"}
+		default:
 			packageSpec["js_contract"] = map[string]any{"entry": "house." + runtime}
 		}
 		module.Spec["package"] = packageSpec

@@ -12,7 +12,7 @@ import (
 
 // Compiler locations appear as path:line:column (Go, Rust and Bun) or
 // path(line,column) (TypeScript). Keep the raw diagnostic alongside them.
-var buildLocation = regexp.MustCompile(`(?m)^\s*(?:(?:-->|at)\s+)?([^\n:()]+\.(?:go|rs|[cm]?[jt]sx?|scn))[:(]([0-9]+)[:,]([0-9]+)`)
+var buildLocation = regexp.MustCompile(`(?m)^\s*(?:(?:-->|at)\s+)?([^\n:()]+\.(?:go|rs|[cm]?[jt]sx?|py|scn))[:(]([0-9]+)[:,]([0-9]+)`)
 
 type devBuildFailure struct {
 	Module string `json:"module,omitempty"`
@@ -27,6 +27,10 @@ func describeDevBuildFailure(err error, root string, modules []agentModule, chan
 	var js *workerJSBuildError
 	if errors.As(err, &js) {
 		result.Module, _, _ = strings.Cut(js.service, "/service/")
+	}
+	var py *workerPythonBuildError
+	if errors.As(err, &py) {
+		result.Module, _, _ = strings.Cut(py.service, "/service/")
 	}
 	rust, cargoFailure := errors.AsType[*rustbuild.CommandError](err)
 	if cargoFailure {

@@ -53,7 +53,7 @@ func projectWorkerLaunch(program workerProgram) (workerLaunchProgram, error) {
 		Digest: program.Digest, Runtime: program.Runtime, Identity: program.Identity,
 		Environment: environment,
 	}
-	if compiler.IsJSRuntime(program.Runtime) {
+	if compiler.IsJSRuntime(program.Runtime) || compiler.IsPythonRuntime(program.Runtime) {
 		data, err := jsWorkerStartup(program)
 		if err != nil {
 			return workerLaunchProgram{}, err

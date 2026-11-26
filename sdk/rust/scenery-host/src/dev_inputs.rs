@@ -46,7 +46,15 @@ pub(crate) fn ignored(path: &Path, generated: &[PathBuf]) -> bool {
         || path.iter().any(|component| {
             matches!(
                 component.to_string_lossy().as_ref(),
-                "node_modules" | "dist" | "out" | "target"
+                "node_modules"
+                    | "dist"
+                    | "out"
+                    | "target"
+                    | ".venv"
+                    | "__pycache__"
+                    | ".pytest_cache"
+                    | ".mypy_cache"
+                    | ".ruff_cache"
             )
         })
 }
@@ -316,6 +324,9 @@ pub(crate) fn declaration(path: &Path) -> bool {
             | "package-lock.json"
             | "tsconfig.json"
             | "bunfig.toml"
+            | "pyproject.toml"
+            | "uv.lock"
+            | ".python-version"
     ) || extension(path) == "scn"
         || path.parent().is_some_and(|dir| dir.ends_with(".cargo"))
 }

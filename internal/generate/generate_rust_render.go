@@ -130,7 +130,7 @@ func (p rustContractProjection) renderService(source *strings.Builder, service R
 	for _, client := range clients {
 		name := client.operationName()
 		if client.Projected {
-			p.renderRustOperation(source, client.Operation, name)
+			p.renderRustOperation(source, client.Operation, name, false)
 		}
 		clientName := goName(client.Name) + "Client"
 		fmt.Fprintf(source, "#[derive(Clone, Copy, Default)]\npub struct %s;\nimpl %s {\n", clientName, clientName)
@@ -150,11 +150,11 @@ func (p rustContractProjection) renderService(source *strings.Builder, service R
 	for _, operation := range operations {
 		name := goName(operation.Name)
 		method := stringValue(specChild(operation, "handler")["method"])
-		fmt.Fprintf(source, "    %s;\n", rustOperationSignature(method, name, operationUsesHTTPStream(operation, resources)))
+		fmt.Fprintf(source, "    %s;\n", rustOperationSignature(method, name, operationUsesHTTPStream(operation, resources), operationUsesHTTPStreamOut(operation, resources)))
 	}
 	source.WriteString("}\n\n")
 	for _, operation := range operations {
-		p.renderRustOperation(source, operation, goName(operation.Name))
+		p.renderRustOperation(source, operation, goName(operation.Name), operationUsesHTTPStreamOut(operation, resources))
 	}
 	fmt.Fprintf(source, "pub async fn dispatch_%s(service: &impl %sService, invocation: sdk::Invocation, ctx: sdk::Context) -> sdk::Result<sdk::Output> {\n    match invocation.operation.rsplit('/').next().unwrap_or_default() {\n", rustIdent(service.Name), serviceName)
 	for _, operation := range operations {
@@ -162,7 +162,19 @@ func (p rustContractProjection) renderService(source *strings.Builder, service R
 		method := rustMethodName(stringValue(specChild(operation, "handler")["method"]))
 		fmt.Fprintf(source, "        %q => {\n            let input: %sInput = serde_json::from_str(invocation.input.get())?;\n", operation.Name, name)
 		if operationUsesHTTPStream(operation, resources) {
-			fmt.Fprintf(source, "            let (outcome, stream) = service.%s(ctx, input).await?;\n            Ok(sdk::Output { outcome: outcome.to_wire()?, stream })\n", method)
+			fmt.Fprintf(source, "            let (outcome, stream) = service.%s(ctx, input).await?;\n            Ok(sdk::Output::stream(outcome.to_wire()?, stream))\n", method)
+		} else if operationUsesHTTPStreamOut(operation, resources) {
+			resultVariant := "Event"
+			if v, ok := operationStreamOutResult(operation); ok {
+				resultVariant = goName(stringValue(v["name"]))
+			}
+			fmt.Fprintf(source, "            let (outcome, events) = service.%s(ctx, input).await?;\n"+
+				"            match (&outcome, events) {\n"+
+				"                (%sOutcome::%s, Some(events)) => Ok(sdk::Output::events(outcome.to_wire()?, Some(events.into_raw()))),\n"+
+				"                (%sOutcome::%s, None) => Err(\"stream_out result requires an EventStream\".into()),\n"+
+				"                (_, Some(_)) => Err(\"stream_out error outcome cannot attach an EventStream\".into()),\n"+
+				"                (_, None) => Ok(sdk::Output::json(outcome.to_wire()?)),\n"+
+				"            }\n", method, name, resultVariant, name, resultVariant)
 		} else {
 			fmt.Fprintf(source, "            let output = service.%s(ctx, input).await?;\n            Ok(sdk::Output::json(output.to_wire()?))\n", method)
 		}
@@ -172,14 +184,23 @@ func (p rustContractProjection) renderService(source *strings.Builder, service R
 	return nil
 }
 
-func (p rustContractProjection) renderRustOperation(source *strings.Builder, op Resource, name string) {
+func (p rustContractProjection) renderRustOperation(source *strings.Builder, op Resource, name string, streamOut bool) {
 	inputType := p.rustType(op.Spec["input"], op.Module)
 	if inputType != name+"Input" {
 		fmt.Fprintf(source, "pub type %sInput = %s;\n", name, inputType)
 	}
+	if streamOut {
+		if resultVariant, ok := operationStreamOutResult(op); ok {
+			fmt.Fprintf(source, "pub type %sEvent = %s;\n", name, p.rustType(resultVariant["type"], op.Module))
+		}
+	}
 	fmt.Fprintf(source, "#[derive(Clone, Debug)]\npub enum %sOutcome {\n", name)
 	for _, kind := range []string{"result", "error"} {
 		for _, variant := range namedChildren(op.Spec, kind) {
+			if streamOut && kind == "result" {
+				fmt.Fprintf(source, "    %s,\n", goName(stringValue(variant["name"])))
+				continue
+			}
 			fmt.Fprintf(source, "    %s(%s),\n", goName(stringValue(variant["name"])), p.rustType(variant["type"], op.Module))
 		}
 	}
@@ -187,6 +208,10 @@ func (p rustContractProjection) renderRustOperation(source *strings.Builder, op 
 	for _, kind := range []string{"result", "error"} {
 		for _, variant := range namedChildren(op.Spec, kind) {
 			label := stringValue(variant["name"])
+			if streamOut && kind == "result" {
+				fmt.Fprintf(source, "            Self::%s => sdk::encode_outcome(&serde_json::Value::Null, %q, %q),\n", goName(label), kind, label)
+				continue
+			}
 			fmt.Fprintf(source, "            Self::%s(value) => sdk::encode_outcome(value, %q, %q),\n", goName(label), kind, label)
 		}
 	}
@@ -194,6 +219,10 @@ func (p rustContractProjection) renderRustOperation(source *strings.Builder, op 
 	for _, kind := range []string{"result", "error"} {
 		for _, variant := range namedChildren(op.Spec, kind) {
 			label := stringValue(variant["name"])
+			if streamOut && kind == "result" {
+				fmt.Fprintf(source, "            (%q, %q) => Ok(Self::%s),\n", kind, label, goName(label))
+				continue
+			}
 			fmt.Fprintf(source, "            (%q, %q) => Ok(Self::%s(serde_json::from_str(value.get())?)),\n", kind, label, goName(label))
 		}
 	}

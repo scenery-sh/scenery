@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
+	"scenery.sh/internal/pythonbuild"
 )
 
 type moduleTestResult struct {
@@ -173,6 +175,26 @@ func (g agentGraph) testCommand(module agentModule) (string, []string, error) {
 		return dir, []string{"cargo", "test"}, nil
 	case "js", "ts":
 		return dir, []string{"bun", "test", "--no-env-file"}, nil
+	case "python":
+		for _, resource := range g.Manifest.Resources {
+			if resource.Kind != "scenery.service" || resource.Module != module.Name || !compiler.IsPythonRuntime(inspectString(resource.Spec["runtime"])) {
+				continue
+			}
+			target, err := compiler.SelectPythonWorkerTarget(g.Result, resource, "development")
+			if err != nil {
+				return "", []string{}, err
+			}
+			interpreter, err := pythonbuild.ResolveInterpreter(context.Background(), g.Root, pythonbuild.Service{PythonWorkerTarget: target, Name: resource.Address})
+			if err != nil {
+				return "", []string{}, err
+			}
+			pytest := filepath.Join(g.Root, target.Workspace, ".venv", "bin", "pytest")
+			if info, statErr := os.Lstat(pytest); statErr == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+				return dir, []string{pytest}, nil
+			}
+			return dir, []string{interpreter, "-B", "-m", "unittest", "discover", "-s", ".", "-p", "test_*.py"}, nil
+		}
+		return "", []string{}, fmt.Errorf("missing Python service declaration for module %s", module.Name)
 	default:
 		return "", []string{}, fmt.Errorf("unsupported test runtime %q", module.Runtime)
 	}

@@ -258,9 +258,10 @@ var authoredStructuralSchemas = map[string]*authoredBlockSchema{
 	"application": sourceSchema("scenery.source.application", 1, nil, nil, map[string]authoredChildSchema{"go_contract": singleton(goContractSourceSchema)}),
 	"module":      sourceSchema("scenery.source.module", 1, []string{"source", "inputs"}, []string{"source"}, nil),
 	"package": sourceSchema("scenery.source.package", 1, nil, nil, map[string]authoredChildSchema{
-		"go_contract":   singleton(goContractSourceSchema),
-		"js_contract":   singleton(sourceSchema("scenery.source.package.js_contract", 0, []string{"entry"}, []string{"entry"}, nil)),
-		"rust_contract": singleton(sourceSchema("scenery.source.package.rust_contract", 0, []string{"crate"}, []string{"crate"}, nil)),
+		"go_contract":     singleton(goContractSourceSchema),
+		"js_contract":     singleton(sourceSchema("scenery.source.package.js_contract", 0, []string{"entry"}, []string{"entry"}, nil)),
+		"python_contract": singleton(sourceSchema("scenery.source.package.python_contract", 0, []string{"entry"}, []string{"entry"}, nil)),
+		"rust_contract":   singleton(sourceSchema("scenery.source.package.rust_contract", 0, []string{"crate"}, []string{"crate"}, nil)),
 	}),
 	"input": sourceSchema("scenery.source.input", 1,
 		[]string{"type", "phase", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "optional", "requires", "public"}, []string{"type"}, nil),

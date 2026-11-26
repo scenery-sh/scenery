@@ -209,7 +209,7 @@ func TestServiceRuntimeIsAClosedSet(t *testing.T) {
 	if !ok {
 		t.Fatal("service source schema unavailable")
 	}
-	for runtime, valid := range map[string]bool{"go": true, "js": true, "rust": true, "ts": true, "python": false, "typescript": false, "Go": false} {
+	for runtime, valid := range map[string]bool{"go": true, "js": true, "python": true, "rust": true, "ts": true, "ruby": false, "typescript": false, "Go": false} {
 		block := &Block{Type: "service", Labels: []string{"billing"}, Attributes: map[string]Expression{"runtime": {Kind: "literal", Value: runtime}}}
 		if rejected := hasDiagnostic(validateAuthoredBlock(block, schema), "SCN1020"); rejected == valid {
 			t.Errorf("runtime %q rejected = %v", runtime, rejected)

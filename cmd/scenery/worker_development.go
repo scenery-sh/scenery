@@ -28,16 +28,18 @@ type workerDevelopment struct {
 	goWorkspace  *build.Result
 	rust         workerRustDevelopment
 	js           []workerJSBuild
+	python       []workerPythonBuild
 }
 
 type workerRustDevelopment struct {
-	selection map[string]rustbuild.Service
-	services  []rustbuild.Service
-	inputs    *rustbuild.DevelopmentInputs
-	artifacts map[rustbuild.Service]rustbuild.Artifact
-	digests   map[rustbuild.Service]string
-	generated []string
-	jsModules []string
+	selection     map[string]rustbuild.Service
+	services      []rustbuild.Service
+	inputs        *rustbuild.DevelopmentInputs
+	artifacts     map[rustbuild.Service]rustbuild.Artifact
+	digests       map[rustbuild.Service]string
+	generated     []string
+	jsModules     []string
+	pythonModules []string
 }
 
 func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs workerInputs) (*workerDevelopment, workerBundle, error) {
@@ -56,6 +58,13 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs
 	bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
 	for i := range dev.js {
 		program, _, err := (&dev.js[i]).run(ctx, watch.root, false)
+		if err != nil {
+			return nil, workerBundle{}, err
+		}
+		bundle.Programs = append(bundle.Programs, program)
+	}
+	for i := range dev.python {
+		program, _, err := (&dev.python[i]).run(ctx, watch.root, false)
 		if err != nil {
 			return nil, workerBundle{}, err
 		}
@@ -90,11 +99,19 @@ func (dev *workerDevelopment) prepare(ctx context.Context, result *compiler.Resu
 	if err != nil {
 		return workerBundle{}, err
 	}
+	dev.python, err = projectPythonBuilds(result, bundle, "development")
+	if err != nil {
+		return workerBundle{}, err
+	}
 	dev.compiled, dev.declarations = result, declarations
 	dev.rust.selection, dev.rust.services, dev.rust.generated = selection, services, dev.watch.generated
 	dev.rust.jsModules = make([]string, 0, len(dev.js))
 	for _, build := range dev.js {
 		dev.rust.jsModules = append(dev.rust.jsModules, build.service.Directory)
+	}
+	dev.rust.pythonModules = make([]string, 0, len(dev.python))
+	for _, build := range dev.python {
+		dev.rust.pythonModules = append(dev.rust.pythonModules, build.service.Directory)
 	}
 	return bundle, nil
 }
@@ -173,7 +190,7 @@ func (rust *workerRustDevelopment) consumes(service rustbuild.Service, path stri
 	}
 	// A Cargo workspace root may also cover independent JS worker modules.
 	// Preserve Rust inputs in a Rust package nested below a JS module.
-	for _, directory := range rust.jsModules {
+	for _, directory := range slices.Concat(rust.jsModules, rust.pythonModules) {
 		if pathUnder(directory, path) && (!pathUnder(directory, service.ModuleDirectory) || !pathUnder(service.ModuleDirectory, path)) {
 			return false
 		}

@@ -27,7 +27,7 @@
       "const": "scenery.context"
     },
     "schema_revision": {
-      "const": "sha256:8741784f13af8c758e8afe7ccd427d1e88a59fc71ccae265a7ab85618f711bd4"
+      "const": "sha256:c2457f90eacc44cf3dbfb33ba924f45ac317471c473bb1144866f1cac7fd5211"
     },
     "module": {
       "type": "string"
@@ -40,7 +40,8 @@
         "go",
         "rust",
         "ts",
-        "js"
+        "js",
+        "python"
       ]
     },
     "sources": {
@@ -157,7 +158,8 @@
                   "go",
                   "rust",
                   "ts",
-                  "js"
+                  "js",
+                  "python"
                 ]
               }
             }

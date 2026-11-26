@@ -25,6 +25,17 @@ pub const IMPLEMENTATION_HEADER: &str = "x-worker-implementation";
 pub const SCOPE_HEADER: &str = "x-worker-scope";
 pub const STREAM_SIZE_HEADER: &str = "x-worker-stream-size";
 pub const STREAM_MEDIA_TYPE: &str = "application/vnd.worker.stream";
+pub const EVENTS_MEDIA_TYPE: &str = "application/vnd.worker.events";
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawEvent {
+    pub data: Box<RawValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

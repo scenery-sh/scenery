@@ -295,6 +295,14 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 				"module": "quote", "directory": "quote", "runtime": "ts", "command": []string{"bun", "test"}, "ok": true, "duration_ms": 20,
 			}},
 		})},
+		{"scenery.openapi.export", withCLIPayloadIdentity("scenery.openapi.export", map[string]any{
+			"format": "json", "openapi_version": "3.1.1", "checked": false, "changed": []string{},
+			"gateways": []any{map[string]any{
+				"gateway": "app/http_gateway/public_api", "name": "public_api", "base_path": "/",
+				"openapi_version": "3.1.1", "openapi_revision": digest, "http_surface_revision": digest,
+				"operations": 1, "content_digest": digest, "document": map[string]any{"openapi": "3.1.1"},
+			}},
+		})},
 	} {
 		rel := "docs/schemas/" + fixture.kind + ".schema.json"
 		items = append(items, struct {

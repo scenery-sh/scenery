@@ -137,6 +137,7 @@ func TestModuleScaffoldPublishesValidDeclarations(t *testing.T) {
 		{"rust", "Cargo.toml", "src/lib.rs"},
 		{"ts", "service.ts", "service.test.ts"},
 		{"js", "service.js", "service.test.js"},
+		{"python", "service.py", "test_service.py"},
 	} {
 		t.Run(test.runtime, func(t *testing.T) {
 			t.Parallel()

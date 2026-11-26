@@ -10,12 +10,16 @@ type tsRuntimeCapabilities struct {
 	responseCookie bool
 	multipart      bool
 	retry          bool
+	sse            bool
 }
 
 func tsRuntimeCapabilitiesFor(target Resource, bindings, resources []Resource) tsRuntimeCapabilities {
 	capabilities := tsRuntimeCapabilities{retry: tsRetryTarget(target).Enabled}
 	for _, method := range tsClientMethods(bindings, resources) {
 		descriptor := method.descriptor
+		if descriptor["streamOut"] == true {
+			capabilities.sse = true
+		}
 		if _, ok := descriptor["query"]; ok {
 			capabilities.query = true
 		}
@@ -35,6 +39,9 @@ func tsRuntimeCapabilitiesFor(target Resource, bindings, resources []Resource) t
 			}
 			if _, ok := response["cookies"]; ok {
 				capabilities.responseCookie = true
+			}
+			if body, ok := response["body"].(map[string]any); ok && body["codec"] == "sse" {
+				capabilities.sse = true
 			}
 		}
 	}
@@ -59,6 +66,8 @@ func renderTSRuntimeSections(source string, capabilities tsRuntimeCapabilities) 
 		{"multipart", capabilities.multipart},
 		{"retry", capabilities.retry},
 		{"no_retry", !capabilities.retry},
+		{"sse", capabilities.sse},
+		{"no_sse", !capabilities.sse},
 	}
 	for _, feature := range features {
 		source = selectTSRuntimeSections(source, feature.name, feature.keep)

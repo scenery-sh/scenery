@@ -1,7 +1,7 @@
 application "polyglot" {}
 
 workspace {
-  managed_generated_roots = ["pricing/scenerycontract", "typescript/scenerycontract", "mirror/scenerycontract", "native/scenerycontract", "consumer/scenerycontract", "internal/scenerygen", "web/generated"]
+  managed_generated_roots = ["pricing/scenerycontract", "typescript/scenerycontract", "mirror/scenerycontract", "python/scenerycontract", "native/scenerycontract", "consumer/scenerycontract", "internal/scenerygen", "web/generated"]
 }
 
 rust_workspace "application" {
@@ -137,4 +137,31 @@ module "typescript" {
 module "mirror" {
   source = "./mirror"
   inputs = { gateway = http_gateway.public_api }
+}
+
+python_workspace "application" { root = "." }
+python_toolchain "application" { version = "3.14.6" }
+
+python_target "development" {
+  role      = "development"
+  workspace = python_workspace.application
+  toolchain = python_toolchain.application
+}
+
+python_target "production" {
+  role      = "artifact"
+  workspace = python_workspace.application
+  toolchain = python_toolchain.application
+}
+
+module "python" {
+  source = "./python"
+  inputs = {
+    gateway  = http_gateway.public_api
+    jobs     = execution_engine.jobs
+    session  = authentication.session
+    database = data_source.pricing
+    native   = module.native.label_internal
+    rust     = module.pricing.quote_internal
+  }
 }

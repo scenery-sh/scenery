@@ -678,8 +678,16 @@ impl Host {
             .outcomes
             .get(&format!("{}.{}", result.kind, result.name))
             .ok_or_else(|| Fault::internal("worker returned undeclared outcome"))?;
-        result.payload =
-            values::normalize(&self.bundle.types, ty, result.payload).map_err(Fault::internal)?;
+        if result.events.is_some() {
+            if result.kind != "result" || !result.payload.is_null() {
+                return Err(Fault::internal(
+                    "event stream outcome must be a result with null metadata payload",
+                ));
+            }
+        } else {
+            result.payload = values::normalize(&self.bundle.types, ty, result.payload)
+                .map_err(Fault::internal)?;
+        }
         Ok(result)
     }
 
@@ -760,7 +768,7 @@ impl Host {
                 let mut call = scope.call.clone();
                 call.cancel = scope.cancel.child_token();
                 match self.dispatch(&call, owner, binding, input).await {
-                    Ok(outcome) if outcome.stream.is_none() => {
+                    Ok(outcome) if !outcome.is_streamed() => {
                         let output = if enqueue {
                             outcome.payload
                         } else {

@@ -193,7 +193,7 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		if len(args) > 1 && args[1] == "module" {
 			return runAddModule(context.Background(), os.Stdout, args[2:])
 		}
-		return usageErrorf("usage: scenery add module <name> --runtime go|rust|ts|js")
+		return usageErrorf("usage: scenery add module <name> --runtime go|rust|ts|js|python")
 	case "worktree":
 		return worktreeCommand(args[1:])
 	case "feature":
@@ -204,7 +204,12 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		if len(args) > 1 && args[1] == "sqlc" {
 			return generateCommand(args[1:])
 		}
+		if len(args) > 1 && args[1] == "openapi" {
+			return runGenerateOpenAPI(os.Stdout, args[2:])
+		}
 		return runContractGenerate(os.Stdout, args[1:])
+	case "openapi":
+		return runOpenAPIExport(os.Stdout, args[1:])
 	case "provider":
 		return runProviderLock(os.Stdout, args[1:])
 	case "task":

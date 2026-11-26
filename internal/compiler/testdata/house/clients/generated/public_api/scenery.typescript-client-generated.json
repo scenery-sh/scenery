@@ -1,7 +1,7 @@
 {
   "compatibility_catalog": "scenery.compatibility-core",
-  "content_digest": "sha256:efbaed5c43510a8ae980bfaab6ab700c989084848f000822a4fe47eb360feead",
-  "contract_revision": "sha256:f981447ba6d2bc76bcc0ed752705c72aae40c5d12e1cc8ec0fc9a87ebca854e1",
+  "content_digest": "sha256:8efe137eb5542816ac1d3e90ce7c95c800900278e4181a73688fd95230b3d150",
+  "contract_revision": "sha256:760bd994bd92df4a716e6f339002f984bccc5fec278d82af1eded3669276e06c",
   "covered_bindings": [
     "house/binding/list_scene_events_http",
     "house/binding/process_scene_http"
@@ -30,24 +30,24 @@
   ],
   "generator": "scenery.generate.typescript",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:8a636c9cc0e2f6bcb9cd80a8ac83faef9e0abed3683feebae9be796a2b76bd1f"
+    "app/http_gateway/public_api": "sha256:42a8d1b19332198e5a751c7ea56f9dbb92afb787b844f7569bccd2095502f7e6"
   },
   "javascript_target": null,
   "kind": "scenery.typescript-client-generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:76bf9b26342e6288ee6e34eb24416a9aced9cc7bc254d885c7abaaf1e811f6c9"
+    "app/http_gateway/public_api": "sha256:222e0af080f79019479bdb7a7ba7880b2751449a1f315d04fa5b341df750872a"
   },
   "package": "@example/scenery-client",
   "producer": {
-    "version": "v0.3.7-0.20261126064716-9e2b57b49df7+dirty",
-    "commit": "9e2b57b49df7e95200cb9eb007197a240efdfb88",
-    "built_at": "2026-11-26T06:47:16Z",
+    "version": "v0.3.7-0.20261126120119-69393b379996+dirty",
+    "commit": "69393b379996733c9f04920eaa2e8807c564dd50",
+    "built_at": "2026-11-26T12:01:19Z",
     "toolchain": {
       "go_version": "go1.27.0"
     }
   },
   "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",
-  "spec_revision": "sha256:0e2895ce2b109a06f117fa3c578d114428136e797c7844df18154253556d0a4a",
+  "spec_revision": "sha256:19aa387710814fba22fdc4ea6dd38a663cab2ed17275594fe53ee3aadcef6fab",
   "target": "app/typescript_client/public_api",
   "typescript_client_revision": "sha256:b56fd4505d1968d83f69f485364d2a7ce53f784037eb724b013342e9528f425e",
   "typescript_version": null,

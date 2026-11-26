@@ -201,7 +201,7 @@ func (p workerPlanProjection) binding(service workerplan.WorkerServicePlan, bind
 	result.Delivery = delivery
 	result.Execution = workerReference(binding, binding.Spec["execution"], "execution")
 	result.Policy.TotalInvocationTimeoutNanos = workerDuration(p.resources[result.Execution].Spec["timeout"])
-	if delivery != "call" && delivery != "stream" && delivery != "enqueue" && delivery != "wait" {
+	if delivery != "call" && delivery != "stream" && delivery != "stream_out" && delivery != "enqueue" && delivery != "wait" {
 		return result, fmt.Errorf("worker binding delivery %q has no Host plan", delivery)
 	}
 	protocol := cp.StringValue(binding.Spec["protocol"])

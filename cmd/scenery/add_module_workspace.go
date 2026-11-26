@@ -14,7 +14,22 @@ import (
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/graph"
+	"scenery.sh/internal/pythonbuild"
 )
+
+func (s *moduleScaffold) addPythonWorkspace(resources []graph.Resource) (string, error) {
+	var existingToolchain string
+	for _, resource := range resources {
+		if resource.Kind == "scenery.python-toolchain" && existingToolchain == "" {
+			existingToolchain = cp.StringValue(resource.Spec["version"])
+		}
+		if appWorkspaceTarget(resource, resources, "python") {
+			return "", nil
+		}
+	}
+	version := firstNonEmpty(existingToolchain, pythonbuild.DetectInstalledVersion(context.Background()), "3.14.6")
+	return scaffoldWorkspaceDeclarations(resources, "python", s.Module, ".", version), nil
+}
 
 func (s *moduleScaffold) addJSWorkspace(root string, resources []graph.Resource) (string, error) {
 	for _, resource := range resources {

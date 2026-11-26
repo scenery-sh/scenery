@@ -76,9 +76,37 @@ async function invokeRequest(
   if (cookies.length > 0) headers.set("cookie", cookies.join("; "));
 /*__scenery_runtime_request_cookie_end__*/
   const body = encodeBindingBody(binding, input, headers, registry);
+/*__scenery_runtime_sse_start__*/
+  let streamAbort: AbortController | undefined;
+  let onParentAbort: (() => void) | undefined;
+  let fetchSignal = options.signal;
+  if (binding.streamOut === true) {
+    if (!headers.has("accept")) {
+      const media = Array.from(new Set(binding.responses.flatMap((r) => r.body?.producedMediaTypes ?? [])));
+      headers.set("accept", media.length > 0 ? media.join(", ") : "text/event-stream, application/problem+json");
+    }
+    streamAbort = new AbortController();
+    fetchSignal = streamAbort.signal;
+    if (options.signal !== undefined) {
+      onParentAbort = () => streamAbort!.abort(options.signal!.reason);
+      options.signal.addEventListener("abort", onParentAbort, { once: true });
+    }
+  }
+  const cleanupStreamAbort = (): void => {
+    if (onParentAbort !== undefined && options.signal !== undefined) {
+      options.signal.removeEventListener("abort", onParentAbort);
+      onParentAbort = undefined;
+    }
+  };
+/*__scenery_runtime_sse_end__*/
   const requestInit: RequestInit = {
     method: binding.method,
+/*__scenery_runtime_sse_start__*/
+    signal: fetchSignal,
+/*__scenery_runtime_sse_end__*/
+/*__scenery_runtime_no_sse_start__*/
     signal: options.signal,
+/*__scenery_runtime_no_sse_end__*/
     headers,
     body,
     credentials: transport.authentication?.credentials,
@@ -97,16 +125,53 @@ async function invokeRequest(
     response = await transport.fetch(transport.baseUrl + path, requestInit);
 /*__scenery_runtime_no_retry_end__*/
   } catch (cause) {
+/*__scenery_runtime_sse_start__*/
+    cleanupStreamAbort();
+/*__scenery_runtime_sse_end__*/
     throw new ClientError(options.signal?.aborted ? "cancelled" : "network", binding.address, "request failed", cause);
   }
+/*__scenery_runtime_sse_start__*/
+  let handedOff = false;
+  try {
+    const matched = await matchResponse(response, binding, registry, options.signal, () => {
+      cleanupStreamAbort();
+      streamAbort?.abort();
+    });
+    handedOff = typeof matched === "object" && matched !== null && "events" in matched;
+    return matched;
+  } finally {
+    if (!handedOff) cleanupStreamAbort();
+  }
+/*__scenery_runtime_sse_end__*/
+/*__scenery_runtime_no_sse_start__*/
   return matchResponse(response, binding, registry);
+/*__scenery_runtime_no_sse_end__*/
 }
 
-export async function matchResponse(response: Response, binding: BindingCall, registry: TypeRegistry): Promise<unknown> {
+export async function matchResponse(
+  response: Response,
+  binding: BindingCall,
+  registry: TypeRegistry,
+/*__scenery_runtime_sse_start__*/
+  signal?: AbortSignal,
+  onClose?: () => void,
+/*__scenery_runtime_sse_end__*/
+): Promise<unknown> {
   const cases = binding.responses.filter((candidate) => candidate.status === response.status);
   if (cases.length === 0) {
     throw new ClientError("contract_violation", binding.address, §unexpected response ${response.status}§);
   }
+/*__scenery_runtime_sse_start__*/
+  for (const candidate of cases) {
+    if (candidate.role === "completion" && candidate.body?.codec === "sse" && responseMatchesSSE(response, candidate.body.producedMediaTypes)) {
+      return {
+        kind: "result",
+        name: candidate.name,
+        events: decodeSSEStream(response, candidate.body.value, registry, binding.address, binding.responseLimitBytes, signal, onClose),
+      };
+    }
+  }
+/*__scenery_runtime_sse_end__*/
   for (const candidate of cases) {
     if (candidate.role !== "failure") continue;
     try {
@@ -121,6 +186,9 @@ export async function matchResponse(response: Response, binding: BindingCall, re
   const completionMatches: unknown[] = [];
   for (const candidate of cases) {
     if (candidate.role !== "completion") continue;
+/*__scenery_runtime_sse_start__*/
+    if (candidate.body?.codec === "sse") continue;
+/*__scenery_runtime_sse_end__*/
     try {
       completionMatches.push(bindingCompletionOutcome(candidate, await decodeBindingResponse(response.clone(), candidate, binding, registry)));
     } catch (cause) {

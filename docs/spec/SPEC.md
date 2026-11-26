@@ -39,7 +39,10 @@ operation + binding + execution + policy
   `idempotency { mode = "keyed"; key = [...] }`, and `handler { method = ... }`.
 - **binding**: exposes an operation via `protocol = "http"` (on an
   `http_gateway`) or `protocol = "internal"` (`visibility = "application" |
-  "package"`). Direct execution supports `call` and HTTP `stream`. Durable
+  "package"`). Direct execution supports `call`, HTTP `stream` (exact-length
+  byte body), and HTTP `stream_out` (typed Server-Sent Events via
+  `codec = "sse"` on a single `result.*` response, with pre-stream `error.*`
+  and admission/transport failures using standard HTTP codecs). Durable
   execution supports `enqueue` and `wait`.
 - **execution**: `mode = "direct"` (timeout) or `mode = "durable"` (`engine`,
   `external_name`, `revision`, `timeout`, `lease`, `attempts`, `retry`,
@@ -107,6 +110,21 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   and Bun runtime in a per-module executable in the Host's portable bundle.
   Bundle execution requires the build platform and architecture;
   `scenery build --oci` builds a Linux image instead (section 8).
+- A Python service declares `runtime = "python"` and package metadata
+  `python_contract { entry = "service.py" }`. The entry is a regular
+  module-relative `.py` file whose top-level callable matches
+  `service.implementation.constructor`. Each Python service has its own
+  module directory. The nearest covering `python_workspace { root = "..." }`
+  selects its `python_target` with role `development` or `artifact`, referencing
+  the workspace and a `python_toolchain` with an exact CPython `version` (3.11+,
+  for example `"3.14.6"`). Generation publishes `<module>/scenerycontract`
+  beneath a declared `managed_generated_roots` entry with typed frozen
+  dataclasses, `Service` protocol, exact wire codecs, pure-stdlib Worker ABI v1
+  HTTP/2 SDK, and deterministic `_build.py` zipapp packager. `uv` resolves the
+  pinned interpreter (syncing `.venv` when `pyproject.toml` is present).
+  `scenery check` runs syntax/AST constructor verification and any workspace
+  `.venv/bin/{ty,pyright,mypy}` checker; development replaces only the worker
+  whose module inputs changed.
 - A host bundle links each Go service from the `go_target` its build
   selects: the target named by `scenery build --target`, otherwise the target
   with role `artifact`, or `development` for `scenery up` and
@@ -121,8 +139,14 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
   parameters, headers, cookies, and JSON bodies into typed `operation.input`,
   and map declared `result` / `error` variants to HTTP status codes, headers,
   cookies, and response bodies.
-- End-user HTTP surfaces (URLs, headers, cookies, bodies, errors, generated
-  browser clients/assets) MUST NOT contain `"scenery"` (case-insensitive).
+- End-user HTTP surfaces (URLs, headers, cookies, bodies, errors, emitted
+  OpenAPI 3.1.1 specifications, and generated browser clients/assets) MUST NOT
+  contain `"scenery"` (case-insensitive).
+- `scenery openapi` and `scenery generate openapi` project declared
+  `http_gateway` bindings (including exact scalar wire schemas, multipart
+  uploads, binary streams, SSE `stream_out` event streams, and standard failure
+  responses) into deterministic, brand-neutral OpenAPI 3.1.1 JSON or YAML
+  documents correlated with each gateway's `openapi_revision`.
 - Errors use checked diagnostic codes: `SCN8xxx` for request/client failures;
   `SCN9xxx` for internal failures (sanitized message + opaque report token
   inspectable via `scenery inspect report <token> -o json`).
@@ -202,8 +226,9 @@ falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
   cross-compiles Go services with cgo disabled from the selected `go_target`
   (a `platform = "host"` target adopts the image platform) and Bun services
   for the platform, then writes a two-stage Dockerfile whose Debian 12
-  builder stage compiles the Host and Rust services and seals their digests
-  into the manifest. The `gcr.io/distroless/cc-debian12` runtime stage runs
-  `/app/scenery-host --listen 0.0.0.0:4000` as user 65532. `--oci-context
+  builder stage compiles the Host and Rust services, installs pinned Linux
+  CPython interpreters and packages Python workers via `uv`, and seals their
+  digests into the manifest. The `gcr.io/distroless/cc-debian12` runtime stage
+  runs `/app/scenery-host --listen 0.0.0.0:4000` as user 65532. `--oci-context
   <dir>` writes the reproducible context instead of building it with Docker
   Buildx.

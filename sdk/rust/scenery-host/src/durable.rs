@@ -240,6 +240,7 @@ impl Engine {
                 name: name.into(),
                 payload,
                 stream: None,
+                events: None,
                 worker: None,
             });
         }
@@ -247,6 +248,7 @@ impl Engine {
             kind: "result".into(),
             name: "dispatch.enqueued".into(),
             stream: None,
+            events: None,
             worker: None,
             payload: json!({
                 "durable_identity": format!("{}::{}", reg.engine_address, reg.address),
@@ -360,7 +362,7 @@ impl Engine {
                     tokio::select! {
                         () = host.stop.cancelled() => {}
                         output = host.invoke(&call, service, &operation, None, "direct", &input) => {
-                            if !matches!(output, Ok(output) if output.stream.is_none()) {
+                            if !matches!(output, Ok(output) if !output.is_streamed()) {
                                 host.telemetry.failure("scheduled execution failed");
                             }
                         }
@@ -372,7 +374,7 @@ impl Engine {
                 .invoke(&call, service, operation, None, "direct", &input)
                 .await;
             match output {
-                Ok(output) if output.stream.is_none() => {
+                Ok(output) if !output.is_streamed() => {
                     reply["state"] = json!("succeeded");
                     reply["output"] = output.json();
                 }
@@ -836,7 +838,7 @@ async fn execute_next(
         let outcome = host
             .invoke(&call, service, &plan.operation, None, "durable", &input)
             .await?;
-        if outcome.stream.is_some() {
+        if outcome.is_streamed() {
             return Err(Fault::internal("execution returned a stream"));
         }
         Ok(outcome)

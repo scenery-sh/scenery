@@ -8,8 +8,12 @@ func IsJSRuntime(runtime string) bool {
 	return runtime == "ts" || runtime == "js"
 }
 
+func IsPythonRuntime(runtime string) bool {
+	return runtime == "python"
+}
+
 func IsExternalWorkerRuntime(runtime string) bool {
-	return runtime == "rust" || IsJSRuntime(runtime)
+	return runtime == "rust" || IsJSRuntime(runtime) || IsPythonRuntime(runtime)
 }
 
 // RuntimeServices is the existing native registration selection. A declaration

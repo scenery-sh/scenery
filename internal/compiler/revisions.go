@@ -378,7 +378,10 @@ func implementationBindings(resources []Resource) []map[string]any {
 			if declaration := metadata["js_contract"]; declaration != nil {
 				spec["js_contract"] = declaration
 			}
-		case "scenery.js-workspace", "scenery.js-toolchain", "scenery.js-target":
+			if declaration := metadata["python_contract"]; declaration != nil {
+				spec["python_contract"] = declaration
+			}
+		case "scenery.js-workspace", "scenery.js-toolchain", "scenery.js-target", "scenery.python-workspace", "scenery.python-toolchain", "scenery.python-target":
 			spec = resource.Spec
 		case "scenery.service":
 			spec = map[string]any{"runtime": resource.Spec["runtime"], "implementation": resource.Spec["implementation"], "dependency": resource.Spec["dependency"], "config": resource.Spec["config"], "client": resource.Spec["client"], "lifecycle": resource.Spec["lifecycle"]}

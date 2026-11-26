@@ -109,6 +109,8 @@ func defaultHTTPMediaType(codec string) string {
 		return "text/plain"
 	case "bytes":
 		return "application/octet-stream"
+	case "sse":
+		return "text/event-stream"
 	case "form":
 		return "application/x-www-form-urlencoded"
 	case "multipart":

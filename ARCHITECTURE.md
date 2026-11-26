@@ -5,7 +5,7 @@ applications declared in `app.scn` and package-local `package.scn` files, with
 independent runtime config in `.scenery.json`.
 
 ```text
-.scenery.json + app.scn + package.scn + app.lock.scn + Go, Rust, JS/TS implementations
+.scenery.json + app.scn + package.scn + app.lock.scn + Go, Rust, JS/TS, Python implementations
   → internal/app + internal/scn + internal/spec + internal/compiler
   → canonical source / effective / expanded manifests
   → internal/generate + internal/uigen + internal/build
@@ -31,15 +31,17 @@ to the collector the standard `OTEL_EXPORTER_OTLP_*` variables name, and,
 with a database, claims schedule slots in PostgreSQL so that replicas run
 each slot once. `scenery build --oci` packages the same bundle as a Linux
 image: Go and Bun workers cross-compile on the build machine, and a Debian 12
-builder stage compiles the Host and Rust workers.
+builder stage compiles the Host, Rust workers, and Python workers.
 
-Go, Rust, and JavaScript/TypeScript workers exchange scoped requests over
-[Worker ABI v1](docs/spec/WORKER-ABI.md). The Rust Host and SDK share
+Go, Rust, JavaScript/TypeScript, and Python workers exchange scoped requests
+over [Worker ABI v1](docs/spec/WORKER-ABI.md). The Rust Host and SDK share
 the `scenery-wire` crate. Generated Go adapters connect the envelope to
 typed operation handlers and use native PostgreSQL connections. The JS/TS
 adapter bundles each service with its Bun runtime and reuses the TypeScript
-client wire codec. Vite can run behind the development gateway or supply
-static assets to the production bundle.
+client wire codec. The Python adapter (`internal/pythonbuild`, `sdk/python`)
+packages each service with `uv` into a deterministic zipapp carrying a
+pure-stdlib HTTP/2 Worker ABI SDK and typed dataclass contracts. Vite can run
+behind the development gateway or supply static assets to the production bundle.
 
 ## Hard Invariants
 
@@ -107,9 +109,10 @@ static assets to the production bundle.
   contract wire codecs, constraint validation, authorization policy evaluator,
   and process-local SDK host bridge.
 - `internal/generate`, `internal/generate/api`, `internal/uigen`,
-  `internal/clientprojection`, `internal/codegen`, `ui/`: Go contracts and
-  composition, TypeScript API clients, optional React pages, and binary-owned
-  `@scenery/ui` Astryx + StyleX catalog.
+  `internal/clientprojection`, `internal/openapiprojection`, `internal/codegen`,
+  `ui/`: Go contracts and composition, TypeScript API clients, brand-neutral
+  OpenAPI 3.1.1 projection (`scenery openapi` / `scenery generate openapi`),
+  optional React pages, and binary-owned `@scenery/ui` Astryx + StyleX catalog.
 - `internal/lifecycle`: stdlib-only DAG planner for deterministic generation,
   SQLC publication, and build preparation.
 - `internal/build`, `internal/workspacetx`, `internal/dirlisting`,

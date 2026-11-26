@@ -70,6 +70,26 @@ export interface Stream<T> {
 export function stream<T>(outcome: T, body: StreamBody, size: bigint | number): Stream<T>;
 export function unpack<T>(output: T | Stream<T>): { outcome: T; body?: StreamBody; size?: bigint };
 
+declare const sseEventMarker: unique symbol;
+export interface SSEEvent<E> {
+  readonly [sseEventMarker]: true;
+  readonly data: E;
+  readonly id?: string;
+  readonly event?: string;
+}
+export function sseEvent<E>(data: E, meta?: { readonly id?: string; readonly event?: string }): SSEEvent<E>;
+export function isSSEEvent<E>(value: unknown): value is SSEEvent<E>;
+
+declare const eventStreamMarker: unique symbol;
+export type EventStreamBody<E> = Iterable<E | SSEEvent<E>> | AsyncIterable<E | SSEEvent<E>>;
+export interface EventStream<T, E> {
+  readonly [eventStreamMarker]: true;
+  readonly outcome: T;
+  readonly events: EventStreamBody<E>;
+}
+export function eventStream<T, E>(outcome: T, events: EventStreamBody<E>): EventStream<T, E>;
+export function unpackEvents<T, E>(output: T | EventStream<T, E>): { outcome: T; events?: EventStreamBody<E> };
+
 interface Launch {
   readonly worker_socket: string;
   readonly host_socket: string;
@@ -81,5 +101,5 @@ export function startupInputs(parse: (source: string) => unknown): { config: Con
 export function serve(
   launch: Launch,
   parse: (source: string) => unknown,
-  dispatch: (operation: string, input: unknown, context: Context) => Promise<{ outcome: string; body?: StreamBody; size?: bigint }>,
+  dispatch: (operation: string, input: unknown, context: Context) => Promise<{ outcome: string; body?: StreamBody; size?: bigint; events?: AsyncIterable<string> }>,
 ): Promise<void>;

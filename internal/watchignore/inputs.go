@@ -89,7 +89,7 @@ func IgnoreEntryPath(rel string, isDir bool, ignore *Matcher) bool {
 			return true
 		}
 		switch name {
-		case "node_modules", "scenery_internal_main", "scenery_internal_processes":
+		case "node_modules", "__pycache__", "scenery_internal_main", "scenery_internal_processes":
 			return true
 		}
 	}
@@ -114,7 +114,7 @@ func shouldIgnoreWatchPathBuiltin(rel string, isDir bool) bool {
 			return true
 		}
 		switch part {
-		case "node_modules", "scenery_internal_main", "scenery_internal_processes":
+		case "node_modules", "__pycache__", "scenery_internal_main", "scenery_internal_processes":
 			return true
 		}
 	}

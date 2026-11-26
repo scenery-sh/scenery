@@ -220,6 +220,7 @@ export interface BindingCall {
   readonly cookies?: readonly BindingFieldMapping[];
 
   readonly body?: BindingRequestBody;
+
   readonly responseLimitBytes: number;
   readonly responses: readonly BindingResponseCase[];
 }
@@ -878,6 +879,8 @@ export async function assertEmptyResponse(response: Response, bindingAddress: st
     throw new ClientError("contract_violation", bindingAddress, "response body contradicts the contract");
   }
 }
+
+
 
 
 
@@ -1745,9 +1748,13 @@ async function invokeRequest(
   if (cookies.length > 0) headers.set("cookie", cookies.join("; "));
 
   const body = encodeBindingBody(binding, input, headers, registry);
+
   const requestInit: RequestInit = {
     method: binding.method,
+
+
     signal: options.signal,
+
     headers,
     body,
     credentials: transport.authentication?.credentials,
@@ -1760,16 +1767,26 @@ async function invokeRequest(
     response = await transport.fetch(transport.baseUrl + path, requestInit);
 
   } catch (cause) {
+
     throw new ClientError(options.signal?.aborted ? "cancelled" : "network", binding.address, "request failed", cause);
   }
+
+
   return matchResponse(response, binding, registry);
+
 }
 
-export async function matchResponse(response: Response, binding: BindingCall, registry: TypeRegistry): Promise<unknown> {
+export async function matchResponse(
+  response: Response,
+  binding: BindingCall,
+  registry: TypeRegistry,
+
+): Promise<unknown> {
   const cases = binding.responses.filter((candidate) => candidate.status === response.status);
   if (cases.length === 0) {
     throw new ClientError("contract_violation", binding.address, `unexpected response ${response.status}`);
   }
+
   for (const candidate of cases) {
     if (candidate.role !== "failure") continue;
     try {
@@ -1784,6 +1801,7 @@ export async function matchResponse(response: Response, binding: BindingCall, re
   const completionMatches: unknown[] = [];
   for (const candidate of cases) {
     if (candidate.role !== "completion") continue;
+
     try {
       completionMatches.push(bindingCompletionOutcome(candidate, await decodeBindingResponse(response.clone(), candidate, binding, registry)));
     } catch (cause) {

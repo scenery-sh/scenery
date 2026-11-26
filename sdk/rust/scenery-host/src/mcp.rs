@@ -538,6 +538,9 @@ async fn invoke(
     host.telemetry
         .span(&call, service, &binding.address, started.elapsed(), error);
     let mut outcome = dispatched?;
+    if outcome.events.is_some() {
+        return Err(Fault::internal("MCP tool returned an event stream"));
+    }
     if let Some(stream) = outcome.stream.take() {
         let limit = cap.limits.max_result_bytes;
         if stream.length() > limit as u64 {

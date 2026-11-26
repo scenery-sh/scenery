@@ -58,10 +58,10 @@ func parseAddModuleArgs(args []string) (addModuleOptions, error) {
 		return opts, usageErrorf("add module requires one .scn module identifier (lowercase letters, digits, and underscores)")
 	}
 	opts.name = positionals[0]
-	if !slices.Contains([]string{"go", "rust", "ts", "js"}, opts.runtime) {
-		return opts, usageErrorf("--runtime must be go, rust, ts, or js")
+	if !slices.Contains([]string{"go", "rust", "ts", "js", "python"}, opts.runtime) {
+		return opts, usageErrorf("--runtime must be go, rust, ts, js, or python")
 	}
-	if strings.Contains(opts.name, "scenery") || opts.runtime == "go" && token.Lookup(opts.name).IsKeyword() {
+	if strings.Contains(opts.name, "scenery") || (opts.runtime == "go" && token.Lookup(opts.name).IsKeyword()) || (opts.runtime == "python" && !compiler.IsValidPythonIdentifier(opts.name)) {
 		return opts, usageErrorf("module name %q cannot be used in the generated package or HTTP route", opts.name)
 	}
 	if reservedModuleName(opts.name, opts.runtime) {
@@ -211,6 +211,15 @@ func planModuleScaffold(root string, opts addModuleOptions, resources []graph.Re
 		packageMetadata = fmt.Sprintf("js_contract { entry = %q }", "service."+opts.runtime)
 		constructor, method = "newService", "ping"
 		result.addJSFiles()
+	case "python":
+		declarations, err := result.addPythonWorkspace(resources)
+		if err != nil {
+			return result, err
+		}
+		extra += declarations
+		packageMetadata = `python_contract { entry = "service.py" }`
+		constructor, method = "new_service", "ping"
+		result.addPythonFiles()
 	}
 	result.create(opts.name+"/package.scn", fmt.Sprintf(modulePackageTemplate, opts.name, packageMetadata, opts.name, opts.runtime, constructor, opts.name, method, opts.name))
 	updated, err := appendScaffoldRoot(app, result.GeneratedRoots[0])
