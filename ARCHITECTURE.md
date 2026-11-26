@@ -13,7 +13,7 @@ independent runtime config in `.scenery.json`.
   → one Rust application host bundle + CLI/inspect/harness/worktree tooling
 ```
 
-Every application runs on the Rust `scenery-host`. It owns public ingress,
+Every application runs on the Rust `scenery-kernel`. It owns public ingress,
 binding policy, standard auth, scoped worker capabilities, durable execution,
 schedules, assistants, MCP, and worker supervision. It binds public ingress
 after publishing an attested generation. In development `scenery up` keeps the
@@ -24,13 +24,13 @@ worktree's API backend, and restarts it only for changes the Host cannot apply
 in place. The Host watches source inputs (the files no `.gitignore` excludes),
 rebuilds affected workers, exports telemetry to the worktree's Victoria, and
 invokes the CLI on demand for declaration and build configuration changes. A
-lightweight `scenery-host --test` mode backs `scenery test --with-host`,
+lightweight `scenery-kernel --test` mode backs `scenery test --with-host`,
 serving ephemeral local capabilities alongside `<50ms` PostgreSQL template
 database clones (`CREATE DATABASE ... TEMPLATE ...`) without colliding with a
 running `scenery up` session. `SCN9xxx` runtime failures record replayable
 invocation metadata so `scenery replay <report-token>` can deterministically
 re-invoke the failing call or emit an offline regression test (`--emit-test`).
-A production bundle (`scenery build`) starts directly through `scenery-host`:
+A production bundle (`scenery build`) starts directly through `scenery-kernel`:
 it reads its configuration snapshot from `--config` with `{"$env": ...}`
 secret references, serves local or S3-compatible object stores, exports OTLP
 to the collector the standard `OTEL_EXPORTER_OTLP_*` variables name, and,
@@ -127,7 +127,7 @@ behind the development gateway or supply static assets to the production bundle.
   `go build` linking of per-service Go workers.
 
 ### Runtime, Capabilities & Local Platform
-- `sdk/rust/scenery-host`: the only application host, in development and
+- `sdk/rust/scenery-kernel`: the only application host, in development and
   production (see above). Its production surface is `config` (arguments,
   snapshot, `$env` references), `s3_storage` (SigV4), `otlp`, and
   `schedule_slots` (PostgreSQL slot claims and leases).

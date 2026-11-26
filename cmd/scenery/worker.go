@@ -193,7 +193,7 @@ func runWorker(opts workerOptions) error {
 	if err := writeWorkerBundle(ctx, bundle, output); err != nil {
 		return err
 	}
-	return startWorkerApp(root, cfg, compiled.SQLRequirements, compiled.Manifest, filepath.Join(output, "scenery-host"), opts)
+	return startWorkerApp(root, cfg, compiled.SQLRequirements, compiled.Manifest, filepath.Join(output, "scenery-kernel"), opts)
 }
 
 func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, manifest *compiler.Manifest, binary string, opts workerOptions) (returnErr error) {

@@ -493,8 +493,8 @@ func renderOCIDockerfile(platform ociPlatform, hostToolchain string, rustWorkers
 	write("WORKDIR /build\n")
 	write("COPY host/ host/\n")
 	write("RUN cargo +%s build --locked --release \\\n", hostToolchain)
-	write("      --manifest-path host/scenery-host/Cargo.toml --target-dir /target/host \\\n")
-	write(" && install -D -m 0755 /target/host/release/scenery-host /out/scenery-host\n")
+	write("      --manifest-path host/scenery-kernel/Cargo.toml --target-dir /target/host \\\n")
+	write(" && install -D -m 0755 /target/host/release/scenery-kernel /out/scenery-kernel\n")
 	copiedManifest := false
 	if len(rustWorkers) > 0 {
 		rustWorkers = slices.Clone(rustWorkers)
@@ -581,7 +581,7 @@ func renderOCIDockerfile(platform ociPlatform, hostToolchain string, rustWorkers
 	write("COPY --from=build /out/ /app/\n")
 	write("USER 65532:65532\n")
 	write("EXPOSE %d\n", ociListenPort)
-	write("ENTRYPOINT [\"/app/scenery-host\", \"--listen\", \"0.0.0.0:%d\"]\n", ociListenPort)
+	write("ENTRYPOINT [\"/app/scenery-kernel\", \"--listen\", \"0.0.0.0:%d\"]\n", ociListenPort)
 	return file.String()
 }
 

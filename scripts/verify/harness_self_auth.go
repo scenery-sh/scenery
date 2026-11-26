@@ -67,7 +67,7 @@ func runHarnessStandardAuth(parent context.Context, repoRoot string) (summary ma
 	}
 	// The application host owns standard authentication. Its browser journeys
 	// run against this empty, probe-owned database.
-	manifest := filepath.Join(repoRoot, "sdk", "rust", "scenery-host", "Cargo.toml")
+	manifest := filepath.Join(repoRoot, "sdk", "rust", "scenery-kernel", "Cargo.toml")
 	command := commandTreeContext(ctx, "cargo", "+"+harnessRustToolchain, "test", "--locked", "--manifest-path", manifest, "browser_auth_test::", "--", "--ignored")
 	command.Dir = repoRoot
 	command.Env = envWithOverrides(envpolicy.Environ(), "DATABASE_URL="+database.URL)

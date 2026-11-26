@@ -141,7 +141,7 @@ func TestWorkerBundlePublicationReplacesOnlyAPreviousBundle(t *testing.T) {
 	root := t.TempDir()
 	stage := func(marker string) string {
 		staging := filepath.Join(root, "staging-"+marker)
-		for _, name := range []string{"manifest.json", "scenery-host"} {
+		for _, name := range []string{"manifest.json", "scenery-kernel"} {
 			writeWatchFile(t, staging, name, marker)
 		}
 		return staging

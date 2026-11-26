@@ -57,11 +57,11 @@ func TestOCIDockerfileForGoOnlyApplication(t *testing.T) {
 		"# syntax=docker/dockerfile:1\n",
 		"docker buildx build --platform linux/amd64 --tag <image> --load .",
 		"FROM rust:1.99.1-bookworm AS build\n",
-		"RUN cargo +1.99.1 build --locked --release \\\n      --manifest-path host/scenery-host/Cargo.toml --target-dir /target/host \\\n",
-		" && install -D -m 0755 /target/host/release/scenery-host /out/scenery-host\n",
+		"RUN cargo +1.99.1 build --locked --release \\\n      --manifest-path host/scenery-kernel/Cargo.toml --target-dir /target/host \\\n",
+		" && install -D -m 0755 /target/host/release/scenery-kernel /out/scenery-kernel\n",
 		"FROM gcr.io/distroless/cc-debian12:nonroot\n",
 		"COPY bundle/ /app/\nCOPY --from=build /out/ /app/\nUSER 65532:65532\nEXPOSE 4000\n",
-		`ENTRYPOINT ["/app/scenery-host", "--listen", "0.0.0.0:4000"]` + "\n",
+		`ENTRYPOINT ["/app/scenery-kernel", "--listen", "0.0.0.0:4000"]` + "\n",
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Errorf("Dockerfile lacks %q:\n%s", want, dockerfile)
@@ -223,13 +223,13 @@ func TestOCIContextIsSelfContainedAndReproducible(t *testing.T) {
 	if !strings.Contains(read("rust/native/Cargo.toml"), `name = "scenery-worker-quote"`) || read("rust/.scenery/gen/rust-sdk/Cargo.toml") == "" {
 		t.Fatal("the Rust worker sources lack their bin declaration or SDK")
 	}
-	if !strings.Contains(read("host/scenery-host/Cargo.toml"), `name = "scenery-host"`) || read("host/scenery-host/Cargo.lock") == "" || read("host/scenery-sdk/scenery-wire/Cargo.toml") == "" {
+	if !strings.Contains(read("host/scenery-kernel/Cargo.toml"), `name = "scenery-kernel"`) || read("host/scenery-kernel/Cargo.lock") == "" || read("host/scenery-sdk/scenery-wire/Cargo.toml") == "" {
 		t.Fatal("the Host sources are incomplete")
 	}
 	if read("Dockerfile") != renderOCIDockerfile(platform, rustbuild.HostToolchain, workers, nil) {
 		t.Fatal("the context Dockerfile differs from its rendering")
 	}
-	for relative, mode := range map[string]os.FileMode{"bundle/services/api": 0o755, "bundle/manifest.json": 0o644, "host/scenery-host/src/main.rs": 0o644, "bundle": 0o755 | fs.ModeDir} {
+	for relative, mode := range map[string]os.FileMode{"bundle/services/api": 0o755, "bundle/manifest.json": 0o644, "host/scenery-kernel/src/main.rs": 0o644, "bundle": 0o755 | fs.ModeDir} {
 		info, err := os.Stat(filepath.Join(first, relative))
 		if err != nil || info.Mode() != mode || info.ModTime().Unix() != 0 {
 			t.Errorf("%s: mode %v time %v (%v)", relative, info.Mode(), info.ModTime(), err)

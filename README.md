@@ -21,7 +21,7 @@
 <p align="center">
   <img alt="Runtimes: Go · Rust · TS/JS · Python" src="https://img.shields.io/badge/runtimes-Go_%C2%B7_Rust_%C2%B7_TS%2FJS_%C2%B7_Python-00ADD8?style=flat-square">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-8B5CF6?style=flat-square"></a>
-  <img alt="Host: Rust scenery-host" src="https://img.shields.io/badge/host-Rust_scenery--host-F97316?style=flat-square">
+  <img alt="Kernel: Rust scenery-kernel" src="https://img.shields.io/badge/kernel-Rust_scenery--kernel-F97316?style=flat-square">
   <img alt="Used in production" src="https://img.shields.io/badge/used_in-production-22C55E?style=flat-square">
   <img alt="Status: active development" src="https://img.shields.io/badge/status-active_development-F59E0B?style=flat-square">
 </p>
@@ -29,7 +29,7 @@
 **Scenery is a polyglot application microkernel, toolchain, and agent harness.**
 Describe *what your app is* (APIs, durable jobs, domain events, data, auth,
 schedules) in small `.scn` files and write *what it does* in **Go, Rust,
-TypeScript/JavaScript, or Python**. One Rust application host (`scenery-host`)
+TypeScript/JavaScript, or Python**. One Rust application host (`scenery-kernel`)
 owns public ingress, auth, policy, durable execution, events, storage, and
 telemetry, while your services run underneath as long-lived, contract-attested
 native workers.
@@ -44,7 +44,7 @@ runtime. It is an **application host** with a strict capability boundary:
                                 │
                                 ▼
        ┌────────────────────────────────────────────────────────┐
-       │             scenery-host (Rust application host)       │
+       │           scenery-kernel (Rust application host)       │
        │  • Same-origin ingress: /api/* → services, / → Vite    │
        │  • Contract codecs, validation, SSE, OpenAPI 3.1.1     │
        │  • Auth, sessions, OIDC, secrets, policy evaluation    │
@@ -60,7 +60,7 @@ runtime. It is an **application host** with a strict capability boundary:
                             native PostgreSQL
 ```
 
-- **Capability boundary, not a VM sandbox** — `scenery-host` keeps
+- **Capability boundary, not a VM sandbox** — `scenery-kernel` keeps
   `Authorization`, `Cookie`, secrets, and policy enforcement at the host
   boundary. Workers authenticate over private Unix domain sockets with
   per-instance bearer tokens and opaque `X-Worker-Scope` headers; they cannot
@@ -73,7 +73,7 @@ runtime. It is an **application host** with a strict capability boundary:
   independently with graceful drain when code changes.
 - **Same topology in dev and production** — Local `scenery up` and production
   `scenery build` / `--oci` bundles execute the exact same manifest-driven
-  `scenery-host` + worker processes + static frontend bundle.
+  `scenery-kernel` + worker processes + static frontend bundle.
 
 ## How it works
 
@@ -158,7 +158,7 @@ curl --json '{"amount":42}' http://localhost:4624/api/quote
   encrypted OAuth2/OIDC user connections, and provider-neutral MCP servers &
   supervised assistants.
 - **Same-origin frontends & TypeScript clients** — Vite dev proxy with HMR,
-  static production asset serving from `scenery-host`, exact TypeScript `fetch`
+  static production asset serving from `scenery-kernel`, exact TypeScript `fetch`
   clients, and optional React pages (`@scenery/ui`).
 - **First-class telemetry** — Local logs, traces, and metrics queryable as JSON
   via `scenery logs`, `traces`, and `metrics`, plus production OTLP/HTTP export.
@@ -169,12 +169,12 @@ curl --json '{"amount":42}' http://localhost:4624/api/quote
 ## One command, the whole app
 
 <p align="center">
-  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up supervises scenery-host, polyglot workers, Postgres, frontends, and observability." width="100%">
+  <img src="docs/assets/readme/scenery-up.svg" alt="scenery up supervises scenery-kernel, polyglot workers, Postgres, frontends, and observability." width="100%">
 </p>
 
 | Command | Purpose |
 |---|---|
-| `scenery up` | Build, start, and watch `scenery-host`, workers, Postgres, and frontends |
+| `scenery up` | Build, start, and watch `scenery-kernel`, workers, Postgres, and frontends |
 | `scenery ps` | List running apps and URLs (`--wait -o json` waits for the current source revision) |
 | `scenery context --for <target> -o json` | Read a structured briefing by module, service, route, or source file |
 | `scenery test [<module>...] -o json` | Refresh contracts and run native module tests (with PostgreSQL template branching) |
