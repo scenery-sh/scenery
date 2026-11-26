@@ -11,6 +11,7 @@ mod auth_sessions;
 mod browser_auth;
 #[cfg(test)]
 mod browser_auth_test;
+mod config;
 mod connections;
 mod database;
 mod dev;
@@ -40,7 +41,6 @@ mod transport;
 mod values;
 
 use std::convert::Infallible;
-use std::ffi::{OsStr, OsString};
 use std::fs::{File, Permissions};
 use std::io::{Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
@@ -61,7 +61,7 @@ use tokio_util::sync::CancellationToken;
 use crate::durable::Engine;
 use crate::host::Host;
 use crate::plan::{Bundle, bundle_path};
-use crate::process::{CONFIG_SNAPSHOT_FD, DRAIN_TIMEOUT};
+use crate::process::DRAIN_TIMEOUT;
 use crate::supervisor::{Control, LaunchPlan};
 
 fn main() {
@@ -112,7 +112,9 @@ fn bootstrap() -> Result<()> {
             root: PathBuf::new(),
         }
     } else {
-        let snapshot = inherited_snapshot()?;
+        let arguments = config::Arguments::parse(args)?;
+        let lookup = |name: &str| std::env::var_os(name);
+        let snapshot = config::load_snapshot(arguments.config.as_deref(), &lookup)?;
         let root = std::env::current_exe()?
             .parent()
             .context("invalid bundle path")?
@@ -137,7 +139,7 @@ fn bootstrap() -> Result<()> {
         Input {
             bundle,
             snapshot,
-            listen: parse_listen(args)?,
+            listen: arguments.listen_address(&lookup)?,
             dev: None,
             token: None,
             directory: directory.path().into(),
@@ -172,62 +174,6 @@ struct Development {
     snapshot: Value,
     token: String,
     config: dev::Development,
-}
-
-fn parse_listen(args: impl Iterator<Item = OsString>) -> Result<String> {
-    let mut listen = None;
-    let mut port = None;
-    let mut args = args.into_iter();
-    while let Some(arg) = args.next() {
-        let arg = arg.to_str().context("invalid listener argument")?;
-        let (name, assigned) = arg
-            .split_once('=')
-            .map_or((arg, None), |(key, value)| (key, Some(value)));
-        let value = match assigned {
-            Some(value) => value.to_owned(),
-            None => args
-                .next()
-                .and_then(|value| value.into_string().ok())
-                .context("missing listener argument value")?,
-        };
-        match name {
-            "--listen" | "-listen" => listen = Some(value),
-            "--port" | "-port" => port = Some(value.parse::<u16>()?),
-            _ => anyhow::bail!("unknown host argument {name}"),
-        }
-    }
-    Ok(listen
-        .or_else(|| port.map(|port| format!("127.0.0.1:{port}")))
-        .or_else(|| {
-            std::env::var("SCENERY_LISTEN_ADDR")
-                .ok()
-                .filter(|address| !address.is_empty())
-        })
-        .unwrap_or_else(|| "127.0.0.1:4000".into()))
-}
-
-fn inherited_snapshot() -> Result<Value> {
-    let Some(value) = std::env::var_os(CONFIG_SNAPSHOT_FD).filter(|value| value != OsStr::new(""))
-    else {
-        return Ok(Value::Null);
-    };
-    let fd: RawFd = value
-        .to_str()
-        .context("invalid configuration descriptor")?
-        .trim()
-        .parse()?;
-    ensure!(
-        fd >= 3 && unsafe { libc::fcntl(fd, libc::F_GETFD) } != -1,
-        "configuration descriptor is unavailable"
-    );
-    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-    let mut bytes = Vec::new();
-    File::from(fd).take((4 << 20) + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= 4 << 20,
-        "configuration snapshot exceeds limit"
-    );
-    values::parse(&bytes)
 }
 
 async fn run(mut input: Input) -> Result<()> {
@@ -642,7 +588,7 @@ enum PublicListener {
 
 impl PublicListener {
     async fn bind(address: &str) -> Result<Self> {
-        match std::env::var("SCENERY_LISTEN_NETWORK")
+        match std::env::var(crate::config::LISTEN_NETWORK)
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase()

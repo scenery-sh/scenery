@@ -1866,6 +1866,28 @@
       "docs": [
         "docs/environment.md"
       ]
+    },
+    {
+      "name": "SCENERY_CONFIG_FILE",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "app.config",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / host",
+      "rationale": "Path of the runtime configuration snapshot a production scenery-host reads when started without --config, for container and service-manager deployments. Values and secrets may be {\"$env\": \"NAME\"} references resolved at startup; a missing variable stops the host.",
+      "preferred_surface": "scenery-host --config <path>",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/spec/SPEC.md"
+      ]
     }
   ]
 }

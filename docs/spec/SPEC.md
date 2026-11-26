@@ -152,3 +152,19 @@ Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
 - CLI JSON responses use strict `scenery.cli` / `scenery.cli.event` envelopes
   (`docs/schemas/scenery.cli.schema.json`) carrying exact `spec_revision`,
   `schema_revision`, `producer`, and structured `diagnostics`.
+
+## 8. Production Host
+
+`scenery build` writes a bundle that starts as
+`<bundle>/scenery-host --listen <host:port> [--config <file>]`. `--listen`
+falls back to `--port <port>` (loopback), `SCENERY_LISTEN_ADDR`, and
+`127.0.0.1:4000`; a container binds `0.0.0.0:4000`.
+
+- **Configuration.** The runtime configuration snapshot
+  (`kind = "scenery.config.snapshot"`, at most 4 MiB) comes from `--config`,
+  `SCENERY_CONFIG_FILE`, or the inherited descriptor named by
+  `SCENERY_CONFIG_SNAPSHOT_FD`, in that order; naming both a file and a
+  descriptor is an error. Any value may be `{"$env": "NAME"}`: the Host
+  substitutes the variable's text, or its bytes for an entry of `secrets`.
+  An unreadable or malformed snapshot or an unset variable stops the Host
+  before any worker starts.

@@ -706,6 +706,7 @@ fn production_worker_env(key: &str, runtime: &str) -> bool {
             | "SCENERY_LISTEN_ADDR"
             | "SCENERY_PROCESS_LINK"
             | "SCENERY_CONFIG_SNAPSHOT_FD"
+            | "SCENERY_CONFIG_FILE"
             | "SCENERY_STORAGE_CONFIG"
     ) || key.starts_with("SCENERY_ASSISTANT_")
         || key.starts_with("SCENERY_MCP_")
