@@ -74,11 +74,13 @@ type ProcessHostConfig struct {
 	Fallback   string
 	// Observability filters the logs and traces of requests the host serves
 	// itself, as the application entrypoint's configuration does.
-	Observability   ObservabilityConfig
-	Workers         []WorkerServicePlan
-	WorkerConfig    map[string]*ConfigSnapshot `json:"-"`
-	WorkerStorage   WorkerStorageHandler       `json:"-"`
-	DevelopmentCall bool                       `json:"-"`
+	Observability         ObservabilityConfig
+	Workers               []WorkerServicePlan
+	Assistants            []WorkerAssistantPlan    `json:",omitempty"`
+	WorkerAssistantAssets []AssistantEmbeddedAsset `json:"-"`
+	WorkerConfig          map[string]*ConfigSnapshot `json:"-"`
+	WorkerStorage         WorkerStorageHandler       `json:"-"`
+	DevelopmentCall       bool                       `json:"-"`
 }
 
 type processGenerationManifest struct {
@@ -202,6 +204,14 @@ func MainWorkerProcessHost(ctx context.Context, cfg ProcessHostConfig, contractR
 }
 
 func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevision string, codec WorkerValueCodec, frontend http.Handler) error {
+	role := runtimeRoleAll
+	if codec != nil {
+		var err error
+		role, err = runtimeRoleFromEnv()
+		if err != nil {
+			return err
+		}
+	}
 	link, err := currentProcessLink()
 	if err != nil {
 		return err
@@ -216,6 +226,9 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if err := host.registerWorkerServices(cfg.Workers, codec, cfg.WorkerConfig, cfg.WorkerStorage); err != nil {
 		return err
 	}
+	if err := host.registerWorkerAssistants(cfg.Assistants, cfg.WorkerAssistantAssets); err != nil {
+		return err
+	}
 	host.frontend = frontend
 	if codec == nil && devEndpointsEnabled() {
 		host.developmentCall = true
@@ -228,7 +241,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
 	}
-	appConfig := AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr, Observability: cfg.Observability}
+	appConfig := AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr, Role: string(role), Observability: cfg.Observability}
 	SetAppConfig(appConfig)
 	stopReporting := startDevelopmentReporting(appConfig)
 	defer stopReporting()
@@ -246,14 +259,16 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 		defer cancelShutdown()
 		_ = ShutdownServices(shutdownCtx)
 	}()
-	if endpoints := listEndpoints(); len(endpoints) > 0 || cfg.Fallback == "" {
-		local, err := newServer(cfg.ListenAddr)
-		if err != nil {
-			return err
-		}
-		host.local, host.localRoutes = local.Handler, newRouteTable()
-		for _, endpoint := range endpoints {
-			registerEndpointRoute(host.localRoutes, endpoint, func(http.ResponseWriter, *http.Request, routeParams) {})
+	if role != runtimeRoleWorker {
+		if endpoints := listEndpoints(); len(endpoints) > 0 || cfg.Fallback == "" {
+			local, err := newServer(cfg.ListenAddr)
+			if err != nil {
+				return err
+			}
+			host.local, host.localRoutes = local.Handler, newRouteTable()
+			for _, endpoint := range endpoints {
+				registerEndpointRoute(host.localRoutes, endpoint, func(http.ResponseWriter, *http.Request, routeParams) {})
+			}
 		}
 	}
 	runCtx, cancelRun := context.WithCancel(ctx)
@@ -278,28 +293,32 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if err != nil {
 		return err
 	}
-	public, err := listenRuntime(ListenNetworkFromEnv(), cfg.ListenAddr)
-	if err != nil {
-		_ = control.Close()
-		return err
-	}
-	ingress := http.Handler(http.HandlerFunc(host.serveIngress))
-	if host.workers != nil {
-		ingress = neutralWorkerIngress(ingress, host.developmentCall)
-	}
 	servers := []*http.Server{
 		{Handler: http.HandlerFunc(host.serveControl), MaxHeaderBytes: processHostMaxHeaderBytes},
-		{Handler: ingress, MaxHeaderBytes: processHostMaxHeaderBytes},
 	}
 	if link.Dispatch.Protocol == "h2c" {
 		servers[0].Protocols = workerabi.Protocols()
 	}
-	listeners := []net.Listener{control, public}
+	listeners := []net.Listener{control}
+	if role != runtimeRoleWorker {
+		public, err := listenRuntime(ListenNetworkFromEnv(), cfg.ListenAddr)
+		if err != nil {
+			_ = control.Close()
+			return err
+		}
+		ingress := http.Handler(http.HandlerFunc(host.serveIngress))
+		if host.workers != nil {
+			ingress = neutralWorkerIngress(ingress, host.developmentCall)
+		}
+		servers = append(servers, &http.Server{Handler: ingress, MaxHeaderBytes: processHostMaxHeaderBytes})
+		listeners = append(listeners, public)
+	}
 	if host.workers != nil {
 		capabilities, err := listenRuntime("unix", link.Capabilities)
 		if err != nil {
-			_ = control.Close()
-			_ = public.Close()
+			for _, listener := range listeners {
+				_ = listener.Close()
+			}
 			return err
 		}
 		servers = append(servers, &http.Server{Handler: host.workers.scopes.Handler(host.workers.serveCapability), Protocols: workerabi.Protocols(), MaxHeaderBytes: processHostMaxHeaderBytes})

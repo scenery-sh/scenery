@@ -177,6 +177,20 @@ func (watch *workerInputWatch) skip(path string) bool {
 	return false
 }
 
+func (watch *workerInputWatch) skippedByWalk(rel string) bool {
+	full := filepath.Join(watch.root, rel)
+	if watch.skip(full) {
+		return true
+	}
+	root := filepath.Clean(watch.root)
+	for dir := filepath.Dir(full); dir != root && strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {
+		if appwalk.SkipDir(root, dir) {
+			return true
+		}
+	}
+	return false
+}
+
 func pathUnder(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && filepath.IsLocal(rel)

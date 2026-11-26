@@ -28,6 +28,18 @@ type WorkerServicePlan struct {
 	Stores     map[string]string
 }
 
+// WorkerAssistantPlan carries one assistant surface registration, HTTP policy,
+// revisions, and canonical MCP manifest for the worker Host.
+type WorkerAssistantPlan struct {
+	Address            string
+	Name               string
+	Path               string
+	Policy             ContractHTTPPolicy
+	RuntimeRevision    string
+	CapabilityRevision string
+	MCPManifest        json.RawMessage
+}
+
 type WorkerMCPToolPlan struct {
 	ID               string
 	Name             string

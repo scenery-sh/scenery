@@ -29,23 +29,63 @@ func serviceGoClients(idx *resourceIndex, service Resource) ([]goClientBinding, 
 func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]goClientBinding, error) {
 	byAddress := idx.byAddress
 	module := targetService.Module
-	used := map[string]bool{}
+	used := map[string]bool{
+		"PackageIdentity":                 true,
+		"PackageContractABIRevision":      true,
+		"PackageImportPath":               true,
+		"GoImplementationABIRange":        true,
+		"RuntimeABIRange":                 true,
+		"unmarshalGeneratedContractValue": true,
+	}
+	reserveService := func(res Resource) {
+		name := goName(res.Name)
+		used[name] = true
+		for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {
+			used[name+suffix] = true
+		}
+		for _, client := range namedChildren(res.Spec, "client") {
+			if clientName := stringValue(client["name"]); clientName != "" {
+				used[goName(clientName)+"InternalClient"] = true
+			}
+		}
+	}
 	var services []Resource
 	seenTarget := false
 	for _, res := range idx.moduleResources(module) {
+		name := goName(res.Name)
 		switch res.Kind {
 		case "scenery.service":
-			used[goName(res.Name)] = true
+			reserveService(res)
 			services = append(services, res)
 			if res.Address == targetService.Address {
 				seenTarget = true
 			}
-		case "scenery.operation", "scenery.record", "scenery.enum", "scenery.union":
-			used[goName(res.Name)] = true
+		case "scenery.record":
+			used[name] = true
+		case "scenery.enum":
+			used[name] = true
+			for _, value := range namedChildren(res.Spec, "value") {
+				used[name+goName(stringValue(value["name"]))] = true
+			}
+		case "scenery.union":
+			used[name] = true
+			used["Marshal"+name+"JSON"] = true
+			used["Unmarshal"+name+"JSON"] = true
+			used["marshal"+name+"Variant"] = true
+			for _, variant := range namedChildren(res.Spec, "variant") {
+				used[name+goName(stringValue(variant["name"]))] = true
+			}
+			if res.Spec["open"] == true {
+				used[name+"Unknown"] = true
+			}
+		case "scenery.operation":
+			for _, symbol := range generatedOperationSymbols(name, res) {
+				used[symbol] = true
+			}
 		}
 	}
 	if !seenTarget && targetService.Address != "" {
-		used[goName(targetService.Name)] = true
+		reserveService(targetService)
 		services = append(services, targetService)
 	}
 	byService := make(map[string][]goClientBinding, len(services))
@@ -84,18 +124,50 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 			}
 			base := result[i].Field + "Client"
 			candidate := base
-			if used[candidate] {
+			if !symbolsAvailable(used, generatedOperationSymbols(candidate, result[i].Operation)) {
 				candidate = "Projected" + base
-				for suffix := 2; used[candidate]; suffix++ {
+				for suffix := 2; !symbolsAvailable(used, generatedOperationSymbols(candidate, result[i].Operation)); suffix++ {
 					candidate = fmt.Sprintf("Projected%d%s", suffix, base)
 				}
 			}
-			used[candidate] = true
+			for _, symbol := range generatedOperationSymbols(candidate, result[i].Operation) {
+				used[symbol] = true
+			}
 			result[i].OperationName = candidate
 		}
 		byService[service.Address] = result
 	}
 	return byService, nil
+}
+
+// generatedOperationSymbols returns all package-level identifiers emitted by
+// renderOperationAPI for an operation named name.
+func generatedOperationSymbols(name string, op Resource) []string {
+	symbols := []string{
+		name,
+		name + "Input",
+		"Unmarshal" + name + "Input",
+		"Clone" + name + "Input",
+		name + "Outcome",
+		"Marshal" + name + "Outcome",
+		"Unmarshal" + name + "Outcome",
+		"Clone" + name + "Outcome",
+	}
+	for _, kind := range []string{"result", "error"} {
+		for _, variant := range namedChildren(op.Spec, kind) {
+			symbols = append(symbols, name+goName(stringValue(variant["name"])))
+		}
+	}
+	return symbols
+}
+
+func symbolsAvailable(used map[string]bool, symbols []string) bool {
+	for _, symbol := range symbols {
+		if used[symbol] {
+			return false
+		}
+	}
+	return true
 }
 
 func moduleContractImportPath(resources []Resource, module string) (string, bool) {

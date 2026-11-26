@@ -2,8 +2,10 @@ package generate
 
 import (
 	"errors"
+	"go/ast"
 	"go/parser"
 	"go/token"
+	"slices"
 	"strings"
 	"testing"
 
@@ -112,5 +114,78 @@ func TestProjectedGoClientDisambiguatesCollisionWithLocalOperation(t *testing.T)
 	}
 	if !strings.Contains(contractSrc, "ProjectedEchoClientInput") || !strings.Contains(contractSrc, "Projected2EchoClientInput") || !strings.Contains(contractSrc, "UnmarshalEchoClientInput") {
 		t.Fatalf("expected all disambiguated and local operations:\n%s", contractSrc)
+	}
+}
+
+func TestProjectedGoClientReservesAllGeneratedOperationIdentifiers(t *testing.T) {
+	resources := []Resource{
+		{Address: "app/module/consumer", Kind: "scenery.module", Name: "consumer", Module: "app", Spec: map[string]any{
+			"package": map[string]any{"go_contract": map[string]any{"import_path": "example.test/consumer"}},
+		}},
+		{Address: "consumer/service/consumer", Kind: "scenery.service", Name: "consumer", Module: "consumer", Spec: map[string]any{
+			"client": []any{map[string]any{"name": "echo", "binding": map[string]any{"$ref": "provider/binding/echo_internal"}}},
+		}},
+		{Address: "consumer/record/echo_client_input", Kind: "scenery.record", Name: "echo_client_input", Module: "consumer"},
+		{Address: "consumer/record/projected_echo_client_ok", Kind: "scenery.record", Name: "projected_echo_client_ok", Module: "consumer"},
+		{Address: "provider/service/provider", Kind: "scenery.service", Name: "provider", Module: "provider"},
+		{Address: "provider/operation/echo", Kind: "scenery.operation", Name: "echo", Module: "provider", Spec: map[string]any{
+			"service": map[string]any{"$ref": "service.provider"}, "input": "string",
+			"result": []any{map[string]any{"name": "ok", "type": "string"}},
+		}},
+		{Address: "provider/binding/echo_internal", Kind: "scenery.binding", Name: "echo_internal", Module: "provider", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.echo"}, "protocol": "internal", "delivery": "call",
+			"internal": map[string]any{"visibility": "application"},
+		}},
+	}
+	idx := newResourceIndex(resources)
+	clients, err := serviceGoClients(idx, resources[1])
+	if err != nil || len(clients) != 1 || clients[0].operationName() != "Projected2EchoClient" {
+		t.Fatalf("clients = %+v, err = %v; want Projected2EchoClient", clients, err)
+	}
+	projected, err := projectedGoClientOperations(resources, idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moduleResources := idx.moduleResources("consumer")
+	typeResolver := newGoContractTypeResolver("consumer", resources, map[string]bool{})
+	contractSrc, err := renderContractAPI("consumer", "example.test/consumer", "abi-1", moduleResources, idx, typeResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typesSrc := renderContractTypesResolved(append(slices.Clone(moduleResources), projected...), typeResolver)
+	fset := token.NewFileSet()
+	contractFile, err := parser.ParseFile(fset, "contract.gen.go", contractSrc, 0)
+	if err != nil {
+		t.Fatalf("generated contract failed to parse: %v\n%s", err, contractSrc)
+	}
+	typesFile, err := parser.ParseFile(fset, "types.gen.go", typesSrc, 0)
+	if err != nil {
+		t.Fatalf("generated types failed to parse: %v\n%s", err, typesSrc)
+	}
+	decls := map[string]string{}
+	for name, file := range map[string]*ast.File{"contract.gen.go": contractFile, "types.gen.go": typesFile} {
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					if ts, ok := spec.(*ast.TypeSpec); ok {
+						if prev, exists := decls[ts.Name.Name]; exists {
+							t.Fatalf("duplicate type identifier %s in %s and %s", ts.Name.Name, prev, name)
+						}
+						decls[ts.Name.Name] = name
+					}
+				}
+			case *ast.FuncDecl:
+				if d.Recv == nil {
+					if prev, exists := decls[d.Name.Name]; exists {
+						t.Fatalf("duplicate function identifier %s in %s and %s", d.Name.Name, prev, name)
+					}
+					decls[d.Name.Name] = name
+				}
+			}
+		}
+	}
+	if !strings.Contains(contractSrc, "Projected2EchoClientInput") || !strings.Contains(contractSrc, "Projected2EchoClientOk") {
+		t.Fatalf("expected Projected2EchoClient symbols:\n%s", contractSrc)
 	}
 }

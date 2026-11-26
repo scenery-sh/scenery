@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"scenery.sh/errs"
 	"scenery.sh/internal/contract"
+	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/workerabi"
 	"scenery.sh/runtime/shared"
 )
@@ -273,4 +275,168 @@ func TestWorkerHostRegistersAndDispatchesStreamingMCPTool(t *testing.T) {
 		t.Fatalf("unexpected MCP outcome: %+v (%s)", outcome, outcome.Value)
 	}
 	_ = errs.OK
+}
+
+func TestClassifyWorkerDurableWaitErrorPreservesContextCanceled(t *testing.T) {
+	rejected := contractDurableFailure("dispatch.rejected", context.Canceled)
+	if got := classifyWorkerDurableWaitError(rejected); !errors.Is(got, rejected) || ContractDurableFailureOutcome(got) != "dispatch.rejected" {
+		t.Fatalf("dispatch.rejected = %#v, want original failure", got)
+	}
+	timeout := contractDurableFailure("dispatch.wait_timeout", context.DeadlineExceeded)
+	if got := classifyWorkerDurableWaitError(timeout); !errors.Is(got, timeout) || ContractDurableFailureOutcome(got) != "dispatch.wait_timeout" {
+		t.Fatalf("dispatch.wait_timeout = %#v, want original failure", got)
+	}
+	wrappedCancel := fmt.Errorf("wait: %w", context.Canceled)
+	if got := classifyWorkerDurableWaitError(wrappedCancel); !errors.Is(got, context.Canceled) {
+		t.Fatalf("context.Canceled = %#v, want context.Canceled preserved", got)
+	} else if _, isTransport := errors.AsType[*ContractTransportError](got); isTransport {
+		t.Fatalf("context.Canceled must not be wrapped in *ContractTransportError: %#v", got)
+	}
+	internal := contractDurableFailure("system.internal", errors.New("store failure"))
+	gotInternal := classifyWorkerDurableWaitError(internal)
+	transportErr, ok := errors.AsType[*ContractTransportError](gotInternal)
+	if !ok || transportErr.Outcome != "system.internal" || transportErr.Status != http.StatusInternalServerError {
+		t.Fatalf("system.internal = %#v (%T), want system.internal HTTP 500", gotInternal, gotInternal)
+	}
+}
+
+func TestWorkerHostRegistersAssistantsAndMCPManifest(t *testing.T) {
+	defer replaceGlobalRegistryForTest()()
+	manifest := mcpcontract.Manifest{
+		Kind: mcpcontract.ManifestKind, SchemaRevision: mcpcontract.ManifestSchemaRevision,
+		ProtocolVersion: mcpcontract.ProtocolVersion, ContractRevision: "cap-1", Capabilities: []mcpcontract.Capability{},
+	}
+	encoded, err := mcpcontract.MarshalCanonical(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &processHost{name: "support-app", contract: "contract", routes: newRouteTable(), closing: make(chan struct{}), generations: map[uint64]*processHostGeneration{}}
+	plan := WorkerAssistantPlan{
+		Address: "app/assistant/support", Name: "support", Path: "/assistants/support",
+		Policy: ContractHTTPPolicy{
+			ServiceName: "support", BindingAddress: "app/assistant/support",
+			GatewayAddress: "app/http_gateway/api", AuthorizationStrategy: "public",
+		},
+		RuntimeRevision: "runtime-1", CapabilityRevision: "cap-1", MCPManifest: encoded,
+	}
+	RegisterAuthHandler(&AuthHandler{
+		Name: "test-auth",
+		Authenticate: func(_ context.Context, token string) (AuthInfo, error) {
+			return AuthInfo{UID: token}, nil
+		},
+	})
+	if err := host.registerWorkerAssistants([]WorkerAssistantPlan{plan}, nil); err != nil {
+		t.Fatal(err)
+	}
+	endpoints := listEndpoints()
+	local, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.local, host.localRoutes = local.Handler, newRouteTable()
+	for _, ep := range endpoints {
+		registerEndpointRoute(host.localRoutes, ep, func(http.ResponseWriter, *http.Request, routeParams) {})
+	}
+	host.workers = &workerHost{}
+	host.current = &processHostGeneration{number: 1}
+	if _, ok := assistantMCPManifestFor("app/assistant/support"); !ok {
+		t.Fatal("assistant MCP manifest was not registered")
+	}
+	unauthReq := httptest.NewRequest(http.MethodPost, "/assistants/support/v1/conversations", strings.NewReader(`{"message":{"role":"user","content":"hello"}}`))
+	unauthRec := httptest.NewRecorder()
+	host.serveIngress(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated assistant route = %d (%s), want 401", unauthRec.Code, unauthRec.Body.String())
+	}
+	authReq := httptest.NewRequest(http.MethodPost, "/assistants/support/v1/conversations", strings.NewReader(`{"message":{"role":"user","content":"hello"}}`))
+	authReq.Header.Set("Authorization", "Bearer user-1")
+	authRec := httptest.NewRecorder()
+	host.serveIngress(authRec, authReq)
+	if authRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("authenticated assistant route without helper = %d (%s), want 503", authRec.Code, authRec.Body.String())
+	}
+}
+
+func TestMainWorkerProcessHostValidatesAndAppliesRuntimeRole(t *testing.T) {
+	t.Setenv("SCENERY_ROLE", "bogus")
+	err := MainWorkerProcessHost(t.Context(), ProcessHostConfig{}, "contract", contract.ManifestTypes(nil).Normalize, nil)
+	if err == nil || !strings.Contains(err.Error(), "unsupported SCENERY_ROLE") {
+		t.Fatalf("invalid role error = %v, want unsupported SCENERY_ROLE", err)
+	}
+
+	t.Setenv("SCENERY_ROLE", "api")
+	role, err := runtimeRoleFromEnv()
+	if err != nil || role != runtimeRoleAPI {
+		t.Fatalf("runtimeRoleFromEnv() = %q, %v; want api", role, err)
+	}
+	stopWorkers := startDurableLocalWorkers(t.Context(), nil, nil, string(role))
+	if stopErr := stopWorkers(t.Context()); stopErr != nil {
+		t.Fatalf("stopWorkers(api) = %v", stopErr)
+	}
+
+	// With SCENERY_ROLE=worker, MainWorkerProcessHost must not bind ListenAddr even
+	// when that TCP port is already occupied.
+	defer replaceGlobalRegistryForTest()()
+	previousLink := processLinkState
+	processLinkState = &processLinkRuntime{clients: map[processLinkTarget]*http.Client{}}
+	t.Cleanup(func() { processLinkState = previousLink })
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = occupied.Close() }()
+
+	sockDir, err := os.MkdirTemp("", "worker-role-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	linkPath := filepath.Join(sockDir, "link.json")
+	linkData, err := json.Marshal(map[string]any{
+		"token":    strings.Repeat("t", 32),
+		"dispatch": map[string]string{"network": "unix", "address": filepath.Join(sockDir, "control.sock"), "protocol": "h2c"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(linkPath, linkData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCENERY_PROCESS_LINK", linkPath)
+	t.Setenv("SCENERY_ROLE", "worker")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- MainWorkerProcessHost(ctx, ProcessHostConfig{Name: "role-app", ListenAddr: occupied.Addr().String()}, "contract", contract.ManifestTypes(nil).Normalize, nil)
+	}()
+
+	client := &http.Client{Transport: &http.Transport{
+		Protocols: workerabi.Protocols(),
+		DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(dialCtx, "unix", filepath.Join(sockDir, "control.sock"))
+		},
+	}}
+	defer client.CloseIdleConnections()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://host/__scenery/process/v1/generations", nil)
+		req.Header.Set("Authorization", "Bearer "+strings.Repeat("t", 32))
+		resp, reqErr := client.Do(req)
+		if reqErr == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatalf("worker-role host control endpoint did not become ready: %v / %v", reqErr, <-done)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if runErr := <-done; runErr != nil {
+		t.Fatalf("MainWorkerProcessHost(worker role) = %v", runErr)
+	}
 }

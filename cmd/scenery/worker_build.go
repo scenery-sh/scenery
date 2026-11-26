@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
+	"strconv"
 	"strings"
 
 	"scenery.sh/auth"
@@ -15,21 +17,33 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/rustbuild"
 	workerruntime "scenery.sh/runtime"
 )
 
 type workerBundle struct {
-	Version          int                             `json:"version"`
-	ContractRevision string                          `json:"contract_revision"`
-	Host             workerruntime.ProcessHostConfig `json:"host"`
-	Types            contract.ManifestTypes          `json:"types"`
-	Programs         []workerProgram                 `json:"programs"`
-	Frontend         *workerFrontend                 `json:"frontend,omitempty"`
-	Auth             *auth.StandardConfig            `json:"auth,omitempty"`
-	HostConfigKeys   []string                        `json:"host_config_keys,omitempty"`
-	config           *workerruntime.ConfigSnapshot
+	Version              int                             `json:"version"`
+	ContractRevision     string                          `json:"contract_revision"`
+	Host                 workerruntime.ProcessHostConfig `json:"host"`
+	Types                contract.ManifestTypes          `json:"types"`
+	Programs             []workerProgram                 `json:"programs"`
+	Frontend             *workerFrontend                 `json:"frontend,omitempty"`
+	Auth                 *auth.StandardConfig            `json:"auth,omitempty"`
+	HostConfigKeys       []string                        `json:"host_config_keys,omitempty"`
+	AssistantAssets      []workerBundledAssistantAsset   `json:"assistant_assets,omitempty"`
+	builtAssistantAssets []generateapi.AssistantAssetInput
+	config               *workerruntime.ConfigSnapshot
+}
+
+type workerBundledAssistantAsset struct {
+	Descriptor        workerruntime.AssistantAssetDescriptor `json:"descriptor"`
+	DescriptorFile    string                                 `json:"descriptor_file"`
+	NodeArchive       string                                 `json:"node_archive"`
+	NodeDescriptor    string                                 `json:"node_descriptor"`
+	CapsuleArchive    string                                 `json:"capsule_archive"`
+	CapsuleDescriptor string                                 `json:"capsule_descriptor"`
 }
 
 type workerProgram struct {
@@ -92,9 +106,38 @@ func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServi
 	return services, nil
 }
 
+func validateWorkerBundleTargetPlatform(result *compiler.Result, role, goTarget string) error {
+	if result == nil || result.Manifest == nil {
+		return nil
+	}
+	hasGoService := false
+	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
+		if firstNonEmpty(cp.StringValue(service.Spec["runtime"]), "go") == "go" {
+			hasGoService = true
+			break
+		}
+	}
+	if goTarget == "" && !hasGoService {
+		return nil
+	}
+	target, err := compiler.ResolveGoBuildTarget(result, goTarget, role)
+	if err != nil {
+		return err
+	}
+	if target.Context.GOOS != goruntime.GOOS || target.Context.GOARCH != goruntime.GOARCH {
+		return preconditionErrorf("worker bundle target %q (%s/%s) does not match host platform %s/%s; worker bundles package host-built executables", target.Name, target.Context.GOOS, target.Context.GOARCH, goruntime.GOOS, goruntime.GOARCH)
+	}
+	return nil
+}
+
 // buildWorkerBundle builds every worker of the application for role. goTarget
 // names the go_target of its Go services; empty selects the one with that role.
 func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTarget string, check bool) (workerBundle, error) {
+	if !check {
+		if err := validateWorkerBundleTargetPlatform(result, role, goTarget); err != nil {
+			return workerBundle{}, err
+		}
+	}
 	var bundle workerBundle
 	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role, check)
 	if err != nil {
@@ -112,6 +155,13 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 		if !check {
 			bundle.Programs = append(bundle.Programs, program)
 		}
+	}
+	if len(bundle.Host.Assistants) > 0 && (role == "artifact" || check) {
+		assets, err := build.BuildWorkerAssistantAssets(ctx, result.Root, result, goTarget, check)
+		if err != nil {
+			return workerBundle{}, err
+		}
+		bundle.builtAssistantAssets = assets
 	}
 	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
 	if err != nil || check {
@@ -135,6 +185,10 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	if err != nil {
 		return workerBundle{}, nil, nil, err
 	}
+	assistants, err := projectWorkerAssistants(result)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
+	}
 	selection, err := projectRustBuilds(result, plan, role)
 	if err != nil {
 		return workerBundle{}, nil, nil, err
@@ -154,7 +208,7 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	}
 	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
-		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan},
+		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan, Assistants: assistants},
 		Types: types,
 	}
 	return bundle, selection, services, nil
@@ -190,6 +244,9 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 	}
 	if len(goProcesses) == 0 {
 		return nil, nil
+	}
+	if err := validateWorkerBundleTargetPlatform(compiled, role, goTarget); err != nil {
+		return nil, err
 	}
 	root, cfg, err := app.DiscoverRoot(compiled.Root)
 	if err != nil {
@@ -327,6 +384,55 @@ func writeWorkerBundle(bundle workerBundle, destination string) error {
 			return err
 		}
 		bundle.Programs[i].Binary = relative
+	}
+	if len(bundle.builtAssistantAssets) > 0 {
+		for index, asset := range bundle.builtAssistantAssets {
+			relativeDir := filepath.ToSlash(filepath.Join("assistants", strconv.Itoa(index)))
+			if err := os.MkdirAll(filepath.Join(staging, filepath.FromSlash(relativeDir)), 0o755); err != nil {
+				return err
+			}
+			descriptorJSON, err := json.Marshal(asset.Descriptor)
+			if err != nil {
+				return err
+			}
+			descriptorFile := relativeDir + "/descriptor.json"
+			nodeArchive := relativeDir + "/node.tar.gz"
+			nodeDescriptor := relativeDir + "/node.descriptor.json"
+			capsuleArchive := relativeDir + "/capsule.tar.gz"
+			capsuleDescriptor := relativeDir + "/capsule.descriptor.json"
+			for relative, data := range map[string][]byte{
+				descriptorFile:    descriptorJSON,
+				nodeArchive:       asset.NodeArchive,
+				nodeDescriptor:    asset.NodeDescriptorJSON,
+				capsuleArchive:    asset.CapsuleArchive,
+				capsuleDescriptor: asset.CapsuleDescriptorJSON,
+			} {
+				if err := os.WriteFile(filepath.Join(staging, filepath.FromSlash(relative)), data, 0o644); err != nil {
+					return err
+				}
+			}
+			bundle.AssistantAssets = append(bundle.AssistantAssets, workerBundledAssistantAsset{
+				Descriptor: workerruntime.AssistantAssetDescriptor{
+					Kind:                 asset.Descriptor.Kind,
+					SchemaRevision:       asset.Descriptor.SchemaRevision,
+					AssistantAddress:     asset.Descriptor.AssistantAddress,
+					Target:               asset.Descriptor.Target,
+					RuntimeRevision:      asset.Descriptor.RuntimeRevision,
+					CapabilityRevision:   asset.Descriptor.CapabilityRevision,
+					NodeArchiveDigest:    asset.Descriptor.NodeArchiveDigest,
+					NodeTreeDigest:       asset.Descriptor.NodeTreeDigest,
+					CapsuleArchiveDigest: asset.Descriptor.CapsuleArchiveDigest,
+					CapsuleTreeDigest:    asset.Descriptor.CapsuleTreeDigest,
+					CapsuleEntry:         asset.Descriptor.CapsuleEntry,
+					PackageLockDigest:    asset.Descriptor.PackageLockDigest,
+				},
+				DescriptorFile:    descriptorFile,
+				NodeArchive:       nodeArchive,
+				NodeDescriptor:    nodeDescriptor,
+				CapsuleArchive:    capsuleArchive,
+				CapsuleDescriptor: capsuleDescriptor,
+			})
+		}
 	}
 	executable, err := os.Executable()
 	if err != nil {

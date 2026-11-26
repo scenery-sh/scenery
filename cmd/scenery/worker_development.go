@@ -20,6 +20,7 @@ type workerDevelopment struct {
 	watch        *workerInputWatch
 	applied      workerInputs
 	compiled     *compiler.Result
+	envName      string
 	declarations map[string]bool
 	goWorkspace  *build.Result
 	rust         workerRustDevelopment

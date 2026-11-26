@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/jsbuild"
+	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/storageconfig"
 	workerruntime "scenery.sh/runtime"
 	publicstorage "scenery.sh/storage"
@@ -133,6 +135,7 @@ func TestConfigureWorkerFrontendRespectsDisabledEnvFrontend(t *testing.T) {
 func TestWorkerProcessEnvStripsHostAndNonGoSecrets(t *testing.T) {
 	base := []string{
 		"PATH=/usr/bin",
+		"SCENERY_ROLE=api",
 		"DATABASE_URL=postgres://user:pass@localhost/db",
 		"SCENERY_DATABASE_JSON={}",
 		"SCENERY_ASSISTANT_RUNTIME_CONFIG=/tmp/a.json",
@@ -146,7 +149,7 @@ func TestWorkerProcessEnvStripsHostAndNonGoSecrets(t *testing.T) {
 	}
 	goEnv := strings.Join(workerProcessEnv(base, "go"), "\n")
 	for _, forbidden := range []string{
-		"SCENERY_ASSISTANT_RUNTIME_CONFIG=", "SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_TOKEN_KEY_FILE=",
+		"SCENERY_ROLE=", "SCENERY_ASSISTANT_RUNTIME_CONFIG=", "SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_TOKEN_KEY_FILE=",
 		"SCENERY_ASSISTANT_CONTROL_ADDR=", "SCENERY_ASSISTANT_CONTROL_TOKEN=", "SCENERY_MCP_URL=",
 	} {
 		if strings.Contains(goEnv, forbidden) {
@@ -161,7 +164,7 @@ func TestWorkerProcessEnvStripsHostAndNonGoSecrets(t *testing.T) {
 		t.Fatalf("Rust worker lost PATH: %s", rustEnv)
 	}
 	for _, forbidden := range []string{
-		"DATABASE_URL=", "SCENERY_DATABASE_JSON=", "SCENERY_DEV_REPORT_URL=", "SCENERY_DEV_REPORT_TOKEN=",
+		"SCENERY_ROLE=", "DATABASE_URL=", "SCENERY_DATABASE_JSON=", "SCENERY_DEV_REPORT_URL=", "SCENERY_DEV_REPORT_TOKEN=",
 		"SCENERY_ASSISTANT_TOKEN_KEY=", "SCENERY_ASSISTANT_CONTROL_TOKEN=", "SCENERY_ASSISTANT_CONTROL_ADDR=", "SCENERY_MCP_URL=",
 	} {
 		if strings.Contains(rustEnv, forbidden) {
@@ -439,5 +442,125 @@ func TestStorageProxyVersionConditionsAndWorkerDeletePrefix(t *testing.T) {
 	}
 	if _, err := store.Head(context.Background(), "keep/b.txt"); err != nil {
 		t.Fatalf("keep/b.txt should remain: %v", err)
+	}
+}
+
+func TestReconcileExplicitJSDependenciesPreservesRetainedPreBuildDigest(t *testing.T) {
+	root := t.TempDir()
+	keptNode := filepath.Join("web", "node_modules", "pkg", "kept.js")
+	droppedNode := filepath.Join("web", "node_modules", "pkg", "dropped.js")
+	wsFile := filepath.Join("web", "shared.ts")
+	writeWatchFile(t, root, keptNode, "export const kept = 1;\n")
+	writeWatchFile(t, root, droppedNode, "export const dropped = 1;\n")
+	writeWatchFile(t, root, wsFile, "export const ws = 1;\n")
+
+	watch, err := openWorkerInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = watch.fs.Close() }()
+	prevDeps := []string{droppedNode, keptNode}
+	nextDeps := []string{keptNode}
+	watch.setExplicit(prevDeps, false)
+	current, err := watch.capture(nil, nil, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate an edit to the retained dependency after bundling but before
+	// reconcileExplicitJSDependencies updates the explicit dependency set.
+	writeWatchFile(t, root, keptNode, "export const kept = 2;\n")
+	updated, err := reconcileExplicitJSDependencies(watch, current, prevDeps, nextDeps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := updated[droppedNode]; exists {
+		t.Fatalf("dropped node_modules dependency %s remained in updated snapshot", droppedNode)
+	}
+	if updated[keptNode] != current[keptNode] {
+		t.Fatalf("retained dependency digest was overwritten during refresh")
+	}
+	if updated[wsFile] != current[wsFile] {
+		t.Fatalf("workspace dependency digest was overwritten during refresh")
+	}
+	if err := (&workerDevelopment{watch: watch}).verify(updated); !errors.Is(err, errWorkerInputsChanged) {
+		t.Fatalf("verify after concurrent edit to retained dependency = %v, want errWorkerInputsChanged", err)
+	}
+
+	// Without concurrent edits, removing a skipped dependency passes verify, and
+	// removing a tracked workspace file retains its snapshot entry for verify.
+	watch.setExplicit(prevDeps, false)
+	cleanCurrent, err := watch.capture(nil, nil, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanUpdated, err := reconcileExplicitJSDependencies(watch, cleanCurrent, []string{droppedNode, keptNode, wsFile}, []string{keptNode})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := cleanUpdated[wsFile]; !exists {
+		t.Fatalf("workspace dependency %s should remain in updated snapshot after unimport", wsFile)
+	}
+	if err := (&workerDevelopment{watch: watch}).verify(cleanUpdated); err != nil {
+		t.Fatalf("verify after clean dependency removal = %v", err)
+	}
+}
+
+func TestProjectWorkerAssistantsAndReserveFrontendPaths(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWatchFile(t, root, "web/package.json", "{}\n")
+	result := &compiler.Result{
+		Root:              root,
+		WorkspaceRevision: "ws-rev-1",
+		ImplementationRevisions: map[string]string{
+			"app/assistant/support": "runtime-7",
+		},
+		Manifest: &graph.Manifest{
+			ContractRevision: "contract-1",
+			Resources: []graph.Resource{
+				{Address: "std.authorization.public", Kind: "scenery.authorization", Name: "public", Module: "std", Spec: map[string]any{"strategy": "public"}},
+				{Address: "app/http_gateway/api", Kind: "scenery.http-gateway", Name: "api", Module: "app", Spec: map[string]any{"base_path": "/api"}},
+				{Address: "app/mcp_server/support", Kind: "scenery.mcp-server", Name: "support", Module: "app", Spec: map[string]any{"max_input_bytes": 1024, "max_result_bytes": 4096}},
+				{
+					Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support", Module: "app",
+					Spec: map[string]any{
+						"mcp_server": map[string]any{"$ref": "mcp_server.support"},
+						"surface": map[string]any{
+							"path":          "/support-chat",
+							"gateway":       map[string]any{"$ref": "http_gateway.api"},
+							"authorization": map[string]any{"$ref": "std.authorization.public"},
+						},
+					},
+				},
+			},
+		},
+	}
+	plans, err := projectWorkerAssistants(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("plans len = %d, want 1", len(plans))
+	}
+	plan := plans[0]
+	if plan.Address != "app/assistant/support" || plan.Path != "/support-chat" || plan.RuntimeRevision != "runtime-7" || plan.CapabilityRevision == "" {
+		t.Fatalf("unexpected assistant plan: %+v", plan)
+	}
+	manifest, err := mcpcontract.Parse(plan.MCPManifest)
+	if err != nil || manifest.ContractRevision != plan.CapabilityRevision {
+		t.Fatalf("invalid assistant MCP manifest (%v): %+v", err, manifest)
+	}
+	frontend, err := selectWorkerFrontend(root, app.Config{
+		Root:      "web",
+		Frontends: map[string]app.FrontendConfig{"web": {Root: "web", Adapter: "vite", Mode: "static"}},
+	}, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frontend == nil || !slices.Contains(frontend.Reserved, "/support-chat") {
+		t.Fatalf("expected assistant path in frontend reserved list: %+v", frontend)
 	}
 }

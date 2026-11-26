@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http/httptest"
 	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -196,5 +197,48 @@ func TestWorkerBundleLinksGoServicesFromTheSelectedTarget(t *testing.T) {
 	compiled.Manifest.Resources[1].Spec["runtime"] = "rust"
 	if preparation, err := bundle.addGoWorkers(context.Background(), compiled, "artifact", "", nil, nil); preparation != nil || err != nil {
 		t.Fatalf("no Go service: %v, %v", preparation, err)
+	}
+}
+
+func TestWorkerBundleRejectsCrossPlatformGoTarget(t *testing.T) {
+	otherOS := "linux"
+	if goruntime.GOOS == "linux" {
+		otherOS = "darwin"
+	}
+	otherArch := "amd64"
+	if goruntime.GOARCH == "amd64" {
+		otherArch = "arm64"
+	}
+	manifest := &graph.Manifest{Resources: []graph.Resource{
+		{Address: "app/go_target/cross", Kind: "scenery.go-target", Name: "cross", Spec: map[string]any{
+			"role": "artifact", "goos": otherOS, "goarch": otherArch, "cgo": "disabled",
+		}},
+		{Address: "jobs/service/jobs", Module: "jobs", Kind: "scenery.service", Name: "jobs", Origin: graph.Origin{Kind: "authored"}, Spec: map[string]any{
+			"runtime": "go", "implementation": map[string]any{"kind": "go"},
+		}},
+		{Address: "jobs/operation/run", Module: "jobs", Kind: "scenery.operation", Name: "run", Spec: map[string]any{
+			"service": map[string]any{"$ref": "service.jobs"}, "handler": map[string]any{"method": "Run"},
+		}},
+	}}
+	compiled := &compiler.Result{Root: t.TempDir(), ContractStatus: "valid", Manifest: manifest}
+
+	for _, target := range []string{"cross", ""} {
+		err := validateWorkerBundleTargetPlatform(compiled, "artifact", target)
+		if err == nil || cliExitCode(err) != 3 || !strings.Contains(err.Error(), "does not match host platform") {
+			t.Fatalf("target=%q: error = %v (exit %d), want exit 3 cross-platform error", target, err, cliExitCode(err))
+		}
+		_, buildErr := buildWorkerBundle(context.Background(), compiled, "artifact", target, false)
+		if buildErr == nil || cliExitCode(buildErr) != 3 || !strings.Contains(buildErr.Error(), "does not match host platform") {
+			t.Fatalf("buildWorkerBundle(target=%q) = %v (exit %d), want exit 3 cross-platform error", target, buildErr, cliExitCode(buildErr))
+		}
+	}
+
+	// An explicit cross-platform Go target is rejected even without Go services.
+	compiled.Manifest.Resources[1].Spec["runtime"] = "rust"
+	if err := validateWorkerBundleTargetPlatform(compiled, "artifact", "cross"); err == nil || cliExitCode(err) != 3 {
+		t.Fatalf("explicit cross target without Go service: %v (exit %d)", err, cliExitCode(err))
+	}
+	if err := validateWorkerBundleTargetPlatform(compiled, "artifact", ""); err != nil {
+		t.Fatalf("implicit empty target without Go service should pass: %v", err)
 	}
 }

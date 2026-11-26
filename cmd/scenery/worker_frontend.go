@@ -65,8 +65,13 @@ func selectWorkerFrontend(root string, cfg app.Config, result *compiler.Result) 
 	}
 	reserved := []string{"/api", "/auth", "/__app", "/__scenery"}
 	for _, resource := range result.Manifest.Resources {
-		if resource.Kind == "scenery.http-gateway" {
+		switch resource.Kind {
+		case "scenery.http-gateway":
 			if path := cp.StringValue(resource.Spec["base_path"]); path != "" && path != "/" {
+				reserved = append(reserved, path)
+			}
+		case "scenery.assistant":
+			if path := workerAssistantPath(resource); path != "" && path != "/" {
 				reserved = append(reserved, path)
 			}
 		}

@@ -76,11 +76,8 @@ func buildCommand(out io.Writer, args []string) error {
 		if development {
 			role = "development"
 		}
-		if targetName != "" {
-			// Fail before any worker is built for a target that does not exist.
-			if _, err := compiler.ResolveGoBuildTarget(compiled, targetName, role); err != nil {
-				return goTargetSelectionCLIError(err)
-			}
+		if err := validateWorkerBundleTargetPlatform(compiled, role, targetName); err != nil {
+			return goTargetSelectionCLIError(err)
 		}
 		bundle, err := buildWorkerBundle(context.Background(), compiled, role, targetName, false)
 		if err != nil {

@@ -47,31 +47,7 @@ func (p workerPlanProjection) httpBinding(binding, operation graph.Resource, pol
 			Precedence: []string{"literal", "parameter", "exact_end", "path_tail"},
 		}
 	}
-	requestLimits, _ := spec["request_limit"].(map[string]any)
-	responseLimits, _ := spec["response_limit"].(map[string]any)
-	timeouts, _ := spec["timeouts"].(map[string]any)
-	policy.GatewayAddress = gateway.Address
-	policy.CORS = cp.LastRef(workerRefText(gateway.Spec["cors"]))
-	policy.Forwarded = cp.LastRef(workerRefText(gateway.Spec["forwarded"]))
-	if value, ok := gateway.Spec["cors"].(map[string]any); ok {
-		policy.AllowedOrigins = workerStrings(value["origins"])
-	}
-	policy.TrustedProxyPrefixes = workerStrings(gateway.Spec["trusted_proxies"])
-	if value, ok := gateway.Spec["trusted_proxies"].(map[string]any); ok {
-		policy.TrustedProxyPrefixes = workerStrings(value["prefixes"])
-	}
-	policy.MaxRequestHeaderBytes = workerInt(requestLimits["header_bytes"])
-	policy.MaxResponseBytes = workerInt(responseLimits["body_bytes"])
-	policy.CompressionAlgorithms = workerStrings(responseLimits["compression_algorithms"])
-	policy.CompressionThreshold = workerInt(responseLimits["compression_threshold_bytes"])
-	if timeout := workerDuration(timeouts["total_invocation"]); timeout > 0 && (policy.TotalInvocationTimeoutNanos == 0 || timeout < policy.TotalInvocationTimeoutNanos) {
-		policy.TotalInvocationTimeoutNanos = timeout
-	}
-	policy.ReadTimeoutNanos = workerDuration(timeouts["read"])
-	policy.WriteTimeoutNanos = workerDuration(timeouts["write"])
-	policy.IdleTimeoutNanos = workerDuration(timeouts["idle"])
-	policy.FrameworkGuarantee = cp.StringValue(spec["guarantee"])
-	policy.TransportStatuses = make(map[string]int)
+	populateWorkerGatewayHTTPPolicy(policy, gateway, spec)
 	request, err := p.httpRequest(spec, operation)
 	if err != nil {
 		return plan, err
@@ -352,4 +328,34 @@ func (p workerPlanProjection) httpResponseValue(operation graph.Resource, outcom
 	}
 	result.Optional = strings.HasPrefix(strings.TrimSpace(typeExpression), "optional(")
 	return result, nil
+}
+
+func populateWorkerGatewayHTTPPolicy(policy *workerruntime.ContractHTTPPolicy, gateway graph.Resource, spec map[string]any) {
+	requestLimits, _ := spec["request_limit"].(map[string]any)
+	responseLimits, _ := spec["response_limit"].(map[string]any)
+	timeouts, _ := spec["timeouts"].(map[string]any)
+	policy.GatewayAddress = gateway.Address
+	policy.CORS = cp.LastRef(workerRefText(gateway.Spec["cors"]))
+	policy.Forwarded = cp.LastRef(workerRefText(gateway.Spec["forwarded"]))
+	if value, ok := gateway.Spec["cors"].(map[string]any); ok {
+		policy.AllowedOrigins = workerStrings(value["origins"])
+	}
+	policy.TrustedProxyPrefixes = workerStrings(gateway.Spec["trusted_proxies"])
+	if value, ok := gateway.Spec["trusted_proxies"].(map[string]any); ok {
+		policy.TrustedProxyPrefixes = workerStrings(value["prefixes"])
+	}
+	policy.MaxRequestHeaderBytes = workerInt(requestLimits["header_bytes"])
+	policy.MaxResponseBytes = workerInt(responseLimits["body_bytes"])
+	policy.CompressionAlgorithms = workerStrings(responseLimits["compression_algorithms"])
+	policy.CompressionThreshold = workerInt(responseLimits["compression_threshold_bytes"])
+	if timeout := workerDuration(timeouts["total_invocation"]); timeout > 0 && (policy.TotalInvocationTimeoutNanos == 0 || timeout < policy.TotalInvocationTimeoutNanos) {
+		policy.TotalInvocationTimeoutNanos = timeout
+	}
+	policy.ReadTimeoutNanos = workerDuration(timeouts["read"])
+	policy.WriteTimeoutNanos = workerDuration(timeouts["write"])
+	policy.IdleTimeoutNanos = workerDuration(timeouts["idle"])
+	policy.FrameworkGuarantee = cp.StringValue(spec["guarantee"])
+	if policy.TransportStatuses == nil {
+		policy.TransportStatuses = make(map[string]int)
+	}
 }

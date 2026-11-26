@@ -32,6 +32,7 @@ import (
 	"scenery.sh/internal/storageconfig"
 	"scenery.sh/internal/workerabi"
 	workerruntime "scenery.sh/runtime"
+	_ "scenery.sh/runtime/mcphost"
 )
 
 type workerLink struct {
@@ -106,6 +107,44 @@ func runWorkerBundleExecutable(args []string) error {
 			return fmt.Errorf("worker executable path is outside the bundle")
 		}
 		bundle.Programs[i].Binary = filepath.Join(root, filepath.FromSlash(program.Binary))
+	}
+	for _, item := range bundle.AssistantAssets {
+		for _, path := range []string{item.DescriptorFile, item.NodeArchive, item.NodeDescriptor, item.CapsuleArchive, item.CapsuleDescriptor} {
+			if !filepath.IsLocal(path) {
+				return fmt.Errorf("assistant asset path is outside the bundle")
+			}
+		}
+		readAsset := func(relative string) ([]byte, error) {
+			return os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		}
+		descriptorJSON, err := readAsset(item.DescriptorFile)
+		if err != nil {
+			return err
+		}
+		nodeArchive, err := readAsset(item.NodeArchive)
+		if err != nil {
+			return err
+		}
+		nodeDescriptor, err := readAsset(item.NodeDescriptor)
+		if err != nil {
+			return err
+		}
+		capsuleArchive, err := readAsset(item.CapsuleArchive)
+		if err != nil {
+			return err
+		}
+		capsuleDescriptor, err := readAsset(item.CapsuleDescriptor)
+		if err != nil {
+			return err
+		}
+		bundle.Host.WorkerAssistantAssets = append(bundle.Host.WorkerAssistantAssets, workerruntime.AssistantEmbeddedAsset{
+			Descriptor:            item.Descriptor,
+			DescriptorJSON:        descriptorJSON,
+			NodeArchive:           nodeArchive,
+			NodeDescriptorJSON:    nodeDescriptor,
+			CapsuleArchive:        capsuleArchive,
+			CapsuleDescriptorJSON: capsuleDescriptor,
+		})
 	}
 	var frontend http.Handler
 	if descriptor := bundle.Frontend; descriptor != nil {
@@ -196,6 +235,21 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	if err := envpolicy.Set("SCENERY_PROCESS_LINK", linkPath); err != nil {
 		return err
 	}
+	var assistants *assistantSupervisor
+	var assistantConfigPath string
+	var assistantWG sync.WaitGroup
+	if dev != nil && len(bundle.Host.Assistants) > 0 {
+		var restoreAssistantEnv func()
+		assistants, assistantConfigPath, restoreAssistantEnv, err = prepareWorkerDevAssistants(ctx, dev, directory)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			assistantWG.Wait()
+			_ = assistants.Close()
+			restoreAssistantEnv()
+		}()
+	}
 	bundle.Host.ListenAddr = listen
 	hostDone := make(chan error, 1)
 	go func() {
@@ -238,6 +292,14 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	}
 	if dev != nil {
 		pruneJSWorkers(dev.watch.root, bundle.Programs)
+		if assistants != nil {
+			_ = assistants.StartPrepared(ctx)
+			_ = workerruntime.WriteAssistantRuntimeConfig(assistantConfigPath, assistants.RuntimeConfig())
+			definitions := assistantDefinitionsFromResult(dev.compiled, dev.watch.root)
+			assistantWG.Go(func() {
+				superviseWorkerAssistantSources(ctx, assistants, assistantConfigPath, definitions)
+			})
+		}
 		devControl.publish(dev.applied, bundle, 1, nil)
 	}
 	if onReady != nil {
@@ -259,6 +321,7 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 func workerProcessEnv(inherited []string, runtime string) []string {
 	env := envWithoutKeys(
 		minimalAppProcessEnv(inherited),
+		"SCENERY_ROLE",
 		"SCENERY_LISTEN_NETWORK",
 		"SCENERY_LISTEN_ADDR",
 		"SCENERY_PROCESS_LINK",
@@ -485,4 +548,124 @@ func jsWorkerStartup(program workerProgram) (*devprocess.PrivateInput, error) {
 		return nil, err
 	}
 	return &devprocess.PrivateInput{Env: workerruntime.ConfigSnapshotFDEnv, Data: data}, nil
+}
+
+func prepareWorkerDevAssistants(ctx context.Context, dev *workerDevelopment, directory string) (*assistantSupervisor, string, func(), error) {
+	restore := saveAndRestoreEnv(workerruntime.AssistantTokenKeyFileEnv, workerruntime.AssistantRuntimeConfigEnv)
+	paths, err := commandWorktreePaths(dev.watch.root)
+	if err != nil {
+		restore()
+		return nil, "", func() {}, err
+	}
+	assistantState := filepath.Join(paths.Directory, "assistants")
+	keyPath, err := ensureAssistantTokenKey(assistantState)
+	if err != nil {
+		restore()
+		return nil, "", func() {}, err
+	}
+	if err := envpolicy.Set(workerruntime.AssistantTokenKeyFileEnv, keyPath); err != nil {
+		restore()
+		return nil, "", func() {}, err
+	}
+	_, cfg, err := discoverConfiguredApp(dev.watch.root)
+	if err != nil {
+		restore()
+		return nil, "", func() {}, err
+	}
+	resolvedEnv, err := cfg.ResolveEnv(dev.envName)
+	if err != nil {
+		restore()
+		return nil, "", func() {}, err
+	}
+	providerEnv, err := assistantProviderEnvFromConfig(ctx, cfg, resolvedEnv)
+	if err != nil {
+		restore()
+		return nil, "", func() {}, err
+	}
+	runtimeConfigPath := filepath.Join(directory, "assistant-runtime.json")
+	assistants := newAssistantSupervisor(ctx, assistantSupervisorConfig{
+		Root:          dev.watch.root,
+		StateRoot:     assistantState,
+		ProviderEnv:   providerEnv,
+		UseAppGateway: true,
+		OnStatus: func(statuses []AssistantStatusRecord) {
+			_ = writeAssistantLiveStatusSnapshot(dev.watch.root, dev.compiled, statuses)
+		},
+		Output: os.Stdout, ErrOutput: os.Stderr,
+	})
+	if err := assistants.Prepare(ctx, dev.compiled); err != nil {
+		_ = assistants.Close()
+		restore()
+		return nil, "", func() {}, err
+	}
+	if err := workerruntime.WriteAssistantRuntimeConfig(runtimeConfigPath, assistants.RuntimeConfig()); err != nil {
+		_ = assistants.Close()
+		restore()
+		return nil, "", func() {}, err
+	}
+	if err := envpolicy.Set(workerruntime.AssistantRuntimeConfigEnv, runtimeConfigPath); err != nil {
+		_ = assistants.Close()
+		restore()
+		return nil, "", func() {}, err
+	}
+	return assistants, runtimeConfigPath, restore, nil
+}
+
+func saveAndRestoreEnv(keys ...string) func() {
+	type savedEnv struct {
+		value   string
+		present bool
+	}
+	saved := make(map[string]savedEnv, len(keys))
+	for _, key := range keys {
+		value, present := envpolicy.Lookup(key)
+		saved[key] = savedEnv{value: value, present: present}
+	}
+	return func() {
+		for _, key := range keys {
+			entry := saved[key]
+			if entry.present {
+				_ = envpolicy.Set(key, entry.value)
+			} else {
+				_ = envpolicy.Unset(key)
+			}
+		}
+	}
+}
+
+func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantSupervisor, runtimeConfigPath string, definitions []assistantDefinition) {
+	if supervisor == nil || len(definitions) == 0 {
+		return
+	}
+	digests := make(map[string]string, len(definitions))
+	for _, definition := range definitions {
+		digests[definition.SourceRoot], _ = assistantOverlayInputDigest(definition.SourceRoot)
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var changed []string
+			for _, definition := range definitions {
+				source := definition.SourceRoot
+				digest, err := assistantOverlayInputDigest(source)
+				if err != nil || digests[source] == digest {
+					continue
+				}
+				digests[source] = digest
+				if relative, err := filepath.Rel(supervisor.config.Root, source); err == nil {
+					changed = append(changed, filepath.ToSlash(relative))
+				}
+			}
+			if len(changed) > 0 {
+				supervisor.HandleChanges(ctx, changed)
+				if runtimeConfigPath != "" {
+					_ = workerruntime.WriteAssistantRuntimeConfig(runtimeConfigPath, supervisor.RuntimeConfig())
+				}
+			}
+		}
+	}
 }

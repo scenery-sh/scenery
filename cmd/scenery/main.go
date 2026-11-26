@@ -417,6 +417,7 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if err != nil {
 				return err
 			}
+			workerDev.envName = opts.Env
 			compiled = workerDev.compiled
 			if err := configureWorkerDevelopmentDatabase(root, cfg, compiled.SQLRequirements); err != nil {
 				return err

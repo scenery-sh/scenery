@@ -9,7 +9,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -272,18 +271,10 @@ func (watch *workerWatcher) refresh(ctx context.Context, current workerInputs, d
 	}
 	nextDeps = candidate.jsDependencies()
 	if !slices.Equal(prevDeps, nextDeps) {
-		updated := maps.Clone(current)
-		watch.dev.watch.setExplicit(nextDeps, true)
-		for _, dep := range prevDeps {
-			delete(updated, dep)
-			if err := watch.dev.watch.scan(filepath.Join(watch.dev.watch.root, dep), updated, false); err != nil {
-				return nil, err
-			}
-		}
-		if err := watch.dev.watch.scanExplicit(updated, false); err != nil {
+		appliedCurrent, err = reconcileExplicitJSDependencies(watch.dev.watch, current, prevDeps, nextDeps)
+		if err != nil {
 			return nil, err
 		}
-		appliedCurrent = updated
 	}
 	for _, program := range bundle.Programs {
 		module, _, _ := strings.Cut(program.Service, "/service/")
@@ -390,6 +381,26 @@ func (watch *workerWatcher) replace(ctx context.Context, bundle workerBundle, ve
 	}()
 	fmt.Fprintf(os.Stderr, "application generation %d ready (%d worker replacements)\n", watch.generation, len(started))
 	return nil
+}
+
+func reconcileExplicitJSDependencies(watch *workerInputWatch, current workerInputs, prevDeps, nextDeps []string) (workerInputs, error) {
+	updated := maps.Clone(current)
+	watch.setExplicit(nextDeps, true)
+	for _, dep := range prevDeps {
+		if !slices.Contains(nextDeps, dep) && watch.skippedByWalk(dep) {
+			delete(updated, dep)
+		}
+	}
+	for _, dep := range nextDeps {
+		if !slices.Contains(prevDeps, dep) {
+			if _, exists := updated[dep]; !exists {
+				if err := watch.scanExplicitFile(dep, updated, false); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return updated, nil
 }
 
 func workerStillMatches(process *workerProcess, program workerProgram) bool {

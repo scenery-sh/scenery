@@ -74,6 +74,28 @@ func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec Wo
 	return nil
 }
 
+func (h *processHost) registerWorkerAssistants(plans []WorkerAssistantPlan, assets []AssistantEmbeddedAsset) error {
+	for _, plan := range plans {
+		policy := plan.Policy
+		if err := RegisterAssistantChecked(AssistantRegistration{
+			Address: plan.Address, Name: plan.Name, Path: plan.Path, Access: Auth,
+			Policy: &policy, AssistantAddress: plan.Address,
+			RuntimeRevision: plan.RuntimeRevision, CapabilityRevision: plan.CapabilityRevision, Required: true,
+		}); err != nil {
+			return err
+		}
+		if err := RegisterAssistantMCPManifestChecked(plan.Address, plan.MCPManifest); err != nil {
+			return err
+		}
+	}
+	if len(assets) > 0 {
+		if err := RegisterEmbeddedAssistantAssets(AssistantProductionOptions{ApplicationID: h.name}, assets); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding WorkerBindingPlan) error {
 	operation, exists := plan.Operations[binding.Operation]
 	if !exists || operation.Input == "" || binding.Address == "" {

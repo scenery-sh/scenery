@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"scenery.sh/internal/contract"
@@ -42,12 +43,7 @@ func (workers *workerHost) dispatchDurable(ctx context.Context, service WorkerSe
 	if delivery == "wait" {
 		output, err := DispatchAndWaitContractDurableExecutionWithOptions(ctx, address, input, options)
 		if err != nil {
-			switch ContractDurableFailureOutcome(err) {
-			case "dispatch.rejected", "dispatch.wait_timeout":
-				return workerabi.Result{}, err
-			default:
-				return workerabi.Result{}, ContractSystemError(err)
-			}
+			return workerabi.Result{}, classifyWorkerDurableWaitError(err)
 		}
 		result := workerabi.Result{Outcome: output}
 		operation, ok := service.Operations[plan.Operation]
@@ -72,6 +68,18 @@ func (workers *workerHost) dispatchDurable(ctx context.Context, service WorkerSe
 	}
 	output, err := contract.EncodeManifestOutcome("result", "dispatch.enqueued", data)
 	return workerabi.Result{Outcome: output}, err
+}
+
+func classifyWorkerDurableWaitError(err error) error {
+	switch ContractDurableFailureOutcome(err) {
+	case "dispatch.rejected", "dispatch.wait_timeout":
+		return err
+	default:
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		return ContractSystemError(err)
+	}
 }
 
 func workerDurableOptions(plan WorkerDurablePlan, input json.RawMessage) (ContractDurableDispatchOptions, error) {
