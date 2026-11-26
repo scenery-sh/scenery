@@ -275,7 +275,7 @@ func (bundle *workerBundle) addOCIPythonWorkers(result *compiler.Result, builds 
 		services = append(services, build.service)
 		bundle.Programs = append(bundle.Programs, workerProgram{
 			Service: build.program.Service, Process: build.program.Process, Binary: "services/" + build.program.Process,
-			Digest: worker.Placeholder, Runtime: "python",
+			Digest: worker.Placeholder, Runtime: "python", Databases: build.program.Databases,
 			Identity: workerProcessIdentity{
 				ContractRevision:       compiler.ServiceContractRevision(result.Manifest, resources[build.program.Service], nil),
 				ImplementationRevision: worker.Placeholder, BuildInputDigest: worker.Placeholder, Target: "python",

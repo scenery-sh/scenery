@@ -181,6 +181,28 @@ class HPACKAndH2CTests(unittest.TestCase):
                     with self.assertRaises((asyncio.CancelledError, H2StreamReset)):
                         await slow_task
                     await asyncio.wait_for(canceled.wait(), timeout=2.0)
+
+                    # Failing async request-body generator resets stream and raises
+                    # promptly instead of hanging while awaiting response headers.
+                    async def failing_body():
+                        yield b"partial"
+                        raise ValueError("producer boom")
+
+                    with self.assertRaisesRegex(ValueError, "producer boom"):
+                        await asyncio.wait_for(
+                            client.request("POST", "/echo", {}, failing_body()),
+                            timeout=2.0,
+                        )
+
+                    # Send windows must be reclaimed after completed requests
+                    # (including empty responses ended directly in HEADERS).
+                    for _ in range(50):
+                        r1 = await client.request("POST", "/echo", {}, b"ok")
+                        self.assertEqual(await r1.body.read_all(64), b"ok")
+                        r2 = await client.request("POST", "/echo", {}, b"")
+                        self.assertEqual(await r2.body.read_all(64), b"")
+                    self.assertIsNotNone(client._conn)
+                    self.assertEqual(len(client._conn._stream_send_windows), 0)
                 finally:
                     client.close()
                     await server.drain_and_close()

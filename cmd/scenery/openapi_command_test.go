@@ -147,8 +147,12 @@ func TestOpenAPIInvalidRequestsReturnExitCode2(t *testing.T) {
 		name string
 		fn   func() error
 	}{
-		{"bad-format", func() error { return runOpenAPIExport(&bytes.Buffer{}, []string{"--format", "toml", "--app-root", houseRoot}) }},
-		{"unknown-gateway", func() error { return runOpenAPIExport(&bytes.Buffer{}, []string{"--gateway", "nope", "--app-root", houseRoot}) }},
+		{"bad-format", func() error {
+			return runOpenAPIExport(&bytes.Buffer{}, []string{"--format", "toml", "--app-root", houseRoot})
+		}},
+		{"unknown-gateway", func() error {
+			return runOpenAPIExport(&bytes.Buffer{}, []string{"--gateway", "nope", "--app-root", houseRoot})
+		}},
 		{"unexpected-arg", func() error { return runOpenAPIExport(&bytes.Buffer{}, []string{"extra"}) }},
 		{"generate-missing-output", func() error { return runGenerateOpenAPI(&bytes.Buffer{}, []string{"--app-root", houseRoot}) }},
 	} {
