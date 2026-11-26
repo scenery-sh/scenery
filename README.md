@@ -96,6 +96,7 @@ curl --json '{"message":"hi"}' http://localhost:4624/api/echo
 | `scenery db query --service <module> '<sql>' -o json` | Run one statement in the module's PostgreSQL schema, bind repeatable `--param` values, cap returned rows with `--limit`, and bound the statement with `--timeout` |
 | `scenery durable run <target> -o json` | Run a durable execution or schedule in the worker development Host and collect its result, logs, and spans. Use `--wait=false` to return after dispatch |
 | `scenery add module <name> --runtime <go\|rust\|ts\|js> -o json` | Scaffold a module and starter test, generate contracts, and check the application |
+| `scenery build [--oci <image>]` | Build the deployable Host bundle, or a Linux container image of it |
 | `scenery logs --follow` | Stream application logs |
 | `scenery check` | Validate `.scn` declarations and Go contracts |
 | `scenery generate` | Regenerate Go contracts, TypeScript clients, and SQLC outputs |
@@ -112,6 +113,28 @@ declared target type. Direct schedules run in the current Host generation.
 
 `add module` reports the generated roots and the application check outcome.
 If generation or checking fails, the scaffold stays available for correction.
+
+## Deploy
+
+`scenery build` writes a self-contained bundle that runs on any host of the
+same platform; `scenery build --oci <image>` builds a Linux image of it for
+Docker, Kubernetes, Fly, or a VM (`--platform linux/arm64`, or
+`--oci-context <dir>` to hand the reproducible Dockerfile context to CI):
+
+```sh
+scenery build --oci registry.example.com/shop:1.4.0
+docker run -p 4000:4000 \
+  -v ./config.json:/etc/shop/config.json:ro -e SCENERY_CONFIG_FILE=/etc/shop/config.json \
+  -e STRIPE_KEY -e DATABASE_URL \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com \
+  -e OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20$OTEL_TOKEN" \
+  registry.example.com/shop:1.4.0
+```
+
+The configuration snapshot can reference injected secrets as
+`{"$env": "STRIPE_KEY"}`; object stores can be S3, R2, MinIO, or GCS buckets;
+and replicas sharing `DATABASE_URL` run every schedule slot once. See
+[the production host contract](docs/spec/SPEC.md#8-production-host).
 
 ## Built for AI agents
 
