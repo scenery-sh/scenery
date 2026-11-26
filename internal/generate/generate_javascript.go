@@ -85,6 +85,7 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 	if err != nil {
 		return "", "", "", err
 	}
+	publishers := serviceEventPublishers(idx.byAddress, service)
 	reachable := make(map[string]bool)
 	collect := func(resource Resource) {
 		for _, value := range contractTypeValues([]Resource{resource}) {
@@ -96,6 +97,9 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 	}
 	for _, client := range clients {
 		collect(client.Operation)
+	}
+	for _, publisher := range publishers {
+		collect(publisher.Event)
 	}
 	for before := -1; before != len(reachable); {
 		before = len(reachable)
@@ -135,8 +139,12 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 		stringValue(specChild(service, "implementation")["constructor"]), "../"+filepath.ToSlash(target.Entry))
 	entry.WriteString("const launch = SDK.readLaunch();\n" +
 		"if (launch.identity.service !== Contract.serviceAddress) throw new Error(\"worker service mismatch\");\n")
+	publisherInput := ""
+	if len(publishers) > 0 {
+		publisherInput = ", publishers: Contract.publishers"
+	}
 	if runtime := stringValue(service.Spec["runtime"]); runtime == "js" {
-		entry.WriteString(`// JavaScript object literals infer string discriminants without annotations.
+		fmt.Fprintf(&entry, `// JavaScript object literals infer string discriminants without annotations.
 type JSOutput<T> = T extends Promise<infer R> ? Promise<JSOutput<R>>
   : T extends SDK.Stream<infer R> ? SDK.Stream<JSOutput<R>>
   : T extends SDK.EventStream<infer R, infer E> ? SDK.EventStream<JSOutput<R>, E>
@@ -144,15 +152,20 @@ type JSOutput<T> = T extends Promise<infer R> ? Promise<JSOutput<R>>
   : T;
 type JSService = { [K in keyof Contract.Service]: (...args: Parameters<Contract.Service[K]>) => JSOutput<ReturnType<Contract.Service[K]>> };
 const create: (input: Contract.ConstructorInput) => JSService | Promise<JSService> = construct;
-const service = await create({ clients: Contract.clients, ...SDK.startupInputs(parseExactJSON) }) as Contract.Service;
-`)
+const service = await create({ clients: Contract.clients%s, ...SDK.startupInputs(parseExactJSON) }) as Contract.Service;
+`, publisherInput)
 	} else {
-		entry.WriteString("const service: Contract.Service = await construct({ clients: Contract.clients, ...SDK.startupInputs(parseExactJSON) });\n")
+		fmt.Fprintf(&entry, "const service: Contract.Service = await construct({ clients: Contract.clients%s, ...SDK.startupInputs(parseExactJSON) });\n", publisherInput)
 	}
 	fmt.Fprintf(&api, "export const serviceAddress = %q;\n", service.Address)
 	projection.renderClients(&types, &api, clients)
+	projection.renderJSPublishers(&types, &api, publishers)
+	publisherField := ""
+	if len(publishers) > 0 {
+		publisherField = "  readonly publishers: typeof publishers;\n"
+	}
 	api.WriteString("export interface ConstructorInput {\n" +
-		"  readonly clients: typeof clients;\n" +
+		"  readonly clients: typeof clients;\n" + publisherField +
 		"  readonly config: SDK.ConfigSnapshot | undefined;\n" +
 		"  readonly databases: Readonly<Record<string, string>>;\n}\n" +
 		"export type Constructor = (input: ConstructorInput) => Service | Promise<Service>;\n\n")

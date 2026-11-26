@@ -175,6 +175,27 @@ pub struct BindingCallRef<'a, T: ?Sized> {
     pub input: &'a T,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventEmitCall<T> {
+    pub publisher: T,
+    pub payload: Box<RawValue>,
+}
+
+#[derive(Serialize)]
+pub struct EventEmitCallRef<'a, T: ?Sized> {
+    pub publisher: &'a str,
+    pub payload: &'a T,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EventReceipt {
+    pub event_id: String,
+    pub event: String,
+    pub deliveries: u32,
+    pub deduplicated: bool,
+}
+
 #[derive(Deserialize)]
 pub struct BindingReply {
     pub output: Option<Box<RawValue>>,

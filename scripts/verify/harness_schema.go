@@ -287,6 +287,7 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			"module": "quote", "directory": "/tmp/app/quote", "runtime": "ts", "sources": []string{"quote/service.ts"},
 			"generated_contract_root": "/tmp/app/quote/scenerycontract", "services": []any{}, "operations": []any{}, "types": []any{},
 			"routes": []any{}, "internal_bindings": []any{}, "durable_executions": []any{}, "schedules": []any{},
+			"events": []any{}, "publishers": []any{}, "subscriptions": []any{},
 			"dependencies": map[string]any{"clients": []any{}, "sql": []any{}, "auth_policies": []any{}, "config_inputs": []string{}},
 			"commands":     []string{"scenery test quote -o json"},
 		})},

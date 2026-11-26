@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/internal/workerabi"
 	"scenery.sh/runtime/shared"
 )
@@ -85,7 +87,13 @@ func TestGoWorkerRestoresAPIIdempotencyPayloadAndCapabilityErrors(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Protocols: workerabi.Protocols(), ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := &http.Server{Protocols: workerabi.Protocols(), ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == workerabi.CapabilityPrefix+"events/emit" {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"code":"system.internal","message":"contract implementation failure"}`))
+			return
+		}
 		errs.HTTPError(w, errs.B().Code(errs.PermissionDenied).Msg("reauth needed").Err())
 	})}
 	go func() { _ = server.Serve(listener) }()
@@ -97,5 +105,89 @@ func TestGoWorkerRestoresAPIIdempotencyPayloadAndCapabilityErrors(t *testing.T) 
 	_, err = callWorkerCapability(ctx, http.MethodPost, "connections/token", map[string]any{"provider": "google"})
 	if errs.Code(err) != errs.PermissionDenied {
 		t.Fatalf("capability error = %v (code %s), want permission_denied", err, errs.Code(err))
+	}
+	_, err = callWorkerCapability(ctx, http.MethodPost, "events/emit", map[string]any{"publisher": "accepted", "payload": map[string]any{}})
+	wireErr, ok := errs.As(err)
+	if !ok || wireErr.Code != errs.Unavailable || wireErr.Meta["delivery"] != workerabi.Unknown {
+		t.Fatalf("500 system.internal capability error = %#v, want unavailable with delivery=unknown", err)
+	}
+}
+
+func TestGoWorkerEventProducerPreservesInvocationContextAndState(t *testing.T) {
+	defer replaceGlobalRegistryForTest()()
+	const operation = "events/operation/watch"
+	var (
+		seenReq        shared.Request
+		seenPrincipal  string
+		seenInvocation string
+		seenScope      string
+		seenCancel     bool
+	)
+	if err := RegisterWorkerEventOperation(operation, func(context.Context, []byte) ([]byte, RawEventProducer, error) {
+		return []byte(`{"kind":"result","name":"event","value":null}`), func(ctx context.Context, emit func([]byte, string, string) error) error {
+			if req := CurrentRequest(); req != nil {
+				seenReq = *req
+			}
+			seenPrincipal = CurrentAuth().UID
+			if inv, ok := runtimeapi.InvocationFromContext(ctx); ok {
+				seenInvocation = inv.ID()
+			}
+			if caps, _ := ctx.Value(workerCapabilitiesKey{}).(*workerCapabilities); caps != nil {
+				seenScope = caps.scope
+			}
+			if err := emit([]byte(`{"seq":1}`), "1", "tick"); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			seenCancel = true
+			return ctx.Err()
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	baseCtx := context.WithValue(t.Context(), workerCapabilitiesKey{}, &workerCapabilities{scope: "scope-sse", token: "tok"})
+	result, err := invokeGoWorker(baseCtx, workerabi.Invocation{
+		Service: "events/service/feed", Operation: operation, Mode: "direct", Input: json.RawMessage(`{}`),
+		Context: workerabi.InvocationContext{
+			InvocationID: "inv-sse-1",
+			Principal:    "user-42",
+			Scope:        "scope-sse",
+			Metadata:     json.RawMessage(`{"request_type":"api-call","method":"GET","path":"/events"}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Events == nil {
+		t.Fatal("expected non-nil event producer")
+	}
+
+	// Simulate serveInvocation executing the producer AFTER invokeGoWorker returned
+	// and its defer enterState(state)() unwound goroutine state.
+	streamCtx, cancel := context.WithCancel(t.Context())
+	var emitted []string
+	err = result.Events(streamCtx, func(data []byte, id, event string) error {
+		emitted = append(emitted, id+":"+event+":"+string(data))
+		cancel()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("producer err = %v, want context.Canceled", err)
+	}
+	if !seenCancel || len(emitted) != 1 || emitted[0] != `1:tick:{"seq":1}` {
+		t.Fatalf("emitted = %v, seenCancel = %v", emitted, seenCancel)
+	}
+	if seenReq.Path != "/events" || seenReq.InvocationID != "inv-sse-1" {
+		t.Fatalf("CurrentRequest inside producer = %+v", seenReq)
+	}
+	if seenPrincipal != "user-42" {
+		t.Fatalf("CurrentAuth().UID inside producer = %q, want user-42", seenPrincipal)
+	}
+	if seenInvocation != "inv-sse-1" {
+		t.Fatalf("InvocationFromContext inside producer = %q, want inv-sse-1", seenInvocation)
+	}
+	if seenScope != "scope-sse" {
+		t.Fatalf("workerCapabilities scope inside producer = %q, want scope-sse", seenScope)
 	}
 }

@@ -12,7 +12,13 @@
       "required": ["Name", "Workers"],
       "properties": {
         "Name": { "$ref": "#/$defs/text" },
-        "Workers": { "type": "array", "minItems": 1, "items": { "type": "object" } },
+        "Workers": { "type": "array", "minItems": 1, "items": {
+          "type": "object",
+          "properties": {
+            "Publishers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/text" } }
+          }
+        } },
+        "Events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
         "MCPServers": {
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/mcp" }
@@ -76,6 +82,43 @@
           }
         },
         "approval": { "enum": ["always", "never"] }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["Address", "ExternalName", "PayloadType", "Dedupe", "Subscriptions"],
+      "additionalProperties": false,
+      "properties": {
+        "Address": { "$ref": "#/$defs/text" },
+        "ExternalName": { "$ref": "#/$defs/text" },
+        "PayloadType": { "$ref": "#/$defs/text" },
+        "Dedupe": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["Name", "Type"],
+            "additionalProperties": false,
+            "properties": {
+              "Name": { "$ref": "#/$defs/text" },
+              "Type": { "$ref": "#/$defs/text" }
+            }
+          }
+        },
+        "Subscriptions": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["Address", "Service", "Operation", "Execution", "Policy"],
+            "additionalProperties": false,
+            "properties": {
+              "Address": { "$ref": "#/$defs/text" },
+              "Service": { "$ref": "#/$defs/text" },
+              "Operation": { "$ref": "#/$defs/text" },
+              "Execution": { "$ref": "#/$defs/text" },
+              "Policy": { "type": "object" }
+            }
+          }
+        }
       }
     },
     "assistant": {

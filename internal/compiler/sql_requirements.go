@@ -13,6 +13,7 @@ type SQLRequirementKind string
 const (
 	SQLDataSource   SQLRequirementKind = "data_source"
 	SQLStandardAuth SQLRequirementKind = "standard_auth"
+	SQLDomainEvents SQLRequirementKind = "domain_events"
 	SQLDurable      SQLRequirementKind = "durable_execution"
 )
 
@@ -112,6 +113,16 @@ func ProjectSQLRequirements(resources []Resource, authEnabled bool) (SQLRequirem
 			}
 			requirement.Consumers = append(requirement.Consumers, execution.Address)
 		}
+	}
+	var events []string
+	for _, resource := range resources {
+		if resource.Kind == "scenery.event" {
+			events = append(events, resource.Address)
+		}
+	}
+	if len(events) > 0 {
+		byRequirement["domain_events"] = &SQLRequirement{Kind: SQLDomainEvents,
+			Capabilities: []string{}, Name: "scenery", Schema: "scenery", Lifecycle: "managed", Consumers: events, Origin: Origin{Kind: "framework"}}
 	}
 	result := make(SQLRequirements, 0, len(byRequirement)+1)
 	for _, requirement := range byRequirement {

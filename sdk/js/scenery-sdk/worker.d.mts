@@ -38,12 +38,20 @@ export interface TelemetryRecord {
   readonly attributes?: Readonly<Record<string, unknown>>;
 }
 
+export interface EventReceipt {
+  readonly event_id: string;
+  readonly event: string;
+  readonly deliveries: number;
+  readonly deduplicated: boolean;
+}
+
 export interface Context {
   readonly invocation: Invocation;
   readonly signal: AbortSignal;
   readonly mode: "direct" | "durable";
   readonly binding?: string;
   bindingRequest(client: string, input: string, enqueue?: boolean): Promise<unknown>;
+  eventEmit(publisher: string, payload: string): Promise<EventReceipt>;
   configSnapshot(): Promise<ConfigSnapshot>;
   connectionToken(provider: string, scopes: readonly string[]): Promise<string>;
   telemetry(records: readonly TelemetryRecord[]): Promise<void>;

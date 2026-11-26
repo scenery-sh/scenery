@@ -19,6 +19,9 @@
     "internal_bindings",
     "durable_executions",
     "schedules",
+    "events",
+    "publishers",
+    "subscriptions",
     "dependencies",
     "commands"
   ],
@@ -27,7 +30,7 @@
       "const": "scenery.context"
     },
     "schema_revision": {
-      "const": "sha256:c2457f90eacc44cf3dbfb33ba924f45ac317471c473bb1144866f1cac7fd5211"
+      "const": "sha256:3d375758f8db4da8f492ad607a5fe0ef2a64c1916a1ed6402c2891903c188d26"
     },
     "module": {
       "type": "string"
@@ -117,6 +120,27 @@
       "items": {
         "type": "object"
       }
+    },
+    "events": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "publishers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["service", "name", "event"],
+        "properties": {
+          "service": { "type": "string" },
+          "name": { "type": "string" },
+          "event": { "type": "string" }
+        }
+      }
+    },
+    "subscriptions": {
+      "type": "array",
+      "items": { "type": "object" }
     },
     "dependencies": {
       "type": "object",

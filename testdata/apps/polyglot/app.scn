@@ -55,7 +55,16 @@ authentication "session" {
 
 module "pricing" {
   source = "./pricing"
-  inputs = { gateway = http_gateway.public_api, native = module.native.label_internal, jobs = execution_engine.jobs, session = authentication.session, typescript = module.mirror.echo_internal }
+  inputs = {
+    gateway       = http_gateway.public_api
+    native        = module.native.label_internal
+    jobs          = execution_engine.jobs
+    session       = authentication.session
+    typescript    = module.mirror.echo_internal
+    accepted      = module.native.accepted
+    event_payload = module.native.event_payload
+    marker        = module.native.delivery_marker
+  }
 }
 
 
@@ -94,6 +103,8 @@ module "consumer" {
   inputs = {
     gateway = http_gateway.public_api
     quote = module.pricing.quote_internal
+    accepted = module.native.accepted
+    event_payload = module.native.event_payload
     typescript = module.typescript.quote_internal
     session = authentication.session
   }
@@ -131,6 +142,8 @@ module "typescript" {
     database = data_source.pricing
     native = module.native.label_internal
     rust = module.pricing.quote_internal
+    accepted = module.native.accepted
+    marker = module.native.delivery_marker
   }
 }
 
@@ -164,4 +177,11 @@ module "python" {
     native   = module.native.label_internal
     rust     = module.pricing.quote_internal
   }
+}
+
+authorization "accept_order" {
+  principal = std.type.authenticated_principal
+  strategy = "deny_unless_allowed"
+  rule "allow" { allow = true }
+  rule "deny_test_order" { deny = input.id == "denied" }
 }

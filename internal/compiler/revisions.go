@@ -248,6 +248,9 @@ const serviceContractRevisionLimit = 4096
 // implements (graph.ServiceContractRevision).
 func ServiceContractRevision(manifest *Manifest, service Resource, covered []string) string {
 	if manifest == nil || manifest.ContractRevision == "" {
+		if manifest != nil {
+			covered = append(slices.Clone(covered), serviceEventContracts(manifest, service)...)
+		}
 		return graphmodel.ServiceContractRevision(manifest, service, covered)
 	}
 	key := manifest.ContractRevision + "\x00" + service.Address + "\x00" + service.Module + "\x00" + strings.Join(covered, "\x00")
@@ -257,7 +260,7 @@ func ServiceContractRevision(manifest *Manifest, service Resource, covered []str
 	if ok {
 		return revision
 	}
-	revision = graphmodel.ServiceContractRevision(manifest, service, covered)
+	revision = graphmodel.ServiceContractRevision(manifest, service, append(slices.Clone(covered), serviceEventContracts(manifest, service)...))
 	serviceContractRevisions.Lock()
 	defer serviceContractRevisions.Unlock()
 	if serviceContractRevisions.values == nil || len(serviceContractRevisions.values) >= serviceContractRevisionLimit {

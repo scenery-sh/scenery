@@ -8,7 +8,7 @@ export const clientMetadata = /* @__PURE__ */ freezeMetadata({
     "library/binding/return_http"
   ],
   "compatibilityCatalog": "compatibility-core",
-  "contractRevision": "sha256:912d4c421c80778ef0848a2f4e67643de55134848930151c552537db8493dd50",
+  "contractRevision": "sha256:91b4ca7d9012c23262aa50de7d28726d6054772b59a487c063756d52750fde8e",
   "gateways": [
     "http_gateway.public_api"
   ],

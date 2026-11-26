@@ -118,6 +118,7 @@ deadline.
 | --- | --- |
 | `binding/invoke` | POST `{"client":"<local client name>","input":<canonical JSON>}`. An answer contains `output` with the typed outcome or an `error`. |
 | `durable/enqueue` | POST the same envelope with a declared enqueue client. The Host derives dispatch keys and returns the durable receipt. |
+| `events/emit` | POST `{"publisher":"<local publisher name>","payload":<canonical JSON>}`. The Host returns `output` containing an event receipt. |
 | `storage/read`, `storage/write`, `storage/delete`, `storage/list` | Use `store` for the declared dependency name and `key` for object operations (or `recursive=1` with optional prefix `key` on `storage/delete`). GET reads and lists, HEAD reads object metadata, PUT writes, and DELETE removes one object or a prefix. Reads and writes stream bytes. Reads, writes, and single-object deletes accept `If-Match`; writes also accept `If-None-Match: *`. |
 | `connections/token` | POST `{"provider":"<configured provider>","scopes":["..."]}`. The Host resolves the owner from invocation scope. |
 | `config/snapshot` | GET the revision-bound service configuration visible to this worker. |
@@ -127,8 +128,24 @@ The Host chooses each store's backend from its configuration: a local
 directory, the development storage proxy, or an S3-compatible bucket. A
 worker observes the same requests, records, and failures from each.
 
-`events/emit` is reserved. The current `.scn` graph has no event declaration
-for the Host to authorize.
+`events/emit` resolves the service's declared publisher from the invocation
+scope. An undeclared publisher or a denied subscription returns HTTP 403.
+An invalid payload returns HTTP 400. The Host evaluates all subscription
+policies before writing to PostgreSQL, including on a retry.
+
+The receipt contains `event_id`, `event` (the external name), `deliveries`
+(the number of jobs the transaction created), and `deduplicated`. A keyed
+event with the same external name and canonical key returns the original
+receipt with `deduplicated: true` and creates no jobs. Job deduplication
+follows the selected durable execution, so a new event may reuse an existing
+job and return fewer deliveries than subscriptions. Events without subscribers
+are persisted with zero deliveries. The Host keeps event keys with their
+event rows.
+
+Jobs inherit the emitter's trace and invocation identity and record the
+subscription as their caller binding. Each event fan-out advances the
+cascade depth. The Host returns HTTP 409 (`failed_precondition`) when an
+invocation at depth 16 tries to emit another event.
 
 A metric record names a gauge and may include a finite numeric
 `attributes.value` and an `attributes.unit`. With no value the Host

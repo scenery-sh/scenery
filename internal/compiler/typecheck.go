@@ -42,6 +42,11 @@ func validateTypeSystem(resources []Resource) []Diagnostic {
 				diagnostics = append(diagnostics, validateTypeValue(resource, variant["type"], types)...)
 			}
 			diagnostics = append(diagnostics, validateUnion(resource, byAddress)...)
+		case "scenery.event":
+			for _, diagnostic := range validateTypeValue(resource, resource.Spec["payload"], types) {
+				diagnostic.Code = "SCN2310"
+				diagnostics = append(diagnostics, diagnostic)
+			}
 		case "scenery.operation":
 			diagnostics = append(diagnostics, validateTypeValue(resource, resource.Spec["input"], types)...)
 			for _, kind := range []string{"result", "error"} {
@@ -106,6 +111,9 @@ func validateReferences(resources []Resource) []Diagnostic {
 			referenceModule := resource.Module
 			if resource.Kind == "scenery.module" && (strings.HasPrefix(path, "/spec/exports") || strings.HasPrefix(path, "/spec/export_metadata")) {
 				referenceModule = moduleInstancePath(resource)
+			}
+			if resource.Kind == "scenery.event" && strings.HasPrefix(path, "/spec/idempotency/key/") {
+				return
 			}
 			if primitiveTypes[reference] || deploymentOnlyTypes[reference] || strings.HasPrefix(reference, "std.") {
 				return

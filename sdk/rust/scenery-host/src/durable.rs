@@ -8,7 +8,7 @@ use hyper::{HeaderMap, Request, StatusCode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, interval, sleep};
 use tokio_postgres::{Client, GenericClient, NoTls, Row};
@@ -25,12 +25,16 @@ const SCHEMA: &str = include_str!("durable_schema.sql");
 
 pub(crate) struct Engine {
     client: Mutex<Option<Arc<Client>>>,
+    pub(crate) tx_pool: crate::events::TxPool,
+    wake: Notify,
 }
 
 impl Engine {
     pub(crate) fn new() -> Self {
         Self {
             client: Mutex::new(None),
+            tx_pool: crate::events::TxPool::new(),
+            wake: Notify::new(),
         }
     }
 
@@ -54,7 +58,7 @@ impl Engine {
             .flat_map(|service| service.durable.values())
             .map(|plan| &plan.registration)
             .collect();
-        if registrations.is_empty() {
+        if registrations.is_empty() && host.bundle.host.events.is_empty() {
             return Ok(());
         }
         // Reconciliation needs a transaction of its own, which the shared
@@ -124,55 +128,17 @@ impl Engine {
         Ok(())
     }
 
+    pub(crate) fn wake_consumers(&self) {
+        self.wake.notify_waiters();
+    }
+
     pub(crate) async fn enqueue(&self, call: &Call, plan: &Durable, input: &Value) -> Result<Job> {
         let client = self.connection().await?;
-        let reg = &plan.registration;
-        let dedupe = dispatch_key(input, &plan.dedupe)?;
-        let concurrency = dispatch_key(input, &plan.concurrency)?;
-        let id = random_hex::<16>()?;
-        let input = values::encode(input).into_bytes();
-        let caller = call.principal_id();
-        let memo = json!({
-            "trace_id": call.trace_id,
-            "traceparent": format!("00-{}-{}-01", call.trace_id, call.span_id),
-            "caller_binding": call.caller,
-            "principal": caller,
-            "workload": call.workload,
-            "tenant_id": call.principal.as_ref().map(|claims| &claims.tenant),
-            "cron_idempotency_key": call.cron_idempotency_key,
-        });
-        if !dedupe.is_empty() {
-            client.execute(
-                "UPDATE scenery.durable_jobs SET dedupe_key = NULL, dedupe_expires_at = NULL, updated_at = now()
-                 WHERE service = $1 AND task_name = $2 AND dedupe_key = $3 AND dedupe_expires_at <= now()",
-                &[&reg.service, &reg.external_name, &dedupe],
-            ).await?;
+        let (job, inserted) =
+            enqueue_job(&*client, plan, input, &dispatch_memo(call), None).await?;
+        if inserted {
+            self.wake_consumers();
         }
-        let row = client.query_one(
-            "WITH inserted AS (
-                INSERT INTO scenery.durable_jobs (
-                    service, id, task_name, task_version, state, dedupe_key, dedupe_expires_at,
-                    concurrency_key, input_blob, memo_json, max_attempts, success_retention_ms,
-                    failure_retention_ms, created_by
-                ) VALUES ($1,$2,$3,$4,'queued',NULLIF($5,''),
-                    CASE WHEN $5 = '' THEN NULL ELSE now() + ($6::bigint * interval '1 millisecond') END,
-                    NULLIF($7,''),$8,$9,$10,$11,$12,$13)
-                ON CONFLICT (service, task_name, dedupe_key) WHERE dedupe_key IS NOT NULL
-                DO UPDATE SET dedupe_key = excluded.dedupe_key
-                RETURNING id, state, attempt, result_blob, error_blob, input_blob, memo_json
-             ), recorded AS (
-                INSERT INTO scenery.durable_job_events (service,job_id,event_type,payload_blob)
-                SELECT $1,id,'job.created','{}'::bytea FROM inserted WHERE id = $2
-             ) SELECT * FROM inserted",
-            &[&reg.service, &id, &reg.external_name, &(reg.revision as i32), &dedupe,
-                &ms(reg.deduplication_retention), &concurrency, &input, &memo, &reg.max_attempts,
-                &ms(reg.success_retention), &ms(reg.failure_retention), &caller],
-        ).await?;
-        let job = Job::from_row(&row);
-        ensure!(
-            job.id == id || reg.deduplication_conflict != "reject",
-            "duplicate durable execution"
-        );
         Ok(job)
     }
 
@@ -543,7 +509,7 @@ fn tail(address: &str) -> &str {
 /// exact canonical JSON, so a float the wire spells `1e+06` is keyed as
 /// `1000000` and a job enqueued by either host deduplicates against the
 /// other's.
-fn dispatch_key(input: &Value, fields: &[Key]) -> Result<String> {
+pub(crate) fn dispatch_key(input: &Value, fields: &[Key]) -> Result<String> {
     if fields.is_empty() {
         return Ok(String::new());
     }
@@ -571,6 +537,82 @@ fn dispatch_key(input: &Value, fields: &[Key]) -> Result<String> {
     ))
 }
 
+pub(crate) fn dispatch_memo(call: &Call) -> Value {
+    json!({
+        "trace_id": call.trace_id,
+        "traceparent": format!("00-{}-{}-01", call.trace_id, call.span_id),
+        "caller_binding": call.caller,
+        "principal": call.principal_id(),
+        "workload": call.workload,
+        "tenant_id": call.principal.as_ref().map(|claims| &claims.tenant),
+        "cron_idempotency_key": call.cron_idempotency_key,
+        "event_depth": call.event_depth,
+    })
+}
+
+#[derive(Debug)]
+pub(crate) struct DuplicateExecution;
+
+impl std::fmt::Display for DuplicateExecution {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("duplicate durable execution")
+    }
+}
+
+impl std::error::Error for DuplicateExecution {}
+
+pub(crate) async fn enqueue_job(
+    client: &impl GenericClient,
+    plan: &Durable,
+    input: &Value,
+    memo: &Value,
+    fallback_key: Option<String>,
+) -> Result<(Job, bool)> {
+    let reg = &plan.registration;
+    let dedupe = if plan.dedupe.is_empty() {
+        fallback_key.unwrap_or_default()
+    } else {
+        dispatch_key(input, &plan.dedupe)?
+    };
+    let concurrency = dispatch_key(input, &plan.concurrency)?;
+    let id = random_hex::<16>()?;
+    let input = values::encode(input).into_bytes();
+    let caller = memo["principal"].as_str();
+    if !dedupe.is_empty() {
+        client.execute(
+            "UPDATE scenery.durable_jobs SET dedupe_key = NULL, dedupe_expires_at = NULL, updated_at = now()
+             WHERE service = $1 AND task_name = $2 AND dedupe_key = $3 AND dedupe_expires_at <= now()",
+            &[&reg.service, &reg.external_name, &dedupe],
+        ).await?;
+    }
+    let row = client.query_one(
+        "WITH inserted AS (
+            INSERT INTO scenery.durable_jobs (
+                service, id, task_name, task_version, state, dedupe_key, dedupe_expires_at,
+                concurrency_key, input_blob, memo_json, max_attempts, success_retention_ms,
+                failure_retention_ms, created_by
+            ) VALUES ($1,$2,$3,$4,'queued',NULLIF($5,''),
+                CASE WHEN $5 = '' THEN NULL ELSE now() + ($6::bigint * interval '1 millisecond') END,
+                NULLIF($7,''),$8,$9,$10,$11,$12,$13)
+            ON CONFLICT (service, task_name, dedupe_key) WHERE dedupe_key IS NOT NULL
+            DO UPDATE SET dedupe_key = excluded.dedupe_key
+            RETURNING id, state, attempt, result_blob, error_blob, input_blob, memo_json
+         ), recorded AS (
+            INSERT INTO scenery.durable_job_events (service,job_id,event_type,payload_blob)
+            SELECT $1,id,'job.created','{}'::bytea FROM inserted WHERE id = $2
+         ) SELECT * FROM inserted",
+        &[&reg.service, &id, &reg.external_name, &(reg.revision as i32), &dedupe,
+            &ms(reg.deduplication_retention), &concurrency, &input, &memo, &reg.max_attempts,
+            &ms(reg.success_retention), &ms(reg.failure_retention), &caller],
+    ).await?;
+    let job = Job::from_row(&row);
+    if job.id != id && reg.deduplication_conflict == "reject" {
+        return Err(DuplicateExecution.into());
+    }
+    let inserted = job.id == id;
+    Ok((job, inserted))
+}
+
 /// Installs the durable and schedule tables. The statements are idempotent
 /// and serialized with every other host and the Go store.
 pub(crate) async fn install_schema(client: &Client) -> Result<()> {
@@ -578,7 +620,7 @@ pub(crate) async fn install_schema(client: &Client) -> Result<()> {
         .batch_execute(&format!(
             "BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0)); {SCHEMA}
              INSERT INTO scenery.durable_schema_migrations(version,name,checksum)
-             VALUES(3,'schedule_slots','durable-postgres-v3') ON CONFLICT(version) DO NOTHING; COMMIT;"
+             VALUES(4,'domain_events','durable-postgres-v4') ON CONFLICT(version) DO NOTHING; COMMIT;"
         ))
         .await
         .context("initialize durable schema")
@@ -696,6 +738,7 @@ async fn consume(host: &Host, service: &Service, plan: &Durable, stop: &Cancella
             biased;
             () = stop.cancelled() => break,
             _ = idle.tick() => {}
+            () = host.engine.wake.notified() => {}
         }
         if let Err(error) = execute_next(host, service, plan, stop).await {
             eprintln!(
@@ -807,6 +850,9 @@ async fn execute_next(
     )?;
     call.invocation_id.clone_from(&job.id);
     call.execution_id = Some(job.id.clone());
+    call.event_depth = job.memo["event_depth"]
+        .as_u64()
+        .map_or(0, |depth| u32::try_from(depth).unwrap_or(u32::MAX));
     call.caller = job.memo["caller_binding"]
         .as_str()
         .unwrap_or_default()

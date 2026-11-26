@@ -176,6 +176,7 @@ pub(crate) struct Call {
     pub execution_id: Option<String>,
     pub caller: String,
     pub cron_idempotency_key: Option<String>,
+    pub event_depth: u32,
     pub stack: Vec<String>,
     pub cancel: CancellationToken,
     pub deadline: Instant,
@@ -218,6 +219,7 @@ impl Call {
             execution_id: None,
             caller: String::new(),
             cron_idempotency_key: None,
+            event_depth: 0,
             stack: Vec::new(),
             deadline: Instant::now() + timeout,
             started: OffsetDateTime::now_utc(),
@@ -227,7 +229,15 @@ impl Call {
         })
     }
 
-    fn descend(&self, address: &str, policy: Option<&Policy>) -> Result<Self, Fault> {
+    pub(crate) fn child_span(&self) -> Result<Self, Fault> {
+        let mut child = self.clone();
+        child.parent_span_id.clone_from(&self.span_id);
+        child.span_id = random_hex::<8>().map_err(Fault::internal)?;
+        child.cancel = self.cancel.child_token();
+        Ok(child)
+    }
+
+    pub(crate) fn descend(&self, address: &str, policy: Option<&Policy>) -> Result<Self, Fault> {
         if self.stack.len() >= 32 || self.stack.iter().any(|ancestor| ancestor == address) {
             return Err(Fault::new(
                 409,
@@ -529,7 +539,7 @@ impl Host {
         }
         let principal = call.principal_value();
         let mut context = json!({"caller_binding": policy.binding_address, "method": call.method, "path": call.path});
-        if let Some(tenant) = principal.get("tenant_id") {
+        if let Some(tenant) = principal.get("tenant_id").or_else(|| principal.get("TenantID")).filter(|v| v.as_str().is_none_or(|s| !s.is_empty())) {
             context["tenant_id"] = tenant.clone();
         }
         let variables = json!({"principal": principal, "context": context, "input": input});
@@ -756,6 +766,9 @@ impl Host {
     ) -> Result<Reply, Fault> {
         let path = request.uri().path();
         match (request.method().clone(), path) {
+            (Method::POST, "/host/v1/events/emit") => {
+                crate::events::emit(self, scope, service, request.into_body()).await
+            }
             (Method::POST, "/host/v1/binding/invoke" | "/host/v1/durable/enqueue") => {
                 let enqueue = path.ends_with("/enqueue");
                 let input = read(request.into_body(), MAX_METADATA)
@@ -839,104 +852,12 @@ impl Host {
             _ => Ok(empty(StatusCode::NOT_FOUND)),
         }
     }
-
-    pub(crate) async fn control(self: &Arc<Self>, mut request: Request<Incoming>) -> Reply {
-        if !authorized(request.headers(), &self.control_token) {
-            return empty(StatusCode::UNAUTHORIZED);
-        }
-        if !self.development {
-            return empty(StatusCode::NOT_FOUND);
-        }
-        let query = values::query_pairs(request.uri().query());
-        if request.method() == Method::GET
-            && request.uri().path() == "/__scenery/process/v1/telemetry"
-        {
-            let id = query
-                .get("id")
-                .and_then(|ids| ids.first())
-                .map(String::as_str);
-            return json_reply(StatusCode::OK, &self.telemetry.snapshot(id));
-        }
-        if request.method() == Method::GET && request.uri().path() == "/__scenery/process/v1/source"
-        {
-            let Some(status) = &self.dev_status else {
-                return empty(StatusCode::NOT_FOUND);
-            };
-            return status
-                .reply(request.uri().query(), &self.generation)
-                .await
-                .unwrap_or_else(|_| empty(StatusCode::SERVICE_UNAVAILABLE));
-        }
-        if request.method() != Method::POST {
-            return empty(StatusCode::NOT_FOUND);
-        }
-        let path = request.uri().path().to_owned();
-        forward_invocation_authorization(request.headers_mut());
-        match path.as_str() {
-            "/__scenery/process/v1/shutdown" => crate::dev::shutdown(self.stop.clone()),
-            "/__scenery/process/v1/worker-reports" => {
-                let result = match read(request.into_body(), 1 << 20).await {
-                    Ok(data) => self.telemetry.ingest(&data),
-                    Err(error) => Err(error),
-                };
-                if result.is_ok() {
-                    empty(StatusCode::NO_CONTENT)
-                } else {
-                    empty(StatusCode::BAD_REQUEST)
-                }
-            }
-            "/__scenery/process/v1/dev-durable" => self.engine.dev_run(self, request).await,
-            "/__scenery/process/v1/dev-call" => {
-                let get = |key: &str| {
-                    query
-                        .get(key)
-                        .and_then(|values| values.first())
-                        .map(String::as_str)
-                };
-                let Some(generation) = self.generation() else {
-                    return Fault::unavailable(Delivery::NotSent).reply(self, None);
-                };
-                if get("generation")
-                    .is_some_and(|value| value.parse::<u64>().ok() != Some(generation.number))
-                {
-                    return empty(StatusCode::CONFLICT);
-                }
-                if let Some(address) = get("binding") {
-                    return gateway::dev_binding(self, generation, request, address).await;
-                }
-                let Some((method, uri)) =
-                    get("method").zip(get("path")).and_then(|(method, path)| {
-                        let method = Method::from_bytes(method.as_bytes()).ok()?;
-                        let uri: hyper::Uri = path.parse().ok()?;
-                        (uri.scheme().is_none()
-                            && uri.authority().is_none()
-                            && uri.path().starts_with('/'))
-                        .then_some((method, uri))
-                    })
-                else {
-                    return Fault::invalid().reply(self, None);
-                };
-                *request.method_mut() = method;
-                *request.uri_mut() = uri;
-                gateway::ingress(self, generation, request, true).await
-            }
-            _ => empty(StatusCode::NOT_FOUND),
-        }
-    }
 }
 
-/// Replaces the control credential with the caller's own for the invoked
-/// binding. A caller without one sends the header empty or not at all, and
-/// both leave the invocation unauthenticated.
-fn forward_invocation_authorization(headers: &mut HeaderMap) {
-    headers.remove("authorization");
-    if let Some(credential) = headers
-        .remove("x-app-invocation-authorization")
-        .filter(|value| !value.as_bytes().trim_ascii().is_empty())
-    {
-        headers.insert("authorization", credential);
-    }
-}
+#[path = "control.rs"]
+mod control;
+#[cfg(test)]
+use control::forward_invocation_authorization;
 
 pub(crate) fn authorized(headers: &HeaderMap, expected: &str) -> bool {
     let mut supplied = headers.get_all("authorization").iter();
