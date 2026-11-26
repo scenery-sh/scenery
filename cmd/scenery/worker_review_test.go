@@ -564,3 +564,184 @@ func TestProjectWorkerAssistantsAndReserveFrontendPaths(t *testing.T) {
 		t.Fatalf("expected assistant path in frontend reserved list: %+v", frontend)
 	}
 }
+
+func TestStartupReconcileExplicitJSDependenciesPreservesPreBuildDigest(t *testing.T) {
+	root := t.TempDir()
+	wsFile := filepath.Join("web", "shared.ts")
+	nodeFile := filepath.Join("web", "node_modules", "pkg", "index.js")
+	writeWatchFile(t, root, wsFile, "export const shared = 1;\n")
+	writeWatchFile(t, root, nodeFile, "export const pkg = 1;\n")
+
+	watch, err := openWorkerInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = watch.fs.Close() }()
+
+	inputs, err := watch.capture(nil, nil, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate an edit to wsFile right as startup JS bundling ran, before
+	// reconcileExplicitJSDependencies registers explicit dependencies.
+	writeWatchFile(t, root, wsFile, "export const shared = 2;\n")
+	updated, err := reconcileExplicitJSDependencies(watch, inputs, nil, []string{wsFile, nodeFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated[wsFile] != inputs[wsFile] {
+		t.Fatal("startup reconcile overwrote pre-build workspace dependency digest")
+	}
+	if _, exists := updated[nodeFile]; !exists {
+		t.Fatalf("startup reconcile missing newly discovered node_modules dependency %s", nodeFile)
+	}
+	if err := (&workerDevelopment{watch: watch}).verify(updated); !errors.Is(err, errWorkerInputsChanged) {
+		t.Fatalf("verify after concurrent edit = %v, want errWorkerInputsChanged", err)
+	}
+	wrappedErr := &workerJSBuildError{service: "app/service/web", err: errWorkerInputsChanged}
+	if !errors.Is(wrappedErr, errWorkerInputsChanged) {
+		t.Fatalf("workerJSBuildError must unwrap errWorkerInputsChanged: %v", wrappedErr)
+	}
+}
+
+func TestWorkerAssistantSourceDigestSkipsNodeModulesAndRejectsSymlinks(t *testing.T) {
+	sourceRoot := t.TempDir()
+	writeWatchFile(t, sourceRoot, "index.ts", "export const v = 1;\n")
+	writeWatchFile(t, sourceRoot, filepath.Join("node_modules", "pkg", "index.js"), "module.exports = 1;\n")
+	binDir := filepath.Join(sourceRoot, "node_modules", ".bin")
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../pkg/index.js", filepath.Join(binDir, "helper")); err != nil {
+		t.Fatal(err)
+	}
+
+	digest1, err := workerAssistantSourceDigest(sourceRoot)
+	if err != nil {
+		t.Fatalf("workerAssistantSourceDigest with node_modules symlinks = %v", err)
+	}
+	// Edits inside node_modules do not invalidate authored assistant sources.
+	writeWatchFile(t, sourceRoot, filepath.Join("node_modules", "pkg", "index.js"), "module.exports = 2;\n")
+	digest2, err := workerAssistantSourceDigest(sourceRoot)
+	if err != nil || digest2 != digest1 {
+		t.Fatalf("digest after node_modules change = (%q, %v), want unchanged %q", digest2, err, digest1)
+	}
+
+	writeWatchFile(t, sourceRoot, "index.ts", "export const v = 2;\n")
+	digest3, err := workerAssistantSourceDigest(sourceRoot)
+	if err != nil || digest3 == digest1 {
+		t.Fatalf("digest after index.ts edit = (%q, %v), want different from %q", digest3, err, digest1)
+	}
+
+	if err := os.Symlink("index.ts", filepath.Join(sourceRoot, "escape.ts")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workerAssistantSourceDigest(sourceRoot); err == nil {
+		t.Fatal("expected symlink outside node_modules to return error")
+	}
+}
+
+func TestWorkerConfigIdentityAndLiveReloadSelectivelyMatchesWorkers(t *testing.T) {
+	baseA := &workerruntime.ConfigSnapshot{
+		Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "development", Revision: "rev-1",
+		Consumer: "mod/service/a",
+		Values:   map[string]json.RawMessage{"a.greeting": json.RawMessage(`"hello"`)},
+		Secrets:  map[string][]byte{"a.token": []byte("secret-1")},
+	}
+	reorderedRevA := &workerruntime.ConfigSnapshot{
+		Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "development", Revision: "rev-2",
+		Consumer: "mod/service/a",
+		Values:   map[string]json.RawMessage{"a.greeting": json.RawMessage(`"hello"`)},
+		Secrets:  map[string][]byte{"a.token": []byte("secret-1")},
+	}
+	changedSecretA := &workerruntime.ConfigSnapshot{
+		Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "development", Revision: "rev-2",
+		Consumer: "mod/service/a",
+		Values:   map[string]json.RawMessage{"a.greeting": json.RawMessage(`"hello"`)},
+		Secrets:  map[string][]byte{"a.token": []byte("secret-2")},
+	}
+	if workerConfigIdentity(baseA) != workerConfigIdentity(reorderedRevA) {
+		t.Fatal("workerConfigIdentity must ignore revision-only bumps when values and secrets match")
+	}
+	if workerConfigIdentity(baseA) == workerConfigIdentity(changedSecretA) {
+		t.Fatal("workerConfigIdentity must change when consumed secret bytes change")
+	}
+
+	identity := workerProcessIdentity{ContractRevision: "c1", ImplementationRevision: "i1", BuildInputDigest: "b1", Target: "go"}
+	procA := &workerProcess{
+		program: workerProgram{Service: "mod/service/a", Runtime: "go", Digest: "sha256:1", Identity: identity, config: baseA},
+		done:    make(chan struct{}),
+	}
+	progUnchanged := workerProgram{Service: "mod/service/a", Runtime: "go", Digest: "sha256:1", Identity: identity, config: reorderedRevA}
+	if !workerStillMatches(procA, progUnchanged) {
+		t.Fatal("workerStillMatches returned false when consumed config stayed identical")
+	}
+	progChanged := workerProgram{Service: "mod/service/a", Runtime: "go", Digest: "sha256:1", Identity: identity, config: changedSecretA}
+	if workerStillMatches(procA, progChanged) {
+		t.Fatal("workerStillMatches returned true when consumed secret changed")
+	}
+
+	hostSnap := &workerruntime.ConfigSnapshot{
+		Kind: workerruntime.ConfigSnapshotKind, AppID: "app", Environment: "development", Revision: "rev-2",
+		Consumer: hostConsumer, Values: map[string]json.RawMessage{"public.flag": json.RawMessage(`true`)},
+		Public: []string{"public.flag"},
+	}
+	workerruntime.UpdateWorkerDevelopmentConfig(hostSnap, map[string]*workerruntime.ConfigSnapshot{"mod/service/a": changedSecretA})
+	loaded, err := workerruntime.LoadConfigSnapshot()
+	if err != nil || loaded == nil || loaded.Revision != "rev-2" {
+		t.Fatalf("LoadConfigSnapshot after UpdateWorkerDevelopmentConfig = (%+v, %v), want rev-2", loaded, err)
+	}
+}
+
+func TestWorkerVerifyDatabaseSetupSkipsUnchangedAndBlocksPendingMigration(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWatchFile(t, root, ".scenery.json", `{"name":"db-test","id":"db-test","envs":{"local":{"default":true}},"database":{"migrations":[{"service":"main","directory":"db/migrations"}]}}`)
+	writeWatchFile(t, root, filepath.Join("db", "migrations", "0001_init.sql"), "CREATE TABLE items (id int);\n")
+
+	_, cfg, err := app.DiscoverRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled := &compiler.Result{
+		Root:            root,
+		Manifest:        &graph.Manifest{ContractRevision: "contract-1"},
+		SQLRequirements: compiler.SQLRequirements{{Name: "main", Schema: "public"}},
+	}
+	initialSetup, hasWork, err := buildDevDatabaseSetup(root, cfg, compiled)
+	if err != nil || !hasWork {
+		t.Fatalf("buildDevDatabaseSetup(initial) = (%+v, %v, %v)", initialSetup, hasWork, err)
+	}
+
+	called := 0
+	var observedStatusOnly bool
+	dev := &workerDevelopment{
+		watch:              &workerInputWatch{root: root},
+		compiled:           compiled,
+		envName:            "local",
+		dbSetupFingerprint: initialSetup.Fingerprint,
+		dbSetupApply: func(_ context.Context, _ devDatabaseSetup, statusOnly bool) error {
+			called++
+			observedStatusOnly = statusOnly
+			return &pendingMigrationError{Service: "main"}
+		},
+	}
+
+	gotFP, err := dev.verifyDatabaseSetup(context.Background())
+	if err != nil || gotFP != initialSetup.Fingerprint || called != 0 {
+		t.Fatalf("verifyDatabaseSetup(unchanged) = (%q, %v), called=%d", gotFP, err, called)
+	}
+
+	writeWatchFile(t, root, filepath.Join("db", "migrations", "0002_add_col.sql"), "ALTER TABLE items ADD COLUMN name text;\n")
+	_, err = dev.verifyDatabaseSetup(context.Background())
+	var pendingErr *pendingMigrationError
+	if !errors.As(err, &pendingErr) || cliExitCode(err) != 3 {
+		t.Fatalf("verifyDatabaseSetup(pending) = %v (exit %d), want *pendingMigrationError exit 3", err, cliExitCode(err))
+	}
+	if called != 1 || !observedStatusOnly {
+		t.Fatalf("dbSetupApply called=%d, statusOnly=%v; want 1, true", called, observedStatusOnly)
+	}
+}

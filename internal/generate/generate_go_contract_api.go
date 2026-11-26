@@ -158,45 +158,34 @@ func renderOperationAPI(b *strings.Builder, op Resource, typeName func(any) stri
 	fmt.Fprintf(b, "\traw, err := scenery.MarshalContractValue(value, %q); if err != nil { return value, err }\n", goWireTypeExpression(op.Spec["input"]))
 	fmt.Fprintf(b, "\treturn Unmarshal%sInput(raw)\n}\n\n", name)
 	fmt.Fprintf(b, "type %sOutcome interface { is%sOutcome() }\n\n", name, name)
-	for _, kind := range []string{"result", "error"} {
-		for _, variant := range namedChildren(op.Spec, kind) {
-			variantName, _ := variant["name"].(string)
-			wrapper := name + goName(variantName)
-			valueType := typeName(variant["type"])
-			field := "Value"
-			if kind == "error" {
-				field = "Problem"
-			}
-			fmt.Fprintf(b, "type %s struct { %s %s }\nfunc (%s) is%sOutcome() {}\n\n", wrapper, field, valueType, wrapper, name)
+	wrappers := operationVariantWrappers(name, op)
+	for _, entry := range wrappers {
+		valueType := typeName(entry.Spec["type"])
+		field := "Value"
+		if entry.Kind == "error" {
+			field = "Problem"
 		}
+		fmt.Fprintf(b, "type %s struct { %s %s }\nfunc (%s) is%sOutcome() {}\n\n", entry.WrapperName, field, valueType, entry.WrapperName, name)
 	}
 	fmt.Fprintf(b, "func Marshal%sOutcome(value %sOutcome) ([]byte, error) {\n\tswitch typed := value.(type) {\n", name, name)
-	for _, kind := range []string{"result", "error"} {
-		for _, variant := range namedChildren(op.Spec, kind) {
-			variantName := stringValue(variant["name"])
-			wrapper := name + goName(variantName)
-			field := "Value"
-			if kind == "error" {
-				field = "Problem"
-			}
-			fmt.Fprintf(b, "\tcase %s: return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", wrapper, kind, variantName, field, goWireTypeExpression(variant["type"]))
-			fmt.Fprintf(b, "\tcase *%s: if typed == nil { return nil, fmt.Errorf(\"nil %s outcome\") }; return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", wrapper, wrapper, kind, variantName, field, goWireTypeExpression(variant["type"]))
+	for _, entry := range wrappers {
+		field := "Value"
+		if entry.Kind == "error" {
+			field = "Problem"
 		}
+		fmt.Fprintf(b, "\tcase %s: return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", entry.WrapperName, entry.Kind, entry.VariantName, field, goWireTypeExpression(entry.Spec["type"]))
+		fmt.Fprintf(b, "\tcase *%s: if typed == nil { return nil, fmt.Errorf(\"nil %s outcome\") }; return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", entry.WrapperName, entry.WrapperName, entry.Kind, entry.VariantName, field, goWireTypeExpression(entry.Spec["type"]))
 	}
 	b.WriteString("\tdefault: return nil, fmt.Errorf(\"unknown operation outcome %T\", value)\n\t}\n}\n\n")
 	fmt.Fprintf(b, "func Unmarshal%sOutcome(data []byte) (%sOutcome, error) {\n", name, name)
 	b.WriteString("\tkind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data); if err != nil { return nil, err }\n\tswitch {\n")
-	for _, kind := range []string{"result", "error"} {
-		for _, variant := range namedChildren(op.Spec, kind) {
-			variantName := stringValue(variant["name"])
-			wrapper := name + goName(variantName)
-			valueType := typeName(variant["type"])
-			field := "Value"
-			if kind == "error" {
-				field = "Problem"
-			}
-			fmt.Fprintf(b, "\tcase kind == %q && name == %q:\n\t\tvar value %s; if err := unmarshalGeneratedContractValue(payload, &value, %q); err != nil { return nil, err }; return %s{%s: value}, nil\n", kind, variantName, valueType, goWireTypeExpression(variant["type"]), wrapper, field)
+	for _, entry := range wrappers {
+		valueType := typeName(entry.Spec["type"])
+		field := "Value"
+		if entry.Kind == "error" {
+			field = "Problem"
 		}
+		fmt.Fprintf(b, "\tcase kind == %q && name == %q:\n\t\tvar value %s; if err := unmarshalGeneratedContractValue(payload, &value, %q); err != nil { return nil, err }; return %s{%s: value}, nil\n", entry.Kind, entry.VariantName, valueType, goWireTypeExpression(entry.Spec["type"]), entry.WrapperName, field)
 	}
 	b.WriteString("\tdefault: return nil, fmt.Errorf(\"unknown operation outcome %s.%s\", kind, name)\n\t}\n}\n\n")
 	fmt.Fprintf(b, "func Clone%sOutcome(value %sOutcome) (%sOutcome, error) {\n\traw, err := Marshal%sOutcome(value); if err != nil { return nil, err }; return Unmarshal%sOutcome(raw)\n}\n\n", name, name, name, name, name)

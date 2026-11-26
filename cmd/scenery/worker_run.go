@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -237,10 +238,12 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	}
 	var assistants *assistantSupervisor
 	var assistantConfigPath string
+	var assistantDefinitions []assistantDefinition
+	var initialAssistantDigests map[string]string
 	var assistantWG sync.WaitGroup
 	if dev != nil && len(bundle.Host.Assistants) > 0 {
 		var restoreAssistantEnv func()
-		assistants, assistantConfigPath, restoreAssistantEnv, err = prepareWorkerDevAssistants(ctx, dev, directory)
+		assistants, assistantConfigPath, assistantDefinitions, initialAssistantDigests, restoreAssistantEnv, err = prepareWorkerDevAssistants(ctx, dev, directory)
 		if err != nil {
 			return err
 		}
@@ -293,11 +296,14 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	if dev != nil {
 		pruneJSWorkers(dev.watch.root, bundle.Programs)
 		if assistants != nil {
-			_ = assistants.StartPrepared(ctx)
-			_ = workerruntime.WriteAssistantRuntimeConfig(assistantConfigPath, assistants.RuntimeConfig())
-			definitions := assistantDefinitionsFromResult(dev.compiled, dev.watch.root)
+			if err := assistants.StartPrepared(ctx); err != nil {
+				return err
+			}
+			if err := workerruntime.WriteAssistantRuntimeConfig(assistantConfigPath, assistants.RuntimeConfig()); err != nil {
+				return err
+			}
 			assistantWG.Go(func() {
-				superviseWorkerAssistantSources(ctx, assistants, assistantConfigPath, definitions)
+				superviseWorkerAssistantSources(ctx, assistants, assistantConfigPath, assistantDefinitions, initialAssistantDigests)
 			})
 		}
 		devControl.publish(dev.applied, bundle, 1, nil)
@@ -464,8 +470,10 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 
 func workerBundleDigest(bundle workerBundle) string {
 	aggregate := sha256.New()
+	_, _ = io.WriteString(aggregate, workerConfigIdentity(bundle.hostConfigSnapshot()))
 	for _, program := range bundle.Programs {
 		_, _ = io.WriteString(aggregate, program.Digest)
+		_, _ = io.WriteString(aggregate, workerConfigIdentity(program.config))
 	}
 	return fmt.Sprintf("sha256:%x", aggregate.Sum(nil))
 }
@@ -550,65 +558,80 @@ func jsWorkerStartup(program workerProgram) (*devprocess.PrivateInput, error) {
 	return &devprocess.PrivateInput{Env: workerruntime.ConfigSnapshotFDEnv, Data: data}, nil
 }
 
-func prepareWorkerDevAssistants(ctx context.Context, dev *workerDevelopment, directory string) (*assistantSupervisor, string, func(), error) {
+func prepareWorkerDevAssistants(ctx context.Context, dev *workerDevelopment, directory string) (*assistantSupervisor, string, []assistantDefinition, map[string]string, func(), error) {
 	restore := saveAndRestoreEnv(workerruntime.AssistantTokenKeyFileEnv, workerruntime.AssistantRuntimeConfigEnv)
-	paths, err := commandWorktreePaths(dev.watch.root)
+	appRoot := dev.watch.root
+	compiledPtr := dev.ensureAssistantCompiled()
+	paths, err := commandWorktreePaths(appRoot)
 	if err != nil {
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
 	assistantState := filepath.Join(paths.Directory, "assistants")
 	keyPath, err := ensureAssistantTokenKey(assistantState)
 	if err != nil {
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
 	if err := envpolicy.Set(workerruntime.AssistantTokenKeyFileEnv, keyPath); err != nil {
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
-	_, cfg, err := discoverConfiguredApp(dev.watch.root)
+	_, cfg, err := discoverConfiguredApp(appRoot)
 	if err != nil {
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
 	resolvedEnv, err := cfg.ResolveEnv(dev.envName)
 	if err != nil {
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
 	providerEnv, err := assistantProviderEnvFromConfig(ctx, cfg, resolvedEnv)
 	if err != nil {
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
+	}
+	definitions := assistantDefinitionsFromResult(dev.compiled, appRoot)
+	initialDigests := make(map[string]string, len(definitions))
+	for _, definition := range definitions {
+		if definition.SourceRoot == "" {
+			continue
+		}
+		digest, digestErr := workerAssistantSourceDigest(definition.SourceRoot)
+		if digestErr != nil {
+			restore()
+			return nil, "", nil, nil, func() {}, digestErr
+		}
+		initialDigests[definition.SourceRoot] = digest
 	}
 	runtimeConfigPath := filepath.Join(directory, "assistant-runtime.json")
 	assistants := newAssistantSupervisor(ctx, assistantSupervisorConfig{
-		Root:          dev.watch.root,
+		Root:          appRoot,
 		StateRoot:     assistantState,
 		ProviderEnv:   providerEnv,
 		UseAppGateway: true,
 		OnStatus: func(statuses []AssistantStatusRecord) {
-			_ = writeAssistantLiveStatusSnapshot(dev.watch.root, dev.compiled, statuses)
+			_ = writeAssistantLiveStatusSnapshot(appRoot, compiledPtr.Load(), statuses)
 		},
 		Output: os.Stdout, ErrOutput: os.Stderr,
 	})
 	if err := assistants.Prepare(ctx, dev.compiled); err != nil {
 		_ = assistants.Close()
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
 	if err := workerruntime.WriteAssistantRuntimeConfig(runtimeConfigPath, assistants.RuntimeConfig()); err != nil {
 		_ = assistants.Close()
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
 	if err := envpolicy.Set(workerruntime.AssistantRuntimeConfigEnv, runtimeConfigPath); err != nil {
 		_ = assistants.Close()
 		restore()
-		return nil, "", func() {}, err
+		return nil, "", nil, nil, func() {}, err
 	}
-	return assistants, runtimeConfigPath, restore, nil
+	return assistants, runtimeConfigPath, definitions, initialDigests, restore, nil
 }
 
 func saveAndRestoreEnv(keys ...string) func() {
@@ -633,14 +656,96 @@ func saveAndRestoreEnv(keys ...string) func() {
 	}
 }
 
-func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantSupervisor, runtimeConfigPath string, definitions []assistantDefinition) {
+func workerAssistantSourceDigest(sourceRoot string) (string, error) {
+	hash := sha256.New()
+	err := filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(sourceRoot, path)
+		if err != nil || relative == "." {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("assistant source contains unsupported symlink %q", filepath.ToSlash(relative))
+		}
+		if entry.IsDir() && entry.Name() == "node_modules" {
+			return filepath.SkipDir
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			return fmt.Errorf("unsupported assistant input %q", filepath.ToSlash(relative))
+		}
+		digest := ""
+		if info.Mode().IsRegular() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			sum := sha256.Sum256(data)
+			digest = hex.EncodeToString(sum[:])
+		}
+		_, _ = fmt.Fprintf(hash, "%q %o %s\n", filepath.ToSlash(relative), info.Mode(), digest)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantSupervisor, runtimeConfigPath string, definitions []assistantDefinition, initialDigests map[string]string) {
 	if supervisor == nil || len(definitions) == 0 {
 		return
 	}
 	digests := make(map[string]string, len(definitions))
 	for _, definition := range definitions {
-		digests[definition.SourceRoot], _ = assistantOverlayInputDigest(definition.SourceRoot)
+		if initial, ok := initialDigests[definition.SourceRoot]; ok {
+			digests[definition.SourceRoot] = initial
+			continue
+		}
+		digests[definition.SourceRoot], _ = workerAssistantSourceDigest(definition.SourceRoot)
 	}
+	lastErrors := make(map[string]string)
+	scan := func() {
+		var changed []string
+		for _, definition := range definitions {
+			source := definition.SourceRoot
+			if source == "" {
+				continue
+			}
+			digest, err := workerAssistantSourceDigest(source)
+			if err != nil {
+				if lastErrors[source] != err.Error() {
+					lastErrors[source] = err.Error()
+					fmt.Fprintf(os.Stderr, "assistant %s watch skipped: %v\n", definition.Address, err)
+				}
+				continue
+			}
+			delete(lastErrors, source)
+			if digests[source] == digest {
+				continue
+			}
+			digests[source] = digest
+			if relative, err := filepath.Rel(supervisor.config.Root, source); err == nil {
+				changed = append(changed, filepath.ToSlash(relative))
+			}
+		}
+		if len(changed) > 0 {
+			supervisor.HandleChanges(ctx, changed)
+			if runtimeConfigPath != "" {
+				if err := workerruntime.WriteAssistantRuntimeConfig(runtimeConfigPath, supervisor.RuntimeConfig()); err != nil {
+					fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
+				}
+			}
+		}
+	}
+	// Run one immediate scan after StartPrepared so edits made while the overlay
+	// was prepared and started are applied without waiting for the first tick.
+	scan()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -648,24 +753,7 @@ func superviseWorkerAssistantSources(ctx context.Context, supervisor *assistantS
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			var changed []string
-			for _, definition := range definitions {
-				source := definition.SourceRoot
-				digest, err := assistantOverlayInputDigest(source)
-				if err != nil || digests[source] == digest {
-					continue
-				}
-				digests[source] = digest
-				if relative, err := filepath.Rel(supervisor.config.Root, source); err == nil {
-					changed = append(changed, filepath.ToSlash(relative))
-				}
-			}
-			if len(changed) > 0 {
-				supervisor.HandleChanges(ctx, changed)
-				if runtimeConfigPath != "" {
-					_ = workerruntime.WriteAssistantRuntimeConfig(runtimeConfigPath, supervisor.RuntimeConfig())
-				}
-			}
+			scan()
 		}
 	}
 }

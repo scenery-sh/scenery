@@ -143,6 +143,7 @@ func renderMCPStreamOutcomeBuffer(b *strings.Builder, target mcpToolTarget, reso
 		return fmt.Errorf("MCP binding %s has no HTTP stream binding for operation %s", target.Binding.Address, target.Operation.Address)
 	}
 	httpSpec, _ := streamBinding.Spec["http"].(map[string]any)
+	wrappers := operationVariantWrapperMap(goName(target.Operation.Name), target.Operation)
 	b.WriteString("switch typed := outcome.(type) { ")
 	for _, variant := range namedChildren(target.Operation.Spec, "result") {
 		name := stringValue(variant["name"])
@@ -151,7 +152,7 @@ func renderMCPStreamOutcomeBuffer(b *strings.Builder, target mcpToolTarget, reso
 		if body == nil || stringValue(body["codec"]) != "bytes" {
 			return fmt.Errorf("MCP binding %s stream result %s has no bytes response", target.Binding.Address, name)
 		}
-		wrapper := goName(target.Operation.Name) + goName(name)
+		wrapper := wrappers["result."+name]
 		expression, _, err := httpOutcomeValueExpression(resourceMap, target.Operation, "result."+name, refOrString(body["from"]), "typed.Value", variant["type"])
 		if err != nil {
 			return err
@@ -161,7 +162,7 @@ func renderMCPStreamOutcomeBuffer(b *strings.Builder, target mcpToolTarget, reso
 		fmt.Fprintf(b, "case *contract.%s: if typed == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome\")) }; copiedOutcome := *typed; if len(%s) != 0 { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"stream handler returned buffered bytes\")) }; buffered, err := sceneryruntime.BufferContractByteStream(stream, %d); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; %s = buffered; outcome = &copiedOutcome; ", wrapper, pointerExpression, target.MaxResultBytes, pointerExpression)
 	}
 	for _, variant := range namedChildren(target.Operation.Spec, "error") {
-		wrapper := goName(target.Operation.Name) + goName(stringValue(variant["name"]))
+		wrapper := wrappers["error."+stringValue(variant["name"])]
 		fmt.Fprintf(b, "case contract.%s, *contract.%s: if stream.Reader != nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"error outcome returned a byte stream\")) }; ", wrapper, wrapper)
 	}
 	b.WriteString("default: _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned an unknown outcome %T\", outcome)) }; ")

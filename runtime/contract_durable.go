@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -180,5 +181,31 @@ func contractExecutionReceipt(registration ContractDurableRegistration, executio
 		DurableIdentity:  registration.EngineAddress + "::" + registration.Address,
 		ExecutionID:      executionID,
 		AcceptedRevision: strconv.FormatUint(uint64(registration.Revision), 10),
+	}
+}
+
+// ClassifyContractDurableWaitError maps wait-mode durable execution failures to
+// transport errors while preserving context.Canceled so internal callers and
+// HTTP boundaries report client cancellation without a system failure token.
+func ClassifyContractDurableWaitError(err error, rejectedStatus, waitTimeoutStatus int) error {
+	if err == nil {
+		return nil
+	}
+	if rejectedStatus == 0 {
+		rejectedStatus = http.StatusServiceUnavailable
+	}
+	if waitTimeoutStatus == 0 {
+		waitTimeoutStatus = http.StatusGatewayTimeout
+	}
+	switch ContractDurableFailureOutcome(err) {
+	case "dispatch.rejected":
+		return &ContractTransportError{Outcome: "dispatch.rejected", Status: rejectedStatus, Message: "durable dispatch rejected", Cause: err}
+	case "dispatch.wait_timeout":
+		return &ContractTransportError{Outcome: "dispatch.wait_timeout", Status: waitTimeoutStatus, Message: "durable wait timed out", Cause: err}
+	default:
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		return ContractSystemError(err)
 	}
 }

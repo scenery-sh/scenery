@@ -88,7 +88,7 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 				}
 			}
 		}
-		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { typed := payload.(contract.%sInput); copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { switch sceneryruntime.ContractDurableFailureOutcome(err) { case \"dispatch.rejected\": return nil, &sceneryruntime.ContractTransportError{Outcome: \"dispatch.rejected\", Status: %d, Message: \"durable dispatch rejected\", Cause: err}; case \"dispatch.wait_timeout\": return nil, &sceneryruntime.ContractTransportError{Outcome: \"dispatch.wait_timeout\", Status: %d, Message: \"durable wait timed out\", Cause: err}; default: return nil, sceneryruntime.ContractSystemError(err) } }; outcome, err := contract.Unmarshal%sOutcome(data); if err != nil { return nil, err }; return sceneryruntime.NewContractPreparedOutcome(outcome, data), nil },\n", operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, statuses["dispatch.rejected"], statuses["dispatch.wait_timeout"], operationName)
+		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { typed := payload.(contract.%sInput); copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { return nil, sceneryruntime.ClassifyContractDurableWaitError(err, %d, %d) }; outcome, err := contract.Unmarshal%sOutcome(data); if err != nil { return nil, err }; return sceneryruntime.NewContractPreparedOutcome(outcome, data), nil },\n", operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, statuses["dispatch.rejected"], statuses["dispatch.wait_timeout"], operationName)
 	case "stream":
 		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; copied, err := contract.Clone%sInput(payload.(contract.%sInput)); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, stream, err := service.%s(ctx, copied); if err != nil { _ = stream.Close(); if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; ", operationName, operationName, handlerMethod)
 		if err := renderHTTPStreamOutcomeSanitizer(b, resourceMap, operation, httpSpec); err != nil {
@@ -123,6 +123,7 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 		b.WriteString("\t\t\t}); err != nil { return err }\n")
 		return nil
 	}
+	wrappers := operationVariantWrapperMap(operationName, operation)
 	for _, outcomeKind := range []string{"result", "error"} {
 		for _, variant := range namedChildren(operation.Spec, outcomeKind) {
 			name := stringValue(variant["name"])
@@ -134,7 +135,7 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 			if err != nil {
 				return fmt.Errorf("HTTP binding %s response %s has invalid status", binding.Address, name)
 			}
-			wrapper := operationName + goName(name)
+			wrapper := wrappers[outcomeKind+"."+name]
 			field := "typed.Value"
 			if outcomeKind == "error" {
 				field = "typed.Problem"
@@ -246,6 +247,7 @@ func renderHTTPResponseCase(b *strings.Builder, resources map[string]Resource, o
 }
 
 func renderHTTPStreamOutcomeSanitizer(b *strings.Builder, resources map[string]Resource, operation Resource, httpSpec map[string]any) error {
+	wrappers := operationVariantWrapperMap(goName(operation.Name), operation)
 	b.WriteString("switch typed := outcome.(type) { ")
 	for _, variant := range namedChildren(operation.Spec, "result") {
 		name := stringValue(variant["name"])
@@ -254,7 +256,7 @@ func renderHTTPStreamOutcomeSanitizer(b *strings.Builder, resources map[string]R
 		if body == nil || stringValue(body["codec"]) != "bytes" {
 			continue
 		}
-		wrapper := goName(operation.Name) + goName(name)
+		wrapper := wrappers["result."+name]
 		expression, _, err := httpOutcomeValueExpression(resources, operation, "result."+name, refOrString(body["from"]), "typed.Value", variant["type"])
 		if err != nil {
 			return err

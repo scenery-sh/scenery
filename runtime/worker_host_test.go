@@ -316,6 +316,7 @@ func TestWorkerHostRegistersAssistantsAndMCPManifest(t *testing.T) {
 		Policy: ContractHTTPPolicy{
 			ServiceName: "support", BindingAddress: "app/assistant/support",
 			GatewayAddress: "app/http_gateway/api", AuthorizationStrategy: "public",
+			CORS: "origins", AllowedOrigins: []string{"https://app.example"},
 		},
 		RuntimeRevision: "runtime-1", CapabilityRevision: "cap-1", MCPManifest: encoded,
 	}
@@ -350,10 +351,43 @@ func TestWorkerHostRegistersAssistantsAndMCPManifest(t *testing.T) {
 	}
 	authReq := httptest.NewRequest(http.MethodPost, "/assistants/support/v1/conversations", strings.NewReader(`{"message":{"role":"user","content":"hello"}}`))
 	authReq.Header.Set("Authorization", "Bearer user-1")
+	authReq.Header.Set("Origin", "https://app.example")
 	authRec := httptest.NewRecorder()
 	host.serveIngress(authRec, authReq)
 	if authRec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("authenticated assistant route without helper = %d (%s), want 503", authRec.Code, authRec.Body.String())
+	}
+	if gotOrigin := authRec.Header().Get("Access-Control-Allow-Origin"); gotOrigin != "https://app.example" {
+		t.Fatalf("assistant POST Access-Control-Allow-Origin = %q, want https://app.example", gotOrigin)
+	}
+	preflightReq := httptest.NewRequest(http.MethodOptions, "/assistants/support/v1/conversations", nil)
+	preflightReq.Header.Set("Origin", "https://app.example")
+	preflightReq.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	preflightRec := httptest.NewRecorder()
+	host.serveIngress(preflightRec, preflightReq)
+	if preflightRec.Code != http.StatusNoContent {
+		t.Fatalf("assistant preflight = %d, want 204", preflightRec.Code)
+	}
+	if gotOrigin := preflightRec.Header().Get("Access-Control-Allow-Origin"); gotOrigin != "https://app.example" {
+		t.Fatalf("assistant preflight Access-Control-Allow-Origin = %q, want https://app.example", gotOrigin)
+	}
+}
+
+func TestExecuteTypedEndpointMapsContextCanceledTo499WithoutSystemError(t *testing.T) {
+	ep := &Endpoint{
+		Invoke: func(ctx context.Context, _ []any, _ any) (any, error) {
+			return nil, ClassifyContractDurableWaitError(fmt.Errorf("wait: %w", context.Canceled), 0, 0)
+		},
+	}
+	_, status, _, err := executeTypedEndpoint(ep, t.Context(), nil, nil)
+	if status != 499 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("executeTypedEndpoint(canceled) = status %d, err %v; want 499 + context.Canceled", status, err)
+	}
+	if _, isTransport := errors.AsType[*ContractTransportError](err); isTransport {
+		t.Fatalf("canceled wait must not produce *ContractTransportError: %#v", err)
+	}
+	if typed, ok := errs.As(err); !ok || typed.Code != errs.Canceled {
+		t.Fatalf("canceled wait code = %v, want errs.Canceled", err)
 	}
 }
 
@@ -438,5 +472,28 @@ func TestMainWorkerProcessHostValidatesAndAppliesRuntimeRole(t *testing.T) {
 	cancel()
 	if runErr := <-done; runErr != nil {
 		t.Fatalf("MainWorkerProcessHost(worker role) = %v", runErr)
+	}
+
+	// Verify serveWorkerDevCall does not panic when HTTP ingress is disabled in worker role,
+	// and retiring an already-retired generation is idempotent.
+	host := &processHost{
+		name:            "role-app",
+		contract:        "contract",
+		developmentCall: true,
+		ingressDisabled: true,
+		routes:          newRouteTable(),
+		closing:         make(chan struct{}),
+		current:         &processHostGeneration{number: 2, instances: map[string]*processHostInstance{}},
+		generations:     map[uint64]*processHostGeneration{},
+	}
+	host.generations[2] = host.current
+	devCallReq := httptest.NewRequest(http.MethodPost, "http://host/__scenery/process/v1/dev-call?method=GET&path=%2Fhello", nil)
+	devCallRec := httptest.NewRecorder()
+	host.serveWorkerDevCall(devCallRec, devCallReq)
+	if devCallRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("dev-call in worker role = %d (%s), want 503", devCallRec.Code, devCallRec.Body.String())
+	}
+	if status, reason := host.retire(1, false); status != http.StatusNoContent {
+		t.Fatalf("retire(already retired generation 1) = %d (%q), want 204", status, reason)
 	}
 }

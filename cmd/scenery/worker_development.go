@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/build"
@@ -17,14 +18,27 @@ import (
 )
 
 type workerDevelopment struct {
-	watch        *workerInputWatch
-	applied      workerInputs
-	compiled     *compiler.Result
-	envName      string
-	declarations map[string]bool
-	goWorkspace  *build.Result
-	rust         workerRustDevelopment
-	js           []workerJSBuild
+	watch              *workerInputWatch
+	applied            workerInputs
+	compiled           *compiler.Result
+	assistantCompiled  *atomic.Pointer[compiler.Result]
+	envName            string
+	dbSetupFingerprint string
+	dbSetupApply       func(ctx context.Context, setup devDatabaseSetup, statusOnly bool) error
+	declarations       map[string]bool
+	goWorkspace        *build.Result
+	rust               workerRustDevelopment
+	js                 []workerJSBuild
+}
+
+func (dev *workerDevelopment) ensureAssistantCompiled() *atomic.Pointer[compiler.Result] {
+	if dev.assistantCompiled == nil {
+		dev.assistantCompiled = &atomic.Pointer[compiler.Result]{}
+	}
+	if dev.assistantCompiled.Load() == nil && dev.compiled != nil {
+		dev.assistantCompiled.Store(dev.compiled)
+	}
+	return dev.assistantCompiled
 }
 
 type workerRustDevelopment struct {
@@ -38,7 +52,7 @@ type workerRustDevelopment struct {
 }
 
 func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs workerInputs) (*workerDevelopment, workerBundle, error) {
-	dev := &workerDevelopment{watch: watch, applied: inputs}
+	dev := &workerDevelopment{watch: watch, applied: inputs, assistantCompiled: &atomic.Pointer[compiler.Result]{}}
 	bundle, err := dev.prepare(ctx)
 	if err != nil {
 		return nil, workerBundle{}, err
@@ -47,12 +61,12 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs
 		return nil, workerBundle{}, err
 	}
 	bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
-	bundle, err = dev.rebuildJS(ctx, workerBundle{}, bundle, nil, true, &workerRebuildTiming{})
+	bundle, err = dev.rebuildJS(ctx, workerBundle{}, bundle, inputs, nil, true, &workerRebuildTiming{})
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
-	watch.setExplicit(dev.jsDependencies(), true)
-	if err := watch.scanExplicit(dev.applied, false); err != nil {
+	dev.applied, err = reconcileExplicitJSDependencies(watch, dev.applied, nil, dev.jsDependencies())
+	if err != nil {
 		return nil, workerBundle{}, err
 	}
 	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
@@ -62,6 +76,7 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs
 	if err := bundle.projectConfig(dev.compiled); err != nil {
 		return nil, workerBundle{}, err
 	}
+	dev.assistantCompiled.Store(dev.compiled)
 	return dev, bundle, nil
 }
 
@@ -156,7 +171,7 @@ func (dev *workerDevelopment) rebuild(ctx context.Context, active workerBundle, 
 	} else {
 		next.keepPrograms(active, "rust")
 	}
-	next, err := dev.rebuildJS(ctx, active, next, paths, edit.declarations, timing)
+	next, err := dev.rebuildJS(ctx, active, next, current, paths, edit.declarations, timing)
 	if err != nil {
 		return workerBundle{}, err
 	}
@@ -214,6 +229,15 @@ func (dev *workerDevelopment) rebuild(ctx context.Context, active workerBundle, 
 		}
 		for index, program := range next.Programs {
 			next.Programs[index].ConfigKeys = keys[program.Service]
+		}
+	}
+	if active.config != nil {
+		_, cfg, err := discoverConfiguredApp(dev.watch.root)
+		if err != nil {
+			return workerBundle{}, err
+		}
+		if err := next.resolveDevelopmentConfig(ctx, dev.compiled, cfg, dev.envName); err != nil {
+			return workerBundle{}, err
 		}
 	}
 	next.setWorkerConfig()

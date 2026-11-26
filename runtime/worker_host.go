@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -28,8 +29,26 @@ type workerHost struct {
 	services map[string]WorkerServicePlan
 	scopes   workerabi.Scopes
 	codec    WorkerValueCodec
+	configMu sync.RWMutex
 	config   map[string]*ConfigSnapshot
 	storage  WorkerStorageHandler
+}
+
+// UpdateWorkerDevelopmentConfig swaps the Host and per-worker configuration
+// snapshots stored by the active worker Host during a development session.
+func UpdateWorkerDevelopmentConfig(hostSnapshot *ConfigSnapshot, workerSnapshots map[string]*ConfigSnapshot) {
+	UpdateWorkerHostConfig(hostSnapshot)
+	activeProcessHost.RLock()
+	host := activeProcessHost.host
+	activeProcessHost.RUnlock()
+	if host == nil || host.workers == nil {
+		return
+	}
+	next := make(map[string]*ConfigSnapshot, len(workerSnapshots))
+	maps.Copy(next, workerSnapshots)
+	host.workers.configMu.Lock()
+	host.workers.config = next
+	host.workers.configMu.Unlock()
 }
 
 func (h *processHost) registerWorkerServices(plans []WorkerServicePlan, codec WorkerValueCodec, snapshots map[string]*ConfigSnapshot, storage WorkerStorageHandler) error {
@@ -126,19 +145,17 @@ func (workers *workerHost) registerBinding(plan WorkerServicePlan, binding Worke
 			Invoke: func(ctx context.Context, _ []any, input any) (any, error) {
 				result, err := invoke(ctx, input)
 				if err != nil {
+					if transport, ok := errors.AsType[*ContractTransportError](err); ok {
+						if configured := binding.Policy.TransportStatuses[transport.Outcome]; configured != 0 {
+							return nil, &ContractTransportError{Outcome: transport.Outcome, Status: configured, Message: transport.Message, Cause: transport.Cause}
+						}
+						return nil, err
+					}
 					switch outcome := ContractDurableFailureOutcome(err); outcome {
 					case "dispatch.rejected":
-						status := http.StatusServiceUnavailable
-						if configured := binding.Policy.TransportStatuses[outcome]; configured != 0 {
-							status = configured
-						}
-						return nil, &ContractTransportError{Outcome: outcome, Status: status, Message: "durable dispatch rejected", Cause: err}
+						return nil, ClassifyContractDurableWaitError(err, binding.Policy.TransportStatuses[outcome], 0)
 					case "dispatch.wait_timeout":
-						status := http.StatusGatewayTimeout
-						if configured := binding.Policy.TransportStatuses[outcome]; configured != 0 {
-							status = configured
-						}
-						return nil, &ContractTransportError{Outcome: outcome, Status: status, Message: "durable wait timed out", Cause: err}
+						return nil, ClassifyContractDurableWaitError(err, 0, binding.Policy.TransportStatuses[outcome])
 					default:
 						return nil, err
 					}
@@ -393,7 +410,9 @@ func (workers *workerHost) serveCapability(service string, w http.ResponseWriter
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		workers.configMu.RLock()
 		snapshot := workers.config[service]
+		workers.configMu.RUnlock()
 		if snapshot == nil {
 			http.NotFound(w, request)
 			return

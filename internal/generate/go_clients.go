@@ -26,6 +26,30 @@ func serviceGoClients(idx *resourceIndex, service Resource) ([]goClientBinding, 
 	return byService[service.Address], nil
 }
 
+func reserveGeneratedTypeResource(used map[string]bool, res Resource) {
+	name := goName(res.Name)
+	switch res.Kind {
+	case "scenery.record":
+		used[name] = true
+	case "scenery.enum":
+		used[name] = true
+		for _, value := range namedChildren(res.Spec, "value") {
+			used[name+goName(stringValue(value["name"]))] = true
+		}
+	case "scenery.union":
+		used[name] = true
+		used["Marshal"+name+"JSON"] = true
+		used["Unmarshal"+name+"JSON"] = true
+		used["marshal"+name+"Variant"] = true
+		for _, variant := range namedChildren(res.Spec, "variant") {
+			used[name+goName(stringValue(variant["name"]))] = true
+		}
+		if res.Spec["open"] == true {
+			used[name+"Unknown"] = true
+		}
+	}
+}
+
 func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]goClientBinding, error) {
 	byAddress := idx.byAddress
 	module := targetService.Module
@@ -43,15 +67,11 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 		for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {
 			used[name+suffix] = true
 		}
-		for _, client := range namedChildren(res.Spec, "client") {
-			if clientName := stringValue(client["name"]); clientName != "" {
-				used[goName(clientName)+"InternalClient"] = true
-			}
-		}
 	}
 	var services []Resource
 	seenTarget := false
-	for _, res := range idx.moduleResources(module) {
+	localResources := idx.moduleResources(module)
+	for _, res := range localResources {
 		name := goName(res.Name)
 		switch res.Kind {
 		case "scenery.service":
@@ -60,24 +80,8 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 			if res.Address == targetService.Address {
 				seenTarget = true
 			}
-		case "scenery.record":
-			used[name] = true
-		case "scenery.enum":
-			used[name] = true
-			for _, value := range namedChildren(res.Spec, "value") {
-				used[name+goName(stringValue(value["name"]))] = true
-			}
-		case "scenery.union":
-			used[name] = true
-			used["Marshal"+name+"JSON"] = true
-			used["Unmarshal"+name+"JSON"] = true
-			used["marshal"+name+"Variant"] = true
-			for _, variant := range namedChildren(res.Spec, "variant") {
-				used[name+goName(stringValue(variant["name"]))] = true
-			}
-			if res.Spec["open"] == true {
-				used[name+"Unknown"] = true
-			}
+		case "scenery.record", "scenery.enum", "scenery.union":
+			reserveGeneratedTypeResource(used, res)
 		case "scenery.operation":
 			for _, symbol := range generatedOperationSymbols(name, res) {
 				used[symbol] = true
@@ -89,6 +93,7 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 		services = append(services, targetService)
 	}
 	byService := make(map[string][]goClientBinding, len(services))
+	var rawProjectedOps []Resource
 	for _, service := range services {
 		var result []goClientBinding
 		for _, client := range namedChildren(service.Spec, "client") {
@@ -111,12 +116,53 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 			if delivery != "call" && delivery != "wait" && delivery != "enqueue" {
 				return nil, fmt.Errorf("service %s client %s has unsupported delivery %q", service.Address, name, delivery)
 			}
+			projected := operation.Module != service.Module
 			result = append(result, goClientBinding{
-				Name: name, Field: goName(name), InterfaceName: goName(name) + "InternalClient", Projected: operation.Module != service.Module,
+				Name: name, Field: goName(name), Projected: projected,
 				Binding: binding, Operation: operation, Delivery: delivery,
 			})
+			if projected {
+				rawOp := operation
+				rawOp.Spec = qualifyProjectedGoTypes(rawOp)
+				rawProjectedOps = append(rawProjectedOps, rawOp)
+			}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+		byService[service.Address] = result
+	}
+	if len(rawProjectedOps) > 0 || len(localResources) > 0 {
+		allResources := idx.all
+		if len(allResources) == 0 {
+			allResources = localResources
+		}
+		closureResources, _, err := goContractTypeClosure(module, localResources, allResources, rawProjectedOps)
+		if err != nil {
+			return nil, err
+		}
+		for _, res := range closureResources {
+			reserveGeneratedTypeResource(used, res)
+		}
+	}
+	// Assign and reserve every service's client interface name before choosing
+	// projected operation names so sibling services and variant wrappers never collide.
+	for _, service := range services {
+		servicePrefix := goName(service.Name)
+		result := byService[service.Address]
+		for i := range result {
+			base := result[i].Field + "InternalClient"
+			iface := base
+			if used[iface] {
+				iface = servicePrefix + base
+				for suffix := 2; used[iface]; suffix++ {
+					iface = fmt.Sprintf("%s%s%dInternalClient", servicePrefix, result[i].Field, suffix)
+				}
+			}
+			used[iface] = true
+			result[i].InterfaceName = iface
+		}
+	}
+	for _, service := range services {
+		result := byService[service.Address]
 		for i := range result {
 			if !result[i].Projected {
 				result[i].OperationName = goName(result[i].Operation.Name)
@@ -135,9 +181,59 @@ func moduleGoClients(idx *resourceIndex, targetService Resource) (map[string][]g
 			}
 			result[i].OperationName = candidate
 		}
-		byService[service.Address] = result
 	}
 	return byService, nil
+}
+
+type operationVariantWrapper struct {
+	Kind        string
+	VariantName string
+	WrapperName string
+	Spec        map[string]any
+}
+
+func operationVariantWrappers(opName string, op Resource) []operationVariantWrapper {
+	localUsed := map[string]bool{
+		opName:                           true,
+		opName + "Input":                 true,
+		"Unmarshal" + opName + "Input":   true,
+		"Clone" + opName + "Input":       true,
+		opName + "Outcome":               true,
+		"Marshal" + opName + "Outcome":   true,
+		"Unmarshal" + opName + "Outcome": true,
+		"Clone" + opName + "Outcome":     true,
+	}
+	var wrappers []operationVariantWrapper
+	for _, kind := range []string{"result", "error"} {
+		for _, variant := range namedChildren(op.Spec, kind) {
+			variantName := stringValue(variant["name"])
+			wrapper := opName + goName(variantName)
+			if localUsed[wrapper] {
+				base := opName + goName(kind) + "Variant" + goName(variantName)
+				wrapper = base
+				for suffix := 2; localUsed[wrapper]; suffix++ {
+					wrapper = fmt.Sprintf("%s%d", base, suffix)
+				}
+			}
+			localUsed[wrapper] = true
+			wrappers = append(wrappers, operationVariantWrapper{
+				Kind:        kind,
+				VariantName: variantName,
+				WrapperName: wrapper,
+				Spec:        variant,
+			})
+		}
+	}
+	return wrappers
+}
+
+func operationVariantWrapperMap(opName string, op Resource) map[string]string {
+	entries := operationVariantWrappers(opName, op)
+	byOutcome := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		byOutcome[entry.Kind+"."+entry.VariantName] = entry.WrapperName
+	}
+	return byOutcome
 }
 
 // generatedOperationSymbols returns all package-level identifiers emitted by
@@ -153,10 +249,8 @@ func generatedOperationSymbols(name string, op Resource) []string {
 		"Unmarshal" + name + "Outcome",
 		"Clone" + name + "Outcome",
 	}
-	for _, kind := range []string{"result", "error"} {
-		for _, variant := range namedChildren(op.Spec, kind) {
-			symbols = append(symbols, name+goName(stringValue(variant["name"])))
-		}
+	for _, entry := range operationVariantWrappers(name, op) {
+		symbols = append(symbols, entry.WrapperName)
 	}
 	return symbols
 }

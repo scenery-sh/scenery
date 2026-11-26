@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/tscheck"
@@ -30,7 +31,14 @@ type Artifact struct {
 	Dependencies []string
 }
 
+// Build compiles a JavaScript/TypeScript worker service and caches its artifact.
 func Build(ctx context.Context, root string, service Service, check bool) (Artifact, error) {
+	return BuildWithVerify(ctx, root, service, check, nil)
+}
+
+// BuildWithVerify compiles a worker service and invokes verify against the
+// discovered cache dependencies before writing any cache entry.
+func BuildWithVerify(ctx context.Context, root string, service Service, check bool, verify func(dependencies []string) error) (Artifact, error) {
 	privateRoot := filepath.Join(root, ".scenery", "js")
 	if err := os.MkdirAll(privateRoot, 0o700); err != nil {
 		return Artifact{}, err
@@ -41,10 +49,14 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 
 	key := sha256.Sum256(fmt.Appendf(nil, "%q", service))
 	cache := filepath.Join(privateRoot, fmt.Sprintf("build-%x.json", key[:8]))
+	var priorDepDigests map[string]string
 	if !check {
 		var prior Artifact
 		if err := withCacheLock(privateRoot, func() error {
 			prior = readBuildCache(root, cache, service)
+			if !prior.CacheHit {
+				priorDepDigests = snapshotCacheDependencies(root, cache)
+			}
 			return nil
 		}); err != nil {
 			return Artifact{}, err
@@ -53,6 +65,7 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 			return prior, nil
 		}
 	}
+	buildStarted := time.Now()
 	var before string
 	if !check {
 		var err error
@@ -111,6 +124,10 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 		return Artifact{}, fmt.Errorf("JavaScript worker sources changed during build")
 	}
 	dependencies := cacheDependencies(root, directory, inputs)
+	cacheable, err := verifyBuildCachePublish(root, priorDepDigests, dependencies, buildStarted, verify)
+	if err != nil {
+		return Artifact{}, err
+	}
 	fingerprint, err := buildFingerprint(root, service, dependencies)
 	if err != nil {
 		return Artifact{}, err
@@ -129,14 +146,41 @@ func Build(ctx context.Context, root string, service Service, check bool) (Artif
 		return Artifact{}, err
 	}
 	if err := withCacheLock(privateRoot, func() error {
-		if err := os.Rename(recordPath, cache); err != nil {
-			return err
+		if cacheable {
+			if err := os.Rename(recordPath, cache); err != nil {
+				return err
+			}
 		}
 		return os.Rename(output, destination)
 	}); err != nil {
 		return Artifact{}, err
 	}
 	return Artifact{Path: destination, Digest: "sha256:" + digest, Dependencies: dependencies}, nil
+}
+
+func verifyBuildCachePublish(root string, priorDepDigests map[string]string, dependencies []string, buildStarted time.Time, verify func([]string) error) (bool, error) {
+	for _, dep := range dependencies {
+		if prevDigest, ok := priorDepDigests[dep]; ok {
+			currentDigest, err := fileDigest(filepath.Join(root, dep))
+			if err != nil || currentDigest != prevDigest {
+				return false, fmt.Errorf("JavaScript worker dependency %s changed during build", dep)
+			}
+		}
+	}
+	if verify != nil {
+		if err := verify(dependencies); err != nil {
+			return false, err
+		}
+	}
+	cacheable := true
+	for _, dep := range dependencies {
+		info, err := os.Lstat(filepath.Join(root, dep))
+		if err != nil || !info.ModTime().Before(buildStarted) {
+			cacheable = false
+			break
+		}
+	}
+	return cacheable, nil
 }
 
 func checkTypeScript(ctx context.Context, root, module, staging, entry string) error {

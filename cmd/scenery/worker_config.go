@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -51,7 +55,7 @@ func (bundle *workerBundle) projectConfig(result *compiler.Result) error {
 				}
 			}
 			if selected {
-				bundle.Programs[index].ConfigKeys = append(program.ConfigKeys, input.Key)
+				bundle.Programs[index].ConfigKeys = append(bundle.Programs[index].ConfigKeys, input.Key)
 			}
 		}
 	}
@@ -81,9 +85,16 @@ func (bundle *workerBundle) resolveDevelopmentConfig(ctx context.Context, compil
 	return err
 }
 
+func (bundle *workerBundle) hostConfigSnapshot() *workerruntime.ConfigSnapshot {
+	if bundle == nil {
+		return nil
+	}
+	return projectWorkerConfig(bundle.config, hostConsumer, bundle.HostConfigKeys)
+}
+
 func (bundle *workerBundle) configureRuntime(development bool) error {
 	if development {
-		if err := workerruntime.InstallWorkerHostConfig(projectWorkerConfig(bundle.config, hostConsumer, bundle.HostConfigKeys)); err != nil {
+		if err := workerruntime.InstallWorkerHostConfig(bundle.hostConfigSnapshot()); err != nil {
 			return err
 		}
 	} else {
@@ -139,4 +150,40 @@ func projectWorkerConfig(base *workerruntime.ConfigSnapshot, consumer string, ke
 		}
 	}
 	return &projected
+}
+
+func workerConfigIdentity(snapshot *workerruntime.ConfigSnapshot) string {
+	if snapshot == nil {
+		return ""
+	}
+	hash := sha256.New()
+	_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%s\x00%s\x00", snapshot.Kind, snapshot.AppID, snapshot.Environment, snapshot.CatalogRevision, snapshot.Consumer)
+	public := slices.Clone(snapshot.Public)
+	slices.Sort(public)
+	for _, key := range public {
+		_, _ = fmt.Fprintf(hash, "public\x00%s\x00", key)
+	}
+	for _, key := range slices.Sorted(maps.Keys(snapshot.Values)) {
+		_, _ = fmt.Fprintf(hash, "value\x00%s\x00%s\x00", key, snapshot.Values[key])
+	}
+	for _, key := range slices.Sorted(maps.Keys(snapshot.Secrets)) {
+		_, _ = fmt.Fprintf(hash, "secret\x00%s\x00%x\x00", key, snapshot.Secrets[key])
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func workerDevConfigFile(root, envName string) (string, bool) {
+	_, cfg, err := discoverConfiguredApp(root)
+	if err != nil {
+		return "", false
+	}
+	env, err := cfg.ResolveEnv(envName)
+	if err != nil {
+		return "", false
+	}
+	store, err := devConfigStore(cfg)
+	if err != nil || store == nil {
+		return "", false
+	}
+	return filepath.Join(store.Dir(), "environments", env.Name+".json"), true
 }

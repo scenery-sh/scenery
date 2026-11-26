@@ -428,9 +428,11 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if err := configureWorkerDevelopmentStorage(context.Background(), root, cfg); err != nil {
 				return err
 			}
-			if err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env); err != nil {
+			dbFingerprint, err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env)
+			if err != nil {
 				return err
 			}
+			workerDev.dbSetupFingerprint = dbFingerprint
 			frontend, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
 			if err != nil {
 				return err

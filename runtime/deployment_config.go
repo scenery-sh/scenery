@@ -50,6 +50,7 @@ func init() { contract.SetSecretRevealer(RevealSecret) }
 
 var configSnapshotState struct {
 	once     sync.Once
+	mu       sync.RWMutex
 	snapshot *ConfigSnapshot
 	err      error
 }
@@ -59,7 +60,10 @@ var configSnapshotState struct {
 func InstallWorkerHostConfig(snapshot *ConfigSnapshot) error {
 	installed := false
 	configSnapshotState.once.Do(func() {
+		configSnapshotState.mu.Lock()
 		configSnapshotState.snapshot = snapshot
+		configSnapshotState.err = nil
+		configSnapshotState.mu.Unlock()
 		installed = true
 	})
 	if !installed {
@@ -68,14 +72,31 @@ func InstallWorkerHostConfig(snapshot *ConfigSnapshot) error {
 	return nil
 }
 
+// UpdateWorkerHostConfig replaces the Host configuration snapshot when a live
+// development session loads a new environment revision.
+func UpdateWorkerHostConfig(snapshot *ConfigSnapshot) {
+	configSnapshotState.once.Do(func() {})
+	configSnapshotState.mu.Lock()
+	configSnapshotState.snapshot = snapshot
+	configSnapshotState.err = nil
+	configSnapshotState.mu.Unlock()
+}
+
 // LoadConfigSnapshot decodes this process's snapshot once and closes its
 // descriptor, so no descendant inherits it. A process started without one has
 // an empty configuration: required inputs then fail when resolved.
 func LoadConfigSnapshot() (*ConfigSnapshot, error) {
 	configSnapshotState.once.Do(func() {
-		configSnapshotState.snapshot, configSnapshotState.err = loadConfigSnapshotFromEnvironment()
+		snapshot, err := loadConfigSnapshotFromEnvironment()
+		configSnapshotState.mu.Lock()
+		configSnapshotState.snapshot = snapshot
+		configSnapshotState.err = err
+		configSnapshotState.mu.Unlock()
 	})
-	return configSnapshotState.snapshot, configSnapshotState.err
+	configSnapshotState.mu.RLock()
+	snapshot, err := configSnapshotState.snapshot, configSnapshotState.err
+	configSnapshotState.mu.RUnlock()
+	return snapshot, err
 }
 
 func loadConfigSnapshotFromEnvironment() (*ConfigSnapshot, error) {

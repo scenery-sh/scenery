@@ -44,6 +44,10 @@ func (h *processHost) serveWorkerDevCall(w http.ResponseWriter, req *http.Reques
 		h.serveWorkerDevBinding(w, req, address, query.Get("module"))
 		return
 	}
+	if h.ingressDisabled {
+		errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msg("HTTP ingress is disabled in worker role").Err(), http.StatusServiceUnavailable)
+		return
+	}
 	method := query.Get("method")
 	route, err := url.ParseRequestURI(query.Get("path"))
 	if err != nil || route.IsAbs() || route.Host != "" || !strings.HasPrefix(route.Path, "/") {

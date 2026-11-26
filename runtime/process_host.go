@@ -76,8 +76,8 @@ type ProcessHostConfig struct {
 	// itself, as the application entrypoint's configuration does.
 	Observability         ObservabilityConfig
 	Workers               []WorkerServicePlan
-	Assistants            []WorkerAssistantPlan    `json:",omitempty"`
-	WorkerAssistantAssets []AssistantEmbeddedAsset `json:"-"`
+	Assistants            []WorkerAssistantPlan      `json:",omitempty"`
+	WorkerAssistantAssets []AssistantEmbeddedAsset   `json:"-"`
 	WorkerConfig          map[string]*ConfigSnapshot `json:"-"`
 	WorkerStorage         WorkerStorageHandler       `json:"-"`
 	DevelopmentCall       bool                       `json:"-"`
@@ -131,6 +131,7 @@ type processHost struct {
 	token           string
 	contract        string
 	developmentCall bool
+	ingressDisabled bool
 	routes          *routeTable
 	fallback        string
 	required        []string
@@ -230,6 +231,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 		return err
 	}
 	host.frontend = frontend
+	host.ingressDisabled = role == runtimeRoleWorker
 	if codec == nil && devEndpointsEnabled() {
 		host.developmentCall = true
 	}
@@ -464,6 +466,10 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if h.fallback == "" {
+		if h.local == nil {
+			errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msg("HTTP ingress is disabled in worker role").Err(), http.StatusServiceUnavailable)
+			return
+		}
 		// An application without a native service: the host's own runtime
 		// serves framework routes and answers unmatched requests.
 		h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: generation, suppress: h.workers != nil && !h.developmentCall}, req)
@@ -694,6 +700,9 @@ func (h *processHost) removeGeneration(number uint64, force bool) (int, string) 
 	generation := h.generations[number]
 	switch {
 	case generation == nil:
+		if h.current != nil && number > 0 && number < h.current.number {
+			return http.StatusNoContent, ""
+		}
 		return http.StatusNotFound, "generation is not published"
 	case generation == h.current:
 		return http.StatusConflict, "the current generation cannot be retired"

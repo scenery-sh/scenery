@@ -38,6 +38,24 @@ func readBuildCache(root, path string, service Service) Artifact {
 	return Artifact{Path: destination, Digest: "sha256:" + record.Executable, CacheHit: true, Dependencies: slices.Clone(record.Dependencies)}
 }
 
+func snapshotCacheDependencies(root, path string) map[string]string {
+	var record buildCacheEntry
+	raw, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(raw, &record) != nil || len(record.Dependencies) == 0 {
+		return nil
+	}
+	digests := make(map[string]string, len(record.Dependencies))
+	for _, dep := range record.Dependencies {
+		if !filepath.IsLocal(dep) {
+			continue
+		}
+		if digest, err := fileDigest(filepath.Join(root, dep)); err == nil {
+			digests[dep] = digest
+		}
+	}
+	return digests
+}
+
 func buildFingerprint(root string, service Service, dependencies []string) (string, error) {
 	hash := sha256.New()
 	_, _ = fmt.Fprintf(hash, "bun-worker/v1\n%q\n", service)

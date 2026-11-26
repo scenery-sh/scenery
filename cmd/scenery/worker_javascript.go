@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -64,8 +67,10 @@ func (failure *workerJSBuildError) Error() string {
 	return fmt.Sprintf("JavaScript worker %s: %s", failure.service, failure.err)
 }
 
-func (build *workerJSBuild) run(ctx context.Context, root string, check bool) (workerProgram, bool, error) {
-	artifact, err := jsbuild.Build(ctx, root, build.service, check)
+func (failure *workerJSBuildError) Unwrap() error { return failure.err }
+
+func (build *workerJSBuild) run(ctx context.Context, root string, check bool, verify func(dependencies []string) error) (workerProgram, bool, error) {
+	artifact, err := jsbuild.BuildWithVerify(ctx, root, build.service, check, verify)
 	if err != nil {
 		return workerProgram{}, false, &workerJSBuildError{service: build.program.Service, err: err}
 	}
@@ -123,8 +128,40 @@ func pruneJSWorkersByPaths(root string, binaries []string) {
 	_ = jsbuild.Prune(root, binaries)
 }
 
-func (dev *workerDevelopment) rebuildJS(ctx context.Context, active, next workerBundle, paths []string, declarations bool, timing *workerRebuildTiming) (workerBundle, error) {
+func (dev *workerDevelopment) rebuildJS(ctx context.Context, active, next workerBundle, current workerInputs, paths []string, declarations bool, timing *workerRebuildTiming) (workerBundle, error) {
 	start := time.Now()
+	var verifyDeps func([]string) error
+	if current != nil && dev.watch != nil {
+		root := dev.watch.root
+		verifyDeps = func(deps []string) error {
+			for _, dep := range deps {
+				clean := filepath.Clean(filepath.FromSlash(dep))
+				expected, ok := current[clean]
+				if !ok {
+					continue
+				}
+				full := filepath.Join(root, clean)
+				info, err := os.Lstat(full)
+				if err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						return errWorkerInputsChanged
+					}
+					return err
+				}
+				if !info.Mode().IsRegular() {
+					return errWorkerInputsChanged
+				}
+				data, err := os.ReadFile(full)
+				if err != nil {
+					return err
+				}
+				if (workerInput{Digest: sha256.Sum256(data), Mode: info.Mode().Perm()}) != expected {
+					return errWorkerInputsChanged
+				}
+			}
+			return nil
+		}
+	}
 	for index := range dev.js {
 		build := &dev.js[index]
 		index := slices.IndexFunc(active.Programs, func(program workerProgram) bool {
@@ -134,7 +171,7 @@ func (dev *workerDevelopment) rebuildJS(ctx context.Context, active, next worker
 			next.Programs = append(next.Programs, active.Programs[index])
 			continue
 		}
-		program, compiled, err := build.run(ctx, dev.watch.root, false)
+		program, compiled, err := build.run(ctx, dev.watch.root, false, verifyDeps)
 		if err != nil {
 			return workerBundle{}, err
 		}
