@@ -38,6 +38,7 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 	}
 	diagnostics = append(diagnostics, validateExecutionBindings(resources, byAddress)...)
 	diagnostics = append(diagnostics, validateDurableExecutions(resources, byAddress)...)
+	diagnostics = append(diagnostics, validateDomainEvents(resources, byAddress)...)
 	diagnostics = append(diagnostics, validateSchedulesSemantics(resources, byAddress)...)
 	diagnostics = append(diagnostics, validateMCPGraph(resources, byAddress)...)
 	return diagnostics

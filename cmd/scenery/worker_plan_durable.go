@@ -38,25 +38,25 @@ func (p workerPlanProjection) durable(service workerplan.WorkerServicePlan, exec
 	var err error
 	if idempotency, _ := operation.Spec["idempotency"].(map[string]any); idempotency["mode"] == "keyed" {
 		keys, _ := idempotency["key"].([]any)
-		plan.Dedupe, err = projectWorkerKeys(shape, keys)
+		plan.Dedupe, err = projectWorkerKeys(shape, keys, "input")
 		if err != nil {
 			return plan, err
 		}
 	}
 	if concurrency != nil {
-		plan.Concurrency, err = projectWorkerKeys(shape, []any{concurrency["key"]})
+		plan.Concurrency, err = projectWorkerKeys(shape, []any{concurrency["key"]}, "input")
 	}
 	return plan, err
 }
 
-func projectWorkerKeys(shape cp.OperationInputShape, keys []any) ([]workerplan.WorkerKeyField, error) {
+func projectWorkerKeys(shape cp.OperationInputShape, keys []any, root string) ([]workerplan.WorkerKeyField, error) {
 	var fields []workerplan.WorkerKeyField
 	for _, value := range keys {
 		expression := cp.TypeExpression(value)
-		name, ok := strings.CutPrefix(expression, "input.")
+		name, ok := strings.CutPrefix(expression, root+".")
 		field, exists := shape.Fields[name]
 		if !ok || !exists {
-			return nil, fmt.Errorf("durable key is not a declared input field: %s", expression)
+			return nil, fmt.Errorf("key is not a declared %s field: %s", root, expression)
 		}
 		fields = append(fields, workerplan.WorkerKeyField{Name: field.WireName, Type: cp.TypeExpression(field.Type)})
 	}

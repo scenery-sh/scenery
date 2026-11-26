@@ -7,8 +7,12 @@ input "typescript" { type = resource_ref("binding") }
 input "quote" { type = resource_ref("binding") }
 input "session" { type = resource_ref("authentication") }
 
+input "accepted" { type = resource_ref("event") }
+input "event_payload" { type = resource_ref("record") }
+
 service "consumer" {
   runtime = "go"
+  publisher "accepted" { event = var.accepted }
   implementation { constructor = "NewService" }
   client "quote" { binding = var.quote }
   client "typescript" { binding = var.typescript }
@@ -116,3 +120,60 @@ binding "delegate_session_http" {
 }
 
 export "delegate" { value = operation.delegate }
+
+record "publish_result" {
+  field "event_id" { type = string }
+  field "event" { type = string }
+  field "deliveries" { type = int32 }
+  field "deduplicated" { type = bool }
+}
+
+operation "publish_order" {
+  service = service.consumer
+  input   = var.event_payload
+  handler { method = "PublishOrder" }
+  result "ok" { type = record.publish_result }
+  error "denied" { type = std.type.problem }
+}
+
+execution "publish_order" {
+  operation = operation.publish_order
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "publish_order_http" {
+  gateway        = var.gateway
+  operation      = operation.publish_order
+  execution      = execution.publish_order
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/orders"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.publish_order.input
+    }
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "denied" {
+      when   = error.denied
+      status = 403
+      body {
+        codec = "problem_json"
+        from  = error.denied
+      }
+    }
+  }
+}

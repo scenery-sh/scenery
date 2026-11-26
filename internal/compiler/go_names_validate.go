@@ -44,6 +44,7 @@ func validateGoGeneratedNames(resources []Resource) []Diagnostic {
 			add(resource, fixed, "generated package symbol")
 		}
 	}
+	receiptModules := map[string]bool{}
 	for _, resource := range resources {
 		if !goModules[resource.Module] {
 			continue
@@ -81,6 +82,18 @@ func validateGoGeneratedNames(resources []Resource) []Diagnostic {
 				add(resource, wrapper.wrapperName, "operation "+wrapper.kind+" "+wrapper.variantName)
 			}
 		case "scenery.service":
+			if publishers := namedChildren(resource.Spec, "publisher"); len(publishers) > 0 {
+				if !receiptModules[resource.Module] {
+					add(resource, "EventReceipt", "event receipt")
+					receiptModules[resource.Module] = true
+				}
+				add(resource, name+"Publishers", "service publishers")
+				for _, publisher := range publishers {
+					prefix := goName(stringValue(publisher["name"]))
+					add(resource, prefix+"EventPayload", "publisher payload")
+					add(resource, prefix+"EventPublisher", "event publisher")
+				}
+			}
 			for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {
 				add(resource, name+suffix, "service "+suffix)
 			}

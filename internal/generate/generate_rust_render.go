@@ -120,13 +120,17 @@ func (p rustContractProjection) renderRustUnion(source *strings.Builder, resourc
 	return nil
 }
 
-func (p rustContractProjection) renderService(source *strings.Builder, service Resource, operations []Resource, clients []goClientBinding, resources []Resource) error {
+func (p rustContractProjection) renderService(source *strings.Builder, service Resource, operations []Resource, clients []goClientBinding, publishers []eventPublisher, resources []Resource) error {
 	serviceName := goName(service.Name)
 	fmt.Fprintf(source, "#[derive(Default)]\npub struct %sConstructorInput {\n", serviceName)
 	for _, client := range clients {
 		fmt.Fprintf(source, "    pub %s: %sClient,\n", rustIdent(client.Name), goName(client.Name))
 	}
+	if len(publishers) > 0 {
+		fmt.Fprintf(source, "    pub publishers: %sPublishers,\n", serviceName)
+	}
 	source.WriteString("}\n\n")
+	p.renderRustPublishers(source, serviceName, publishers)
 	for _, client := range clients {
 		name := client.operationName()
 		if client.Projected {

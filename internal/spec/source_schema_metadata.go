@@ -49,6 +49,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 
 	{Revision: "scenery.authorization.rule", Name: "allow"}:                           {Phase: "runtime"},
 	{Revision: "scenery.authorization.rule", Name: "deny"}:                            {Phase: "runtime"},
+	{Revision: "scenery.event.idempotency", Name: "key"}:                              {Phase: "runtime", Ordered: true, Constraints: map[string]any{"min_items": 1, "reference_root": "payload", "reference_shape": "direct_payload_field"}},
 	{Revision: "scenery.operation.idempotency", Name: "key"}:                          {Phase: "runtime", Ordered: true, Constraints: map[string]any{"min_items": 1, "reference_root": "input", "reference_shape": "direct_input_field"}},
 	{Revision: "scenery.execution.concurrency", Name: "key"}:                          {Phase: "runtime"},
 	{Revision: "scenery.binding.http.context", Name: "from"}:                          {Phase: "runtime"},
@@ -73,6 +74,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.typescript-client.retry", Name: "maximum_attempts"}:           {Constraints: map[string]any{"minimum": 2, "maximum": 10}},
 	{Revision: "scenery.typescript-client.retry", Name: "maximum_delay_milliseconds"}: {Constraints: map[string]any{"maximum": 86_400_000}},
 	{Revision: "scenery.typescript-client.retry", Name: "statuses"}:                   {Constraints: map[string]any{"item_minimum": 400, "item_maximum": 599, "unique_items": true}},
+	{Revision: "scenery.event.idempotency", Name: "mode"}:                             {Constraints: enumConstraint("keyed", "none")},
 	{Revision: "scenery.operation.idempotency", Name: "mode"}:                         {Constraints: enumConstraint("keyed", "none")},
 	{Revision: "scenery.source.execution", Name: "mode"}:                              {Constraints: enumConstraint("direct", "durable")},
 	{Revision: "scenery.execution.retry", Name: "strategy"}:                           {Constraints: enumConstraint("exponential", "none")},

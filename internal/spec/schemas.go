@@ -63,17 +63,19 @@ var resourceSchemas = map[string]resourceSchema{
 		"package": "contract", "interface_inputs": "contract", "exports": "contract", "export_metadata": "contract", "workspace_package_root": "workspace_only",
 		"locked_integrity": "contract", "compile_descriptor_digest": "contract", "package_contract_abi_revision": "implementation",
 	}},
-	"scenery.service":    {RevisionDomain: "contract", Required: []string{"runtime", "implementation"}, Attributes: []string{"runtime"}},
-	"scenery.record":     {"contract", nil, []string{"unknown_fields"}, nil},
-	"scenery.enum":       {"contract", []string{"value"}, []string{"open"}, nil},
-	"scenery.union":      {"contract", []string{"variant", "discriminator"}, []string{"open", "discriminator", "unknown_variant"}, nil},
-	"scenery.operation":  {"contract", []string{"input", "handler"}, []string{"service", "input"}, nil},
-	"scenery.execution":  {"contract", []string{"operation", "mode"}, []string{"operation", "mode", "engine", "revision", "timeout", "lease", "attempts", "external_name"}, nil},
-	"scenery.binding":    {"contract", []string{"operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline"}, []string{"gateway", "operation", "execution", "protocol", "delivery", "exposure", "authentication", "authorization", "pipeline"}, nil},
-	"scenery.mcp-server": {"contract", []string{"capability", "max_input_bytes", "max_result_bytes"}, []string{"max_input_bytes", "max_result_bytes"}, nil},
-	"scenery.assistant":  {"contract", []string{"mcp_server", "implementation", "surface"}, []string{"mcp_server"}, nil},
-	"scenery.schedule":   {"contract", []string{"trigger", "invoke", "overlap"}, []string{"overlap"}, nil},
-	"scenery.page":       {"contract", []string{"path"}, []string{"path", "load", "application_key", "access_key"}, nil},
+	"scenery.service":      {RevisionDomain: "contract", Required: []string{"runtime", "implementation"}, Attributes: []string{"runtime"}},
+	"scenery.record":       {"contract", nil, []string{"unknown_fields"}, nil},
+	"scenery.enum":         {"contract", []string{"value"}, []string{"open"}, nil},
+	"scenery.union":        {"contract", []string{"variant", "discriminator"}, []string{"open", "discriminator", "unknown_variant"}, nil},
+	"scenery.operation":    {"contract", []string{"input", "handler"}, []string{"service", "input"}, nil},
+	"scenery.execution":    {"contract", []string{"operation", "mode"}, []string{"operation", "mode", "engine", "revision", "timeout", "lease", "attempts", "external_name"}, nil},
+	"scenery.binding":      {"contract", []string{"operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline"}, []string{"gateway", "operation", "execution", "protocol", "delivery", "exposure", "authentication", "authorization", "pipeline"}, nil},
+	"scenery.mcp-server":   {"contract", []string{"capability", "max_input_bytes", "max_result_bytes"}, []string{"max_input_bytes", "max_result_bytes"}, nil},
+	"scenery.assistant":    {"contract", []string{"mcp_server", "implementation", "surface"}, []string{"mcp_server"}, nil},
+	"scenery.event":        {"contract", []string{"payload"}, []string{"payload", "external_name"}, nil},
+	"scenery.subscription": {"contract", []string{"event", "invoke"}, []string{"event"}, nil},
+	"scenery.schedule":     {"contract", []string{"trigger", "invoke", "overlap"}, []string{"overlap"}, nil},
+	"scenery.page":         {"contract", []string{"path"}, []string{"path", "load", "application_key", "access_key"}, nil},
 	"scenery.renderer": {"contract", []string{"page", "runtime", "module"}, []string{"page", "runtime", "module", "config"}, map[string]string{
 		"implementation_digest": "implementation",
 	}},
@@ -95,6 +97,7 @@ var resourceConditionalRequirements = map[string][]resourceConditionalRequiremen
 }
 
 var authoredConditionalRequirements = map[string][]resourceConditionalRequirement{
+	"scenery.event.idempotency":     {{Field: "mode", Equals: "keyed", Required: []string{"key"}}},
 	"scenery.operation.idempotency": {{Field: "mode", Equals: "keyed", Required: []string{"key"}}},
 	"scenery.source.binding":        resourceConditionalRequirements["scenery.binding"],
 }

@@ -156,3 +156,23 @@ WHERE state = 'queued';
 
 CREATE INDEX IF NOT EXISTS schedule_slots_retention_idx
 ON scenery.schedule_slots(slot_at);
+
+CREATE TABLE IF NOT EXISTS scenery.domain_events (
+  id TEXT PRIMARY KEY,
+  event_name TEXT NOT NULL,
+  event_address TEXT NOT NULL,
+  publisher_service TEXT NOT NULL,
+  dedupe_key TEXT,
+  payload_blob BYTEA NOT NULL,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  delivery_count INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS domain_events_dedupe_idx
+ON scenery.domain_events(event_name, dedupe_key)
+WHERE dedupe_key IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS domain_events_history_idx
+ON scenery.domain_events(event_name, created_at DESC);

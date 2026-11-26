@@ -32,10 +32,27 @@ type WorkerServicePlan struct {
 	Process    string
 	Operations map[string]WorkerOperationPlan
 	Clients    map[string]WorkerClientPlan
+	Publishers map[string]string `json:",omitempty"`
 	Bindings   []WorkerBindingPlan
 	Durable    map[string]WorkerDurablePlan
 	Schedules  []WorkerSchedulePlan
 	Stores     map[string]string
+}
+
+type WorkerEventPlan struct {
+	Address       string
+	ExternalName  string
+	PayloadType   string
+	Dedupe        []WorkerKeyField
+	Subscriptions []WorkerEventSubscriptionPlan
+}
+
+type WorkerEventSubscriptionPlan struct {
+	Address   string
+	Service   string
+	Operation string
+	Execution string
+	Policy    ContractHTTPPolicy
 }
 
 type WorkerClientPlan struct {

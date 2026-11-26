@@ -541,11 +541,21 @@ func packageABIResources(resources []Resource, idx *resourceIndex) ([]map[string
 			for _, client := range clients {
 				clientProjection = append(clientProjection, map[string]any{"name": client.Name, "operation": client.Operation.Name, "input": normalizePackageABIValue(client.Operation.Spec["input"], client.Operation.Module, idx), "result": normalizePackageABIValue(client.Operation.Spec["result"], client.Operation.Module, idx), "error": normalizePackageABIValue(client.Operation.Spec["error"], client.Operation.Module, idx), "delivery": client.Delivery})
 			}
-			projected = append(projected, map[string]any{
+			serviceABI := map[string]any{
 				"kind": "service", "name": resource.Name, "implementation": resource.Spec["implementation"],
 				"lifecycle": resource.Spec["lifecycle"], "dependencies": dependencyProjection,
 				"config_shape": normalizePackageABIValue(serviceConfigShape(resource), resource.Module, idx), "clients": clientProjection,
-			})
+			}
+			if publishers := serviceEventPublishers(byAddress, resource); len(publishers) > 0 {
+				publisherABI := make([]map[string]any, 0, len(publishers))
+				for _, publisher := range publishers {
+					payload := publisher.Event.Spec["payload"]
+					publisherABI = append(publisherABI, map[string]any{"name": publisher.Name, "payload": normalizePackageABIValue(payload, publisher.Event.Module, idx)})
+					collectABITypeReferences(payload, publisher.Event.Module, byAddress, neededTypes)
+				}
+				serviceABI["publishers"] = publisherABI
+			}
+			projected = append(projected, serviceABI)
 			for _, field := range namedChildren(resource.Spec, "config_schema") {
 				collectABITypeReferences(field["type"], resource.Module, byAddress, neededTypes)
 			}
@@ -730,6 +740,8 @@ func packageTupleTypes(resources []Resource) map[string]string {
 			for _, variant := range namedChildren(resource.Spec, "variant") {
 				collectTupleTypes(variant["type"], result)
 			}
+		case "scenery.event":
+			collectTupleTypes(resource.Spec["payload"], result)
 		case "scenery.operation":
 			collectTupleTypes(resource.Spec["input"], result)
 			for _, kind := range []string{"result", "error"} {

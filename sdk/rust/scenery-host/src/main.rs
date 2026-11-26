@@ -18,6 +18,7 @@ mod dev;
 mod dev_build;
 mod dev_inputs;
 mod durable;
+mod events;
 mod frontend;
 mod frontend_dev;
 mod gateway;

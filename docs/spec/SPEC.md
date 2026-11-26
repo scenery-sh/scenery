@@ -16,7 +16,8 @@ language and runtime contract.
   `typescript_client`, `mcp_server`, `assistant`).
 - `<module>/package.scn`: package-local declarations (`package`, `input`,
   `export`, `service`, `record`, `enum`, `union`, `operation`, `execution`,
-  `binding`, `schedule`, `page`, `renderer`, `authorization`, `pipeline`).
+  `binding`, `schedule`, `event`, `subscription`, `page`, `renderer`,
+  `authorization`, `pipeline`).
 - `app.lock.scn`: locked external provider/module integrity digests.
 
 `.scn` uses a deterministic HCL-like syntax compiled into a typed,
@@ -50,6 +51,31 @@ operation + binding + execution + policy
   `external_name` requires bumping `revision`.
 - **policy**: explicit `authentication`, `authorization` (rules evaluated by
   `internal/contractpolicy`), and `pipeline` middleware ordering.
+
+### Domain events
+
+- `event "<name>"` declares a required `payload` wire type. Its
+  `external_name` is the durable identity and defaults to the event's
+  canonical address. Event identities are unique across the application.
+  The optional `idempotency` block uses `mode = "none"` or `mode = "keyed"`.
+  Keyed events require an ordered `key` list of direct record fields such as
+  `[payload.order_id]`.
+- `service` declares each local `publisher "<name>" { event = event.<name> }`.
+  Workers emit through typed publisher handles in their generated constructor
+  input during an active invocation. Events can cross modules through
+  `export` and `input { type = resource_ref("event") }`.
+- `subscription "<name>"` references an `event` and declares one `invoke`
+  block with `operation`, `execution`, `authorization` and `pipeline`.
+  The operation belongs to the subscription's module. Its input must have
+  the same wire shape as the event payload, including nested types and
+  presence. The execution must be durable and target that operation. An
+  event can target each operation once.
+- The Host evaluates every subscription's authorization against the
+  normalized payload and the emitter's invocation identity. It stores the
+  event and queues all admitted deliveries in one PostgreSQL transaction.
+  The selected execution supplies its existing deduplication and execution
+  policy. Consumers process jobs and retry according to that policy.
+  See [Worker ABI v1](WORKER-ABI.md) for receipts and cascade limits.
 
 ## 3. Types & Canonical Wire Format
 

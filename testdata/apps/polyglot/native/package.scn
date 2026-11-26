@@ -226,3 +226,71 @@ binding "database_job_http" {
     }
   }
 }
+
+record "event_payload" {
+  field "id" { type = string }
+  field "amount" { type = int64 }
+}
+
+event "accepted" {
+  payload       = record.event_payload
+  external_name = "orders.accepted"
+  idempotency {
+    mode = "keyed"
+    key  = [payload.id]
+  }
+}
+
+record "delivered_order" {
+  field "id" { type = string }
+  field "amount" { type = int64 }
+}
+
+event "delivery_marker" {
+  payload       = record.delivered_order
+  external_name = "orders.delivered"
+}
+
+export "accepted" { value = event.accepted }
+export "event_payload" { value = record.event_payload }
+export "delivery_marker" { value = event.delivery_marker }
+
+operation "receive_order" {
+  service = service.native
+  input   = record.event_payload
+  handler { method = "ReceiveOrder" }
+  result "ok" { type = string }
+  idempotency {
+    mode = "keyed"
+    key  = [input.id]
+  }
+}
+
+execution "receive_order" {
+  operation = operation.receive_order
+  mode      = "durable"
+  engine    = var.jobs
+  revision  = 1
+  timeout   = "10s"
+  lease     = "2s"
+  attempts  = 1
+  retry { strategy = "none" }
+  retention {
+    success = "1d"
+    failure = "1d"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+subscription "receive_order" {
+  event = event.accepted
+  invoke {
+    operation     = operation.receive_order
+    execution     = execution.receive_order
+    authorization = std.authorization.application
+    pipeline      = std.pipeline.empty
+  }
+}

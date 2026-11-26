@@ -57,6 +57,7 @@ type workerHostPlan struct {
 	Name          string
 	Observability workerplan.ObservabilityConfig
 	Workers       []workerplan.WorkerServicePlan
+	Events        []workerplan.WorkerEventPlan    `json:",omitempty"`
 	MCPServers    map[string]mcpcontract.Manifest `json:",omitempty"`
 	Assistants    []workerAssistantPlan           `json:",omitempty"`
 }
@@ -216,9 +217,13 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	if err != nil {
 		return workerBundle{}, nil, nil, err
 	}
+	events, err := projectWorkerEvents(result.Manifest, plan)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
+	}
 	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
-		Host:  workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
+		Host:  workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan, Events: events},
 		Types: types,
 		// An application without native services still has a program list.
 		Programs: []workerProgram{},

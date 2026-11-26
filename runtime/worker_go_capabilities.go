@@ -45,9 +45,7 @@ func (workerCapabilitiesKey) RoundTrip(request *http.Request) (*http.Response, e
 // InvokeWorkerBinding is the generated worker client's entry point. The Host
 // resolves the local client name and the caller's authority from its scope.
 func InvokeWorkerBinding(ctx context.Context, invocation any, client string, enqueue bool, input []byte) ([]byte, error) {
-	current, currentOK := runtimeapi.InvocationFromContext(ctx)
-	token, ok := invocation.(runtimeapi.Invocation)
-	if !ok || !token.Valid() || !currentOK || !runtimeapi.SameInvocation(token, current) {
+	if !currentWorkerInvocation(ctx, invocation) {
 		return nil, errs.B().Code(errs.PermissionDenied).Msg("internal binding requires the current runtime invocation").Err()
 	}
 	path := "binding/invoke"
@@ -61,6 +59,31 @@ func InvokeWorkerBinding(ctx context.Context, invocation any, client string, enq
 	if err != nil {
 		return nil, err
 	}
+	return workerCapabilityOutput(data)
+}
+
+// EmitWorkerEvent is the generated publisher's invocation-scoped entry point.
+func EmitWorkerEvent(ctx context.Context, invocation any, publisher string, payload []byte) ([]byte, error) {
+	if !currentWorkerInvocation(ctx, invocation) {
+		return nil, errs.B().Code(errs.PermissionDenied).Msg("event publisher requires the current runtime invocation").Err()
+	}
+	data, err := callWorkerCapability(ctx, http.MethodPost, "events/emit", struct {
+		Publisher string          `json:"publisher"`
+		Payload   json.RawMessage `json:"payload"`
+	}{Publisher: publisher, Payload: payload})
+	if err != nil {
+		return nil, err
+	}
+	return workerCapabilityOutput(data)
+}
+
+func currentWorkerInvocation(ctx context.Context, invocation any) bool {
+	current, currentOK := runtimeapi.InvocationFromContext(ctx)
+	token, ok := invocation.(runtimeapi.Invocation)
+	return ok && token.Valid() && currentOK && runtimeapi.SameInvocation(token, current)
+}
+
+func workerCapabilityOutput(data []byte) ([]byte, error) {
 	var response processLinkResponse
 	if err := json.Unmarshal(data, &response); err != nil || (response.Error == nil) == (len(response.Output) == 0) {
 		return nil, workerUnavailable(workerabi.Unknown, fmt.Errorf("invalid binding capability response"))
@@ -112,9 +135,14 @@ func callWorkerCapability(ctx context.Context, method, path string, input any) (
 		body, readErr := io.ReadAll(io.LimitReader(response.Body, workerabi.MaxMetadataBytes))
 		if readErr == nil {
 			var wireErr errs.Error
-			if json.Unmarshal(body, &wireErr) == nil && wireErr.Code != "" &&
-				wireErr.Code != errs.Unknown && wireErr.Code != errs.Internal && wireErr.Code != errs.Unavailable {
-				return nil, &wireErr
+			if json.Unmarshal(body, &wireErr) == nil && wireErr.Code != "" {
+				if response.StatusCode >= 500 {
+					if wireErr.Code == errs.DeadlineExceeded {
+						return nil, &wireErr
+					}
+				} else if wireErr.Code != errs.Unknown && wireErr.Code != errs.Internal && wireErr.Code != "system.internal" && wireErr.Code != errs.Unavailable {
+					return nil, &wireErr
+				}
 			}
 		}
 		return nil, workerUnavailable(delivery, fmt.Errorf("host capability %s returned HTTP %d", path, response.StatusCode))

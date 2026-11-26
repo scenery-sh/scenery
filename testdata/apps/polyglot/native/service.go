@@ -2,6 +2,7 @@ package native
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -52,4 +53,12 @@ func (s *Service) CheckDatabase(ctx context.Context, _ contract.CheckDatabaseInp
 func (*Service) Download(_ context.Context, _ contract.DownloadInput) (contract.DownloadOutcome, scenery.ByteStream, error) {
 	body := strings.NewReader(strings.Repeat("g", 64<<10))
 	return contract.DownloadOk{Value: []byte{}}, scenery.NewByteStream(io.NopCloser(body), body.Size()), nil
+}
+
+func (*Service) ReceiveOrder(ctx context.Context, input contract.ReceiveOrderInput) (contract.ReceiveOrderOutcome, error) {
+	call, ok := scenery.InvocationFromContext(ctx)
+	if !ok || input.Amount != 9007199254740993 {
+		return nil, fmt.Errorf("missing invocation or incorrect event amount")
+	}
+	return contract.ReceiveOrderOk{Value: call.TraceID()}, nil
 }

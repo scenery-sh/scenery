@@ -148,6 +148,8 @@ func contractTypeValues(resources []Resource) []any {
 			for _, variant := range namedChildren(resource.Spec, "variant") {
 				values = append(values, variant["type"])
 			}
+		case "scenery.event":
+			values = append(values, resource.Spec["payload"])
 		case "scenery.operation":
 			values = append(values, resource.Spec["input"])
 			for _, kind := range []string{"result", "error"} {
@@ -203,6 +205,19 @@ func goContractTypeClosure(module string, local, all, clientOperations []Resourc
 		}
 	}
 	clientTypes := map[string]bool{}
+	var remoteEvents []Resource
+	seenEvents := map[string]bool{}
+	for _, service := range local {
+		for _, publisher := range serviceEventPublishers(byAddress, service) {
+			event := publisher.Event
+			if event.Module != module && !seenEvents[event.Address] {
+				seenEvents[event.Address] = true
+				collectABITypeReferences(event.Spec["payload"], event.Module, byAddress, clientTypes)
+				event.Spec = map[string]any{"payload": publisher.goPayload(module)}
+				remoteEvents = append(remoteEvents, event)
+			}
+		}
+	}
 	for _, operation := range clientOperations {
 		for _, value := range contractTypeValues([]Resource{operation}) {
 			collectABITypeReferences(value, operation.Module, byAddress, clientTypes)
@@ -276,6 +291,7 @@ func goContractTypeClosure(module string, local, all, clientOperations []Resourc
 		}
 		result = append(result, resource)
 	}
+	result = append(result, remoteEvents...)
 	result = append(result, clientOperations...)
 	sort.Slice(result, func(i, j int) bool { return result[i].Address < result[j].Address })
 	if err := validateGoContractClosureNames(module, result); err != nil {

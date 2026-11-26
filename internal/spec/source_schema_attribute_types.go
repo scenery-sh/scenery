@@ -217,7 +217,16 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return typeExpression()
 		}
 		return primitive("string")
-	case "scenery.operation.idempotency":
+	case "scenery.source.event":
+		if name == "payload" {
+			return typeExpression()
+		}
+		return primitive("string")
+	case "scenery.source.subscription", "scenery.service.publisher":
+		return resourceRef("event")
+	case "scenery.subscription.invoke":
+		return resourceRef(name)
+	case "scenery.operation.idempotency", "scenery.event.idempotency":
 		if name == "key" {
 			return map[string]any{"collection": "list", "items": map[string]any{"typed_reference": "schema_path"}}, "exact"
 		}

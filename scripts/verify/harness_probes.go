@@ -78,6 +78,7 @@ func harnessProbeCatalog() []harnessProbe {
 		harnessSingleProbe("process-model", runHarnessProcessModelProbeStep),
 		harnessSingleProbe("worker-incremental", runHarnessWorkerIncrementalStep),
 		harnessSingleProbe("polyglot-tests", runHarnessPolyglotTests),
+		harnessSingleProbe("domain-events", runHarnessDomainEventsStep),
 		harnessSingleProbe("dev-lock", runHarnessDevNamedLockProbeStep),
 		harnessSingleProbe("dev-cleanup", runHarnessDevSessionCleanupProbeStep),
 		harnessSingleProbe("worktree-git", runHarnessWorktreeGitProbeStep),

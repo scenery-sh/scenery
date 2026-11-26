@@ -22,8 +22,13 @@ input "jobs" {
   requires = ["execution.durable/v1"]
 }
 
+input "accepted" { type = resource_ref("event") }
+input "event_payload" { type = resource_ref("record") }
+input "marker" { type = resource_ref("event") }
+
 service "pricing" {
   runtime = "rust"
+  publisher "marker" { event = var.marker }
   implementation {
     constructor = "NewService"
   }
@@ -315,5 +320,37 @@ binding "settle_http" {
         from  = dispatch.problem
       }
     }
+  }
+}
+
+operation "receive_order" {
+  service = service.pricing
+  input   = var.event_payload
+  handler { method = "ReceiveOrder" }
+  result "ok" { type = string }
+}
+
+execution "receive_order" {
+  operation = operation.receive_order
+  mode      = "durable"
+  engine    = var.jobs
+  revision  = 1
+  timeout   = "10s"
+  lease     = "2s"
+  attempts  = 1
+  retry { strategy = "none" }
+  retention {
+    success = "1d"
+    failure = "1d"
+  }
+}
+
+subscription "receive_order" {
+  event = var.accepted
+  invoke {
+    operation     = operation.receive_order
+    execution     = execution.receive_order
+    authorization = std.authorization.application
+    pipeline      = std.pipeline.empty
   }
 }

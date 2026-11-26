@@ -63,6 +63,14 @@ func addHarnessChangedAreaValidation(report *harnessreport.ChangedAreaReport, co
 		if strings.HasPrefix(file.Path, "ui/") || strings.HasPrefix(file.Path, "tools/typescript/") {
 			classes[ValidationUICatalog] = true
 		}
+		if strings.HasPrefix(file.Path, "testdata/apps/polyglot/") {
+			commands["go run ./scripts/verify --probe polyglot-tests --summary --write"] = true
+		}
+		switch file.Path {
+		case "internal/compiler/domain_events_validate.go", "internal/generate/generate_publishers.go", "cmd/scenery/worker_plan_events.go",
+			"sdk/rust/scenery-host/src/events.rs", "scripts/verify/harness_self_domain_events.go":
+			commands["go run ./scripts/verify --probe domain-events --summary --write"] = true
+		}
 		if harnessReleaseSensitivePath(file.Path, file.Category) {
 			classes[ValidationReleaseRuntime] = true
 		}
