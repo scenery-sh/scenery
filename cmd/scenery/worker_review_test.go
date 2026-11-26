@@ -1,17 +1,24 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
@@ -762,5 +769,147 @@ func TestWorkerVerifyDatabaseSetupSkipsUnchangedAndBlocksPendingMigration(t *tes
 	}
 	if called != 2 || observedStatusOnly {
 		t.Fatalf("dbSetupApply after verify = (%d, statusOnly=%v), want (2, false)", called, observedStatusOnly)
+	}
+}
+
+func TestWorkerViteHandlerNeutralizesWebSocketUpgrade(t *testing.T) {
+	wsListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	t.Cleanup(func() {
+		_ = wsListener.Close()
+		wg.Wait()
+	})
+	observedInboundHeader := make(chan http.Header, 1)
+	go func() {
+		for {
+			conn, acceptErr := wsListener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			wg.Add(1)
+			go func(c net.Conn) {
+				defer wg.Done()
+				defer func() { _ = c.Close() }()
+				_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+				reader := bufio.NewReader(c)
+				req, reqErr := http.ReadRequest(reader)
+				if reqErr != nil {
+					return
+				}
+				observedInboundHeader <- req.Header.Clone()
+				_, _ = io.WriteString(c, "HTTP/1.1 101 Switching Protocols\r\n"+
+					"Connection: Upgrade\r\n"+
+					"Upgrade: websocket\r\n"+
+					"Sec-WebSocket-Accept: ok\r\n"+
+					"X-Scenery-Debug: vite-leak\r\n"+
+					"Access-Control-Expose-Headers: X-Vite-Ok, X-Scenery-Debug\r\n"+
+					"Trailer: X-Scenery-Trailer, X-Ok-Trailer\r\n\r\n")
+				msg, _ := reader.ReadString('\n')
+				if msg == "ping\n" {
+					_, _ = io.WriteString(c, "pong\n")
+				}
+			}(conn)
+		}
+	}()
+
+	address := wsListener.Addr().String()
+	viteHandler := newWorkerViteHandler(&url.URL{Scheme: "http", Host: address}, address, []string{"/api", "/__app", "/__scenery"})
+	reservedRec := httptest.NewRecorder()
+	viteHandler.ServeHTTP(reservedRec, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
+	if reservedRec.Code != http.StatusNotFound {
+		t.Fatalf("reserved path status = %d, want 404", reservedRec.Code)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		req.Header.Set("X-Scenery-Generation", "4")
+		viteHandler.ServeHTTP(w, req)
+	}))
+	defer srv.Close()
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.WriteString(conn, "GET /@vite/client HTTP/1.1\r\nHost: example.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(conn)
+	statusLine, err := br.ReadString('\n')
+	if err != nil || !strings.Contains(statusLine, "101 Switching Protocols") {
+		t.Fatalf("statusLine = (%q, %v), want 101 Switching Protocols", statusLine, err)
+	}
+	headers, err := textproto.NewReader(br).ReadMIMEHeader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hdr := http.Header(headers)
+	for k, vs := range hdr {
+		if strings.Contains(strings.ToLower(k), "scenery") {
+			t.Fatalf("101 header key leaked scenery: %s=%v", k, vs)
+		}
+		for _, v := range vs {
+			if strings.Contains(strings.ToLower(v), "scenery") {
+				t.Fatalf("101 header value leaked scenery: %s=%q", k, v)
+			}
+		}
+	}
+	if got := hdr.Get("Access-Control-Expose-Headers"); got != "X-Vite-Ok" {
+		t.Fatalf("Access-Control-Expose-Headers = %q, want X-Vite-Ok", got)
+	}
+	inboundToVite := <-observedInboundHeader
+	if got := inboundToVite.Get("X-Scenery-Generation"); got != "" {
+		t.Fatalf("X-Scenery-Generation reached Vite upstream: %q", got)
+	}
+	if _, err := io.WriteString(conn, "ping\n"); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := br.ReadString('\n')
+	if err != nil || reply != "pong\n" {
+		t.Fatalf("upgraded WebSocket reply = (%q, %v), want pong\\n", reply, err)
+	}
+
+	// Normal chunked 200 response from Vite must also strip X-Scenery-* headers and trailers.
+	trailerUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get("X-Scenery-Generation") != "" {
+			t.Errorf("X-Scenery-Generation reached normal Vite request")
+		}
+		w.Header().Set("X-Scenery-Debug", "vite-200-leak")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Vite-Ok, X-Scenery-Debug")
+		w.Header().Set("Trailer", "X-Scenery-Trailer, X-Ok-Trailer")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok")
+		w.Header().Set("X-Scenery-Trailer", "secret")
+		w.Header().Set("X-Ok-Trailer", "done")
+	}))
+	defer trailerUpstream.Close()
+	trailerURL, err := url.Parse(trailerUpstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalVite := newWorkerViteHandler(trailerURL, trailerURL.Host, []string{"/api", "/__app", "/__scenery"})
+	normalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		req.Header.Set("X-Scenery-Generation", "4")
+		normalVite.ServeHTTP(w, req)
+	}))
+	defer normalSrv.Close()
+	normalResp, err := normalSrv.Client().Get(normalSrv.URL + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(normalResp.Body)
+	_ = normalResp.Body.Close()
+	if got := normalResp.Header.Get("X-Scenery-Debug"); got != "" {
+		t.Fatalf("Vite 200 leaked X-Scenery-Debug=%q", got)
+	}
+	if got := normalResp.Header.Get("Access-Control-Expose-Headers"); got != "X-Vite-Ok" {
+		t.Fatalf("Vite 200 Access-Control-Expose-Headers = %q, want X-Vite-Ok", got)
+	}
+	if normalResp.Trailer.Get("X-Scenery-Trailer") != "" || normalResp.Trailer.Get("X-Ok-Trailer") != "done" {
+		t.Fatalf("Vite 200 trailers = %+v, want X-Scenery-Trailer stripped and X-Ok-Trailer=done", normalResp.Trailer)
 	}
 }

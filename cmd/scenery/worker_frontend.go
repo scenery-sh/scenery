@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 
 	"scenery.sh/internal/app"
 	cp "scenery.sh/internal/clientprojection"
@@ -185,16 +188,99 @@ func startWorkerVite(ctx context.Context, frontend workerFrontend) (http.Handler
 		return nil, func() {}, err
 	}
 	upstream := &url.URL{Scheme: "http", Host: address}
-	proxy := &httputil.ReverseProxy{Rewrite: func(request *httputil.ProxyRequest) {
-		request.SetURL(upstream)
-		request.Out.Host = address
-		request.Out.URL.RawQuery = request.In.URL.RawQuery
-	}}
+	return newWorkerViteHandler(upstream, address, frontend.Reserved), clean, nil
+}
+
+func newWorkerViteHandler(upstream *url.URL, address string, reserved []string) http.Handler {
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(upstream)
+			request.Out.Host = address
+			request.Out.URL.RawQuery = request.In.URL.RawQuery
+			for name := range request.Out.Header {
+				if strings.HasPrefix(strings.ToLower(name), "x-scenery-") {
+					delete(request.Out.Header, name)
+				}
+			}
+		},
+		ModifyResponse: neutralizeWorkerViteResponse,
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if staticfrontend.Reserved(req.URL.Path, frontend.Reserved) {
+		if staticfrontend.Reserved(req.URL.Path, reserved) {
 			staticfrontend.NotFound(w)
 			return
 		}
 		proxy.ServeHTTP(w, req)
-	}), clean, nil
+	})
+}
+
+type workerViteResponseBody struct {
+	io.ReadCloser
+	mu       sync.Mutex
+	response *http.Response
+}
+
+func (b *workerViteResponseBody) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		scrubWorkerViteSceneryHeaders(b.response.Trailer)
+		scrubWorkerViteListHeaders(b.response.Trailer)
+	}
+	return n, err
+}
+
+func (b *workerViteResponseBody) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	err := b.ReadCloser.Close()
+	scrubWorkerViteSceneryHeaders(b.response.Trailer)
+	scrubWorkerViteListHeaders(b.response.Trailer)
+	return err
+}
+
+func scrubWorkerViteSceneryHeaders(headers http.Header) {
+	for name := range headers {
+		if strings.Contains(strings.ToLower(name), "scenery") {
+			delete(headers, name)
+		}
+	}
+}
+
+func scrubWorkerViteListHeaders(headers http.Header) {
+	for _, listHeader := range []string{"Access-Control-Expose-Headers", "Trailer"} {
+		var allowed []string
+		for name, values := range headers {
+			if !strings.EqualFold(name, listHeader) {
+				continue
+			}
+			for _, value := range values {
+				for token := range strings.SplitSeq(value, ",") {
+					token = strings.TrimSpace(token)
+					if token == "" || strings.Contains(strings.ToLower(token), "scenery") {
+						continue
+					}
+					allowed = append(allowed, http.CanonicalHeaderKey(token))
+				}
+			}
+			delete(headers, name)
+		}
+		if len(allowed) > 0 {
+			headers.Set(listHeader, strings.Join(allowed, ", "))
+		}
+	}
+}
+
+func neutralizeWorkerViteResponse(res *http.Response) error {
+	if res == nil {
+		return nil
+	}
+	scrubWorkerViteSceneryHeaders(res.Header)
+	scrubWorkerViteListHeaders(res.Header)
+	scrubWorkerViteSceneryHeaders(res.Trailer)
+	if res.StatusCode != http.StatusSwitchingProtocols && res.Body != nil && res.Body != http.NoBody {
+		res.Body = &workerViteResponseBody{ReadCloser: res.Body, response: res}
+	}
+	return nil
 }

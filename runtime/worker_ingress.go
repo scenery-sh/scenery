@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"bufio"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -116,6 +118,15 @@ func scrubInboundSceneryTrailerHeader(headers http.Header) {
 }
 
 func (w *workerIngressWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *workerIngressWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.scrubHeadersAndTrailers()
+	conn, brw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil {
+		w.started = true
+	}
+	return conn, brw, err
+}
 
 func (w *workerIngressWriter) WriteHeader(status int) {
 	w.neutralize()
