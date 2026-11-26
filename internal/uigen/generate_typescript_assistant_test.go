@@ -1,6 +1,7 @@
 package uigen
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,13 @@ func TestRenderedAssistantReactAdapterIsHeadless(t *testing.T) {
 		"surface": map[string]any{"path": "/assistants/support"},
 	}}}
 	source := renderReactAssistantAdapter(assistants)
+	golden, err := os.ReadFile("testdata/assistant/react/assistants.generated.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(golden) != source {
+		t.Fatal("executable assistant fixture differs from renderer output")
+	}
 	for _, required := range []string{"useSceneryAssistant", "createConversation", "streamEvents", "AbortController"} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("react assistant adapter missing %q:\n%s", required, source)

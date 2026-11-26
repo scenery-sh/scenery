@@ -56,13 +56,7 @@ func runWorktreeStatus(ctx context.Context, stdout io.Writer, args []string) err
 			if incidentErr == nil {
 				_, _ = fmt.Fprintf(stdout, "local agent: %s after %d failed start(s) since %s (%s): %s\n", strings.ToUpper(incident.State), incident.Attempts, incident.FirstAt.Format(time.RFC3339), incident.Class, incident.Cause)
 			}
-			for _, entry := range entries {
-				_, _ = fmt.Fprintf(stdout, "%s\t%s (root=%s source=%s owner=%s metadata=%s freshness=%s)\n", firstNonEmpty(entry.AppRoot, entry.Key), entry.Status, entry.RootStatus, entry.SourceStatus, entry.OwnerStatus, entry.MetadataStatus, entry.SourceFreshness)
-				writeStatusTable(stdout, entry.Sessions, nil)
-				for _, block := range entry.BuildBlocks {
-					_, _ = fmt.Fprintf(stdout, "  %s: builds BLOCKED (%s) since %s, %d build(s) prevented: %s\n", block.SessionID, block.Reason, block.Since.Format(time.RFC3339), block.PreventedBuilds, block.Cause)
-				}
-			}
+			writeWorktreeStatusText(stdout, entries)
 		}
 		if !opts.Watch {
 			return nil
