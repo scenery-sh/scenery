@@ -117,6 +117,10 @@ func MaterializeOverlay(request OverlayRequest) (Overlay, error) {
 		return Overlay{}, err
 	}
 
+	version, err := lockedEveVersion(filepath.Join(request.OverlayRoot, "package-lock.json"))
+	if err != nil {
+		return Overlay{}, err
+	}
 	data := templateData{
 		AssistantAddress:   request.AssistantAddress,
 		RuntimeRevision:    request.RuntimeRevision,
@@ -124,7 +128,8 @@ func MaterializeOverlay(request OverlayRequest) (Overlay, error) {
 		ApprovalNeverTools: request.ApprovalNeverTools,
 		ControlURL:         request.ControlURL,
 		MCPURL:             request.MCPURL,
-		EveVersion:         EveVersion,
+		EveVersion:         version,
+		DynamicResolver:    strings.HasPrefix(version, "1."),
 		NodeVersion:        NodeVersion,
 	}
 	files := map[string]string{
@@ -171,7 +176,27 @@ type templateData struct {
 	ControlURL         string
 	MCPURL             string
 	EveVersion         string
+	DynamicResolver    bool
 	NodeVersion        string
+}
+
+func lockedEveVersion(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read Eve package lock: %w", err)
+	}
+	var lock struct {
+		Packages map[string]struct {
+			Version string `json:"version"`
+		} `json:"packages"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return "", fmt.Errorf("decode Eve package lock: %w", err)
+	}
+	if version := lock.Packages["node_modules/eve"].Version; version != "" {
+		return version, nil
+	}
+	return EveVersion, nil
 }
 
 //go:embed templates/*

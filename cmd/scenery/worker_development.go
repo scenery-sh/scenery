@@ -3,43 +3,31 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"sync/atomic"
-	"time"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/rustbuild"
 )
 
-type workerDevelopment struct {
-	watch              *workerInputWatch
-	applied            workerInputs
-	compiled           *compiler.Result
-	assistantCompiled  *atomic.Pointer[compiler.Result]
-	assistantState     *workerAssistantWatchState
-	envName            string
-	dbSetupFingerprint string
-	dbSetupApply       func(ctx context.Context, setup devDatabaseSetup, checkOnly bool) error
-	declarations       map[string]bool
-	goWorkspace        *build.Result
-	rust               workerRustDevelopment
-	js                 []workerJSBuild
-}
+var errWorkerInputsChanged = errors.New("application changed while workers were compiling")
 
-func (dev *workerDevelopment) ensureAssistantCompiled() *atomic.Pointer[compiler.Result] {
-	if dev.assistantCompiled == nil {
-		dev.assistantCompiled = &atomic.Pointer[compiler.Result]{}
-	}
-	if dev.assistantCompiled.Load() == nil && dev.compiled != nil {
-		dev.assistantCompiled.Store(dev.compiled)
-	}
-	return dev.assistantCompiled
+type workerDevelopment struct {
+	watch        *workerInputScope
+	applied      workerInputs
+	cfg          app.Config
+	compiled     *compiler.Result
+	declarations map[string]bool
+	goWorkspace  *build.Result
+	rust         workerRustDevelopment
+	js           []workerJSBuild
 }
 
 type workerRustDevelopment struct {
@@ -52,9 +40,13 @@ type workerRustDevelopment struct {
 	jsModules []string
 }
 
-func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs workerInputs) (*workerDevelopment, workerBundle, error) {
-	dev := &workerDevelopment{watch: watch, applied: inputs, assistantCompiled: &atomic.Pointer[compiler.Result]{}}
-	bundle, err := dev.prepare(ctx)
+func startWorkerDevelopment(ctx context.Context, watch *workerInputScope, inputs workerInputs) (*workerDevelopment, workerBundle, error) {
+	dev := &workerDevelopment{watch: watch, applied: inputs}
+	result, err := compiler.CompileContext(ctx, watch.root)
+	if err != nil {
+		return nil, workerBundle{}, err
+	}
+	bundle, err := dev.prepare(ctx, result)
 	if err != nil {
 		return nil, workerBundle{}, err
 	}
@@ -62,12 +54,14 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs
 		return nil, workerBundle{}, err
 	}
 	bundle.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
-	bundle, err = dev.rebuildJS(ctx, workerBundle{}, bundle, inputs, nil, true, &workerRebuildTiming{})
-	if err != nil {
-		return nil, workerBundle{}, err
+	for i := range dev.js {
+		program, _, err := (&dev.js[i]).run(ctx, watch.root, false)
+		if err != nil {
+			return nil, workerBundle{}, err
+		}
+		bundle.Programs = append(bundle.Programs, program)
 	}
-	dev.applied, err = reconcileExplicitJSDependencies(watch, dev.applied, nil, dev.jsDependencies())
-	if err != nil {
+	if err := watch.addExplicit(inputs, dev.jsDependencies()); err != nil {
 		return nil, workerBundle{}, err
 	}
 	dev.goWorkspace, err = bundle.addGoWorkers(ctx, dev.compiled, "development", "", nil, []string{})
@@ -77,15 +71,10 @@ func startWorkerDevelopment(ctx context.Context, watch *workerInputWatch, inputs
 	if err := bundle.projectConfig(dev.compiled); err != nil {
 		return nil, workerBundle{}, err
 	}
-	dev.assistantCompiled.Store(dev.compiled)
 	return dev, bundle, nil
 }
 
-func (dev *workerDevelopment) prepare(ctx context.Context) (workerBundle, error) {
-	result, err := compiler.CompileContext(ctx, dev.watch.root)
-	if err != nil {
-		return workerBundle{}, err
-	}
+func (dev *workerDevelopment) prepare(ctx context.Context, result *compiler.Result) (workerBundle, error) {
 	if !result.Valid() {
 		for _, diagnostic := range result.Diagnostics {
 			if diagnostic.Severity == "error" {
@@ -94,14 +83,11 @@ func (dev *workerDevelopment) prepare(ctx context.Context) (workerBundle, error)
 		}
 		return workerBundle{}, fmt.Errorf("invalid application graph")
 	}
-	if dev.compiled != nil && result.Manifest.ContractRevision != dev.compiled.Manifest.ContractRevision {
-		return workerBundle{}, fmt.Errorf("application contract changed; restart the application to load its new manifest")
-	}
 	declarations, err := workerCompilerInputs(result)
 	if err != nil {
 		return workerBundle{}, err
 	}
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "development", false)
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, "development")
 	if err != nil {
 		return workerBundle{}, err
 	}
@@ -118,171 +104,25 @@ func (dev *workerDevelopment) prepare(ctx context.Context) (workerBundle, error)
 	return bundle, nil
 }
 
-type workerEdit struct {
-	declarations bool
-	cargoGraph   bool
-}
-
-func (dev *workerDevelopment) classify(paths []string) workerEdit {
-	var edit workerEdit
+func (dev *workerDevelopment) filterExplicit(paths []string) []string {
+	var out []string
 	for _, path := range paths {
-		edit.declarations = edit.declarations || workerDeclarationInput(path) || dev.declarations[path]
-		switch filepath.Base(path) {
-		case "Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml":
-			edit.cargoGraph = true
-		default:
-			edit.cargoGraph = edit.cargoGraph || cargoConfigInput(path)
-		}
-	}
-	return edit
-}
-
-func (dev *workerDevelopment) rebuild(ctx context.Context, active workerBundle, current workerInputs, paths []string, timing *workerRebuildTiming) (workerBundle, error) {
-	edit := dev.classify(paths)
-	next := active
-	next.Programs = nil
-	previousRustServices := dev.rust.services
-	if edit.declarations {
-		started := time.Now()
-		var err error
-		next, err = dev.prepare(ctx)
-		timing.ContractMS = workerMilliseconds(time.Since(started))
-		if err != nil {
-			return workerBundle{}, err
-		}
-		next.Host.DevelopmentCall = active.Host.DevelopmentCall
-		next.config = active.config
-	}
-	timing.Declarations = edit.declarations
-	rustStarted := time.Now()
-	var rebuilt []string
-	if edit.declarations || dev.rust.affects(paths) {
-		var err error
-		rediscover := edit.cargoGraph || !slices.Equal(previousRustServices, dev.rust.services)
-		rebuilt, err = dev.rust.rebuild(ctx, dev.watch.root, current, rediscover)
-		if err != nil {
-			return workerBundle{}, err
-		}
-	}
-	if len(rebuilt) != 0 {
-		timing.CargoMS = workerMilliseconds(time.Since(rustStarted))
-		timing.Cargo = rebuilt
-	}
-	if edit.declarations || len(rebuilt) != 0 {
-		next.addRustWorkers(dev.compiled, dev.rust.selection, dev.rust.artifacts)
-	} else {
-		next.keepPrograms(active, "rust")
-	}
-	next, err := dev.rebuildJS(ctx, active, next, current, paths, edit.declarations, timing)
-	if err != nil {
-		return workerBundle{}, err
-	}
-	goChanged, err := build.DevelopmentGoInputsChanged(dev.goWorkspace, paths)
-	if err != nil {
-		return workerBundle{}, err
-	}
-	if edit.declarations || goChanged {
-		goStarted := time.Now()
-		var workspace *build.Result
-		if !edit.declarations {
-			if err := dev.bindWorkspaceRevision(current); err != nil {
-				return workerBundle{}, err
-			}
-			workspace = dev.goWorkspace
-		}
-		retained := make([]string, 0, len(active.Programs))
-		for _, program := range active.Programs {
-			if program.Runtime == "go" {
-				retained = append(retained, program.Binary)
-			}
-		}
-		timing.Go = true
-		goContext := build.WithTrace(ctx, func(step build.Step) {
-			if step.Name == "process.link" {
-				timing.LinkMS += workerMilliseconds(step.Duration)
-			}
-			if step.Name == "process.linked" {
-				timing.GoLinks = step.PackagesRebuilt
-			}
-		})
-		dev.goWorkspace, err = next.addGoWorkers(goContext, dev.compiled, "development", "", workspace, retained)
-		timing.GoMS = workerMilliseconds(time.Since(goStarted))
-		if err != nil {
-			return workerBundle{}, err
-		}
-		if dev.goWorkspace != nil {
-			for path, source := range dev.goWorkspace.SourceStamps {
-				if input, ok := current[filepath.FromSlash(path)]; ok && source.Hash != fmt.Sprintf("%x", input.Digest) {
-					return workerBundle{}, errWorkerInputsChanged
-				}
-			}
-		}
-	} else {
-		next.keepPrograms(active, "go")
-	}
-	if edit.declarations {
-		if err := next.projectConfig(dev.compiled); err != nil {
-			return workerBundle{}, err
-		}
-	} else {
-		keys := make(map[string][]string, len(active.Programs))
-		for _, program := range active.Programs {
-			keys[program.Service] = program.ConfigKeys
-		}
-		for index, program := range next.Programs {
-			next.Programs[index].ConfigKeys = keys[program.Service]
-		}
-	}
-	if active.config != nil {
-		_, cfg, err := discoverConfiguredApp(dev.watch.root)
-		if err != nil {
-			return workerBundle{}, err
-		}
-		if err := next.resolveDevelopmentConfig(ctx, dev.compiled, cfg, dev.envName); err != nil {
-			return workerBundle{}, err
-		}
-	}
-	next.setWorkerConfig()
-	return next, nil
-}
-
-// Bind the retained graph to the current implementation revision without
-// recompiling it. A private-workspace cache miss can then safely republish the
-// same Go projection through ordinary generation ownership checks.
-func (dev *workerDevelopment) bindWorkspaceRevision(current workerInputs) error {
-	inputs, err := compiler.WorkspaceRevisionInputs(dev.compiled)
-	if err != nil {
-		return err
-	}
-	captured := make(map[string][]byte, len(inputs))
-	for _, input := range inputs {
-		if !input.Present {
+		clean := filepath.Clean(filepath.FromSlash(path))
+		if clean == "." || (dev.watch != nil && dev.watch.alwaysIgnored(clean)) {
 			continue
 		}
-		path := filepath.FromSlash(input.Path)
-		data, err := os.ReadFile(filepath.Join(dev.watch.root, path))
-		if err != nil {
-			return err
-		}
-		if expected, exists := current[path]; exists && sha256.Sum256(data) != expected.Digest {
-			return errWorkerInputsChanged
-		}
-		captured[input.Path] = data
+		out = append(out, filepath.ToSlash(clean))
 	}
-	rebound := *dev.compiled
-	if err := compiler.BindCapturedWorkspaceRevision(&rebound, captured); err != nil {
-		return err
-	}
-	dev.compiled = &rebound
-	return nil
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
-func (bundle *workerBundle) keepPrograms(active workerBundle, runtime string) {
-	for _, program := range active.Programs {
-		if program.Runtime == runtime {
-			bundle.Programs = append(bundle.Programs, program)
-		}
+func (dev *workerDevelopment) jsDependencies() []string {
+	var all []string
+	for _, item := range dev.js {
+		all = append(all, item.dependencies...)
 	}
+	return dev.filterExplicit(all)
 }
 
 func (rust *workerRustDevelopment) rebuild(ctx context.Context, root string, current workerInputs, rediscover bool) ([]string, error) {
@@ -328,17 +168,6 @@ func (rust *workerRustDevelopment) rebuild(ctx context.Context, root string, cur
 	return rebuilt, nil
 }
 
-func (rust *workerRustDevelopment) affects(paths []string) bool {
-	for _, service := range rust.services {
-		for _, path := range paths {
-			if rust.consumes(service, path) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (rust *workerRustDevelopment) consumes(service rustbuild.Service, path string) bool {
 	switch filepath.Base(path) {
 	case "go.mod", "go.sum", "go.work", "go.work.sum", ".scenery.json":
@@ -363,7 +192,7 @@ func (rust *workerRustDevelopment) verifyInputs(root string, current workerInput
 			return rust.consumes(service, path)
 		})
 	}
-	scope := workerInputWatch{root: root, generated: rust.generated}
+	scope := workerInputScope{root: root, generated: rust.generated}
 	expected := make(map[string][sha256.Size]byte)
 	for path, input := range current {
 		if applies(path) {

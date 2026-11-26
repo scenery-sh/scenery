@@ -24,7 +24,7 @@ const dashboardStoragePath = "/__scenery/storage"
 func (s *dashboardServer) handleStorageTransfer(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if !dashboardCheckOrigin(req) || req.Header.Get("X-Scenery-Storage-Request") != "1" {
+	if !dashboardCheckOrigin(req) || req.Header.Get("X-App-Storage-Request") != "1" {
 		publicstorage.HTTPError(w, os.ErrPermission)
 		return
 	}

@@ -65,7 +65,7 @@ func buildCommand(out io.Writer, args []string) error {
 	if err := build.VerifyPrebuiltFramework(appRoot, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
 		return &codedCLIError{err: err, code: 3}
 	}
-	if compiled, compileErr := compiler.Compile(appRoot); compileErr == nil && usesWorkerBundle(compiled) {
+	if compiled, compileErr := compiler.Compile(appRoot); compileErr == nil && compiled.UsesWorkerBundle() {
 		if !compiled.Valid() {
 			return fmt.Errorf("failed_precondition: validate runtime plan: runtime plan is invalid: %s", firstCompilerDiagnostic(compiled.Diagnostics))
 		}
@@ -83,7 +83,6 @@ func buildCommand(out io.Writer, args []string) error {
 		if err != nil {
 			return goTargetSelectionCLIError(err)
 		}
-		pruneJSWorkers(appRoot, bundle.Programs)
 		frontend, err := selectWorkerFrontend(appRoot, cfg, compiled)
 		if err != nil {
 			return err
@@ -101,7 +100,7 @@ func buildCommand(out io.Writer, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := writeWorkerBundle(bundle, outputPath); err != nil {
+		if err := writeWorkerBundle(context.Background(), bundle, outputPath); err != nil {
 			return err
 		}
 		if jsonOutput {

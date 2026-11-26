@@ -87,6 +87,7 @@ type buildInputProcessGraph struct {
 	packages map[string]map[string]string
 	imports  map[string][]string
 	mains    map[string]string
+	dirs     map[string]string
 	// closures memoizes the digest of each package's import closure.
 	closures map[string]string
 }
@@ -366,7 +367,7 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 		}
 		return false
 	}
-	processes := &buildInputProcessGraph{packages: map[string]map[string]string{}, imports: map[string][]string{}, mains: map[string]string{}}
+	processes := &buildInputProcessGraph{packages: map[string]map[string]string{}, imports: map[string][]string{}, mains: map[string]string{}, dirs: map[string]string{}}
 	addFileTo := func(destination map[string]string, identity, path string) error {
 		return observeBuildInputFile(observed, destination, identity, path, stats)
 	}
@@ -417,6 +418,12 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 		// own process manifests and never the application executable.
 		packageEntries := read[index].entries
 		processes.packages[pkg.ImportPath] = packageEntries
+		for _, workspace := range workspaces {
+			if relative, err := filepath.Rel(workspace, pkg.Dir); err == nil && filepath.IsLocal(relative) {
+				processes.dirs[pkg.ImportPath] = relative
+				break
+			}
+		}
 		for _, imported := range pkg.Imports {
 			if mapped := pkg.ImportMap[imported]; mapped != "" {
 				imported = mapped

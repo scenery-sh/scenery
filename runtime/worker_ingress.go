@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/textproto"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,8 +73,25 @@ func (b *workerIngressRequestBody) Close() error {
 	return err
 }
 
+func isInternalSceneryRoute(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	for _, candidate := range []string{u.Path, u.EscapedPath(), path.Clean("/" + u.Path)} {
+		lower := strings.ToLower(candidate)
+		if lower == "/__scenery" || strings.HasPrefix(lower, "/__scenery/") {
+			return true
+		}
+	}
+	return false
+}
+
 func neutralWorkerIngress(next http.Handler, development bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if isInternalSceneryRoute(request.URL) {
+			http.NotFound(w, request)
+			return
+		}
 		// Internal headers are trusted only after dispatch sets them inside
 		// the Host. Drop externally supplied X-Scenery-* spellings.
 		scrubInboundSceneryHeaders(request.Header)

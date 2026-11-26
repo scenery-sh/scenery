@@ -18,7 +18,7 @@
       "const": "scenery.dev-runtime.wait"
     },
     "schema_revision": {
-      "const": "sha256:c762a72a445a9b6c8925c8cd8d174ef31e2c286407de0fac41f4e51ea24f9eb0"
+      "const": "sha256:a5cc428e7d4d58de1f60eaba29ba6f572ee99edf46ef6ce70842e227eeda6d4a"
     },
     "ok": {
       "type": "boolean"
@@ -342,6 +342,17 @@
         "compile_ms": {
           "type": "number",
           "minimum": 0
+        },
+        "link_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "edit_to_ready_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "trigger_kind": {
+          "enum": ["body_only", "contract_or_config"]
         },
         "ready_ms": {
           "type": "number",

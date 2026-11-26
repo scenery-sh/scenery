@@ -95,7 +95,7 @@ wire_float!(Float64, f64, 17);
 /// shortest digits that parse back to `value` (of the two candidates at that
 /// length the nearer one, ties to even), in exponent form when the decimal
 /// exponent is below -4 or at least 6. NaN, infinities and -0 have no form.
-fn canonical_float<F>(value: F, max_digits: usize) -> Option<String>
+pub fn canonical_float<F>(value: F, max_digits: usize) -> Option<String>
 where
     F: Copy + PartialEq + LowerExp + FromStr + Into<f64>,
 {
@@ -229,7 +229,10 @@ pub fn put_field<T: Serialize + ?Sized, E: serde::ser::Error>(
 mod tests {
     use super::{Float32, Float64};
 
+    // The literals with a digit beyond their shortest form are exact
+    // halfway cases: they pin the tie that Go breaks toward the even digit.
     #[test]
+    #[allow(clippy::excessive_precision)]
     fn floats_use_go_canonical_text() {
         for (value, text) in [
             (1.0, "1"),

@@ -8,6 +8,24 @@ request carries the token in `Authorization`. The Host authenticates instance
 identity before consulting any application data. Worker protocol paths and
 headers stay on these listeners.
 
+The Rust supervisor starts workers in separate process groups. It verifies
+readiness for an entire candidate before asking the gateway to publish it
+as the next generation. In development the CLI supplies a launch plan and
+validates the source snapshot between preparation and publication. A rejected
+candidate leaves the serving generation active. The gateway retains admitted
+work through retirement, while the supervisor owns worker lifetimes and
+restarts exited workers with fresh sockets and tokens.
+
+The source snapshot covers the files under the application root that neither
+the built-in exclusions nor a `.gitignore` leaves out. The CLI and the Host
+select and hash the same files, so their snapshot digests agree; the Host
+reads a file again only when its `lstat` identity changed.
+
+With a Vite frontend at the application root, the Host also serves backend
+routes under the browser's `/api` mount. Directly declared paths keep priority
+over mounted application bindings. Browser authentication uses the mount in
+its cookie paths and callback URLs.
+
 ## Host to worker
 
 - `GET /worker/v1/ready` returns a JSON object with `abi: 1`, `service`,
@@ -69,7 +87,9 @@ Workers send `X-Worker-Contract` and `X-Worker-Implementation` on every
 authenticated response. The Host rejects mismatched attestations. The Host
 drains a retiring generation by withholding new invocations, retaining its
 bindings for admitted calls, then terminating obsolete workers once their
-admitted calls finish or the drain deadline expires.
+admitted calls finish or the drain deadline expires. The deadline ends only
+the calls of workers the next generation replaced: a worker it carried over
+keeps serving the calls it already admitted.
 
 ## Worker to Host
 
@@ -88,10 +108,15 @@ deadline.
 | `storage/read`, `storage/write`, `storage/delete`, `storage/list` | Use `store` for the declared dependency name and `key` for object operations (or `recursive=1` with optional prefix `key` on `storage/delete`). GET reads and lists, HEAD reads object metadata, PUT writes, and DELETE removes one object or a prefix. Reads and writes stream bytes. Reads, writes, and single-object deletes accept `If-Match`; writes also accept `If-None-Match: *`. |
 | `connections/token` | POST `{"provider":"<configured provider>","scopes":["..."]}`. The Host resolves the owner from invocation scope. |
 | `config/snapshot` | GET the revision-bound service configuration visible to this worker. |
-| `telemetry` | POST a batch of up to 64 span and log records. The Host supplies the correlation identities from the invocation. |
+| `telemetry` | POST a batch of up to 64 span, log, and metric records. The Host supplies the correlation identities from the invocation. |
 
 `events/emit` is reserved. The current `.scn` graph has no event declaration
 for the Host to authorize.
+
+A metric record names a gauge and may include a finite numeric
+`attributes.value` and an `attributes.unit`. With no value the Host
+reports `elapsed_ns` in seconds. The Host attaches the invocation's
+trace, service, runtime, generation, and operation to the sample.
 
 Telemetry batches are sent explicitly. Await the acknowledgement before
 returning the outcome or closing the stream so that the invocation scope
@@ -104,7 +129,9 @@ after receipt. Canonical wire bytes preserve exact numeric values, tagged
 outcomes and the distinction between missing and null fields. The shared
 wire conformance corpus covers integer bounds, exact scalars, canonical
 floats, presence, closed and unknown-preserving records, enums, and outcomes
-in Go, Rust, and JavaScript/TypeScript.
+in Go, the Rust wire crate and SDK, and JavaScript/TypeScript. The generator
+embeds the wire crate inside the generated Rust SDK so the Rust paths are
+local to the application workspace.
 
 ## Delivery and cancellation
 
@@ -118,3 +145,34 @@ An expired deadline or canceled caller cancels the HTTP/2 stream and the
 worker invocation context. A handler may finish after cancellation. Its
 result is discarded, its scope is revoked, and its side effects are governed
 by the operation's existing idempotency contract.
+
+A stopping Host claims no further durable work. A running durable execution
+keeps its lease for the drain window; one that has not finished by then is
+handed back with its attempt, so a deployment neither spends an attempt nor
+leaves the job waiting for its lease to expire. At startup the Host refuses
+to register a durable revision while queued or running jobs still belong to
+another one (`migration_required`).
+
+## Tools and assistant ingress
+
+The [worker bundle manifest](../schemas/scenery.worker-bundle.schema.json)
+projects MCP capabilities and assistant surfaces from the compiled graph. Each local capability names its worker binding, including its
+input and output schemas, execution address, size limits, and approval policy.
+MCP requests cross the same ABI as HTTP and internal bindings. The host chooses
+the worker generation and supplies the principal and tenant from the
+authenticated assistant run.
+
+An assistant exposes the declared conversation, turn, event, approval, and
+cancel routes. The host seals public conversation and approval handles, checks
+ownership, and translates private runtime events to public events. A capability
+requiring approval can consume one grant bound to the run, tool, and proposed
+arguments. Control endpoints and MCP assertions stay on loopback.
+
+Development uses the CLI's managed assistant supervisor. A production host can
+use a separate supervisor via the existing private assistant runtime descriptor
+and token key settings. The bundle manifest contains the declarations and expected
+revisions. Runtime credentials stay in the private descriptor file.
+
+The manifest's `reports` member carries the schema revision and producer
+version of `scenery.failure.report`. The Host stamps them on every failure
+report it records, so `scenery report` reads those like the CLI's own.

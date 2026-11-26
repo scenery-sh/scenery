@@ -133,7 +133,7 @@ func inspectWorktreeOwners(ctx context.Context, root string) ([]worktreeStatusEn
 			if endpoint, found, _ := readWorkerDevEndpoint(item.AppRoot); found {
 				var state runtimeSourceWait
 				probe, cancel := context.WithTimeout(ctx, time.Second)
-				err := workerDevGet(probe, endpoint.Socket, "/status", &state)
+				err := readWorkerSourceStatus(probe, endpoint, 0, &state)
 				cancel()
 				if err == nil {
 					entry.Status, entry.OwnerStatus, entry.MetadataStatus = "running", "verified_running", "compatible"

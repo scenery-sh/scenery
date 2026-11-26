@@ -377,6 +377,11 @@ func (s *dashboardServer) acceptReport(report devdash.ReportEnvelope) {
 			fillLogEventIdentity(report.LogEvent, report)
 			s.telemetry.enqueue(telemetryExportJob{log: report.LogEvent})
 		}
+	case "metric":
+		if report.MetricEvent != nil && report.MetricEvent.Name != "" {
+			report.MetricEvent.AppID, report.MetricEvent.SessionID = report.AppID, report.SessionID
+			s.telemetry.enqueue(telemetryExportJob{metric: report.MetricEvent})
+		}
 	case "internal-failure":
 		// An application process minted a report token; keep its cause where
 		// `scenery inspect report` reads it.

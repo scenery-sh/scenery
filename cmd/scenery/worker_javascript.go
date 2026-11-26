@@ -2,13 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
-	"time"
 
 	cp "scenery.sh/internal/clientprojection"
 	"scenery.sh/internal/compiler"
@@ -67,124 +62,14 @@ func (failure *workerJSBuildError) Error() string {
 	return fmt.Sprintf("JavaScript worker %s: %s", failure.service, failure.err)
 }
 
-func (failure *workerJSBuildError) Unwrap() error { return failure.err }
-
-func (build *workerJSBuild) run(ctx context.Context, root string, check bool, verify func(dependencies []string) error) (workerProgram, bool, error) {
-	artifact, err := jsbuild.BuildWithVerify(ctx, root, build.service, check, verify)
+func (build *workerJSBuild) run(ctx context.Context, root string, check bool) (workerProgram, bool, error) {
+	artifact, err := jsbuild.Build(ctx, root, build.service, check)
 	if err != nil {
-		if errors.Is(err, jsbuild.ErrSourcesChanged) {
-			err = fmt.Errorf("%w: %w", errWorkerInputsChanged, err)
-		}
 		return workerProgram{}, false, &workerJSBuildError{service: build.program.Service, err: err}
 	}
-	if !check {
-		build.dependencies = slices.Clone(artifact.Dependencies)
-	}
+	build.dependencies = slices.Clone(artifact.Dependencies)
 	program := build.program
 	program.Binary, program.Digest = artifact.Path, artifact.Digest
 	program.Identity.ImplementationRevision, program.Identity.BuildInputDigest = artifact.Digest, artifact.Digest
 	return program, !artifact.CacheHit, nil
-}
-
-func (build workerJSBuild) affected(paths []string) bool {
-	for _, path := range paths {
-		if slices.Contains(build.dependencies, path) {
-			return true
-		}
-		switch filepath.Ext(path) {
-		case ".go", ".rs", ".scn":
-			continue
-		}
-		if pathUnder(build.service.Directory, path) {
-			return true
-		}
-		switch filepath.Base(path) {
-		case "package.json", "bun.lock", "bun.lockb", "package-lock.json", "tsconfig.json", "bunfig.toml":
-			if pathUnder(build.service.Workspace, path) && pathUnder(filepath.Dir(path), build.service.Directory) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (dev *workerDevelopment) jsDependencies() []string {
-	var all []string
-	for _, build := range dev.js {
-		all = append(all, build.dependencies...)
-	}
-	slices.Sort(all)
-	return slices.Compact(all)
-}
-
-func pruneJSWorkers(root string, programs []workerProgram) {
-	keep := make([]string, 0, len(programs))
-	for _, program := range programs {
-		if compiler.IsJSRuntime(program.Runtime) && program.Binary != "" {
-			keep = append(keep, program.Binary)
-		}
-	}
-	_ = jsbuild.Prune(root, keep)
-}
-
-func pruneJSWorkersByPaths(root string, binaries []string) {
-	_ = jsbuild.Prune(root, binaries)
-}
-
-func (dev *workerDevelopment) rebuildJS(ctx context.Context, active, next workerBundle, current workerInputs, paths []string, declarations bool, timing *workerRebuildTiming) (workerBundle, error) {
-	start := time.Now()
-	var verifyDeps func([]string) error
-	if current != nil && dev.watch != nil {
-		root := dev.watch.root
-		verifyDeps = func(deps []string) error {
-			for _, dep := range deps {
-				clean := filepath.Clean(filepath.FromSlash(dep))
-				expected, ok := current[clean]
-				if !ok {
-					continue
-				}
-				full := filepath.Join(root, clean)
-				info, err := os.Lstat(full)
-				if err != nil {
-					if errors.Is(err, os.ErrNotExist) {
-						return errWorkerInputsChanged
-					}
-					return err
-				}
-				if !info.Mode().IsRegular() {
-					return errWorkerInputsChanged
-				}
-				data, err := os.ReadFile(full)
-				if err != nil {
-					return err
-				}
-				if (workerInput{Digest: sha256.Sum256(data), Mode: info.Mode().Perm()}) != expected {
-					return errWorkerInputsChanged
-				}
-			}
-			return nil
-		}
-	}
-	for index := range dev.js {
-		build := &dev.js[index]
-		index := slices.IndexFunc(active.Programs, func(program workerProgram) bool {
-			return program.Service == build.program.Service && program.Runtime == build.program.Runtime
-		})
-		if index >= 0 && !declarations && !build.affected(paths) {
-			next.Programs = append(next.Programs, active.Programs[index])
-			continue
-		}
-		program, compiled, err := build.run(ctx, dev.watch.root, false, verifyDeps)
-		if err != nil {
-			return workerBundle{}, err
-		}
-		next.Programs = append(next.Programs, program)
-		if compiled {
-			timing.JS = append(timing.JS, program.Service)
-		}
-	}
-	if len(timing.JS) > 0 {
-		timing.JSMS = workerMilliseconds(time.Since(start))
-	}
-	return next, nil
 }

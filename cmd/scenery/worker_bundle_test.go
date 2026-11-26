@@ -184,7 +184,7 @@ func TestWorkerBundleLinksGoServicesFromTheSelectedTarget(t *testing.T) {
 		{Address: "app/go_target/development", Kind: "scenery.go-target", Name: "development", Spec: map[string]any{"role": "development"}},
 		{Address: "jobs/service/jobs", Module: "jobs", Kind: "scenery.service", Name: "jobs", Spec: map[string]any{"runtime": "go"}},
 	}}}
-	bundle := workerBundle{Host: workerruntime.ProcessHostConfig{Workers: []workerruntime.WorkerServicePlan{{Address: "jobs/service/jobs", Process: "worker-jobs"}}}}
+	bundle := workerBundle{Host: workerHostPlan{Workers: []workerruntime.WorkerServicePlan{{Address: "jobs/service/jobs", Process: "worker-jobs"}}}}
 	// A production bundle asks for the artifact target; the named target wins.
 	for _, test := range []struct{ role, target string }{{"artifact", ""}, {"artifact", "linux"}} {
 		_, err := bundle.addGoWorkers(context.Background(), compiled, test.role, test.target, nil, nil)

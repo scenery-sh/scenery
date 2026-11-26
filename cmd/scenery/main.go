@@ -30,12 +30,20 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
-	if filepath.Base(os.Args[0]) == "scenery-host" {
-		if err := runWorkerBundleExecutable(os.Args[1:]); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+	if len(os.Args) > 1 {
+		internal := map[string]func([]string) error{
+			"worker-refresh-plan":     refreshWorkerRebuildPlan,
+			"worker-check-migrations": checkWorkerMigrationsCommand,
+			"worker-assistants":       runWorkerAssistants,
+			"worker-frontend":         runWorkerFrontend,
 		}
-		return
+		if command := internal[os.Args[1]]; command != nil {
+			if err := command(os.Args[2:]); err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 	}
 	os.Exit(executeCLI(os.Args[1:]))
 }
@@ -380,7 +388,7 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 		return err
 	}
 	if root, cfg, discoverErr := discoverConfiguredApp(opts.AppRoot); discoverErr == nil {
-		if compiled, compileErr := compiler.Compile(root); compileErr == nil && usesWorkerBundle(compiled) {
+		if compiled, compileErr := compiler.Compile(root); compileErr == nil && compiled.UsesWorkerBundle() {
 			if err := build.VerifyPrebuiltFramework(root, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
 				return &codedCLIError{err: err, code: 3}
 			}
@@ -399,16 +407,12 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 				return err
 			}
 			defer func() { _ = live.Release() }()
-			inputWatch, err := openWorkerInputs(root)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = inputWatch.fs.Close() }()
+			inputWatch := &workerInputScope{root: root}
 			inputWatch.generated, err = compiler.ManagedGeneratedRoots(compiled)
 			if err != nil {
 				return err
 			}
-			inputs, err := inputWatch.capture(nil, nil, true, true)
+			inputs, err := inputWatch.capture()
 			if err != nil {
 				return err
 			}
@@ -417,7 +421,7 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if err != nil {
 				return err
 			}
-			workerDev.envName = opts.Env
+			workerDev.cfg = cfg
 			compiled = workerDev.compiled
 			if err := configureWorkerDevelopmentDatabase(root, cfg, compiled.SQLRequirements); err != nil {
 				return err
@@ -428,21 +432,16 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 			if err := configureWorkerDevelopmentStorage(context.Background(), root, cfg); err != nil {
 				return err
 			}
-			dbFingerprint, err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env)
-			if err != nil {
+			if err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env); err != nil {
 				return err
 			}
-			workerDev.dbSetupFingerprint = dbFingerprint
-			frontend, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
+			frontend, frontendPID, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
 			if err != nil {
 				return err
 			}
 			defer closeFrontend()
-			var onReady func()
-			if telemetry != nil {
-				onReady = telemetry.startupReady
-			}
-			return runWorkerBundle(bundle, workerListen(opts), frontend, onReady, workerDev)
+			bundle.Frontend = frontend
+			return runWorkerDevelopment(bundle, workerListen(opts), workerDev, live, frontendPID, opts.Env, telemetry)
 		}
 	}
 	warnDevEscapeHatches(opts)

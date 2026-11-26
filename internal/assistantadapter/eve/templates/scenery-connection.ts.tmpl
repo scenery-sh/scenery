@@ -68,17 +68,23 @@ async function assertion(ctx) {
 // compiled: a build snapshots every static connection's URL, and the gateway's
 // address exists only once supervision has started this helper. The file name
 // keeps supplying the connection's name.
-export default defineDynamic({
-  events: {
-    "session.started": () => defineMcpClientConnection({
-      url: mcpURL(),
-      description: "Scenery capabilities for this assistant.",
-      approval: ({ toolName }) => approvalNeverTools.has(toolName)
-        ? "not-applicable"
-        : "user-approval",
-      headers: async (ctx) => ({
-        "Scenery-Assistant-Assertion": await assertion(ctx),
-      }),
-    }),
-  },
+const connection = () => defineMcpClientConnection({
+  url: mcpURL(),
+  description: "Scenery capabilities for this assistant.",
+  {{- if .DynamicResolver }}
+  instanceKey: assistantAddress,
+  protocolVersionDiscovery: false,
+  {{- end }}
+  approval: ({ toolName }) => approvalNeverTools.has(toolName)
+    ? "not-applicable"
+    : "user-approval",
+  headers: async (ctx) => ({
+    "Scenery-Assistant-Assertion": await assertion(ctx),
+  }),
 });
+
+{{- if .DynamicResolver }}
+export default defineDynamic(connection);
+{{- else }}
+export default defineDynamic({ events: { "session.started": connection } });
+{{- end }}

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
-	"strconv"
 	"strings"
 
 	"scenery.sh/auth"
@@ -17,33 +16,50 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/generate"
-	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/graph"
+	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/rustbuild"
 	workerruntime "scenery.sh/runtime"
 )
 
 type workerBundle struct {
-	Version              int                             `json:"version"`
-	ContractRevision     string                          `json:"contract_revision"`
-	Host                 workerruntime.ProcessHostConfig `json:"host"`
-	Types                contract.ManifestTypes          `json:"types"`
-	Programs             []workerProgram                 `json:"programs"`
-	Frontend             *workerFrontend                 `json:"frontend,omitempty"`
-	Auth                 *auth.StandardConfig            `json:"auth,omitempty"`
-	HostConfigKeys       []string                        `json:"host_config_keys,omitempty"`
-	AssistantAssets      []workerBundledAssistantAsset   `json:"assistant_assets,omitempty"`
-	builtAssistantAssets []generateapi.AssistantAssetInput
-	config               *workerruntime.ConfigSnapshot
+	Version          int                    `json:"version"`
+	ContractRevision string                 `json:"contract_revision"`
+	Host             workerHostPlan         `json:"host"`
+	Types            contract.ManifestTypes `json:"types"`
+	Programs         []workerProgram        `json:"programs"`
+	Frontend         *workerFrontend        `json:"frontend,omitempty"`
+	Auth             *workerAuthPlan        `json:"auth,omitempty"`
+	HostConfigKeys   []string               `json:"host_config_keys,omitempty"`
+	Reports          workerReportIdentity   `json:"reports"`
+	config           *workerruntime.ConfigSnapshot
 }
 
-type workerBundledAssistantAsset struct {
-	Descriptor        workerruntime.AssistantAssetDescriptor `json:"descriptor"`
-	DescriptorFile    string                                 `json:"descriptor_file"`
-	NodeArchive       string                                 `json:"node_archive"`
-	NodeDescriptor    string                                 `json:"node_descriptor"`
-	CapsuleArchive    string                                 `json:"capsule_archive"`
-	CapsuleDescriptor string                                 `json:"capsule_descriptor"`
+// workerReportIdentity is the identity the Host stamps on the failure reports
+// it records, so `scenery report` reads them like the CLI's own.
+type workerReportIdentity struct {
+	SchemaRevision  string `json:"schema_revision"`
+	ProducerVersion string `json:"producer_version"`
+}
+
+func currentWorkerReportIdentity() workerReportIdentity {
+	return workerReportIdentity{
+		SchemaRevision:  newCLIPayloadIdentity(failureReportKind).SchemaRevision,
+		ProducerVersion: buildVersionResponse().Version,
+	}
+}
+
+type workerAuthPlan struct {
+	auth.StandardConfig
+	BootstrapSQL string `json:"bootstrap_sql,omitempty"`
+}
+
+type workerHostPlan struct {
+	Name          string
+	Observability workerruntime.ObservabilityConfig
+	Workers       []workerruntime.WorkerServicePlan
+	MCPServers    map[string]mcpcontract.Manifest `json:",omitempty"`
+	Assistants    []workerAssistantPlan           `json:",omitempty"`
 }
 
 type workerProgram struct {
@@ -56,10 +72,6 @@ type workerProgram struct {
 	Databases  map[string]string     `json:"databases,omitempty"`
 	ConfigKeys []string              `json:"config_keys,omitempty"`
 	config     *workerruntime.ConfigSnapshot
-}
-
-func usesWorkerBundle(result *compiler.Result) bool {
-	return result != nil && result.Manifest != nil && compiler.UsesWorkerBundle(result.Manifest.Resources)
 }
 
 func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServicePlan, role string) (map[string]rustbuild.Service, error) {
@@ -139,7 +151,7 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 		}
 	}
 	var bundle workerBundle
-	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role, check)
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role)
 	if err != nil {
 		return bundle, err
 	}
@@ -147,21 +159,14 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 	if err != nil {
 		return bundle, err
 	}
-	for _, build := range js {
-		program, _, err := build.run(ctx, result.Root, check, nil)
+	for i := range js {
+		program, _, err := (&js[i]).run(ctx, result.Root, check)
 		if err != nil {
 			return bundle, err
 		}
 		if !check {
 			bundle.Programs = append(bundle.Programs, program)
 		}
-	}
-	if len(bundle.Host.Assistants) > 0 && (role == "artifact" || check) {
-		assets, err := build.BuildWorkerAssistantAssets(ctx, result.Root, result, goTarget, check)
-		if err != nil {
-			return workerBundle{}, err
-		}
-		bundle.builtAssistantAssets = assets
 	}
 	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
 	if err != nil || check {
@@ -177,15 +182,8 @@ func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTar
 	return bundle, nil
 }
 
-func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string, check bool) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
-	if result == nil || !result.Valid() {
-		return workerBundle{}, nil, nil, fmt.Errorf("application compilation has errors")
-	}
+func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
 	plan, err := projectWorkerServices(result.Manifest)
-	if err != nil {
-		return workerBundle{}, nil, nil, err
-	}
-	assistants, err := projectWorkerAssistants(result)
 	if err != nil {
 		return workerBundle{}, nil, nil, err
 	}
@@ -193,7 +191,7 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	if err != nil {
 		return workerBundle{}, nil, nil, err
 	}
-	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", check); err != nil {
+	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", false); err != nil {
 		return workerBundle{}, nil, nil, err
 	}
 	var services []rustbuild.Service
@@ -208,8 +206,12 @@ func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role stri
 	}
 	bundle := workerBundle{
 		Version: 1, ContractRevision: result.Manifest.ContractRevision,
-		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan, Assistants: assistants},
-		Types: types,
+		Host:    workerHostPlan{Name: result.Manifest.Application.Name, Workers: plan},
+		Types:   types,
+		Reports: currentWorkerReportIdentity(),
+	}
+	if err := bundle.projectAssistants(result); err != nil {
+		return workerBundle{}, nil, nil, err
 	}
 	return bundle, selection, services, nil
 }
@@ -244,9 +246,6 @@ func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler
 	}
 	if len(goProcesses) == 0 {
 		return nil, nil
-	}
-	if err := validateWorkerBundleTargetPlatform(compiled, role, goTarget); err != nil {
-		return nil, err
 	}
 	root, cfg, err := app.DiscoverRoot(compiled.Root)
 	if err != nil {
@@ -353,7 +352,7 @@ func projectWorkerField(resource graph.Resource, field map[string]any) contract.
 	}
 }
 
-func writeWorkerBundle(bundle workerBundle, destination string) error {
+func writeWorkerBundle(ctx context.Context, bundle workerBundle, destination string) error {
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return err
@@ -385,60 +384,11 @@ func writeWorkerBundle(bundle workerBundle, destination string) error {
 		}
 		bundle.Programs[i].Binary = relative
 	}
-	if len(bundle.builtAssistantAssets) > 0 {
-		for index, asset := range bundle.builtAssistantAssets {
-			relativeDir := filepath.ToSlash(filepath.Join("assistants", strconv.Itoa(index)))
-			if err := os.MkdirAll(filepath.Join(staging, filepath.FromSlash(relativeDir)), 0o755); err != nil {
-				return err
-			}
-			descriptorJSON, err := json.Marshal(asset.Descriptor)
-			if err != nil {
-				return err
-			}
-			descriptorFile := relativeDir + "/descriptor.json"
-			nodeArchive := relativeDir + "/node.tar.gz"
-			nodeDescriptor := relativeDir + "/node.descriptor.json"
-			capsuleArchive := relativeDir + "/capsule.tar.gz"
-			capsuleDescriptor := relativeDir + "/capsule.descriptor.json"
-			for relative, data := range map[string][]byte{
-				descriptorFile:    descriptorJSON,
-				nodeArchive:       asset.NodeArchive,
-				nodeDescriptor:    asset.NodeDescriptorJSON,
-				capsuleArchive:    asset.CapsuleArchive,
-				capsuleDescriptor: asset.CapsuleDescriptorJSON,
-			} {
-				if err := os.WriteFile(filepath.Join(staging, filepath.FromSlash(relative)), data, 0o644); err != nil {
-					return err
-				}
-			}
-			bundle.AssistantAssets = append(bundle.AssistantAssets, workerBundledAssistantAsset{
-				Descriptor: workerruntime.AssistantAssetDescriptor{
-					Kind:                 asset.Descriptor.Kind,
-					SchemaRevision:       asset.Descriptor.SchemaRevision,
-					AssistantAddress:     asset.Descriptor.AssistantAddress,
-					Target:               asset.Descriptor.Target,
-					RuntimeRevision:      asset.Descriptor.RuntimeRevision,
-					CapabilityRevision:   asset.Descriptor.CapabilityRevision,
-					NodeArchiveDigest:    asset.Descriptor.NodeArchiveDigest,
-					NodeTreeDigest:       asset.Descriptor.NodeTreeDigest,
-					CapsuleArchiveDigest: asset.Descriptor.CapsuleArchiveDigest,
-					CapsuleTreeDigest:    asset.Descriptor.CapsuleTreeDigest,
-					CapsuleEntry:         asset.Descriptor.CapsuleEntry,
-					PackageLockDigest:    asset.Descriptor.PackageLockDigest,
-				},
-				DescriptorFile:    descriptorFile,
-				NodeArchive:       nodeArchive,
-				NodeDescriptor:    nodeDescriptor,
-				CapsuleArchive:    capsuleArchive,
-				CapsuleDescriptor: capsuleDescriptor,
-			})
-		}
-	}
-	executable, err := os.Executable()
+	host, err := rustbuild.Host(ctx)
 	if err != nil {
 		return err
 	}
-	if err := copyWorkerExecutable(executable, filepath.Join(staging, "scenery-host")); err != nil {
+	if err := copyWorkerExecutable(host, filepath.Join(staging, "scenery-host")); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(bundle, "", "  ")

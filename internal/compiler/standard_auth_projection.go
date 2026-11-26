@@ -8,7 +8,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 )
 
-const standardAuthProjectionModule = "scenery_auth"
+const standardAuthProjectionModule = "std_auth"
 
 // standardAuthProjectionResources describes framework-owned endpoints for
 // inspection and client generation. Runtime composition excludes this slice

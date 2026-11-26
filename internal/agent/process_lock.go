@@ -58,3 +58,6 @@ func (l *ProcessLock) Release() error {
 	l.file = nil
 	return err
 }
+
+// File returns the held descriptor for an in-place process handoff.
+func (l *ProcessLock) File() *os.File { return l.file }

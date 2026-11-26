@@ -1,6 +1,7 @@
 package eve
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -34,5 +35,40 @@ func TestCanonicalServerModuleIsLocationIndependentAndResolvesItsGatewayAtRuntim
 		if err := ValidateCanonicalServerModule([]byte(module)); err == nil {
 			t.Fatalf("%s: module accepted", name)
 		}
+	}
+}
+
+func TestCanonicalArtifactManifestKeepsTheGeneratedRuntimeConnection(t *testing.T) {
+	const root = "/private/overlay"
+	const logicalPath = "connections/scenery.ts"
+	manifest := map[string]any{
+		"appRoot":     root,
+		"agentRoot":   root + "/agent",
+		"connections": []any{},
+		"definitions": []map[string]string{{
+			"kind": "connection", "slug": "scenery", "logicalPath": logicalPath, "sourceId": logicalPath, "sourceKind": "module",
+		}},
+		"bindings": map[string]any{logicalPath: map[string]any{
+			"backing": map[string]string{"kind": "filesystem", "sourcePath": root + "/agent/" + logicalPath},
+			"usage":   map[string]bool{"runtimeEntry": true},
+		}},
+	}
+	module := func() []byte {
+		artifacts, err := json.Marshal(map[string]any{"manifest": manifest})
+		if err != nil {
+			t.Fatal(err)
+		}
+		embedded, err := json.Marshal(string(artifacts))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return CanonicalizeServerModule(append(append([]byte("const artifacts = JSON.parse("), embedded...), []byte(");\n")...), root)
+	}
+	if err := ValidateCanonicalServerModule(module()); err != nil {
+		t.Fatal(err)
+	}
+	manifest["connections"] = []map[string]string{{"slug": "scenery", "url": "http://127.0.0.1:1"}}
+	if err := ValidateCanonicalServerModule(module()); err == nil {
+		t.Fatal("a static connection was accepted")
 	}
 }

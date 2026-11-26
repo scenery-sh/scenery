@@ -80,9 +80,14 @@ export class Host {
       }
       const [received] = await response;
       if (received[":status"] !== expected) {
-        request.resume();
+        request.off("close", prematureClose);
         const status = received[":status"];
-        throw new CapabilityError("host rejected capability", status >= 400 && status < 500 ? "not_sent" : "unknown", { status });
+        const details = await readCapabilityError(request, status);
+        throw new CapabilityError(
+          details.message ?? "host rejected capability",
+          status >= 400 && status < 500 ? "not_sent" : "unknown",
+          details,
+        );
       }
       return { headers: received, body: request };
     } catch (error) {
@@ -185,4 +190,26 @@ export class Host {
       storageList: (store, options) => json("GET", storage("list", store, options), 200),
     });
   }
+}
+
+async function readCapabilityError(stream, status) {
+  const details = { status };
+  const chunks = [];
+  let size = 0;
+  try {
+    for await (const chunk of stream) {
+      size += chunk.length;
+      if (size > 64 << 10) {
+        stream.destroy();
+        return details;
+      }
+      chunks.push(chunk);
+    }
+    const parsed = JSON.parse(Buffer.concat(chunks, size).toString("utf8"));
+    if (typeof parsed?.code === "string") details.code = parsed.code;
+    if (typeof parsed?.message === "string") details.message = parsed.message;
+  } catch {
+    // Ignore unreadable or non-JSON error bodies and keep HTTP status details.
+  }
+  return details;
 }

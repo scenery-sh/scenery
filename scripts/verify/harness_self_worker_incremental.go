@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,7 +14,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"scenery.sh/internal/devtelemetry"
@@ -189,10 +192,14 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
-	defer func() {
+	stop := func() error {
+		if command.ProcessState != nil {
+			return nil
+		}
 		_ = command.Process.Signal(os.Interrupt)
-		_ = command.Wait()
-	}()
+		return command.Wait()
+	}
+	defer func() { _ = stop() }()
 	httpClient := &http.Client{Timeout: time.Second}
 	defer httpClient.CloseIdleConnections()
 	call := func(path, body string) (harnessWorkerReply, error) {
@@ -213,6 +220,7 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 		return reply, json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&reply.Body)
 	}
 	routes := map[string]string{"/echo": `{"message":"probe"}`, "/greet": `{"name":"probe"}`, "/idle": `{"message":"probe"}`, "/quote": `{"amount":"7"}`, "/backup": `{"amount":"7"}`, "/echo-ts": `{"amount":"7"}`}
+	workerPIDs := make(map[int]bool)
 	readWorkers := func() (map[string]harnessWorkerReply, error) {
 		workers := make(map[string]harnessWorkerReply)
 		for route, body := range routes {
@@ -220,6 +228,15 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 			if err != nil {
 				return nil, err
 			}
+			pid, err := strconv.Atoi(reply.PID)
+			if err != nil || pid <= 1 {
+				return nil, fmt.Errorf("invalid live worker PID for %s: %s", route, reply.PID)
+			}
+			group, err := exec.CommandContext(ctx, "ps", "-p", reply.PID, "-o", "pgid=").Output()
+			if err != nil || strings.TrimSpace(string(group)) != reply.PID {
+				return nil, fmt.Errorf("worker %d has no dedicated process group: %s: %v", pid, group, err)
+			}
+			workerPIDs[pid] = true
 			process, err := exec.CommandContext(ctx, "ps", "-p", reply.PID, "-o", "args=").Output()
 			if err != nil {
 				return nil, err
@@ -379,6 +396,40 @@ func runHarnessWorkerIncremental(parent context.Context, repo string) (map[strin
 		}
 	}
 	summary["contract_change_requires_restart"] = true
+	crashed, err := strconv.Atoi(after["/echo"].PID)
+	if err != nil || !workerPIDs[crashed] {
+		return nil, fmt.Errorf("invalid live worker PID for crash proof")
+	}
+	if err := syscall.Kill(crashed, syscall.SIGKILL); err != nil {
+		return nil, err
+	}
+	if err := wait(10*time.Second, func() bool {
+		reply, err := call("/echo", routes["/echo"])
+		return err == nil && reply.PID != after["/echo"].PID && reply.Generation != after["/echo"].Generation
+	}); err != nil {
+		return nil, err
+	}
+	recovered, err := readWorkers()
+	if err != nil {
+		return nil, err
+	}
+	for route, worker := range after {
+		current := recovered[route]
+		if worker.Host != current.Host || (worker.PID != current.PID) != (route == "/echo") ||
+			worker.Binary != current.Binary || worker.Digest != current.Digest {
+			return nil, fmt.Errorf("crash recovery unexpectedly changed worker %s", route)
+		}
+	}
+	if err := stop(); err != nil {
+		return nil, fmt.Errorf("stop worker application: %w", err)
+	}
+	for pid := range workerPIDs {
+		if err := syscall.Kill(-pid, 0); !errors.Is(err, syscall.ESRCH) {
+			return nil, fmt.Errorf("worker process group %d survived shutdown: %v", pid, err)
+		}
+	}
+	summary["crash_recovery"] = map[string]any{"before": after["/echo"], "after": recovered["/echo"]}
+	summary["worker_groups_checked_after_shutdown"] = len(workerPIDs)
 	return summary, nil
 }
 

@@ -233,10 +233,17 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "serde",
- "serde_json",
+ "scenery-wire",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "scenery-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

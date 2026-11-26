@@ -530,7 +530,7 @@ var helpCommands = []helpCommandEntry{
 	},
 	{
 		Command: "test", Group: "Build and checks", Summary: "Refresh application contracts and run native module tests.",
-		Usage:              []string{"scenery test [<module>...] [--app-root <path>] [-o human|json]"},
+		Usage:              []string{"scenery test [<module|directory>...] [--app-root <path>] [-o human|json]"},
 		Flags:              []string{"--app-root <path>", "-o human|json"},
 		AppRootRequirement: "required", SideEffectClass: "local_artifacts",
 		OutputSchemas: []helpOutputSchema{{Mode: "tests", Kind: "scenery.test.result"}}, JSON: true, Stability: "beta",

@@ -15,6 +15,10 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	object := func(schema string) (map[string]any, string) { return map[string]any{"object": schema}, "exact" }
 
 	switch revision {
+	case "scenery.source.workspace":
+		if name == "worker_host" {
+			return primitive("bool")
+		}
 	case "scenery.source.rust_workspace", "scenery.source.js_workspace", "scenery.source.package.js_contract":
 		return primitive("relative_path")
 	case "scenery.source.rust_toolchain", "scenery.source.js_toolchain":

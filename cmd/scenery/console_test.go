@@ -111,7 +111,7 @@ func TestRunConsoleSetupOutputSuppressesSQLNoise(t *testing.T) {
 	var out bytes.Buffer
 	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", t.TempDir())
 
-	console.SetupOutput(`NOTICE:  schema "scenery_auth" already exists, skipping`, "stderr")
+	console.SetupOutput(`NOTICE:  schema "std_auth" already exists, skipping`, "stderr")
 	console.SetupOutput("NOTICE:  relation \"atlas_apply_cache\" already exists, skipping", "stderr")
 	console.SetupOutput("CREATE SCHEMA", "stdout")
 	console.SetupOutput("CREATE INDEX", "stdout")

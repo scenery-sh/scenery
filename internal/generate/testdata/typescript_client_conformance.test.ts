@@ -731,7 +731,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 
 test("connection domain problems decode as operation errors with their actual codes", async () => {
   const binding: BindingCall = {
-    address: "scenery_auth/binding/connection_start_public_api_http",
+    address: "std_auth/binding/connection_start_public_api_http",
     method: "POST", path: "/auth/connections/{provider}/start",
     responses: [
       { status: 400, role: "failure", kind: "failure", name: "invalid_request", problemCode: "transport.invalid_request", body: { codec: "problem_json", producedMediaTypes: ["application/problem+json"], path: [], value: { kind: "primitive", name: "problem" } } },

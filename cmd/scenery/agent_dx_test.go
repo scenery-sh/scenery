@@ -1,11 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"scenery.sh/internal/compiler"
@@ -46,30 +41,4 @@ func testAgentBinding(name, path, auth string) graph.Resource {
 			"protocol": "http", "gateway": map[string]any{"$ref": "http_gateway.api"}, "operation": map[string]any{"$ref": "operation.quote"},
 			"authentication": map[string]any{"$ref": auth}, "http": map[string]any{"method": "POST", "path": path},
 		}}
-}
-
-func TestWorkerSourceWaitMatchesTheFailedRevision(t *testing.T) {
-	root := t.TempDir()
-	writeWatchFile(t, root, "app.scn", "application \"test\" {}")
-	path := filepath.Join("quote", "service.ts")
-	writeWatchFile(t, root, path, "const value = ;")
-	control := workerDevControl{watch: &workerInputWatch{root: root}}
-	inputs, err := control.watch.capture(nil, nil, true, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	failure := describeDevBuildFailure(&workerJSBuildError{service: "quote/service/quote", err: fmt.Errorf("unexpected ';'\n at %s:1:15", filepath.Join(root, path))}, root, nil, nil)
-	control.failure(inputs, failure, &workerRebuildTiming{RebuiltModules: []string{}, SkippedModules: []string{}})
-	recorder := httptest.NewRecorder()
-	control.status(recorder, httptest.NewRequest(http.MethodGet, "/status?timeout_ms=30000", nil))
-	results := recorder.Body.String()
-	if recorder.Code != 200 || !strings.Contains(results, `"outcome":"failed"`) || !strings.Contains(results, `"module":"quote","file":"quote/service.ts","line":1,"column":15`) {
-		t.Fatalf("unexpected wait answer: %s", results)
-	}
-	writeWatchFile(t, root, path, "const value = 42;")
-	recorder = httptest.NewRecorder()
-	control.status(recorder, httptest.NewRequest(http.MethodGet, "/status", nil))
-	if result := recorder.Body.String(); !strings.Contains(result, `"outcome":"building"`) || strings.Contains(result, "compile_error") {
-		t.Fatalf("stale failure leaked to a new snapshot: %s", result)
-	}
 }

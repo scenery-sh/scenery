@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -37,9 +38,19 @@ func runWorktreeDown(ctx context.Context, stdout io.Writer, args []string) error
 		}
 	}
 	response := downResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.down"), AppRoot: paths.AppRoot, DBCleanup: opts.DB, StateCleanup: opts.State}
+	if endpoint, found, err := readWorkerDevEndpoint(root); err != nil {
+		return err
+	} else if found {
+		if err := stopNativeWorkerDevelopment(ctx, endpoint); err != nil {
+			return err
+		}
+		response.Messages = append(response.Messages, "stopped selected worktree worker host")
+	}
 	record, err := paths.LoadRecord("")
 	if errors.Is(err, os.ErrNotExist) {
-		response.Messages = []string{"no retained worktree runtime or managed database found"}
+		if len(response.Messages) == 0 {
+			response.Messages = []string{"no retained worktree runtime or managed database found"}
+		}
 		return writeWorktreeDownResult(stdout, opts.JSON, response)
 	}
 	if err != nil {
@@ -230,4 +241,41 @@ func dropRetainedWorktreeAppDatabase(ctx context.Context, resolver worktreePostg
 	}
 	defer func() { _ = admin.Close() }()
 	return postgresdb.DropDatabase(ctx, admin, postgresname.DatabaseNameFor(resolver.appID, resolver.paths.AppRoot))
+}
+
+func stopNativeWorkerDevelopment(ctx context.Context, endpoint workerDevEndpoint) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	client := workerControlClient(endpoint.Control)
+	defer client.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://host/__scenery/process/v1/shutdown", nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	reply, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	_ = reply.Body.Close()
+	if reply.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("worker host shutdown: %s", reply.Status)
+	}
+	paths, err := commandWorktreePaths(endpoint.Root)
+	if err != nil {
+		return err
+	}
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		held, err := paths.ProbeLiveLock()
+		if err != nil || !held {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }

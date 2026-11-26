@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/contract"
 	"scenery.sh/internal/envpolicy"
 )
@@ -52,50 +50,8 @@ func init() { contract.SetSecretRevealer(RevealSecret) }
 
 var configSnapshotState struct {
 	once     sync.Once
-	mu       sync.RWMutex
 	snapshot *ConfigSnapshot
 	err      error
-}
-
-// InstallWorkerHostConfig supplies a validated snapshot directly to an embedded
-// Host. A standalone Host uses the inherited private descriptor instead.
-func InstallWorkerHostConfig(snapshot *ConfigSnapshot) error {
-	installed := false
-	configSnapshotState.once.Do(func() {
-		configSnapshotState.mu.Lock()
-		configSnapshotState.snapshot = snapshot
-		configSnapshotState.err = nil
-		configSnapshotState.mu.Unlock()
-		installed = true
-	})
-	if !installed {
-		return errors.New("runtime: configuration was already initialized")
-	}
-	return nil
-}
-
-// UpdateWorkerHostConfig replaces the Host configuration snapshot when a live
-// development session loads a new environment revision.
-func UpdateWorkerHostConfig(snapshot *ConfigSnapshot) {
-	_ = updateWorkerHostConfig(snapshot)
-}
-
-func updateWorkerHostConfig(snapshot *ConfigSnapshot) error {
-	configSnapshotState.once.Do(func() {})
-	configSnapshotState.mu.Lock()
-	previous := configSnapshotState.snapshot
-	configSnapshotState.snapshot = snapshot
-	configSnapshotState.err = nil
-	configSnapshotState.mu.Unlock()
-	if err := appsdk.NotifyConfigReload(); err != nil {
-		configSnapshotState.mu.Lock()
-		configSnapshotState.snapshot = previous
-		configSnapshotState.err = nil
-		configSnapshotState.mu.Unlock()
-		_ = appsdk.NotifyConfigReload()
-		return err
-	}
-	return nil
 }
 
 // LoadConfigSnapshot decodes this process's snapshot once and closes its
@@ -103,16 +59,9 @@ func updateWorkerHostConfig(snapshot *ConfigSnapshot) error {
 // an empty configuration: required inputs then fail when resolved.
 func LoadConfigSnapshot() (*ConfigSnapshot, error) {
 	configSnapshotState.once.Do(func() {
-		snapshot, err := loadConfigSnapshotFromEnvironment()
-		configSnapshotState.mu.Lock()
-		configSnapshotState.snapshot = snapshot
-		configSnapshotState.err = err
-		configSnapshotState.mu.Unlock()
+		configSnapshotState.snapshot, configSnapshotState.err = loadConfigSnapshotFromEnvironment()
 	})
-	configSnapshotState.mu.RLock()
-	snapshot, err := configSnapshotState.snapshot, configSnapshotState.err
-	configSnapshotState.mu.RUnlock()
-	return snapshot, err
+	return configSnapshotState.snapshot, configSnapshotState.err
 }
 
 func loadConfigSnapshotFromEnvironment() (*ConfigSnapshot, error) {
@@ -248,22 +197,12 @@ type publicConfigDocument struct {
 	Values   map[string]json.RawMessage `json:"values"`
 }
 
-// publicConfiguration returns the active generation's or process's public
-// configuration values and revision.
-func publicConfiguration(ctx context.Context) (publicConfigDocument, error) {
+// publicConfiguration returns this process's public values and revision.
+func publicConfiguration() (publicConfigDocument, error) {
 	document := publicConfigDocument{Kind: PublicConfigKind, Values: map[string]json.RawMessage{}}
-	var snapshot *ConfigSnapshot
-	var err error
-	if ctx != nil {
-		if generation, _ := ctx.Value(processHostGenerationKey{}).(*processHostGeneration); generation != nil && generation.hostConfig != nil {
-			snapshot = generation.hostConfig
-		}
-	}
-	if snapshot == nil {
-		snapshot, err = LoadConfigSnapshot()
-		if err != nil || snapshot == nil {
-			return document, err
-		}
+	snapshot, err := LoadConfigSnapshot()
+	if err != nil || snapshot == nil {
+		return document, err
 	}
 	document.Revision = snapshot.Revision
 	for _, key := range snapshot.Public {

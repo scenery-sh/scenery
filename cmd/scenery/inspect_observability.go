@@ -152,21 +152,12 @@ func buildInspectTracesResponse(ctx context.Context, appRoot string, cfg appcfg.
 		Traces:             []inspectTraceRecord{},
 	}
 
-	store, warnings, err := openObservabilityStore(ctx, appRoot, cfg, sessionID)
-	if err != nil {
-		return inspectTracesResponse{}, err
-	}
-	defer func() { _ = store.Close() }()
-	resp.Warnings = warnings
-
 	query := inspectTraceQuery(appID, opts)
-	items, warning, err := queryVictoriaTraceSummaries(ctx, appRoot, query)
+	items, warnings, err := readInspectTraceSummaries(ctx, appRoot, cfg, query)
 	if err != nil {
 		return inspectTracesResponse{}, err
 	}
-	if warning != "" {
-		resp.Warnings = append(resp.Warnings, warning)
-	}
+	resp.Warnings = warnings
 	if opts.Slowest {
 		devdash.SortTraceSummariesByDuration(items)
 	}
@@ -201,26 +192,17 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 		},
 	}
 
-	store, warnings, err := openObservabilityStore(ctx, appRoot, cfg, sessionID)
-	if err != nil {
-		return inspectMetricsResponse{}, err
-	}
-	defer func() { _ = store.Close() }()
-	resp.Warnings = warnings
-
 	query := inspectTraceQuery(appID, opts)
-	items, warning, err := queryVictoriaTraceSummaries(ctx, appRoot, query)
+	items, warnings, err := readInspectTraceSummaries(ctx, appRoot, cfg, query)
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
-	if warning != "" {
-		resp.Warnings = append(resp.Warnings, warning)
-	}
+	resp.Warnings = warnings
 	resp.Summary = buildInspectMetricsSummary(items)
 	resp.Services = buildInspectTraceMetrics(items, "service")
 	resp.Endpoints = buildInspectTraceMetrics(items, "endpoint")
 	resp.Warnings = append(resp.Warnings, "trace event counts are not materialized after the devdash JSON observability cutover")
-	logs, logWarning, err := queryVictoriaLogCounts(ctx, appRoot, appID, query.SessionID, opts.Since)
+	logs, logWarning, err := readInspectLogCounts(ctx, appRoot, appID, query.SessionID, opts.Since)
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
@@ -232,6 +214,43 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 		resp.Summary.LogCount += item.Count
 	}
 	return resp, nil
+}
+
+func readInspectTraceSummaries(ctx context.Context, appRoot string, cfg appcfg.Config, query devdash.TraceQuery) ([]*devdash.TraceSummary, []string, error) {
+	endpoint, found, err := readWorkerDevEndpoint(appRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	if found && workerSessionMatches(endpoint, query.SessionID) {
+		client := workerControlClient(endpoint.Control)
+		defer client.CloseIdleConnections()
+		snapshot, err := readWorkerTelemetry(ctx, client, endpoint, query.TraceID)
+		return workerTraceSummaries(snapshot.Spans, query), nil, err
+	}
+	store, warnings, err := openObservabilityStore(ctx, appRoot, cfg, query.SessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = store.Close() }()
+	items, warning, err := queryVictoriaTraceSummaries(ctx, appRoot, query)
+	if warning != "" {
+		warnings = append(warnings, warning)
+	}
+	return items, warnings, err
+}
+
+func readInspectLogCounts(ctx context.Context, appRoot, appID, sessionID string, since time.Duration) ([]devdash.LogLevelCount, string, error) {
+	endpoint, found, err := readWorkerDevEndpoint(appRoot)
+	if err != nil {
+		return nil, "", err
+	}
+	if found && workerSessionMatches(endpoint, sessionID) {
+		client := workerControlClient(endpoint.Control)
+		defer client.CloseIdleConnections()
+		snapshot, err := readWorkerTelemetry(ctx, client, endpoint, "")
+		return workerLogCounts(snapshot.Logs, time.Now().UTC().Add(-since)), "", err
+	}
+	return queryVictoriaLogCounts(ctx, appRoot, appID, sessionID, since)
 }
 
 func openObservabilityStore(ctx context.Context, appRoot string, cfg appcfg.Config, sessionID string) (*devdash.Store, []string, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/http"
 	"strconv"
@@ -35,11 +36,11 @@ func negotiateContractEncoding(header string, supported []string) (string, error
 		if hasParameters {
 			for parameter := range strings.SplitSeq(parameters, ";") {
 				key, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
-				if key != "q" || !ok {
+				if !ok || !strings.EqualFold(strings.TrimSpace(key), "q") {
 					return "", fmt.Errorf("invalid Accept-Encoding parameter")
 				}
-				parsed, err := strconv.ParseFloat(value, 64)
-				if err != nil || parsed < 0 || parsed > 1 {
+				parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+				if err != nil || math.IsNaN(parsed) || parsed < 0 || parsed > 1 {
 					return "", fmt.Errorf("invalid Accept-Encoding quality")
 				}
 				q = parsed
@@ -109,7 +110,7 @@ func negotiateContractMediaRanges(accept string, produced []string) (string, err
 		quality := 1.0
 		if rawQuality, ok := params["q"]; ok {
 			quality, err = strconv.ParseFloat(rawQuality, 64)
-			if err != nil || quality < 0 || quality > 1 {
+			if err != nil || math.IsNaN(quality) || quality < 0 || quality > 1 {
 				return "", fmt.Errorf("invalid Accept quality")
 			}
 		}

@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
@@ -30,92 +33,69 @@ func workerDatabaseEnv(root string, cfg app.Config, environmentName string) []st
 // applied instead of only reported. The process environment already holds the
 // endpoints managedDatabaseEnv resolved under the worktree's ownership checks
 // and the storage capability a seed command may use.
-func runWorkerDatabaseSetup(ctx context.Context, root string, cfg app.Config, contract *compiler.Result, envName string) (fingerprint string, returnErr error) {
+func runWorkerDatabaseSetup(ctx context.Context, root string, cfg app.Config, contract *compiler.Result, envName string) error {
 	environment, err := cfg.ResolveEnv(envName)
 	if err != nil {
-		return "", err
+		return err
 	}
-	setup, hasWork, err := buildDevDatabaseSetup(root, cfg, contract)
-	if err != nil || !hasWork {
-		return "", err
-	}
-	connections := newDBSetupConnections()
-	defer func() { returnErr = errors.Join(returnErr, connections.Close()) }()
-	_, err = declaredDatabaseSetup{
+	return declaredDatabaseSetup{
 		root: root, cfg: cfg, contract: contract,
 		env: workerDatabaseEnv(root, cfg, environment.Name),
-	}.apply(ctx, setup, connections)
-	if err != nil {
-		return "", err
-	}
-	return setup.Fingerprint, nil
+	}.run(ctx)
 }
 
-// checkPendingMigrations ensures no pending schema migration exists before a live
-// worker development rebuild starts candidate workers, without running apply or seeds.
-func (dev *workerDevelopment) checkPendingMigrations(ctx context.Context) (setup devDatabaseSetup, changed bool, returnErr error) {
-	if dev == nil || dev.watch == nil || dev.compiled == nil {
-		return devDatabaseSetup{}, false, nil
-	}
-	_, cfg, err := app.DiscoverRoot(dev.watch.root)
-	if err != nil {
-		return devDatabaseSetup{}, false, err
-	}
-	environment, err := cfg.ResolveEnv(dev.envName)
-	if err != nil {
-		return devDatabaseSetup{}, false, err
-	}
-	setup, hasWork, err := buildDevDatabaseSetup(dev.watch.root, cfg, dev.compiled)
-	if err != nil || !hasWork {
-		return devDatabaseSetup{}, false, err
-	}
-	if setup.Fingerprint == dev.dbSetupFingerprint {
-		return setup, false, nil
-	}
-	if dev.dbSetupApply != nil {
-		if err := dev.dbSetupApply(ctx, setup, true); err != nil {
-			return devDatabaseSetup{}, false, err
-		}
-		return setup, true, nil
-	}
-	if len(setup.Migrations) > 0 {
-		connections := newDBSetupConnections()
-		defer func() { returnErr = errors.Join(returnErr, connections.Close()) }()
-		results, err := runDBMigrationPlansWithDatabase(ctx, cfg.AppID(), dev.compiled.SQLRequirements, setup.Migrations, workerDatabaseEnv(dev.watch.root, cfg, environment.Name), postgresdb.SchemaMigrationOptions{StatusOnly: true}, connections)
-		if err != nil {
-			return devDatabaseSetup{}, false, err
-		}
-		for _, result := range results {
-			if result.Status != "current" {
-				return devDatabaseSetup{}, false, &pendingMigrationError{Service: result.Service}
-			}
-		}
-	}
-	return setup, true, nil
-}
-
-// applyVerifiedDatabaseSetup runs database.apply and seeds after candidate
-// workers have started and verified clean, right before publishing the generation.
-func (dev *workerDevelopment) applyVerifiedDatabaseSetup(ctx context.Context, setup devDatabaseSetup) (returnErr error) {
-	if dev == nil || dev.watch == nil || dev.compiled == nil {
+// checkWorkerPendingMigrations reports pending schema migrations while a live
+// worker generation is serving so reloads do not publish code against an
+// unmigrated schema.
+func checkWorkerPendingMigrations(ctx context.Context, root string, cfg app.Config, requirements compiler.SQLRequirements, envName string) (returnErr error) {
+	if len(cfg.Database.Migrations) == 0 || len(requirements) == 0 {
 		return nil
 	}
-	if dev.dbSetupApply != nil {
-		return dev.dbSetupApply(ctx, setup, false)
-	}
-	_, cfg, err := app.DiscoverRoot(dev.watch.root)
+	environment, err := cfg.ResolveEnv(envName)
 	if err != nil {
 		return err
 	}
-	environment, err := cfg.ResolveEnv(dev.envName)
-	if err != nil {
+	migrations, err := discoverDBMigrationPlans(root, cfg, requirements)
+	if err != nil || len(migrations) == 0 {
 		return err
 	}
 	connections := newDBSetupConnections()
 	defer func() { returnErr = errors.Join(returnErr, connections.Close()) }()
-	_, err = declaredDatabaseSetup{
-		root: dev.watch.root, cfg: cfg, contract: dev.compiled, statusOnly: true,
-		env: workerDatabaseEnv(dev.watch.root, cfg, environment.Name),
-	}.apply(ctx, setup, connections)
-	return err
+	results, err := runDBMigrationPlansWithDatabase(
+		ctx,
+		cfg.AppID(),
+		requirements,
+		migrations,
+		workerDatabaseEnv(root, cfg, environment.Name),
+		postgresdb.SchemaMigrationOptions{StatusOnly: true},
+		connections,
+	)
+	if err != nil {
+		return err
+	}
+	for _, result := range results {
+		if result.Status != "current" {
+			return &pendingMigrationError{Service: result.Service}
+		}
+	}
+	return nil
+}
+
+func checkWorkerMigrationsCommand(args []string) error {
+	if len(args) != 3 {
+		return fmt.Errorf("invalid migration check request")
+	}
+	root, cfg, err := app.DiscoverRoot(args[0])
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(args[2])
+	if err != nil {
+		return err
+	}
+	var requirements compiler.SQLRequirements
+	if err := json.Unmarshal(raw, &requirements); err != nil {
+		return err
+	}
+	return checkWorkerPendingMigrations(context.Background(), root, cfg, requirements, args[1])
 }

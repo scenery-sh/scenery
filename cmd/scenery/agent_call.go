@@ -421,7 +421,7 @@ func (c agentCallConnection) waitForSource(ctx context.Context, root string, wai
 	if c.worker.Socket != "" && !wait {
 		var status runtimeSourceWait
 		probe, cancel := context.WithTimeout(ctx, time.Second)
-		err := workerDevGet(probe, c.worker.Socket, "/status", &status)
+		err := readWorkerSourceStatus(probe, c.worker, 0, &status)
 		cancel()
 		if err == nil && status.cliPayloadIdentity == newCLIPayloadIdentity(devRuntimeWaitKind) && (status.OK || status.Outcome == "failed") {
 			return status, nil
@@ -548,9 +548,12 @@ func (c agentCallConnection) collect(ctx context.Context, root string, result *a
 	}
 	for {
 		if c.worker.Socket != "" {
-			var telemetry callTelemetry
-			if workerDevGet(ctx, c.worker.Socket, "/trace?id="+result.TraceID, &telemetry) == nil {
-				result.callTelemetry = telemetry
+			if telemetry, err := readWorkerTelemetry(ctx, c.client, c.worker, result.TraceID); err == nil {
+				result.callTelemetry = emptyCallTelemetry()
+				result.Spans = telemetry.Spans
+				for _, log := range telemetry.Logs {
+					result.Logs = append(result.Logs, log.LogEvent)
+				}
 			}
 		} else if stack != nil {
 			detail, err := stack.GetTraceDetail(ctx, devdash.TraceQuery{AppID: scope.AppID, SessionID: scope.SessionID, TraceID: result.TraceID})

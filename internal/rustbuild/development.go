@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"scenery.sh/internal/devcache"
+	"slices"
 	"strings"
 )
 
@@ -201,4 +203,17 @@ func useDefaultDevDebug(directory string, env []string) bool {
 		cargoHome = filepath.Join(home, ".cargo")
 	}
 	return !hasConfig(cargoHome)
+}
+
+// DevelopmentCommand projects the prepared Cargo workspace and local dependency graph.
+func (inputs *DevelopmentInputs) DevelopmentCommand(root string, service Service) (string, []string, []string, []string, []string, error) {
+	cache, err := devcache.Root()
+	if err != nil {
+		return "", nil, nil, nil, nil, err
+	}
+	directory := filepath.Join(root, ".scenery", "rust", "snapshot", service.Workspace)
+	args := []string{"+" + service.Toolchain, "build", "--locked", "--package", service.Crate,
+		"--bin", binaryName(service), "--message-format=json-render-diagnostics"}
+	return directory, args, rustBuildEnvironment(filepath.Join(cache, "rust-target"), directory, true),
+		slices.Clone(inputs.packages[service]), slices.Clone(inputs.owners[service]), nil
 }

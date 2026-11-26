@@ -121,7 +121,7 @@ func TestProductionWorkerIngressNeutralityAndInternalPaths(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	host := &processHost{
-		routes: routes, workers: &workerHost{}, developmentCall: false,
+		routes: routes, local: http.NotFoundHandler(), localRoutes: newRouteTable(), developmentCall: false,
 		current: &processHostGeneration{number: 1},
 	}
 	handler := neutralWorkerIngress(http.HandlerFunc(host.serveIngress), false)

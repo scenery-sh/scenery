@@ -99,7 +99,11 @@ function cancelRun(state, sessionID, runID, continuationToken, principal) {
   if (run.approvals.size) {
     // A run parked on approval has no active turn: deny its approvals, which
     // resumes and ends it.
+    {{- if .DynamicResolver }}
+    const answer = shared.from(continuationToken).respond([...run.approvals].map((interactionId) => ({ interactionId, optionId: "cancel" })), { auth: authFor(principal) });
+    {{- else }}
     const answer = shared.from(continuationToken).respond([...run.approvals].map((requestId) => ({ requestId, optionId: "cancel" })), { auth: authFor(principal) });
+    {{- end }}
     pump(state, sessionID);
     return answer.then(() => ({ status: "accepted" }));
   }
@@ -147,7 +151,14 @@ async function dispatch(state, sessionID, run, queued) {
   } catch (error) {
     sent = { status: "failed", error };
   }
+  {{- if .DynamicResolver }}
+  if (sent.sessionId === sessionID && sent.deliveryId) {
+    run.deliveryID = sent.deliveryId;
+    return { accepted: true };
+  }
+  {{- else }}
   if (sent.status === "accepted") return { accepted: true };
+  {{- end }}
   withdraw(state.pending, run);
   if (queued) {
     close(state, sessionID, run.runID, "failed");
@@ -208,6 +219,12 @@ function catchUp(state, sessionID) {
   const read = async () => {
     if (!shared.attachSession) throw new Error("assistant session is not attached");
     const session = shared.attachSession(sessionID);
+    {{- if .DynamicResolver }}
+    for await (const event of session.stream({ startIndex: state.cursor, follow: false })) {
+      applyDeliveryEvent(state, sessionID, event);
+      if (event.meta.endOfLine !== false) state.cursor = event.meta.next ?? event.meta.position.line + 1;
+    }
+    {{- else }}
     const tail = await session.getStreamTailIndex();
     if (tail < state.cursor) return;
     const stream = await session.getEventStream({ startIndex: state.cursor });
@@ -216,10 +233,95 @@ function catchUp(state, sessionID) {
       apply(state, sessionID, providerEvent);
       if (state.cursor > tail) break;
     }
+    {{- end }}
   };
   state.reading = state.reading.then(read, read);
   return state.reading;
 }
+
+{{- if .DynamicResolver }}
+// The delivery receipt names the committed input, so even identical queued
+// messages and resumed turns can be attributed without comparing their text.
+function applyDeliveryEvent(state, sessionID, event) {
+  const data = event.data;
+  const turnId = data.turnId || event.scope?.turnId;
+  const applyAs = (type, fields = {}, scoped = true) => apply(state, sessionID, {
+    type, data: scoped ? { ...fields, turnId } : fields, meta: event.meta,
+  });
+  state.deliveryCalls ??= new Map();
+  state.deliveryInteractions ??= new Map();
+  switch (event.type) {
+    case "turn.started": {
+      const index = state.pending.findIndex((run) => run.deliveryID && run.deliveryID === data.cause?.deliveryId);
+      const resumed = state.turns.get(data.follows);
+      const runID = index >= 0 ? state.pending.splice(index, 1)[0].runID
+        : state.runs.get(resumed)?.answered ? resumed : undefined;
+      if (!runID || runID !== state.open || !state.runs.has(runID)) return;
+      state.turns.set(turnId, runID);
+      const run = state.runs.get(runID);
+      run.turns.add(turnId);
+      run.sawTurn = true;
+      if (run.cancelling) shared.attachSession(sessionID).cancel({ turnId }).catch(() => {});
+      return applyAs("turn.started", data);
+    }
+    case "content.delta":
+      if (data.kind === "text") return applyAs("message.appended", { messageDelta: data.delta });
+      return;
+    case "content.completed":
+      if (data.kind === "text") return applyAs("message.completed", { message: data.value ?? data.fallbackText });
+      return;
+    case "call.requested": {
+      if (!state.turns.has(turnId) || data.capability.kind !== "tool") return;
+      const action = {
+        kind: "tool-call", callId: data.callId, parentCallId: data.owner?.callId,
+        toolName: data.capability.name, input: data.input,
+      };
+      state.deliveryCalls.set(data.callId, action);
+      return applyAs("actions.requested", { actions: [action] });
+    }
+    case "interaction.opened": {
+      if (data.request.kind !== "approval") return;
+      const action = state.deliveryCalls.get(data.subject?.callId);
+      if (!action) return;
+      const interactionTurn = turnId || data.subject?.turnId;
+      if (!state.turns.has(interactionTurn)) return;
+      state.deliveryInteractions.set(data.interactionId, interactionTurn);
+      apply(state, sessionID, {
+        type: "input.requested", meta: event.meta,
+        data: { turnId: interactionTurn, requests: [{
+          kind: "tool-approval", requestId: data.interactionId, prompt: data.request.prompt, action,
+        }] },
+      });
+      return;
+    }
+    case "interaction.settled": {
+      const interactionTurn = state.deliveryInteractions.get(data.interactionId);
+      if (!interactionTurn) return;
+      state.deliveryInteractions.delete(data.interactionId);
+      apply(state, sessionID, {
+        type: "input.resolved", meta: event.meta, data: {
+          turnId: interactionTurn, resolutions: [{ requestId: data.interactionId }],
+        },
+      });
+      return;
+    }
+    case "call.settled": {
+      const action = state.deliveryCalls.get(data.callId);
+      state.deliveryCalls.delete(data.callId);
+      if (!action) return;
+      return applyAs("action.result", { result: action, status: data.outcome });
+    }
+    case "turn.paused":
+      return applyAs("turn.waiting", { on: "input" });
+    case "turn.settled":
+      if (!state.turns.has(turnId) || !["completed", "failed", "cancelled"].includes(data.outcome)) return;
+      applyAs(`turn.${data.outcome}`);
+      return applyAs("session.waiting", {}, false);
+    case "session.ended":
+      return applyAs(data.outcome === "failed" ? "session.failed" : "session.completed", {}, false);
+  }
+}
+{{- end }}
 
 const turnEnds = { "turn.completed": "completed", "turn.cancelled": "cancelled", "turn.failed": "failed" };
 
@@ -458,13 +560,20 @@ async function control(request, { from, attachSession, requestIp }) {
           withdraw(creating, run);
           throw error;
         }
-        conversationDigests.set(session.id, body.conversation_digest);
+        {{- if .DynamicResolver }}
+        const sessionID = session.sessionId;
+        run.deliveryID = session.deliveryId;
+        {{- else }}
+        const sessionID = session.id;
+        {{- end }}
+        if (!sessionID) throw new Error("assistant session identity is unavailable");
+        conversationDigests.set(sessionID, body.conversation_digest);
         // The session state adopts the created run as its open run.
-        sessionState(session.id);
+        sessionState(sessionID);
         if (!creating.length) creatingRuns.delete(body.conversation_digest);
-        const effectiveContinuationToken = bindContinuation(session.id, continuationToken);
+        const effectiveContinuationToken = bindContinuation(sessionID, continuationToken);
         return response(envelope("conversation.created", body.request_id, {
-          private_session_id: session.id,
+          private_session_id: sessionID,
           continuation_token: effectiveContinuationToken,
           run_id: body.run_id,
         }));
@@ -498,6 +607,9 @@ async function control(request, { from, attachSession, requestIp }) {
         // Eve accepts an answer only once the requesting turn has parked.
         const answeredRun = state.runs.get(body.run_id);
         for (let attempt = 0; answeredRun.turns.size && attempt < runBindingAttempts * 5; attempt++) {
+          {{- if .DynamicResolver }}
+          if ([...answeredRun.turns].every((turn) => answeredRun.waitingTurns.has(turn))) break;
+          {{- end }}
           await new Promise((resolve) => setTimeout(resolve, runBindingDelayMS));
           await catchUp(state, body.private_session_id);
         }
@@ -505,7 +617,11 @@ async function control(request, { from, attachSession, requestIp }) {
         // resolves the approval, which may happen before respond returns.
         answeredRun.answered = true;
         try {
+          {{- if .DynamicResolver }}
+          await from(body.continuation_token).respond([{ interactionId: body.approval_id, optionId }], {
+          {{- else }}
           await from(body.continuation_token).respond([{ requestId: body.approval_id, optionId }], {
+          {{- end }}
             auth: authFor(body.principal),
           });
         } catch (error) {
@@ -634,7 +750,7 @@ function normalizeEvent(providerEvent, sessionID, continuationToken, after, fall
         capability_name: action.toolName || "",
         approval_id: request.requestId,
         approval_wait: { approval_id: request.requestId },
-        data: { prompt: request.prompt || "approval required" },
+        data: { prompt: request.prompt || "approval required", input: action.input || {} },
       };
     }
     case "action.result": {

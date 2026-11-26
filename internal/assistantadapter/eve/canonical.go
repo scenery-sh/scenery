@@ -83,19 +83,9 @@ func CanonicalizeBuild(root, source string) error {
 // connection would carry the gateway address of the build, which no start can
 // reach, so it is refused rather than reused.
 func ValidateCanonicalServerModule(data []byte) error {
-	marker := []byte("const manifest = {\n")
-	start := bytes.Index(data, marker)
-	if start < 0 || bytes.Count(data, marker) != 1 {
-		return errors.New("unsupported assistant build manifest")
-	}
-	start += len("const manifest = ")
-	end := bytes.Index(data[start:], []byte("\n};"))
-	if end < 0 {
-		return errors.New("unterminated assistant build manifest")
-	}
-	var manifest map[string]json.RawMessage
-	if err := json.Unmarshal(data[start:start+end+2], &manifest); err != nil {
-		return fmt.Errorf("assistant build manifest: %w", err)
+	manifest, modern, err := canonicalBuildManifest(data)
+	if err != nil {
+		return err
 	}
 	for key, want := range map[string]string{"appRoot": CanonicalRoot, "agentRoot": CanonicalRoot + "/agent"} {
 		var value string
@@ -110,10 +100,15 @@ func ValidateCanonicalServerModule(data []byte) error {
 		}
 	}
 	for _, connection := range static {
-		var name string
-		if json.Unmarshal(connection["connectionName"], &name) == nil && name == "scenery" {
-			return errors.New("assistant build manifest Scenery connection is static")
+		for _, field := range []string{"connectionName", "slug"} {
+			var name string
+			if json.Unmarshal(connection[field], &name) == nil && name == "scenery" {
+				return errors.New("assistant build manifest Scenery connection is static")
+			}
 		}
+	}
+	if modern {
+		return validateArtifactConnection(manifest)
 	}
 	var dynamic []map[string]json.RawMessage
 	if err := json.Unmarshal(manifest["dynamicConnections"], &dynamic); err != nil {
@@ -128,6 +123,86 @@ func ValidateCanonicalServerModule(data []byte) error {
 	}
 	if count != 1 {
 		return errors.New("assistant build manifest Scenery connection missing or duplicated")
+	}
+	return nil
+}
+
+// Eve 1 embeds its artifact envelope as a JSON string. Eve 0.71 embeds
+// the manifest object directly. Each format has a single attested owner.
+func canonicalBuildManifest(data []byte) (map[string]json.RawMessage, bool, error) {
+	modern := []byte("const artifacts = JSON.parse(")
+	legacy := []byte("const manifest = {\n")
+	var manifest map[string]json.RawMessage
+	if start := bytes.Index(data, modern); start >= 0 {
+		if bytes.Count(data, modern) != 1 || bytes.Contains(data, legacy) {
+			return nil, false, errors.New("unsupported assistant build manifest")
+		}
+		value := data[start+len(modern):]
+		reader := json.NewDecoder(bytes.NewReader(value))
+		var encoded string
+		if err := reader.Decode(&encoded); err != nil || !bytes.HasPrefix(value[reader.InputOffset():], []byte(");")) {
+			return nil, false, errors.New("unterminated assistant build artifacts")
+		}
+		var artifacts struct {
+			Manifest map[string]json.RawMessage `json:"manifest"`
+		}
+		if err := json.Unmarshal([]byte(encoded), &artifacts); err != nil || artifacts.Manifest == nil {
+			return nil, false, errors.New("invalid assistant build artifacts")
+		}
+		return artifacts.Manifest, true, nil
+	}
+	start := bytes.Index(data, legacy)
+	if start < 0 || bytes.Count(data, legacy) != 1 {
+		return nil, false, errors.New("unsupported assistant build manifest")
+	}
+	start += len("const manifest = ")
+	end := bytes.Index(data[start:], []byte("\n};"))
+	if end < 0 {
+		return nil, false, errors.New("unterminated assistant build manifest")
+	}
+	if err := json.Unmarshal(data[start:start+end+2], &manifest); err != nil {
+		return nil, false, fmt.Errorf("assistant build manifest: %w", err)
+	}
+	return manifest, false, nil
+}
+
+func validateArtifactConnection(manifest map[string]json.RawMessage) error {
+	const logicalPath = "connections/scenery.ts"
+	var definitions []struct {
+		Kind        string
+		Slug        string
+		LogicalPath string
+		SourceID    string
+		SourceKind  string
+	}
+	if err := json.Unmarshal(manifest["definitions"], &definitions); err != nil {
+		return fmt.Errorf("assistant build manifest definitions: %w", err)
+	}
+	count := 0
+	for _, definition := range definitions {
+		if definition.Kind != "connection" || definition.Slug != "scenery" {
+			continue
+		}
+		if definition.LogicalPath != logicalPath || definition.SourceID != logicalPath || definition.SourceKind != "module" {
+			return errors.New("assistant build manifest Scenery connection is not the generated module")
+		}
+		count++
+	}
+	var bindings map[string]struct {
+		Backing struct {
+			Kind, SourcePath string
+		}
+		Usage struct {
+			RuntimeEntry bool
+		}
+	}
+	if err := json.Unmarshal(manifest["bindings"], &bindings); err != nil {
+		return fmt.Errorf("assistant build manifest bindings: %w", err)
+	}
+	binding := bindings[logicalPath]
+	if count != 1 || !binding.Usage.RuntimeEntry || binding.Backing.Kind != "filesystem" ||
+		binding.Backing.SourcePath != CanonicalRoot+"/agent/"+logicalPath {
+		return errors.New("assistant build manifest has no unique runtime connection module")
 	}
 	return nil
 }

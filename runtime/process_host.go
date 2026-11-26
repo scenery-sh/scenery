@@ -12,10 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"os"
 	"os/signal"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,13 +72,7 @@ type ProcessHostConfig struct {
 	Fallback   string
 	// Observability filters the logs and traces of requests the host serves
 	// itself, as the application entrypoint's configuration does.
-	Observability         ObservabilityConfig
-	Workers               []WorkerServicePlan
-	Assistants            []WorkerAssistantPlan      `json:",omitempty"`
-	WorkerAssistantAssets []AssistantEmbeddedAsset   `json:"-"`
-	WorkerConfig          map[string]*ConfigSnapshot `json:"-"`
-	WorkerStorage         WorkerStorageHandler       `json:"-"`
-	DevelopmentCall       bool                       `json:"-"`
+	Observability ObservabilityConfig
 }
 
 type processGenerationManifest struct {
@@ -89,21 +81,17 @@ type processGenerationManifest struct {
 	ContractRevision string                   `json:"contract_revision"`
 	// Identity is the build identity of the generation: the runtime bundle of
 	// the development target the generation's processes were built from.
-	Identity     processInstanceIdentity              `json:"identity"`
-	Processes    map[string]processGenerationInstance `json:"processes"`
-	Bindings     map[string]string                    `json:"bindings"`
-	HostConfig   *ConfigSnapshot                      `json:"host_config,omitempty"`
-	WorkerConfig map[string]*ConfigSnapshot           `json:"worker_config"`
+	Identity  processInstanceIdentity              `json:"identity"`
+	Processes map[string]processGenerationInstance `json:"processes"`
+	Bindings  map[string]string                    `json:"bindings"`
 }
 
 type processGenerationInstance struct {
-	Network       string                  `json:"network"`
-	Address       string                  `json:"address"`
-	Protocol      string                  `json:"protocol,omitempty"`
-	PID           int                     `json:"pid"`
-	Identity      processInstanceIdentity `json:"identity"`
-	WorkerService string                  `json:"worker_service,omitempty"`
-	WorkerToken   string                  `json:"worker_token,omitempty"`
+	Network  string                  `json:"network"`
+	Address  string                  `json:"address"`
+	Protocol string                  `json:"protocol,omitempty"`
+	PID      int                     `json:"pid"`
+	Identity processInstanceIdentity `json:"identity"`
 }
 
 type processInstanceIdentity struct {
@@ -133,7 +121,6 @@ type processHost struct {
 	token           string
 	contract        string
 	developmentCall bool
-	ingressDisabled bool
 	routes          *routeTable
 	fallback        string
 	required        []string
@@ -143,17 +130,13 @@ type processHost struct {
 	// gateways) that localRoutes matches.
 	local       http.Handler
 	localRoutes *routeTable
-	frontend    http.Handler
 
 	faults        processHostFaults
 	conversations processHostConversations
-	workers       *workerHost
-	durable       *durableRuntime
 
 	mu          sync.RWMutex
 	current     *processHostGeneration
 	generations map[uint64]*processHostGeneration
-	fenced      uint64
 
 	// closing ends held admissions when the host stops. quiescing refuses the
 	// authority changes of a host the supervisor is replacing, so the state it
@@ -170,8 +153,6 @@ type processHostGeneration struct {
 	identity      processInstanceIdentity
 	instances     map[string]*processHostInstance
 	bindings      map[string]string
-	hostConfig    *ConfigSnapshot
-	workerConfig  map[string]*ConfigSnapshot
 	inFlight      atomic.Int64
 	// retired is closed when the generation is removed, which ends the
 	// admissions and conversation run scopes that hold it.
@@ -186,7 +167,6 @@ type processHostInstance struct {
 	ingress  http.Handler
 	dispatch http.Handler
 	client   *http.Client
-	worker   *workerabi.Client
 }
 
 type processHostGenerationKey struct{}
@@ -200,24 +180,8 @@ type processHostAttestationKey struct{}
 // it: public requests on the runtime listen address, and dispatch plus generation
 // control on the private dispatch listener of the process link.
 func MainProcessHost(cfg ProcessHostConfig) error {
-	return mainProcessHost(context.Background(), cfg, CurrentLinkedContractBundle().ContractRevision, nil, nil)
-}
-
-// MainWorkerProcessHost runs the precompiled Host against an application
-// manifest. No generated Go registrars are needed for its worker services.
-func MainWorkerProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevision string, codec WorkerValueCodec, frontend http.Handler) error {
-	return mainProcessHost(ctx, cfg, contractRevision, codec, frontend)
-}
-
-func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevision string, codec WorkerValueCodec, frontend http.Handler) error {
-	role := runtimeRoleAll
-	if codec != nil {
-		var err error
-		role, err = runtimeRoleFromEnv()
-		if err != nil {
-			return err
-		}
-	}
+	ctx := context.Background()
+	contractRevision := CurrentLinkedContractBundle().ContractRevision
 	link, err := currentProcessLink()
 	if err != nil {
 		return err
@@ -229,17 +193,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if err != nil {
 		return err
 	}
-	if err := host.registerWorkerServices(cfg.Workers, codec, cfg.WorkerConfig, cfg.WorkerStorage); err != nil {
-		return err
-	}
-	if err := host.registerWorkerAssistants(cfg.Assistants, cfg.WorkerAssistantAssets); err != nil {
-		return err
-	}
-	host.frontend = frontend
-	host.ingressDisabled = role == runtimeRoleWorker
-	if codec == nil && devEndpointsEnabled() {
-		host.developmentCall = true
-	}
+	host.developmentCall = devEndpointsEnabled()
 	if link.HostState != "" {
 		if err := host.openState(link.HostState); err != nil {
 			return err
@@ -248,7 +202,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
 	}
-	appConfig := AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr, Role: string(role), Observability: cfg.Observability}
+	appConfig := AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr, Observability: cfg.Observability}
 	SetAppConfig(appConfig)
 	stopReporting := startDevelopmentReporting(appConfig)
 	defer stopReporting()
@@ -266,31 +220,18 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 		defer cancelShutdown()
 		_ = ShutdownServices(shutdownCtx)
 	}()
-	if role != runtimeRoleWorker {
-		if endpoints := listEndpoints(); len(endpoints) > 0 || cfg.Fallback == "" {
-			local, err := newServer(cfg.ListenAddr)
-			if err != nil {
-				return err
-			}
-			host.local, host.localRoutes = local.Handler, newRouteTable()
-			for _, endpoint := range endpoints {
-				registerEndpointRoute(host.localRoutes, endpoint, func(http.ResponseWriter, *http.Request, routeParams) {})
-			}
+	if endpoints := listEndpoints(); len(endpoints) > 0 || cfg.Fallback == "" {
+		local, err := newServer(cfg.ListenAddr)
+		if err != nil {
+			return err
+		}
+		host.local, host.localRoutes = local.Handler, newRouteTable()
+		for _, endpoint := range endpoints {
+			registerEndpointRoute(host.localRoutes, endpoint, func(http.ResponseWriter, *http.Request, routeParams) {})
 		}
 	}
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	if host.workers != nil {
-		host.durable, err = openDurableRuntime(runCtx, appConfig)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			shutdown, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
-			defer cancel()
-			_ = host.durable.Close(shutdown)
-		}()
-	}
 	stopSupervisorMonitor := startSupervisorParentMonitor(cancelRun)
 	defer stopSupervisorMonitor()
 	sigCtx, stopSignals := signal.NotifyContext(runCtx, os.Interrupt, syscall.SIGTERM)
@@ -300,41 +241,19 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	if err != nil {
 		return err
 	}
+	public, err := listenRuntime(ListenNetworkFromEnv(), cfg.ListenAddr)
+	if err != nil {
+		_ = control.Close()
+		return err
+	}
 	servers := []*http.Server{
 		{Handler: http.HandlerFunc(host.serveControl), MaxHeaderBytes: processHostMaxHeaderBytes},
+		{Handler: http.HandlerFunc(host.serveIngress), MaxHeaderBytes: processHostMaxHeaderBytes},
 	}
 	if link.Dispatch.Protocol == "h2c" {
 		servers[0].Protocols = workerabi.Protocols()
 	}
-	listeners := []net.Listener{control}
-	if role != runtimeRoleWorker {
-		public, err := listenRuntime(ListenNetworkFromEnv(), cfg.ListenAddr)
-		if err != nil {
-			_ = control.Close()
-			return err
-		}
-		ingress := http.Handler(http.HandlerFunc(host.serveIngress))
-		if host.workers != nil {
-			ingress = neutralWorkerIngress(ingress, host.developmentCall)
-		}
-		servers = append(servers, &http.Server{Handler: ingress, MaxHeaderBytes: processHostMaxHeaderBytes})
-		listeners = append(listeners, public)
-	}
-	if host.workers != nil {
-		capabilities, err := listenRuntime("unix", link.Capabilities)
-		if err != nil {
-			for _, listener := range listeners {
-				_ = listener.Close()
-			}
-			return err
-		}
-		servers = append(servers, &http.Server{Handler: host.workers.scopes.Handler(host.workers.serveCapability), Protocols: workerabi.Protocols(), MaxHeaderBytes: processHostMaxHeaderBytes})
-		listeners = append(listeners, capabilities)
-	}
-	var scheduler *cronScheduler
-	if host.workers != nil {
-		scheduler = startInProcessCronScheduler(sigCtx, listCronJobs())
-	}
+	listeners := []net.Listener{control, public}
 	errCh := make(chan error, len(servers))
 	for index, listener := range listeners {
 		go func() { errCh <- servers[index].Serve(listener) }()
@@ -348,7 +267,7 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 	close(host.closing)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
 	defer cancel()
-	shutdownErrs := []error{scheduler.Stop(shutdownCtx)}
+	shutdownErrs := []error{}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		shutdownErrs = append(shutdownErrs, serveErr)
 	}
@@ -362,13 +281,10 @@ func mainProcessHost(ctx context.Context, cfg ProcessHostConfig, contractRevisio
 
 func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost, error) {
 	cfg.Fallback = strings.TrimSpace(cfg.Fallback)
-	if len(cfg.Workers) > 0 && (cfg.Fallback != "" || len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
-		return nil, fmt.Errorf("runtime: worker host cannot forward process routes")
-	}
 	if cfg.Fallback == "" && (len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
 		return nil, fmt.Errorf("runtime: process host with service routes requires a fallback process")
 	}
-	host := &processHost{telemetry: os.Stderr, name: cfg.Name, token: token, contract: contract, developmentCall: cfg.DevelopmentCall, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}, closing: make(chan struct{})}
+	host := &processHost{telemetry: os.Stderr, name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}, closing: make(chan struct{})}
 	required := map[string]bool{}
 	if cfg.Fallback != "" {
 		required[cfg.Fallback] = true
@@ -401,39 +317,21 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 	return host, nil
 }
 
-func isInternalSceneryRoute(u *url.URL) bool {
-	if u == nil {
-		return false
-	}
-	for _, candidate := range []string{u.Path, u.EscapedPath(), path.Clean("/" + u.Path)} {
-		lower := strings.ToLower(candidate)
-		if lower == "/__scenery" || strings.HasPrefix(lower, "/__scenery/") {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
-	if h.workers != nil && isInternalSceneryRoute(req.URL) {
-		http.NotFound(w, req)
-		return
-	}
 	req.Header.Del(processExpectedContractHdr)
 	if h.local != nil {
 		method := req.Method
 		if requested := strings.TrimSpace(req.Header.Get("Access-Control-Request-Method")); method == http.MethodOptions && requested != "" {
 			method = requested
 		}
-		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil ||
-			h.workers != nil && req.URL.Path == PublicConfigPath {
+		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil {
 			// The host's own endpoints serve before a generation is published;
 			// once one is, a request holds the generation current at ingress for
 			// its whole lifetime and its answer attests that generation, unless
 			// an assistant event stream attests the generation its
 			// conversation's run executes in (see attachAssistantStream).
 			current := h.acquireIngress(req)
-			writer := &processHostAttestingWriter{ResponseWriter: &processHostResponseWriter{ResponseWriter: w, generation: current}, generation: current, suppress: h.workers != nil && !h.developmentCall}
+			writer := &processHostAttestingWriter{ResponseWriter: &processHostResponseWriter{ResponseWriter: w, generation: current}, generation: current}
 			if current != nil {
 				defer current.inFlight.Add(-1)
 				ctx := context.WithValue(req.Context(), processHostGenerationKey{}, current)
@@ -453,9 +351,7 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 	w = &processHostResponseWriter{ResponseWriter: w, generation: generation}
 	// An answer names the application generation that served it, so a check can
 	// bind its evidence to the exact published implementation set.
-	if h.workers == nil || h.developmentCall {
-		w.Header().Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
-	}
+	w.Header().Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
 	req.Header.Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
 	req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, generation))
 	method := req.Method
@@ -466,18 +362,10 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 		owner.handler(w, req, nil)
 		return
 	}
-	if h.frontend != nil {
-		h.frontend.ServeHTTP(w, req)
-		return
-	}
 	if h.fallback == "" {
-		if h.local == nil {
-			errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msg("HTTP ingress is disabled in worker role").Err(), http.StatusServiceUnavailable)
-			return
-		}
 		// An application without a native service: the host's own runtime
 		// serves framework routes and answers unmatched requests.
-		h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: generation, suppress: h.workers != nil && !h.developmentCall}, req)
+		h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: generation}, req)
 		return
 	}
 	h.forward(w, req, h.fallback)
@@ -518,9 +406,7 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 	switch {
 	case h.developmentCall && req.URL.Path == "/__scenery/process/v1/dev-call" && req.Method == http.MethodPost:
 		h.serveWorkerDevCall(w, req)
-	case h.developmentCall && h.workers != nil && req.URL.Path == "/__scenery/process/v1/dev-durable" && req.Method == http.MethodPost:
-		h.serveWorkerDevDurable(w, req)
-	case h.workers == nil && req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
+	case req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
 		h.dispatch(w, req)
 	case req.URL.Path == processAdmissionsPath && req.Method == http.MethodPost:
 		h.serveAdmission(w, req)
@@ -615,7 +501,7 @@ func (h *processHost) servePublish(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "malformed generation manifest", http.StatusBadRequest)
 		return
 	}
-	if err := h.publishContext(req.Context(), manifest); err != nil {
+	if err := h.publish(manifest); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -623,10 +509,6 @@ func (h *processHost) servePublish(w http.ResponseWriter, req *http.Request) {
 }
 
 func (h *processHost) publish(manifest processGenerationManifest) error {
-	return h.publishContext(context.Background(), manifest)
-}
-
-func (h *processHost) publishContext(ctx context.Context, manifest processGenerationManifest) error {
 	if manifest.ContractRevision != h.contract {
 		return fmt.Errorf("generation %d contract revision %q differs from the host's %q", manifest.Generation, manifest.ContractRevision, h.contract)
 	}
@@ -645,10 +527,7 @@ func (h *processHost) publishContext(ctx context.Context, manifest processGenera
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("generation %d publish canceled: %w", manifest.Generation, err)
-	}
-	if manifest.Generation == 0 || manifest.Generation <= h.fenced || (h.current != nil && manifest.Generation <= h.current.number) {
+	if h.current != nil && manifest.Generation <= h.current.number || manifest.Generation == 0 {
 		return fmt.Errorf("generation %d does not follow the published generation", manifest.Generation)
 	}
 	generation := &processHostGeneration{observation: manifest.Observation, telemetry: h.telemetry, number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings), retired: make(chan struct{})}
@@ -660,48 +539,17 @@ func (h *processHost) publishContext(ctx context.Context, manifest processGenera
 			identity.ImplementationRevision == "" || identity.BuildInputDigest == "" || identity.GoTarget == "" {
 			return fmt.Errorf("generation %d instance of %s is invalid", manifest.Generation, name)
 		}
-		if h.workers != nil {
-			if spec.WorkerService == "" || h.workers.services[spec.WorkerService].Process != name || spec.Network != "unix" || spec.Protocol != "h2c" || len(spec.WorkerToken) < 32 {
-				return fmt.Errorf("generation %d has an invalid worker instance %s", manifest.Generation, name)
-			}
-		} else if spec.WorkerService != "" || spec.WorkerToken != "" {
-			return fmt.Errorf("generation %d has an unexpected worker instance %s", manifest.Generation, name)
-		}
 		if h.current != nil {
 			if previous := h.current.instances[name]; previous != nil && previous.spec == spec {
 				generation.instances[name] = previous
 				continue
 			}
 		}
-		var instance *processHostInstance
-		if h.workers != nil {
-			instance = &processHostInstance{name: name, spec: spec, worker: workerabi.NewClient(spec.Address, spec.WorkerToken, workerabi.Identity{
-				ABI: workerabi.Version, Service: spec.WorkerService, ContractRevision: identity.ContractRevision, ImplementationRevision: identity.ImplementationRevision,
-			})}
-		} else {
-			instance = newProcessHostInstance(name, spec)
-		}
-		generation.instances[name] = instance
-	}
-	if manifest.HostConfig != nil {
-		if err := updateWorkerHostConfig(manifest.HostConfig); err != nil {
-			return err
-		}
-		generation.hostConfig = manifest.HostConfig
-	}
-	if h.workers != nil && manifest.WorkerConfig != nil {
-		generation.workerConfig = maps.Clone(manifest.WorkerConfig)
-		h.workers.configMu.Lock()
-		h.workers.config = maps.Clone(manifest.WorkerConfig)
-		h.workers.configMu.Unlock()
+		generation.instances[name] = newProcessHostInstance(name, spec)
 	}
 	h.generations[generation.number] = generation
 	h.current = generation
-	h.fenced = max(h.fenced, generation.number)
 	generation.lifetime, generation.cancel = context.WithCancel(context.Background())
-	if h.durable != nil {
-		h.durable.StartBackground()
-	}
 	return nil
 }
 
@@ -725,12 +573,6 @@ func (h *processHost) removeGeneration(number uint64, force bool) (int, string) 
 	generation := h.generations[number]
 	switch {
 	case generation == nil:
-		if number > 0 {
-			h.fenced = max(h.fenced, number)
-		}
-		if h.current != nil && number > 0 && number < h.current.number {
-			return http.StatusNoContent, ""
-		}
 		return http.StatusNotFound, "generation is not published"
 	case generation == h.current:
 		return http.StatusConflict, "the current generation cannot be retired"
@@ -738,7 +580,6 @@ func (h *processHost) removeGeneration(number uint64, force bool) (int, string) 
 		return http.StatusConflict, fmt.Sprintf("generation has %d requests in flight", generation.inFlight.Load())
 	}
 	delete(h.generations, number)
-	h.fenced = max(h.fenced, number)
 	if generation.cancel != nil {
 		generation.cancel()
 	}

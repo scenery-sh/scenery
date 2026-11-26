@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"maps"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -120,11 +119,11 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		policySource.Spec = invoke
 		service.Schedules = append(service.Schedules, workerruntime.WorkerSchedulePlan{
 			Address: schedule.Address, Operation: operation, Execution: execution, Input: input,
-			Every: time.Duration(workerDuration(trigger["every"])), Overlap: cp.StringValue(schedule.Spec["overlap"]),
-			CatchupMaximumAge: time.Duration(workerDuration(catchup["maximum_age"])),
-			Authorization:     workerRefText(invoke["authorization"]), Pipeline: workerRefText(invoke["pipeline"]),
+			Authorization: workerRefText(invoke["authorization"]), Pipeline: workerRefText(invoke["pipeline"]),
 			Policy:  projection.policy(service, policySource, projection.resources[operation]),
 			Timeout: time.Duration(workerDuration(projection.resources[execution].Spec["timeout"])),
+			Every:   time.Duration(workerDuration(trigger["every"])), Overlap: cp.StringValue(schedule.Spec["overlap"]),
+			CatchupMaximumAge: time.Duration(workerDuration(catchup["maximum_age"])),
 		})
 		projection.services[service.Address] = service
 	}
@@ -144,19 +143,6 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 		service.Bindings = append(service.Bindings, plan)
 		projection.services[service.Address] = service
 	}
-	for _, binding := range manifest.Resources {
-		if binding.Kind != "scenery.binding" || cp.StringValue(binding.Spec["protocol"]) != "mcp" {
-			continue
-		}
-		operationAddress := workerReference(binding, binding.Spec["operation"], "operation")
-		service, ok := projection.services[operationOwners[operationAddress]]
-		if !ok {
-			continue
-		}
-		tools := projection.mcpTools(manifest, service, binding, projection.resources[operationAddress])
-		service.MCPTools = append(service.MCPTools, tools...)
-		projection.services[service.Address] = service
-	}
 	addresses := make([]string, 0, len(projection.services))
 	for address := range maps.Keys(projection.services) {
 		addresses = append(addresses, address)
@@ -164,17 +150,7 @@ func projectWorkerServices(manifest *graph.Manifest) ([]workerruntime.WorkerServ
 	sort.Strings(addresses)
 	services := make([]workerruntime.WorkerServicePlan, 0, len(addresses))
 	for _, address := range addresses {
-		service := projection.services[address]
-		sort.Slice(service.MCPTools, func(i, j int) bool {
-			if service.MCPTools[i].AssistantAddress != service.MCPTools[j].AssistantAddress {
-				return service.MCPTools[i].AssistantAddress < service.MCPTools[j].AssistantAddress
-			}
-			if service.MCPTools[i].Name != service.MCPTools[j].Name {
-				return service.MCPTools[i].Name < service.MCPTools[j].Name
-			}
-			return service.MCPTools[i].Binding < service.MCPTools[j].Binding
-		})
-		services = append(services, service)
+		services = append(services, projection.services[address])
 	}
 	return services, nil
 }
@@ -219,8 +195,7 @@ func qualifyWorkerType(module, expression string) string {
 
 func (p workerPlanProjection) binding(service workerruntime.WorkerServicePlan, binding, operation graph.Resource) (workerruntime.WorkerBindingPlan, error) {
 	result := workerruntime.WorkerBindingPlan{
-		Address: binding.Address, Operation: operation.Address, Protocol: cp.StringValue(binding.Spec["protocol"]),
-		Policy: p.policy(service, binding, operation),
+		Address: binding.Address, Operation: operation.Address, Policy: p.policy(service, binding, operation),
 	}
 	delivery := cp.StringValue(binding.Spec["delivery"])
 	result.Delivery = delivery
@@ -229,92 +204,27 @@ func (p workerPlanProjection) binding(service workerruntime.WorkerServicePlan, b
 	if delivery != "call" && delivery != "stream" && delivery != "enqueue" && delivery != "wait" {
 		return result, fmt.Errorf("worker binding delivery %q has no Host plan", delivery)
 	}
+	protocol := cp.StringValue(binding.Spec["protocol"])
 	isDurable := cp.StringValue(p.resources[result.Execution].Spec["mode"]) == "durable"
-	if (delivery == "enqueue" || delivery == "wait" || result.Protocol == "mcp" && isDurable) && service.Durable[result.Execution].Operation == "" {
+	if (delivery == "enqueue" || delivery == "wait" || (protocol == "mcp" && isDurable)) && service.Durable[result.Execution].Operation == "" {
 		return result, fmt.Errorf("durable execution %s has no Host plan", result.Execution)
 	}
-	switch result.Protocol {
+	switch protocol {
 	case "http":
 		httpPlan, err := p.httpBinding(binding, operation, &result.Policy)
 		if err != nil {
 			return result, err
 		}
 		result.HTTP = &httpPlan
+	case "mcp":
+		result.MCP = true
 	case "internal":
 		internal, _ := binding.Spec["internal"].(map[string]any)
 		result.Visibility = cp.StringValue(internal["visibility"])
-	case "mcp":
 	default:
 		return result, fmt.Errorf("worker binding protocol has no Host plan")
 	}
 	return result, nil
-}
-
-func (p workerPlanProjection) mcpTools(manifest *graph.Manifest, service workerruntime.WorkerServicePlan, binding, operation graph.Resource) []workerruntime.WorkerMCPToolPlan {
-	executionAddress := workerReference(binding, binding.Spec["execution"], "execution")
-	execution, ok := p.resources[executionAddress]
-	if !ok || execution.Kind != "scenery.execution" {
-		return nil
-	}
-	var streamFields map[string][]string
-	for _, existing := range service.Bindings {
-		if existing.Operation != operation.Address || existing.Delivery != "stream" || existing.HTTP == nil {
-			continue
-		}
-		for outcome, resp := range existing.HTTP.Responses {
-			if resp.Stream {
-				if streamFields == nil {
-					streamFields = make(map[string][]string)
-				}
-				streamFields[outcome] = slices.Clone(resp.Body.Path)
-			}
-		}
-	}
-	policy := p.policy(service, binding, operation)
-	policy.TotalInvocationTimeoutNanos = workerDuration(execution.Spec["timeout"])
-	mcpSpec, _ := binding.Spec["mcp"].(map[string]any)
-	effect := workerruntime.MCPToolEffect{
-		ReadOnly:    mcpSpec["read_only"] == true,
-		Destructive: mcpSpec["destructive"] == true,
-		Idempotent:  mcpSpec["idempotent"] == true,
-		OpenWorld:   mcpSpec["open_world"] == true,
-	}
-	delivery := cp.StringValue(binding.Spec["delivery"])
-	var tools []workerruntime.WorkerMCPToolPlan
-	for _, server := range manifest.Resources {
-		if server.Kind != "scenery.mcp-server" {
-			continue
-		}
-		limits := workerruntime.MCPToolLimits{
-			MaxInputBytes:  workerInt(server.Spec["max_input_bytes"]),
-			MaxResultBytes: workerInt(server.Spec["max_result_bytes"]),
-		}
-		for _, capability := range cp.NamedChildren(server.Spec, "capability") {
-			if workerReference(server, capability["binding"], "binding") != binding.Address {
-				continue
-			}
-			for _, assistant := range manifest.Resources {
-				if assistant.Kind != "scenery.assistant" || workerReference(assistant, assistant.Spec["mcp_server"], "mcp_server") != server.Address {
-					continue
-				}
-				tools = append(tools, workerruntime.WorkerMCPToolPlan{
-					ID:               assistant.Address + "#" + binding.Address,
-					Name:             cp.StringValue(capability["name"]),
-					AssistantAddress: assistant.Address,
-					Binding:          binding.Address,
-					Operation:        operation.Address,
-					Execution:        executionAddress,
-					Delivery:         delivery,
-					Policy:           policy,
-					Limits:           limits,
-					Effect:           effect,
-					Approval:         cp.StringValue(capability["approval"]),
-					StreamFields:     streamFields,
-				})
-			}
-		}
-	}
-	return tools
 }
 
 func (p workerPlanProjection) policy(service workerruntime.WorkerServicePlan, binding, operation graph.Resource) workerruntime.ContractHTTPPolicy {
