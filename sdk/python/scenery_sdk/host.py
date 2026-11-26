@@ -73,6 +73,34 @@ class Context:
         self.binding = binding
         self.cancel_event = cancel_event
 
+    @classmethod
+    def standalone(
+        cls,
+        principal: str | None = None,
+        tenant_id: str | None = None,
+        invocation_id: str = "standalone",
+        mode: str = "direct",
+        binding: str | None = None,
+        execution_id: str | None = None,
+    ) -> "Context":
+        """Construct an offline Context for unit and regression tests."""
+        resolved_exec_id = execution_id if execution_id is not None else (invocation_id if mode == "durable" else None)
+        return cls(
+            Host({"token": "", "host_socket": ""}),
+            "",
+            InvocationContext(
+                invocation_id=invocation_id,
+                generation=1,
+                contract_revision="",
+                principal=principal,
+                tenant_id=tenant_id,
+                execution_id=resolved_exec_id,
+            ),
+            mode,
+            binding,
+            asyncio.Event(),
+        )
+
     def is_cancelled(self) -> bool:
         return self.cancel_event.is_set()
 

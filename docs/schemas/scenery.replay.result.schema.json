@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.replay.result.schema.json",
+  "title": "scenery.replay.result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "mode",
+    "report_token",
+    "status",
+    "original_cause",
+    "invocation",
+    "duration_ms"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.replay.result"
+    },
+    "schema_revision": {
+      "const": "sha256:1d359b3b37c014841cfa0cb2778ce2cbb58e176d2c6242d1e91b731e80a57989"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "live",
+        "emit_test"
+      ]
+    },
+    "report_token": {
+      "type": "string",
+      "pattern": "^rpt_[a-z0-9]+$"
+    },
+    "status": {
+      "enum": [
+        "reproduced",
+        "fixed",
+        "changed_error",
+        "emitted"
+      ]
+    },
+    "original_cause": {
+      "type": "string"
+    },
+    "invocation": {
+      "type": "object"
+    },
+    "http_status": {
+      "type": "integer"
+    },
+    "body": {},
+    "body_encoding": {
+      "type": "string"
+    },
+    "outcome": {},
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "logs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "spans": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "failure_report": {
+      "$ref": "scenery.failure.report.schema.json"
+    },
+    "source_wait": {
+      "$ref": "scenery.dev-runtime.wait.schema.json"
+    },
+    "emitted_test_path": {
+      "type": "string"
+    },
+    "next_command": {
+      "type": "string"
+    }
+  }
+}

@@ -25,6 +25,7 @@ type invocationState struct {
 	deployment       string
 	locale           string
 	connectionWorker bool
+	standalone       bool
 }
 
 // InvocationMetadata is runtime-internal construction data. The package's Go
@@ -42,6 +43,8 @@ type InvocationMetadata struct {
 	Locale        string
 	// ConnectionWorker is granted only at a runtime-owned background admission.
 	ConnectionWorker bool
+	// Standalone marks offline test invocations that must never authorize live capabilities.
+	Standalone bool
 }
 
 // Invocation is an opaque, runtime-created authority token for inherited
@@ -56,11 +59,16 @@ func NewInvocationWithMetadata(metadata InvocationMetadata) Invocation {
 		callerBinding: metadata.CallerBinding, executionID: metadata.ExecutionID,
 		deployment: metadata.Deployment, locale: metadata.Locale,
 		connectionWorker: metadata.ConnectionWorker,
+		standalone:       metadata.Standalone,
 	}}
 }
 
 func (invocation Invocation) ConnectionWorker() bool {
 	return invocation.state != nil && invocation.state.connectionWorker
+}
+
+func (invocation Invocation) Standalone() bool {
+	return invocation.state != nil && invocation.state.standalone
 }
 
 func (invocation Invocation) Valid() bool {

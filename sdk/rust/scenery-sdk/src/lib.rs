@@ -19,8 +19,7 @@ use scenery_wire::{
     BindingCallRef, BindingReply, CAPABILITY_PREFIX, CONTRACT_HEADER, ConnectionTokenReply,
     ConnectionTokenRequest, Delivery, EVENTS_MEDIA_TYPE, EventEmitCallRef, IMPLEMENTATION_HEADER,
     INVOKE_PATH, InvocationOutcome, MAX_METADATA, READY_PATH, RawEvent, SCOPE_HEADER,
-    STREAM_MEDIA_TYPE,
-    STREAM_SIZE_HEADER,
+    STREAM_MEDIA_TYPE, STREAM_SIZE_HEADER,
 };
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -189,9 +188,45 @@ pub struct Context {
     pub invocation: InvocationContext,
     host: Host,
     canceled: watch::Receiver<()>,
+    _keep_canceled_open: Option<Arc<watch::Sender<()>>>,
 }
 
 impl Context {
+    pub fn standalone() -> Self {
+        Self::with_principal(None, None)
+    }
+
+    pub fn with_principal(principal: Option<&str>, tenant_id: Option<&str>) -> Self {
+        let (tx, canceled) = watch::channel(());
+        Self {
+            invocation: InvocationContext {
+                invocation_id: "standalone".into(),
+                scope: String::new(),
+                generation: 1,
+                contract_revision: String::new(),
+                principal: principal.map(str::to_owned),
+                tenant_id: tenant_id.map(str::to_owned),
+                traceparent: None,
+                deadline: None,
+                locale: None,
+                execution_id: None,
+                metadata: None,
+            },
+            host: Host {
+                socket: Arc::new(PathBuf::new()),
+                token: Arc::from(""),
+                sender: Arc::new(Mutex::new(None)),
+            },
+            canceled,
+            _keep_canceled_open: Some(Arc::new(tx)),
+        }
+    }
+
+    pub fn with_execution_id(mut self, execution_id: impl Into<String>) -> Self {
+        self.invocation.execution_id = Some(execution_id.into());
+        self
+    }
+
     pub async fn canceled(&mut self) {
         let _ = self.canceled.changed().await;
     }
@@ -266,11 +301,13 @@ impl Context {
         if status != StatusCode::OK {
             return Err(event_emit_failure(status, &raw).into());
         }
-        let reply: BindingReply = serde_json::from_slice(&raw)
-            .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event capability response"))?;
+        let reply: BindingReply = serde_json::from_slice(&raw).map_err(|_| {
+            unavailable_failure(Delivery::Unknown, "invalid event capability response")
+        })?;
         match (reply.output, reply.error) {
-            (Some(output), None) => serde_json::from_str(output.get())
-                .map_err(|_| unavailable_failure(Delivery::Unknown, "invalid event receipt").into()),
+            (Some(output), None) => serde_json::from_str(output.get()).map_err(|_| {
+                unavailable_failure(Delivery::Unknown, "invalid event receipt").into()
+            }),
             (None, Some(error)) => Err(error.into()),
             _ => Err(
                 unavailable_failure(Delivery::Unknown, "invalid event capability response").into(),
@@ -576,6 +613,7 @@ async fn invoke(
         invocation: invocation.context.clone(),
         host,
         canceled,
+        _keep_canceled_open: None,
     };
     let fail = StatusCode::INTERNAL_SERVER_ERROR;
     let mut future =
@@ -746,219 +784,5 @@ fn event_emit_failure(status: StatusCode, raw: &[u8]) -> BindingFailure {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-    use std::time::Duration;
-    use tokio::sync::{Notify, mpsc};
-
-    #[test]
-    fn shutdown_drains_an_admitted_invocation_and_its_telemetry() {
-        run(async { tokio::time::timeout(Duration::from_secs(3), prove_shutdown_drain()).await? })
-            .unwrap();
-    }
-
-    async fn prove_shutdown_drain() -> Result<()> {
-        let directory = std::env::temp_dir().join(format!("sw-{}", std::process::id()));
-        std::fs::create_dir(&directory)?;
-        struct RemoveTestDirectory(PathBuf);
-        impl Drop for RemoveTestDirectory {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let _cleanup = RemoveTestDirectory(directory.clone());
-        let worker_socket = directory.join("worker");
-        let host_socket = directory.join("host");
-        let collector = UnixListener::bind(&host_socket)?;
-        let (received, mut batch) = mpsc::unbounded_channel();
-        let receiver = tokio::spawn(async move {
-            let (socket, _) = collector.accept().await.unwrap();
-            let handler = service_fn(move |request: Request<Incoming>| {
-                let received = received.clone();
-                async move {
-                    assert_eq!(request.uri().path(), "/host/v1/telemetry");
-                    assert_eq!(request.headers()["x-worker-scope"], "test-scope");
-                    let body = request.into_body().collect().await?.to_bytes();
-                    received.send(body).unwrap();
-                    Ok::<_, hyper::Error>(json(br#"{"accepted":1}"#.to_vec()))
-                }
-            });
-            let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
-                .serve_connection(TokioIo::new(socket), handler)
-                .await;
-        });
-        let stop = Arc::new(Notify::new());
-        let stopping = Arc::clone(&stop);
-        let entered = Arc::new(Notify::new());
-        let worker_entered = Arc::clone(&entered);
-        let release = Arc::new(Notify::new());
-        let worker_release = Arc::clone(&release);
-        let launch = Launch {
-            worker_socket: worker_socket.clone(),
-            host_socket,
-            token: "test-token".into(),
-            identity: Identity {
-                abi: 1,
-                service: "example/service/worker".into(),
-                contract_revision: "contract".into(),
-                implementation_revision: "implementation".into(),
-            },
-            parent_death_fd: None,
-        };
-        let worker = tokio::spawn(async move {
-            serve_until(
-                launch,
-                move |_, context| {
-                    let entered = Arc::clone(&worker_entered);
-                    let release = Arc::clone(&worker_release);
-                    Box::pin(async move {
-                        entered.notify_one();
-                        release.notified().await;
-                        context
-                            .telemetry(&[TelemetryRecord {
-                                kind: "log",
-                                name: "drain",
-                                message: "handler completed",
-                                elapsed_ns: 0,
-                                attributes: BTreeMap::new(),
-                            }])
-                            .await?;
-                        Ok(Output::json(RawValue::from_string("{}".into())?))
-                    })
-                },
-                stopping.notified(),
-            )
-            .await
-        });
-        let socket = loop {
-            if let Ok(socket) = UnixStream::connect(&worker_socket).await {
-                break socket;
-            }
-            sleep(Duration::from_millis(1)).await;
-        };
-        let (mut client, connection) =
-            hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(socket))
-                .await?;
-        let connection = tokio::spawn(connection);
-        let request = Request::post("/worker/v1/invoke")
-            .header(AUTHORIZATION, "Bearer test-token")
-            .body(full(Bytes::from_static(
-                br#"{"service":"example/service/worker","operation":"example/operation/test","mode":"direct","context":{"invocation_id":"test","scope":"test-scope","generation":1,"contract_revision":"contract"},"input":{}}"#,
-            )))?;
-        let response = tokio::spawn(async move { client.send_request(request).await });
-        entered.notified().await;
-        stop.notify_one();
-        while UnixStream::connect(&worker_socket).await.is_ok() {
-            sleep(Duration::from_millis(1)).await;
-        }
-        release.notify_one();
-        let response = response.await??;
-        assert_eq!(response.status(), StatusCode::OK);
-        response.into_body().collect().await?;
-        let batch: serde_json::Value =
-            serde_json::from_slice(&batch.recv().await.ok_or("telemetry batch missing")?)?;
-        assert_eq!(batch[0]["message"], "handler completed");
-        worker.await??;
-        receiver.abort();
-        connection.abort();
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn serve_stops_when_parent_death_pipe_closes() {
-        use std::os::fd::IntoRawFd;
-
-        run(async {
-            tokio::time::timeout(Duration::from_secs(3), async {
-                let directory =
-                    std::env::temp_dir().join(format!("sw-parent-{}", std::process::id()));
-                let _ = std::fs::remove_dir_all(&directory);
-                std::fs::create_dir(&directory)?;
-                struct RemoveTestDirectory(PathBuf);
-                impl Drop for RemoveTestDirectory {
-                    fn drop(&mut self) {
-                        let _ = std::fs::remove_dir_all(&self.0);
-                    }
-                }
-                let _cleanup = RemoveTestDirectory(directory.clone());
-                let worker_socket = directory.join("worker");
-                let (reader, writer) = std::io::pipe()?;
-                let launch = Launch {
-                    worker_socket: worker_socket.clone(),
-                    host_socket: directory.join("host"),
-                    token: "test-token".into(),
-                    identity: Identity {
-                        abi: 1,
-                        service: "example/service/worker".into(),
-                        contract_revision: "contract".into(),
-                        implementation_revision: "implementation".into(),
-                    },
-                    parent_death_fd: Some(reader.into_raw_fd()),
-                };
-                let task = tokio::spawn(async move {
-                    serve(launch, |_, _| {
-                        Box::pin(async { Ok(Output::json(RawValue::from_string("{}".into())?)) })
-                    })
-                    .await
-                });
-                while UnixStream::connect(&worker_socket).await.is_err() {
-                    sleep(Duration::from_millis(1)).await;
-                }
-                drop(writer);
-                task.await??;
-                Ok::<(), Error>(())
-            })
-            .await?
-        })
-        .unwrap();
-    }
-
-    #[test]
-    fn event_emit_failure_attaches_delivery_and_normalizes_server_errors() {
-        let forbidden = event_emit_failure(
-            StatusCode::FORBIDDEN,
-            br#"{"code":"permission_denied","message":"denied"}"#,
-        );
-        assert_eq!(forbidden.code.as_deref(), Some("permission_denied"));
-        assert_eq!(
-            forbidden.meta.as_ref().and_then(|m| m["delivery"].as_str()),
-            Some("not_sent")
-        );
-
-        let internal = event_emit_failure(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            br#"{"code":"system.internal","message":"contract implementation failure"}"#,
-        );
-        assert_eq!(internal.code.as_deref(), Some("unavailable"));
-        assert_eq!(
-            internal.meta.as_ref().and_then(|m| m["delivery"].as_str()),
-            Some("unknown")
-        );
-
-        let check_not_sent = |payload: String| {
-            let err = run(async move {
-                let (_tx, canceled) = watch::channel(());
-                let ctx = Context {
-                    invocation: InvocationContext {
-                        invocation_id: "inv".into(), scope: "scope".into(), generation: 1,
-                        contract_revision: "rev".into(), principal: None, tenant_id: None,
-                        traceparent: None, deadline: None, locale: None, execution_id: None, metadata: None,
-                    },
-                    host: Host { socket: Arc::new(PathBuf::from("/nonexistent")), token: Arc::from("token"), sender: Arc::new(Mutex::new(None)) },
-                    canceled,
-                };
-                ctx.emit_event("accepted", &payload).await.map(|_| ())
-            })
-            .unwrap_err();
-            let failure = err.downcast_ref::<BindingFailure>().expect("binding failure");
-            assert_eq!(failure.code.as_deref(), Some("unavailable"));
-            assert_eq!(failure.meta.as_ref().and_then(|m| m["delivery"].as_str()), Some("not_sent"));
-        };
-        check_not_sent("x".repeat(MAX_METADATA + 1));
-        check_not_sent("small".into());
-        let bad_reply = unavailable_failure(Delivery::Unknown, "invalid event receipt");
-        assert_eq!(bad_reply.meta.as_ref().and_then(|m| m["delivery"].as_str()), Some("unknown"));
-    }
-}
+#[path = "lib_test.rs"]
+mod tests;

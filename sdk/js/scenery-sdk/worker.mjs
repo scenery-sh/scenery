@@ -5,7 +5,7 @@ import { createServer } from "node:http2";
 import { pipeline } from "node:stream/promises";
 import { Host, MAX_METADATA, readMetadata } from "./host.mjs";
 
-export { CapabilityError } from "./host.mjs";
+export { CapabilityError, standaloneContext } from "./host.mjs";
 export { outcomeCodec } from "./wire.mjs";
 
 export function readLaunch() {

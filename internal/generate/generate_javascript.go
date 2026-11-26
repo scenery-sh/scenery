@@ -123,8 +123,8 @@ func renderJSService(service Resource, target compiler.JSWorkerTarget, idx *reso
 		"import * as SDK from \"./worker.mjs\";\n" +
 		"import type * as Types from \"./types.js\";\n" +
 		"export * from \"./types.js\";\n" +
-		"export { CapabilityError, eventStream, sseEvent, stream } from \"./worker.mjs\";\n" +
-		"export type { Context, ConfigSnapshot, EventStream, EventStreamBody, SSEEvent, Stream } from \"./worker.mjs\";\n" +
+		"export { CapabilityError, eventStream, sseEvent, standaloneContext, stream } from \"./worker.mjs\";\n" +
+		"export type { Context, ConfigSnapshot, EventStream, EventStreamBody, SSEEvent, StandaloneContextOptions, Stream } from \"./worker.mjs\";\n" +
 		"export { date, dateTime, decimal, duration, jsonNumber, relativePath, url, uuid } from \"./codec.js\";\n")
 	api.WriteString(renderTSRegistry(shapes))
 	for _, shape := range shapes {

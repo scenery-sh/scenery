@@ -232,6 +232,8 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return buildCommand(os.Stdout, args[1:])
 	case "call":
 		return runAgentCall(context.Background(), os.Stdout, args[1:])
+	case "replay":
+		return runAgentReplay(context.Background(), os.Stdout, args[1:])
 	case "context":
 		return runAgentContext(context.Background(), os.Stdout, args[1:])
 	case "test":

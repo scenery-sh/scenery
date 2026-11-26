@@ -63,6 +63,18 @@ export interface Context {
   storageList(store: string, options?: { prefix?: string; cursor?: string; limit?: number }): Promise<unknown>;
 }
 
+export interface StandaloneContextOptions {
+  readonly invocationId?: string;
+  readonly principal?: string;
+  readonly tenantId?: string;
+  readonly executionId?: string;
+  readonly mode?: "direct" | "durable";
+  readonly binding?: string;
+  readonly signal?: AbortSignal;
+}
+
+export function standaloneContext(options?: StandaloneContextOptions): Context;
+
 export class CapabilityError extends Error {
   readonly delivery: "not_sent" | "unknown" | undefined;
   readonly details: unknown;

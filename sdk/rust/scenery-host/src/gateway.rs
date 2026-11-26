@@ -108,6 +108,10 @@ pub(crate) async fn ingress(
     private: bool,
 ) -> Reply {
     let path = request.uri().path().to_owned();
+    let raw_uri = request
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str().to_owned());
     if path.to_ascii_lowercase().contains("scenery")
         || path.starts_with("/host/v1/")
         || path.starts_with("/worker/v1/")
@@ -275,6 +279,7 @@ pub(crate) async fn ingress(
         Ok(call) => call,
         Err(error) => return Fault::internal(error).reply(host, Some(policy)),
     };
+    call.raw_uri = raw_uri;
     call.request = Some(Arc::new(worker_request(
         method.as_str(),
         &path,
@@ -459,10 +464,11 @@ pub(crate) async fn dev_binding(
     generation: Arc<Generation>,
     request: Request<Incoming>,
     address: &str,
+    allow_all_bindings: bool,
 ) -> Reply {
     let Some((service, binding)) = host
         .binding(address)
-        .filter(|(_, binding)| binding.http.is_none() && !binding.mcp)
+        .filter(|(_, binding)| allow_all_bindings || (binding.http.is_none() && !binding.mcp))
     else {
         return empty(StatusCode::NOT_FOUND);
     };

@@ -15,7 +15,7 @@ func (sdkHost) ConnectionToken(ctx context.Context, user, provider string, scope
 	if state := currentState(); state != nil {
 		invocation = state.invocation
 	}
-	if !invocation.Valid() || invocation.Principal() == "" || invocation.Principal() != user {
+	if !invocation.Valid() || invocation.Standalone() || invocation.Principal() == "" || invocation.Principal() != user {
 		return "", errs.B().Code(errs.PermissionDenied).Msg("connection owner does not match the request").Err()
 	}
 	if capabilitiesFromContext(ctx) == nil {

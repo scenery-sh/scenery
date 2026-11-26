@@ -1,6 +1,7 @@
 package scenery_test
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -34,6 +35,7 @@ func TestContractFacadeTypeIdentity(t *testing.T) {
 		{"Nullable", scenery.Nullable[int]{}, contract.Nullable[int]{}},
 		{"Set", scenery.Set[int]{}, contract.Set[int]{}},
 		{"ContractConstraints", scenery.ContractConstraints{}, contract.ContractConstraints{}},
+		{"StandaloneInvocation", scenery.StandaloneInvocation{}, contract.StandaloneInvocation{}},
 	}
 	for _, pair := range pairs {
 		facade, leaf := reflect.TypeOf(pair.facade), reflect.TypeOf(pair.leaf)
@@ -101,5 +103,14 @@ func TestContractFacadeValuesCrossTheBoundary(t *testing.T) {
 	}
 	if scenery.ValueOf(7).Null {
 		t.Fatalf("Nullable constructors lost meaning through the facade")
+	}
+	ctx := scenery.WithStandaloneInvocation(context.Background(), scenery.StandaloneInvocation{
+		ID:        "rpt_test",
+		Principal: "usr_1",
+		TenantID:  "tnt_1",
+	})
+	inv, ok := scenery.InvocationFromContext(ctx)
+	if !ok || inv.ID() != "rpt_test" || inv.Principal() != "usr_1" || inv.TenantID() != "tnt_1" || !inv.Standalone() {
+		t.Fatalf("WithStandaloneInvocation round trip failed: ok=%v inv=%+v", ok, inv)
 	}
 }

@@ -258,10 +258,28 @@ impl Sink {
     }
 
     pub(crate) fn failure(&self, cause: &str) -> Option<String> {
+        self.failure_with_context(cause, None)
+    }
+
+    pub(crate) fn fault_failure(&self, fault: &crate::host::Fault, fallback: &str) -> Option<String> {
+        let cause = fault.cause.as_deref().unwrap_or(fallback);
+        self.failure_with_context(cause, fault.replay.as_deref())
+    }
+
+    pub(crate) fn failure_with_context(
+        &self,
+        cause: &str,
+        invocation: Option<&crate::replay::ReplayInvocation>,
+    ) -> Option<String> {
         let token = format!("rpt_{}", random_hex::<20>().ok()?);
         let cause = URLS.replace_all(cause, "[redacted URL]");
         let timestamp = stamp(OffsetDateTime::now_utc());
-        let failure = json!({"report_token": token, "code": "SCN9000", "cause": cause, "timestamp": timestamp});
+        let mut failure = json!({"report_token": token, "code": "SCN9000", "cause": cause, "timestamp": timestamp});
+        if let Some(invocation) = invocation
+            && let Ok(val) = serde_json::to_value(invocation)
+        {
+            failure["invocation"] = val;
+        }
         if self.development {
             let _ = self.save_failure(&failure, std::process::id().into());
         } else if let Some(sender) = &self.sender {
@@ -308,7 +326,7 @@ impl Sink {
         let cause = URLS.replace_all(raw, "[redacted URL]");
         // The CLI reads this record as `scenery.failure.report`, so it
         // carries the identity and every field that schema requires.
-        let record = json!({
+        let mut record = json!({
             "kind": "scenery.failure.report", "schema_revision": self.reports.schema_revision,
             "report_token": token, "code": "SCN9000", "cause": cause,
             "recorded_at": failure["timestamp"], "command": "runtime", "arguments": [],
@@ -316,6 +334,9 @@ impl Sink {
             "producer_version": self.reports.producer_version,
             "origin": "runtime", "reporter_pid": pid, "app_id": self.app, "session_id": self.session,
         });
+        if failure["invocation"].is_object() {
+            record["invocation"] = failure["invocation"].clone();
+        }
         std::fs::DirBuilder::new()
             .mode(0o700)
             .recursive(true)

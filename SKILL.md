@@ -23,10 +23,10 @@ with `scenery help <command> -o json`.
 | Task | Commands |
 |---|---|
 | Understand a module, service, route, or source file | `scenery context --for <target> -o json` |
-| Validate declarations and handlers | `scenery test <module> -o json`, `scenery check -o json` |
+| Validate declarations and handlers | `scenery test [<module>] [--with-host] [--branch-db] -o json`, `scenery check -o json` |
 | Exercise a live binding | `scenery call <binding> --input-file input.json -o json` |
 | Run or inspect local runtime | `scenery up`, `scenery ps -o json`, `scenery ps --wait -o json`, `scenery doctor -o json` |
-| Debug failures & telemetry | `scenery logs -o jsonl --limit 200`, `scenery traces list --status error -o json`, `scenery inspect report <token> -o json`, `scenery telemetry report` |
+| Debug failures & telemetry | `scenery logs -o jsonl --limit 200`, `scenery traces list --status error -o json`, `scenery inspect report <token> -o json`, `scenery replay <token> [--emit-test] -o json`, `scenery telemetry report` |
 | Query a service's PostgreSQL schema | `scenery db query --service <module> '<sql>' --param <value> -o json` |
 | Trigger a durable execution or schedule | `scenery durable run <target> --input '<json>' -o json` |
 | Add a module with a starter test | `scenery add module <name> --runtime go\|rust\|ts\|js\|python -o json` |
@@ -35,7 +35,7 @@ with `scenery help <command> -o json`.
 | Assistants | `scenery assistant status <name> -o json` |
 | Databases, migrations, storage | `scenery db migrate`, `scenery inspect storage -o json`, `scenery snapshot save/load` |
 | Code tasks & validation | `scenery task list -o json`, `scenery validate changed --base main -o json`, `scenery harness -o json --write` |
-| Worktrees & features | `scenery worktree create/list/remove`, `scenery feature list/land -o json` |
+| Worktrees & features | `scenery worktree create [--prepare-db]`, `scenery worktree list/remove`, `scenery feature list/land -o json` |
 
 See [examples/webhook-inbox/README.md](examples/webhook-inbox/README.md) for a
 complete working app and [docs/spec/SPEC.md](docs/spec/SPEC.md) for `.scn`

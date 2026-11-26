@@ -25,6 +25,41 @@ export class CapabilityError extends Error {
   }
 }
 
+export function standaloneContext(options = {}) {
+  const mode = options.mode ?? "direct";
+  const executionId = options.executionId ?? (mode === "durable" ? "standalone" : undefined);
+  const invocation = Object.freeze({
+    invocation_id: options.invocationId ?? "standalone",
+    generation: 1,
+    contract_revision: "",
+    ...(options.principal !== undefined ? { principal: options.principal } : {}),
+    ...(options.tenantId !== undefined ? { tenant_id: options.tenantId } : {}),
+    ...(executionId !== undefined ? { execution_id: executionId } : {}),
+  });
+  const signal = options.signal ?? new AbortController().signal;
+  const unavailable = async () => {
+    signal.throwIfAborted();
+    throw new CapabilityError("host capability unavailable", "not_sent");
+  };
+  return Object.freeze({
+    invocation,
+    signal,
+    mode,
+    binding: options.binding,
+    bindingRequest: unavailable,
+    eventEmit: unavailable,
+    configSnapshot: unavailable,
+    connectionToken: unavailable,
+    telemetry: unavailable,
+    storageRead: unavailable,
+    storageHead: unavailable,
+    storageWrite: unavailable,
+    storageDelete: unavailable,
+    storageDeletePrefix: unavailable,
+    storageList: unavailable,
+  });
+}
+
 export class Host {
   #launch;
   #session;

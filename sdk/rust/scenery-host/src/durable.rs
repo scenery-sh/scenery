@@ -133,9 +133,22 @@ impl Engine {
     }
 
     pub(crate) async fn enqueue(&self, call: &Call, plan: &Durable, input: &Value) -> Result<Job> {
+        self.enqueue_with_replay(call, plan, input, false).await
+    }
+
+    async fn enqueue_with_replay(
+        &self,
+        call: &Call,
+        plan: &Durable,
+        input: &Value,
+        replay: bool,
+    ) -> Result<Job> {
         let client = self.connection().await?;
-        let (job, inserted) =
-            enqueue_job(&*client, plan, input, &dispatch_memo(call), None).await?;
+        let mut memo = dispatch_memo(call);
+        if replay {
+            memo["replay"] = json!(true);
+        }
+        let (job, inserted) = enqueue_job(&*client, plan, input, &memo, None).await?;
         if inserted {
             self.wake_consumers();
         }
@@ -234,6 +247,7 @@ impl Engine {
         host: &Arc<Host>,
         request: Request<Incoming>,
     ) -> Result<Reply, Fault> {
+        let headers = request.headers().clone();
         let raw = transport::read(request.into_body(), scenery_wire::MAX_METADATA)
             .await
             .map_err(|_| Fault::invalid())?;
@@ -284,6 +298,9 @@ impl Engine {
             Duration::from_nanos(command.timeout_ns),
         )
         .map_err(Fault::internal)?;
+        if schedule.is_none() && headers.contains_key("authorization") {
+            host.authenticate(&mut call, &headers, true).await?;
+        }
         let operation = schedule
             .map(|schedule| &schedule.operation)
             .or_else(|| plan.map(|plan| &plan.operation))
@@ -328,8 +345,10 @@ impl Engine {
                     tokio::select! {
                         () = host.stop.cancelled() => {}
                         output = host.invoke(&call, service, &operation, None, "direct", &input) => {
-                            if !matches!(output, Ok(output) if !output.is_streamed()) {
-                                host.telemetry.failure("scheduled execution failed");
+                            match output {
+                                Ok(output) if !output.is_streamed() => {}
+                                Err(fault) => { host.telemetry.fault_failure(&fault, "scheduled execution failed"); }
+                                _ => { host.telemetry.failure("scheduled execution failed"); }
                             }
                         }
                     }
@@ -344,9 +363,14 @@ impl Engine {
                     reply["state"] = json!("succeeded");
                     reply["output"] = output.json();
                 }
-                _ => {
+                other => {
                     reply["state"] = json!("failed");
-                    let report = host.telemetry.failure("scheduled execution failed");
+                    let report = match other {
+                        Err(fault) => host
+                            .telemetry
+                            .fault_failure(&fault, "scheduled execution failed"),
+                        _ => host.telemetry.failure("scheduled execution failed"),
+                    };
                     reply["error"] = json!({"code": "SCN9000", "message": "execution failed", "report_token": report});
                 }
             }
@@ -360,7 +384,7 @@ impl Engine {
             ));
         }
         let mut job = self
-            .enqueue(&call, plan, &input)
+            .enqueue_with_replay(&call, plan, &input, command.replay)
             .await
             .map_err(Fault::internal)?;
         let mut timed_out = false;
@@ -398,6 +422,7 @@ impl Engine {
 }
 
 pub(crate) fn set_workload(call: &mut Call, schedule: &Schedule) {
+    call.schedule_target = Some(schedule.address.clone());
     call.workload = Some(json!({
         "workload": "scheduler", "issuer": "std.identity_issuer.runtime",
         "principal_type": "std.type.workload_principal", "workload_identity": "std.workload_identity.scheduler",
@@ -411,6 +436,8 @@ struct DevRequest {
     target: String,
     input: Option<Value>,
     wait: bool,
+    #[serde(default)]
+    replay: bool,
     timeout_ns: u64,
 }
 
@@ -544,6 +571,7 @@ pub(crate) fn dispatch_memo(call: &Call) -> Value {
         "caller_binding": call.caller,
         "principal": call.principal_id(),
         "workload": call.workload,
+        "schedule_target": call.schedule_target,
         "tenant_id": call.principal.as_ref().map(|claims| &claims.tenant),
         "cron_idempotency_key": call.cron_idempotency_key,
         "event_depth": call.event_depth,
@@ -569,7 +597,9 @@ pub(crate) async fn enqueue_job(
     fallback_key: Option<String>,
 ) -> Result<(Job, bool)> {
     let reg = &plan.registration;
-    let dedupe = if plan.dedupe.is_empty() {
+    let dedupe = if memo["replay"].as_bool() == Some(true) {
+        String::new()
+    } else if plan.dedupe.is_empty() {
         fallback_key.unwrap_or_default()
     } else {
         dispatch_key(input, &plan.dedupe)?
@@ -859,17 +889,18 @@ async fn execute_next(
         .into();
     call.cron_idempotency_key = job.memo["cron_idempotency_key"]
         .as_str()
-        .filter(|value| !value.is_empty())
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned);
+    call.schedule_target = job.memo["schedule_target"]
+        .as_str()
+        .filter(|v| !v.is_empty())
         .map(str::to_owned);
     if job.memo["workload"].is_object()
         && job.memo["principal"] == "workload:std.workload_identity.scheduler"
     {
         call.workload = Some(job.memo["workload"].clone());
     }
-    if let Some(user) = job.memo["principal"]
-        .as_str()
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(user) = job.memo["principal"].as_str().filter(|v| !v.is_empty()) {
         call.principal = Some(Claims {
             user: user.into(),
             tenant: job.memo["tenant_id"].as_str().unwrap_or_default().into(),
@@ -930,7 +961,7 @@ async fn execute_next(
     let (output, error) = match outcome {
         Ok(value) => (Some(values::encode(&value.json()).into_bytes()), None),
         Err(fault) => {
-            let report = host.telemetry.failure(fault.code);
+            let report = host.telemetry.fault_failure(&fault, fault.code);
             (None, Some(values::encode(&json!({"code": "SCN9000", "message": "execution failed", "report_token": report})).into_bytes()))
         }
     };

@@ -215,7 +215,7 @@ async fn tick(
                 active.spawn(async move {
                     let service = &host.bundle.host.workers[owner];
                     if let Err(error) = invoke(&host, service, &service.schedules[index]).await {
-                        host.telemetry.failure(error.code);
+                        host.telemetry.fault_failure(&error, error.code);
                     }
                 });
             }
@@ -295,7 +295,7 @@ async fn coordinated_run(
             }
         };
         if let Some(Err(error)) = result {
-            host.telemetry.failure(error.code);
+            host.telemetry.fault_failure(&error, error.code);
         }
         let finished = async {
             let client = host.engine.connection().await?;
