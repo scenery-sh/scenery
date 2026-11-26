@@ -49,6 +49,8 @@ type workerProcess struct {
 	program    workerProgram
 	cmd        *exec.Cmd
 	done       chan struct{}
+	doneOnce   sync.Once
+	testPID    int
 	parentPipe *os.File
 	pipeOnce   sync.Once
 	socket     string
@@ -62,6 +64,25 @@ func (process *workerProcess) closeParentPipe() {
 	process.pipeOnce.Do(func() {
 		_ = process.parentPipe.Close()
 	})
+}
+
+func (process *workerProcess) closeDone() {
+	if process == nil || process.done == nil {
+		return
+	}
+	process.doneOnce.Do(func() {
+		close(process.done)
+	})
+}
+
+func (process *workerProcess) pid() int {
+	if process == nil {
+		return 0
+	}
+	if process.cmd != nil && process.cmd.Process != nil {
+		return process.cmd.Process.Pid
+	}
+	return process.testPID
 }
 
 type workerProcessIdentity struct {
@@ -240,7 +261,7 @@ func runWorkerBundle(bundle workerBundle, listen string, frontend http.Handler, 
 	}
 	var assistantState *workerAssistantWatchState
 	var assistantWG sync.WaitGroup
-	if dev != nil && len(bundle.Host.Assistants) > 0 {
+	if dev != nil {
 		assistants, assistantConfigPath, assistantDefinitions, initialAssistantDigests, restoreAssistantEnv, err := prepareWorkerDevAssistants(ctx, dev, directory)
 		if err != nil {
 			return err
@@ -417,7 +438,7 @@ func startBundleWorker(ctx context.Context, state, capabilities, number string, 
 	go func() {
 		_ = process.cmd.Wait()
 		process.closeParentPipe()
-		close(process.done)
+		process.closeDone()
 	}()
 	client := workerabi.NewClient(process.socket, process.token, process.workerIdentity())
 	defer client.Close()
@@ -435,12 +456,19 @@ func (process *workerProcess) workerIdentity() workerabi.Identity {
 }
 
 func (process *workerProcess) stop() {
+	if process == nil {
+		return
+	}
 	select {
 	case <-process.done:
 		return
 	default:
 	}
 	process.closeParentPipe()
+	if process.cmd == nil || process.cmd.Process == nil {
+		process.closeDone()
+		return
+	}
 	_ = devprocess.TerminateTreePID(process.cmd.Process.Pid)
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
@@ -457,7 +485,7 @@ func publishWorkerGeneration(ctx context.Context, client *http.Client, token str
 	for _, program := range bundle.Programs {
 		process := processes[program.Process]
 		instance := workerProcessInstance{
-			Network: "unix", Address: process.socket, Protocol: "h2c", PID: process.cmd.Process.Pid,
+			Network: "unix", Address: process.socket, Protocol: "h2c", PID: process.pid(),
 			Identity: program.Identity, Service: program.Service, Token: process.token,
 		}
 		instances[program.Process] = instance
@@ -737,52 +765,9 @@ func superviseWorkerAssistantSources(ctx context.Context, state *workerAssistant
 		return
 	}
 	lastErrors := make(map[string]string)
-	scan := func() {
-		state.mu.Lock()
-		definitions := slices.Clone(state.defs)
-		state.mu.Unlock()
-		var changed []string
-		for _, definition := range definitions {
-			source := definition.SourceRoot
-			if source == "" {
-				continue
-			}
-			digest, err := workerAssistantSourceDigest(source)
-			if err != nil {
-				if lastErrors[source] != err.Error() {
-					lastErrors[source] = err.Error()
-					fmt.Fprintf(os.Stderr, "assistant %s watch skipped: %v\n", definition.Address, err)
-				}
-				continue
-			}
-			delete(lastErrors, source)
-			state.mu.Lock()
-			previous, tracked := state.digests[source]
-			if !tracked {
-				state.digests[source] = digest
-				state.mu.Unlock()
-				continue
-			}
-			if previous == digest {
-				state.mu.Unlock()
-				continue
-			}
-			state.digests[source] = digest
-			state.mu.Unlock()
-			if relative, err := filepath.Rel(state.supervisor.config.Root, source); err == nil {
-				changed = append(changed, filepath.ToSlash(relative))
-			}
-		}
-		if len(changed) > 0 {
-			state.supervisor.HandleChanges(ctx, changed)
-			if err := state.writeRuntimeConfig(); err != nil {
-				fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
-			}
-		}
-	}
 	// Run one immediate scan after StartPrepared so edits made while the overlay
 	// was prepared and started are applied without waiting for the first tick.
-	scan()
+	scanWorkerAssistantSources(ctx, state, lastErrors)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -790,7 +775,64 @@ func superviseWorkerAssistantSources(ctx context.Context, state *workerAssistant
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			scan()
+			scanWorkerAssistantSources(ctx, state, lastErrors)
+		}
+	}
+}
+
+func scanWorkerAssistantSources(ctx context.Context, state *workerAssistantWatchState, lastErrors map[string]string) {
+	if state == nil || state.supervisor == nil {
+		return
+	}
+	if lastErrors == nil {
+		lastErrors = make(map[string]string)
+	}
+	state.mu.Lock()
+	definitions := slices.Clone(state.defs)
+	state.mu.Unlock()
+	var changed []string
+	for _, definition := range definitions {
+		source := definition.SourceRoot
+		if source == "" {
+			continue
+		}
+		digest, err := workerAssistantSourceDigest(source)
+		if err != nil {
+			if lastErrors[source] != err.Error() {
+				lastErrors[source] = err.Error()
+				fmt.Fprintf(os.Stderr, "assistant %s watch skipped: %v\n", definition.Address, err)
+			}
+			continue
+		}
+		delete(lastErrors, source)
+		state.mu.Lock()
+		active := slices.ContainsFunc(state.defs, func(def assistantDefinition) bool {
+			return def.SourceRoot == source
+		})
+		if !active {
+			state.mu.Unlock()
+			continue
+		}
+		previous, tracked := state.digests[source]
+		if !tracked {
+			state.digests[source] = digest
+			state.mu.Unlock()
+			continue
+		}
+		if previous == digest {
+			state.mu.Unlock()
+			continue
+		}
+		state.digests[source] = digest
+		state.mu.Unlock()
+		if relative, err := filepath.Rel(state.supervisor.config.Root, source); err == nil {
+			changed = append(changed, filepath.ToSlash(relative))
+		}
+	}
+	if len(changed) > 0 {
+		state.supervisor.HandleChanges(ctx, changed)
+		if err := state.writeRuntimeConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "assistant runtime config update failed: %v\n", err)
 		}
 	}
 }
