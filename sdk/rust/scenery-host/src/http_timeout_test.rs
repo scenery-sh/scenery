@@ -884,3 +884,72 @@ async fn chunked_empty_body_on_bodyless_route_does_not_kill_long_handler() {
     assert!(text.ends_with("ok"), "{text}");
     assert!(server.await.unwrap().is_ok());
 }
+
+#[tokio::test]
+async fn unread_chunked_body_preserves_full_idle_timeout_on_keep_alive() {
+    let timeouts = HttpTimeouts {
+        header_read: Duration::from_millis(80),
+        read: Duration::from_millis(500),
+        write: Duration::from_millis(500),
+        idle: Duration::from_millis(450),
+    };
+    let (server_io, mut client_io) = tokio::io::duplex(4096);
+    let (stream, control) = DeadlineStream::new(server_io, timeouts);
+    let server = tokio::spawn(async move {
+        let service = service_fn(move |request: Request<Incoming>| {
+            let control = control.clone();
+            control.begin_request(timeouts.read, timeouts.write);
+            let had_body = !hyper::body::Body::is_end_stream(request.body());
+            if !had_body {
+                control.request_body_finished();
+            }
+            async move {
+                let status = if had_body {
+                    // Drop unread Incoming without draining it manually (as on 401/404).
+                    drop(request);
+                    StatusCode::UNAUTHORIZED
+                } else {
+                    StatusCode::OK
+                };
+                control.finish_unread_request(had_body).await;
+                let mut response = Response::new(Full::new(Bytes::from_static(b"ok")));
+                *response.status_mut() = status;
+                control.begin_response(response.status(), response.headers(), timeouts.idle);
+                Ok::<_, Infallible>(response.map(|body| ResponseBodyGuard::new(body, control)))
+            }
+        });
+        public_http1_builder()
+            .serve_connection(TokioIo::new(stream), service)
+            .await
+    });
+
+    client_io
+        .write_all(
+            b"POST /unauth HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
+        )
+        .await
+        .unwrap();
+    let mut buf = [0u8; 256];
+    let mut reply = Vec::new();
+    while !reply.ends_with(b"ok") {
+        let n = client_io.read(&mut buf).await.unwrap();
+        assert!(n > 0, "unexpected EOF on first 401 reply");
+        reply.extend_from_slice(&buf[..n]);
+    }
+    assert!(reply.starts_with(b"HTTP/1.1 401 Unauthorized"));
+
+    // Pause longer than header_read (80ms) but shorter than idle (450ms).
+    tokio::time::sleep(Duration::from_millis(180)).await;
+    client_io
+        .write_all(b"GET /next HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    reply.clear();
+    client_io.read_to_end(&mut reply).await.unwrap();
+    let text = String::from_utf8(reply).unwrap();
+    assert!(
+        text.starts_with("HTTP/1.1 200 OK") && text.ends_with("ok"),
+        "keep-alive connection closed prematurely after unread chunked body: {text}"
+    );
+    assert!(server.await.unwrap().is_ok());
+}

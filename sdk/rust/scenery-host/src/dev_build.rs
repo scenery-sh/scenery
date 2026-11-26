@@ -715,6 +715,27 @@ fn verify_imports(
     Ok(tracked)
 }
 
+pub(crate) fn diagnostic(root: &Path, module: String, stderr: &str) -> Value {
+    use std::sync::LazyLock;
+    static LOCATION: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(
+        r"(?m)^\s*(?:(?:-->|at)\s+)?([^\n:()]+\.(?:go|rs|[cm]?[jt]sx?|scn))[:(]([0-9]+)[:,]([0-9]+)"
+    ).expect("compiler location pattern")
+    });
+    let mut result = serde_json::json!({"stderr": stderr});
+    if !module.is_empty() {
+        result["module"] = serde_json::json!(module);
+    }
+    if let Some(location) = LOCATION.captures(stderr) {
+        let source = Path::new(location[1].trim());
+        let relative = source.strip_prefix(root).unwrap_or(source);
+        result["file"] = serde_json::json!(relative);
+        result["line"] = serde_json::json!(location[2].parse::<u64>().unwrap_or(0));
+        result["column"] = serde_json::json!(location[3].parse::<u64>().unwrap_or(0));
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

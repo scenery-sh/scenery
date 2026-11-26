@@ -476,6 +476,14 @@ async fn mime_structured_suffix_and_encoding_negotiation_match_contract_rules() 
             .map(|f| f.status),
         Some(StatusCode::NOT_ACCEPTABLE)
     );
+    let mut nan_q = HeaderMap::new();
+    nan_q.insert("accept-encoding", HeaderValue::from_static("gzip;q=NaN"));
+    assert_eq!(
+        encode_response(&problem_resp, make_outcome(), &nan_q)
+            .err()
+            .map(|f| f.status),
+        Some(StatusCode::NOT_ACCEPTABLE)
+    );
 
     // When identity is rejected (q=0), gzip is required even below threshold.
     let small_resp: ResponsePlan = serde_json::from_value(json!({

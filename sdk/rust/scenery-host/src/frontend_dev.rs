@@ -163,28 +163,31 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
                 )
                 || media.ends_with("+json"))
     });
-    let is_error =
-        !upstream.status().is_success() || media.as_deref() == Some("application/problem+json");
+    let status = upstream.status();
+    let is_error = status.is_client_error()
+        || status.is_server_error()
+        || media.as_deref() == Some("application/problem+json");
     let (mut parts, payload) = upstream.into_parts();
+    let has_scenery_bytes = |raw: &[u8]| {
+        raw.windows(7)
+            .any(|window| window.eq_ignore_ascii_case(b"scenery"))
+            || forbidden(&String::from_utf8_lossy(raw))
+    };
     let leaked_headers: Vec<_> = parts
         .headers
         .iter()
         .filter(|(name, value)| {
-            name.as_str().to_ascii_lowercase().contains("scenery")
-                || value
-                    .to_str()
-                    .is_ok_and(|text| text.to_ascii_lowercase().contains("scenery"))
+            has_scenery_bytes(name.as_str().as_bytes()) || has_scenery_bytes(value.as_bytes())
         })
         .map(|(name, _)| name.clone())
         .collect();
     for name in leaked_headers {
         parts.headers.remove(&name);
     }
-    let encoded_or_ranged = parts.headers.contains_key("content-encoding")
-        || parts.headers.contains_key("content-range");
-    if is_error && encoded_or_ranged {
+    let has_content_encoding = parts.headers.contains_key("content-encoding");
+    let has_content_range = parts.headers.contains_key("content-range");
+    if is_error && has_content_encoding {
         parts.headers.remove("content-encoding");
-        parts.headers.remove("content-range");
         parts.headers.remove("content-length");
         parts.headers.insert(
             "content-type",
@@ -195,7 +198,7 @@ pub(crate) async fn response(upstream: Response<Incoming>) -> anyhow::Result<Rep
             body(Bytes::from_static(b"upstream error")),
         ));
     }
-    if !is_error && (!textual || encoded_or_ranged) {
+    if !is_error && (!textual || has_content_encoding || has_content_range) {
         return Ok(Reply::from_parts(
             parts,
             payload.map_err(io::Error::other).boxed_unsync(),
@@ -490,6 +493,12 @@ mod tests {
                                     "text/plain",
                                     "Scenery encoded body",
                                 ),
+                                "/not-modified" => (StatusCode::NOT_MODIFIED, "", ""),
+                                "/range-unsatisfiable" => (
+                                    StatusCode::RANGE_NOT_SATISFIABLE,
+                                    "text/plain",
+                                    "Scenery range error",
+                                ),
                                 path => panic!("unexpected path {path}"),
                             };
                             let mut response = crate::transport::response(status, content);
@@ -502,12 +511,24 @@ mod tests {
                                     "x-scenery-debug",
                                     "leak",
                                 );
+                                response.headers_mut().insert(
+                                    "x-debug-raw",
+                                    hyper::header::HeaderValue::from_bytes(b"Scenery\xe9leak")
+                                        .unwrap(),
+                                );
                             }
-                            if request.uri().path() == "/gzip-500" {
+                            if matches!(request.uri().path(), "/gzip-500" | "/not-modified") {
                                 crate::host::header(
                                     response.headers_mut(),
                                     "content-encoding",
                                     "gzip",
+                                );
+                            }
+                            if request.uri().path() == "/range-unsatisfiable" {
+                                crate::host::header(
+                                    response.headers_mut(),
+                                    "content-range",
+                                    "bytes */1024",
                                 );
                             }
                             Ok::<_, Infallible>(response)
@@ -565,6 +586,7 @@ mod tests {
             .await?;
         assert_eq!(plain_500.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert!(plain_500.headers().get("x-scenery-debug").is_none());
+        assert!(plain_500.headers().get("x-debug-raw").is_none());
         let plain_500_text = plain_500.text().await?;
         assert!(!forbidden(&plain_500_text), "{plain_500_text}");
         assert!(
@@ -581,6 +603,27 @@ mod tests {
         let gzip_500_text = gzip_500.text().await?;
         assert!(!forbidden(&gzip_500_text), "{gzip_500_text}");
         assert_eq!(gzip_500_text, "upstream error");
+
+        let not_mod = http
+            .get(format!("http://{front_address}/not-modified"))
+            .send()
+            .await?;
+        assert_eq!(not_mod.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(not_mod.headers()["content-encoding"], "gzip");
+        assert!(not_mod.bytes().await?.is_empty());
+
+        let range_416 = http
+            .get(format!("http://{front_address}/range-unsatisfiable"))
+            .send()
+            .await?;
+        assert_eq!(range_416.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(range_416.headers()["content-range"], "bytes */1024");
+        let range_text = range_416.text().await?;
+        assert!(!forbidden(&range_text), "{range_text}");
+        assert!(
+            range_text.contains("application range error"),
+            "{range_text}"
+        );
 
         let svg_text = http
             .get(format!("http://{front_address}/icon.svg"))

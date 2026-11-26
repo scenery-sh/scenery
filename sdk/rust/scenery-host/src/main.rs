@@ -731,7 +731,8 @@ async fn serve_public(
                         let host = host.clone();
                         let deadlines = deadlines.clone();
                         deadlines.begin_request(timeouts.read, timeouts.write);
-                        if hyper::body::Body::is_end_stream(request.body()) {
+                        let had_body = !hyper::body::Body::is_end_stream(request.body());
+                        if !had_body {
                             deadlines.request_body_finished();
                         }
                         request.extensions_mut().insert(deadlines.clone());
@@ -748,6 +749,7 @@ async fn serve_public(
                                     ));
                                 }
                             };
+                            deadlines.finish_unread_request(had_body).await;
                             deadlines.begin_response(
                                 response.status(),
                                 response.headers(),

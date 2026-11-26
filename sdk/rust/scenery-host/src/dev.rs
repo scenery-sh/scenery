@@ -15,7 +15,7 @@ use tokio::time::{Instant, sleep};
 use tokio_util::sync::CancellationToken;
 
 use crate::dev_build::{self, Plan};
-use crate::dev_inputs::{self, Inputs, Scanner};
+use crate::dev_inputs::{self, Inputs, Scanner, materialize, materialize_go};
 use crate::host::{Reply, empty, json_reply, stamp};
 use crate::process::{Program, hex};
 use crate::supervisor::{Generation, LaunchPlan, Publisher};
@@ -361,7 +361,8 @@ impl WatcherLoop {
             if self.declarations_dirty
                 && let Err(error) = self.restore_mirrors(directory, revision, &inputs).await
             {
-                let failure = diagnostic(&self.config, String::new(), &format!("{error:#}"));
+                let failure =
+                    dev_build::diagnostic(&self.config.root, String::new(), &format!("{error:#}"));
                 self.status.update.send_modify(|status| {
                     status.failure = Some((digest, failure));
                 });
@@ -469,7 +470,7 @@ impl WatcherLoop {
         }
         let mut sync_seen = false;
         if let Some(error) = failure {
-            let failure = diagnostic(&self.config, module, &error);
+            let failure = dev_build::diagnostic(&self.config.root, module, &error);
             self.status.update.send_modify(|status| {
                 status.failure = Some((digest, failure));
                 status.timing = Some(timing.clone());
@@ -729,24 +730,75 @@ impl WatcherLoop {
         }
         drop(workspace);
         drop(cargo_lock);
-        self.check_migrations(directory, selected).await?;
-        times[0] = ms(begin.elapsed());
-        let mut next_explicit = BTreeSet::new();
-        for (index, command) in selected.commands.iter().enumerate() {
-            if command.tool() == "bun" {
-                if let Some((_, deps)) = bun_dependencies.iter().find(|(i, _)| *i == index) {
-                    next_explicit.extend(deps.iter().cloned());
-                } else {
-                    next_explicit.extend(command.dependencies.iter().cloned());
+        let mut next_explicit = collect_bun_explicit(selected, &bun_dependencies);
+        let has_new_explicit = next_explicit.iter().any(|path| !inputs.contains_key(path));
+        let (expected_inputs, expected_explicit) = if has_new_explicit {
+            let union_explicit: BTreeSet<PathBuf> = self
+                .scanner
+                .explicit_paths()
+                .union(&next_explicit)
+                .cloned()
+                .collect();
+            let scanner_pre = self.scanner.clone();
+            let gen_pre = selected.generated.clone();
+            let exp_pre = union_explicit.clone();
+            let baseline = tokio::task::spawn_blocking(move || {
+                scanner_pre.scan_with_explicit(&gen_pre, &exp_pre)
+            })
+            .await??;
+            let base_unchanged = baseline
+                .iter()
+                .all(|(p, i)| inputs.get(p).is_none_or(|prev| prev == i))
+                && inputs.iter().all(|(p, i)| baseline.get(p) == Some(i));
+            if !base_unchanged {
+                if plan.is_none() {
+                    self.record_bun_dependencies(&bun_dependencies, next_explicit);
+                }
+                return Ok(None);
+            }
+            let baseline_digest = dev_inputs::digest(&baseline);
+            let mut next_bun = Vec::with_capacity(bun_dependencies.len());
+            for (index, _) in &bun_dependencies {
+                let command = &selected.commands[*index];
+                let program = next
+                    .iter_mut()
+                    .find(|program| program.process == command.process)
+                    .context("unknown worker build")?;
+                let mut identity = Sha256::new();
+                identity.update(&baseline_digest);
+                identity.update(&program.identity.contract_revision);
+                let identity = format!("sha256:{}", hex(&identity.finalize()));
+                let (built, deps) = command
+                    .compile(root, directory, &selected.generated, program, &identity)
+                    .await?;
+                if built.digest != program.digest {
+                    rebuilt.insert(command.module.clone());
+                    *program = built;
+                }
+                if let Some(deps) = deps {
+                    next_bun.push((*index, deps));
                 }
             }
-        }
-        if !selected.commands.iter().any(|c| c.tool() == "bun") {
-            next_explicit.clone_from(&selected.js_dependencies);
-        }
-        let previous_explicit = self.scanner.explicit_paths();
+            bun_dependencies = next_bun;
+            next_explicit = collect_bun_explicit(selected, &bun_dependencies);
+            if next_explicit
+                .iter()
+                .any(|p| !baseline.contains_key(p) && root.join(p).is_file())
+            {
+                if plan.is_none() {
+                    self.record_bun_dependencies(&bun_dependencies, next_explicit);
+                }
+                return Ok(None);
+            }
+            (baseline, union_explicit)
+        } else {
+            (inputs.clone(), self.scanner.explicit_paths())
+        };
+        self.check_migrations(directory, selected).await?;
+        times[0] = ms(begin.elapsed());
+        let check_explicit = expected_explicit.clone();
         let next_explicit_for_scan = next_explicit.clone();
-        let explicit_changed = next_explicit_for_scan != previous_explicit;
+        let explicit_differs = next_explicit_for_scan != expected_explicit;
         let committed_slot = Arc::new(std::sync::Mutex::new(None));
         let committed_write = committed_slot.clone();
         let ready = Instant::now();
@@ -763,8 +815,9 @@ impl WatcherLoop {
                 || async move {
                     let (current, updated) =
                         tokio::task::spawn_blocking(move || -> Result<(Inputs, Option<Inputs>)> {
-                            let current = scanner.scan(&generated)?;
-                            let updated = explicit_changed
+                            let current =
+                                scanner.scan_with_explicit(&generated, &check_explicit)?;
+                            let updated = explicit_differs
                                 .then(|| {
                                     scanner.scan_with_explicit(&generated, &next_explicit_for_scan)
                                 })
@@ -772,16 +825,14 @@ impl WatcherLoop {
                             Ok((current, updated))
                         })
                         .await??;
-                    if current != *inputs {
+                    if current != expected_inputs {
                         return Ok(false);
                     }
                     let committed = if let Some(updated) = updated {
-                        let stable = updated.iter().all(|(path, input)| {
-                            current.get(path).is_none_or(|prev| prev == input)
-                        }) && current.iter().all(|(path, input)| {
-                            updated.get(path) == Some(input) || previous_explicit.contains(path)
-                        });
-                        if !stable {
+                        if !updated
+                            .iter()
+                            .all(|(path, input)| current.get(path) == Some(input))
+                        {
                             return Ok(false);
                         }
                         updated
@@ -795,6 +846,9 @@ impl WatcherLoop {
             .await?;
         times[2] = ms(ready.elapsed());
         let Some(generation) = generation else {
+            if plan.is_none() && has_new_explicit {
+                self.record_bun_dependencies(&bun_dependencies, next_explicit);
+            }
             return Ok(None);
         };
         if let Some(plan) = plan {
@@ -806,87 +860,47 @@ impl WatcherLoop {
             self.config.rebuild.commands[index] = command;
             self.config.rebuild.go_inputs.extend(embeds);
         }
-        for (index, deps) in bun_dependencies {
-            self.config.rebuild.commands[index].dependencies = deps;
-        }
-        self.config.rebuild.js_dependencies = next_explicit.clone();
-        self.scanner.set_explicit(next_explicit);
+        self.record_bun_dependencies(&bun_dependencies, next_explicit);
         self.programs = next;
         let committed = committed_slot
             .lock()
             .expect("committed inputs")
             .take()
-            .unwrap_or_else(|| inputs.clone());
+            .context("missing verified snapshot inputs")?;
         Ok(Some((generation, rebuilt, committed)))
     }
+
+    fn record_bun_dependencies(
+        &mut self,
+        bun_dependencies: &[(usize, BTreeSet<PathBuf>)],
+        next_explicit: BTreeSet<PathBuf>,
+    ) {
+        for (index, deps) in bun_dependencies {
+            self.config.rebuild.commands[*index].dependencies = deps.clone();
+        }
+        self.config.rebuild.js_dependencies = next_explicit.clone();
+        self.scanner.set_explicit(next_explicit);
+    }
 }
 
-/// Copies into `mirror` the inputs it has not received since `held` and
-/// records that it holds them now. Each build mirror keeps its own record:
-/// a refresh that skips one mirror must not mark its files as copied.
-/// Returns the paths that differed, mirrored or not.
-fn materialize(
-    root: &Path,
-    mirror: &Path,
-    held: &mut Inputs,
-    inputs: &Inputs,
-    mirrored: impl Fn(&Path) -> bool,
-) -> Result<Vec<PathBuf>> {
-    let received = dev_inputs::changed(held, inputs);
-    for path in &received {
-        if mirrored(path) {
-            dev_inputs::sync(root, mirror, path, inputs.get(path))?;
+fn collect_bun_explicit(
+    selected: &Plan,
+    bun_dependencies: &[(usize, BTreeSet<PathBuf>)],
+) -> BTreeSet<PathBuf> {
+    let mut explicit = BTreeSet::new();
+    for (index, command) in selected.commands.iter().enumerate() {
+        if command.tool() == "bun" {
+            if let Some((_, deps)) = bun_dependencies.iter().find(|(i, _)| *i == index) {
+                explicit.extend(deps.iter().cloned());
+            } else {
+                explicit.extend(command.dependencies.iter().cloned());
+            }
         }
     }
-    *held = inputs.clone();
-    Ok(received)
-}
-
-/// Brings the Go workspace up to `inputs` before a build. Of the files that
-/// are not Go sources the workspace holds only the embedded ones, so a
-/// `//go:embed` directive added to a source can name a file that never
-/// changed and was never copied. Every received source therefore brings the
-/// files its directives select, whether or not those changed.
-fn materialize_go(
-    root: &Path,
-    workspace: &Path,
-    held: &mut Inputs,
-    inputs: &Inputs,
-    plan: &Plan,
-) -> Result<()> {
-    let received = materialize(root, workspace, held, inputs, |path| plan.go_mirrored(path))?;
-    for source in received.iter().filter(|path| {
-        dev_inputs::extension(path) == "go"
-            && dev_build::go_source(path)
-            && inputs.contains_key(*path)
-    }) {
-        let text = fs::read(workspace.join(source))?;
-        for path in dev_build::embedded(&String::from_utf8_lossy(&text), source, inputs.keys()) {
-            dev_inputs::sync(root, workspace, path, inputs.get(path))?;
-        }
+    if !selected.commands.iter().any(|c| c.tool() == "bun") {
+        explicit.clone_from(&selected.js_dependencies);
     }
-    Ok(())
-}
-
-fn diagnostic(config: &Development, module: String, stderr: &str) -> Value {
-    use std::sync::LazyLock;
-    static LOCATION: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(
-        r"(?m)^\s*(?:(?:-->|at)\s+)?([^\n:()]+\.(?:go|rs|[cm]?[jt]sx?|scn))[:(]([0-9]+)[:,]([0-9]+)"
-    ).expect("compiler location pattern")
-    });
-    let mut result = json!({"stderr": stderr});
-    if !module.is_empty() {
-        result["module"] = json!(module);
-    }
-    if let Some(location) = LOCATION.captures(stderr) {
-        let source = Path::new(location[1].trim());
-        let relative = source.strip_prefix(&config.root).unwrap_or(source);
-        result["file"] = json!(relative);
-        result["line"] = json!(location[2].parse::<u64>().unwrap_or(0));
-        result["column"] = json!(location[3].parse::<u64>().unwrap_or(0));
-    }
-    result
+    explicit
 }
 
 fn ms(duration: Duration) -> f64 {

@@ -389,6 +389,47 @@ pub(crate) fn sync(
     Ok(())
 }
 
+/// Copies into `mirror` the inputs it has not received since `held` and
+/// records that it holds them now. Returns the paths that differed, mirrored or not.
+pub(crate) fn materialize(
+    root: &Path,
+    mirror: &Path,
+    held: &mut Inputs,
+    inputs: &Inputs,
+    mirrored: impl Fn(&Path) -> bool,
+) -> Result<Vec<PathBuf>> {
+    let received = changed(held, inputs);
+    for path in &received {
+        if mirrored(path) {
+            sync(root, mirror, path, inputs.get(path))?;
+        }
+    }
+    *held = inputs.clone();
+    Ok(received)
+}
+
+/// Brings the Go workspace up to `inputs` before a build.
+pub(crate) fn materialize_go(
+    root: &Path,
+    workspace: &Path,
+    held: &mut Inputs,
+    inputs: &Inputs,
+    plan: &crate::dev_build::Plan,
+) -> Result<()> {
+    let received = materialize(root, workspace, held, inputs, |path| plan.go_mirrored(path))?;
+    for source in received.iter().filter(|path| {
+        extension(path) == "go" && crate::dev_build::go_source(path) && inputs.contains_key(*path)
+    }) {
+        let text = fs::read(workspace.join(source))?;
+        for path in
+            crate::dev_build::embedded(&String::from_utf8_lossy(&text), source, inputs.keys())
+        {
+            sync(root, workspace, path, inputs.get(path))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

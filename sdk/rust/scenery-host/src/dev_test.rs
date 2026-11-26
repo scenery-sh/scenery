@@ -466,8 +466,25 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
     fs::write(root.join("svc/dist/vendor.ts"), "export const dep = 'a';\n")?;
     fs::write(root.join("svc/dist/extra.ts"), "export const extra = 1;\n")?;
     fs::write(
+        root.join("svc/dist/extra2.ts"),
+        "export const extra2 = 'v1';\n",
+    )?;
+    fs::write(
         root.join("node_modules/pkg/index.js"),
         "module.exports = 'p1';\n",
+    )?;
+
+    // Helper mutating `svc/dist/extra2.ts` during `worker-check-migrations` once when requested,
+    // exercising a concurrent edit between Bun compilation and `publisher.replace`.
+    let mutate_gate = state.join("mutate-extra2");
+    let helper = state.join("fake-cli.sh");
+    fs::write(
+        &helper,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"worker-check-migrations\" ]; then\n  if [ -f '{gate}' ]; then\n    printf 'export const extra2 = \"v2\";\\n' > '{root}/svc/dist/extra2.ts'\n    rm -f '{gate}'\n  fi\n  exit 0\nfi\nexit 1\n",
+            gate = mutate_gate.display(),
+            root = root.display(),
+        ),
     )?;
 
     // Fake `bun` bundler reading arguments `--outfile=...` and `--metafile=...` and emitting an executable worker wrapper.
@@ -475,7 +492,7 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
     fs::write(
         &fake_bun,
         format!(
-            "#!/bin/sh\nOUT=''\nMETA=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    --outfile=*) OUT=\"${{arg#--outfile=}}\" ;;\n    --metafile=*) META=\"${{arg#--metafile=}}\" ;;\n  esac\ndone\n{{\n  echo '#!/bin/sh'\n  cat '{root}/svc/index.ts' '{root}/svc/dist/vendor.ts' '{root}/node_modules/pkg/index.js' | sed 's/^/# /'\n  EXTRA=''\n  if grep -q 'extra' '{root}/svc/index.ts'; then\n    cat '{root}/svc/dist/extra.ts' | sed 's/^/# /'\n    EXTRA=',\"'{root}'/svc/dist/extra.ts\":{{}}'\n  fi\n  echo \"exec '{node}' '{responder}' \\\"\\$1\\\"\"\n}} > \"$OUT\"\nchmod +x \"$OUT\"\nprintf '{{\"inputs\":{{\"{root}/svc/index.ts\":{{}},\"{root}/svc/dist/vendor.ts\":{{}},\"{root}/node_modules/pkg/index.js\":{{}}%s}}}}' \"$EXTRA\" > \"$META\"\n",
+            "#!/bin/sh\nOUT=''\nMETA=''\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    --outfile=*) OUT=\"${{arg#--outfile=}}\" ;;\n    --metafile=*) META=\"${{arg#--metafile=}}\" ;;\n  esac\ndone\n{{\n  echo '#!/bin/sh'\n  cat '{root}/svc/index.ts' '{root}/svc/dist/vendor.ts' '{root}/node_modules/pkg/index.js' | sed 's/^/# /'\n  EXTRA=''\n  if grep -q 'extra' '{root}/svc/index.ts'; then\n    if grep -q 'extra2' '{root}/svc/index.ts'; then\n      cat '{root}/svc/dist/extra2.ts' | sed 's/^/# /'\n      EXTRA=',\"'{root}'/svc/dist/extra2.ts\":{{}}'\n    else\n      cat '{root}/svc/dist/extra.ts' | sed 's/^/# /'\n      EXTRA=',\"'{root}'/svc/dist/extra.ts\":{{}}'\n    fi\n  fi\n  echo \"exec '{node}' '{responder}' \\\"\\$1\\\"\"\n}} > \"$OUT\"\nchmod +x \"$OUT\"\nprintf '{{\"inputs\":{{\"{root}/svc/index.ts\":{{}},\"{root}/svc/dist/vendor.ts\":{{}},\"{root}/node_modules/pkg/index.js\":{{}}%s}}}}' \"$EXTRA\" > \"$META\"\n",
             root = root.display(),
             node = node.display(),
             responder = responder.display(),
@@ -484,7 +501,9 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&fake_bun, fs::Permissions::from_mode(0o755))?;
+        for file in [&fake_bun, &helper] {
+            fs::set_permissions(file, fs::Permissions::from_mode(0o755))?;
+        }
     }
 
     let scanner = Scanner::new(root.clone());
@@ -497,7 +516,7 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
     let config: Development = serde_json::from_value(json!({
         "root": root,
         "app": {},
-        "cli": "/usr/bin/false",
+        "cli": helper,
         "cli_environment": [],
         "environment": "development",
         "frontend_pid": 0,
@@ -508,6 +527,8 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
         "rebuild": {
             "generated": [],
             "declarations": {},
+            "has_migrations": true,
+            "sql_requirements": [{"kind":"data_source","name":"js_db","schema":"js"}],
             "js_dependencies": ["svc/dist/vendor.ts", "node_modules/pkg/index.js"],
             "commands": [{
                 "process": "jsw", "module": "svc", "directory": "svc", "workspace": ".",
@@ -575,6 +596,31 @@ async fn bun_bundled_dependencies_in_ignored_dirs_trigger_rebuild_and_update_wai
         .process_change(&state, &publisher, "c", edited_extra, Instant::now())
         .await;
     assert_eq!(publisher.generation(), 3);
+
+    // Discover `svc/dist/extra2.ts` while `check_migrations` mutates it from v1 to v2 before
+    // `publisher.replace`: the stale v1 build must be superseded rather than published as v2.
+    fs::write(&mutate_gate, "1")?;
+    fs::write(root.join("svc/index.ts"), "export const extra2 = true;\n")?;
+    let discover_extra2 = watcher.scanner.scan(&[])?;
+    let superseded = watcher
+        .process_change(&state, &publisher, "c", discover_extra2, Instant::now())
+        .await;
+    assert!(superseded);
+    assert_eq!(publisher.generation(), 3);
+    assert!(watcher.scanner.is_explicit(Path::new("svc/dist/extra2.ts")));
+
+    let with_v2 = watcher.scanner.scan(&[])?;
+    let resync = watcher
+        .process_change(&state, &publisher, "c", with_v2, Instant::now())
+        .await;
+    assert!(!resync);
+    // Candidate 4 (built from v1) was discarded, so the recompiled v2 build commits as generation 5.
+    assert_eq!(publisher.generation(), 5);
+    let final_served = watcher.status().reply(None, &publication).await?;
+    let final_served: Value =
+        serde_json::from_slice(&final_served.into_body().collect().await?.to_bytes())?;
+    assert_eq!(final_served["outcome"], "served");
+
     stop.cancel();
     let _ = supervisor_task.await;
     Ok(())

@@ -182,6 +182,19 @@ impl DeadlineControl {
         }
     }
 
+    /// Yields once after dropping an unconsumed request body so Hyper's read
+    /// loop can drain a buffered final chunk and observe socket readiness
+    /// before response completion arms keep-alive idle.
+    pub(crate) async fn finish_unread_request(&self, had_body: bool) {
+        let needs_drain_poll = {
+            let state = self.state.lock().expect("deadline lock");
+            had_body && !state.upgraded && !state.io_exhausted
+        };
+        if needs_drain_poll {
+            tokio::task::yield_now().await;
+        }
+    }
+
     pub(crate) fn begin_response(
         &self,
         status: StatusCode,
