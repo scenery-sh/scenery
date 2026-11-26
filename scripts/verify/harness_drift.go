@@ -528,7 +528,7 @@ func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (ha
 
 func harnessBinaryFreshnessCoversRel(rel string) bool {
 	rel = filepath.ToSlash(rel)
-	for _, prefix := range []string{"auth/", "cmd/", "db/", "errs/", "internal/", "middleware/", "runtime/", "ui/"} {
+	for _, prefix := range []string{"auth/", "cmd/", "db/", "errs/", "internal/", "middleware/", "runtime/", "sdk/js/", "sdk/rust/", "ui/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {
 				if harnessBinaryInputSkipDir(part) {
@@ -612,7 +612,7 @@ func buildHarnessFixtureMatrixReportWithRunner(ctx context.Context, repoRoot str
 				})
 			}
 		}
-		for _, subject := range []string{"app", "routes", "services", "endpoints"} {
+		for _, subject := range []string{"routes"} {
 			step := runHarnessFixtureInspectWithRunner(ctx, repoRoot, subject, appRoot, run)
 			result.Inspect[subject] = step.OK
 			if !step.OK {

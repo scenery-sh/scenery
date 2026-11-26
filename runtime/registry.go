@@ -32,6 +32,8 @@ type AuthInfo struct {
 }
 
 type Endpoint struct {
+	workerRuntime         string
+	workerModule          string
 	Service               string
 	Name                  string
 	Access                Access
@@ -134,6 +136,8 @@ type CronJob struct {
 }
 
 type DurableTask struct {
+	workerRuntime          string
+	workerModule           string
 	Name                   string
 	Service                string
 	Version                int
@@ -189,6 +193,7 @@ type registry struct {
 	durableTasks              map[string]*DurableTask
 	contractDurableExecutions map[string]ContractDurableRegistration
 	contractBindings          map[string]ContractInternalBindingRegistration
+	workerOperations          map[string]func(context.Context, []byte) ([]byte, shared.ByteStream, error)
 	mcpTools                  map[string]MCPToolRegistration
 	assistantMCPManifests     map[string]mcpcontract.Manifest
 	assistants                map[string]AssistantRegistration

@@ -33,7 +33,7 @@ func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
 		{errors.New("capability_unavailable: provider missing"), 4},
 		{errors.New("permission_denied: approval missing"), 5},
 		{errors.New("internal: compiler panic"), 10},
-		{errors.New("usage: scenery list KIND"), 2},
+		{errors.New("usage: scenery schema KIND"), 2},
 		{errors.New("provider log mentioned permission_denied"), 10},
 	}
 	for _, test := range tests {
@@ -58,7 +58,7 @@ func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 		{name: "private root", args: []string{"PRIVATE_SENTINEL"}, err: errors.New("invalid_request: unknown command"), want: 2, wantCommand: "unknown"},
 		{name: "private subcommand", args: []string{"db", "PRIVATE_SENTINEL"}, err: errors.New("invalid_request: unknown subcommand"), want: 2, wantCommand: "db"},
 		{name: "validation profile", args: []string{"validate", "PRIVATE_SENTINEL"}, want: 0, wantCommand: "validate"},
-		{name: "missing resource", args: []string{"list", "missing"}, err: errors.New("invalid_request: resource not found"), want: 2, wantCommand: "list"},
+		{name: "missing resource", args: []string{"schema", "missing"}, err: errors.New("invalid_request: resource not found"), want: 2, wantCommand: "schema"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -346,7 +346,7 @@ func TestContractQuietSuppressesHumanOutput(t *testing.T) {
 }
 
 // contractFixtureRoot returns a writable copy of the checked-in `house`
-// fixture app root. Compile, check, and inspect paths treat their app root as
+// fixture app root. Compile, check, and inspect build treat their app root as
 // a workspace: they probe and create `.scenery/transactions` state and write
 // `.scenery/` cache. Pointing them at the checked-in tree mutates the
 // repository from a unit test and records those paths as Go test-cache

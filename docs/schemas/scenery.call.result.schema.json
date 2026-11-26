@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.call.result.schema.json",
+  "title": "scenery.call.result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "target",
+    "http_status",
+    "ok",
+    "headers",
+    "duration_ms",
+    "generation",
+    "worker_pid",
+    "host_pid",
+    "trace_id",
+    "logs",
+    "spans"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.call.result"
+    },
+    "schema_revision": {
+      "const": "sha256:b6430d42ccbb5f3d5e8e3790bcdf65549a3c7070028c27a2b048ff32883e2e48"
+    },
+    "target": {
+      "type": "string"
+    },
+    "binding": {
+      "type": "string"
+    },
+    "http_status": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 599
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "body": {},
+    "body_encoding": {
+      "const": "base64"
+    },
+    "outcome": {},
+    "headers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "worker_pid": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "host_pid": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^([a-f0-9]{32})?$"
+    },
+    "logs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "spans": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "failure_report": {
+      "$ref": "scenery.failure.report.schema.json"
+    },
+    "source_wait": {
+      "$ref": "scenery.dev-runtime.wait.schema.json"
+    }
+  }
+}

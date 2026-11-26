@@ -119,3 +119,23 @@ func cliReportsFindings(err error) bool {
 func findingsDiagnosticError(err error, diagnostic graph.Diagnostic) error {
 	return &cliDiagnosticError{err: err, code: 1, diagnostic: diagnostic}
 }
+
+func cliTelemetryErrorCategory(err error) string {
+	switch cliExitCode(err) {
+	case 1:
+		return "findings"
+	case 2:
+		return "invalid_request"
+	case 3:
+		if strings.HasPrefix(err.Error(), "revision_conflict:") {
+			return "revision_conflict"
+		}
+		return "failed_precondition"
+	case 4:
+		return "capability_unavailable"
+	case 5:
+		return "permission_denied"
+	default:
+		return "internal"
+	}
+}

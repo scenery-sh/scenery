@@ -62,6 +62,54 @@ func buildCommand(out io.Writer, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed_precondition: discover app root: %w", err)
 	}
+	if err := build.VerifyPrebuiltFramework(appRoot, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
+		return &codedCLIError{err: err, code: 3}
+	}
+	if compiled, compileErr := compiler.Compile(appRoot); compileErr == nil && usesWorkerBundle(compiled) {
+		if !compiled.Valid() {
+			return fmt.Errorf("failed_precondition: validate runtime plan: runtime plan is invalid: %s", firstCompilerDiagnostic(compiled.Diagnostics))
+		}
+		if desktop || verifyGeneration {
+			return usageErrorf("worker bundles do not support desktop or Go generation verification")
+		}
+		role := "artifact"
+		if development {
+			role = "development"
+		}
+		if err := validateWorkerBundleTargetPlatform(compiled, role, targetName); err != nil {
+			return goTargetSelectionCLIError(err)
+		}
+		bundle, err := buildWorkerBundle(context.Background(), compiled, role, targetName, false)
+		if err != nil {
+			return goTargetSelectionCLIError(err)
+		}
+		pruneJSWorkers(appRoot, bundle.Programs)
+		frontend, err := selectWorkerFrontend(appRoot, cfg, compiled)
+		if err != nil {
+			return err
+		}
+		if frontend != nil {
+			bundle.Frontend, err = buildWorkerFrontend(context.Background(), compiled, *frontend)
+			if err != nil {
+				return err
+			}
+		}
+		if outputPath == "" {
+			outputPath = filepath.Join(appRoot, "dist", "bundle")
+		}
+		outputPath, err = filepath.Abs(outputPath)
+		if err != nil {
+			return err
+		}
+		if err := writeWorkerBundle(bundle, outputPath); err != nil {
+			return err
+		}
+		if jsonOutput {
+			return writeCLIJSON(out, workerBundleBuildResult(outputPath))
+		}
+		_, err = fmt.Fprintln(out, outputPath)
+		return err
+	}
 	if err := validateRuntimePlan(appRoot); err != nil {
 		return fmt.Errorf("failed_precondition: validate runtime plan: %w", err)
 	}
@@ -98,10 +146,7 @@ func buildCommand(out io.Writer, args []string) error {
 		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName)
 	}
 	if err != nil {
-		if _, ok := errors.AsType[*compiler.GoTargetSelectionError](err); ok {
-			return &codedCLIError{err: err, code: 2}
-		}
-		return err
+		return goTargetSelectionCLIError(err)
 	}
 	if outputPath == "" {
 		goos := goruntime.GOOS
@@ -164,6 +209,30 @@ func buildCommand(out io.Writer, args []string) error {
 	}
 	_, _ = fmt.Fprintf(out, "scenery: built %s\n", outputPath)
 	return nil
+}
+
+// goTargetSelectionCLIError reports a go_target the application does not
+// declare as an invalid request; every other error passes through.
+func goTargetSelectionCLIError(err error) error {
+	if _, ok := errors.AsType[*compiler.GoTargetSelectionError](err); ok {
+		return &codedCLIError{err: err, code: 2}
+	}
+	return err
+}
+
+// workerBundleBuildResult reports a worker bundle through the declared
+// application build result. output_path is the bundle directory, which a
+// successful build always writes anew; the runtime descriptor, candidate
+// identity and verification module of a single Go executable do not exist.
+func workerBundleBuildResult(outputPath string) map[string]any {
+	return withCLIPayloadIdentity("scenery.build.result", map[string]any{
+		"output_path":                outputPath,
+		"descriptor_path":            "",
+		"copied":                     true,
+		"candidate_identity":         nil,
+		"verification_module_path":   "",
+		"verification_module_digest": "",
+	})
 }
 
 func copyBinary(src, dst string) (bool, error) {

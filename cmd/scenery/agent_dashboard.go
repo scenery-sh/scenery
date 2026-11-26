@@ -59,6 +59,22 @@ func (c *agentDashboardController) servingState(ctx context.Context, status devd
 	return supervisor.currentServingState(ctx)
 }
 
+func (c *agentDashboardController) buildState(status devdash.AppStatus) (*workerRebuildTiming, *devBuildFailure) {
+	c.servingMu.RLock()
+	supervisor := c.servingSupervisor
+	c.servingMu.RUnlock()
+	if supervisor == nil || status.AppRoot != supervisor.root || status.SessionID != supervisor.currentSessionID() {
+		return nil, nil
+	}
+	supervisor.mu.RLock()
+	defer supervisor.mu.RUnlock()
+	var failure *devBuildFailure
+	if supervisor.lastBuild != nil {
+		failure = supervisor.lastBuild.Failure
+	}
+	return supervisor.rebuildTiming, failure
+}
+
 func startAgentDashboard(ctx context.Context, agentServer *localagent.Server, addr string) (*agentDashboardRuntime, error) {
 	return startAgentDashboardListener(ctx, agentServer, addr, nil)
 }

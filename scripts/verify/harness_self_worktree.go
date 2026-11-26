@@ -127,7 +127,7 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (summ
 		if _, err := os.Stat(filepath.Join(result.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
 			return nil, nil, fmt.Errorf("create %s unexpectedly wrote database pin: %v", name, err)
 		}
-		if err := checkHarnessWorktreeInputs(ctx, repoRoot, appRoot, result); err != nil {
+		if err := checkHarnessWorktreeInputs(result); err != nil {
 			return nil, nil, err
 		}
 		observation, err := checkHarnessWorktreeShellFollowup(ctx, result.NextCommand, result.Path)

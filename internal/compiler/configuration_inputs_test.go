@@ -70,7 +70,7 @@ input "provider_token" {
 }
 
 func TestConfigurableDeploymentInputsDeferToTheEnvironment(t *testing.T) {
-	parallelVNextIntegrationTest(t)
+	parallelCompilerIntegrationTest(t)
 
 	result, err := Compile(configurationFixture(t, "    process_concurrency = 4", ""))
 	if err != nil || !result.Valid() {
@@ -100,7 +100,7 @@ func TestConfigurableDeploymentInputsDeferToTheEnvironment(t *testing.T) {
 }
 
 func TestHostPathIsDeploymentOnly(t *testing.T) {
-	parallelVNextIntegrationTest(t)
+	parallelCompilerIntegrationTest(t)
 
 	result, err := Compile(configurationFixture(t, "", `
 
@@ -119,7 +119,7 @@ record "pack_location" {
 }
 
 func TestHostPathDefaultMustBeAbsolute(t *testing.T) {
-	parallelVNextIntegrationTest(t)
+	parallelCompilerIntegrationTest(t)
 
 	root := configurationFixture(t, "", "")
 	packagePath := filepath.Join(root, "house", packageFilename)
@@ -141,7 +141,7 @@ func TestHostPathDefaultMustBeAbsolute(t *testing.T) {
 }
 
 func TestPublicInputsMustBeNonSensitiveDeploymentValues(t *testing.T) {
-	parallelVNextIntegrationTest(t)
+	parallelCompilerIntegrationTest(t)
 
 	for name, declaration := range map[string]string{
 		"sensitive": "input \"banner\" {\n  type      = resource_ref(\"secret\")\n  phase     = \"deployment\"\n  sensitive = true\n  public    = true\n}\n",

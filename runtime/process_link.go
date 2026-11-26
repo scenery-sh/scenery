@@ -19,6 +19,7 @@ import (
 	"scenery.sh/errs"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/runtimeapi"
+	"scenery.sh/internal/workerabi"
 )
 
 // A process link connects the processes of one development session. The
@@ -35,6 +36,7 @@ const processLinkBindingPath = "/__scenery/process/v1/bindings/invoke"
 const (
 	processLinkBindingHeader    = "X-Scenery-Binding"
 	processGenerationHeader     = "X-Scenery-Process-Generation"
+	processExpectedContractHdr  = "X-Scenery-Expected-Contract-Revision"
 	processIdentityPIDHeader    = "X-Scenery-Process-ID"
 	processIdentityBuildHeader  = "X-Scenery-Build-Input-Digest"
 	processIdentityImplHeader   = "X-Scenery-Implementation-Revision"
@@ -45,13 +47,15 @@ const (
 const processLinkMaxBody = 32 << 20
 
 type processLinkTarget struct {
-	Network string `json:"network"`
-	Address string `json:"address"`
+	Network  string `json:"network"`
+	Address  string `json:"address"`
+	Protocol string `json:"protocol,omitempty"`
 }
 
 type processLinkConfig struct {
-	Token    string            `json:"token"`
-	Dispatch processLinkTarget `json:"dispatch"`
+	Token        string            `json:"token"`
+	Dispatch     processLinkTarget `json:"dispatch"`
+	Capabilities string            `json:"capabilities,omitempty"`
 	// HostState is the session's private directory of process host state that
 	// outlives one host incarnation; only the host reads and writes it.
 	HostState string `json:"host_state,omitempty"`
@@ -132,7 +136,8 @@ func readProcessLink(path string) (*processLinkConfig, error) {
 }
 
 func validProcessLinkTarget(target processLinkTarget) bool {
-	return (target.Network == "unix" || target.Network == "tcp") && strings.TrimSpace(target.Address) != ""
+	return (target.Network == "unix" || target.Network == "tcp") && strings.TrimSpace(target.Address) != "" &&
+		(target.Protocol == "" || target.Protocol == "h2c" && target.Network == "unix")
 }
 
 // processLinkDialError marks a call that never reached its owner, as opposed
@@ -150,7 +155,7 @@ func processLinkClient(target processLinkTarget) *http.Client {
 		return client
 	}
 	dialer := &net.Dialer{}
-	client := &http.Client{Transport: &http.Transport{
+	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			conn, err := dialer.DialContext(ctx, target.Network, target.Address)
 			if err != nil {
@@ -161,7 +166,11 @@ func processLinkClient(target processLinkTarget) *http.Client {
 		DisableCompression:  true,
 		MaxIdleConnsPerHost: 16,
 		IdleConnTimeout:     90 * time.Second,
-	}}
+	}
+	if target.Protocol == "h2c" {
+		transport.Protocols = workerabi.Protocols()
+	}
+	client := &http.Client{Transport: transport}
 	processLinkState.clients[target] = client
 	return client
 }
@@ -190,6 +199,7 @@ func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConf
 	if err != nil {
 		return nil, err
 	}
+	request.GetBody = nil
 	request.Header.Set("Authorization", "Bearer "+config.Token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(processLinkBindingHeader, address)

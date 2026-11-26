@@ -97,8 +97,21 @@ func waitForWorktreeSource(ctx context.Context, appRoot string, timeout time.Dur
 	ctx, cancel := context.WithTimeout(ctx, timeout+10*time.Second)
 	defer cancel()
 	var result runtimeSourceWait
-	if err := worktreeRuntimeCall(ctx, appRoot, "wait", map[string]any{"timeout_ms": timeout.Milliseconds()}, &result); err != nil {
-		return runtimeSourceWait{}, err
+	root, err := resolveStatusAppRoot(appRoot)
+	if err != nil {
+		return result, err
+	}
+	endpoint, found, err := readWorkerDevEndpoint(root)
+	if err != nil {
+		return result, err
+	}
+	if found {
+		err = workerDevGet(ctx, endpoint.Socket, fmt.Sprintf("/status?timeout_ms=%d", timeout.Milliseconds()), &result)
+	} else {
+		err = worktreeRuntimeCall(ctx, root, "wait", map[string]any{"timeout_ms": timeout.Milliseconds()}, &result)
+	}
+	if err != nil {
+		return result, err
 	}
 	if want := newCLIPayloadIdentity(devRuntimeWaitKind); result.cliPayloadIdentity != want {
 		return runtimeSourceWait{}, fmt.Errorf("failed_precondition: the running scenery up answered %s %s, not %s %s; restart it with this Scenery", result.Kind, result.SchemaRevision, want.Kind, want.SchemaRevision)

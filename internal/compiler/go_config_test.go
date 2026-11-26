@@ -10,7 +10,7 @@ import (
 )
 
 func TestGoServiceConfigCompilesFromAuthoredSource(t *testing.T) {
-	parallelVNextIntegrationTest(t)
+	parallelCompilerIntegrationTest(t)
 
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)

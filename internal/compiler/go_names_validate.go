@@ -62,6 +62,7 @@ func validateGoGeneratedNames(resources []Resource) []Diagnostic {
 			add(resource, name, "union "+resource.Name)
 			add(resource, "Marshal"+name+"JSON", "union marshal function")
 			add(resource, "Unmarshal"+name+"JSON", "union unmarshal function")
+			add(resource, "marshal"+name+"Variant", "union variant marshal helper")
 			for _, variant := range namedChildren(resource.Spec, "variant") {
 				add(resource, name+goName(stringValue(variant["name"])), "union variant "+stringValue(variant["name"]))
 			}
@@ -73,13 +74,11 @@ func validateGoGeneratedNames(resources []Resource) []Diagnostic {
 				add(resource, name+"Input", "operation input alias")
 			}
 			add(resource, name+"Outcome", "operation outcome")
-			for _, function := range []string{"Clone" + name + "Input", "Marshal" + name + "Outcome", "Unmarshal" + name + "Outcome", "Clone" + name + "Outcome"} {
+			for _, function := range []string{"Unmarshal" + name + "Input", "Clone" + name + "Input", "Marshal" + name + "Outcome", "Unmarshal" + name + "Outcome", "Clone" + name + "Outcome"} {
 				add(resource, function, "operation codec function")
 			}
-			for _, kind := range []string{"result", "error"} {
-				for _, variant := range namedChildren(resource.Spec, kind) {
-					add(resource, name+goName(stringValue(variant["name"])), "operation "+kind+" "+stringValue(variant["name"]))
-				}
+			for _, wrapper := range compilerOperationVariantWrappers(name, resource) {
+				add(resource, wrapper.wrapperName, "operation "+wrapper.kind+" "+wrapper.variantName)
 			}
 		case "scenery.service":
 			for _, suffix := range []string{"Dependencies", "Config", "Clients", "ConstructorInput"} {

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,18 +12,17 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/devtelemetry"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/machine"
 )
 
-type cliTelemetryApp struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
+type cliTelemetryApp = devtelemetry.App
 
 type cliTelemetryRecord struct {
 	InvocationID   string            `json:"invocation_id,omitempty"`
 	Producer       *machine.Producer `json:"producer,omitempty"`
+	ErrorCategory  string            `json:"error_category,omitempty"`
 	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
 	Purpose        string            `json:"purpose,omitempty"`
 	Dirty          *bool             `json:"dirty,omitempty"`
@@ -31,6 +31,7 @@ type cliTelemetryRecord struct {
 	DurationMS     int64             `json:"duration_ms"`
 	ExitCode       int               `json:"exit_code"`
 	Version        string            `json:"version"`
+	LongRunning    *bool             `json:"long_running,omitempty"`
 	Mode           string            `json:"mode"`
 	Measurement    string            `json:"measurement,omitempty"`
 	App            *cliTelemetryApp  `json:"app,omitempty"`
@@ -48,6 +49,7 @@ const (
 type cliTelemetryInvocation struct {
 	invocationID    string
 	diagnosticCode  string
+	errorCategory   string
 	started         time.Time
 	args            []string
 	now             func() time.Time
@@ -107,10 +109,12 @@ func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
 	}
 	producer := cliProducer()
 	dirty := cliBuildDirty()
+	mode := telemetryMode(i.args)
 	recorder(cliTelemetryRecord{
 		InvocationID:   i.invocationID,
 		Producer:       &producer,
 		DiagnosticCode: i.diagnosticCode,
+		ErrorCategory:  i.errorCategory,
 		Purpose:        telemetryExecutionPurpose(),
 		Dirty:          &dirty,
 		At:             i.started.UTC(),
@@ -118,7 +122,8 @@ func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
 		DurationMS:     duration.Milliseconds(),
 		ExitCode:       exitCode,
 		Version:        producer.Version,
-		Mode:           telemetryMode(i.args),
+		Mode:           mode,
+		LongRunning:    new(mode == "long_running"),
 		Measurement:    measurement,
 		App:            telemetryInvocationApp(i.args),
 	})
@@ -150,6 +155,10 @@ const (
 var cliTelemetryRotateMaxBytes int64 = cliTelemetryRotateBytes
 
 func recordCLITelemetry(record cliTelemetryRecord) {
+	appendTelemetryRecord(record)
+}
+
+func appendTelemetryRecord(record any) {
 	path, err := cliTelemetryPath()
 	if err != nil {
 		return
@@ -162,11 +171,18 @@ func recordCLITelemetry(record cliTelemetryRecord) {
 	if err != nil {
 		return
 	}
-	lock, err := localagent.AcquireProcessLock(path + ".lock")
-	if err != nil {
-		return
+	deadline := time.Now().Add(250 * time.Millisecond)
+	for {
+		lock, err := localagent.AcquireProcessLock(path + ".lock")
+		if err == nil {
+			defer func() { _ = lock.Release() }()
+			break
+		}
+		if !errors.Is(err, localagent.ErrProcessLocked) || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	defer func() { _ = lock.Release() }()
 	line := append(encoded, '\n')
 	rotateCLITelemetryIfNeeded(path, int64(len(line)), time.Now())
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -304,6 +320,25 @@ func telemetryCommand(args []string) string {
 	if len(args) > 1 && slices.Contains(subcommands, args[1]) {
 		return args[0] + " " + args[1]
 	}
+	// These parsers accept interspersed flags before the subcommand.
+	var action string
+	switch args[0] {
+	case "framework":
+		if opts, err := parseFrameworkArgs(args[1:]); err == nil {
+			action = opts.Command
+		}
+	case "worktree":
+		if opts, err := parseWorktreeArgs(args[1:]); err == nil {
+			action = opts.Command
+		}
+	case "feature":
+		if opts, err := parseFeatureArgs(args[1:]); err == nil {
+			action = opts.Action
+		}
+	}
+	if slices.Contains(subcommands, action) {
+		return args[0] + " " + action
+	}
 	return args[0]
 }
 
@@ -316,8 +351,14 @@ func telemetryMode(args []string) string {
 		if options, err := parseFeatureArgs(args[1:]); err == nil && options.Watch {
 			return "long_running"
 		}
-	case "up", "worker":
-		return "long_running"
+	case "up":
+		if opts, err := parseDevArgs(args[1:]); err == nil && !opts.Detach {
+			return "long_running"
+		}
+	case "worker":
+		if telemetryCommand(args) == "worker" {
+			return "long_running"
+		}
 	case "system":
 		// The agent daemon and the privileged edge helper serve until stopped;
 		// agent restart/install/uninstall and other system commands return.
@@ -330,10 +371,8 @@ func telemetryMode(args []string) string {
 			return "long_running"
 		}
 	case "logs":
-		for _, arg := range args[1:] {
-			if arg == "--follow" {
-				return "long_running"
-			}
+		if opts, err := parseLogsArgs(args[1:]); err == nil && opts.Follow {
+			return "long_running"
 		}
 	}
 	return "oneshot"

@@ -11,9 +11,12 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db"
+const ContractRevision = "sha256:945f67ee58841b772ed0d7ec63822b13f16b40260d01384e23f40a3309620f32"
 const PackageIdentity = "house"
-const PackageContractABIRevision = "sha256:76f2aa33a3093803149d651d1ef3c49b46eb9abbba6adf798b4d4b13815f5b10"
+const PackageContractABIRevision = "sha256:30b6dca1ccaf32fe8e655caeb1210a425722cfa2503d2737add4144199186d4b"
+
+// ContractRevisions names the contract revision of each registration.
+var ContractRevisions = map[string]string{"house/service/house/adapter": ContractRevision}
 
 type serviceImplementation interface {
 	ProcessScene(context.Context, contract.ProcessSceneInput) (contract.ProcessSceneOutcome, error)
@@ -38,7 +41,9 @@ func (selfInternalClient) Invoke(ctx context.Context, invocation scenery.Invocat
 	if err != nil {
 		return nil, fmt.Errorf("copy internal client input: %w", err)
 	}
-	value, err := sceneryruntime.InvokeContractBindingFrom(ctx, "house/binding/process_scene_internal", "house", invocation, copied)
+	value, err := sceneryruntime.InvokeContractBindingCodec(ctx, "house/binding/process_scene_internal", "house", invocation, copied, func(value any) ([]byte, error) {
+		return scenery.MarshalContractValue(value, "record.process_scene_input")
+	}, func(data []byte) (any, error) { return contract.UnmarshalProcessSceneOutcome(data) })
 	if err != nil {
 		return nil, err
 	}
@@ -51,18 +56,6 @@ func (selfInternalClient) Invoke(ctx context.Context, invocation scenery.Invocat
 		return nil, fmt.Errorf("copy internal client outcome: %w", err)
 	}
 	return cloned, nil
-}
-
-func renderProcessSceneCLIOutcome(outcome contract.ProcessSceneOutcome) (sceneryruntime.ContractCLIOutcome, error) {
-	raw, err := contract.MarshalProcessSceneOutcome(outcome)
-	if err != nil {
-		return sceneryruntime.ContractCLIOutcome{}, sceneryruntime.ContractSystemError(err)
-	}
-	kind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(raw)
-	if err != nil {
-		return sceneryruntime.ContractCLIOutcome{}, sceneryruntime.ContractSystemError(err)
-	}
-	return sceneryruntime.ContractCLIOutcome{Kind: kind, Name: name, Payload: payload}, nil
 }
 
 func Register(registry scenery.Registry) error {
@@ -91,7 +84,7 @@ func Register(registry scenery.Registry) error {
 			}}); err != nil {
 				return err
 			}
-			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support", CapabilityRevision: "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_direct", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_mcp", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "always", Durable: false, DurableService: "house", DurableTask: "house/execution/process_scene_direct", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
+			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_direct", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_mcp", ServiceName: "house", OperationAddress: "house/operation/process_scene", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "always", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
 				typed, ok := value.(contract.ProcessSceneOutcome)
 				if !ok {
 					return nil, fmt.Errorf("MCP tool returned %T, want contract.ProcessSceneOutcome", value)
@@ -127,7 +120,7 @@ func Register(registry scenery.Registry) error {
 			}}); err != nil {
 				return err
 			}
-			if err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: "house/binding/process_scene_internal", Visibility: "application", Package: "house", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_internal", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
+			if err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: "house/binding/process_scene_internal", Visibility: "application", Package: "house", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_internal", ServiceName: "house", OperationAddress: "house/operation/process_scene", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
 				typed, ok := value.(contract.ProcessSceneOutcome)
 				if !ok {
 					return nil, fmt.Errorf("internal binding output has type %T", value)
@@ -159,51 +152,12 @@ func Register(registry scenery.Registry) error {
 				if err != nil {
 					return nil, sceneryruntime.ContractSystemError(err)
 				}
-				if err := sceneryruntime.PublishContractOperationOutcome(ctx, "house/operation/process_scene", cloned); err != nil {
-					return nil, sceneryruntime.ContractSystemError(err)
-				}
 				return cloned, nil
 			}}); err != nil {
 				return err
 			}
-			if err := sceneryruntime.RegisterContractCLIBinding(sceneryruntime.ContractCLIBindingRegistration{Address: "house/binding/process_scene_cli", Command: []string{"house", "process-scene"}, Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_cli", AuthorizationStrategy: "local_developer", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Invoke: func(ctx context.Context, input []byte) (sceneryruntime.ContractCLIOutcome, error) {
-				typed, err := contract.UnmarshalProcessSceneInput(input)
-				if err != nil {
-					return sceneryruntime.ContractCLIOutcome{}, sceneryruntime.ContractCLIInvalidInput(err)
-				}
-				typed, err = contract.CloneProcessSceneInput(typed)
-				if err != nil {
-					return sceneryruntime.ContractCLIOutcome{}, sceneryruntime.ContractCLIInvalidInput(err)
-				}
-				value, err := sceneryruntime.InvokeContractPolicy(ctx, &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_cli", AuthorizationStrategy: "local_developer", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, typed, func(callCtx context.Context) (any, error) {
-					if service == nil {
-						return nil, sceneryruntime.ContractSystemError(fmt.Errorf("service is not initialized"))
-					}
-					outcome, err := service.ProcessScene(callCtx, typed)
-					if err != nil {
-						if outcome != nil {
-							return nil, sceneryruntime.ContractSystemError(fmt.Errorf("handler returned outcome and error"))
-						}
-						return nil, sceneryruntime.ContractSystemError(err)
-					}
-					if outcome == nil {
-						return nil, sceneryruntime.ContractSystemError(fmt.Errorf("handler returned nil outcome"))
-					}
-					return outcome, nil
-				})
-				if err != nil {
-					return sceneryruntime.ContractCLIOutcome{}, err
-				}
-				outcome, ok := value.(contract.ProcessSceneOutcome)
-				if !ok {
-					return sceneryruntime.ContractCLIOutcome{}, sceneryruntime.ContractSystemError(fmt.Errorf("CLI binding returned %T, want contract.ProcessSceneOutcome", value))
-				}
-				return renderProcessSceneCLIOutcome(outcome)
-			}}); err != nil {
-				return err
-			}
 			if err := sceneryruntime.RegisterEndpointChecked(&sceneryruntime.Endpoint{Service: "house", Name: "ProcessSceneHttp", Access: sceneryruntime.Public, Path: "/api/house/process", Methods: []string{"POST"},
-				ContractPolicy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_http", GatewayAddress: "app/http_gateway/public_api", CORS: "none", AllowedOrigins: []string{}, Forwarded: "reject", TrustedProxyPrefixes: []string{}, MaxRequestHeaderBytes: 65536, MaxResponseBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TotalInvocationTimeoutNanos: 2400000000000, ReadTimeoutNanos: 30000000000, WriteTimeoutNanos: 30000000000, IdleTimeoutNanos: 120000000000, AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}, FrameworkGuarantee: "framework_enforced", TransportStatuses: map[string]int{"admission.rate_limited": 429, "result.processed": 200, "system.internal": 500, "transport.invalid_request": 400, "transport.not_acceptable": 406, "transport.unsupported_media_type": 415}},
+				ContractPolicy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_http", ServiceName: "house", OperationAddress: "house/operation/process_scene", GatewayAddress: "app/http_gateway/public_api", CORS: "none", AllowedOrigins: []string{}, Forwarded: "reject", TrustedProxyPrefixes: []string{}, MaxRequestHeaderBytes: 65536, MaxResponseBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TotalInvocationTimeoutNanos: 2400000000000, ReadTimeoutNanos: 30000000000, WriteTimeoutNanos: 30000000000, IdleTimeoutNanos: 120000000000, AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}, FrameworkGuarantee: "framework_enforced", TransportStatuses: map[string]int{"admission.rate_limited": 429, "result.processed": 200, "system.internal": 500, "transport.invalid_request": 400, "transport.not_acceptable": 406, "transport.unsupported_media_type": 415}},
 				DecodeContractRequest: func(request *http.Request, pathValues map[string]string) (sceneryruntime.ContractDecodedRequest, error) {
 					input, err := sceneryruntime.DecodeContractInput[contract.ProcessSceneInput](request, pathValues, sceneryruntime.ContractRequestSchema{Mappings: []sceneryruntime.ContractInputMapping{}, ContextMappings: []sceneryruntime.ContractContextMapping{}, Body: &sceneryruntime.ContractBodyMapping{Codec: "json", Target: "", Type: "record.process_scene_input", DecodeValue: func(data []byte, target any) error {
 						return scenery.UnmarshalContractValue(data, target, "record.process_scene_input")
@@ -228,20 +182,23 @@ func Register(registry scenery.Registry) error {
 					if outcome == nil {
 						return nil, sceneryruntime.ContractSystemError(fmt.Errorf("handler returned nil outcome without error"))
 					}
-					cloned, err := contract.CloneProcessSceneOutcome(outcome)
+					raw, err := contract.MarshalProcessSceneOutcome(outcome)
 					if err != nil {
 						return nil, sceneryruntime.ContractSystemError(err)
 					}
-					if err := sceneryruntime.PublishContractOperationOutcome(ctx, "house/operation/process_scene", cloned); err != nil {
+					cloned, err := contract.UnmarshalProcessSceneOutcome(raw)
+					if err != nil {
 						return nil, sceneryruntime.ContractSystemError(err)
 					}
-					return cloned, nil
+					return sceneryruntime.NewContractPreparedOutcome(cloned, raw), nil
 				},
 				EncodeContractOutcome: func(request *http.Request, outcome any) (sceneryruntime.ContractHTTPResponse, error) {
 					_ = request
+					outcome, envelope := sceneryruntime.ContractPreparedOutcomeValue(outcome)
+					_ = envelope
 					switch typed := outcome.(type) {
 					case contract.ProcessSceneProcessed:
-						response, err := sceneryruntime.EncodeContractRepresentationWithOptions(request, 200, typed.Value, "json", []string{"application/json"}, sceneryruntime.ContractResponseOptions{MaxBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TypeExpression: "record.process_scene_result", EncodeValue: func(value any) ([]byte, error) {
+						response, err := sceneryruntime.EncodeContractPreparedRepresentationWithOptions(request, 200, envelope, typed.Value, "json", []string{"application/json"}, sceneryruntime.ContractResponseOptions{MaxBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TypeExpression: "record.process_scene_result", EncodeValue: func(value any) ([]byte, error) {
 							return scenery.MarshalContractValue(value, "record.process_scene_result")
 						}})
 						if err != nil {

@@ -21,8 +21,6 @@ func validateSecurityResources(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateAuthorizationResource(resource)...)
 		case "scenery.pipeline":
 			diagnostics = append(diagnostics, validatePipelineResource(resource)...)
-		case "scenery.middleware":
-			diagnostics = append(diagnostics, securityDiagnostic("SCN4203", "feature_unavailable: custom middleware is not implemented", resource, "/spec"))
 		}
 	}
 	for _, resource := range resources {

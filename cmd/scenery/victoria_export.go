@@ -195,6 +195,17 @@ func traceSummaryAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
 	if summary.BuildInputDigest != "" {
 		attrs = append(attrs, otlpAttribute{Key: "scenery.build_input_digest", Value: summary.BuildInputDigest})
 	}
+	for _, attr := range []otlpAttribute{
+		{Key: "invocation_id", Value: summary.InvocationID},
+		{Key: "execution_id", Value: summary.ExecutionID},
+		{Key: "module", Value: summary.Module},
+		{Key: "runtime", Value: summary.Runtime},
+		{Key: "error_code", Value: summary.ErrorCode},
+	} {
+		if attr.Value != "" {
+			attrs = append(attrs, attr)
+		}
+	}
 	return attrs
 }
 
@@ -240,6 +251,22 @@ func logAttributePairs(event *devdash.LogEvent) []otlpAttribute {
 	}
 	if event.Worktree != "" {
 		attrs = append(attrs, otlpAttribute{Key: "scenery.worktree", Value: event.Worktree})
+	}
+	for _, attr := range []otlpAttribute{
+		{Key: "invocation_id", Value: event.InvocationID},
+		{Key: "execution_id", Value: event.ExecutionID},
+		{Key: "module", Value: event.Module},
+		{Key: "runtime", Value: event.Runtime},
+		{Key: "parent_span_id", Value: event.ParentSpanID},
+		{Key: "service", Value: event.Service},
+		{Key: "operation", Value: event.Operation},
+	} {
+		if attr.Value != "" {
+			attrs = append(attrs, attr)
+		}
+	}
+	if event.Generation != 0 {
+		attrs = append(attrs, otlpAttribute{Key: "generation", Value: strconv.FormatUint(event.Generation, 10)})
 	}
 	for key, value := range event.Attrs {
 		attrs = append(attrs, otlpAttribute{Key: "scenery.log." + key, Value: value})

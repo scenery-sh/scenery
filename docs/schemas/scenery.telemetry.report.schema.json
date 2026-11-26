@@ -18,7 +18,7 @@
       "const": "scenery.telemetry.report"
     },
     "schema_revision": {
-      "const": "sha256:450fc94a0691497999230d9633c4142f89cbc0f2f2b009508a29b5a272394554"
+      "const": "sha256:802120a0613f56ec27029cda05a305b70a46aa1d39535de57a7f00695daea504"
     },
     "window": {
       "type": "object",
@@ -202,6 +202,9 @@
         "producers",
         "diagnostics",
         "identified_invocations",
+        "uptime_records",
+        "error_categories",
+        "events",
         "purposes",
         "cohorts"
       ],
@@ -256,6 +259,9 @@
             "$ref": "#/$defs/count"
           }
         },
+        "uptime_records": {"type": "integer", "minimum": 0},
+        "error_categories": {"type": "array", "items": {"$ref": "#/$defs/count"}},
+        "events": {"type": "array", "maxItems": 100, "items": {"$ref": "scenery.telemetry.event.schema.json"}},
         "identified_invocations": {
           "type": "integer",
           "minimum": 0

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.test.result.schema.json",
+  "title": "scenery.test.result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "app_root",
+    "modules",
+    "duration_ms"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.test.result"
+    },
+    "schema_revision": {
+      "const": "sha256:d10e7c5c2090bfdfef132ef89233d788e106d93f000c7c6a3f76c031c669d511"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "app_root": {
+      "type": "string"
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module",
+          "directory",
+          "runtime",
+          "command",
+          "ok",
+          "duration_ms"
+        ],
+        "properties": {
+          "module": {
+            "type": "string"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "runtime": {
+            "enum": [
+              "go",
+              "rust",
+              "ts",
+              "js"
+            ]
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "output": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -5,6 +5,11 @@
   "type": "object",
 	"required": ["envs"],
   "properties": {
+    "framework_version": {
+      "type": "string",
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Exact version of the Scenery executable selected by this application."
+    },
     "name": {
       "type": "string"
     },
@@ -225,6 +230,8 @@
     "frontend": {
       "type": "object",
       "properties": {
+        "adapter": {"const": "vite"},
+        "mode": {"const": "static"},
         "root": {
           "type": "string"
         },

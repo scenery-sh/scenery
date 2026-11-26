@@ -21,6 +21,43 @@ func TestContractRevisionIsOrderIndependentAndSpecBound(t *testing.T) {
 	}
 }
 
+func TestServiceRuntimeDoesNotChangeContractIdentity(t *testing.T) {
+	service := Resource{
+		Address: "house/service/house",
+		Kind:    "scenery.service",
+		Name:    "house",
+		Module:  "house",
+		Spec:    map[string]any{"runtime": "go"},
+	}
+	module := Resource{
+		Address: "app/module/house", Kind: "scenery.module", Name: "house", Module: "app",
+		Spec: map[string]any{"package": map[string]any{"name": "house", "go_contract": map[string]any{"import_path": "example.test/house"}}},
+	}
+	manifest := &Manifest{Application: ApplicationIdentity{Name: "estate"}, Resources: []Resource{module, service}}
+	appRevision, err := ContractRevision(manifest.Resources, manifest.Application.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceRevision := ServiceContractRevision(manifest, service, nil)
+	for _, runtime := range []string{"rust", "ts", "js"} {
+		service.Spec["runtime"] = runtime
+		packageSpec := map[string]any{"name": "house"}
+		if runtime == "rust" {
+			packageSpec["rust_contract"] = map[string]any{"crate": "house"}
+		} else {
+			packageSpec["js_contract"] = map[string]any{"entry": "house." + runtime}
+		}
+		module.Spec["package"] = packageSpec
+		got, err := ContractRevision(manifest.Resources, manifest.Application.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != appRevision || ServiceContractRevision(manifest, service, nil) != serviceRevision {
+			t.Errorf("changing a service runtime to %s changed contract identity", runtime)
+		}
+	}
+}
+
 // A service's contract revision follows the contract of its module instance and
 // of the resources its adapter covers, and no other contract change.
 func TestServiceContractRevisionFollowsOnlyTheServiceContract(t *testing.T) {

@@ -16,24 +16,22 @@ import (
 	"scenery.sh/internal/feature"
 )
 
-var featureActions = [...]string{"create", "register", "set", "list", "prepare", "inspect", "check", "land", "close"}
+var featureActions = [...]string{"create", "register", "list", "check", "land", "close"}
 
 type featureOptions struct {
-	Action         string
-	Names          []string
-	RepoRoot       string
-	Path           string
-	Purpose        string
-	Stage          string
-	Dependencies   []string
-	NoDependencies bool
-	Candidate      string
-	Commit         string
-	Expected       string
-	Yes            bool
-	Watch          bool
-	Interval       time.Duration
-	Output         string
+	Action       string
+	Names        []string
+	RepoRoot     string
+	Path         string
+	Purpose      string
+	Dependencies []string
+	Candidate    string
+	Commit       string
+	Expected     string
+	Yes          bool
+	Watch        bool
+	Interval     time.Duration
+	Output       string
 }
 
 type featureResponse struct {
@@ -58,9 +56,7 @@ func parseFeatureArgs(args []string) (featureOptions, error) {
 	flags.StringVar(&options.RepoRoot, "repo-root", "", "")
 	flags.StringVar(&options.Path, "path", "", "")
 	flags.StringVar(&options.Purpose, "purpose", "", "")
-	flags.StringVar(&options.Stage, "stage", "", "")
 	flags.Func("depends-on", "", func(value string) error { options.Dependencies = append(options.Dependencies, value); return nil })
-	flags.BoolVar(&options.NoDependencies, "no-dependencies", false, "")
 	flags.StringVar(&options.Candidate, "candidate", "", "")
 	flags.StringVar(&options.Commit, "commit", "", "")
 	flags.StringVar(&options.Expected, "expect-revision", "", "")
@@ -73,7 +69,7 @@ func parseFeatureArgs(args []string) (featureOptions, error) {
 		return options, err
 	}
 	if len(positionals) == 0 {
-		return options, usageErrorf("usage: scenery feature create|register|set|list|prepare|inspect|check|land|close")
+		return options, usageErrorf("usage: scenery feature create|register|list|check|land|close")
 	}
 	options.Action, options.Names = positionals[0], positionals[1:]
 	if options.Output != "human" && options.Output != "json" && options.Output != "jsonl" {
@@ -99,14 +95,14 @@ func parseFeatureArgs(args []string) (featureOptions, error) {
 			return options, usageErrorf("candidate application requires --candidate and --expect-revision")
 		}
 	}
-	if options.Action == "land" && options.Candidate != "" && !options.Yes {
-		return options, usageErrorf("landing a candidate requires --yes and --expect-revision")
+	if options.Action == "land" && options.Candidate != "" && !options.Yes && options.Expected != "" {
+		return options, usageErrorf("--expect-revision requires --yes when landing a candidate")
 	}
-	if options.NoDependencies && len(options.Dependencies) > 0 {
-		return options, usageErrorf("--no-dependencies conflicts with --depends-on")
+	if options.Yes && options.Action != "land" {
+		return options, usageErrorf("--yes belongs only to feature land")
 	}
 	switch options.Action {
-	case "create", "register", "set", "inspect", "close":
+	case "create", "register", "close":
 		if len(options.Names) != 1 {
 			return options, usageErrorf("feature %s requires one name", options.Action)
 		}
@@ -114,7 +110,7 @@ func parseFeatureArgs(args []string) (featureOptions, error) {
 		if len(options.Names) > 0 {
 			return options, usageErrorf("unexpected argument %q", options.Names[0])
 		}
-	case "prepare", "land":
+	case "land":
 		if options.Candidate == "" && len(options.Names) == 0 {
 			return options, usageErrorf("feature %s requires a feature name", options.Action)
 		}
@@ -143,14 +139,11 @@ func parseFeatureArgs(args []string) (featureOptions, error) {
 	if options.Candidate != "" && options.Action != "land" && options.Action != "check" {
 		return options, usageErrorf("--candidate belongs only to feature land or check")
 	}
-	if options.Commit != "" && options.Action != "prepare" && options.Action != "land" {
-		return options, usageErrorf("--commit belongs only to feature prepare or land")
+	if options.Commit != "" && options.Action != "land" {
+		return options, usageErrorf("--commit belongs only to feature land")
 	}
-	if (options.Stage != "" || options.NoDependencies) && options.Action != "set" {
-		return options, usageErrorf("--stage and --no-dependencies belong only to feature set")
-	}
-	if (options.Purpose != "" || len(options.Dependencies) > 0) && options.Action != "create" && options.Action != "register" && options.Action != "set" {
-		return options, usageErrorf("feature metadata belongs only to create, register or set")
+	if (options.Purpose != "" || len(options.Dependencies) > 0) && options.Action != "create" && options.Action != "register" {
+		return options, usageErrorf("feature metadata belongs only to create or register")
 	}
 	if options.Path != "" && options.Action != "create" && options.Action != "register" {
 		return options, usageErrorf("--path belongs only to create or register")
@@ -177,21 +170,14 @@ func runFeatureCommand(ctx context.Context, stdout io.Writer, args []string) err
 	case "register":
 		record, err = manager.Register(ctx, options.Names[0], options.Purpose, options.Path, options.Dependencies)
 		response.Feature = &record
-	case "set":
-		record, err = manager.Update(ctx, options.Names[0], feature.Update{Purpose: options.Purpose, Stage: options.Stage, Dependencies: options.Dependencies, SetDependencies: options.NoDependencies || len(options.Dependencies) > 0})
-		response.Feature = &record
 	case "close":
 		record, err = manager.Close(ctx, options.Names[0])
 		response.Feature = &record
-	case "prepare":
-		candidate, err = manager.Prepare(ctx, options.Names, options.Commit)
-		response.Candidate = &candidate
-	case "inspect":
-		candidate, err = manager.Inspect(ctx, options.Names[0])
-		response.Candidate = &candidate
 	case "land":
 		if options.Candidate == "" {
 			candidate, err = manager.Prepare(ctx, options.Names, options.Commit)
+		} else if !options.Yes {
+			candidate, err = manager.Inspect(ctx, options.Candidate)
 		} else {
 			candidate, err = manager.Land(ctx, options.Candidate, options.Expected)
 		}
@@ -306,7 +292,7 @@ func writeFeatureResponse(stdout io.Writer, response featureResponse, output str
 		c := response.Candidate
 		_, _ = fmt.Fprintf(stdout, "candidate %s: %s\ncheckout: %s\nmain base: %s\nrevision: %s\n%s\n", c.ID, c.Status, c.Path, c.Base, c.Revision, c.Diff)
 		if len(c.Conflicts) > 0 {
-			_, _ = fmt.Fprintf(stdout, "conflicts: %s\nresolve and stage in the candidate, then run scenery feature inspect %s\n", strings.Join(c.Conflicts, ", "), c.ID)
+			_, _ = fmt.Fprintf(stdout, "conflicts: %s\nresolve and stage in the candidate, then run scenery feature land --candidate %s\n", strings.Join(c.Conflicts, ", "), c.ID)
 		} else if c.Status != "published" {
 			_, _ = fmt.Fprintf(stdout, "review: git -C %q diff %s HEAD\nland: scenery feature land --candidate %s --yes --expect-revision %s\n", c.Path, c.Base, c.ID, c.Revision)
 		}

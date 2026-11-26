@@ -67,9 +67,8 @@ func TestDevReporterBatchesReadyRecordsInOrder(t *testing.T) {
 			r.enqueue(devreport.ReportEnvelope{Type: "log", LogEvent: &devreport.LogEvent{Attrs: map[string]any{"index": index}}})
 		}
 		r.dropped.Store(3)
-		go r.loop()
-		synctest.Wait()
 		r.stopLoop()
+		go r.loop()
 		<-r.done
 		if len(received) != 2 || len(received[0].Reports) != 64 || len(received[1].Reports) != 6 || received[0].Dropped != 3 || r.queuedBytes.Load() != 0 {
 			t.Fatalf("batch boundaries or reservation lifetime: %+v bytes=%d", received, r.queuedBytes.Load())

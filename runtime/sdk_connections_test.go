@@ -48,7 +48,7 @@ func TestConnectionWorkerHelperCannotEraseExternalRequestAuthority(t *testing.T)
 			})
 		}
 	}
-	workerCtx, finish := enterDurableInvocation(t.Context(), "worker", "task", "execution", time.Minute, nil, 0)
+	workerCtx, finish := enterDurableInvocation(t.Context(), "worker", "task", "execution", time.Minute, nil, 0, "", "", 1)
 	result := make(chan error, 1)
 	go func() { _, err := (sdkHost{}).ConnectionToken(workerCtx, "owner", "files", nil); result <- err }()
 	if err := <-result; errs.Code(err) != errs.ConnectionNotConfigured {

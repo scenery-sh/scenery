@@ -76,10 +76,6 @@ func goName(value string) string {
 	return builder.String()
 }
 
-func goPackageName(value string) string {
-	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(value, "_", ""), "-", ""))
-}
-
 func lastRef(value string) string {
 	value = strings.TrimSpace(value)
 	if slash := strings.LastIndex(value, "/"); slash >= 0 {

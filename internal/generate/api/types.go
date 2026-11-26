@@ -32,6 +32,7 @@ type ServiceProcessPlan struct {
 	// implements (compiler.ServiceContractRevision).
 	ContractRevision  string
 	AdapterImport     string
+	WorkerABI         bool
 	RequiredAddresses []string
 	Routes            []ServiceProcessRoute
 	MCPTools          []ServiceProcessMCPTool

@@ -113,7 +113,7 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 		}
 		startupContract = contract
 	}()
-	frameworkErr := build.VerifyFrameworkSession(ctx, root)
+	frameworkErr := build.VerifyFrameworkSession(ctx, root, runningFrameworkVersion())
 	<-preflight
 	if frameworkErr != nil {
 		return nil, &codedCLIError{code: 3, err: frameworkErr}
@@ -179,7 +179,7 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 		return nil, err
 	}
 	o.record = record
-	if err := build.WriteRuntimeFramework(root, sceneryVersion, sceneryCommit); err != nil {
+	if err := build.WriteRuntimeFramework(root, runningFrameworkVersion(), sceneryCommit); err != nil {
 		return nil, err
 	}
 	controlPaths := paths.ControlPaths()

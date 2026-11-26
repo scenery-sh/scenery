@@ -174,7 +174,7 @@ func storageProxyHandler(stores map[string]appcfg.StorageStoreConfig, binding st
 		}
 		if !objectRoute {
 			if req.Method == http.MethodDelete && storageProxyBool(req.URL.Query().Get("recursive")) {
-				handleStorageProxyDeletePrefix(w, req, store)
+				handleStorageProxyDeletePrefix(w, req, store, "")
 				return
 			}
 			handleStorageProxyList(w, req, store)
@@ -229,8 +229,8 @@ func handleStorageProxyList(w http.ResponseWriter, req *http.Request, store publ
 	_ = json.NewEncoder(w).Encode(page)
 }
 
-func handleStorageProxyDeletePrefix(w http.ResponseWriter, req *http.Request, store publicstorage.Store) {
-	if err := store.DeletePrefix(req.Context(), ""); err != nil {
+func handleStorageProxyDeletePrefix(w http.ResponseWriter, req *http.Request, store publicstorage.Store, prefix string) {
+	if err := store.DeletePrefix(req.Context(), prefix); err != nil {
 		writeStorageProxyError(w, err)
 		return
 	}
@@ -238,8 +238,14 @@ func handleStorageProxyDeletePrefix(w http.ResponseWriter, req *http.Request, st
 }
 
 func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store publicstorage.Store, key string) {
+	ifMatch := req.Header.Get("If-Match")
+	ifNoneMatch := strings.TrimSpace(req.Header.Get("If-None-Match"))
 	switch req.Method {
 	case http.MethodPut:
+		if ifNoneMatch != "" && ifNoneMatch != "*" {
+			writeStorageProxyError(w, storagefs.ErrInvalid)
+			return
+		}
 		metadata, err := publicstorage.MetadataFromHeaders(req.Header)
 		if err != nil {
 			writeStorageProxyError(w, err)
@@ -248,8 +254,8 @@ func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store pu
 		obj, err := store.Put(req.Context(), key, req.Body, publicstorage.PutOptions{
 			ContentType: req.Header.Get("Content-Type"),
 			Metadata:    metadata,
-			IfNoneMatch: req.Header.Get("If-None-Match") == "*",
-			IfMatch:     req.Header.Get("If-Match"),
+			IfNoneMatch: ifNoneMatch == "*",
+			IfMatch:     ifMatch,
 		})
 		if err != nil {
 			writeStorageProxyError(w, err)
@@ -260,13 +266,29 @@ func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store pu
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(obj)
 	case http.MethodHead:
+		if ifNoneMatch != "" {
+			writeStorageProxyError(w, storagefs.ErrInvalid)
+			return
+		}
 		obj, err := store.Head(req.Context(), key)
 		if err != nil {
+			if ifMatch != "" && errors.Is(err, storagefs.ErrNotFound) {
+				writeStorageProxyError(w, storagefs.ErrPrecondition)
+				return
+			}
 			writeStorageProxyError(w, err)
+			return
+		}
+		if ifMatch != "" && obj.ETag != ifMatch {
+			writeStorageProxyError(w, storagefs.ErrPrecondition)
 			return
 		}
 		setStorageProxyObjectHeaders(w.Header(), obj)
 	case http.MethodGet:
+		if ifNoneMatch != "" {
+			writeStorageProxyError(w, storagefs.ErrInvalid)
+			return
+		}
 		offset, length, err := storageProxyRange(req.URL.Query())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -274,10 +296,18 @@ func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store pu
 		}
 		body, obj, err := store.Get(req.Context(), key, publicstorage.GetOptions{Offset: offset, Length: length})
 		if err != nil {
+			if ifMatch != "" && errors.Is(err, storagefs.ErrNotFound) {
+				writeStorageProxyError(w, storagefs.ErrPrecondition)
+				return
+			}
 			writeStorageProxyError(w, err)
 			return
 		}
 		defer func() { _ = body.Close() }()
+		if ifMatch != "" && obj.ETag != ifMatch {
+			writeStorageProxyError(w, storagefs.ErrPrecondition)
+			return
+		}
 		setStorageProxyObjectHeaders(w.Header(), obj)
 		transfer := obj.SizeBytes
 		if offset != nil {
@@ -289,11 +319,19 @@ func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store pu
 		w.Header().Set("Content-Length", strconv.FormatInt(transfer, 10))
 		_, _ = io.Copy(w, body)
 	case http.MethodDelete:
+		if ifNoneMatch != "" {
+			writeStorageProxyError(w, storagefs.ErrInvalid)
+			return
+		}
 		var err error
 		if storageProxyBool(req.URL.Query().Get("recursive")) {
+			if ifMatch != "" {
+				writeStorageProxyError(w, storagefs.ErrInvalid)
+				return
+			}
 			err = store.DeletePrefix(req.Context(), key)
 		} else {
-			err = store.Delete(req.Context(), key, publicstorage.DeleteOptions{IfMatch: req.Header.Get("If-Match")})
+			err = store.Delete(req.Context(), key, publicstorage.DeleteOptions{IfMatch: ifMatch})
 		}
 		if err != nil {
 			writeStorageProxyError(w, err)

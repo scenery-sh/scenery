@@ -22,7 +22,8 @@ func TestFormerInspectObservabilitySubjectsAreInvalidRequests(t *testing.T) {
 			if err == nil || cliExitCode(err) != 2 {
 				t.Fatalf("runSceneryInspect(%q) error = %v, exit = %d", subject, err, cliExitCode(err))
 			}
-			if !strings.Contains(err.Error(), "use `scenery "+subject+" list`") {
+			want := map[string]string{"traces": "traces list", "metrics": "metrics"}[subject]
+			if !strings.Contains(err.Error(), "use `scenery "+want+"`") {
 				t.Fatalf("error = %q, want current command", err)
 			}
 
@@ -104,7 +105,7 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 		"--service", "tenants",
 		"--since", "1h",
 	}); err != nil {
-		t.Fatalf("metrics list: %v\n%s", err, out.String())
+		t.Fatalf("metrics: %v\n%s", err, out.String())
 	}
 
 	var payload inspectMetricsResponse

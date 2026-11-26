@@ -152,8 +152,15 @@ func contractConstraintNumber(value reflect.Value, typeName string) (*big.Rat, b
 		source = stringer.String()
 	case "int32", "int64":
 		source = fmt.Sprintf("%d", value.Int())
-	case "uint32", "uint64", "size":
+	case "uint32", "uint64":
 		source = fmt.Sprintf("%d", value.Uint())
+	case "size":
+		// A size is an exact byte count, not a machine integer.
+		size, ok := value.Interface().(Size)
+		if !ok {
+			return nil, false
+		}
+		return new(big.Rat).SetInt(size.Bytes()), true
 	case "float32", "float64":
 		result := new(big.Rat)
 		if result.SetFloat64(value.Float()) == nil {

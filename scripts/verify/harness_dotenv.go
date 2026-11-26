@@ -13,6 +13,7 @@ import (
 // deployed sources; none reads one.
 var dotenvAllowedFiles = map[string]bool{
 	"internal/build/source.go":       true,
+	"internal/rustbuild/build.go":    true,
 	"internal/watchignore/inputs.go": true,
 }
 

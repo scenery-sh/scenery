@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -88,7 +87,7 @@ export "item" { value = record.item }
 	if err := write(filepath.Join(root, ".scenery.json"), `{"name":"nested-clients","id":"nested-clients","envs":{"local":{"default":true}}}`); err != nil {
 		return proof, err
 	}
-	for _, args := range [][]string{{"inspect", "generators"}, {"generate"}, {"generate", "--check"}} {
+	for _, args := range [][]string{{"generate"}, {"generate", "--check"}} {
 		cmd := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), append(args, "--app-root", root, "-o", "json")...)
 		cmd.Env = append(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_HOME"), "SCENERY_AGENT_HOME="+filepath.Join(root, "agent-home"))
 		var stdout, stderr bytes.Buffer
@@ -96,30 +95,7 @@ export "item" { value = record.item }
 		if err := cmd.Run(); err != nil {
 			return proof, fmt.Errorf("nested client %v: %w: stdout=%s stderr=%s", args, err, stdout.String(), stderr.String())
 		}
-		if args[0] == "inspect" {
-			var envelope struct {
-				Data struct {
-					Generators []struct {
-						ID      string   `json:"id"`
-						Outputs []string `json:"outputs"`
-					} `json:"generators"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
-				return proof, err
-			}
-			found := false
-			for _, generator := range envelope.Data.Generators {
-				if generator.ID == "go.render" {
-					for _, output := range generator.Outputs {
-						found = found || output == "shared/scenerycontract/types.gen.go"
-					}
-				}
-			}
-			if !found {
-				return proof, fmt.Errorf("generator inspection omitted selected Go files")
-			}
-		}
+
 	}
 	for _, output := range []string{"clients/generated", "clients/generated/admin"} {
 		for _, file := range []string{"client.ts", "scenery.typescript-client-generated.json"} {
@@ -128,7 +104,7 @@ export "item" { value = record.item }
 			}
 		}
 	}
-	proof["nested_clients"] = "inspect, actual two-root publication and check-only succeed"
+	proof["nested_clients"] = "actual two-root publication and check-only succeed"
 	goPath := filepath.Join(root, "shared/scenerycontract/contract.gen.go")
 	authored := "package scenerycontract\nconst editorChange = true\n"
 	if err := write(goPath, authored); err != nil {

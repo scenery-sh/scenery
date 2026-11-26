@@ -3,6 +3,7 @@ package graph
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"sort"
 	"strings"
 
@@ -99,6 +100,15 @@ func ContractResourceProjection(resource Resource) (Resource, bool) {
 			continue
 		}
 		if domain, exists := spec.ResourceFieldRevisionDomain(resource.Kind, key); exists && domain == "contract" {
+			if resource.Kind == "scenery.module" && key == "package" {
+				if metadata, ok := value.(map[string]any); ok {
+					contractMetadata := maps.Clone(metadata)
+					delete(contractMetadata, "go_contract")
+					delete(contractMetadata, "rust_contract")
+					delete(contractMetadata, "js_contract")
+					value = contractMetadata
+				}
+			}
 			projected.Spec[key] = value
 		}
 	}

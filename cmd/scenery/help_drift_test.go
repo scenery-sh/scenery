@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"io"
 	"slices"
@@ -78,6 +79,9 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		"db": {ignoreParse(parseDBServerArgs), ignoreParse(parseDBTargetArgs),
 			ignoreParse(parseDBSeedArgs), ignoreParse(parseDBMigrationArgs), ignoreParse(parseDBSetupArgs)},
 		"snapshot":  {ignoreParse(parseSnapshotSaveArgs), ignoreParse(parseSnapshotLoadArgs), ignoreParse(parseSnapshotVerifyArgs)},
+		"call":      {func(args []string) error { return runAgentCall(context.Background(), io.Discard, args) }},
+		"context":   {func(args []string) error { return runAgentContext(context.Background(), io.Discard, args) }},
+		"test":      {func(args []string) error { return runAgentTests(context.Background(), io.Discard, args) }},
 		"traces":    {observabilityList("traces")},
 		"metrics":   {ignoreParse(parseMetricsQueryArgs), observabilityList("metrics")},
 		"system":    {ignoreParse(parseEdgeArgs), ignoreParse(parseEdgePrivilegedInstallArgs), ignoreParse(parseToolchainArgs), ignoreParse(parseAgentArgs)},
@@ -99,7 +103,10 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 			_, err := parseInspectArgs(append([]string{"harness"}, args...))
 			return err
 		}},
-		"harness": {ignoreParse(parseHarnessArgs)},
+		"harness":     {ignoreParse(parseHarnessArgs)},
+		"db query":    {ignoreParse(parseDBQueryArgs)},
+		"durable run": {ignoreParse(parseDurableRunArgs)},
+		"add module":  {ignoreParse(parseAddModuleArgs)},
 	}
 	entries := map[string]helpCommandEntry{}
 	for _, entry := range helpCommandDescriptors(helpCommands) {
@@ -115,8 +122,8 @@ func TestHelpDescriptorsDocumentEveryParserFlag(t *testing.T) {
 		registered := parserFlagNames(t, parsers...)
 		for _, name := range registered {
 			// Every parser accepts -o; commands without output modes ignore it.
-			// inspect keeps the traces/metrics list filters only to reject them
-			// with guidance toward those commands, and the traces/metrics lists
+			// inspect keeps the observability filters only to reject them
+			// with guidance toward those commands, and the observability commands
 			// share its parser and reject its inspect-only flags.
 			if name == "o" ||
 				command == "inspect" && slices.Contains([]string{"limit", "since", "service", "endpoint", "trace-id", "status", "min-duration-ms", "slowest"}, name) ||

@@ -39,7 +39,8 @@ var (
 
 // GoogleStart starts the Google OAuth Authorization Code + PKCE flow.
 func GoogleStart(w http.ResponseWriter, req *http.Request) {
-	if strings.TrimSpace(secrets.GoogleOAuthClientID) == "" || strings.TrimSpace(secrets.GoogleOAuthClientSecret) == "" {
+	current := currentStandardSecrets()
+	if strings.TrimSpace(current.GoogleOAuthClientID) == "" || strings.TrimSpace(current.GoogleOAuthClientSecret) == "" {
 		http.Error(w, "Google OAuth is not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -85,7 +86,7 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 
 	authURL, _ := url.Parse(googleAuthEndpoint)
 	query := authURL.Query()
-	query.Set("client_id", strings.TrimSpace(secrets.GoogleOAuthClientID))
+	query.Set("client_id", strings.TrimSpace(current.GoogleOAuthClientID))
 	query.Set("redirect_uri", googleRedirectURI(req))
 	query.Set("response_type", "code")
 	query.Set("scope", "openid email profile")
@@ -166,10 +167,11 @@ type googleTokenResponse struct {
 }
 
 func exchangeGoogleCode(ctx context.Context, code string, verifier string, redirectURI string) (googleTokenResponse, error) {
+	current := currentStandardSecrets()
 	form := url.Values{}
 	form.Set("code", code)
-	form.Set("client_id", strings.TrimSpace(secrets.GoogleOAuthClientID))
-	form.Set("client_secret", strings.TrimSpace(secrets.GoogleOAuthClientSecret))
+	form.Set("client_id", strings.TrimSpace(current.GoogleOAuthClientID))
+	form.Set("client_secret", strings.TrimSpace(current.GoogleOAuthClientSecret))
 	form.Set("redirect_uri", redirectURI)
 	form.Set("grant_type", "authorization_code")
 	form.Set("code_verifier", verifier)
@@ -244,7 +246,7 @@ func verifyGoogleIDToken(ctx context.Context, rawIDToken string) (*googleIDClaim
 			return key, nil
 		},
 		jwt.WithExpirationRequired(),
-		jwt.WithAudience(strings.TrimSpace(secrets.GoogleOAuthClientID)),
+		jwt.WithAudience(strings.TrimSpace(currentStandardSecrets().GoogleOAuthClientID)),
 	)
 	if err != nil {
 		return nil, err
@@ -454,7 +456,7 @@ func googleRedirectURI(req *http.Request) string {
 	if base := requestBaseURL(req); base != "" {
 		return base + "/auth/google/callback"
 	}
-	base := strings.TrimRight(strings.TrimSpace(secrets.APIBaseURL), "/")
+	base := strings.TrimRight(strings.TrimSpace(currentStandardSecrets().APIBaseURL), "/")
 	if base == "" {
 		base = "https://api.scenery.localhost"
 	}
@@ -506,7 +508,7 @@ func requestOriginURL(req *http.Request) string {
 }
 
 func configuredAPIPathPrefix() string {
-	raw := strings.TrimSpace(secrets.APIBaseURL)
+	raw := strings.TrimSpace(currentStandardSecrets().APIBaseURL)
 	if raw == "" {
 		return ""
 	}
@@ -526,7 +528,7 @@ func appRedirectURL(req *http.Request, path string) string {
 	if base := requestAppOriginURL(req); base != "" {
 		return base + safeRedirectPath(path)
 	}
-	base := strings.TrimRight(strings.TrimSpace(secrets.PublicAppURL), "/")
+	base := strings.TrimRight(strings.TrimSpace(currentStandardSecrets().PublicAppURL), "/")
 	if base == "" {
 		base = "https://app.scenery.localhost"
 	}

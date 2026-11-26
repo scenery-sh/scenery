@@ -133,6 +133,17 @@ var executableDigest = sync.OnceValues(func() (string, error) {
 	return digestExecutable(path)
 })
 
+// CurrentFrameworkExecutable returns the executable path and its content
+// identity for an explicit prebuilt framework selection.
+func CurrentFrameworkExecutable() (path, digest string, err error) {
+	path, err = os.Executable()
+	if err != nil {
+		return "", "", err
+	}
+	digest, err = digestExecutable(path)
+	return path, digest, err
+}
+
 func digestExecutable(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {

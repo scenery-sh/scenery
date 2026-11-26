@@ -442,7 +442,7 @@ func TestBuildHarnessFixtureMatrixReport(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	for _, subject := range []string{"app", "routes", "services", "endpoints"} {
+	for _, subject := range []string{"routes"} {
 		identity := newCLIPayloadIdentity("scenery.inspect." + subject)
 		writeTestAppFile(t, root, "docs/schemas/scenery.inspect."+subject+".schema.json", `{"type":"object","required":["kind","schema_revision"],"properties":{"kind":{"const":"`+identity.Kind+`"},"schema_revision":{"const":"`+identity.SchemaRevision+`"}}}`)
 	}
@@ -458,7 +458,7 @@ func TestBuildHarnessFixtureMatrixReport(t *testing.T) {
 		}
 		return json.NewEncoder(output).Encode(newCLIEnvelope(true, payload, nil))
 	})
-	if len(commands) != 6 || !strings.HasPrefix(commands[0], "generate --target contracts ") || !strings.HasPrefix(commands[1], "check ") {
+	if len(commands) != 3 || !strings.HasPrefix(commands[0], "generate --target contracts ") || !strings.HasPrefix(commands[1], "check ") {
 		t.Fatalf("fixture command boundary = %v", commands)
 	}
 	if report.Kind != harnessFixtureMatrixKind || report.SchemaRevision != newCLIPayloadIdentity(harnessFixtureMatrixKind).SchemaRevision {
@@ -467,7 +467,7 @@ func TestBuildHarnessFixtureMatrixReport(t *testing.T) {
 	if len(report.Fixtures) != 1 {
 		t.Fatalf("fixtures = %+v", report.Fixtures)
 	}
-	if !report.Fixtures[0].Check || !report.Fixtures[0].Inspect["app"] || !report.Fixtures[0].Inspect["routes"] || !report.Fixtures[0].Inspect["services"] || !report.Fixtures[0].Inspect["endpoints"] {
+	if !report.Fixtures[0].Check || !report.Fixtures[0].Inspect["routes"] {
 		t.Fatalf("fixture result = %+v", report.Fixtures[0])
 	}
 }

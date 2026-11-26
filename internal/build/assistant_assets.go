@@ -107,6 +107,84 @@ func prepareAssistantRuntimeAssets(ctx context.Context, result *Result) error {
 	return nil
 }
 
+// BuildWorkerAssistantAssets validates assistant runtime dependencies and, when
+// check is false, builds deterministic production archives and descriptors for
+// worker bundle packaging.
+func BuildWorkerAssistantAssets(ctx context.Context, appRoot string, compiled *compiler.Result, targetName string, check bool) ([]generateapi.AssistantAssetInput, error) {
+	if compiled == nil || compiled.Manifest == nil {
+		return nil, nil
+	}
+	assistants := assistantBuildResources(compiled.Manifest.Resources)
+	if len(assistants) == 0 {
+		return nil, nil
+	}
+	for _, assistant := range assistants {
+		if err := validateAssistantRuntimeDependency(appRoot, assistant); err != nil {
+			return nil, err
+		}
+	}
+	if check {
+		return nil, nil
+	}
+	platform := toolchain.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	if targetName != "" {
+		target, err := compiler.ResolveGoBuildTarget(compiled, targetName, "artifact")
+		if err != nil {
+			return nil, err
+		}
+		platform, err = assistantAssetTargetPlatform(&target)
+		if err != nil {
+			return nil, err
+		}
+	} else if target, err := compiler.ResolveGoBuildTarget(compiled, "", "artifact"); err == nil {
+		platform, err = assistantAssetTargetPlatform(&target)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if platform.GOOS != runtime.GOOS || platform.GOARCH != runtime.GOARCH {
+		return nil, fmt.Errorf("assistant asset build target %s cannot execute managed Node on host %s; cross-build capsules are not deterministic", platform.String(), runtime.GOOS+"/"+runtime.GOARCH)
+	}
+	nodeHome, err := resolveManagedNodeHome(ctx, appRoot, platform)
+	if err != nil {
+		return nil, err
+	}
+	nodeArchive, err := runtimeassets.BuildArchive(nodeHome)
+	if err != nil {
+		return nil, fmt.Errorf("archive managed Node home for %s: %w", platform.String(), err)
+	}
+	assetRoot, err := os.MkdirTemp("", "scenery-worker-assistant-assets-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(assetRoot) }()
+	synthetic := &Result{AppRoot: appRoot, Contract: compiled}
+	inputs := make([]generateapi.AssistantAssetInput, 0, len(assistants))
+	descriptors := make([]generateapi.AssistantAssetDescriptor, 0, len(assistants))
+	for _, assistant := range assistants {
+		input, err := buildAssistantAsset(ctx, synthetic, assistant, platform, nodeArchive, assetRoot)
+		if err != nil {
+			return nil, err
+		}
+		inputs = append(inputs, input)
+		descriptors = append(descriptors, input.Descriptor)
+	}
+	sort.Slice(descriptors, func(i, j int) bool {
+		if descriptors[i].AssistantAddress != descriptors[j].AssistantAddress {
+			return descriptors[i].AssistantAddress < descriptors[j].AssistantAddress
+		}
+		return descriptors[i].Target < descriptors[j].Target
+	})
+	sidecarTarget := strings.TrimSpace(targetName)
+	if sidecarTarget == "" {
+		sidecarTarget = "bundle"
+	}
+	if err := writeAssistantAssetSidecars(appRoot, sidecarTarget, descriptors); err != nil {
+		return nil, err
+	}
+	return inputs, nil
+}
+
 func validateAssistantRuntimeDependency(appRoot string, assistant compiler.Resource) error {
 	implementation, _ := assistant.Spec["implementation"].(map[string]any)
 	packageRelative := stringValueForBuild(implementation["package"])

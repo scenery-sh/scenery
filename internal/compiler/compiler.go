@@ -19,9 +19,10 @@ var rootSingletons = map[string]bool{"application": true, "workspace": true}
 
 var rootResourceKinds = map[string]bool{
 	"go_module": true, "go_toolchain": true, "go_target": true,
+	"js_workspace": true, "js_toolchain": true, "js_target": true,
+	"rust_workspace": true, "rust_toolchain": true, "rust_target": true,
 	"http_gateway": true, "authentication": true, "authorization": true,
-	"workload_identity": true,
-	"pipeline":          true, "provider": true, "data_source": true,
+	"pipeline": true, "provider": true, "data_source": true,
 	"execution_engine": true, "secret_store": true,
 	"secret": true, "typescript_client": true,
 	"mcp_server": true, "assistant": true,
@@ -31,7 +32,7 @@ var packageResourceKinds = map[string]bool{
 	"service": true, "record": true, "enum": true, "union": true,
 	"operation": true, "execution": true, "binding": true,
 	"schedule": true,
-	"page":     true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "workspace_page": true, "detail_page": true, "middleware": true,
+	"page":     true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "workspace_page": true, "detail_page": true,
 }
 
 func Compile(root string) (*Result, error) {
@@ -705,6 +706,8 @@ func validateResources(root string, resources []Resource) []Diagnostic {
 	diagnostics = append(diagnostics, validateGoServiceConfiguration(resources)...)
 	diagnostics = append(diagnostics, validateGoGeneratedNames(resources)...)
 	diagnostics = append(diagnostics, validateGoTargets(root, resources)...)
+	diagnostics = append(diagnostics, validateRustTargets(root, resources)...)
+	diagnostics = append(diagnostics, validateJSTargets(root, resources)...)
 	diagnostics = append(diagnostics, validateSecurityResources(resources)...)
 	diagnostics = append(diagnostics, validateReferences(resources)...)
 	diagnostics = append(diagnostics, validateResourceSemantics(resources)...)

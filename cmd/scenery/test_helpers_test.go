@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -449,17 +448,16 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 	return runStorageCommandContext(context.Background(), args, os.Stdin, stdout)
 }
 
-func freeLoopbackPort() (int, error) {
-	ln, err := netListen("tcp", "127.0.0.1:0")
+// listenRouterLoopback binds a router port before the router starts, so no
+// parallel socket can claim it between reservation and use.
+func listenRouterLoopback(t *testing.T) (net.Listener, int) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return 0, err
+		t.Fatal(err)
 	}
-	defer func() { _ = ln.Close() }()
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("unexpected listener address %s", ln.Addr())
-	}
-	return addr.Port, nil
+	t.Cleanup(func() { _ = ln.Close() })
+	return ln, ln.Addr().(*net.TCPAddr).Port
 }
 
 func runWorktreeRemoveWithList(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {

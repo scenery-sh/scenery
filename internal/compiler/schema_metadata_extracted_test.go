@@ -203,6 +203,20 @@ func TestAuthoredEnumMetadataDrivesValidation(t *testing.T) {
 	}
 }
 
+func TestServiceRuntimeIsAClosedSet(t *testing.T) {
+	t.Parallel()
+	schema, ok := authoredResourceSourceSchema("service")
+	if !ok {
+		t.Fatal("service source schema unavailable")
+	}
+	for runtime, valid := range map[string]bool{"go": true, "js": true, "rust": true, "ts": true, "python": false, "typescript": false, "Go": false} {
+		block := &Block{Type: "service", Labels: []string{"billing"}, Attributes: map[string]Expression{"runtime": {Kind: "literal", Value: runtime}}}
+		if rejected := hasDiagnostic(validateAuthoredBlock(block, schema), "SCN1020"); rejected == valid {
+			t.Errorf("runtime %q rejected = %v", runtime, rejected)
+		}
+	}
+}
+
 func TestRuntimeExpressionValidationUsesAuthoredPhaseMetadata(t *testing.T) {
 	t.Parallel()
 	runtime := &Source{Blocks: []*Block{{Type: "binding", Blocks: []*Block{{Type: "http", Blocks: []*Block{{Type: "response", Blocks: []*Block{{Type: "body", Attributes: map[string]Expression{

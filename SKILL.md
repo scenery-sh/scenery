@@ -1,13 +1,13 @@
 ---
 name: scenery
-description: Build, run, debug, and validate applications using Scenery's .scn graph, Go runtime, and generated clients.
+description: Build, run, debug, and validate applications using Scenery's .scn graph, polyglot workers, and generated clients.
 ---
 
 # scenery
 
 Scenery runs one supervised runtime per canonical app root. `.scenery.json`
 marks the root; `app.scn` and package-local `package.scn` declare the canonical
-resource graph; Go implements generated contracts.
+resource graph; Go, Rust, JavaScript, and TypeScript implement generated contracts.
 
 Read the consuming app's `AGENTS.md` for app-specific paths, environment names,
 validation profiles, and product invariants. Discover exact CLI grammar anytime
@@ -17,10 +17,14 @@ with `scenery help <command> -o json`.
 
 | Task | Commands |
 |---|---|
-| Understand app / routes / operations | `scenery inspect app -o json`, `scenery inspect routes -o json`, `scenery inspect endpoints -o json` |
-| Edit `.scn` or Go handlers | `scenery generate --target contracts -o json`, `scenery check -o json` |
+| Understand a module, service, route, or source file | `scenery context --for <target> -o json` |
+| Validate declarations and handlers | `scenery test <module> -o json`, `scenery check -o json` |
+| Exercise a live binding | `scenery call <binding> --input-file input.json -o json` |
 | Run or inspect local runtime | `scenery up`, `scenery ps -o json`, `scenery ps --wait -o json`, `scenery doctor -o json` |
-| Debug failures & telemetry | `scenery logs -o jsonl --limit 200`, `scenery traces list --status error -o json`, `scenery inspect report <token> -o json` |
+| Debug failures & telemetry | `scenery logs -o jsonl --limit 200`, `scenery traces list --status error -o json`, `scenery inspect report <token> -o json`, `scenery telemetry report` |
+| Query a service's PostgreSQL schema | `scenery db query --service <module> '<sql>' --param <value> -o json` |
+| Trigger a durable execution or schedule | `scenery durable run <target> --input '<json>' -o json` |
+| Add a module with a starter test | `scenery add module <name> --runtime go\|rust\|ts\|js -o json` |
 | Regenerate clients / UI | `scenery generate -o json` |
 | Assistants | `scenery assistant status <name> -o json` |
 | Databases, migrations, storage | `scenery db migrate`, `scenery inspect storage -o json`, `scenery snapshot save/load` |
@@ -33,16 +37,20 @@ language rules.
 
 ## Ownership & Safety Rules
 
-- **Declare in `.scn`, implement in Go.** Go comments and `init()` register
+- **Declare in `.scn`, implement against the generated contract.** Go comments and `init()` register
   nothing. Edit authored files; treat generated contracts, TypeScript clients,
   and `.scenery/gen/` as disposable outputs beneath declared managed roots.
-- **Framework selection.** Pin `scenery.sh` in the app's `go.mod` and run
-  `scenery framework use -o json`. For co-development, `scenery framework use
-  --source <checkout>` snapshots local source—do not commit the temporary
-  replace directive.
+- **Framework selection.** Set `framework_version` in `.scenery.json` to the
+  exact version of a prebuilt CLI, then run that executable's
+  `scenery framework use -o json` to check the selection. Go applications
+  can select their CLI through the `scenery.sh` requirement in `go.mod` when
+  they omit the explicit executable pin. For Go co-development,
+  `scenery framework use --source <checkout>` snapshots local source. Keep
+  the app-local replacement out of commits.
 - **Prefer JSON output (`-o json` / `-o jsonl`).** Branch on stable `SCNxxxx`
   diagnostic codes. `SCN9xxx` internal failures withhold cause details; inspect
-  them via `scenery inspect report <report-token> -o json`.
+  them via `scenery inspect report <report-token> -o json`. A local
+  `scenery call -o json` includes the matching report, logs, and spans when available.
 - **Protect retained data.** Databases and object storage belong to their
   verified canonical worktree. Branch switches and worktree removal never
   authorize deleting data; reclaim orphaned state only via `scenery prune

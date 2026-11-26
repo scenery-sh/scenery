@@ -190,7 +190,7 @@ external_app_smoke() {
   fi
   [[ -d "$EXTERNAL_APP_ROOT" ]] || die "SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT does not exist: $EXTERNAL_APP_ROOT"
   [[ -f "$EXTERNAL_APP_ROOT/.scenery.json" ]] || die "SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT is not a Scenery app: $EXTERNAL_APP_ROOT"
-  run "$SCENERY_BIN" inspect app -o json --app-root "$EXTERNAL_APP_ROOT" || return $?
+  run "$SCENERY_BIN" compile -o json --app-root "$EXTERNAL_APP_ROOT" || return $?
   run "$SCENERY_BIN" check -o json --app-root "$EXTERNAL_APP_ROOT"
 }
 

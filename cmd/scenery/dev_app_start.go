@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,10 +36,48 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	}
 	captured := *snapshot
 	operationID := newDevBuildOperationID()
+	started := time.Now()
+	timing := &workerRebuildTiming{Rebuilt: []string{}, RebuiltModules: []string{}, SkippedModules: []string{}}
+	if !captured.scanStartedAt.IsZero() {
+		timing.DetectMS = workerMilliseconds(max(0, started.Sub(captured.scanStartedAt)))
+	}
+	var readyStarted time.Time
+	editClass, _ := ctx.Value(devEditClassKey{}).(string)
 	// Registered first so it runs last: a failure names the build operation
 	// whose build.step records it belongs to, and starts, keeps or ends a
 	// build block, which the persisted status then reports.
 	defer func() {
+		if !errors.Is(returnErr, errBuildSuperseded) && !workspacetx.IsActive(returnErr) {
+			if readyStarted.IsZero() {
+				timing.CompileMS = workerMilliseconds(time.Since(started))
+			} else {
+				timing.ReadyMS = workerMilliseconds(time.Since(readyStarted))
+			}
+			timing.TotalMS = timing.DetectMS + workerMilliseconds(time.Since(started))
+			s.mu.Lock()
+			if s.servingIdentity != nil {
+				timing.Generation = s.servingIdentity.Generation
+			}
+			s.rebuildTiming = timing
+			s.mu.Unlock()
+			level := "info"
+			if returnErr != nil {
+				level = "error"
+			}
+			s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build"}, level, "build timing", map[string]any{"rebuild_timing": timing})
+			if !initial {
+				trigger := "contract_or_config"
+				switch editClass {
+				case "go_source", "frontend_component", "frontend_module", "styles":
+					trigger = "body_only"
+				}
+				var code string
+				if returnErr != nil {
+					code = cliErrorDiagnostic(returnErr).Code
+				}
+				recordDevRebuild(&cliTelemetryApp{ID: s.cfg.AppID(), Name: s.cfg.Name}, *timing, trigger, code)
+			}
+		}
 		if s.recordBuildOutcome(captured, returnErr) {
 			_ = s.persistStatus(context.WithoutCancel(ctx))
 		}
@@ -46,14 +85,18 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			returnErr = devBuildOperationError{operationID: operationID, err: returnErr}
 		}
 	}()
-	editClass, _ := ctx.Value(devEditClassKey{}).(string)
 	if editClass == "" {
 		editClass = "unknown"
 		if initial {
 			editClass = "initial"
 		}
 	}
-	ctx = build.WithTraceOperation(ctx, operationID, func(step build.Step) { s.emitBuildStepWithEditClass(step, editClass) })
+	ctx = build.WithTraceOperation(ctx, operationID, func(step build.Step) {
+		if step.Name == "process.link" {
+			timing.LinkMS += workerMilliseconds(step.Duration)
+		}
+		s.emitBuildStepWithEditClass(step, editClass)
+	})
 	ctx = context.WithValue(ctx, devBuildObservationKey{}, devtelemetry.Observation{OperationID: operationID, ObservedAt: captured.capturedAt, Initial: initial})
 	requestStarted := time.Now()
 	recordDevScheduling(ctx, clearInheritedBackgroundPolicy)
@@ -164,6 +207,20 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		return err
 	}}
 	activation := lifecycle.Node{ID: "runtime.activate", Kind: "runtime_activation", Cache: lifecycle.ExternalEffect, Effects: []lifecycle.Capability{lifecycle.ReadSource, lifecycle.MutateDatabase, lifecycle.ControlRuntime}, Dependencies: []lifecycle.ID{"runtime.verify"}, Inputs: []lifecycle.Reference{{Name: "verified", Kind: "runtime_candidate", Producer: "runtime.verify"}}, Action: func(ctx context.Context) error {
+		readyStarted = time.Now()
+		timing.CompileMS = workerMilliseconds(readyStarted.Sub(started))
+		for _, service := range plan.Processes.Services {
+			module, _, _ := strings.Cut(service.Service, "/service/")
+			if slices.Contains(plan.Processes.Rebuilt, service.Name) {
+				timing.RebuiltModules = append(timing.RebuiltModules, module)
+			} else {
+				timing.SkippedModules = append(timing.SkippedModules, module)
+			}
+		}
+		slices.Sort(timing.RebuiltModules)
+		timing.RebuiltModules = slices.Compact(timing.RebuiltModules)
+		slices.Sort(timing.SkippedModules)
+		timing.SkippedModules = slices.Compact(timing.SkippedModules)
 		started := time.Now()
 		var err error
 		current, reload, err = s.activateDevProcesses(ctx, plan, earlyAssistants)

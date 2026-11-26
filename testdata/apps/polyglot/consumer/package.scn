@@ -1,0 +1,118 @@
+package "consumer" {
+  go_contract { import_path = "example.test/polyglot/consumer" }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+input "typescript" { type = resource_ref("binding") }
+input "quote" { type = resource_ref("binding") }
+input "session" { type = resource_ref("authentication") }
+
+service "consumer" {
+  runtime = "go"
+  implementation { constructor = "NewService" }
+  client "quote" { binding = var.quote }
+  client "typescript" { binding = var.typescript }
+}
+
+record "delegate_input" {
+  field "amount" { type = int64 }
+  field "typescript" { type = optional(bool) }
+}
+
+record "delegate_result" {
+  field "amount" { type = int64 }
+  field "vendor" { type = string }
+  field "principal" { type = optional(string) }
+  field "tenant" { type = optional(string) }
+  field "trace_id" { type = optional(string) }
+  field "deadline" { type = optional(string) }
+  field "currency" { type = optional(string) }
+}
+
+operation "delegate" {
+  service = service.consumer
+  input   = record.delegate_input
+  handler { method = "Delegate" }
+  result "ok" { type = record.delegate_result }
+  error "negative_amount" { type = std.type.problem }
+}
+
+execution "delegate_direct" {
+  operation = operation.delegate
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "delegate_http" {
+  gateway        = var.gateway
+  operation      = operation.delegate
+  execution      = execution.delegate_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/delegate"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.delegate.input
+    }
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+binding "delegate_session_http" {
+  gateway        = var.gateway
+  operation      = operation.delegate
+  execution      = execution.delegate_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/delegate/session"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.delegate.input
+    }
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+export "delegate" { value = operation.delegate }

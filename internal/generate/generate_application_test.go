@@ -1,6 +1,9 @@
 package generate
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -134,7 +137,7 @@ func TestGenerateApplicationAdapterRegistersExecutablePageContract(t *testing.T)
 	}
 }
 
-func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
+func TestGenerateGoInternalClientProjectsCrossPackageContract(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	for index := range result.Manifest.Resources {
 		if result.Manifest.Resources[index].Kind == "scenery.module" && result.Manifest.Resources[index].Name == "house" {
@@ -148,7 +151,7 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 		Resource{Address: "app/module/audit", Kind: "scenery.module", Name: "audit", Module: "app", Spec: map[string]any{"source": "./audit", "package": map[string]any{"go_contract": map[string]any{"import_path": "clean.tech/audit"}}}, Origin: Origin{Kind: "authored"}},
 		Resource{Address: "audit/service/audit", Kind: "scenery.service", Name: "audit", Module: "audit", Spec: map[string]any{"runtime": "go"}, Origin: Origin{Kind: "authored"}},
 		Resource{Address: "audit/record/write_input", Kind: "scenery.record", Name: "write_input", Module: "audit", Spec: map[string]any{"field": map[string]any{"name": "message", "type": map[string]any{"$ref": "string"}}}, Origin: Origin{Kind: "authored"}},
-		Resource{Address: "audit/operation/write", Kind: "scenery.operation", Name: "write", Module: "audit", Spec: map[string]any{"service": map[string]any{"$ref": "service.audit"}, "input": map[string]any{"$ref": "record.write_input"}, "handler": map[string]any{"method": "Write"}, "result": map[string]any{"name": "written", "type": map[string]any{"$ref": "bool"}}}, Origin: Origin{Kind: "authored"}},
+		Resource{Address: "audit/operation/write", Kind: "scenery.operation", Name: "write", Module: "audit", Spec: map[string]any{"service": map[string]any{"$ref": "service.audit"}, "input": map[string]any{"$ref": "audit/record/write_input"}, "handler": map[string]any{"method": "Write"}, "result": map[string]any{"name": "written", "type": map[string]any{"$ref": "bool"}}}, Origin: Origin{Kind: "authored"}},
 		Resource{Address: "audit/binding/write_internal", Kind: "scenery.binding", Name: "write_internal", Module: "audit", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.write"}, "protocol": "internal", "delivery": "call", "exposure": "application", "authentication": map[string]any{"$ref": "std.authentication.inherit"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}, "internal": map[string]any{"visibility": "application", "principal": "inherit"}}, Origin: Origin{Kind: "authored"}},
 	)
 	houseModule := resourceByKind(result.Manifest.Resources, "scenery.module")
@@ -157,17 +160,20 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	contractSource := generatedSourceWithSuffix(contractFiles, "/contract.gen.go")
-	for _, fragment := range []string{`auditcontract "clean.tech/audit/scenerycontract"`, `Invoke(context.Context, scenery.Invocation, auditcontract.WriteInput) (auditcontract.WriteOutcome, error)`} {
+	for _, fragment := range []string{`Invoke(context.Context, scenery.Invocation, AuditClientInput) (AuditClientOutcome, error)`, `type AuditClientInput = AuditClientWriteInput`, `type AuditClientWritten struct`} {
 		if !strings.Contains(contractSource, fragment) {
 			t.Fatalf("cross-package contract missing %q:\n%s", fragment, contractSource)
 		}
+	}
+	if strings.Contains(contractSource, "clean.tech/audit/scenerycontract") {
+		t.Fatalf("caller contract imports callee code:\n%s", contractSource)
 	}
 	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
 	adapter := generatedSourceWithSuffix(applicationFiles, "/house_house_adapter/adapter.gen.go")
-	for _, fragment := range []string{`auditcontract "clean.tech/audit/scenerycontract"`, `input auditcontract.WriteInput`, `auditcontract.CloneWriteInput`, `value.(auditcontract.WriteOutcome)`, `InvokeContractBindingCodec(ctx, "audit/binding/write_internal", "house"`, `return auditcontract.UnmarshalWriteOutcome(data)`} {
+	for _, fragment := range []string{`input contract.AuditClientInput`, `InvokeContractBindingWire(ctx, "audit/binding/write_internal", "house"`, `outcome, err := contract.UnmarshalAuditClientOutcome(output)`} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("cross-package adapter missing %q:\n%s", fragment, adapter)
 		}
@@ -245,6 +251,7 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 		`options.ConcurrencyKey = concurrencyKey`,
 		`DispatchContractDurableExecutionWithOptions(ctx, "house/execution/process_scene_durable", copied, options)`,
 		`DispatchAndWaitContractDurableExecutionWithOptions(ctx, "house/execution/process_scene_durable", copied, options)`,
+		`return nil, sceneryruntime.ClassifyContractDurableWaitError(err, 0, 0)`,
 		`contract.UnmarshalProcessSceneOutcome(data)`,
 		`case scenery.ExecutionReceipt:`,
 		`sceneryruntime.EncodeContractRepresentationWithOptions(request, 202, typed, "json", []string{"application/json"}, sceneryruntime.ContractResponseOptions`,
@@ -252,6 +259,45 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 	} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("durable adapter missing %q:\n%s", fragment, adapter)
+		}
+	}
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, "adapter.gen.go", adapter, 0)
+	if err != nil {
+		t.Fatalf("parse adapter.gen.go: %v\n%s", err, adapter)
+	}
+	var checkBody func(body *ast.BlockStmt, wantResults int)
+	checkBody = func(body *ast.BlockStmt, wantResults int) {
+		if body == nil || wantResults <= 1 {
+			return
+		}
+		ast.Inspect(body, func(node ast.Node) bool {
+			if nested, ok := node.(*ast.FuncLit); ok {
+				nestedResults := 0
+				if nested.Type != nil && nested.Type.Results != nil {
+					nestedResults = nested.Type.Results.NumFields()
+				}
+				checkBody(nested.Body, nestedResults)
+				return false
+			}
+			ret, ok := node.(*ast.ReturnStmt)
+			if !ok || len(ret.Results) == 0 || len(ret.Results) == wantResults {
+				return true
+			}
+			if _, isCall := ret.Results[0].(*ast.CallExpr); len(ret.Results) == 1 && isCall {
+				return true
+			}
+			t.Fatalf("adapter.gen.go line %d returns %d values inside %d-result function", fset.Position(ret.Pos()).Line, len(ret.Results), wantResults)
+			return false
+		})
+	}
+	for _, decl := range parsed.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Type != nil {
+			results := 0
+			if fn.Type.Results != nil {
+				results = fn.Type.Results.NumFields()
+			}
+			checkBody(fn.Body, results)
 		}
 	}
 }

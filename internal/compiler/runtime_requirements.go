@@ -2,6 +2,25 @@ package compiler
 
 import "sort"
 
+// UsesWorkerBundle selects the manifest-driven runtime for every service in a
+// polyglot application.
+func UsesWorkerBundle(resources []Resource) bool {
+	for _, resource := range resources {
+		if resource.Kind == "scenery.service" && IsExternalWorkerRuntime(stringValue(resource.Spec["runtime"])) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsJSRuntime(runtime string) bool {
+	return runtime == "ts" || runtime == "js"
+}
+
+func IsExternalWorkerRuntime(runtime string) bool {
+	return runtime == "rust" || IsJSRuntime(runtime)
+}
+
 // RuntimeServices is the existing native registration selection. A declaration
 // without an implemented operation is not an eagerly required runtime service.
 func RuntimeServices(resources []Resource) []Resource {

@@ -16,6 +16,7 @@ import (
 type entrypointRegistration struct {
 	Import            string
 	RequiredAddresses string
+	WorkerService     string
 }
 
 func generateMain(appName string, cfg appcfg.Config, compositionImport string, sql compiler.SQLRequirements) ([]byte, error) {
@@ -30,7 +31,11 @@ func generateMain(appName string, cfg appcfg.Config, compositionImport string, s
 // SQL, auth and runtime startup as the application entrypoint, registering only
 // that service's adapter and requiring exactly the resources it covers.
 func generateServiceMain(appName string, cfg appcfg.Config, service generateapi.ServiceProcessPlan, sql compiler.SQLRequirements) ([]byte, error) {
-	return renderEntrypoint(appName, cfg, entrypointRegistration{Import: service.AdapterImport, RequiredAddresses: fmt.Sprintf("%#v", service.RequiredAddresses)}, sql)
+	registration := entrypointRegistration{Import: service.AdapterImport, RequiredAddresses: fmt.Sprintf("%#v", service.RequiredAddresses)}
+	if service.WorkerABI {
+		registration.WorkerService = service.Address
+	}
+	return renderEntrypoint(appName, cfg, registration, sql)
 }
 
 // generateHostMain renders the process host entrypoint. It links no adapter, so
@@ -126,7 +131,11 @@ func renderEntrypoint(appName string, cfg appcfg.Config, registration entrypoint
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"os\"\n")
 	if cfg.Auth.Enabled {
-		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
+		if registration.WorkerService != "" {
+			buf.WriteString("\t_ \"scenery.sh/auth\"\n")
+		} else {
+			buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
+		}
 	}
 	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
 	if registration.Import != "" {
@@ -140,7 +149,9 @@ func renderEntrypoint(appName string, cfg appcfg.Config, registration entrypoint
 		buf.WriteString("\t\tif err := sceneryruntime.WriteRuntimePreflight(proof, scenerycomposition.ContractRevision); err != nil {\n\t\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n")
 	}
 	renderSQLBindings(&buf, sql)
-	renderAuthRegistration(&buf, cfg)
+	if registration.WorkerService == "" {
+		renderAuthRegistration(&buf, cfg)
+	}
 	if registration.Import != "" {
 		buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 		fmt.Fprintf(&buf, "\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevisions: scenerycomposition.ContractRevisions, RequiredAddresses: %s, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n", registration.RequiredAddresses)
@@ -148,7 +159,11 @@ func renderEntrypoint(appName string, cfg appcfg.Config, registration entrypoint
 		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
 		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 	}
-	fmt.Fprintf(&buf, "\tif err := sceneryruntime.Main(%s); err != nil {\n", appConfigLiteral(appName, cfg))
+	if registration.WorkerService != "" {
+		fmt.Fprintf(&buf, "\tif err := sceneryruntime.MainGoWorker(%s, %q); err != nil {\n", appConfigLiteral(appName, cfg), registration.WorkerService)
+	} else {
+		fmt.Fprintf(&buf, "\tif err := sceneryruntime.Main(%s); err != nil {\n", appConfigLiteral(appName, cfg))
+	}
 	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")
 	buf.WriteString("\t\tos.Exit(1)\n")
 	buf.WriteString("\t}\n")

@@ -71,11 +71,8 @@ func TestSourceWaitEndsOnFailureBlockSupersessionAndTimeout(t *testing.T) {
 		t.Fatalf("pending build = %+v, %v", timedOut, err)
 	}
 
-	go func() {
-		time.Sleep(2 * testSourceWaitPoll)
-		writeWatchFile(t, root, "service.go", "package app\nvar Later = true\n")
-	}()
-	superseded, err := s.waitForSourceSnapshot(context.Background(), 5*time.Second)
+	writeWatchFile(t, root, "service.go", "package app\nvar Later = true\n")
+	superseded, err := s.waitForCapturedSource(t.Context(), time.Now(), testSourceWaitPoll, broken, runtimeSourceWait{})
 	if err != nil || superseded.Outcome != "superseded" || superseded.CurrentSourceSnapshotDigest == "" || superseded.CurrentSourceSnapshotDigest == superseded.TargetSourceSnapshotDigest {
 		t.Fatalf("superseding edit = %+v, %v", superseded, err)
 	}

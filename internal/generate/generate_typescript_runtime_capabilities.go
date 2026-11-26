@@ -42,7 +42,10 @@ func tsRuntimeCapabilitiesFor(target Resource, bindings, resources []Resource) t
 }
 
 func renderTSRuntime(capabilities tsRuntimeCapabilities) string {
-	source := renderTSRuntimePublic() + renderTSRuntimeInternals() + renderTSRuntimeInvoke()
+	return renderTSRuntimeSections(renderTSRuntimePublic()+renderTSRuntimeInternals()+renderTSRuntimeInvoke(), capabilities)
+}
+
+func renderTSRuntimeSections(source string, capabilities tsRuntimeCapabilities) string {
 	features := []struct {
 		name string
 		keep bool

@@ -39,8 +39,10 @@ type DurableExecutionFailure struct {
 }
 
 type durableRegisteredHandler struct {
-	handler func(context.Context, []byte) ([]byte, error)
-	timeout time.Duration
+	workerRuntime string
+	workerModule  string
+	handler       func(context.Context, []byte) ([]byte, error)
+	timeout       time.Duration
 	// slots is how many attempts of the task one worker process runs at
 	// once: the declared concurrency limit, or one.
 	slots int
@@ -107,7 +109,7 @@ func openDurableRuntime(ctx context.Context, cfg AppConfig) (*durableRuntime, er
 		if handlers[service] == nil {
 			handlers[service] = make(map[string]durableRegisteredHandler)
 		}
-		handlers[service][task.Name] = durableRegisteredHandler{handler: task.Handler, timeout: task.DefaultTimeout, slots: durableTaskSlots(task.MaxConcurrency)}
+		handlers[service][task.Name] = durableRegisteredHandler{workerRuntime: task.workerRuntime, workerModule: task.workerModule, handler: task.Handler, timeout: task.DefaultTimeout, slots: durableTaskSlots(task.MaxConcurrency)}
 	}
 	databaseURL, err := durableDatabaseURL()
 	if err != nil {
@@ -390,7 +392,7 @@ func durableInvocationMetadataFromJSON(value string) *durableInvocationMetadata 
 
 // enterDurableInvocation enters one task attempt; generation pins its internal
 // calls to the application generation the attempt was admitted to.
-func enterDurableInvocation(ctx context.Context, service, taskName, executionID string, timeout time.Duration, metadata *durableInvocationMetadata, generation uint64) (context.Context, func(error)) {
+func enterDurableInvocation(ctx context.Context, service, taskName, executionID string, timeout time.Duration, metadata *durableInvocationMetadata, generation uint64, module, runtime string, attempt int) (context.Context, func(error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -402,7 +404,7 @@ func enterDurableInvocation(ctx context.Context, service, taskName, executionID 
 			ExecutionID: executionID, Service: service, Endpoint: taskName, Method: "DURABLE",
 			Path: taskName, Headers: make(map[string][]string),
 		},
-		logsEnabled: true, traceEnabled: true, processGeneration: generation,
+		logsEnabled: true, traceEnabled: true, processGeneration: generation, workerModule: module, workerRuntime: runtime,
 	}
 	if timeout > 0 {
 		state.request.Deadline = started.Add(timeout)
@@ -413,7 +415,7 @@ func enterDurableInvocation(ctx context.Context, service, taskName, executionID 
 		state.request.Deployment, state.request.Locale = metadata.Deployment, metadata.Locale
 		state.request.Headers.Set("traceparent", metadata.TraceParent)
 	}
-	ctx, end := beginOperationTrace(withState(ctx, state), "DURABLE", service, taskName, map[string]any{"execution_id": executionID})
+	ctx, end := beginOperationTrace(withState(ctx, state), "DURABLE", service, taskName, map[string]any{"execution_id": executionID, "attempt": attempt})
 	state = stateFromContext(ctx)
 	ctx = withNewRuntimeInvocation(ctx, state)
 	restore := enterState(state)
@@ -513,11 +515,15 @@ func runDurableLocalAttempt(ctx context.Context, db *store.Store, workerID, leas
 	// as an attempt the process could not run, under the task's retry policy.
 	admitted, generation, release, err := admitProcessGeneration(ctx)
 	if err != nil {
+		_, finish := enterDurableInvocation(ctx, db.Service, job.TaskName, job.ID, 0,
+			durableInvocationMetadataFromJSON(job.MemoJSON), 0, handler.workerModule, handler.workerRuntime, job.Attempt)
+		finish(err)
 		_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("durable task attempt was not admitted to an application generation"))
 		sleepDurableWorker(ctx)
 		return
 	}
-	jobCtx, restore := enterDurableInvocation(admitted, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
+	jobCtx, restore := enterDurableInvocation(admitted, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation, handler.workerModule, handler.workerRuntime, job.Attempt)
+	logTrace(jobCtx, "starting durable attempt", "job_id", job.ID, "attempt", job.Attempt)
 	stopHeartbeat := startDurableHeartbeat(jobCtx, time.Duration(job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
 		return db.HeartbeatJob(heartbeatCtx, job.ID, workerID, leaseID)
 	})

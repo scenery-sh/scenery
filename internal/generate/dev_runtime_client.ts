@@ -112,6 +112,8 @@ export interface DevRuntimeStatus {
 	readonly session_status_reason?: string;
 	readonly compiling: boolean;
 	readonly compile_error?: string;
+	readonly build_failure?: DevRuntimeBuildFailure;
+	readonly rebuild_timing?: DevRuntimeRebuildTiming;
 	readonly pid?: string;
 	/** Identity of the last published source, with the current serving generation. */
 	readonly serving?: DevRuntimeServingIdentity;
@@ -156,9 +158,29 @@ export interface DevRuntimeSourceWait {
 	readonly source_freshness: string;
 	/** Present for `failed`. */
 	readonly compile_error?: string;
+	readonly build_failure?: DevRuntimeBuildFailure;
+	readonly rebuild_timing?: DevRuntimeRebuildTiming;
 	/** Present for `blocked`. */
 	readonly build_block?: DevRuntimeBuildBlock;
 	readonly waited_ms: number;
+}
+
+export interface DevRuntimeBuildFailure {
+	readonly module?: string;
+	readonly file?: string;
+	readonly line?: number;
+	readonly column?: number;
+	readonly stderr: string;
+}
+
+export interface DevRuntimeRebuildTiming {
+	readonly generation: number;
+	readonly rebuilt_modules: readonly string[];
+	readonly skipped_modules: readonly string[];
+	readonly detect_ms: number;
+	readonly compile_ms: number;
+	readonly ready_ms: number;
+	readonly total_ms: number;
 }
 
 export interface DevRuntimeBuildBlock {

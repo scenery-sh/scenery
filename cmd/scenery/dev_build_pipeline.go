@@ -154,7 +154,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	frameworkStarted := time.Now()
 	// The build binds the framework source this verification reads.
 	frameworkErr := s.console.Phase("Verifying framework source and producer", func() error {
-		verified, err := build.VerifyFrameworkSessionForBuild(ctx, s.root)
+		verified, err := build.VerifyFrameworkSessionForBuild(ctx, s.root, runningFrameworkVersion())
 		ctx = verified
 		return err
 	})

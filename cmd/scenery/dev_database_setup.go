@@ -125,54 +125,22 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	env = append(env, environment.storage...)
 	connections := newDBSetupConnections()
 	defer func() { returnErr = errors.Join(returnErr, connections.Close()) }()
-	for _, plan := range setup.Seeds {
-		dsn, err := resolveDatabaseURLForServiceFromEnv(contract.SQLRequirements, env, plan.Service)
-		if err != nil {
-			return err
-		}
-		connections.retained[dsn] = true
-	}
 	source := devdash.DevSource{ID: "database-setup", Kind: "setup", Name: "database setup", Role: "database", Status: "running"}
 	s.eventSink().Emit(ctx, source, "info", "database setup started", map[string]any{
 		"seed_count": len(setup.Seeds),
 	})
-	if len(setup.Migrations) > 0 {
+	seedResult, err := declaredDatabaseSetup{
+		root: s.root, cfg: s.cfg, contract: contract, env: env, console: s.console,
 		// A live generation may still write against its old schema. Migration
 		// status is safe here; actual evolution requires an explicit stopped
 		// owner, and therefore cannot undermine failed-start rollback.
-		statusOnly := s.currentPID() != ""
-		results, err := runDBMigrationPlansWithDatabase(ctx, s.cfg.AppID(), contract.SQLRequirements, setup.Migrations, env, postgresdb.SchemaMigrationOptions{StatusOnly: statusOnly}, connections)
-		if err != nil {
-			return err
-		}
-		for _, result := range results {
-			if result.Status != "current" {
-				return &pendingMigrationError{Service: result.Service}
-			}
-		}
-	}
-	if strings.TrimSpace(s.cfg.Database.Apply.Command) != "" {
-		applyStdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
-		applyStderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
-		applyErr := runDatabaseApplyCommandWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
-		applyStdout.Close()
-		applyStderr.Close()
-		if applyErr != nil {
+		statusOnly: s.currentPID() != "",
+		failed: func(message string, err error) {
 			source.Status = "error"
-			s.eventSink().Emit(ctx, source, "error", "database apply failed", map[string]any{
-				"error": applyErr.Error(),
-			})
-			return applyErr
-		}
-	}
-	hooks := defaultDBSeedHooks()
-	hooks.openStore = connections.SeedStore
-	seedResult, err := buildDBSeedResultWithContractEnvHooks(ctx, s.root, s.cfg, contract, dbSeedOptions{}, env, false, hooks)
+			s.eventSink().Emit(ctx, source, "error", message, map[string]any{"error": err.Error()})
+		},
+	}.apply(ctx, setup, connections)
 	if err != nil {
-		source.Status = "error"
-		s.eventSink().Emit(ctx, source, "error", "database seed failed", map[string]any{
-			"error": err.Error(),
-		})
 		return err
 	}
 	source.Status = "ready"
@@ -184,6 +152,84 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	})
 	s.dbSetupFingerprint = setup.Fingerprint
 	return nil
+}
+
+// declaredDatabaseSetup is one run of the database setup an application
+// declares: schema migrations, then database.apply, then seeds, all against
+// the endpoints in env. The development supervisor and the worker Host run it
+// before the runtime that depends on those tables and seed data starts.
+type declaredDatabaseSetup struct {
+	root     string
+	cfg      app.Config
+	contract *compiler.Result
+	env      []string
+	console  *runConsole
+	// statusOnly reports a pending migration instead of applying it.
+	statusOnly bool
+	// failed observes an apply or seed failure before the setup returns it.
+	failed func(message string, err error)
+	// lifecycle and seed replace process and database access in tests.
+	lifecycle lifecycleHooks
+	seed      dbSeedHooks
+}
+
+func (run declaredDatabaseSetup) apply(ctx context.Context, setup devDatabaseSetup, connections *dbSetupConnections) (dbSeedResult, error) {
+	requirements := run.contract.SQLRequirements
+	for _, plan := range setup.Seeds {
+		dsn, err := resolveDatabaseURLForServiceFromEnv(requirements, run.env, plan.Service)
+		if err != nil {
+			return dbSeedResult{}, err
+		}
+		connections.retained[dsn] = true
+	}
+	if len(setup.Migrations) > 0 {
+		results, err := runDBMigrationPlansWithDatabase(ctx, run.cfg.AppID(), requirements, setup.Migrations, run.env, postgresdb.SchemaMigrationOptions{StatusOnly: run.statusOnly}, connections)
+		if err != nil {
+			return dbSeedResult{}, err
+		}
+		for _, result := range results {
+			if result.Status != "current" {
+				return dbSeedResult{}, &pendingMigrationError{Service: result.Service}
+			}
+		}
+	}
+	failed := run.failed
+	if failed == nil {
+		failed = func(string, error) {}
+	}
+	if strings.TrimSpace(run.cfg.Database.Apply.Command) != "" {
+		applyStdout := newSetupOutputWriter(run.console, "stdout", os.Stdout)
+		applyStderr := newSetupOutputWriter(run.console, "stderr", os.Stderr)
+		applyErr := runDatabaseApplyCommandWithEnvIOHooks(ctx, run.root, run.cfg.Database.Apply, run.env, applyStdout, applyStderr, run.lifecycle)
+		applyStdout.Close()
+		applyStderr.Close()
+		if applyErr != nil {
+			failed("database apply failed", applyErr)
+			return dbSeedResult{}, applyErr
+		}
+	}
+	hooks := run.seed
+	if hooks.openStore == nil {
+		hooks.openStore = connections.SeedStore
+	}
+	seedResult, err := buildDBSeedResultWithContractEnvHooks(ctx, run.root, run.cfg, run.contract, dbSeedOptions{}, run.env, false, hooks)
+	if err != nil {
+		failed("database seed failed", err)
+	}
+	return seedResult, err
+}
+
+// run discovers the declared setup and applies it over connections that live
+// only for this invocation.
+func (run declaredDatabaseSetup) run(ctx context.Context) (returnErr error) {
+	setup, hasWork, err := buildDevDatabaseSetup(run.root, run.cfg, run.contract)
+	if err != nil || !hasWork {
+		return err
+	}
+	connections := newDBSetupConnections()
+	defer func() { returnErr = errors.Join(returnErr, connections.Close()) }()
+	_, err = run.apply(ctx, setup, connections)
+	return err
 }
 
 func managedDatabaseSetupEnv(requirements compiler.SQLRequirements, managedEnv []string) []string {

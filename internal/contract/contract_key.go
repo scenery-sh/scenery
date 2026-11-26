@@ -1,12 +1,38 @@
 package contract
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 )
+
+// EncodeWireKeyComponent uses a normalized wire value and the same presence
+// and type markers as the native typed key encoder.
+func EncodeWireKeyComponent(raw []byte, typeExpression string) ([]byte, error) {
+	t, err := parseContractWireType(typeExpression)
+	if err != nil {
+		return nil, err
+	}
+	state := "value"
+	if len(raw) == 0 {
+		if t.name != "optional" {
+			return nil, fmt.Errorf("required key component is absent")
+		}
+		state = "absent"
+	} else if t.name == "nullable" && bytes.Equal(raw, []byte("null")) {
+		state = "null"
+	}
+	stateJSON, _ := json.Marshal(state)
+	typeJSON, _ := json.Marshal(typeExpression)
+	members := map[string][]byte{"state": stateJSON, "type": typeJSON}
+	if state == "value" {
+		members["value"] = raw
+	}
+	return joinContractJSONObject(members)
+}
 
 // EncodeContractKeyComponent preserves the schema type and presence state of
 // one idempotency or concurrency-key component.

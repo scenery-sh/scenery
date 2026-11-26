@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -9,6 +10,7 @@ import (
 // and reuses across module, service, and type-normalization loops instead of
 // rescanning every resource per call.
 type resourceIndex struct {
+	all                    []Resource
 	byAddress              map[string]Resource
 	contractImportByModule map[string]string
 	resourcesByModule      map[string][]Resource
@@ -17,6 +19,7 @@ type resourceIndex struct {
 
 func newResourceIndex(resources []Resource) *resourceIndex {
 	idx := &resourceIndex{
+		all:                    slices.Clone(resources),
 		byAddress:              make(map[string]Resource, len(resources)),
 		contractImportByModule: map[string]string{},
 		resourcesByModule:      map[string][]Resource{},

@@ -284,6 +284,7 @@ func (s *Service) createAuthSessionResponse(ctx context.Context, q authdb.Querie
 }
 
 func refreshCookie(value string, expiresAt time.Time) string {
+	current := currentStandardSecrets()
 	cookie := (&http.Cookie{
 		Name:     refreshCookieName(),
 		Value:    strings.TrimSpace(value),
@@ -291,16 +292,17 @@ func refreshCookie(value string, expiresAt time.Time) string {
 		Expires:  expiresAt,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 		HttpOnly: true,
-		Secure:   refreshCookieSecure(isLocalRuntime(), requestHeaders(), secrets.APIBaseURL),
+		Secure:   refreshCookieSecure(isLocalRuntime(), requestHeaders(), current.APIBaseURL),
 		SameSite: http.SameSiteLaxMode,
 	}).String()
-	if domain := strings.TrimSpace(secrets.AuthCookieDomain); domain != "" {
+	if domain := strings.TrimSpace(current.AuthCookieDomain); domain != "" {
 		cookie += "; Domain=" + domain
 	}
 	return cookie
 }
 
 func clearRefreshCookie() string {
+	current := currentStandardSecrets()
 	cookie := (&http.Cookie{
 		Name:     refreshCookieName(),
 		Value:    "",
@@ -308,10 +310,10 @@ func clearRefreshCookie() string {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   refreshCookieSecure(isLocalRuntime(), requestHeaders(), secrets.APIBaseURL),
+		Secure:   refreshCookieSecure(isLocalRuntime(), requestHeaders(), current.APIBaseURL),
 		SameSite: http.SameSiteLaxMode,
 	}).String()
-	if domain := strings.TrimSpace(secrets.AuthCookieDomain); domain != "" {
+	if domain := strings.TrimSpace(current.AuthCookieDomain); domain != "" {
 		cookie += "; Domain=" + domain
 	}
 	return cookie

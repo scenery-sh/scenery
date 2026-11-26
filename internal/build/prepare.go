@@ -20,19 +20,31 @@ import (
 // miss from recompiling the same graph while retaining the ordinary public
 // generation transaction and target checks.
 func PrepareForCompileWithContractSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result) (*Result, error) {
+	return PrepareForTargetWithContractSnapshotContext(ctx, appRoot, cfg, snapshot, contract, "", "development")
+}
+
+// PrepareForTargetWithContractSnapshotContext is that preparation for the
+// named go_target, or for the target with role defaultRole when targetName is
+// empty. A worker bundle links its Go services from the target its build
+// selected, so a production bundle carries the declared artifact build.
+func PrepareForTargetWithContractSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, targetName, defaultRole string) (*Result, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return nil, err
 	}
 	if err := preparedContractError(contract); err != nil {
 		return nil, err
 	}
-	projection, err := observeBuild(ctx, "projection.go", func() (generateapi.GoWorkspaceProjection, error) {
-		return generateHooks.PrepareBuildGoWorkspace(ctx, contract)
-	})
+	// An unavailable target fails before anything is generated for it.
+	target, err := compiler.ResolveGoBuildTarget(contract, targetName, defaultRole)
 	if err != nil {
 		return nil, err
 	}
-	target, err := compiler.ResolveGoBuildTarget(contract, "", "development")
+	if target.Role == "contract" {
+		return nil, fmt.Errorf("go contract target %s does not produce a runtime binary", target.Name)
+	}
+	projection, err := observeBuild(ctx, "projection.go", func() (generateapi.GoWorkspaceProjection, error) {
+		return generateHooks.PrepareBuildGoWorkspace(ctx, contract)
+	})
 	if err != nil {
 		return nil, err
 	}

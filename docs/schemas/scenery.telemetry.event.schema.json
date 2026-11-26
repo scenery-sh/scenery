@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.telemetry.event.schema.json",
+  "type": "object",
+  "required": ["at", "kind", "generation"],
+  "additionalProperties": false,
+  "properties": {
+    "at": {"type": "string", "format": "date-time"},
+    "kind": {"enum": ["rebuild", "worker_fault"]},
+    "generation": {"type": "integer", "minimum": 1},
+    "app": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "rebuild": {
+      "type": "object",
+      "required": ["detect_ms", "compile_ms", "link_ms", "ready_ms", "rebuilt_modules", "skipped_modules", "trigger_kind", "ok"],
+      "additionalProperties": false,
+      "properties": {
+        "edit_to_ready_ms": {"type": "number", "minimum": 0},
+        "detect_ms": {"type": "number", "minimum": 0},
+        "compile_ms": {"type": "number", "minimum": 0},
+        "link_ms": {"type": "number", "minimum": 0},
+        "ready_ms": {"type": "number", "minimum": 0},
+        "rebuilt_modules": {"type": "array", "items": {"type": "string"}},
+        "skipped_modules": {"type": "array", "items": {"type": "string"}},
+        "trigger_kind": {"enum": ["body_only", "contract_or_config"]},
+        "ok": {"type": "boolean"},
+        "error_code": {"type": "string"}
+      }
+    },
+    "worker_fault": {
+      "type": "object",
+      "required": ["module", "runtime", "exit_code"],
+      "additionalProperties": false,
+      "properties": {
+        "module": {"type": "string", "minLength": 1},
+        "runtime": {"enum": ["go", "rust", "ts", "js"]},
+        "exit_code": {"type": "integer"},
+        "signal": {"type": "string"}
+      }
+    }
+  },
+  "oneOf": [
+    {"properties": {"kind": {"const": "rebuild"}}, "required": ["rebuild"], "not": {"required": ["worker_fault"]}},
+    {"properties": {"kind": {"const": "worker_fault"}}, "required": ["worker_fault"], "not": {"required": ["rebuild"]}}
+  ]
+}

@@ -7,16 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/graph"
 	inspectdata "scenery.sh/internal/inspect"
-	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/storagefs"
 )
 
@@ -56,58 +53,6 @@ type inspectBuildRecord struct {
 	APIEncodingPresent    bool   `json:"api_encoding_present"`
 	SourceFileCount       int    `json:"source_file_count"`
 	GeneratedFileCount    int    `json:"generated_file_count"`
-}
-
-type inspectPathsResponse struct {
-	cliPayloadIdentity
-	App   inspectdata.AppRef `json:"app"`
-	Paths inspectPathsRecord `json:"paths"`
-}
-
-type inspectPathsRecord struct {
-	AppRoot        string `json:"app_root"`
-	ConfigPath     string `json:"config_path"`
-	CacheRoot      string `json:"cache_root"`
-	BuildRoot      string `json:"build_root"`
-	WorkspaceDir   string `json:"workspace_dir"`
-	BinaryPath     string `json:"binary_path"`
-	BuildStatePath string `json:"build_state_path"`
-}
-
-type inspectDurableResponse struct {
-	cliPayloadIdentity
-	App          inspectdata.AppRef     `json:"app"`
-	Durable      inspectDurableRecord   `json:"durable"`
-	Declarations []durableDeclaration   `json:"declarations"`
-	Services     []durableServiceRecord `json:"services"`
-}
-
-type inspectDurableRecord struct {
-	Database     inspectDurableDatabase `json:"database"`
-	Schema       string                 `json:"schema"`
-	TaskCount    int                    `json:"task_count"`
-	ServiceCount int                    `json:"service_count"`
-}
-
-type inspectDurableDatabase struct {
-	Name string `json:"name,omitempty"`
-	URL  string `json:"url,omitempty"`
-}
-
-type durableDeclaration struct {
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Service string `json:"service"`
-	Schema  string `json:"schema"`
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	Input   string `json:"input,omitempty"`
-	Output  string `json:"output,omitempty"`
-}
-
-type durableServiceRecord struct {
-	Name   string `json:"name"`
-	Schema string `json:"schema"`
 }
 
 type inspectStorageResponse struct {
@@ -187,31 +132,16 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return err
 	}
-	var merged *compiler.Result
-	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" || opts.Subject == "generators" {
-		compiled, compileErr := compileSourcePlan(context.Background(), appRoot)
-		if compileErr != nil {
-			return compileErr
-		}
-		if !compiled.Valid() {
-			return writeInspectCompileFailure(stdout, compiled)
-		}
-		merged = compiled
-	}
-
 	switch opts.Subject {
-	case "app":
-		return writeSourceResult(stdout, "json", false, merged, buildInspectAppResponse(appRoot, cfg, merged))
-	case "services":
-		return writeSourceResult(stdout, "json", false, merged, buildInspectServicesResponse(appRoot, cfg, merged))
 	case "routes":
-		response, err := buildInspectRoutesResponse(appRoot, cfg, merged)
+		merged, err := compileSourcePlan(context.Background(), appRoot)
 		if err != nil {
 			return err
 		}
-		return writeSourceResult(stdout, "json", false, merged, response)
-	case "endpoints":
-		response, err := buildInspectEndpointsResponse(appRoot, cfg, merged)
+		if !merged.Valid() {
+			return writeInspectCompileFailure(stdout, merged)
+		}
+		response, err := buildInspectRoutesResponse(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}
@@ -237,20 +167,6 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 			resp.VerificationModuleDigest = build.RuntimeVerificationModuleDigest()
 		}
 		return writeInspectJSON(stdout, resp)
-	case "paths":
-		resp, err := buildInspectPathsResponse(appRoot, cfg)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, resp)
-	case "generators":
-		resp, err := buildInspectGeneratorsResponseWithContract(appRoot, cfg, merged)
-		if err != nil {
-			return err
-		}
-		return writeSourceResult(stdout, "json", false, merged, resp)
-	case "durable":
-		return writeSourceResult(stdout, "json", false, merged, buildInspectDurableResponse(appRoot, cfg, merged))
 	case "storage":
 		plan, err := resolveStorageNamespacePlan(cfg, appRoot, "")
 		if err != nil {
@@ -330,8 +246,13 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		return inspectOptions{}, err
 	}
 	opts := inspectOptions{Subject: args[0]}
-	if !allowObservability && (opts.Subject == "traces" || opts.Subject == "metrics") {
-		return inspectOptions{}, usageErrorf("unknown inspect subject %q; use `scenery %s list`", opts.Subject, opts.Subject)
+	if !allowObservability {
+		switch opts.Subject {
+		case "traces":
+			return inspectOptions{}, usageErrorf("unknown inspect subject %q; use `scenery traces list`", opts.Subject)
+		case "metrics":
+			return inspectOptions{}, usageErrorf("unknown inspect subject %q; use `scenery metrics`", opts.Subject)
+		}
 	}
 	flags := newCLIFlagSet("inspect " + opts.Subject)
 	registerJSONOutput(flags, &opts.JSON)
@@ -404,14 +325,14 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 			continue
 		}
 		if opts.Subject != "traces" && opts.Subject != "metrics" {
-			return inspectOptions{}, usageErrorf("--%s is only supported for traces list and metrics list", name)
+			return inspectOptions{}, usageErrorf("--%s is only supported for traces list and metrics", name)
 		}
 		if err := parseInspectTraceFlags(&opts, "--"+name, *traceValues[name]); err != nil {
 			return inspectOptions{}, err
 		}
 	}
 	if cliFlagSet(flags, "slowest") && opts.Subject != "traces" && opts.Subject != "metrics" {
-		return inspectOptions{}, usageErrorf("--slowest is only supported for traces list and metrics list")
+		return inspectOptions{}, usageErrorf("--slowest is only supported for traces list and metrics")
 	}
 	return opts, nil
 }
@@ -483,72 +404,6 @@ func buildInspectBuildResponse(appRoot string, cfg appcfg.Config) (inspectBuildR
 		},
 	}
 	return resp, nil
-}
-
-func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsResponse, error) {
-	cacheRoot, err := commandCacheRoot()
-	if err != nil {
-		return inspectPathsResponse{}, err
-	}
-	workspaceDir, err := build.WorkspaceDirAt(cacheRoot, appRoot, cfg.Name)
-	if err != nil {
-		return inspectPathsResponse{}, err
-	}
-	statePath, err := build.BuildStatePathAt(cacheRoot, appRoot, cfg.Name)
-	if err != nil {
-		return inspectPathsResponse{}, err
-	}
-	resp := inspectPathsResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.paths"),
-		App:                inspectAppInfo(appRoot, cfg, nil),
-		Paths: inspectPathsRecord{
-			AppRoot:        appRoot,
-			ConfigPath:     cfg.SourcePath(appRoot),
-			CacheRoot:      cacheRoot,
-			BuildRoot:      filepath.Join(cacheRoot, "build"),
-			WorkspaceDir:   workspaceDir,
-			BinaryPath:     filepath.Join(workspaceDir, "scenery-app"),
-			BuildStatePath: statePath,
-		},
-	}
-	return resp, nil
-}
-
-func durableServices(declarations []durableDeclaration) []durableServiceRecord {
-	byName := make(map[string]durableServiceRecord)
-	for _, decl := range declarations {
-		if strings.TrimSpace(decl.Service) == "" {
-			continue
-		}
-		byName[decl.Service] = durableServiceRecord{
-			Name:   decl.Service,
-			Schema: decl.Schema,
-		}
-	}
-	names := make([]string, 0, len(byName))
-	for name := range byName {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	out := make([]durableServiceRecord, 0, len(names))
-	for _, name := range names {
-		out = append(out, byName[name])
-	}
-	return out
-}
-
-func durableDatabaseURLForInspect(appRoot string) string {
-	env := envpolicy.Environ()
-	if value := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
-		return strings.TrimSpace(value)
-	}
-	if value := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
-		registry, err := postgresdb.DecodeRegistry(value)
-		if err == nil {
-			return strings.TrimSpace(registry.URL)
-		}
-	}
-	return ""
 }
 
 func inspectAppInfo(appRoot string, cfg appcfg.Config, _ any) inspectdata.AppRef {

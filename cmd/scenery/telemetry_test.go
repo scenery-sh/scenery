@@ -8,12 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devtelemetry"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/rotatinglog"
+	"scenery.sh/internal/telemetryreport"
 )
 
 func TestTelemetryClassification(t *testing.T) {
@@ -25,6 +28,11 @@ func TestTelemetryClassification(t *testing.T) {
 		wantMode    string
 	}{
 		{nil, "help", "oneshot"},
+		{[]string{"framework", "--app-root", "/private", "inspect"}, "framework inspect", "oneshot"},
+		{[]string{"snapshot", "save", "--db"}, "snapshot save", "oneshot"},
+		{[]string{"config", "show", "private-key"}, "config show", "oneshot"},
+		{[]string{"worker", "durable", "jobs", "list"}, "worker durable", "oneshot"},
+		{[]string{"logs", "--follow=false"}, "logs", "oneshot"},
 		{[]string{"build", "--target", "development"}, "build", "oneshot"},
 		{[]string{"db", "seed", "--env", "dev"}, "db seed", "oneshot"},
 		{[]string{"task", "run", "secret-argument"}, "task run", "oneshot"},
@@ -41,7 +49,7 @@ func TestTelemetryClassification(t *testing.T) {
 		{[]string{"feature", "private-feature"}, "feature", "oneshot"},
 		{[]string{"feature", "list", "--watch=1", "-o", "jsonl"}, "feature list", "long_running"},
 		{[]string{"feature", "list"}, "feature list", "oneshot"},
-		{[]string{"up", "--detach"}, "up", "long_running"},
+		{[]string{"up", "--detach"}, "up", "oneshot"},
 		{[]string{"worker"}, "worker", "long_running"},
 		{[]string{"logs", "--follow", "--app-root", "/private/path"}, "logs", "long_running"},
 		{[]string{"system", "agent"}, "system agent", "long_running"},
@@ -695,5 +703,83 @@ func TestTelemetryRotationSkipsInvalidArchiveDirectory(t *testing.T) {
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != "preserve" {
 		t.Fatalf("active telemetry changed: %q, %v", data, err)
+	}
+}
+
+func TestTelemetrySeparatesUptimeAndDevelopmentEvents(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "telemetry.jsonl")
+	at := time.Unix(1_800_000_000, 0).UTC()
+	var lines bytes.Buffer
+	encoder := json.NewEncoder(&lines)
+	for _, record := range []any{
+		cliTelemetryRecord{At: at, Command: "system agent", Mode: "oneshot", DurationMS: 3_600_000},
+		cliTelemetryRecord{At: at, Command: "system   agent", Mode: "oneshot", LongRunning: new(false), DurationMS: 20},
+		cliTelemetryRecord{At: at, Command: "up", Mode: "long_running", Measurement: "startup", DurationMS: 50},
+		cliTelemetryRecord{At: at, Command: "db query", Mode: "oneshot", DurationMS: 7, ExitCode: 3, DiagnosticCode: "SCN8003", ErrorCategory: "failed_precondition"},
+		devtelemetry.Event{At: at, Kind: "rebuild", Generation: 2, Rebuild: &devtelemetry.Rebuild{
+			EditToReadyMS: new(120.0), TriggerKind: "body_only", OK: true,
+			RebuiltModules: []string{"pricing"}, SkippedModules: []string{"native"},
+		}},
+		devtelemetry.Event{At: at, Kind: "worker_fault", Generation: 2, WorkerFault: &devtelemetry.WorkerFault{
+			Module: "pricing", Runtime: "rust", ExitCode: 1,
+		}},
+	} {
+		if err := encoder.Encode(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(path, lines.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	query, err := loadCLITelemetry(path, telemetryQueryOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := telemetryreport.Build(telemetryreport.Options{CLITelemetryPath: path, Until: at.Add(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Summary.Count != 4 || query.Summary.UptimeCount != 1 || query.Summary.PercentileSampleCount != 2 ||
+		query.Summary.P95DurationMS != 50 || query.Summary.MaxDurationMS != 50 || len(query.Events) != 2 ||
+		report.CLI.Records != 4 || report.CLI.UptimeRecords != 1 || len(report.CLI.Events) != 2 ||
+		len(report.CLI.ErrorCategories) != 1 || report.CLI.ErrorCategories[0].Name != "failed_precondition" {
+		t.Fatalf("query: %+v, report: %+v", query.Summary, report.CLI)
+	}
+	for _, group := range report.CLI.Commands {
+		if group.Command == "agent" || group.Command == "system agent" && (group.Count != 2 || group.PercentileSampleCount != 1) {
+			t.Fatalf("unexpected daemon group: %+v", group)
+		}
+	}
+	if problems := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.telemetry.schema.json"), query); len(problems) != 0 {
+		t.Fatalf("query schema: %v", problems)
+	}
+}
+
+func TestTelemetryWriterWaitsForSnapshotLock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SCENERY_AGENT_HOME", home)
+	path := filepath.Join(home, "telemetry.jsonl")
+	synctest.Test(t, func(t *testing.T) {
+		lock, err := localagent.AcquireProcessLock(path + ".lock")
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			recordCLITelemetry(cliTelemetryRecord{At: time.Now(), Command: "check", Mode: "oneshot"})
+		}()
+		synctest.Wait()
+		if err := lock.Release(); err != nil {
+			t.Fatal(err)
+		}
+		<-done
+	})
+	encoded, err := os.ReadFile(path)
+	if err != nil || !bytes.Contains(encoded, []byte(`"command":"check"`)) {
+		t.Fatalf("completion was dropped during a snapshot: %s %v", encoded, err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -726,4 +727,36 @@ func isFingerprintBinaryName(name string) bool {
 		}
 	}
 	return true
+}
+
+// DevelopmentGoInputsChanged reports whether an edit can affect Go workspace
+// materialization or linked native inputs. The process linker further narrows
+// Go edits by the resolved import closures of the individual entrypoints.
+func DevelopmentGoInputsChanged(result *Result, paths []string) (bool, error) {
+	if result == nil || len(paths) == 0 {
+		return false, nil
+	}
+	native := append(stringValuesForBuild(result.Target.Effective["native_inputs"]), stringValuesForBuild(result.Target.Effective["native_input"])...)
+	for _, path := range paths {
+		path = filepath.ToSlash(path)
+		if _, found := result.SourceStamps[path]; found || isGoWorkspaceSourceFile(path) {
+			return true, nil
+		}
+		for _, input := range native {
+			if path == input || strings.HasPrefix(path, input+"/") {
+				return true, nil
+			}
+		}
+	}
+	// A new file of an arbitrary type can enter an existing go:embed glob.
+	files, err := listSourceFiles(result.AppRoot)
+	if err != nil {
+		return false, err
+	}
+	for _, path := range paths {
+		if _, found := slices.BinarySearch(files, filepath.ToSlash(path)); found {
+			return true, nil
+		}
+	}
+	return false, nil
 }

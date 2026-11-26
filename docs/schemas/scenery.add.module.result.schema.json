@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.add.module.result.schema.json",
+  "title": "scenery.add.module.result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "module",
+    "runtime",
+    "created_files",
+    "updated_files",
+    "generated_roots",
+    "check_ok",
+    "diagnostics"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.add.module.result"
+    },
+    "schema_revision": {
+      "const": "sha256:8a2c549600d635d4a2cbfac7b50220b8bbe65e29686e8c25802aade225733d11"
+    },
+    "module": {
+      "type": "string"
+    },
+    "runtime": {
+      "enum": [
+        "go",
+        "rust",
+        "ts",
+        "js"
+      ]
+    },
+    "created_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "updated_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generated_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "check_ok": {
+      "type": "boolean"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

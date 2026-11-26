@@ -266,6 +266,11 @@ func traceSummaryFromVictoriaSpan(appID string, trace victoriaJaegerTrace, span 
 		summary.Generation = generation
 	}
 	summary.BuildInputDigest = stringTag(tags, "scenery.build_input_digest")
+	summary.InvocationID = stringTag(tags, "invocation_id")
+	summary.ExecutionID = stringTag(tags, "execution_id")
+	summary.Module = stringTag(tags, "module")
+	summary.Runtime = stringTag(tags, "runtime")
+	summary.ErrorCode = stringTag(tags, "error_code")
 	for _, ref := range span.References {
 		if ref.SpanID != "" {
 			parent := ref.SpanID

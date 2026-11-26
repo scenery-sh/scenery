@@ -115,14 +115,10 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		if test.missingApp && (record.DiagnosticCode != "SCN8001" || bytes.Contains(output, []byte("report_token"))) {
 			return nil, nil, fmt.Errorf("missing app created an internal report: %s", output)
 		}
-		if test.name == "semantic_status" && !bytes.Contains(output, []byte("scenery ps -o json")) {
+		if test.name == "semantic_status" && !bytes.Contains(output, []byte("scenery ps")) {
 			return nil, nil, fmt.Errorf("status misuse omitted the current inspection command: %s", output)
 		}
 		verified = append(verified, test.name)
-	}
-	publication, err := proveHarnessTelemetryPublication(ctx, repoRoot)
-	if err != nil {
-		return nil, nil, err
 	}
 	timing, err := proveHarnessSupervisorTiming(ctx, repoRoot)
 	if err != nil {
@@ -137,11 +133,10 @@ func runHarnessCLIProcessProbeCheck(ctx context.Context, repoRoot string) (map[s
 		return map[string]any{"report_evidence": evidence}, nil, err
 	}
 	return map[string]any{
-		"report_evidence":           evidence,
-		"report_snapshot":           snapshots,
-		"supervisor_timing":         timing,
-		"proof":                     "real_cli_process_exit_codes_and_per_process_telemetry_verified",
-		"verified_cases":            verified,
-		"telemetry_zip_publication": publication,
+		"report_evidence":   evidence,
+		"report_snapshot":   snapshots,
+		"supervisor_timing": timing,
+		"proof":             "real_cli_process_exit_codes_and_per_process_telemetry_verified",
+		"verified_cases":    verified,
 	}, nil, nil
 }

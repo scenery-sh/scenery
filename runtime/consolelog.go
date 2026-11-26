@@ -280,7 +280,7 @@ func logRequestFailure(state *requestState, err error) {
 	}
 	args := []any{
 		"error", contractDiagnosticError(err).Error(),
-		"code", errs.Code(err),
+		"code", traceErrorCode(err),
 		"endpoint", state.request.Endpoint,
 		"service", state.request.Service,
 		"trace_id", state.trace.traceID,
@@ -295,8 +295,12 @@ func logRequestCompleted(state *requestState, duration time.Duration, err error)
 	if state == nil || !state.logsEnabled || state.trace == nil || !state.trace.isRoot {
 		return
 	}
+	code := traceErrorCode(err)
+	if err == nil {
+		code = string(errs.OK)
+	}
 	args := []any{
-		"code", errs.Code(err),
+		"code", code,
 		"duration_ms", duration.Milliseconds(),
 		"endpoint", state.request.Endpoint,
 		"service", state.request.Service,

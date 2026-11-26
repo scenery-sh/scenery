@@ -28,14 +28,19 @@ type resourceConditionalRequirement struct {
 }
 
 var resourceSchemas = map[string]resourceSchema{
-	"scenery.go-module":         {RevisionDomain: "implementation", Required: []string{"root", "import_path"}, Attributes: []string{"root", "import_path"}},
-	"scenery.go-toolchain":      {RevisionDomain: "implementation", Required: []string{"version"}, Attributes: []string{"version", "experiments"}},
-	"scenery.go-target":         {RevisionDomain: "implementation", Required: []string{"role", "toolchain", "module", "packages"}, Attributes: []string{"role", "platform", "toolchain", "module", "packages", "cgo", "extends", "inherits", "build_tags", "go_flags", "environment", "goos", "goarch", "architecture_features", "native_input", "native_inputs", "verify_by_default"}},
-	"scenery.http-gateway":      {"contract", []string{"exposure", "base_path", "cors", "trusted_proxies", "forwarded"}, []string{"exposure", "base_path", "cors", "trusted_proxies", "forwarded", "request_limit", "response_limit", "timeouts"}, nil},
-	"scenery.authentication":    {"contract", []string{"provider", "scheme"}, []string{"provider", "scheme", "config"}, nil},
-	"scenery.authorization":     {"contract", []string{"principal"}, []string{"principal", "strategy"}, nil},
-	"scenery.workload-identity": {"contract", []string{"issuer", "principal_type", "claims"}, []string{"issuer", "principal_type", "claims"}, nil},
-	"scenery.pipeline":          {"contract", nil, nil, nil},
+	"scenery.js-workspace":   {RevisionDomain: "implementation", Required: []string{"root"}, Attributes: []string{"root"}},
+	"scenery.js-toolchain":   {RevisionDomain: "implementation", Required: []string{"version"}, Attributes: []string{"version"}},
+	"scenery.js-target":      {RevisionDomain: "implementation", Required: []string{"role", "workspace", "toolchain"}, Attributes: []string{"role", "workspace", "toolchain"}},
+	"scenery.rust-workspace": {RevisionDomain: "implementation", Required: []string{"root"}, Attributes: []string{"root"}},
+	"scenery.rust-toolchain": {RevisionDomain: "implementation", Required: []string{"version"}, Attributes: []string{"version"}},
+	"scenery.rust-target":    {RevisionDomain: "implementation", Required: []string{"role", "workspace", "toolchain"}, Attributes: []string{"role", "workspace", "toolchain"}},
+	"scenery.go-module":      {RevisionDomain: "implementation", Required: []string{"root", "import_path"}, Attributes: []string{"root", "import_path"}},
+	"scenery.go-toolchain":   {RevisionDomain: "implementation", Required: []string{"version"}, Attributes: []string{"version", "experiments"}},
+	"scenery.go-target":      {RevisionDomain: "implementation", Required: []string{"role", "toolchain", "module", "packages"}, Attributes: []string{"role", "platform", "toolchain", "module", "packages", "cgo", "extends", "inherits", "build_tags", "go_flags", "environment", "goos", "goarch", "architecture_features", "native_input", "native_inputs", "verify_by_default"}},
+	"scenery.http-gateway":   {"contract", []string{"exposure", "base_path", "cors", "trusted_proxies", "forwarded"}, []string{"exposure", "base_path", "cors", "trusted_proxies", "forwarded", "request_limit", "response_limit", "timeouts"}, nil},
+	"scenery.authentication": {"contract", []string{"provider", "scheme"}, []string{"provider", "scheme", "config"}, nil},
+	"scenery.authorization":  {"contract", []string{"principal"}, []string{"principal", "strategy"}, nil},
+	"scenery.pipeline":       {"contract", nil, nil, nil},
 	"scenery.provider": {"contract", []string{"source"}, []string{"source", "config"}, map[string]string{
 		"locked_integrity": "implementation", "compile_descriptor_digest": "contract", "runtime_abi": "implementation",
 		"deployment_abi": "deployment", "migration_abi": "implementation", "config_schema": "contract", "capabilities": "contract", "instance_kinds": "contract",
@@ -77,7 +82,6 @@ var resourceSchemas = map[string]resourceSchema{
 	"scenery.content-page":    {"contract", []string{"path", "title", "content"}, []string{"path", "source", "title", "aria_label", "max_width", "application_key", "access_key", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.workspace-page":  {"contract", []string{"path", "title", "tab"}, []string{"path", "title", "presentation", "application_key", "access_key", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.detail-page":     {"contract", []string{"path", "source", "title", "section"}, []string{"path", "source", "title", "description", "loading_label", "error_title", "presentation", "application_key", "access_key", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
-	"scenery.middleware":      {"contract", []string{"protocols", "phases"}, []string{"protocols", "phases", "before", "after", "exclusive", "effects"}, nil},
 }
 
 var resourceConditionalRequirements = map[string][]resourceConditionalRequirement{

@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"golang.org/x/mod/semver"
+
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/machine"
 )
 
@@ -23,7 +26,16 @@ func ReadRuntimeFramework(appRoot string) (FrameworkSelection, error) {
 // lock. Retaining the last owner after shutdown allows its exact producer to
 // inspect stopped records without silently upgrading them to a newer spec.
 func WriteRuntimeFramework(appRoot, version, revision string) error {
-	source, err := VerifyFrameworkProducer()
+	pinned, err := app.ReadFrameworkVersion(appRoot)
+	if err != nil {
+		return err
+	}
+	var source FrameworkSource
+	if pinned == "" {
+		source, err = VerifyFrameworkProducer()
+	} else {
+		err = VerifyPrebuiltFramework(appRoot, pinned, version)
+	}
 	if err != nil {
 		return err
 	}
@@ -45,8 +57,11 @@ func WriteRuntimeFramework(appRoot, version, revision string) error {
 	}
 	selection := FrameworkSelection{
 		ArtifactIdentity: machine.NewArtifactIdentity(frameworkSelectionKind, frameworkSelectionSchema),
-		AppRoot:          root, Source: source, SourceOrigin: source.Root, SourceRevision: revision,
+		AppRoot:          root, Source: source, SourceOrigin: source.Root,
 		Version: version, Executable: executable, ExecutableDigest: digest,
+	}
+	if source.Root != "" {
+		selection.SourceRevision = revision
 	}
 	if err := VerifyRuntimeFramework(selection); err != nil {
 		return err
@@ -73,14 +88,26 @@ func verifyRuntimeFramework(selection FrameworkSelection, requireCurrentProducer
 	if err := machine.ValidateArtifactIdentity(selection.ArtifactIdentity, frameworkSelectionKind, frameworkSelectionSchema, "use the runtime's own Scenery executable"); err != nil {
 		return err
 	}
-	if requireCurrentProducer && !OwnsFrameworkSelection(selection) {
-		return fmt.Errorf("runtime locator does not identify this Scenery executable")
-	}
-	if selection.Source.Inputs == nil {
-		return fmt.Errorf("runtime producer has no source input identity")
-	}
-	if err := machine.ValidateArtifactIdentity(selection.Source.Inputs.ArtifactIdentity, buildInputKind, buildInputSchemaDescriptor, "use the runtime's own Scenery executable"); err != nil {
-		return err
+	if selection.Source == (FrameworkSource{}) {
+		if selection.Version == "" || semver.Canonical(selection.Version) != selection.Version {
+			return fmt.Errorf("prebuilt runtime producer has no exact release version")
+		}
+		if requireCurrentProducer {
+			executable, err := os.Executable()
+			if err != nil || canonicalPath(executable) != selection.Executable {
+				return fmt.Errorf("runtime locator does not identify this Scenery executable")
+			}
+		}
+	} else {
+		if requireCurrentProducer && !OwnsFrameworkSelection(selection) {
+			return fmt.Errorf("runtime locator does not identify this Scenery executable")
+		}
+		if selection.Source.Inputs == nil {
+			return fmt.Errorf("runtime producer has no source input identity")
+		}
+		if err := machine.ValidateArtifactIdentity(selection.Source.Inputs.ArtifactIdentity, buildInputKind, buildInputSchemaDescriptor, "use the runtime's own Scenery executable"); err != nil {
+			return err
+		}
 	}
 	digest, err := digestExecutable(selection.Executable)
 	if err != nil || digest != selection.ExecutableDigest {

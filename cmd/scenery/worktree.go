@@ -87,8 +87,6 @@ func runWorktreeCommandWithGit(ctx context.Context, stdout io.Writer, args []str
 		return runWorktreeRemoveWithGit(ctx, stdout, opts, listWorktrees, runGit)
 	case "upgrade":
 		return runWorktreeUpgrade(ctx, stdout, opts)
-	case "prepare":
-		return runWorktreePrepare(ctx, stdout, opts)
 	default:
 		return usageErrorf("unknown worktree command %q", opts.Command)
 	}
@@ -107,7 +105,7 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 		return worktreeOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return worktreeOptions{}, usageErrorf("usage: scenery worktree create|list|remove|prepare|upgrade")
+		return worktreeOptions{}, usageErrorf("usage: scenery worktree create|list|remove|upgrade")
 	}
 	opts.Command = positionals[0]
 	if len(positionals) > 1 {
@@ -121,12 +119,9 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 		if strings.TrimSpace(opts.Name) == "" {
 			return worktreeOptions{}, usageErrorf("scenery worktree %s requires <name>", opts.Command)
 		}
-	case "list", "prepare":
+	case "list":
 		if opts.Name != "" {
 			return worktreeOptions{}, usageErrorf("unexpected argument %q", opts.Name)
-		}
-		if opts.Command == "prepare" && opts.From != "" {
-			return worktreeOptions{}, usageErrorf("scenery worktree prepare receives inputs from the main checkout and accepts no --from")
 		}
 	case "upgrade":
 		if opts.Name != "" || opts.From != "" {

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -346,6 +347,10 @@ func localModuleInstances(resources []Resource) []Resource {
 		if resource.Kind != "scenery.module" {
 			continue
 		}
+		metadata, _ := resource.Spec["package"].(map[string]any)
+		if (metadata["rust_contract"] != nil || metadata["js_contract"] != nil) && metadata["go_contract"] == nil {
+			continue
+		}
 		root, _ := resource.Spec["workspace_package_root"].(string)
 		source, _ := resource.Spec["source"].(string)
 		if root != "" || strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
@@ -390,11 +395,21 @@ func generateModuleContract(result *Result, idx *resourceIndex, module Resource)
 	if err != nil {
 		return nil, err
 	}
-	contractResources, embeddedTypes, err := goContractTypeClosure(moduleInstancePath(module), resources, result.Manifest.Resources)
+	clientOperations, err := projectedGoClientOperations(resources, idx)
 	if err != nil {
 		return nil, err
 	}
-	typeResolver := newGoContractTypeResolver(moduleInstancePath(module), result.Manifest.Resources, embeddedTypes)
+	contractResources, embeddedTypes, err := goContractTypeClosure(moduleInstancePath(module), resources, result.Manifest.Resources, clientOperations)
+	if err != nil {
+		return nil, err
+	}
+	typeUniverse := slices.Clone(result.Manifest.Resources)
+	for _, resource := range contractResources {
+		if embeddedTypes[resource.Address] {
+			typeUniverse = append(typeUniverse, resource)
+		}
+	}
+	typeResolver := newGoContractTypeResolver(moduleInstancePath(module), typeUniverse, embeddedTypes)
 	typesSource := renderContractTypesResolved(contractResources, typeResolver)
 	if err := typeResolver.Err(); err != nil {
 		return nil, err
@@ -405,7 +420,7 @@ func generateModuleContract(result *Result, idx *resourceIndex, module Resource)
 			packageIdentity = packageBlock.Labels[0]
 		}
 	}
-	apiResolver := newGoContractTypeResolver(moduleInstancePath(module), result.Manifest.Resources, embeddedTypes)
+	apiResolver := newGoContractTypeResolver(moduleInstancePath(module), typeUniverse, embeddedTypes)
 	contractSource, err := renderContractAPI(packageIdentity, importPath, abiRevision, resources, idx, apiResolver)
 	if err != nil {
 		return nil, err
@@ -534,7 +549,7 @@ func packageABIResources(resources []Resource, idx *resourceIndex) ([]map[string
 			}
 			clientProjection := make([]map[string]any, 0, len(clients))
 			for _, client := range clients {
-				clientProjection = append(clientProjection, map[string]any{"name": client.Name, "target_contract_import_path": client.ContractImport, "operation": client.Operation.Name, "input": normalizePackageABIValue(client.Operation.Spec["input"], client.Operation.Module, idx), "result": normalizePackageABIValue(client.Operation.Spec["result"], client.Operation.Module, idx), "error": normalizePackageABIValue(client.Operation.Spec["error"], client.Operation.Module, idx), "delivery": client.Delivery})
+				clientProjection = append(clientProjection, map[string]any{"name": client.Name, "operation": client.Operation.Name, "input": normalizePackageABIValue(client.Operation.Spec["input"], client.Operation.Module, idx), "result": normalizePackageABIValue(client.Operation.Spec["result"], client.Operation.Module, idx), "error": normalizePackageABIValue(client.Operation.Spec["error"], client.Operation.Module, idx), "delivery": client.Delivery})
 			}
 			projected = append(projected, map[string]any{
 				"kind": "service", "name": resource.Name, "implementation": resource.Spec["implementation"],

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,8 @@ func ContractDurableFailureOutcome(err error) string {
 // ContractDurableRegistration is the exact runtime projection of one
 // scenery.execution durable execution.
 type ContractDurableRegistration struct {
+	workerRuntime          string
+	workerModule           string
 	Address                string
 	ExternalName           string
 	EngineAddress          string
@@ -57,7 +60,7 @@ type ContractDurableRegistration struct {
 	MaxConcurrency         int
 	DeduplicationRetention time.Duration
 	DeduplicationConflict  string
-	Handler                func(context.Context, []byte) ([]byte, error)
+	Handler                func(context.Context, []byte) ([]byte, error) `json:"-"`
 }
 
 func RegisterContractDurableExecution(registration ContractDurableRegistration) error {
@@ -112,6 +115,7 @@ func RegisterContractDurableExecution(registration ContractDurableRegistration) 
 		return fmt.Errorf("runtime: duplicate durable task registration for %s", key)
 	}
 	global.durableTasks[key] = &DurableTask{
+		workerRuntime: registration.workerRuntime, workerModule: registration.workerModule,
 		Name: registration.ExternalName, Service: registration.Service, Version: int(registration.Revision),
 		HandlerRef: registration.Address, Handler: registration.Handler,
 		DefaultTimeout: registration.DefaultTimeout, DefaultLease: registration.DefaultLease,
@@ -177,5 +181,31 @@ func contractExecutionReceipt(registration ContractDurableRegistration, executio
 		DurableIdentity:  registration.EngineAddress + "::" + registration.Address,
 		ExecutionID:      executionID,
 		AcceptedRevision: strconv.FormatUint(uint64(registration.Revision), 10),
+	}
+}
+
+// ClassifyContractDurableWaitError maps wait-mode durable execution failures to
+// transport errors while preserving context.Canceled so internal callers and
+// HTTP boundaries report client cancellation without a system failure token.
+func ClassifyContractDurableWaitError(err error, rejectedStatus, waitTimeoutStatus int) error {
+	if err == nil {
+		return nil
+	}
+	if rejectedStatus == 0 {
+		rejectedStatus = http.StatusServiceUnavailable
+	}
+	if waitTimeoutStatus == 0 {
+		waitTimeoutStatus = http.StatusGatewayTimeout
+	}
+	switch ContractDurableFailureOutcome(err) {
+	case "dispatch.rejected":
+		return &ContractTransportError{Outcome: "dispatch.rejected", Status: rejectedStatus, Message: "durable dispatch rejected", Cause: err}
+	case "dispatch.wait_timeout":
+		return &ContractTransportError{Outcome: "dispatch.wait_timeout", Status: waitTimeoutStatus, Message: "durable wait timed out", Cause: err}
+	default:
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		return ContractSystemError(err)
 	}
 }

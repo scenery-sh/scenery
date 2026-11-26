@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +12,33 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 )
+
+func TestFrameworkUseSelectsMatchingPrebuiltWithoutGo(t *testing.T) {
+	const version = "v0.3.7"
+	t.Setenv("PATH", t.TempDir())
+	previous := sceneryVersion
+	sceneryVersion = version
+	t.Cleanup(func() { sceneryVersion = previous })
+	root := t.TempDir()
+	if err := os.WriteFile(appcfg.ConfigPath(root), []byte(`{"framework_version":"v0.3.7"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	args := []string{"use", "--app-root", root, "-o", "json"}
+	if err := runFrameworkCommand(context.Background(), &output, args); err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Data frameworkResult `json:"data"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	got := envelope.Data
+	if !got.OK || got.Mode != "prebuilt" || got.FrameworkVersion != version || got.ExecutableDigest == "" || got.ModuleChanged || got.SourceRoot != "" {
+		t.Fatalf("unexpected framework selection: %+v", got)
+	}
+}
 
 func TestFrameworkSelectionArgsAndExplicitModuleRewrite(t *testing.T) {
 	options, err := parseFrameworkArgs([]string{"use", "--source", "../scenery", "--app-root", "/app", "-o", "json"})

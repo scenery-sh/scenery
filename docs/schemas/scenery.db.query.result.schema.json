@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.query.result.schema.json",
+  "title": "scenery.db.query.result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "service",
+    "schema",
+    "columns",
+    "rows",
+    "row_count",
+    "rows_affected",
+    "truncated",
+    "duration_ms"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.db.query.result"
+    },
+    "schema_revision": {
+      "const": "sha256:0ac6740ae588d177b3789c216b2e3ea81a085fa4b7336a6f5b229d82c7465ecc"
+    },
+    "service": {
+      "type": "string"
+    },
+    "schema": {
+      "type": "string"
+    },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {}
+      }
+    },
+    "row_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rows_affected": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

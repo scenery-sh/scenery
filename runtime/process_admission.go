@@ -112,6 +112,19 @@ func admitProcessGeneration(ctx context.Context) (context.Context, uint64, func(
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if host := activeAssistantProcessHost(); host != nil && host.workers != nil {
+		generation := host.acquire(0)
+		if generation == nil {
+			return nil, 0, nil, errProcessAdmissionLost
+		}
+		scope, cancel := context.WithCancelCause(context.WithValue(ctx, processHostGenerationKey{}, generation))
+		stop := context.AfterFunc(generation.lifetime, func() { cancel(errProcessAdmissionLost) })
+		return scope, generation.number, func() {
+			stop()
+			cancel(context.Canceled)
+			generation.inFlight.Add(-1)
+		}, nil
+	}
 	config, err := currentProcessLink()
 	if err != nil {
 		return nil, 0, nil, err

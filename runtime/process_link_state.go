@@ -233,7 +233,32 @@ func (encoded *processLinkError) err() error {
 	case "canceled":
 		return &processLinkSentinelError{message: encoded.Message, sentinel: context.Canceled}
 	default:
+		if encoded.Code != "" || len(encoded.Meta) != 0 {
+			// A Host binding failure carries {code,message,meta}; keeping the
+			// code and meta.delivery lets the caller tell a safe retry apart.
+			return &errs.Error{Code: hostFailureCode(encoded.Code), Message: encoded.Message, Meta: encoded.Meta, Cause: encoded.Cause.err()}
+		}
 		return errors.New(encoded.Message)
+	}
+}
+
+// hostFailureCode maps a Host fault code onto the errs vocabulary. The Host
+// names its transport and system faults by category; known errs codes pass
+// through and any other code is unknown.
+func hostFailureCode(code errs.ErrCode) errs.ErrCode {
+	switch code {
+	case "transport.invalid_request":
+		return errs.InvalidArgument
+	case "system.internal":
+		return errs.Internal
+	case errs.Canceled, errs.InvalidArgument, errs.DeadlineExceeded, errs.NotFound, errs.AlreadyExists,
+		errs.PermissionDenied, errs.ResourceExhausted, errs.FailedPrecondition, errs.Aborted, errs.OutOfRange,
+		errs.Unimplemented, errs.Internal, errs.Unavailable, errs.DataLoss, errs.Unauthenticated, errs.Conflict,
+		errs.ConnectionNotConfigured, errs.ConnectionNotConnected, errs.ConnectionReauthRequired,
+		errs.ConnectionScopeMissing, errs.ConnectionUnavailable, errs.ConnectionConfiguration:
+		return code
+	default:
+		return errs.Unknown
 	}
 }
 
@@ -250,14 +275,21 @@ func (e *processLinkSentinelError) Unwrap() error { return e.sentinel }
 
 type processGenerationKey struct{}
 
-// withProcessGeneration moves the generation a process host assigned to a
-// forwarded request out of the application-visible headers and into the
-// request context. Only linked service processes accept it.
+// withProcessGeneration checks the contract expected by the Host and moves
+// the assigned generation into the request context before dispatch.
 func withProcessGeneration(next http.Handler) http.Handler {
 	if !processLinkConfigured() {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if revisions := req.Header.Values(processExpectedContractHdr); len(revisions) != 0 {
+			req.Header.Del(processExpectedContractHdr)
+			if len(revisions) != 1 || revisions[0] == "" || revisions[0] != CurrentLinkedContractBundle().ContractRevision {
+				setProcessIdentityHeaders(w.Header())
+				http.Error(w, "contract revision mismatch", http.StatusConflict)
+				return
+			}
+		}
 		value := req.Header.Get(processGenerationHeader)
 		if value == "" {
 			next.ServeHTTP(w, req)

@@ -377,6 +377,7 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 	// source can be identified without its worktree-specific replacement
 	// directory once that source is known.
 	moduleFiles := map[string]string{}
+	dependencyModuleInputs := map[string]bool{}
 	// Stamping a package's consumed files is stat-bound, so packages are read
 	// concurrently into their own entry and observation sets and merged in
 	// listing order, which keeps discovery deterministic.
@@ -453,11 +454,19 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 				}
 				if pkg.Module.Main {
 					moduleFiles[identity] = filepath.Clean(module.GoMod)
+				} else {
+					dependencyModuleInputs[identity] = true
+					packageEntries[identity] = entries[identity]
 				}
 			}
 			identity := pkg.Module.Path + "@" + pkg.Module.Version + "\x00" + pkg.Module.Sum + "\x00" + pkg.Module.GoModSum
 			sum := sha256.Sum256([]byte(identity))
-			entries["module/"+pkg.Module.Path] = "sha256:" + hex.EncodeToString(sum[:])
+			moduleIdentity := "module/" + pkg.Module.Path
+			entries[moduleIdentity] = "sha256:" + hex.EncodeToString(sum[:])
+			if !pkg.Module.Main {
+				dependencyModuleInputs[moduleIdentity] = true
+				packageEntries[moduleIdentity] = entries[moduleIdentity]
+			}
 		}
 	}
 	if frameworkRoot != "" {
@@ -508,7 +517,7 @@ func buildInputManifestFromGoListObserved(ctx context.Context, result *Result, o
 	}
 	processes.global = map[string]string{}
 	for identity, digest := range entries {
-		if !strings.HasPrefix(identity, "package/") {
+		if !strings.HasPrefix(identity, "package/") && !dependencyModuleInputs[identity] {
 			processes.global[identity] = digest
 		}
 	}

@@ -1,12 +1,12 @@
 package generate
 
 import (
-	"fmt"
 	"go/token"
 	"go/types"
 	"path/filepath"
 	"strings"
 
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/model"
 )
 
@@ -81,23 +81,22 @@ func validateNativeGoServices(appModel *model.App, resources []Resource) []Diagn
 			continue
 		}
 		object := pkg.Analysis.Types.Scope().Lookup(constructor)
+		named := nativeServiceNamedType(pkg, constructor)
+		receiver := "Service"
+		if named != nil {
+			receiver = named.Obj().Name()
+		}
+		expected := expectedSignature(goConstructorSignature(constructor, resource.Name, receiver))
 		if object == nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6112", Severity: "error", Message: "native constructor " + constructor + " not found", Address: resource.Address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6112", Severity: "error", Message: "native constructor " + constructor + " not found", Address: resource.Address, Suggestions: []string{expected}})
 			continue
 		}
 		signature, ok := object.Type().(*types.Signature)
-		if !ok || signature.Params().Len() != 2 || signature.Results().Len() != 2 {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6113", Severity: "error", Message: "native constructor must accept context and generated constructor input and return service pointer plus error", Address: resource.Address})
-			continue
-		}
-		input := types.TypeString(signature.Params().At(1).Type(), packageQualifier)
 		want := goName(resource.Name) + "ConstructorInput"
-		if !strings.HasSuffix(input, "/scenerycontract."+want) || types.TypeString(signature.Results().At(1).Type(), packageQualifier) != "error" {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6113", Severity: "error", Message: "native constructor signature does not match generated " + want, Address: resource.Address})
-		}
-		named := nativeServiceNamedType(pkg, constructor)
-		if named == nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6113", Severity: "error", Message: "native constructor must return a named service pointer", Address: resource.Address})
+		if !ok || signature.Params().Len() != 2 || signature.Results().Len() != 2 ||
+			!isContextParameter(signature) || !contractTypeMatches(signature.Params().At(1).Type(), want) ||
+			types.TypeString(signature.Results().At(1).Type(), packageQualifier) != "error" || named == nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6113", Severity: "error", Message: "native constructor " + constructor + " has type " + types.TypeString(object.Type(), packageQualifier), Address: resource.Address, Suggestions: []string{expected}})
 			continue
 		}
 		diagnostics = append(diagnostics, validateLifecycleMethods(resource, named)...)
@@ -131,6 +130,7 @@ func validateLifecycleMethods(resource Resource, named *types.Named) []Diagnosti
 
 func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	for _, operation := range resources {
 		if operation.Kind != "scenery.operation" || operation.Origin.Kind != "authored" {
 			continue
@@ -143,12 +143,9 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 		if methodName == "" {
 			continue
 		}
-		var serviceResource Resource
-		for _, candidate := range resources {
-			if candidate.Kind == "scenery.service" && candidate.Module == operation.Module && candidate.Origin.Kind == "authored" {
-				serviceResource = candidate
-				break
-			}
+		serviceResource := byAddress[resolveResourceRef(operation, refString(operation.Spec["service"]), "service")]
+		if compiler.IsExternalWorkerRuntime(stringValue(serviceResource.Spec["runtime"])) {
+			continue
 		}
 		implementation, _ := serviceResource.Spec["implementation"].(map[string]any)
 		pkg := nativeGoPackage(appModel, resources, operation.Module)
@@ -157,51 +154,40 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6101", Severity: "error", Message: "native operation " + operation.Address + " has no Go service type", Address: operation.Address})
 			continue
 		}
+		streaming := operationUsesHTTPStream(operation, resources)
+		expected := expectedSignature(goHandlerSignature(methodName, operation.Name, named.Obj().Name(), streaming))
 		selection := types.NewMethodSet(types.NewPointer(named)).Lookup(nil, methodName)
 		if selection == nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6103", Severity: "error", Message: "native handler method " + methodName + " not found", Address: operation.Address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6103", Severity: "error", Message: "native handler method " + methodName + " not found", Address: operation.Address, Suggestions: []string{expected}})
 			continue
 		}
-		streaming := operationUsesHTTPStream(operation, resources)
 		wantResults := 2
 		if streaming {
 			wantResults = 3
 		}
 		signature, ok := selection.Obj().Type().(*types.Signature)
-		if !ok || signature.Params().Len() != 2 || signature.Results().Len() != wantResults {
-			message := "native handler " + methodName + " must accept context and generated input and return generated outcome plus error"
-			if streaming {
-				message = "native streaming handler " + methodName + " must accept context and generated input and return generated outcome, scenery.ByteStream, and error"
-			}
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6104", Severity: "error", Message: message, Address: operation.Address})
+		observed := "native handler " + methodName + " has type " + types.TypeString(selection.Obj().Type(), packageQualifier)
+		if !ok || signature.Params().Len() != 2 || signature.Results().Len() != wantResults || !isContextParameter(signature) {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6104", Severity: "error", Message: observed, Address: operation.Address, Suggestions: []string{expected}})
 			continue
 		}
-		inputWant := goName(operation.Name) + "Input"
-		outcomeWant := goName(operation.Name) + "Outcome"
-		inputType := signature.Params().At(1).Type()
-		outcomeType := signature.Results().At(0).Type()
-		inputGot := types.TypeString(inputType, packageQualifier)
-		outcomeGot := types.TypeString(outcomeType, packageQualifier)
-		errorIndex := 1
-		streamGot := ""
+		name := goName(operation.Name)
+		valid := contractTypeMatches(signature.Params().At(1).Type(), name+"Input") &&
+			contractTypeMatches(signature.Results().At(0).Type(), name+"Outcome") &&
+			types.TypeString(signature.Results().At(wantResults-1).Type(), packageQualifier) == "error"
 		if streaming {
-			streamGot = types.TypeString(signature.Results().At(1).Type(), packageQualifier)
-			errorIndex = 2
-		}
-		errorGot := types.TypeString(signature.Results().At(errorIndex).Type(), packageQualifier)
-		valid := contractTypeMatches(inputType, inputWant) && contractTypeMatches(outcomeType, outcomeWant) && errorGot == "error"
-		if streaming {
-			valid = valid && (streamGot == "scenery.sh.ByteStream" || strings.HasSuffix(streamGot, "/runtime.ContractByteStream"))
+			stream := types.TypeString(signature.Results().At(1).Type(), packageQualifier)
+			valid = valid && (stream == "scenery.sh.ByteStream" || strings.HasSuffix(stream, "/runtime.ContractByteStream"))
 		}
 		if !valid {
-			if streaming {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: fmt.Sprintf("native streaming handler %s has (%s) (%s, %s, %s), want scenerycontract.%s -> scenerycontract.%s, scenery.ByteStream, error", methodName, inputGot, outcomeGot, streamGot, errorGot, inputWant, outcomeWant), Address: operation.Address})
-			} else {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: fmt.Sprintf("native handler %s has (%s) (%s, %s), want scenerycontract.%s -> scenerycontract.%s, error", methodName, inputGot, outcomeGot, errorGot, inputWant, outcomeWant), Address: operation.Address})
-			}
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: observed, Address: operation.Address, Suggestions: []string{expected}})
 		}
 	}
 	return diagnostics
+}
+
+func isContextParameter(signature *types.Signature) bool {
+	return types.TypeString(types.Unalias(signature.Params().At(0).Type()), packageQualifier) == "context.Context"
 }
 
 // contractTypeMatches accepts the generated contract type named want or any

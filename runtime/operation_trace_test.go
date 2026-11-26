@@ -25,7 +25,7 @@ func TestDurableAttemptsTraceSQLAndKeepDispatchParent(t *testing.T) {
 	}
 	var previous string
 	for _, failure := range []error{errors.New("failed"), nil} {
-		ctx, end := enterDurableInvocation(context.Background(), "worker", "task", "job", time.Second, durableInvocationMetadataFromJSON(encoded), 0)
+		ctx, end := enterDurableInvocation(context.Background(), "worker", "task", "job", time.Second, durableInvocationMetadataFromJSON(encoded), 0, "", "", 1)
 		span := stateFromContext(ctx).trace
 		token, _ := runtimeapi.InvocationFromContext(ctx)
 		if span == nil || span.traceID != parent.trace.traceID || span.parentSpanID != parent.trace.spanID || span.spanID == previous || token.TraceID() != span.traceID {

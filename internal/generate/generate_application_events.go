@@ -71,7 +71,7 @@ func renderScheduleRegistration(b *strings.Builder, resources map[string]Resourc
 	catchup, _ := schedule.Spec["catchup"].(map[string]any)
 	operationName := goName(operation.Name)
 	policy := renderContractInvocationPolicy(resources, schedule, schedule.Address, invoke["authorization"], invoke["pipeline"])
-	identity, err := renderWorkloadIdentity(resources, schedule, invoke["identity"])
+	identity, err := renderWorkloadIdentity(invoke["identity"])
 	if err != nil {
 		return fmt.Errorf("schedule %s identity: %w", schedule.Address, err)
 	}
@@ -88,22 +88,10 @@ func renderScheduleRegistration(b *strings.Builder, resources map[string]Resourc
 	return nil
 }
 
-func renderWorkloadIdentity(resources map[string]Resource, owner Resource, value any) (string, error) {
-	reference := refOrString(value)
-	address, issuer, principalType := reference, "std.identity_issuer.runtime", "std.type.workload_principal"
-	claims := map[string]any{"workload": lastRef(reference)}
-	if !strings.HasPrefix(reference, "std.workload_identity.") {
-		address = resolveResourceRef(owner, refString(value), "workload_identity")
-		identity, ok := resources[address]
-		if !ok || identity.Kind != "scenery.workload-identity" {
-			return "", fmt.Errorf("reference %s does not resolve", reference)
-		}
-		issuer, principalType = refOrString(identity.Spec["issuer"]), refOrString(identity.Spec["principal_type"])
-		claims, _ = identity.Spec["claims"].(map[string]any)
+func renderWorkloadIdentity(value any) (string, error) {
+	const address = "std.workload_identity.scheduler"
+	if refOrString(value) != address {
+		return "", fmt.Errorf("schedule identity must be %s", address)
 	}
-	encoded, err := MarshalCanonical(claims)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("sceneryruntime.ContractWorkloadIdentity{Address: %q, Issuer: %q, PrincipalType: %q, ClaimsJSON: %q}", address, issuer, principalType, string(encoded)), nil
+	return `sceneryruntime.ContractWorkloadIdentity{Address: "std.workload_identity.scheduler", Issuer: "std.identity_issuer.runtime", PrincipalType: "std.type.workload_principal", ClaimsJSON: "{\"workload\":\"scheduler\"}"}`, nil
 }

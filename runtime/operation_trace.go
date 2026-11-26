@@ -7,12 +7,18 @@ import (
 	"sync"
 	"time"
 
+	"scenery.sh/errs"
 	"scenery.sh/internal/devreport"
 )
 
 // beginOperationTrace gives a framework-owned execution its own identity while
 // preserving the invocation token, authentication and generation admission.
 func beginOperationTrace(ctx context.Context, kind, service, operation string, attributes map[string]any) (context.Context, func(error)) {
+	traceCtx, end := beginOperationTraceAt(ctx, kind, service, operation, attributes, time.Now().UTC())
+	return traceCtx, func(err error) { end(time.Now().UTC(), err) }
+}
+
+func beginOperationTraceAt(ctx context.Context, kind, service, operation string, attributes map[string]any, started time.Time) (context.Context, func(time.Time, error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -21,13 +27,12 @@ func beginOperationTrace(ctx context.Context, kind, service, operation string, a
 		state = currentState()
 	}
 	if state == nil || !state.traceEnabled {
-		return ctx, func(error) {}
+		return ctx, func(time.Time, error) {}
 	}
 	if service == "" {
 		service = state.request.Service
 	}
 	clone := *state
-	started := time.Now().UTC()
 	span := &traceSpan{traceID: newTraceID(), spanID: newSpanID(), spanType: kind, service: service, endpoint: operation, started: started, isRoot: true, requestType: state.request.Type, generation: state.processGeneration}
 	if traceID, _, ok := parseTraceParent("00-" + state.request.TraceID + "-1111111111111111-01"); ok {
 		span.traceID = traceID
@@ -42,23 +47,27 @@ func beginOperationTrace(ctx context.Context, kind, service, operation string, a
 	clone.request.Started, clone.started = started, started
 	reporter := activeReporter()
 	key := strings.ToLower(kind)
-	data := map[string]any{"service_name": service, "operation": operation}
+	data := make(map[string]any, len(attributes)+5)
 	for k, v := range attributes {
 		data[k] = v
+	}
+	data["service_name"], data["operation"] = service, operation
+	data["invocation_id"] = state.request.InvocationID
+	if state.workerRuntime != "" {
+		data["runtime"], data["module"] = state.workerRuntime, state.workerModule
 	}
 	if reporter != nil {
 		emitOperationEvent(reporter, span, started, map[string]any{"span_start": map[string]any{key: data}})
 	}
 	var once sync.Once
-	return withState(ctx, &clone), func(err error) {
+	return withState(ctx, &clone), func(ended time.Time, err error) {
 		once.Do(func() {
 			if reporter == nil {
 				return
 			}
-			ended := time.Now().UTC()
 			duration := uint64(max(0, ended.Sub(started)))
 			emitOperationEvent(reporter, span, ended, map[string]any{"span_end": map[string]any{"duration_nanos": duration, "status_code": statusCodeName(err), key: data, "error": traceError(err)}})
-			reporter.enqueue(devreport.ReportEnvelope{Type: "trace-summary", AppID: reporter.appID, TraceSummary: &devreport.TraceSummary{AppID: reporter.appID, TraceID: span.traceID, SpanID: span.spanID, Type: kind, IsRoot: span.isRoot, IsError: err != nil, StartedAt: started, DurationNanos: duration, ServiceName: service, EndpointName: optionalString(operation), ParentSpanID: optionalString(span.parentSpanID), Generation: span.generation}})
+			reporter.enqueue(devreport.ReportEnvelope{Type: "trace-summary", AppID: reporter.appID, TraceSummary: &devreport.TraceSummary{AppID: reporter.appID, TraceID: span.traceID, SpanID: span.spanID, Type: kind, InvocationCorrelation: invocationCorrelation(state), ErrorCode: traceErrorCode(err), IsRoot: span.isRoot, IsError: err != nil, StartedAt: started, DurationNanos: duration, ServiceName: service, EndpointName: optionalString(operation), ParentSpanID: optionalString(span.parentSpanID), Generation: span.generation}})
 		})
 	}
 }
@@ -126,4 +135,30 @@ func operationTraceIdentity(policy *ContractHTTPPolicy, fallback string, attribu
 		}
 	}
 	return fallback, attributes
+}
+
+func invocationCorrelation(state *requestState) devreport.InvocationCorrelation {
+	return devreport.InvocationCorrelation{InvocationID: state.request.InvocationID, ExecutionID: state.request.ExecutionID, Module: state.workerModule, Runtime: state.workerRuntime}
+}
+
+type traceCodedError string
+
+func (e traceCodedError) Error() string { return string(e) }
+
+func traceErrorCode(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	}
+	if code, ok := errors.AsType[traceCodedError](err); ok {
+		return string(code)
+	}
+	if failure, ok := errors.AsType[*ContractTransportError](err); ok {
+		return failure.Outcome
+	}
+	return string(errs.Code(err))
 }

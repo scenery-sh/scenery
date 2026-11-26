@@ -1,0 +1,460 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
+	"strconv"
+	"strings"
+
+	"scenery.sh/auth"
+	"scenery.sh/internal/app"
+	"scenery.sh/internal/build"
+	cp "scenery.sh/internal/clientprojection"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/contract"
+	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/rustbuild"
+	workerruntime "scenery.sh/runtime"
+)
+
+type workerBundle struct {
+	Version              int                             `json:"version"`
+	ContractRevision     string                          `json:"contract_revision"`
+	Host                 workerruntime.ProcessHostConfig `json:"host"`
+	Types                contract.ManifestTypes          `json:"types"`
+	Programs             []workerProgram                 `json:"programs"`
+	Frontend             *workerFrontend                 `json:"frontend,omitempty"`
+	Auth                 *auth.StandardConfig            `json:"auth,omitempty"`
+	HostConfigKeys       []string                        `json:"host_config_keys,omitempty"`
+	AssistantAssets      []workerBundledAssistantAsset   `json:"assistant_assets,omitempty"`
+	builtAssistantAssets []generateapi.AssistantAssetInput
+	config               *workerruntime.ConfigSnapshot
+}
+
+type workerBundledAssistantAsset struct {
+	Descriptor        workerruntime.AssistantAssetDescriptor `json:"descriptor"`
+	DescriptorFile    string                                 `json:"descriptor_file"`
+	NodeArchive       string                                 `json:"node_archive"`
+	NodeDescriptor    string                                 `json:"node_descriptor"`
+	CapsuleArchive    string                                 `json:"capsule_archive"`
+	CapsuleDescriptor string                                 `json:"capsule_descriptor"`
+}
+
+type workerProgram struct {
+	Service    string                `json:"service"`
+	Process    string                `json:"process"`
+	Binary     string                `json:"binary"`
+	Digest     string                `json:"digest"`
+	Runtime    string                `json:"runtime"`
+	Identity   workerProcessIdentity `json:"identity"`
+	Databases  map[string]string     `json:"databases,omitempty"`
+	ConfigKeys []string              `json:"config_keys,omitempty"`
+	config     *workerruntime.ConfigSnapshot
+}
+
+func usesWorkerBundle(result *compiler.Result) bool {
+	return result != nil && result.Manifest != nil && compiler.UsesWorkerBundle(result.Manifest.Resources)
+}
+
+func projectRustBuilds(result *compiler.Result, plan []workerruntime.WorkerServicePlan, role string) (map[string]rustbuild.Service, error) {
+	resources := cp.ResourcesByAddress(result.Manifest)
+	modules := make(map[string]graph.Resource)
+	for _, module := range result.Manifest.Resources {
+		if module.Kind == "scenery.module" {
+			modules[cp.ModuleInstancePath(module)] = module
+		}
+	}
+	services := make(map[string]rustbuild.Service)
+	for _, service := range plan {
+		if cp.StringValue(resources[service.Address].Spec["runtime"]) != "rust" {
+			continue
+		}
+		module := modules[service.Module]
+		moduleDirectory := cp.StringValue(module.Spec["workspace_package_root"])
+		packageSpec, _ := module.Spec["package"].(map[string]any)
+		rustContract, _ := packageSpec["rust_contract"].(map[string]any)
+		selected := rustbuild.Service{
+			ModuleDirectory: moduleDirectory, Crate: cp.StringValue(rustContract["crate"]), ServiceName: service.Name,
+		}
+		for _, target := range result.Manifest.Resources {
+			if target.Kind != "scenery.rust-target" || cp.StringValue(target.Spec["role"]) != role {
+				continue
+			}
+			workspace := resources[workerReference(target, target.Spec["workspace"], "rust_workspace")]
+			toolchain := resources[workerReference(target, target.Spec["toolchain"], "rust_toolchain")]
+			root := cp.StringValue(workspace.Spec["root"])
+			relative, err := filepath.Rel(root, moduleDirectory)
+			if root == "" || err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				continue
+			}
+			if selected.Workspace != "" && (root == selected.Workspace || len(root) <= len(selected.Workspace)) {
+				continue
+			}
+			selected.Workspace, selected.Toolchain = root, cp.StringValue(toolchain.Spec["version"])
+		}
+		if selected.Workspace == "" || selected.Toolchain == "" || selected.Crate == "" {
+			return nil, fmt.Errorf("service %s has no selected %s Cargo target", service.Address, role)
+		}
+		services[service.Address] = selected
+	}
+	return services, nil
+}
+
+func validateWorkerBundleTargetPlatform(result *compiler.Result, role, goTarget string) error {
+	if result == nil || result.Manifest == nil {
+		return nil
+	}
+	hasGoService := false
+	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
+		if firstNonEmpty(cp.StringValue(service.Spec["runtime"]), "go") == "go" {
+			hasGoService = true
+			break
+		}
+	}
+	if goTarget == "" && !hasGoService {
+		return nil
+	}
+	target, err := compiler.ResolveGoBuildTarget(result, goTarget, role)
+	if err != nil {
+		return err
+	}
+	if target.Context.GOOS != goruntime.GOOS || target.Context.GOARCH != goruntime.GOARCH {
+		return preconditionErrorf("worker bundle target %q (%s/%s) does not match host platform %s/%s; worker bundles package host-built executables", target.Name, target.Context.GOOS, target.Context.GOARCH, goruntime.GOOS, goruntime.GOARCH)
+	}
+	return nil
+}
+
+// buildWorkerBundle builds every worker of the application for role. goTarget
+// names the go_target of its Go services; empty selects the one with that role.
+func buildWorkerBundle(ctx context.Context, result *compiler.Result, role, goTarget string, check bool) (workerBundle, error) {
+	if !check {
+		if err := validateWorkerBundleTargetPlatform(result, role, goTarget); err != nil {
+			return workerBundle{}, err
+		}
+	}
+	var bundle workerBundle
+	bundle, selection, services, err := prepareWorkerBundle(ctx, result, role, check)
+	if err != nil {
+		return bundle, err
+	}
+	js, err := projectJSBuilds(result, bundle, role)
+	if err != nil {
+		return bundle, err
+	}
+	for _, build := range js {
+		program, _, err := build.run(ctx, result.Root, check, nil)
+		if err != nil {
+			return bundle, err
+		}
+		if !check {
+			bundle.Programs = append(bundle.Programs, program)
+		}
+	}
+	if len(bundle.Host.Assistants) > 0 && (role == "artifact" || check) {
+		assets, err := build.BuildWorkerAssistantAssets(ctx, result.Root, result, goTarget, check)
+		if err != nil {
+			return workerBundle{}, err
+		}
+		bundle.builtAssistantAssets = assets
+	}
+	artifacts, err := rustbuild.Build(ctx, result.Root, services, role == "artifact", check)
+	if err != nil || check {
+		return bundle, err
+	}
+	bundle.addRustWorkers(result, selection, artifacts)
+	if _, err := bundle.addGoWorkers(ctx, result, role, goTarget, nil, nil); err != nil {
+		return workerBundle{}, err
+	}
+	if err := bundle.projectConfig(result); err != nil {
+		return workerBundle{}, err
+	}
+	return bundle, nil
+}
+
+func prepareWorkerBundle(ctx context.Context, result *compiler.Result, role string, check bool) (workerBundle, map[string]rustbuild.Service, []rustbuild.Service, error) {
+	if result == nil || !result.Valid() {
+		return workerBundle{}, nil, nil, fmt.Errorf("application compilation has errors")
+	}
+	plan, err := projectWorkerServices(result.Manifest)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
+	}
+	assistants, err := projectWorkerAssistants(result)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
+	}
+	selection, err := projectRustBuilds(result, plan, role)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
+	}
+	if _, err := generate.GenerateSnapshotWithContext(ctx, result, "contracts", check); err != nil {
+		return workerBundle{}, nil, nil, err
+	}
+	var services []rustbuild.Service
+	for _, service := range plan {
+		if selected, exists := selection[service.Address]; exists {
+			services = append(services, selected)
+		}
+	}
+	types, err := projectWorkerTypes(result.Manifest)
+	if err != nil {
+		return workerBundle{}, nil, nil, err
+	}
+	bundle := workerBundle{
+		Version: 1, ContractRevision: result.Manifest.ContractRevision,
+		Host:  workerruntime.ProcessHostConfig{Name: result.Manifest.Application.Name, Workers: plan, Assistants: assistants},
+		Types: types,
+	}
+	return bundle, selection, services, nil
+}
+
+func (bundle *workerBundle) addRustWorkers(result *compiler.Result, selection map[string]rustbuild.Service, artifacts map[rustbuild.Service]rustbuild.Artifact) {
+	resources := cp.ResourcesByAddress(result.Manifest)
+	for _, service := range bundle.Host.Workers {
+		artifact, exists := artifacts[selection[service.Address]]
+		if !exists {
+			continue
+		}
+		bundle.Programs = append(bundle.Programs, workerProgram{
+			Service: service.Address, Process: service.Process, Binary: artifact.Path, Digest: artifact.Digest, Runtime: "rust",
+			Identity: workerProcessIdentity{
+				ContractRevision:       compiler.ServiceContractRevision(result.Manifest, resources[service.Address], nil),
+				ImplementationRevision: artifact.Digest, BuildInputDigest: artifact.Digest, Target: "rust",
+			},
+		})
+	}
+}
+
+// addGoWorkers links the Go services from the named go_target, or from the
+// target with the given role when goTarget is empty. A retained preparation
+// keeps the target it was prepared for.
+func (bundle *workerBundle) addGoWorkers(ctx context.Context, compiled *compiler.Result, role, goTarget string, preparation *build.Result, retained []string) (*build.Result, error) {
+	goProcesses := make(map[string]string)
+	resources := cp.ResourcesByAddress(compiled.Manifest)
+	for _, service := range bundle.Host.Workers {
+		if cp.StringValue(resources[service.Address].Spec["runtime"]) == "go" {
+			goProcesses[service.Address] = service.Process
+		}
+	}
+	if len(goProcesses) == 0 {
+		return nil, nil
+	}
+	if err := validateWorkerBundleTargetPlatform(compiled, role, goTarget); err != nil {
+		return nil, err
+	}
+	root, cfg, err := app.DiscoverRoot(compiled.Root)
+	if err != nil {
+		return nil, err
+	}
+	reused := false
+	if preparation != nil {
+		copy := *preparation
+		copy.Contract = compiled
+		preparation = &copy
+		reused, err = build.PrepareCachedWorkspaceHeldContext(ctx, root, cfg, preparation, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !reused {
+		preparation, err = build.PrepareForTargetWithContractSnapshotContext(ctx, root, cfg, nil, compiled, goTarget, role)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer preparation.ReleaseWorkspace()
+	processes, join, err := build.BuildDevelopmentWorkersContext(ctx, preparation, retained)
+	if err != nil {
+		return nil, err
+	}
+	if err := join(); err != nil {
+		return nil, err
+	}
+	for _, process := range processes.Services {
+		identity := process.Identity
+		bundle.Programs = append(bundle.Programs, workerProgram{
+			Service: process.Service, Process: goProcesses[process.Service], Binary: process.Binary, Digest: process.ArtifactDigest, Runtime: "go",
+			Identity: workerProcessIdentity{
+				ContractRevision: identity.ContractRevision, ImplementationRevision: identity.ImplementationRevision,
+				BuildInputDigest: identity.BuildInputDigest, Target: identity.GoTarget,
+			},
+		})
+	}
+	return preparation, nil
+}
+
+func projectWorkerTypes(manifest *graph.Manifest) (contract.ManifestTypes, error) {
+	types := make(contract.ManifestTypes)
+	resources := cp.ResourcesByAddress(manifest)
+	for _, resource := range manifest.Resources {
+		shape := contract.ManifestShape{Open: resource.Spec["open"] == true}
+		switch resource.Kind {
+		case "scenery.record":
+			shape.Kind = "record"
+			shape.UnknownFields = cp.StringValue(resource.Spec["unknown_fields"])
+			for _, field := range cp.NamedChildren(resource.Spec, "field") {
+				projected := projectWorkerField(resource, field)
+				if _, exists := field["default"]; exists {
+					wire, err := compiler.StaticFieldDefaultJSON(resources, resource, field)
+					if err != nil {
+						return nil, fmt.Errorf("record %s field %s default: %w", resource.Address, projected.Name, err)
+					}
+					projected.Default = wire
+				}
+				shape.Fields = append(shape.Fields, projected)
+			}
+		case "scenery.enum":
+			shape.Kind = "enum"
+			for _, value := range cp.NamedChildren(resource.Spec, "value") {
+				shape.Values = append(shape.Values, cp.WireName(value, cp.StringValue(value["name"])))
+			}
+		case "scenery.union":
+			shape.Kind = "union"
+			shape.Discriminator = cp.StringValue(resource.Spec["discriminator"])
+			shape.Variants = make(map[string]string)
+			for _, variant := range cp.NamedChildren(resource.Spec, "variant") {
+				shape.Variants[cp.WireName(variant, cp.StringValue(variant["name"]))] = workerTypeExpression(resource.Module, variant["type"])
+			}
+		default:
+			continue
+		}
+		types[resource.Address] = shape
+	}
+	return types, nil
+}
+
+func projectWorkerField(resource graph.Resource, field map[string]any) contract.ManifestField {
+	constraints := contract.ContractConstraints{
+		Pattern: cp.StringValue(field["pattern"]), Format: cp.StringValue(field["format"]), UniqueItems: field["unique_items"] == true,
+	}
+	for key, target := range map[string]**int64{
+		"min_length": &constraints.MinLength, "max_length": &constraints.MaxLength,
+		"min_items": &constraints.MinItems, "max_items": &constraints.MaxItems,
+	} {
+		if value, ok := cp.IntegerValue(field[key]); ok {
+			*target = new(int64(value))
+		}
+	}
+	if value := cp.StringValue(field["minimum"]); value != "" {
+		constraints.Minimum = new(value)
+	}
+	if value := cp.StringValue(field["maximum"]); value != "" {
+		constraints.Maximum = new(value)
+	}
+	return contract.ManifestField{
+		Name: cp.WireName(field, cp.StringValue(field["name"])), Type: workerTypeExpression(resource.Module, field["type"]),
+		Constraints: constraints,
+	}
+}
+
+func writeWorkerBundle(bundle workerBundle, destination string) error {
+	parent := filepath.Dir(destination)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(destination); err == nil || !os.IsNotExist(err) {
+		return fmt.Errorf("bundle destination already exists or cannot be inspected: %s", destination)
+	}
+	staging, err := os.MkdirTemp(parent, ".worker-bundle-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+	if err := os.Mkdir(filepath.Join(staging, "services"), 0o755); err != nil {
+		return err
+	}
+	if bundle.Frontend != nil {
+		frontend := *bundle.Frontend
+		relative := filepath.Join("frontends", frontend.Name)
+		if err := os.CopyFS(filepath.Join(staging, relative), os.DirFS(frontend.Root)); err != nil {
+			return err
+		}
+		frontend.Root = filepath.ToSlash(relative)
+		bundle.Frontend = &frontend
+	}
+	for i, program := range bundle.Programs {
+		relative := filepath.ToSlash(filepath.Join("services", program.Process))
+		if err := copyWorkerExecutable(program.Binary, filepath.Join(staging, filepath.FromSlash(relative))); err != nil {
+			return err
+		}
+		bundle.Programs[i].Binary = relative
+	}
+	if len(bundle.builtAssistantAssets) > 0 {
+		for index, asset := range bundle.builtAssistantAssets {
+			relativeDir := filepath.ToSlash(filepath.Join("assistants", strconv.Itoa(index)))
+			if err := os.MkdirAll(filepath.Join(staging, filepath.FromSlash(relativeDir)), 0o755); err != nil {
+				return err
+			}
+			descriptorJSON, err := json.Marshal(asset.Descriptor)
+			if err != nil {
+				return err
+			}
+			descriptorFile := relativeDir + "/descriptor.json"
+			nodeArchive := relativeDir + "/node.tar.gz"
+			nodeDescriptor := relativeDir + "/node.descriptor.json"
+			capsuleArchive := relativeDir + "/capsule.tar.gz"
+			capsuleDescriptor := relativeDir + "/capsule.descriptor.json"
+			for relative, data := range map[string][]byte{
+				descriptorFile:    descriptorJSON,
+				nodeArchive:       asset.NodeArchive,
+				nodeDescriptor:    asset.NodeDescriptorJSON,
+				capsuleArchive:    asset.CapsuleArchive,
+				capsuleDescriptor: asset.CapsuleDescriptorJSON,
+			} {
+				if err := os.WriteFile(filepath.Join(staging, filepath.FromSlash(relative)), data, 0o644); err != nil {
+					return err
+				}
+			}
+			bundle.AssistantAssets = append(bundle.AssistantAssets, workerBundledAssistantAsset{
+				Descriptor: workerruntime.AssistantAssetDescriptor{
+					Kind:                 asset.Descriptor.Kind,
+					SchemaRevision:       asset.Descriptor.SchemaRevision,
+					AssistantAddress:     asset.Descriptor.AssistantAddress,
+					Target:               asset.Descriptor.Target,
+					RuntimeRevision:      asset.Descriptor.RuntimeRevision,
+					CapabilityRevision:   asset.Descriptor.CapabilityRevision,
+					NodeArchiveDigest:    asset.Descriptor.NodeArchiveDigest,
+					NodeTreeDigest:       asset.Descriptor.NodeTreeDigest,
+					CapsuleArchiveDigest: asset.Descriptor.CapsuleArchiveDigest,
+					CapsuleTreeDigest:    asset.Descriptor.CapsuleTreeDigest,
+					CapsuleEntry:         asset.Descriptor.CapsuleEntry,
+					PackageLockDigest:    asset.Descriptor.PackageLockDigest,
+				},
+				DescriptorFile:    descriptorFile,
+				NodeArchive:       nodeArchive,
+				NodeDescriptor:    nodeDescriptor,
+				CapsuleArchive:    capsuleArchive,
+				CapsuleDescriptor: capsuleDescriptor,
+			})
+		}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := copyWorkerExecutable(executable, filepath.Join(staging, "scenery-host")); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(staging, "manifest.json"), append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(staging, destination)
+}
+
+func copyWorkerExecutable(source, target string) error {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, data, 0o755)
+}

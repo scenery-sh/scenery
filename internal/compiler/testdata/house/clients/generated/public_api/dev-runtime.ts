@@ -7,9 +7,9 @@
 // Deployed origins do not serve it.
 
 export const DEV_RUNTIME_STATUS_KIND = "scenery.dev-runtime.status";
-export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:50d87d2565ab839da6883c12d91522fad5f9c9cca1efd93f92e214f8ad8a4b13";
+export const DEV_RUNTIME_STATUS_SCHEMA_REVISION = "sha256:31018f9d0d0e6e25e58a7ffbab06046245dba58ec9b7c189c729f2b4ab74dbb1";
 export const DEV_RUNTIME_WAIT_KIND = "scenery.dev-runtime.wait";
-export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:dc36724d72083795a756f634e96013ebd326eb6f0bbfedaf42b46eefa96ee4e8";
+export const DEV_RUNTIME_WAIT_SCHEMA_REVISION = "sha256:c762a72a445a9b6c8925c8cd8d174ef31e2c286407de0fac41f4e51ea24f9eb0";
 
 /**
  * The runtime's limit for one request, in UTF-8 bytes (1 MiB). The runtime
@@ -112,6 +112,8 @@ export interface DevRuntimeStatus {
 	readonly session_status_reason?: string;
 	readonly compiling: boolean;
 	readonly compile_error?: string;
+	readonly build_failure?: DevRuntimeBuildFailure;
+	readonly rebuild_timing?: DevRuntimeRebuildTiming;
 	readonly pid?: string;
 	/** Identity of the last published source, with the current serving generation. */
 	readonly serving?: DevRuntimeServingIdentity;
@@ -156,9 +158,29 @@ export interface DevRuntimeSourceWait {
 	readonly source_freshness: string;
 	/** Present for `failed`. */
 	readonly compile_error?: string;
+	readonly build_failure?: DevRuntimeBuildFailure;
+	readonly rebuild_timing?: DevRuntimeRebuildTiming;
 	/** Present for `blocked`. */
 	readonly build_block?: DevRuntimeBuildBlock;
 	readonly waited_ms: number;
+}
+
+export interface DevRuntimeBuildFailure {
+	readonly module?: string;
+	readonly file?: string;
+	readonly line?: number;
+	readonly column?: number;
+	readonly stderr: string;
+}
+
+export interface DevRuntimeRebuildTiming {
+	readonly generation: number;
+	readonly rebuilt_modules: readonly string[];
+	readonly skipped_modules: readonly string[];
+	readonly detect_ms: number;
+	readonly compile_ms: number;
+	readonly ready_ms: number;
+	readonly total_ms: number;
 }
 
 export interface DevRuntimeBuildBlock {

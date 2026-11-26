@@ -18,7 +18,7 @@
       "const": "scenery.dev-runtime.wait"
     },
     "schema_revision": {
-      "const": "sha256:dc36724d72083795a756f634e96013ebd326eb6f0bbfedaf42b46eefa96ee4e8"
+      "const": "sha256:c762a72a445a9b6c8925c8cd8d174ef31e2c286407de0fac41f4e51ea24f9eb0"
     },
     "ok": {
       "type": "boolean"
@@ -132,6 +132,12 @@
     "waited_ms": {
       "type": "integer",
       "minimum": 0
+    },
+    "build_failure": {
+      "$ref": "#/$defs/buildFailure"
+    },
+    "rebuild_timing": {
+      "$ref": "#/$defs/rebuildTiming"
     }
   },
   "allOf": [
@@ -222,5 +228,130 @@
         ]
       }
     }
-  ]
+  ],
+  "$defs": {
+    "buildFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stderr"
+      ],
+      "properties": {
+        "module": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stderr": {
+          "type": "string"
+        }
+      }
+    },
+    "rebuildTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generation",
+        "rebuilt_modules",
+        "skipped_modules",
+        "detect_ms",
+        "compile_ms",
+        "ready_ms",
+        "total_ms"
+      ],
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "declarations": {
+          "type": "boolean"
+        },
+        "go": {
+          "type": "boolean"
+        },
+        "go_links": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "js": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cargo": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rebuilt": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rebuilt_modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skipped_modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "detect_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "contract_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "go_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "js_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "cargo_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "compile_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "ready_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "total_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
 }

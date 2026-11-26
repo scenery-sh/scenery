@@ -12,19 +12,18 @@ func TestFeatureGrammarSeparatesPreviewAndApprovedPublication(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
 		{"land", "one", "two", "-o", "json"},
+		{"land", "--candidate", "candidate", "-o", "json"},
 		{"land", "--candidate", "candidate", "--yes", "--expect-revision", "revision", "-o", "json"},
 		{"check", "one"},
 		{"check", "--candidate", "candidate", "--expect-revision", "revision"},
 		{"list", "--watch", "-o", "jsonl"},
 		{"create", "one", "--purpose", "Feature purpose", "--depends-on", "base"},
-		{"set", "one", "--no-dependencies"},
 	} {
 		if _, err := parseFeatureArgs(args); err != nil {
 			t.Fatalf("valid invocation %v: %v", args, err)
 		}
 	}
 	for _, args := range [][]string{
-		{"land", "--candidate", "candidate"},
 		{"land", "--candidate", "candidate", "--yes"},
 		{"land", "one", "two", "--commit", "checkpoint"},
 		{"list", "--yes", "--expect-revision", "revision"},
@@ -33,7 +32,6 @@ func TestFeatureGrammarSeparatesPreviewAndApprovedPublication(t *testing.T) {
 		{"check", "--candidate", "candidate"},
 		{"create", "one"},
 		{"register", "one", "--purpose", "Purpose"},
-		{"set", "one", "--depends-on", "base", "--no-dependencies"},
 	} {
 		if _, err := parseFeatureArgs(args); err == nil {
 			t.Fatalf("invalid invocation accepted: %v", args)

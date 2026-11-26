@@ -14,12 +14,13 @@ import (
 type dbQueryTraceKey struct{}
 
 type dbQueryTrace struct {
-	reporter  *devReporter
-	span      *traceSpan
-	started   time.Time
-	query     string
-	operation string
-	argsCount int
+	reporter    *devReporter
+	correlation devreport.InvocationCorrelation
+	span        *traceSpan
+	started     time.Time
+	query       string
+	operation   string
+	argsCount   int
 }
 
 const maxDBQueryLength = 2048
@@ -50,7 +51,8 @@ func TraceDBQueryStart(ctx context.Context, query string, argsCount int) context
 	query = normalizeDBQuery(query)
 	operation := dbQueryOperation(query)
 	trace := &dbQueryTrace{
-		reporter: reporter,
+		reporter:    reporter,
+		correlation: invocationCorrelation(state),
 		span: &traceSpan{
 			traceID:      state.trace.traceID,
 			spanID:       newSpanID(),
@@ -140,18 +142,20 @@ func TraceDBQueryEnd(ctx context.Context, commandTag string, rowsAffected int64,
 		Type:  "trace-summary",
 		AppID: trace.reporter.appID,
 		TraceSummary: &devreport.TraceSummary{
-			AppID:         trace.reporter.appID,
-			TraceID:       trace.span.traceID,
-			SpanID:        trace.span.spanID,
-			Type:          trace.span.spanType,
-			IsRoot:        false,
-			IsError:       err != nil,
-			StartedAt:     trace.started,
-			DurationNanos: uint64(duration),
-			ServiceName:   trace.span.service,
-			EndpointName:  optionalString(trace.span.endpoint),
-			ParentSpanID:  optionalString(trace.span.parentSpanID),
-			Generation:    trace.span.generation,
+			AppID:                 trace.reporter.appID,
+			TraceID:               trace.span.traceID,
+			SpanID:                trace.span.spanID,
+			Type:                  trace.span.spanType,
+			InvocationCorrelation: trace.correlation,
+			ErrorCode:             dbTraceErrorCode(err),
+			IsRoot:                false,
+			IsError:               err != nil,
+			StartedAt:             trace.started,
+			DurationNanos:         uint64(duration),
+			ServiceName:           trace.span.service,
+			EndpointName:          optionalString(trace.span.endpoint),
+			ParentSpanID:          optionalString(trace.span.parentSpanID),
+			Generation:            trace.span.generation,
 		},
 	})
 }
@@ -173,7 +177,15 @@ func dbTraceError(err error) any {
 	case errors.As(err, &state):
 		message += " (SQLSTATE " + state.SQLState() + ")"
 	}
-	return map[string]any{"msg": message}
+	return map[string]any{"msg": message, "code": dbTraceErrorCode(err)}
+}
+
+func dbTraceErrorCode(err error) string {
+	var state interface{ SQLState() string }
+	if errors.As(err, &state) {
+		return state.SQLState()
+	}
+	return traceErrorCode(err)
 }
 
 func dbQueryOperation(query string) string {

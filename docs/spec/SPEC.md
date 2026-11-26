@@ -7,9 +7,11 @@ language and runtime contract.
 ## 1. Files & Graph Model
 
 - `.scenery.json`: app root marker and independent runtime configuration (`envs`,
-  `frontends`, `build`, `watch`, `validation`).
+  `frontends`, `build`, `watch`, `validation`). `framework_version` can select
+  an exact prebuilt framework version without a `go.mod`.
 - `app.scn`: root application declarations (`workspace`, `go_module`,
-  `go_toolchain`, `go_target`, `application`, `http_gateway`, `provider`,
+  `go_toolchain`, `go_target`, `rust_workspace`, `rust_toolchain`,
+  `rust_target`, `application`, `http_gateway`, `provider`,
   `data_source`, `execution_engine`, `authentication`, `module`,
   `typescript_client`, `mcp_server`, `assistant`).
 - `<module>/package.scn`: package-local declarations (`package`, `input`,
@@ -33,7 +35,8 @@ operation + binding + execution + policy
   `idempotency { mode = "keyed"; key = [...] }`, and `handler { method = ... }`.
 - **binding**: exposes an operation via `protocol = "http"` (on an
   `http_gateway`) or `protocol = "internal"` (`visibility = "application" |
-  "package"`), with `delivery = "call" | "enqueue"`.
+  "package"`). Direct execution supports `call` and HTTP `stream`. Durable
+  execution supports `enqueue` and `wait`.
 - **execution**: `mode = "direct"` (timeout) or `mode = "durable"` (`engine`,
   `external_name`, `revision`, `timeout`, `lease`, `attempts`, `retry`,
   `retention`, `deduplication`). Changing persisted input while keeping
@@ -44,19 +47,24 @@ operation + binding + execution + policy
 ## 3. Types & Canonical Wire Format
 
 Scalar types: `string`, `bool`, `int` / `int32` / `int64`, `uint32` / `uint64`,
-`float64`, `decimal`, `bytes`, `timestamp`, `duration`, `uuid`, `json`.
-Composites: `list(T)`, `map(string, T)`, `optional(T)`, `nullable(T)`,
-`record`, `enum`, `union`.
+`float32` / `float64`, `decimal`, `bytes`, `uuid`, `date`, `datetime`,
+`duration`, `size`, `url`, `relative_path`, `json`. Deployment-phase package
+inputs may also declare `host_path`.
+Composites: `list(T)`, `set(T)`, `map(T)` (string keys), `tuple(T1, T2, ...)`,
+`optional(T)`, `nullable(T)`, `record`, `enum`, `union`.
 
 - `optional(nullable(T))` preserves the distinction between absent fields and
   explicit `null`.
 - Unknown fields are rejected by default (`unknown_fields = "reject"`).
 - Large integers (`int64`/`uint64`) and `decimal` preserve exact precision in
   JSON and TypeScript (`bigint` / exact string representations).
+- Floats use the shortest text that reads back as the same `float32` or
+  `float64`, in Go `strconv.FormatFloat(v, 'g', -1, bits)` form (`1`, `0.1`,
+  `1e+06`, `1.5e-07`). NaN, infinities and negative zero are invalid.
 - Canonical JSON serialization determines contract revisions and idempotency
   key hashes deterministically across runtimes.
 
-## 4. Go Implementation ABI
+## 4. Implementation ABI
 
 - Generated package `<module>/scenerycontract` exports typed input structs,
   sealed outcome interfaces/structs, constructor input (dependencies, declared
@@ -67,6 +75,40 @@ Composites: `list(T)`, `map(string, T)`, `optional(T)`, `nullable(T)`,
   compiled graph. Operation-to-operation calls across services go through
   generated `service.client` bindings so auth, policy, tracing, and generation
   pinning are preserved.
+- A Rust module declares `rust_contract { crate = "..." }` and services with
+  `runtime = "rust"`. The generated contract crate exports service traits,
+  typed outcomes, and clients derived from the caller's declarations. The
+  selected Cargo target checks the implementation and links it to the
+  [Worker ABI v1 adapter](WORKER-ABI.md).
+- A JavaScript or TypeScript service declares `runtime = "js"` or
+  `runtime = "ts"` and package metadata `js_contract { entry = "service.ts" }`.
+  The entry is a regular module-relative `.js`/`.mjs` or `.ts`/`.mts` file
+  matching the service runtime. Its named export comes from
+  `service.implementation.constructor`. Each worker service has its own
+  module directory. The nearest covering `js_workspace { root = "..." }`
+  selects its `js_target` with role `development` or `artifact`.
+  The target references the workspace and a `js_toolchain` with an exact
+  Bun release in `version`.
+- Generation publishes `<module>/scenerycontract` beneath a declared
+  `managed_generated_roots` entry. Its `index.ts` exports the constructor
+  and handler interfaces, operation types, and scoped `service.client`
+  clients. It uses the generated TypeScript client's exact codecs, including
+  `bigint` for 64-bit integers, exact decimal strings, and optional,
+  nullable properties. The constructor can open native database connections
+  using deployment-supplied URLs keyed by declared dependency name.
+- `scenery check` checks the TypeScript entry with `tsc --noEmit` and
+  bundles each JavaScript or TypeScript module to verify syntax and imports
+  without running application code. Development replaces only the worker
+  whose module build inputs changed. The artifact target embeds the JavaScript
+  and Bun runtime in a per-module executable in the Host's portable bundle.
+  Bundle execution requires the build platform and architecture.
+- A worker bundle links each Go service from the `go_target` its build
+  selects: the target named by `scenery build --target`, otherwise the target
+  with role `artifact`, or `development` for `scenery up` and
+  `scenery build --development`.
+- `service.runtime` selects the implementation adapter and contributes to the
+  implementation revision. Service declarations keep the same contract
+  revision when only the implementation runtime changes.
 
 ## 5. HTTP Contract & Neutrality
 
@@ -88,6 +130,13 @@ Composites: `list(T)`, `map(string, T)`, `optional(T)`, `nullable(T)`,
   Astryx + StyleX catalog).
 - Generated outputs live only beneath `workspace.managed_generated_roots` and
   are published atomically via `internal/workspacetx`.
+- A frontend can declare `adapter = "vite"` and `mode = "static"` in
+  `.scenery.json`. `scenery up` proxies Vite with same-origin HMR and APIs.
+  The environment's `serve = "production"` setting and a production worker
+  bundle serve the built tree through the same static handler.
+  An application with worker services serves only that root frontend, at its
+  own origin: `scenery up` rejects any other frontend the environment serves
+  instead of starting without it.
 
 ## 7. Revisions & Machine Envelopes
 

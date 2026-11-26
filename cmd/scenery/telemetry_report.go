@@ -249,7 +249,16 @@ func writeTelemetryReportHuman(stdout io.Writer, report telemetryreport.Report) 
 	}
 	cli := report.CLI
 	line("")
-	line("CLI commands (%d records, %d failed)", cli.Records, cli.Failures)
+	if err := writeDevTelemetryEvents(out, cli.Events); err != nil {
+		return err
+	}
+	line("CLI commands (%d records, %d failed, %d uptime)", cli.Records, cli.Failures, cli.UptimeRecords)
+	for _, category := range cli.ErrorCategories {
+		line("  %s: %d", category.Name, category.Count)
+	}
+	for _, diagnostic := range cli.Diagnostics {
+		line("  %s: %d", diagnostic.Name, diagnostic.Count)
+	}
 	rows = [][]string{timing("scenery up startup", cli.Startup)}
 	for index, command := range cli.Commands {
 		if index == 12 {

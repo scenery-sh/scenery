@@ -1,8 +1,6 @@
 package inspect
 
 import (
-	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/machine"
 )
 
@@ -12,36 +10,6 @@ type AppRef struct {
 	Root       string `json:"root"`
 	ConfigPath string `json:"config_path"`
 	ModulePath string `json:"module_path,omitempty"`
-}
-
-type AppResponse struct {
-	machine.PayloadIdentity
-	App             AppRef                   `json:"app"`
-	Config          appcfg.Config            `json:"config"`
-	Counts          AppCounts                `json:"counts"`
-	Services        []string                 `json:"services"`
-	AuthHandler     *AuthBriefInfo           `json:"auth_handler,omitempty"`
-	SQLRequirements compiler.SQLRequirements `json:"sql_requirements"`
-}
-
-type AppCounts struct {
-	Packages            int `json:"packages"`
-	Services            int `json:"services"`
-	Endpoints           int `json:"endpoints"`
-	Middleware          int `json:"middleware"`
-	AuthHandler         int `json:"auth_handler"`
-	RuntimeDeclarations int `json:"runtime_declarations"`
-}
-
-type AuthBriefInfo struct {
-	Service string `json:"service"`
-	Name    string `json:"name"`
-}
-
-type ServicesResponse struct {
-	machine.PayloadIdentity
-	App      AppRef           `json:"app"`
-	Services []ServiceDetails `json:"services"`
 }
 
 type ServiceDetails struct {
@@ -71,12 +39,6 @@ type RoutesResponse struct {
 	machine.PayloadIdentity
 	App    AppRef        `json:"app"`
 	Routes []RouteRecord `json:"routes"`
-}
-
-type EndpointsResponse struct {
-	machine.PayloadIdentity
-	App       AppRef           `json:"app"`
-	Endpoints []EndpointRecord `json:"endpoints"`
 }
 
 type RouteRecord struct {

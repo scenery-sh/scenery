@@ -1,0 +1,319 @@
+package "pricing" {
+  rust_contract {
+    crate = "pricing"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+input "typescript" { type = resource_ref("binding") }
+input "native" { type = resource_ref("binding") }
+input "session" { type = resource_ref("authentication") }
+input "currency" {
+  type    = string
+  phase   = "deployment"
+  default = "EUR"
+}
+input "jobs" {
+  type     = resource_ref("execution_engine")
+  phase    = "deployment"
+  requires = ["execution.durable/v1"]
+}
+
+service "pricing" {
+  runtime = "rust"
+  implementation {
+    constructor = "NewService"
+  }
+  client "native" { binding = var.native }
+  client "typescript" { binding = var.typescript }
+  config { currency = var.currency }
+}
+
+record "quote_input" {
+  field "amount" { type = int64 }
+  field "note" { type = optional(nullable(string)) }
+  field "delay_ms" { type = optional(int32) }
+}
+
+record "quote_result" {
+  field "vendor" { type = string }
+  field "amount" { type = int64 }
+  field "note" { type = optional(nullable(string)) }
+  field "principal" { type = optional(string) }
+  field "tenant" { type = optional(string) }
+  field "trace_id" { type = optional(string) }
+  field "deadline" { type = optional(string) }
+  field "currency" { type = optional(string) }
+}
+
+operation "quote" {
+  service = service.pricing
+  input   = record.quote_input
+  handler { method = "Quote" }
+  result "ok" { type = record.quote_result }
+  error "negative_amount" { type = std.type.problem }
+}
+
+execution "quote_direct" {
+  operation = operation.quote
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "quote_http" {
+  gateway        = var.gateway
+  operation      = operation.quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/quote"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.quote.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+binding "quote_session_http" {
+  gateway        = var.gateway
+  operation      = operation.quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/quote/session"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.quote.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+binding "quote_metadata_http" {
+  gateway        = var.gateway
+  operation      = operation.quote
+  execution      = execution.quote_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/quote/metadata"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.quote.input
+    }
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok.amount
+      }
+      header "x-quote-note" {
+        from     = result.ok.note
+        encoding = "json"
+      }
+      cookie "quote_vendor" {
+        from = result.ok.vendor
+      }
+    }
+    response "negative_amount" {
+      when   = error.negative_amount
+      status = 422
+      body {
+        codec = "problem_json"
+        from  = error.negative_amount
+      }
+    }
+  }
+}
+
+binding "quote_internal" {
+  operation      = operation.quote
+  execution      = execution.quote_direct
+  protocol       = "internal"
+  exposure       = "application"
+  delivery       = "call"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+export "quote_internal" { value = binding.quote_internal }
+
+export "quote" { value = operation.quote }
+
+operation "download" {
+  service = service.pricing
+  input   = std.type.unit
+  handler { method = "Download" }
+  result "ok" { type = bytes }
+}
+
+execution "download" {
+  operation = operation.download
+  mode      = "direct"
+  timeout   = "10s"
+}
+
+binding "download_http" {
+  gateway        = var.gateway
+  operation      = operation.download
+  execution      = execution.download
+  protocol       = "http"
+  delivery       = "stream"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    path          = "/download"
+    codec_profile = std.codec.http_json_v1
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "bytes"
+        from  = result.ok
+      }
+    }
+  }
+}
+
+record "settlement_input" {
+  field "id" { type = string }
+  field "delay_ms" { type = optional(int32) }
+}
+
+operation "settle" {
+  service = service.pricing
+  input   = record.settlement_input
+  handler { method = "Settle" }
+  result "ok" { type = std.type.unit }
+  idempotency {
+    mode = "keyed"
+    key  = [input.id]
+  }
+}
+
+execution "settle" {
+  operation     = operation.settle
+  mode          = "durable"
+  engine        = var.jobs
+  external_name = "pricing.settle"
+  revision      = 1
+  timeout       = "10s"
+  lease         = "2s"
+  attempts      = 3
+  retry {
+    strategy = "exponential"
+    initial  = "200ms"
+    factor   = 2
+    maximum  = "1s"
+  }
+  retention {
+    success = "1d"
+    failure = "1w"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+binding "settle_http" {
+  gateway        = var.gateway
+  operation      = operation.settle
+  execution      = execution.settle
+  protocol       = "http"
+  delivery       = "enqueue"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/settlements"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.settle.input
+    }
+    response "accepted" {
+      when   = dispatch.enqueued
+      status = 202
+      body {
+        codec = "json"
+        from  = dispatch.receipt
+      }
+    }
+    response "rejected" {
+      when   = dispatch.rejected
+      status = 503
+      body {
+        codec = "problem_json"
+        from  = dispatch.problem
+      }
+    }
+  }
+}

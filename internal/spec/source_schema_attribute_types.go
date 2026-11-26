@@ -15,6 +15,28 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	object := func(schema string) (map[string]any, string) { return map[string]any{"object": schema}, "exact" }
 
 	switch revision {
+	case "scenery.source.rust_workspace", "scenery.source.js_workspace", "scenery.source.package.js_contract":
+		return primitive("relative_path")
+	case "scenery.source.rust_toolchain", "scenery.source.js_toolchain":
+		return primitive("version")
+	case "scenery.source.js_target":
+		switch name {
+		case "workspace":
+			return resourceRef("js_workspace")
+		case "toolchain":
+			return resourceRef("js_toolchain")
+		}
+		return primitive("string")
+	case "scenery.source.rust_target":
+		switch name {
+		case "workspace":
+			return resourceRef("rust_workspace")
+		case "toolchain":
+			return resourceRef("rust_toolchain")
+		}
+		return primitive("string")
+	case "scenery.source.package.rust_contract":
+		return primitive("string")
 	case "scenery.source.go_module":
 		return primitive("relative_path_or_import_path")
 	case "scenery.source.go_toolchain":
@@ -70,17 +92,8 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		return primitive("string")
 	case "scenery.authorization.rule":
 		return map[string]any{"expression": "typed_predicate"}, "exact"
-	case "scenery.source.workload_identity":
-		switch name {
-		case "issuer":
-			return map[string]any{"resource_ref": "std.identity_issuer"}, "exact"
-		case "principal_type":
-			return typeExpression()
-		case "claims":
-			return object("typed_claim_map")
-		}
 	case "scenery.pipeline.step":
-		return map[string]any{"resource_ref": "scenery.middleware", "standard_library_allowed": true}, "exact"
+		return map[string]any{"resource_ref": "std.middleware"}, "exact"
 	case "scenery.source.provider":
 		switch name {
 		case "source":
@@ -409,7 +422,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		case "pipeline":
 			return resourceRef("pipeline")
 		case "identity":
-			return resourceRef("workload_identity")
+			return map[string]any{"resource_ref": "std.workload_identity"}, "exact"
 		case "input":
 			return object("typed_operation_input")
 		}

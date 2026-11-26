@@ -32,8 +32,8 @@ type frameworkResult struct {
 	AppRoot          string `json:"app_root"`
 	Mode             string `json:"mode"`
 	FrameworkVersion string `json:"framework_version"`
-	SourceRoot       string `json:"source_root"`
-	SourceDigest     string `json:"source_digest"`
+	SourceRoot       string `json:"source_root,omitempty"`
+	SourceDigest     string `json:"source_digest,omitempty"`
 	SourceRevision   string `json:"source_revision,omitempty"`
 	Executable       string `json:"executable"`
 	ExecutableDigest string `json:"executable_digest"`
@@ -83,6 +83,15 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	if err != nil {
 		return err
 	}
+	if !opts.Runtime {
+		pinned, pinErr := appcfg.ReadFrameworkVersion(root)
+		if pinErr != nil {
+			return &codedCLIError{err: pinErr, code: 3}
+		}
+		if pinned != "" {
+			return reportPrebuiltFramework(stdout, opts, root, pinned)
+		}
+	}
 	var selection build.FrameworkSelection
 	changed := false
 	if opts.Command == "use" {
@@ -121,23 +130,57 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	}
 	if opts.Runtime {
 		mode = "runtime"
+		if selection.Source.Digest == "" {
+			mode = "prebuilt"
+		}
 	}
-	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 	result := frameworkResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.framework"), OK: true, AppRoot: root, Mode: mode,
 		FrameworkVersion: selection.Version, SourceRoot: selection.Source.Root, SourceDigest: selection.Source.Digest,
 		SourceRevision: selection.SourceRevision, Executable: selection.Executable, ExecutableDigest: selection.ExecutableDigest,
 		SelectionPath: build.FrameworkSelectionPath(root), ModuleChanged: changed,
-		NextCommand: quote(selection.Executable) + " up --app-root " + quote(root),
+		NextCommand: frameworkNextCommand(selection.Executable, "up", root),
 	}
 	if opts.Runtime {
 		result.SelectionPath = build.RuntimeFrameworkPath(root)
-		result.NextCommand = quote(selection.Executable) + " ps --app-root " + quote(root)
+		result.NextCommand = frameworkNextCommand(selection.Executable, "ps", root)
 	}
 	if opts.JSON {
 		return writeCLIJSON(stdout, result)
 	}
 	_, err = fmt.Fprintf(stdout, "framework %s %s\nsource: %s\nexecutable: %s\nnext: %s\n", mode, result.SourceDigest, result.SourceRoot, result.Executable, result.NextCommand)
+	return err
+}
+
+func runningFrameworkVersion() string {
+	return buildVersionResponse().Version
+}
+
+func frameworkNextCommand(executable, command, root string) string {
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+	return quote(executable) + " " + command + " --app-root " + quote(root)
+}
+
+func reportPrebuiltFramework(stdout io.Writer, opts frameworkOptions, root, pinned string) error {
+	if opts.Source != "" {
+		return &codedCLIError{err: fmt.Errorf("framework_version selects a prebuilt executable; remove the pin to select a local source snapshot"), code: 3}
+	}
+	if err := build.VerifyPrebuiltFramework(root, pinned, runningFrameworkVersion()); err != nil {
+		return &codedCLIError{err: err, code: 3}
+	}
+	path, digest, err := build.CurrentFrameworkExecutable()
+	if err != nil {
+		return err
+	}
+	result := frameworkResult{
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.framework"), OK: true, AppRoot: root,
+		Mode: "prebuilt", FrameworkVersion: pinned, Executable: path, ExecutableDigest: digest,
+		SelectionPath: appcfg.ConfigPath(root), NextCommand: frameworkNextCommand(path, "up", root),
+	}
+	if opts.JSON {
+		return writeCLIJSON(stdout, result)
+	}
+	_, err = fmt.Fprintf(stdout, "framework prebuilt %s\nexecutable: %s\nnext: %s\n", pinned, path, result.NextCommand)
 	return err
 }
 

@@ -74,7 +74,7 @@ func TestRunGenerateDryRunJSON(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.Kind != "scenery.inspect.generators" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.inspect.generators").SchemaRevision {
+	if payload.Kind != "scenery.generate.plan" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.generate.plan").SchemaRevision {
 		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 	if len(payload.Generators) != 1 {
@@ -180,52 +180,6 @@ sql:
 			t.Fatalf("artifact missing postgres engine: %+v", artifact)
 		}
 	}
-}
-
-func TestInspectGeneratorsDiscoversServiceDBArtifacts(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-  "name": "demo",
-  "id": "demo-id",
-  "generators": {
-    "sqlc": { "provider": "sqlc", "config": "sqlc.yaml" }
-  }
-}`)
-	writeSQLCFixture(t, root)
-	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
-`)
-	writeTestAppFile(t, root, "billing/db/schema.hcl", `schema "billing" {}`)
-	writeTestAppFile(t, root, "billing/db/queries.sql", `-- name: BillingPing :one
-select 1;
-`)
-
-	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &out); err != nil {
-		t.Fatalf("runSceneryInspect(generators) returned error: %v", err)
-	}
-	var payload generatorGraphResponse
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
-	}
-	var sqlc *generatorRecord
-	for i := range payload.Generators {
-		if payload.Generators[i].ID == "sqlc" {
-			sqlc = &payload.Generators[i]
-		}
-	}
-	if sqlc == nil || len(payload.Nodes) == 0 {
-		t.Fatalf("missing planner producers: %#v", payload)
-	}
-	assertStringSliceNotContains(t, sqlc.Inputs, "auth/db/seed.sql")
-	assertStringSliceNotContains(t, sqlc.Outputs, "auth/db/seed.sql")
-	assertDBArtifact(t, payload.DBArtifacts, "auth", "schema-source", "schema", "auth/db/schema.hcl")
-	assertDBArtifact(t, payload.DBArtifacts, "auth", "query", "query-generation-input", "auth/db/queries.sql")
-	assertDBArtifact(t, payload.DBArtifacts, "auth", "generated-schema", "generated-source", "auth/db/gen/schema.sql")
-	assertDBArtifact(t, payload.DBArtifacts, "auth", "seed", "initial-data", "auth/db/seed.sql")
-	assertDBArtifact(t, payload.DBArtifacts, "billing", "schema-source", "schema", "billing/db/schema.hcl")
-	assertDBArtifact(t, payload.DBArtifacts, "billing", "query", "query-generation-input", "billing/db/queries.sql")
 }
 
 func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
@@ -723,16 +677,6 @@ func assertStringSliceNotContains(t *testing.T, values []string, unwanted string
 			t.Fatalf("%q unexpectedly found in %+v", unwanted, values)
 		}
 	}
-}
-
-func assertDBArtifact(t *testing.T, artifacts []databaseArtifactRecord, service, kind, role, path string) {
-	t.Helper()
-	for _, artifact := range artifacts {
-		if artifact.Service == service && artifact.Kind == kind && artifact.Role == role && artifact.Path == path {
-			return
-		}
-	}
-	t.Fatalf("artifact %s %s %s %s not found in %+v", service, kind, role, path, artifacts)
 }
 
 type fakeSeedStore struct {

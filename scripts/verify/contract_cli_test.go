@@ -20,10 +20,10 @@ func TestRepositoryCLIContractPublicBoundaryReportsFailure(t *testing.T) {
 		}
 		return json.Unmarshal([]byte(`{}`), target)
 	})
-	if len(commands) != 6 || commands[0] != "help -o json" || commands[2] != "check --app-root /fixture -o json" {
+	if len(commands) != 13 || commands[0] != "help -o json" || commands[2] != "check --app-root /fixture -o json" {
 		t.Fatalf("public calls = %v", commands)
 	}
-	if len(report.Commands) != 6 || !report.Commands[0].Usage || !report.Commands[0].Smoke {
+	if len(report.Commands) != 13 || !report.Commands[0].Usage || !report.Commands[0].Smoke {
 		t.Fatalf("version evidence = %+v", report)
 	}
 	check := report.Commands[1]
@@ -33,7 +33,7 @@ func TestRepositoryCLIContractPublicBoundaryReportsFailure(t *testing.T) {
 	if !hasErrorDiagnostics(diagnostics) {
 		t.Fatal("missing help and command failure were accepted")
 	}
-	if verifier := report.Commands[5]; verifier.Name != "repository verify" || !verifier.Smoke {
+	if verifier := report.Commands[len(report.Commands)-1]; verifier.Name != "repository verify" || !verifier.Smoke {
 		t.Fatalf("verifier grammar = %+v", verifier)
 	}
 }

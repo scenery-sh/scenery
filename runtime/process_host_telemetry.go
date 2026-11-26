@@ -20,6 +20,10 @@ type processHostResponseWriter struct {
 }
 
 func (w *processHostResponseWriter) WriteHeader(status int) {
+	// The public writer can rename the private attestation headers when it
+	// commits them, so capture the attestation before calling WriteHeader.
+	generation := w.Header().Get(processGenerationHeader)
+	buildDigest := w.Header().Get(processIdentityBuildHeader)
 	w.ResponseWriter.WriteHeader(status)
 	if status < 200 || w.committed {
 		return
@@ -27,8 +31,8 @@ func (w *processHostResponseWriter) WriteHeader(status int) {
 	w.committed = true
 	g := w.generation
 	if g == nil || g.observation.OperationID == "" || g.observation.ObservedAt.IsZero() || g.telemetry == nil ||
-		w.Header().Get(processGenerationHeader) != strconv.FormatUint(g.number, 10) ||
-		w.Header().Get(processIdentityBuildHeader) != g.identity.BuildInputDigest || status >= 500 || !g.firstResponse.CompareAndSwap(false, true) {
+		generation != strconv.FormatUint(g.number, 10) ||
+		buildDigest != g.identity.BuildInputDigest || status >= 500 || !g.firstResponse.CompareAndSwap(false, true) {
 		return
 	}
 	event := devtelemetry.FirstResponse{Observation: g.observation, At: time.Now().UTC(), Generation: g.number,

@@ -23,7 +23,7 @@ func TestFirstResponseRequiresServingIdentityAndEmitsOnce(t *testing.T) {
 	}{
 		{"2", "new-build", 503}, {"1", "new-build", 200}, {"2", "old-build", 200}, {"2", "new-build", 200}, {"2", "new-build", 201},
 	} {
-		writer := &processHostResponseWriter{ResponseWriter: httptest.NewRecorder(), generation: generation}
+		writer := &processHostResponseWriter{ResponseWriter: &workerIngressWriter{ResponseWriter: httptest.NewRecorder()}, generation: generation}
 		writer.Header().Set(processGenerationHeader, response.generation)
 		writer.Header().Set(processIdentityBuildHeader, response.build)
 		writer.WriteHeader(response.status)

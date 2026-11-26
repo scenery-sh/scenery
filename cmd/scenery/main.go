@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
@@ -27,6 +30,13 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
+	if filepath.Base(os.Args[0]) == "scenery-host" {
+		if err := runWorkerBundleExecutable(os.Args[1:]); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	os.Exit(executeCLI(os.Args[1:]))
 }
 
@@ -43,6 +53,9 @@ func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, 
 	err := preserveCLIDiagnostic(runCLI(args, telemetry))
 	if reported, ok := errors.AsType[*cliDiagnosticError](err); ok {
 		telemetry.diagnosticCode = reported.diagnostic.Code
+	}
+	if err != nil {
+		telemetry.errorCategory = cliTelemetryErrorCategory(err)
 	}
 	err = renderMachineError(stdout, args, err)
 	exitCode := cliExitCode(err)
@@ -168,6 +181,16 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return pruneCommand(args[1:])
 	case "db":
 		return dbCommand(args[1:])
+	case "durable":
+		if len(args) > 1 && args[1] == "run" {
+			return runDurableCommand(context.Background(), os.Stdout, args[2:])
+		}
+		return usageErrorf("usage: scenery durable run <target>")
+	case "add":
+		if len(args) > 1 && args[1] == "module" {
+			return runAddModule(context.Background(), os.Stdout, args[2:])
+		}
+		return usageErrorf("usage: scenery add module <name> --runtime go|rust|ts|js")
 	case "worktree":
 		return worktreeCommand(args[1:])
 	case "feature":
@@ -199,6 +222,12 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return doctorCommand(args[1:])
 	case "build":
 		return buildCommand(os.Stdout, args[1:])
+	case "call":
+		return runAgentCall(context.Background(), os.Stdout, args[1:])
+	case "context":
+		return runAgentContext(context.Background(), os.Stdout, args[1:])
+	case "test":
+		return runAgentTests(context.Background(), os.Stdout, args[1:])
 	case "check":
 		return checkCommand(args[1:])
 	case "fmt":
@@ -207,8 +236,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return runContractCompile(os.Stdout, args[1:])
 	case "schema":
 		return runContractSchema(os.Stdout, args[1:])
-	case "list":
-		return runContractList(os.Stdout, args[1:])
 	case "harness":
 		return harnessCommand(args[1:])
 	case "inspect":
@@ -351,6 +378,72 @@ func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) er
 	opts, err := parseDevArgs(args)
 	if err != nil {
 		return err
+	}
+	if root, cfg, discoverErr := discoverConfiguredApp(opts.AppRoot); discoverErr == nil {
+		if compiled, compileErr := compiler.Compile(root); compileErr == nil && usesWorkerBundle(compiled) {
+			if err := build.VerifyPrebuiltFramework(root, cfg.FrameworkVersion, runningFrameworkVersion()); err != nil {
+				return &codedCLIError{err: err, code: 3}
+			}
+			if opts.Detach || opts.Desktop {
+				return usageErrorf("worker applications currently support foreground up")
+			}
+			if err := requireWorkerFrontends(cfg, opts.Env); err != nil {
+				return err
+			}
+			paths, err := commandWorktreePaths(root)
+			if err != nil {
+				return err
+			}
+			live, err := paths.AcquireLiveLock()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = live.Release() }()
+			inputWatch, err := openWorkerInputs(root)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = inputWatch.fs.Close() }()
+			inputWatch.generated, err = compiler.ManagedGeneratedRoots(compiled)
+			if err != nil {
+				return err
+			}
+			inputs, err := inputWatch.capture(nil, nil, true, true)
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			workerDev, bundle, err := startWorkerDevelopment(ctx, inputWatch, inputs)
+			if err != nil {
+				return err
+			}
+			workerDev.envName = opts.Env
+			compiled = workerDev.compiled
+			if err := configureWorkerDevelopmentDatabase(root, cfg, compiled.SQLRequirements); err != nil {
+				return err
+			}
+			if err := bundle.resolveDevelopmentConfig(context.Background(), compiled, cfg, opts.Env); err != nil {
+				return err
+			}
+			if err := configureWorkerDevelopmentStorage(context.Background(), root, cfg); err != nil {
+				return err
+			}
+			dbFingerprint, err := runWorkerDatabaseSetup(ctx, root, cfg, compiled, opts.Env)
+			if err != nil {
+				return err
+			}
+			workerDev.dbSetupFingerprint = dbFingerprint
+			frontend, closeFrontend, err := configureWorkerFrontend(context.Background(), root, cfg, compiled, opts.Env)
+			if err != nil {
+				return err
+			}
+			defer closeFrontend()
+			var onReady func()
+			if telemetry != nil {
+				onReady = telemetry.startupReady
+			}
+			return runWorkerBundle(bundle, workerListen(opts), frontend, onReady, workerDev)
+		}
 	}
 	warnDevEscapeHatches(opts)
 	if !detachedDevChildMode() {

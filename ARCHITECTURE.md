@@ -1,17 +1,25 @@
 # scenery Architecture
 
-Scenery is a Go-native local runtime, compiler, and agent harness for
+Scenery is a local runtime, compiler, and agent harness for
 applications declared in `app.scn` and package-local `package.scn` files, with
 independent runtime config in `.scenery.json`.
 
 ```text
-.scenery.json + app.scn + package.scn + app.lock.scn + Go implementations
+.scenery.json + app.scn + package.scn + app.lock.scn + Go, Rust, JS/TS implementations
   → internal/app + internal/scn + internal/spec + internal/compiler
   → canonical source / effective / expanded manifests
   → internal/generate + internal/uigen + internal/build
   → generated workspace + scenery.sh/runtime (process host + per-service processes)
   → single local server + CLI/inspect/harness/worktree tooling
 ```
+
+For worker bundles, the Host projects bindings from the compiled manifest.
+Go, Rust, and JavaScript/TypeScript workers exchange scoped requests over
+[Worker ABI v1](docs/spec/WORKER-ABI.md). Generated Go adapters connect the
+envelope to typed operation handlers and use native PostgreSQL connections.
+The JS/TS adapter bundles each service with its Bun runtime and reuses the
+TypeScript client wire codec. Vite can run behind the development Host or supply static assets to the
+production bundle.
 
 ## Hard Invariants
 

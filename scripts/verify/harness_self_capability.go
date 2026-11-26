@@ -85,7 +85,7 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 		if err := verifyHarnessCapabilityAppCommands(ctx, repoRoot, appRoot, env); err != nil {
 			return err
 		}
-		requirements, err := readHarnessSQLRequirements(cli, appRoot)
+		requirements, err := readHarnessSQLRequirements(appRoot)
 		if err != nil || len(requirements) != 0 {
 			return fmt.Errorf("no-SQL requirements=%+v: %w", requirements, err)
 		}
@@ -166,7 +166,7 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 		if err := verifyHarnessCapabilityAppCommands(ctx, repoRoot, appRoot, env); err != nil {
 			return err
 		}
-		requirements, err := readHarnessSQLRequirements(cli, appRoot)
+		requirements, err := readHarnessSQLRequirements(appRoot)
 		if err != nil {
 			return err
 		}
@@ -213,23 +213,6 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 	return summary, nil
 }
 
-func readHarnessSQLRequirements(cli func(string, ...string) ([]byte, error), root string) (compiler.SQLRequirements, error) {
-	output, err := cli(root, "inspect", "app", "-o", "json")
-	if err != nil {
-		return nil, err
-	}
-	var app struct {
-		SQLRequirements compiler.SQLRequirements `json:"sql_requirements"`
-	}
-	if err := decodeCLIJSON(output, &app); err != nil {
-		return nil, err
-	}
-	if app.SQLRequirements == nil {
-		return nil, errors.New("current inspection omitted sql_requirements")
-	}
-	return app.SQLRequirements, nil
-}
-
 func verifyHarnessCapabilityAppCommands(ctx context.Context, repoRoot, appRoot string, env []string) error {
 	if _, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "generate", "-o", "json"); err != nil {
 		return err
@@ -251,4 +234,15 @@ func verifyHarnessCapabilityAppCommands(ctx context.Context, repoRoot, appRoot s
 	}
 	_, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "harness", "-o", "json", "--write")
 	return err
+}
+
+func readHarnessSQLRequirements(root string) (compiler.SQLRequirements, error) {
+	result, err := compiler.Compile(root)
+	if err != nil {
+		return nil, err
+	}
+	if !result.Valid() || result.SQLRequirements == nil {
+		return nil, errors.New("current compilation omitted SQL requirements")
+	}
+	return result.SQLRequirements, nil
 }

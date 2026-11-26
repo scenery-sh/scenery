@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 )
 
@@ -132,7 +134,7 @@ func TestDevelopmentProcessBuildArgsMoveEveryLinkerFlagIntoEachEntrypoint(t *tes
 		{Name: "echo_echo", Package: "./scenery_internal_processes/services/echo_echo", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i1", BuildInputDigest: "b1", GoTarget: "development"}},
 		{Name: "host", Package: "./scenery_internal_processes/host", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i2", BuildInputDigest: "b2", GoTarget: "development"}},
 	}
-	args := developmentProcessBuildArgs([]string{"-ldflags", "-s=false", " -trimpath ", "-ldflags=-X=main.flavor=dev"}, "/out", pending)
+	args := developmentProcessBuildArgs([]string{"-ldflags", "-s=false", " -trimpath ", "-ldflags=-X=main.flavor=dev"}, developmentLinkerFlags, "/out", pending)
 	for _, arg := range args {
 		if arg == "-ldflags" || arg == "-s=false" || arg == "-ldflags=-X=main.flavor=dev" {
 			t.Fatalf("build arguments kept the configured linker flag %q as a top-level argument: %q", arg, args)
@@ -316,15 +318,68 @@ func TestDevelopmentProcessBuildArgsTrimPathsByDefault(t *testing.T) {
 	pending := []*DevelopmentProcess{
 		{Name: "host", Package: "./scenery_internal_processes/host", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i", BuildInputDigest: "b", GoTarget: "development"}},
 	}
-	args := developmentProcessBuildArgs(nil, "/out", pending)
+	args := developmentProcessBuildArgs(nil, developmentLinkerFlags, "/out", pending)
 	if len(args) < 2 || args[0] != "build" || args[1] != "-trimpath" {
 		t.Fatalf("default build arguments do not trim paths first: %q", args)
 	}
 	if count := strings.Count(" "+strings.Join(args, " ")+" ", " -trimpath "); count != 1 {
 		t.Fatalf("-trimpath appears %d times: %q", count, args)
 	}
-	args = developmentProcessBuildArgs([]string{"-trimpath=false"}, "/out", pending)
+	args = developmentProcessBuildArgs([]string{"-trimpath=false"}, developmentLinkerFlags, "/out", pending)
 	if slices.Contains(args, "-trimpath") || !slices.Contains(args, "-trimpath=false") {
 		t.Fatalf("configured -trimpath=false was not kept alone: %q", args)
+	}
+}
+
+// A worker bundle links its Go services from the target its build selected.
+// An artifact target keeps the stock linker defaults, so its executables never
+// share an identity with the development target's.
+func TestWorkerProcessesFollowTheirSelectedTarget(t *testing.T) {
+	contract := &compiler.Result{Manifest: &compiler.Manifest{}}
+	development := &Result{Contract: contract, Target: &compiler.GoBuildTarget{Name: "development", Role: "development"}}
+	artifact := &Result{Contract: contract, Target: &compiler.GoBuildTarget{Name: "production", Role: "artifact"}}
+	if err := developmentProcessTarget(artifact, false); err != nil {
+		t.Fatalf("service entrypoints rejected an artifact target: %v", err)
+	}
+	if err := developmentProcessTarget(artifact, true); err == nil {
+		t.Fatal("the development process model linked a host from an artifact target")
+	}
+	if err := developmentProcessTarget(development, true); err != nil {
+		t.Fatal(err)
+	}
+	process := &DevelopmentProcess{Name: "echo_echo", Package: "./scenery_internal_processes/services/echo_echo", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i", BuildInputDigest: "b", GoTarget: "production"}}
+	linker := func(result *Result) string {
+		prefix := "-ldflags=" + process.Package + "="
+		args := developmentProcessBuildArgs(nil, developmentLinkerDefaults(result), "/out", []*DevelopmentProcess{process})
+		return strings.TrimPrefix(args[slices.IndexFunc(args, func(arg string) bool { return strings.HasPrefix(arg, prefix) })], prefix)
+	}
+	if !strings.HasPrefix(linker(development), "-w ") || strings.Contains(" "+linker(artifact), " -w") {
+		t.Fatalf("linker flags: development %q, artifact %q", linker(development), linker(artifact))
+	}
+	key := func(result *Result) string {
+		key, err := developmentProcessKey(process, nil, developmentLinkerDefaults(result))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return key
+	}
+	if key(development) == key(artifact) {
+		t.Fatal("development and artifact executables share an identity")
+	}
+}
+
+// The preparation of a worker bundle honors the role and go_target its build
+// selected instead of always taking the development target, and refuses an
+// unavailable selection before it generates anything.
+func TestPrepareForTargetSelectsTheRequestedGoTarget(t *testing.T) {
+	contract := &compiler.Result{ContractStatus: "valid", Manifest: &compiler.Manifest{Resources: []compiler.Resource{
+		{Address: "app/go_target/development", Kind: "scenery.go-target", Name: "development", Spec: map[string]any{"role": "development"}},
+	}}}
+	for _, test := range []struct{ target, role string }{{"", "artifact"}, {"missing", "development"}} {
+		_, err := PrepareForTargetWithContractSnapshotContext(context.Background(), t.TempDir(), app.Config{Name: "fixture"}, nil, contract, test.target, test.role)
+		selection, ok := errors.AsType[*compiler.GoTargetSelectionError](err)
+		if !ok || selection.Name != test.target || selection.DefaultRole != test.role || !slices.Equal(selection.Available, []string{"development"}) {
+			t.Fatalf("target %q with role %q: %v", test.target, test.role, err)
+		}
 	}
 }

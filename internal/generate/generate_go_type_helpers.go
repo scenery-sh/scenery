@@ -181,7 +181,7 @@ func resourceValues(resources map[string]Resource) []Resource {
 	return result
 }
 
-func goContractTypeClosure(module string, local, all []Resource) ([]Resource, map[string]bool, error) {
+func goContractTypeClosure(module string, local, all, clientOperations []Resource) ([]Resource, map[string]bool, error) {
 	byAddress := resourcesByAddress(&Manifest{Resources: all})
 	needed := map[string]bool{}
 	for _, resource := range local {
@@ -202,6 +202,23 @@ func goContractTypeClosure(module string, local, all []Resource) ([]Resource, ma
 			}
 		}
 	}
+	clientTypes := map[string]bool{}
+	for _, operation := range clientOperations {
+		for _, value := range contractTypeValues([]Resource{operation}) {
+			collectABITypeReferences(value, operation.Module, byAddress, clientTypes)
+		}
+	}
+	for changed := true; changed; {
+		before := len(clientTypes)
+		for address := range clientTypes {
+			resource := byAddress[address]
+			for _, value := range contractTypeValues([]Resource{resource}) {
+				collectABITypeReferences(value, resource.Module, byAddress, clientTypes)
+			}
+		}
+		changed = before != len(clientTypes)
+	}
+	maps.Copy(needed, clientTypes)
 	embedded := map[string]bool{}
 	for changed := true; changed; {
 		changed = false
@@ -216,7 +233,7 @@ func goContractTypeClosure(module string, local, all []Resource) ([]Resource, ma
 				continue
 			}
 			if resource.Module != module {
-				if _, hasContract := moduleContractImportPath(all, resource.Module); !hasContract && !embedded[address] {
+				if _, hasContract := moduleContractImportPath(all, resource.Module); (!hasContract || clientTypes[address]) && !embedded[address] {
 					embedded[address] = true
 					changed = true
 				}
@@ -228,15 +245,38 @@ func goContractTypeClosure(module string, local, all []Resource) ([]Resource, ma
 			}
 		}
 	}
+	used := moduleReservedPackageSymbols(local)
 	result := make([]Resource, 0, len(local)+len(embedded))
 	for _, resource := range local {
 		if !isNamedContractType(resource) || needed[resource.Address] {
 			result = append(result, resource)
 		}
 	}
+	embeddedAddresses := make([]string, 0, len(embedded))
 	for address := range embedded {
-		result = append(result, byAddress[address])
+		embeddedAddresses = append(embeddedAddresses, address)
+		if !clientTypes[address] {
+			reserveGeneratedTypeResource(used, byAddress[address])
+		}
 	}
+	sort.Strings(embeddedAddresses)
+	for _, address := range embeddedAddresses {
+		resource := byAddress[address]
+		if clientTypes[address] {
+			base := goName(strings.ReplaceAll(resource.Module, "/", "_")) + "Client" + goName(resource.Name)
+			resource.Name = base
+			if !symbolsAvailable(used, generatedTypeResourceSymbols(resource)) {
+				resource.Name = "Embedded" + base
+				for suffix := 2; !symbolsAvailable(used, generatedTypeResourceSymbols(resource)); suffix++ {
+					resource.Name = fmt.Sprintf("Embedded%d%s", suffix, base)
+				}
+			}
+			reserveGeneratedTypeResource(used, resource)
+			resource.Spec = qualifyProjectedGoTypes(resource)
+		}
+		result = append(result, resource)
+	}
+	result = append(result, clientOperations...)
 	sort.Slice(result, func(i, j int) bool { return result[i].Address < result[j].Address })
 	if err := validateGoContractClosureNames(module, result); err != nil {
 		return nil, nil, err

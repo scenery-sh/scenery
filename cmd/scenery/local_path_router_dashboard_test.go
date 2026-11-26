@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -124,10 +125,7 @@ func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
 	}))
 	defer frontend.Close()
 
-	port, err := freeLoopbackPort()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln, port := listenRouterLoopback(t)
 	session := localagent.Session{
 		SessionID: "root-assets",
 		AppRoot:   t.TempDir(),
@@ -151,6 +149,7 @@ func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
 		UpstreamAddr:     strings.TrimPrefix(frontend.URL, "http://"),
 		DashboardBackend: dashboard,
 		Agent:            localagent.NewClient(paths.SocketPath),
+		Listener:         ln,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -188,44 +187,30 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 	_, dashboard := startDashboardTestBackend(t, "dash")
 	fake.setDashboard(dashboard)
 
-	upstreamPort, err := freeLoopbackPort()
+	// The upstream is bound up front and resets its first connection, which
+	// models a backend restarting on the same address without the port
+	// reserve/rebind race of a refused dial.
+	upstreamListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	upstreamAddr := fmt.Sprintf("127.0.0.1:%d", upstreamPort)
-	type upstreamStartResult struct {
-		server *http.Server
-		err    error
-	}
-	started := make(chan upstreamStartResult, 1)
-	var startOnce sync.Once
-	var startErr error
+	upstreamAddr := upstreamListener.Addr().String()
+	resets := &resetFirstListener{Listener: upstreamListener}
+	upstream := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "upstream-ok")
+	})}
+	go func() { _ = upstream.Serve(resets) }()
+	t.Cleanup(func() { _ = upstream.Close() })
+	var waits atomic.Int32
 	dialRetry := localDialRetryPolicy{
 		Budget:   2 * time.Second,
 		Interval: 50 * time.Millisecond,
 		wait: func(context.Context, time.Duration) bool {
-			startOnce.Do(func() {
-				ln, err := net.Listen("tcp", upstreamAddr)
-				if err != nil {
-					startErr = err
-					started <- upstreamStartResult{err: err}
-					return
-				}
-				mux := http.NewServeMux()
-				mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-					_, _ = fmt.Fprint(w, "upstream-ok")
-				})
-				server := &http.Server{Handler: mux}
-				go func() { _ = server.Serve(ln) }()
-				started <- upstreamStartResult{server: server}
-			})
-			return startErr == nil
+			waits.Add(1)
+			return true
 		},
 	}
-	port, err := freeLoopbackPort()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln, port := listenRouterLoopback(t)
 	session := localagent.Session{SessionID: "sess-2", AppRoot: t.TempDir(), StateRoot: t.TempDir()}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -237,6 +222,7 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 		DashboardBackend: dashboard,
 		DialRetry:        dialRetry,
 		Agent:            localagent.NewClient(paths.SocketPath),
+		Listener:         ln,
 	})
 	if err != nil {
 		t.Fatalf("startLocalPathRouter: %v", err)
@@ -244,18 +230,31 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 	defer cleanup()
 
 	statusCode, body := localPathRouterTestGet(t, fmt.Sprintf("http://127.0.0.1:%d/api/anything", port))
-	var upstream *http.Server
-	select {
-	case result := <-started:
-		if result.err != nil {
-			t.Fatalf("start retry upstream: %v", result.err)
-		}
-		upstream = result.server
-	case <-time.After(time.Second):
-		t.Fatal("upstream was not started by a failed-dial retry")
+	if statusCode != http.StatusOK || body != "upstream-ok" || waits.Load() != 1 || resets.count.Load() != 1 {
+		t.Fatalf("upstream retry = %d %q waits=%d resets=%d", statusCode, body, waits.Load(), resets.count.Load())
 	}
-	t.Cleanup(func() { _ = upstream.Close() })
-	if statusCode != http.StatusOK || body != "upstream-ok" {
-		t.Fatalf("upstream retry result = %d %q", statusCode, body)
+}
+
+// resetFirstListener aborts its first connection with a TCP reset.
+type resetFirstListener struct {
+	net.Listener
+	once  sync.Once
+	count atomic.Int32
+}
+
+func (l *resetFirstListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		first := false
+		l.once.Do(func() { first = true })
+		if !first {
+			return conn, nil
+		}
+		_ = conn.(*net.TCPConn).SetLinger(0)
+		_ = conn.Close()
+		l.count.Add(1)
 	}
 }

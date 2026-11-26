@@ -196,7 +196,7 @@ func (p *featureProbe) conflictScenario() error {
 	if _, err := p.git(latest.Path, "add", "--", "shared.txt"); err != nil {
 		return err
 	}
-	resolved, err := p.cli("inspect", latest.ID)
+	resolved, err := p.cli("land", "--candidate", latest.ID)
 	if err != nil {
 		return err
 	}
@@ -210,7 +210,7 @@ func (p *featureProbe) conflictScenario() error {
 	if err := p.refusal("stale", "land", "--candidate", latest.ID, "--yes", "--expect-revision", oldRevision); err != nil {
 		return err
 	}
-	current, err := p.cli("inspect", latest.ID)
+	current, err := p.cli("land", "--candidate", latest.ID)
 	if err != nil {
 		return err
 	}
@@ -280,7 +280,7 @@ func (p *featureProbe) failureAndBatchScenario() error {
 	if _, err := p.commit(delta, "Correct the required gate", "fail.txt"); err != nil {
 		return err
 	}
-	if _, err := p.cli("set", "epsilon", "--stage", "ready"); err != nil {
+	if err := p.setStage("epsilon", "ready"); err != nil {
 		return err
 	}
 	combined, err := p.prepare("delta", "epsilon")

@@ -30,11 +30,11 @@ var harnessCLIGrammarHostFamilies = []string{"system"}
 // harnessCLIGrammarReadOnly lists the usage lines that are safe to execute as
 // written: they read the disposable app or the disposable home.
 var harnessCLIGrammarReadOnly = []string{
-	"scenery compile", "scenery schema", "scenery list", "scenery ps", "scenery logs query",
+	"scenery compile", "scenery schema", "scenery ps", "scenery logs query",
 	"scenery db list", "scenery db server status", "scenery framework inspect", "scenery task list", "scenery task inspect",
 	"scenery storage ls", "scenery storage stat", "scenery snapshot verify",
 	"scenery check", "scenery inspect", "scenery assistant status",
-	"scenery traces list", "scenery metrics list", "scenery metrics query",
+	"scenery traces list", "scenery metrics", "scenery metrics query",
 	"scenery telemetry", "scenery doctor", "scenery version",
 }
 

@@ -2,6 +2,7 @@ package generate
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,17 +73,13 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		for _, dependency := range dependencies {
 			dependencyImports[dependency.ImportAlias] = dependency.ImportPath
 		}
-		for _, client := range clients {
-			if client.ContractAlias == "" {
-				continue
-			}
-			if existing := dependencyImports[client.ContractAlias]; existing != "" && existing != client.ContractImport {
-				return "", fmt.Errorf("generated import alias %s resolves to both %s and %s", client.ContractAlias, existing, client.ContractImport)
-			}
-			dependencyImports[client.ContractAlias] = client.ContractImport
-		}
 	}
-	for _, value := range contractTypeValues(resources) {
+	projected, err := projectedGoClientOperations(resources, idx)
+	if err != nil {
+		return "", err
+	}
+	allOperations := append(slices.Clone(resources), projected...)
+	for _, value := range contractTypeValues(allOperations) {
 		_ = typeResolver.Type(value)
 	}
 	for alias, importPath := range typeResolver.Imports() {
@@ -96,7 +93,7 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 	if hasInternalClients {
 		b.WriteString("\t\"context\"\n")
 	}
-	if hasOperations {
+	if hasOperations || len(projected) != 0 {
 		b.WriteString("\t\"fmt\"\n")
 	}
 	b.WriteString("\tscenery \"scenery.sh\"\n")
@@ -116,13 +113,12 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		}
 		serviceName := goName(service.Name)
 		for _, client := range serviceClients[service.Address] {
-			operationName := goName(client.Operation.Name)
-			contractQualifier := clientContractQualifier(client)
+			operationName := client.operationName()
 			fmt.Fprintf(&b, "type %s interface {\n", client.InterfaceName)
 			if client.Delivery == "enqueue" {
-				fmt.Fprintf(&b, "\tEnqueue(context.Context, scenery.Invocation, %s%sInput) (scenery.ExecutionReceipt, error)\n", contractQualifier, operationName)
+				fmt.Fprintf(&b, "\tEnqueue(context.Context, scenery.Invocation, %sInput) (scenery.ExecutionReceipt, error)\n", operationName)
 			} else {
-				fmt.Fprintf(&b, "\tInvoke(context.Context, scenery.Invocation, %s%sInput) (%s%sOutcome, error)\n", contractQualifier, operationName, contractQualifier, operationName)
+				fmt.Fprintf(&b, "\tInvoke(context.Context, scenery.Invocation, %sInput) (%sOutcome, error)\n", operationName, operationName)
 			}
 			b.WriteString("}\n\n")
 		}
@@ -141,7 +137,7 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		}
 		fmt.Fprintf(&b, "}\ntype %sConstructorInput struct {\n\tDependencies %sDependencies\n\tConfig %sConfig\n\tClients %sClients\n}\n\n", serviceName, serviceName, serviceName, serviceName)
 	}
-	for _, op := range resources {
+	for _, op := range allOperations {
 		if op.Kind != "scenery.operation" {
 			continue
 		}
@@ -162,45 +158,34 @@ func renderOperationAPI(b *strings.Builder, op Resource, typeName func(any) stri
 	fmt.Fprintf(b, "\traw, err := scenery.MarshalContractValue(value, %q); if err != nil { return value, err }\n", goWireTypeExpression(op.Spec["input"]))
 	fmt.Fprintf(b, "\treturn Unmarshal%sInput(raw)\n}\n\n", name)
 	fmt.Fprintf(b, "type %sOutcome interface { is%sOutcome() }\n\n", name, name)
-	for _, kind := range []string{"result", "error"} {
-		for _, variant := range namedChildren(op.Spec, kind) {
-			variantName, _ := variant["name"].(string)
-			wrapper := name + goName(variantName)
-			valueType := typeName(variant["type"])
-			field := "Value"
-			if kind == "error" {
-				field = "Problem"
-			}
-			fmt.Fprintf(b, "type %s struct { %s %s }\nfunc (%s) is%sOutcome() {}\n\n", wrapper, field, valueType, wrapper, name)
+	wrappers := operationVariantWrappers(name, op)
+	for _, entry := range wrappers {
+		valueType := typeName(entry.Spec["type"])
+		field := "Value"
+		if entry.Kind == "error" {
+			field = "Problem"
 		}
+		fmt.Fprintf(b, "type %s struct { %s %s }\nfunc (%s) is%sOutcome() {}\n\n", entry.WrapperName, field, valueType, entry.WrapperName, name)
 	}
 	fmt.Fprintf(b, "func Marshal%sOutcome(value %sOutcome) ([]byte, error) {\n\tswitch typed := value.(type) {\n", name, name)
-	for _, kind := range []string{"result", "error"} {
-		for _, variant := range namedChildren(op.Spec, kind) {
-			variantName := stringValue(variant["name"])
-			wrapper := name + goName(variantName)
-			field := "Value"
-			if kind == "error" {
-				field = "Problem"
-			}
-			fmt.Fprintf(b, "\tcase %s: return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", wrapper, kind, variantName, field, goWireTypeExpression(variant["type"]))
-			fmt.Fprintf(b, "\tcase *%s: if typed == nil { return nil, fmt.Errorf(\"nil %s outcome\") }; return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", wrapper, wrapper, kind, variantName, field, goWireTypeExpression(variant["type"]))
+	for _, entry := range wrappers {
+		field := "Value"
+		if entry.Kind == "error" {
+			field = "Problem"
 		}
+		fmt.Fprintf(b, "\tcase %s: return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", entry.WrapperName, entry.Kind, entry.VariantName, field, goWireTypeExpression(entry.Spec["type"]))
+		fmt.Fprintf(b, "\tcase *%s: if typed == nil { return nil, fmt.Errorf(\"nil %s outcome\") }; return scenery.MarshalContractOutcomeVariant(%q, %q, typed.%s, %q)\n", entry.WrapperName, entry.WrapperName, entry.Kind, entry.VariantName, field, goWireTypeExpression(entry.Spec["type"]))
 	}
 	b.WriteString("\tdefault: return nil, fmt.Errorf(\"unknown operation outcome %T\", value)\n\t}\n}\n\n")
 	fmt.Fprintf(b, "func Unmarshal%sOutcome(data []byte) (%sOutcome, error) {\n", name, name)
 	b.WriteString("\tkind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data); if err != nil { return nil, err }\n\tswitch {\n")
-	for _, kind := range []string{"result", "error"} {
-		for _, variant := range namedChildren(op.Spec, kind) {
-			variantName := stringValue(variant["name"])
-			wrapper := name + goName(variantName)
-			valueType := typeName(variant["type"])
-			field := "Value"
-			if kind == "error" {
-				field = "Problem"
-			}
-			fmt.Fprintf(b, "\tcase kind == %q && name == %q:\n\t\tvar value %s; if err := unmarshalGeneratedContractValue(payload, &value, %q); err != nil { return nil, err }; return %s{%s: value}, nil\n", kind, variantName, valueType, goWireTypeExpression(variant["type"]), wrapper, field)
+	for _, entry := range wrappers {
+		valueType := typeName(entry.Spec["type"])
+		field := "Value"
+		if entry.Kind == "error" {
+			field = "Problem"
 		}
+		fmt.Fprintf(b, "\tcase kind == %q && name == %q:\n\t\tvar value %s; if err := unmarshalGeneratedContractValue(payload, &value, %q); err != nil { return nil, err }; return %s{%s: value}, nil\n", entry.Kind, entry.VariantName, valueType, goWireTypeExpression(entry.Spec["type"]), entry.WrapperName, field)
 	}
 	b.WriteString("\tdefault: return nil, fmt.Errorf(\"unknown operation outcome %s.%s\", kind, name)\n\t}\n}\n\n")
 	fmt.Fprintf(b, "func Clone%sOutcome(value %sOutcome) (%sOutcome, error) {\n\traw, err := Marshal%sOutcome(value); if err != nil { return nil, err }; return Unmarshal%sOutcome(raw)\n}\n\n", name, name, name, name, name)
